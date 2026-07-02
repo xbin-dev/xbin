@@ -1,0 +1,32 @@
+{
+  // A TEMPLATE component (plans/templates.md + plans/agent.md): a blank-slate
+  // agentic loop. Instantiate it into a named copy (Tile Manager → "New from
+  // template", or `bx template new agent as apps/my-agent`) and build it up
+  // into a practical agent that moves data around buxon between components.
+  // The "template" block is stripped from each instance.
+  "template": {
+    "title": "AI Agent",
+    "description": "A durable, debuggable agentic loop — sqlite-persisted, LLM via llm-gw, tools + subagents + MCP, compaction, self-scheduling. Clone it and build up.",
+    "defaultName": "agent"
+  },
+
+  "runtime": "go",
+  // The backend lives in _backend/ (not the usual backend/): the underscore
+  // keeps buxon's own `go build ./...` from sweeping this template payload —
+  // which pulls modernc.org/sqlite — into the buxon module. Go's wildcard
+  // skips _-prefixed dirs; an explicit `go build ./_backend` still compiles it,
+  // and `all:`-embed still bundles it. Instances build fine.
+  "entry": "./_backend",
+
+  // The LLM connection (same as the chat tile) + this agent's own resources.
+  // apps/llm-gw:writer is the one grant a human approves; the res:apps/agent/*
+  // resources are same-scope and auto-granted. As you teach the agent to call
+  // other components, add their grants here — the agent can never self-approve
+  // cross-scope access (docs/auth.md, AGENTS.md).
+  "uses": [
+    { "target": "apps/llm-gw", "role": "writer" },
+    { "target": "res:apps/agent/db", "role": "writer" },
+    { "target": "res:apps/agent/beat", "role": "writer" },
+    { "target": "res:apps/agent/events", "role": "writer" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  // apps/agent is a scope. Its state is in-component:
+  //   db     — sqlite: runs, transcript, journal, memory blocks (the agent's
+  //            whole durable state; BUXON_RES_DB is a direct file path).
+  //   beat   — cron: a heartbeat that re-drives sleeping/stalled runs (durable
+  //            resume + self-scheduling). The backend registers @every 1m.
+  //   events — bus: run lifecycle events other tiles can subscribe to.
+  "resources": {
+    "db": { "type": "sqlite" },
+    "beat": { "type": "cron" },
+    "events": { "type": "bus" }
+  }
+}

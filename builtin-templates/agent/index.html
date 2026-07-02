@@ -1,0 +1,129 @@
+<!doctype html>
+<!--
+  The agent control + observability tile. Opinionated on purpose: a run list,
+  a live timeline of the selected run (messages + the journal of every LLM call,
+  tool call, compaction, yield…), and the controls to steer it (inject a
+  message, answer/approve, interrupt, resume, edit memory, tune config).
+  Pure frontend talking to this component's own backend via buxon.fetch.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AI Agent</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); }
+    .wrap { display: grid; grid-template-columns: 210px 1fr; height: 100vh; min-height: 320px; }
+    .side { border-right: 1px solid var(--bx-border); display: flex; flex-direction: column; min-height: 0; background: var(--bx-panel-2); }
+    .side .hd { padding: 8px 10px; display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--bx-border); }
+    .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; }
+    .runs { overflow: auto; flex: 1; }
+    .run { padding: 7px 10px; border-bottom: 1px solid var(--bx-border); cursor: pointer; }
+    .run:hover { background: var(--bx-panel); }
+    .run.on { background: var(--bx-panel); box-shadow: inset 3px 0 0 var(--bx-accent); }
+    .run .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .run .m { font-size: 10.5px; color: var(--bx-muted); margin-top: 1px; }
+    .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .top { padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
+    .composer { border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
+    .composer input { flex: 1; }
+    input, textarea, select {
+      background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
+      color: var(--bx-text); font: inherit; padding: 4px 8px; box-sizing: border-box;
+    }
+    input:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
+    .btn { background: var(--bx-accent); color: #fff; border: 0; border-radius: 5px; padding: 4px 12px;
+           cursor: pointer; font: inherit; font-weight: 600; }
+    .btn:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
+    .btn.ghost { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border); font-weight: 500; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--bx-border);
+             text-transform: uppercase; letter-spacing: .04em; }
+    .badge.running, .badge.sleeping { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
+    .badge.waiting_input { color: var(--bx-yellow, #d9a441); }
+    .badge.done { color: var(--bx-green); }
+    .badge.error { color: var(--bx-red); }
+    .badge.idle { color: var(--bx-muted); }
+    .ev { border-left: 2px solid var(--bx-border); padding: 4px 0 4px 10px; margin: 2px 0; }
+    .ev.user { border-color: var(--bx-accent); }
+    .ev.assistant { border-color: #6aa9ff; }
+    .ev.tool { border-color: #b58900; }
+    .ev.step { border-color: var(--bx-border); }
+    .ev .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
+    .ev .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
+    .ev.step .body { color: var(--bx-muted); font-size: 12px; }
+    .tc { font-family: var(--bx-mono); font-size: 11.5px; background: var(--bx-panel-2);
+          border: 1px solid var(--bx-border); border-radius: 5px; padding: 4px 7px; margin-top: 3px; overflow-x: auto; }
+    .muted { color: var(--bx-muted); }
+    .ask { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent);
+           border: 1px solid color-mix(in srgb, var(--bx-yellow, #d9a441) 45%, var(--bx-border));
+           border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+    dialog { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border);
+             border-radius: 8px; padding: 0; width: min(520px, 92vw); }
+    dialog::backdrop { background: rgba(0,0,0,.5); }
+    .dlg-hd { padding: 10px 14px; border-bottom: 1px solid var(--bx-border); font-weight: 600; }
+    .dlg-bd { padding: 12px 14px; display: grid; gap: 8px; max-height: 70vh; overflow: auto; }
+    .dlg-ft { padding: 10px 14px; border-top: 1px solid var(--bx-border); display: flex; gap: 8px; justify-content: flex-end; }
+    .field label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
+                   text-transform: uppercase; color: var(--bx-muted); margin-bottom: 2px; }
+    .field input, .field textarea, .field select { width: 100%; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .empty { color: var(--bx-muted); padding: 24px; text-align: center; }
+  </style>
+</head>
+<body class="bx">
+  <div class="wrap">
+    <div class="side">
+      <div class="hd"><b>Runs</b>
+        <button class="btn" id="new" title="New run">+</button>
+        <button class="btn ghost" id="gear" title="Config">⚙</button>
+      </div>
+      <div class="runs" id="runs"><div class="empty">no runs yet</div></div>
+    </div>
+    <div class="main">
+      <div class="top" id="top"><span class="muted">select or start a run</span></div>
+      <div class="timeline" id="timeline"><div class="empty">—</div></div>
+      <div class="composer">
+        <input id="msg" placeholder="message the agent (or answer its question)…" autocomplete="off" disabled>
+        <button class="btn" id="send" disabled>Send</button>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="newdlg">
+    <form method="dialog">
+      <div class="dlg-hd">New run</div>
+      <div class="dlg-bd">
+        <div class="field"><label>Goal</label><textarea id="n-goal" rows="3" placeholder="what should the agent do?"></textarea></div>
+        <div class="field"><label>Title (optional)</label><input id="n-title"></div>
+        <div class="field"><label>System prompt override (optional)</label><textarea id="n-system" rows="3"></textarea></div>
+      </div>
+      <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="n-create" value="ok">Create</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="cfgdlg">
+    <form method="dialog">
+      <div class="dlg-hd">Default config</div>
+      <div class="dlg-bd">
+        <div class="field"><label>Model (llm-gw id or alias)</label><input id="c-model"></div>
+        <div class="field"><label>System prompt</label><textarea id="c-system" rows="4"></textarea></div>
+        <div class="row2">
+          <div class="field"><label>Token budget</label><input id="c-budget" type="number"></div>
+          <div class="field"><label>Max iterations / drive</label><input id="c-iters" type="number"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Subagents</label><select id="c-sub"><option value="true">enabled</option><option value="false">disabled</option></select></div>
+          <div class="field"><label>Tool approval</label><select id="c-appr"><option value="false">auto-run</option><option value="true">require approval</option></select></div>
+        </div>
+        <div class="field"><label>MCP servers (JSON: [{name,url,headers?}])</label><textarea id="c-mcp" rows="3" placeholder="[]"></textarea></div>
+      </div>
+      <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="c-save" value="ok">Save</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="agent.js"></script>
+</body>
+</html>
