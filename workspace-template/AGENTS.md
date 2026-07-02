@@ -159,6 +159,11 @@ await buxon.fetch(`/api/${buxon.self}/x`)   // ALWAYS use buxon.fetch for /api/ 
 buxon.bus.on('res:apps/thing/bus/', (topic, data) => {…})   // live events
 await buxon.bus.publish('res:apps/thing/bus', 'changed', {…})
 buxon.events.on(e => {…})                   // reload/build/bus/grants stream
+
+// per-user UI state (server-side, follows the user across devices); each tile
+// gets its own bucket, isolated per user:
+await buxon.fetch(`/api/buxon/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
+const v = await (await buxon.fetch('/api/buxon/prefs/mykey')).json()
 ```
 
 Embedding other components:

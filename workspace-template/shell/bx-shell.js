@@ -1,23 +1,22 @@
 /**
- * <bx-shell> — the workspace shell layout: top bar, component sidebar, and
- * a dense, draggable card canvas. This lives in YOUR workspace (component
- * `shell/`), not in buxon's core: open a terminal here and restyle your
- * whole workspace live. Shells nest like any element — see shell/index.html.
+ * <bx-shell> — the workspace shell: top bar, screen tabs, component sidebar,
+ * and a dense, draggable card canvas. Lives in YOUR workspace (component
+ * `shell/`), not in buxon's core — open a terminal here and restyle it live.
  *
  * Usage (see root/index.html):
  *
  *   <script type="module" src="/c/shell/bx-shell.js"></script>
  *   <bx-shell name="my workspace">
- *     <bx-frame src="apps/welcome"></bx-frame>   <!-- pinned cards -->
+ *     <bx-frame src="apps/welcome"></bx-frame>   <!-- seeds the first screen -->
  *   </bx-shell>
  *
- * The canvas is a set of vertical columns (count follows the width). Cards
- * stack top-to-bottom in a column and can be **dragged by their title bar**
- * to reorder within a column or move between columns — they snap into place.
- * <bx-frame> children are the pinned cards, adopted into the same closeable
- * chrome as components opened from the sidebar. Closing hides a card for the
- * session (pinned ones return on reload; unpin by removing the line in
- * root/index.html). Layout is per-session; theme tokens come from
+ * Layout is **persisted per user** via the prefs API (server-side, so it
+ * follows you across browsers/devices). Organise work into named **screens**
+ * (the tabs at the top) — each screen holds its own set of tiles laid out in
+ * vertical columns; drag a card by its title bar to reorder within a column
+ * or move it between columns. Open tiles from the sidebar; close with ✕.
+ * The <bx-frame> children of <bx-shell> seed the first screen on first run;
+ * after that your saved layout is the source of truth. Theme tokens come from
  * /vendor/theme.css and can be overridden here.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
@@ -25,6 +24,7 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 
 const COL_WIDTH = 360; // target column width; column count = floor(canvas / this)
+const LAYOUT_PREF = 'layout';
 
 const RUNTIME_COLOR = {
   '': 'var(--bx-muted, #8794a1)',
@@ -35,15 +35,17 @@ const RUNTIME_COLOR = {
   cgi: 'var(--bx-red, #e5484d)',
 };
 
+const uid = () => Math.random().toString(36).slice(2, 9);
+
 export class BxShell extends LitElement {
   static properties = {
     name: { type: String },
     _components: { state: true },
-    // Canvas cards. Each: {path, col, height?, pinned?}
-    _opened: { state: true },
+    _screens: { state: true }, // [{id, name, tiles: [{path, col, height?, pinned?}]}]
+    _active: { state: true },  // active screen id
     _cols: { state: true },
-    _drag: { state: true }, // {path} while dragging
-    _drop: { state: true },  // {col, idx} target slot
+    _drag: { state: true },    // {path} while dragging
+    _drop: { state: true },    // {col, idx} target slot
   };
 
   static styles = css`
@@ -81,6 +83,30 @@ export class BxShell extends LitElement {
     }
     .top a.chip:hover { background: var(--bx-panel-2, #f7f8fa); }
     .top a.chip .c { width: 7px; height: 7px; border-radius: 2px; }
+
+    /* ---- screen tabs ---- */
+    .tabs {
+      display: flex; align-items: stretch; gap: 2px; flex: none;
+      background: var(--bx-panel-2, #f7f8fa);
+      border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      padding: 4px 8px 0; overflow-x: auto;
+    }
+    .tab {
+      display: flex; align-items: center; gap: 6px; cursor: pointer;
+      font-size: 12.5px; color: var(--bx-muted, #8794a1);
+      background: transparent; border: 1px solid transparent; border-bottom: none;
+      border-radius: 6px 6px 0 0; padding: 4px 10px; white-space: nowrap; user-select: none;
+    }
+    .tab.on {
+      background: var(--bx-bg, #f0f2f5); color: var(--bx-text, #33414e);
+      border-color: var(--bx-border, #e4e8ed); margin-bottom: -1px;
+    }
+    .tab .x {
+      border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+      cursor: pointer; font-size: 12px; line-height: 1; padding: 0 1px; opacity: .6;
+    }
+    .tab .x:hover { opacity: 1; color: var(--bx-red, #e5484d); }
+    .tab.add { color: var(--bx-muted, #8794a1); font-weight: 600; }
 
     /* ---- body ---- */
     .body { display: flex; flex: 1; min-height: 0; }
@@ -148,10 +174,14 @@ export class BxShell extends LitElement {
     super();
     this.name = 'workspace';
     this._components = [];
-    this._opened = [];
+    this._screens = [];
+    this._active = '';
     this._cols = 2;
     this._drag = null;
     this._drop = null;
+    this._seeds = [];        // {path, height} from slotted <bx-frame> children
+    this._layoutLoaded = false;
+    this._saveTimer = null;
     this._onMove = (e) => this._dragMove(e);
     this._onUp = (e) => this._dragEnd(e);
   }
@@ -159,6 +189,7 @@ export class BxShell extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._load();
+    this._loadLayout();
     this._off = window.buxon?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
@@ -178,30 +209,74 @@ export class BxShell extends LitElement {
       const cols = Math.max(1, Math.floor(main.clientWidth / COL_WIDTH));
       if (cols !== this._cols) {
         this._cols = cols;
-        // Clamp any card whose column no longer exists.
-        this._opened = this._opened.map((o) => o.col >= cols ? { ...o, col: cols - 1 } : o);
+        this._mutateTiles((tiles) => tiles.map((o) => o.col >= cols ? { ...o, col: cols - 1 } : o));
       }
     });
     this._ro.observe(main);
 
     const slot = this.renderRoot.querySelector('slot');
     const adopt = () => {
-      const frames = slot.assignedElements()
-        .filter((el) => el.tagName === 'BX-FRAME' && el.getAttribute('src'));
-      if (frames.length === 0) return;
-      const add = [];
-      for (const f of frames) {
+      for (const f of slot.assignedElements()) {
+        if (f.tagName !== 'BX-FRAME' || !f.getAttribute('src')) continue;
         const path = f.getAttribute('src');
-        if (![...this._opened, ...add].some((o) => o.path === path)) {
-          add.push({ path, height: f.getAttribute('height') ?? undefined, pinned: true,
-                     col: (this._opened.length + add.length) % this._cols });
+        if (!this._seeds.some((s) => s.path === path)) {
+          this._seeds.push({ path, height: f.getAttribute('height') ?? undefined });
         }
         f.remove();
       }
-      if (add.length) this._opened = [...this._opened, ...add];
+      this._ensureScreen();
     };
     slot.addEventListener('slotchange', adopt);
     adopt();
+  }
+
+  // ---- persistence ----
+  async _loadLayout() {
+    try {
+      const r = await window.buxon?.fetch(`/api/buxon/prefs/${LAYOUT_PREF}`);
+      if (r?.ok) {
+        const l = await r.json();
+        if (Array.isArray(l?.screens) && l.screens.length) {
+          this._screens = l.screens;
+          this._active = l.screens.some((s) => s.id === l.active) ? l.active : l.screens[0].id;
+        }
+      }
+    } catch { /* offline / restarting — fall through to seed */ }
+    this._layoutLoaded = true;
+    this._ensureScreen();
+  }
+
+  // Seed a default screen from the slotted <bx-frame> pins, but only once the
+  // saved layout has been consulted and found empty.
+  _ensureScreen() {
+    if (!this._layoutLoaded || this._screens.length) return;
+    const tiles = this._seeds.map((s, i) => ({ ...s, col: i % this._cols, pinned: true }));
+    this._screens = [{ id: uid(), name: 'Home', tiles }];
+    this._active = this._screens[0].id;
+    this._save();
+  }
+
+  _save() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => {
+      window.buxon?.fetch(`/api/buxon/prefs/${LAYOUT_PREF}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ screens: this._screens, active: this._active }),
+      }).catch(() => { /* best-effort; retried on next change */ });
+    }, 400);
+  }
+
+  // ---- active screen helpers ----
+  get _screen() { return this._screens.find((s) => s.id === this._active); }
+  get _tiles() { return this._screen?.tiles ?? []; }
+
+  // Replace the active screen's tiles via fn(copy) → new array, then persist
+  // (debounced, so rapid changes like drag/resize coalesce).
+  _mutateTiles(fn) {
+    if (!this._screen) return;
+    const tiles = fn(this._tiles.map((t) => ({ ...t })));
+    this._screens = this._screens.map((s) => s.id === this._active ? { ...s, tiles } : s);
+    this._save();
   }
 
   async _load() {
@@ -222,22 +297,49 @@ export class BxShell extends LitElement {
     return [...g.entries()].sort(([a], [b]) => a.localeCompare(b));
   }
 
-  _isOpen(path) { return this._opened.some((o) => o.path === path); }
+  _isOpen(path) { return this._tiles.some((o) => o.path === path); }
 
   _shortestCol() {
     const counts = Array(this._cols).fill(0);
-    for (const o of this._opened) if (o.col < this._cols) counts[o.col]++;
+    for (const o of this._tiles) if (o.col < this._cols) counts[o.col]++;
     return counts.indexOf(Math.min(...counts));
   }
 
   _toggle(path) {
-    this._opened = this._isOpen(path)
-      ? this._opened.filter((o) => o.path !== path)
-      : [{ path, col: this._shortestCol() }, ...this._opened];
+    const col = this._shortestCol();
+    this._mutateTiles((tiles) => this._isOpen(path)
+      ? tiles.filter((o) => o.path !== path)
+      : [{ path, col }, ...tiles]);
   }
 
   _runtimeOf(path) {
     return this._components.find((c) => c.path === path)?.runtime ?? '';
+  }
+
+  // ---- screens ----
+  _switchScreen(id) { this._active = id; this._save(); }
+  _addScreen() {
+    const s = { id: uid(), name: `Screen ${this._screens.length + 1}`, tiles: [] };
+    this._screens = [...this._screens, s];
+    this._active = s.id;
+    this._save();
+  }
+  _renameScreen(id) {
+    const s = this._screens.find((x) => x.id === id);
+    const name = prompt('Screen name:', s?.name ?? '');
+    if (name == null || !name.trim()) return;
+    this._screens = this._screens.map((x) => x.id === id ? { ...x, name: name.trim() } : x);
+    this._save();
+  }
+  _closeScreen(id, ev) {
+    ev.stopPropagation();
+    if (this._screens.length <= 1) return; // keep at least one
+    const s = this._screens.find((x) => x.id === id);
+    if (s.tiles.length && !confirm(`Close screen "${s.name}" and its ${s.tiles.length} tile(s)?`)) return;
+    const remaining = this._screens.filter((x) => x.id !== id);
+    this._screens = remaining;
+    if (this._active === id) this._active = remaining[0].id;
+    this._save();
   }
 
   // ---- drag ----
@@ -254,15 +356,12 @@ export class BxShell extends LitElement {
     if (!this._drag) return;
     const cols = [...this.renderRoot.querySelectorAll('.col')];
     if (cols.length === 0) return;
-    // Nearest column by x.
     let colIdx = 0, best = Infinity;
     cols.forEach((el, i) => {
       const r = el.getBoundingClientRect();
-      const cx = Math.max(r.left, Math.min(ev.clientX, r.right));
       const d = Math.abs(ev.clientX - (r.left + r.width / 2));
       if (ev.clientX >= r.left - 7 && ev.clientX <= r.right + 7 && d < best) { best = d; colIdx = i; }
     });
-    // Insertion index by y among that column's cards (excluding the dragged one).
     const colEl = cols[colIdx];
     const cards = [...colEl.querySelectorAll('.card')].filter((c) => c.dataset.path !== this._drag.path);
     let idx = cards.length;
@@ -280,22 +379,22 @@ export class BxShell extends LitElement {
     this._drag = null; this._drop = null;
     if (!drag || !drop) return;
 
-    const moved = this._opened.find((o) => o.path === drag.path);
-    if (!moved) return;
-    const rest = this._opened.filter((o) => o.path !== drag.path);
-    // Cards already in the target column, in order, give us the insertion point.
-    const inCol = rest.filter((o) => o.col === drop.col);
-    const before = inCol[drop.idx]; // undefined => append to column
-    const next = rest.filter((o) => o.col !== drop.col || o !== before);
-    const out = [];
-    let inserted = false;
-    const target = { ...moved, col: drop.col };
-    for (const o of rest) {
-      if (!inserted && o === before) { out.push(target); inserted = true; }
-      out.push(o);
-    }
-    if (!inserted) out.push(target);
-    this._opened = out;
+    this._mutateTiles((tiles) => {
+      const moved = tiles.find((o) => o.path === drag.path);
+      if (!moved) return tiles;
+      const rest = tiles.filter((o) => o.path !== drag.path);
+      const inCol = rest.filter((o) => o.col === drop.col);
+      const before = inCol[drop.idx];
+      const target = { ...moved, col: drop.col };
+      const out = [];
+      let inserted = false;
+      for (const o of rest) {
+        if (!inserted && o === before) { out.push(target); inserted = true; }
+        out.push(o);
+      }
+      if (!inserted) out.push(target);
+      return out;
+    });
   }
 
   _cardTemplate(o) {
@@ -306,17 +405,15 @@ export class BxShell extends LitElement {
           <span class="t">${o.path}</span>
           <span class="spacer"></span>
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
-          <button title=${o.pinned ? 'close — pinned in root/index.html, reload restores it' : 'close'}
-                  @click=${() => this._toggle(o.path)}>✕</button>
+          <button title="close" @click=${() => this._toggle(o.path)}>✕</button>
         </div>
         <bx-frame src=${o.path} height=${o.height ?? nothing}></bx-frame>
       </div>`;
   }
 
   _column(colIdx) {
-    const cards = this._opened.filter((o) => o.col === colIdx);
+    const cards = this._tiles.filter((o) => o.col === colIdx);
     const showDrop = this._drag && this._drop?.col === colIdx;
-    // Cards in this column excluding the dragged one, for indicator placement.
     const visible = cards.filter((o) => o.path !== this._drag?.path);
     return html`
       <div class="col" data-col=${colIdx}>
@@ -335,8 +432,22 @@ export class BxShell extends LitElement {
         <span class="ws-chip">${this.name}</span>
         <span class="spacer"></span>
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>
-        <a class="chip" href="/api/buxon/components" target="_blank"><span class="c" style="background:var(--bx-amber,#f2a71b)"></span>components</a>
+        <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red,#e5484d)"></span>sign out</a>
       </div>
+
+      <div class="tabs">
+        ${this._screens.map((s) => html`
+          <div class="tab ${s.id === this._active ? 'on' : ''}"
+               @click=${() => this._switchScreen(s.id)}
+               @dblclick=${() => this._renameScreen(s.id)}
+               title="double-click to rename">
+            <span>${s.name}</span>
+            ${this._screens.length > 1
+              ? html`<button class="x" @click=${(e) => this._closeScreen(s.id, e)}>✕</button>` : nothing}
+          </div>`)}
+        <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
+      </div>
+
       <div class="body">
         <aside>
           ${this._groups.map(([top, comps]) => html`
@@ -358,7 +469,8 @@ export class BxShell extends LitElement {
           <div class="canvas">
             ${Array.from({ length: this._cols }, (_, i) => this._column(i))}
           </div>
-          <slot></slot>
+          ${this._tiles.length === 0 ? html`<div class="empty">empty screen — open a tile from the sidebar</div>` : nothing}
+          <slot style="display:none"></slot>
         </main>
       </div>
     `;

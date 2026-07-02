@@ -73,6 +73,13 @@ GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile. {token}
 
 GET    /whoami                    any. caller identity + permissions
+
+GET    /prefs                     the caller's per-(user×tile) prefs object
+GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
+PUT    /prefs/<key>               set it (body = JSON value)
+DELETE /prefs/<key>               remove it
+                                  (each principal reads/writes only its own
+                                   bucket; the shell stores layout here)
 GET    /users                     admin or buxon:users. [{id,name,role,tiles,terminal}]
 POST   /users                     admin/buxon:users. create {id,name,role,tiles,terminal,password}
 PATCH  /users/<id>                admin/buxon:users. update fields (+password reset)

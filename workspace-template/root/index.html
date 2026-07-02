@@ -5,10 +5,14 @@
   everything live); theme tokens live in /vendor/theme.css and can be
   overridden in the <style> below.
 
-  Pin components to the canvas by adding children inside <bx-shell>:
+  The <bx-frame> children below SEED the first screen the very first time a
+  user opens the workspace:
       <bx-frame src="apps/thing"></bx-frame>
-  Pinned cards are closeable too (hides them until reload; remove the line
-  here to unpin for good). Anything in the sidebar opens as a card on click.
+  After that, each user's layout is saved server-side (per user) and is the
+  source of truth — they organise tiles into named "screens" (the tabs up
+  top), open tiles from the sidebar, drag cards between columns, and close
+  what they don't want. Editing this seed list only affects users who haven't
+  opened the workspace yet.
 -->
 <html lang="en">
 <head>

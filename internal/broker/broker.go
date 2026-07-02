@@ -119,6 +119,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerAdmin(srv)
 	b.registerTiles(srv)
 	b.registerUsers(srv)
+	b.registerPrefs(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin
 }

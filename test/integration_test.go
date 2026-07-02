@@ -544,6 +544,42 @@ func TestMultiUser(t *testing.T) {
 	if code := as(aliceC, "/api/buxon/whoami"); code != 401 {
 		t.Errorf("deleted alice session still valid: %d, want 401", code)
 	}
+
+	// Per-user prefs isolation: bob writes a layout pref; a fresh bob cookie
+	// reads it back, and the root token (a different principal) does not see it.
+	putBob := func(path, body string) int {
+		rq, _ := http.NewRequest("PUT", base+path, strings.NewReader(body))
+		rq.AddCookie(bobC)
+		rq.Header.Set("Content-Type", "application/json")
+		r, err := http.DefaultClient.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		return r.StatusCode
+	}
+	if c := putBob("/api/buxon/prefs/layout", `{"screens":[{"id":"x","name":"Home","tiles":[]}]}`); c != 200 {
+		t.Fatalf("bob prefs put: %d", c)
+	}
+	getBody := func(cookie *http.Cookie, tok, path string) (int, string) {
+		rq, _ := http.NewRequest("GET", base+path, nil)
+		if cookie != nil {
+			rq.AddCookie(cookie)
+		}
+		if tok != "" {
+			rq.Header.Set("Authorization", "Bearer "+tok)
+		}
+		r, _ := http.DefaultClient.Do(rq)
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r.StatusCode, string(b)
+	}
+	if c, body := getBody(bobC, "", "/api/buxon/prefs/layout"); c != 200 || !strings.Contains(body, "Home") {
+		t.Fatalf("bob prefs get: %d %s", c, body)
+	}
+	if c, _ := getBody(nil, rootTok, "/api/buxon/prefs/layout"); c == 200 {
+		t.Error("root token saw bob's per-user prefs (isolation broken)")
+	}
 }
 
 func mustReadFile(t *testing.T, p string) string {

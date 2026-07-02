@@ -63,6 +63,9 @@ it. That's the whole loop: **mkdir → edit → save → see it**. The layout
 around everything is itself a component (`shell/`) with the theme in
 `/vendor/theme.css` — edit either and watch the whole workspace restyle.
 Drag any card by its title bar to rearrange it into the column layout.
+Organise work into named **screens** (the tabs at the top — add with `+`,
+double-click to rename); your whole layout is **saved per user** (server-side,
+so it follows you across browsers and devices).
 
 ## First backend
 
