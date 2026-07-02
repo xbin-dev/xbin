@@ -16,6 +16,7 @@ bx api <component>                     roles + API.md — how to integrate with 
 bx grants                              grant table + pending requests
 bx grant <caller> <target>:<role>      approve/add a grant
 bx grant --revoke <caller> <target>:<role>
+bx vault status|unseal|seal            encryption-at-rest barrier
 bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls                             scheduled jobs
 bx doctor                              workspace health checks
@@ -37,6 +38,12 @@ Grants are rows in the workspace `buxon.json`; revoking is deleting the row.
 **`bx vault set`** — with no value argument, reads the secret from stdin
 (so it stays out of shell history):
 `pass show imap | bx vault set apps/email imap-pass`.
+
+**`bx vault unseal`** — prompts for the passphrase without echo (or reads it
+piped). First run creates the encryption barrier and encrypts existing
+plaintext; later runs unlock it. `bx vault status` shows insecure / sealed /
+unsealed; boot modes (`BUXON_VAULT_PASSPHRASE` auto-unseal vs manual) are in
+docs/auth.md §vault.
 
 **`bx doctor`** — checks: buxond reachable; manifest parse errors; dangling
 `deps`; `expose` without `API.md`; roles without descriptions; go.work

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/buxon/internal/vault"
 )
 
 // CronPrincipal is the From identity of scheduler-invoked calls.
@@ -26,16 +28,20 @@ type Broker struct {
 	Reg *registry.Registry
 	Hub *events.Hub
 
-	mu   sync.Mutex
-	kv   *kvStore
-	cron *cronRunner
-	uids *uidAllocator // nil = tier 1
+	mu      sync.Mutex
+	kv      *kvStore
+	cron    *cronRunner
+	uids    *uidAllocator  // nil = tier 1
+	barrier *vault.Barrier // vault encryption-at-rest barrier
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}
 	var err error
 	if b.kv, err = openKV(reg.Root); err != nil {
+		return nil, err
+	}
+	if b.barrier, err = vault.Open(filepath.Join(reg.Root, "data", "vault")); err != nil {
 		return nil, err
 	}
 	if scopeUIDs {
@@ -48,12 +54,36 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	return b, nil
 }
 
+// UnsealOrInit brings the vault barrier online with a passphrase: initializes
+// it on first use (migrating any legacy plaintext), or unseals an existing
+// one. Called at boot from BUXON_VAULT_PASSPHRASE, and by the unseal API.
+func (b *Broker) UnsealOrInit(passphrase string) error {
+	if b.barrier.Initialized() {
+		return b.barrier.Unseal(passphrase)
+	}
+	if err := b.barrier.Init(passphrase); err != nil {
+		return err
+	}
+	b.migrateVaults()
+	return nil
+}
+
+// Barrier exposes the vault barrier (status/seal for the API layer).
+func (b *Broker) Barrier() *vault.Barrier { return b.barrier }
+
+// VaultInsecure reports whether secrets are being stored as plaintext at rest
+// (no barrier configured) — used to warn operators.
+func (b *Broker) VaultInsecure() bool { return !b.barrier.Initialized() }
+
 // Register mounts the broker's /api/buxon/* endpoints.
 func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("POST /create", b.apiCreate)
 	srv.RegisterAPI("GET /grants", b.apiGrantsList)
 	srv.RegisterAPI("POST /grants", b.apiGrantsAdd)
 	srv.RegisterAPI("DELETE /grants", b.apiGrantsRevoke)
+	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
+	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
+	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)
 	srv.RegisterAPI("GET /vault/{rest...}", b.apiVaultGet)
 	srv.RegisterAPI("PUT /vault/{rest...}", b.apiVaultPut)
 	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)

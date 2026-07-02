@@ -11,6 +11,12 @@ services:
       - "127.0.0.1:8642:8642"
     volumes:
       - ${BUXON_WORKSPACE:-./workspace}:/workspace
+    # environment:
+    #   # Encrypt the vault at rest (docs/auth.md §vault). Auto-unseals at
+    #   # boot; the passphrase lives in the container env (readable by root).
+    #   # For the stronger posture, leave this unset and unseal after boot
+    #   # with `bx vault unseal`.
+    #   - BUXON_VAULT_PASSPHRASE=change-me
     # Reasonable fences for a box whose job is running arbitrary code:
     mem_limit: 4g
     pids_limit: 2048

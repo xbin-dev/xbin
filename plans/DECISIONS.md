@@ -54,10 +54,19 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   only off element pages. Alternative (Referer-sniffing only) rejected as too
   heuristic; alternative (accept the same-origin hole) rejected as it guts RBAC in
   the plane users actually build in.
-- **ND3 — Vault at-rest encryption deferred.** v1: plaintext under buxond-uid 0600,
-  excluded from backups by default and from git always. Optional env-provided master
-  key later. Encrypting with a key stored on the same disk is theater; a real KMS
-  story can wait.
+- **ND3 — Vault at-rest encryption — RESOLVED (implemented 2026-07-02).**
+  Superseded: the vault now has an AES-256-GCM encryption barrier
+  (`internal/vault`). A random DEK encrypts each vault file; the DEK is
+  wrapped by an Argon2id-derived KEK and only the wrapped DEK + salt sit on
+  disk. Seal/unseal: the passphrase is supplied at unseal (never persisted)
+  and the DEK held in memory (mlock best-effort). Boot modes:
+  `BUXON_VAULT_PASSPHRASE` auto-unseal, manual `bx vault unseal`, or
+  plaintext-with-warning when no passphrase is set (non-breaking zero-config
+  default). Existing plaintext is migrated to ciphertext on first init.
+  Scope is at-rest encryption + seal/unseal, **not** full Vault parity (no
+  Shamir splitting, transit engine, dynamic secrets, leases). Details:
+  docs/auth.md §vault. The old "same-disk key is theater" concern is
+  resolved: the passphrase is the one secret that never touches at-rest data.
 - **ND4 — Role names free-form, `reader`/`writer`/`admin` as blessed convention**
   with SDK-known ordering (`admin ⊃ writer ⊃ reader`); custom roles exact-match
   unless manifest declares `implies`. Mandatory human descriptions per role.

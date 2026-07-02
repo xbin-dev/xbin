@@ -168,6 +168,21 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 		return err
 	}
 
+	// Vault encryption barrier (docs/auth.md §vault). Auto-unseal (or
+	// first-time init) from BUXON_VAULT_PASSPHRASE; otherwise the vault runs
+	// in plaintext-at-rest mode with a warning, or stays sealed until an
+	// admin unseals it via the API.
+	if pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); pass != "" {
+		if err := brk.UnsealOrInit(pass); err != nil {
+			return fmt.Errorf("vault unseal: %w", err)
+		}
+		slog.Info("vault barrier unsealed (encryption at rest active)")
+	} else if brk.Barrier().Initialized() {
+		slog.Warn("vault is encrypted but SEALED — set BUXON_VAULT_PASSPHRASE or POST /api/buxon/vault-unseal; secret reads/writes fail until unsealed")
+	} else if brk.VaultInsecure() {
+		slog.Warn("vault has NO encryption at rest — secrets are plaintext on disk; set BUXON_VAULT_PASSPHRASE to enable the barrier (docs/auth.md)")
+	}
+
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	run.EnvForComponent = brk.EnvFor

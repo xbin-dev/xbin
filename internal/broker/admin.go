@@ -2,11 +2,13 @@ package broker
 
 import (
 	"net/http"
+	"os"
 	"sort"
 
 	"github.com/magik6k/buxon/internal/auth"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/buxon/internal/vault"
 )
 
 // Admin-console aggregate endpoints (plans/admin-tile.md). All gated by
@@ -31,6 +33,12 @@ func (b *Broker) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 // GET /vaults — every vault and its key names (values via /vault/<c>/<k>).
 func (b *Broker) apiVaults(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
+		return
+	}
+	// Listing key names requires decryption, so a sealed barrier can't serve
+	// this — unseal first.
+	if b.vaultSealed() {
+		b.vaultError(w, vault.ErrSealed)
 		return
 	}
 	type entry struct {
@@ -106,7 +114,8 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 			ci.Roles = c.Manifest.Expose.Roles
 			exposed++
 		}
-		if m, err := b.vaultRead(c.Path); err == nil && len(m) > 0 {
+		// File existence, not decryption — works while the barrier is sealed.
+		if _, err := os.Stat(b.vaultPath(c.Path)); err == nil {
 			ci.HasVault = true
 		}
 		comps = append(comps, ci)

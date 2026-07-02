@@ -247,7 +247,9 @@ authenticates the caller, checks the grant table, and injects verified
 (`expose.roles`, conventionally `reader`/`writer`/`admin`) and callers request them
 (`uses: [{target, role}]`) — RBAC with callee-defined roles, owner-approved grants,
 buxond-verified identity, callee-enforced routes. Elements also each get a private
-**vault** for third-party secrets. Full design: `plans/auth.md`.
+**vault** for third-party secrets, encrypted at rest by an AES-256-GCM barrier
+with a passphrase-derived key held only in memory (seal/unseal; the key never
+lives in the at-rest data). Full design: `plans/auth.md`.
 
 **B. Brokered resources (for when you really want shared state).** Declared at scope or
 workspace level:

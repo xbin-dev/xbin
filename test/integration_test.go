@@ -300,6 +300,69 @@ func firstN(s string, n int) string {
 	return s
 }
 
+// TestVaultBarrier verifies encryption at rest: a secret written before the
+// barrier is plaintext on disk, `vault-unseal` initializes the barrier and
+// migrates it to ciphertext, sealing blocks reads (503), and unsealing
+// restores them. Leaves the shared vault unsealed for other tests.
+func TestVaultBarrier(t *testing.T) {
+	write(t, "apps/vaulttest/index.html", `<!doctype html><html><head></head><body>v</body></html>`)
+	if !waitFor(func() bool { c, _ := get(t, "/api/buxon/components/apps/vaulttest"); return c == 200 }, 5*time.Second) {
+		t.Fatal("component never registered")
+	}
+
+	if c, b := req(t, "PUT", "/api/buxon/vault/apps/vaulttest/k", `{"value":"TOPSECRET_XYZ"}`); c != 200 {
+		t.Fatalf("vault put: %d %s", c, b)
+	}
+
+	// Initialize the barrier (first unseal) and migrate existing plaintext.
+	if c, b := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
+		t.Fatalf("unseal/init: %d %s", c, b)
+	}
+
+	// On disk it must now be an encrypted envelope with no plaintext.
+	files, _ := filepath.Glob(filepath.Join(ws, "data", "vault", "*.json"))
+	leaked := false
+	migrated := false
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		if strings.Contains(string(b), "TOPSECRET_XYZ") {
+			leaked = true
+		}
+		if strings.Contains(string(b), `"enc"`) {
+			migrated = true
+		}
+	}
+	if leaked {
+		t.Error("plaintext secret found on disk after encryption")
+	}
+	if !migrated {
+		t.Error("no encrypted envelope on disk")
+	}
+
+	// Read works while unsealed.
+	if c, b := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
+		t.Fatalf("read while unsealed: %d %s", c, b)
+	}
+	// Seal → 503.
+	if c, _ := req(t, "POST", "/api/buxon/vault-seal", ``); c != 200 {
+		t.Fatal("seal failed")
+	}
+	if c, _ := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 503 {
+		t.Errorf("read while sealed: got %d, want 503", c)
+	}
+	// Wrong passphrase → 403.
+	if c, _ := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"wrong"}`); c != 403 {
+		t.Errorf("wrong passphrase: got %d, want 403", c)
+	}
+	// Correct → unsealed, read restored. Leave it unsealed.
+	if c, _ := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
+		t.Fatal("re-unseal failed")
+	}
+	if c, b := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
+		t.Fatalf("read after re-unseal: %d %s", c, b)
+	}
+}
+
 // TestAdminCapability verifies the buxon:admin capability: a granted tile
 // reaches admin endpoints, an ungranted one is denied, revoking disarms.
 func TestAdminCapability(t *testing.T) {

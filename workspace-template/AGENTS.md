@@ -244,7 +244,9 @@ Lifecycle facts you must design around:
   (value via stdin keeps it out of history); code reads its own via
   `buxon.Secret`. No cross-element vault access exists — wrap shared
   secrets behind a role-guarded API instead. Never put secrets in source,
-  manifests, or env files.
+  manifests, or env files. Encryption at rest is via a seal/unseal barrier
+  (`bx vault status|unseal|seal`); when sealed, secret reads/writes 503
+  until an admin unseals. See docs/auth.md §vault.
 - Prefer **service APIs over shared state** across scopes: "email reads
   calendar" is a reader grant on calendar's API, not a shared db file.
 

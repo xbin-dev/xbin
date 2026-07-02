@@ -80,10 +80,15 @@ GET    /grants                     admin. {grants: [{from,target,role}], pending
 POST   /grants                     admin. body {from,target,role} — approve/add
 DELETE /grants                     admin. body {from,target,role} — revoke
 
+GET    /vault-status              admin. {initialized, sealed, insecure}
+POST   /vault-unseal              admin. body {passphrase} — unseal (or init
+                                   the barrier on first use). {created}
+POST   /vault-seal                admin. drop the key from memory
 GET    /vault/<component>          self or admin. {keys: […]}
 GET    /vault/<component>/<key>    self or admin. {value}
 PUT    /vault/<component>/<key>    self or admin. body {value}
 DELETE /vault/<component>/<key>    self or admin.
+                                   (all vault get/set → 503 when sealed)
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes

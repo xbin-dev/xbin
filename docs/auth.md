@@ -101,7 +101,59 @@ Rules, all deliberate:
   `/proc`, logs, and child processes).
 - Storage: `data/vault/`, buxond-owned, mode 0600, gitignored always,
   excluded from `bx backup` unless `--with-vault`.
-- The owner can read/write any vault via `bx vault` — the human is root.
+- The owner (and `buxon:admin` tiles) can read/write any vault via
+  `bx vault` / the admin console — the human is root.
+
+### Encryption at rest (the barrier)
+
+Secrets are encrypted on disk with an AES-256-GCM barrier whose key never
+lives in the at-rest data — the property that makes HashiCorp Vault's
+at-rest story meaningful. The key hierarchy:
+
+```
+passphrase --Argon2id(salt)--> KEK  (in memory only)
+KEK --AES-256-GCM--> wraps -->  DEK  (random data key)
+DEK --AES-256-GCM--> encrypts each vault file (key names included)
+```
+
+Only the **wrapped** DEK and the KDF salt sit on disk (`data/vault/.barrier.json`);
+without the passphrase they yield nothing. So a stolen workspace dir, backup,
+or disk snapshot is just ciphertext.
+
+**Seal / unseal**, like Vault:
+
+- Sealed → the DEK isn't in memory; vault reads/writes return `503 sealed`.
+- Unseal supplies the passphrase, which is never persisted; the DEK is held
+  in memory (mlock'd best-effort) until seal or restart.
+
+```sh
+bx vault status                 # insecure | sealed | unsealed
+bx vault unseal                 # prompts (no echo); creates the barrier on
+                                # first use and encrypts existing plaintext
+bx vault seal                   # drop the key from memory
+```
+
+Boot modes:
+
+- `BUXON_VAULT_PASSPHRASE=…` → **auto-unseal** at startup (convenient; the
+  passphrase lives in the container env, readable by root — the weaker mode,
+  same tradeoff as Vault's env unseal).
+- Unset, barrier initialized → boots **sealed**; an admin unseals via
+  `bx vault unseal` / `POST /api/buxon/vault-unseal` (strongest: the
+  passphrase touches nothing at rest).
+- Unset, no barrier → **plaintext at rest** with a loud warning. This is the
+  zero-config default so dev/local workflows keep working; enable the barrier
+  by setting a passphrase or running `bx vault unseal` once.
+
+**Honest limits.** Go's GC gives no guaranteed memory zeroing, so while
+unsealed the DEK/plaintext may be copied on the heap or appear in a core
+dump — the same fundamental constraint Vault (also Go) has. The barrier
+defends **data at rest**; it does not defend against a root-compromised
+container while unsealed. There is no Shamir key splitting, transit engine,
+dynamic secrets, or leasing — this is at-rest encryption with seal/unseal,
+not full Vault parity. Losing the passphrase means losing the secrets: the
+DEK is unrecoverable without it. `bx vault status` on a running workspace
+tells you which mode you're in.
 
 ## Workspace-management capabilities (the `buxon` target)
 

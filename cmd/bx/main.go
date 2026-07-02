@@ -317,8 +317,56 @@ func cmdGrant(args []string) error {
 }
 
 func cmdVault(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: bx vault status|unseal|seal | ls|get|set|rm <component> [key] [value]")
+	}
+	// Barrier lifecycle ops take no component.
+	switch args[0] {
+	case "status":
+		var st struct {
+			Initialized bool `json:"initialized"`
+			Sealed      bool `json:"sealed"`
+			Insecure    bool `json:"insecure"`
+		}
+		if err := apiJSON("GET", "/api/buxon/vault-status", nil, &st); err != nil {
+			return err
+		}
+		switch {
+		case st.Insecure:
+			fmt.Println("insecure: NO encryption at rest (plaintext on disk). Set BUXON_VAULT_PASSPHRASE to enable the barrier.")
+		case st.Sealed:
+			fmt.Println("sealed: encrypted, locked. Run: bx vault unseal")
+		default:
+			fmt.Println("unsealed: encryption at rest active")
+		}
+		return nil
+	case "unseal":
+		pass, err := readPassphrase("vault passphrase (creates the barrier on first use): ")
+		if err != nil {
+			return err
+		}
+		var out struct {
+			Created bool `json:"created"`
+		}
+		if err := apiJSON("POST", "/api/buxon/vault-unseal", map[string]string{"passphrase": pass}, &out); err != nil {
+			return err
+		}
+		if out.Created {
+			fmt.Println("vault barrier created and unsealed — existing secrets encrypted. Keep this passphrase safe: it cannot be recovered.")
+		} else {
+			fmt.Println("vault unsealed")
+		}
+		return nil
+	case "seal":
+		if err := apiJSON("POST", "/api/buxon/vault-seal", map[string]any{}, nil); err != nil {
+			return err
+		}
+		fmt.Println("vault sealed")
+		return nil
+	}
+
 	if len(args) < 2 {
-		return fmt.Errorf("usage: bx vault ls|get|set|rm <component> [key] [value]")
+		return fmt.Errorf("usage: bx vault status|unseal|seal | ls|get|set|rm <component> [key] [value]")
 	}
 	op, comp := args[0], args[1]
 	switch op {
