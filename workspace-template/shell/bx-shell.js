@@ -23,8 +23,20 @@ import { LitElement, html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 
-const COL_WIDTH = 360; // target column width; column count = floor(canvas / this)
+const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
+// Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
 const LAYOUT_PREF = 'layout';
+
+// dragShield lays a transparent full-viewport layer over the page for the
+// duration of a pointer drag, so tile <iframe>s can't swallow the pointer when
+// the cursor races over them (which otherwise stalls window pointermove until
+// the cursor leaves the iframe). Returns a cleanup fn.
+function dragShield(cursor = 'grabbing') {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
+  document.body.appendChild(el);
+  return () => el.remove();
+}
 
 const RUNTIME_COLOR = {
   '': 'var(--bx-muted, #8794a1)',
@@ -349,6 +361,7 @@ export class BxShell extends LitElement {
     ev.preventDefault();
     this._drag = { path };
     this._drop = null;
+    this._shield = dragShield();
     window.addEventListener('pointermove', this._onMove);
     window.addEventListener('pointerup', this._onUp);
   }
@@ -376,6 +389,7 @@ export class BxShell extends LitElement {
   _dragEnd() {
     window.removeEventListener('pointermove', this._onMove);
     window.removeEventListener('pointerup', this._onUp);
+    this._shield?.(); this._shield = null;
     const drag = this._drag, drop = this._drop;
     this._drag = null; this._drop = null;
     if (!drag || !drop) return;
@@ -415,14 +429,23 @@ export class BxShell extends LitElement {
   _column(colIdx) {
     const cards = this._tiles.filter((o) => o.col === colIdx);
     const showDrop = this._drag && this._drop?.col === colIdx;
-    const visible = cards.filter((o) => o.path !== this._drag?.path);
+    // The dragged card stays MOUNTED (dimmed ghost in place) rather than being
+    // filtered out — unmounting it destroys its <bx-frame>, which kills any
+    // terminal window the user has open on that tile. The drop indicator is
+    // positioned among the non-dragged cards (idx from _dragMove).
+    let vi = 0;
     return html`
       <div class="col" data-col=${colIdx}>
-        ${visible.map((o, i) => html`
-          ${showDrop && this._drop.idx === i ? html`<div class="drop"></div>` : nothing}
-          ${repeat([o], (x) => x.path, (x) => this._cardTemplate(x))}
-        `)}
-        ${showDrop && this._drop.idx >= visible.length ? html`<div class="drop"></div>` : nothing}
+        ${cards.map((o) => {
+          const dragged = this._drag?.path === o.path;
+          const drop = showDrop && !dragged && this._drop.idx === vi;
+          if (!dragged) vi++;
+          return html`
+            ${drop ? html`<div class="drop"></div>` : nothing}
+            ${repeat([o], (x) => x.path, (x) => this._cardTemplate(x))}
+          `;
+        })}
+        ${showDrop && this._drop.idx >= vi ? html`<div class="drop"></div>` : nothing}
       </div>`;
   }
 

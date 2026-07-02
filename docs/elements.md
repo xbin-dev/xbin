@@ -96,6 +96,14 @@ Write your view as a plain HTML document. Relative URLs work (you're a real
 document in an iframe). Vendored libraries: `lit` via the import map,
 anything else you drop into your own component dir.
 
+**Sizing.** A view is framed inside a card column that is **≥ 700px wide** (the
+shell fits `floor(canvas / 700)` columns) and can also be opened full page.
+Design for **700px wide** and make the layout **reflow, never scroll
+horizontally**: relative units, flexbox/grid, `max-width:100%` on media, and
+wrap inherently wide content (tables, code, diagrams) in its own
+`overflow-x:auto` container so the view body never overflows sideways.
+Horizontal scroll on a tile is a bug — avoid it at all cost.
+
 ### `<bx-frame>`
 
 ```html

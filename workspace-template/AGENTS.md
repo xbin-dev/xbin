@@ -190,6 +190,14 @@ runtime: gray static, blue go, green node, amber python, red cgi. Canvas
 cards drag by their title bar into a column layout (drop to reorder within a
 column or move between columns); column count follows the canvas width.
 
+**Tile sizing (design constraint).** A card column is **≥ 700px wide** (the
+shell fits `floor(canvas / 700)` columns), and a tile can also be opened full
+page. Design every tile to be fully usable at **700px wide** and to **reflow,
+never scroll horizontally** — use relative units, flexbox/grid, `max-width:
+100%` on media, and wrap any inherently wide content (tables, code, diagrams)
+in its own `overflow-x:auto` box so the tile body itself never overflows
+sideways. Horizontal scroll on a tile is a bug; avoid it at all cost.
+
 ## Backends
 
 Contract: plain HTTP server on the unix socket `$BUXON_SOCKET`. buxond

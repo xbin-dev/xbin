@@ -26,6 +26,17 @@ import '/vendor/bx-terminal.js';
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
 
+// dragShield lays a transparent full-viewport layer over the page during a
+// title-bar drag, so tile <iframe>s (this one and any others) can't capture the
+// pointer when the cursor races ahead of the window — which otherwise stalls
+// the drag until the cursor re-enters the workspace background. Returns cleanup.
+function dragShield(cursor = 'grabbing') {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
+  document.body.appendChild(el);
+  return () => el.remove();
+}
+
 export class BxFrame extends LitElement {
   static properties = {
     src: { type: String },
@@ -205,6 +216,7 @@ export class BxFrame extends LitElement {
     ev.preventDefault();
     const startX = ev.clientX - el.offsetLeft;
     const startY = ev.clientY - el.offsetTop;
+    const shield = dragShield();
     const move = (e) => {
       const x = Math.max(-el.offsetWidth + 60, Math.min(e.clientX - startX, window.innerWidth - 40));
       const y = Math.max(0, Math.min(e.clientY - startY, window.innerHeight - 24));
@@ -215,6 +227,7 @@ export class BxFrame extends LitElement {
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      shield();
       this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
     };
     window.addEventListener('pointermove', move);
