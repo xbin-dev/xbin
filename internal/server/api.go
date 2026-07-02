@@ -54,6 +54,7 @@ type componentInfo struct {
 	Scope       string   `json:"scope,omitempty"`
 	Runtime     string   `json:"runtime,omitempty"`
 	HasIndex    bool     `json:"hasIndex"`
+	Template    bool     `json:"template,omitempty"` // a blueprint, not a live tile
 	Roles       any      `json:"roles,omitempty"`
 	Uses        any      `json:"uses,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
@@ -70,7 +71,8 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
-			HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+			HasIndex: c.HasIndex, Template: c.IsTemplate(),
+			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 		}
 		if c.Manifest.Expose != nil {
 			ci.Roles = c.Manifest.Expose.Roles

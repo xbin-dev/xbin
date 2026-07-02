@@ -290,6 +290,7 @@ export class BxShell extends LitElement {
     const g = new Map();
     for (const c of this._components) {
       if (c.path === 'root') continue; // framing root inside root recurses
+      if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
       const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
       if (!g.has(top)) g.set(top, []);
       g.get(top).push(c);

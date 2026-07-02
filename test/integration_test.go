@@ -650,3 +650,45 @@ func TestTileImport(t *testing.T) {
 		t.Error("import-as left a stale self-reference to apps/llm-gw")
 	}
 }
+
+func TestTemplateInstantiate(t *testing.T) {
+	// Builtin template catalog lists the starter blueprint.
+	_, body := get(t, "/api/buxon/templates")
+	if !strings.Contains(body, `"starter"`) || !strings.Contains(body, `"builtin"`) {
+		t.Fatalf("templates catalog missing starter: %s", firstN(body, 200))
+	}
+
+	// Instantiate it: files copied, the template marker stripped so it's a
+	// normal, plugged-in component.
+	if c, b := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter"}`); c != 200 {
+		t.Fatalf("instantiate starter: %d %s", c, b)
+	}
+	man, err := os.ReadFile(filepath.Join(ws, "apps", "starter", "buxon.json"))
+	if err != nil {
+		t.Fatalf("instance buxon.json missing: %v", err)
+	}
+	if strings.Contains(string(man), "template") {
+		t.Errorf("instance buxon.json still carries the template marker: %s", man)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "apps", "starter", "index.html")); err != nil {
+		t.Fatalf("instance index.html missing: %v", err)
+	}
+
+	// It's not a template, so the shell lists it as a normal component.
+	if _, cb := get(t, "/api/buxon/components"); !strings.Contains(cb, `"apps/starter"`) {
+		t.Errorf("instance not listed as a component: %s", firstN(cb, 200))
+	}
+
+	// Instantiate again at a custom path — never overwrites, coexists.
+	if c, b := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter","path":"apps/starter2"}`); c != 200 {
+		t.Fatalf("instantiate at apps/starter2: %d %s", c, b)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "apps", "starter2", "index.html")); err != nil {
+		t.Fatalf("second instance missing: %v", err)
+	}
+
+	// A second attempt at an occupied path fails cleanly, not a silent clobber.
+	if c, _ := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter","path":"apps/starter"}`); c == 200 {
+		t.Error("re-instantiating over an existing component should fail")
+	}
+}

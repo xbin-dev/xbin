@@ -200,6 +200,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error 
 	} else {
 		brk.SetBuiltins(set)
 	}
+	// Embedded builtin template catalog (plans/templates.md).
+	if set, err := builtins.LoadTemplates(buxon.BuiltinTemplatesFS()); err != nil {
+		slog.Warn("builtin templates", "err", err)
+	} else {
+		brk.SetBuiltinTemplates(set)
+	}
 	// After a broker-driven structure change (tile import), reconcile deps and
 	// regenerate go.work immediately so the new tile is usable at once.
 	brk.OnStructureChange = func() {

@@ -59,6 +59,11 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "no such component", "")
 		return
 	}
+	if comp.IsTemplate() {
+		jsonErr(w, http.StatusNotFound,
+			fmt.Sprintf("%s is a template — instantiate it first (Tile Manager → New from template, or `bx template new`)", comp.Path), "")
+		return
+	}
 	if !comp.HasBackend() {
 		jsonErr(w, http.StatusNotFound,
 			fmt.Sprintf("component %s has no backend (runtime %q)", comp.Path, comp.Manifest.Runtime), "")

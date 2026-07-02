@@ -61,7 +61,17 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // standard <head> injection. You lose the import map, buxon-client.js,
   // and frame-token attribution (your frontend can then only be called as
   // anonymous). Escape hatch; leave it alone normally.
-  "inject": true
+  "inject": true,
+
+  // Marks this component a TEMPLATE — a blueprint, not a live tile. It runs
+  // no backend and isn't openable; you instantiate it into an independent
+  // named copy (Tile Manager → "New from template", or `bx template new`),
+  // which copies the files and strips this block. See plans/templates.md.
+  "template": {
+    "title": "AI Agent",
+    "description": "A blank-slate agentic loop you clone and build up.",
+    "defaultName": "agent"   // suggested instance basename (under apps/)
+  }
 }
 ```
 

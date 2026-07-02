@@ -30,6 +30,8 @@ func main() {
 		err = cmdNew(os.Args[2:])
 	case "tile":
 		err = cmdTile(os.Args[2:])
+	case "template":
+		err = cmdTemplate(os.Args[2:])
 	case "user":
 		err = cmdUser(os.Args[2:])
 	case "logs":
@@ -66,6 +68,8 @@ func usage() {
                                         scaffold a component
   bx tile ls | import <name> [as <path>]
                                         list/install builtin tiles
+  bx template ls | new <source> [as <path>]
+                                        list/instantiate template components
   bx logs [-f] <component>              show backend logs
   bx api <component>                    roles + API.md of a component
   bx grants                             grant table + pending requests

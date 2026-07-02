@@ -30,13 +30,14 @@ type Broker struct {
 	Reg *registry.Registry
 	Hub *events.Hub
 
-	mu      sync.Mutex
-	kv      *kvStore
-	cron    *cronRunner
-	uids    *uidAllocator  // nil = tier 1
-	barrier *vault.Barrier // vault encryption-at-rest barrier
-	tiles   *builtins.Set  // embedded optional tile catalog (nil = none)
-	Users   *users.Store   // human users (nil = single-user/root-only)
+	mu        sync.Mutex
+	kv        *kvStore
+	cron      *cronRunner
+	uids      *uidAllocator         // nil = tier 1
+	barrier   *vault.Barrier        // vault encryption-at-rest barrier
+	tiles     *builtins.Set         // embedded optional tile catalog (nil = none)
+	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
+	Users     *users.Store          // human users (nil = single-user/root-only)
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -53,6 +54,10 @@ type Broker struct {
 // SetBuiltins installs the embedded builtin tile catalog (from main, which
 // owns the embedded FS). Call before Register.
 func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
+
+// SetBuiltinTemplates installs the embedded builtin template catalog. Call
+// before Register.
+func (b *Broker) SetBuiltinTemplates(s *builtins.TemplateSet) { b.templates = s }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}
@@ -118,6 +123,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("DELETE /cron/jobs/{name}", b.apiCronDelete)
 	b.registerAdmin(srv)
 	b.registerTiles(srv)
+	b.registerTemplates(srv)
 	b.registerUsers(srv)
 	b.registerPrefs(srv)
 	srv.BusFilter = b.busFilter

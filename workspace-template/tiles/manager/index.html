@@ -1,7 +1,8 @@
 <!doctype html>
-<!-- Tile Manager — create tiles or import builtins without touching a shell.
-     Create → POST /api/buxon/create; Import → GET/POST /api/buxon/builtins.
-     Both need this element's buxon:writer grant (declared in buxon.json). -->
+<!-- Tile Manager — create tiles, stamp out templates, or import builtins
+     without touching a shell. Create → POST /api/buxon/create; Template →
+     GET/POST /api/buxon/templates; Import → GET/POST /api/buxon/builtins. All
+     need this element's buxon:writer grant (declared in buxon.json). -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -68,6 +69,7 @@
 <body class="bx">
   <div class="tabs">
     <button data-tab="create" class="on">create</button>
+    <button data-tab="template">new from template</button>
     <button data-tab="import">import builtin</button>
   </div>
 
@@ -92,6 +94,14 @@
     </form>
   </div>
 
+  <div class="body" id="template-tab" hidden>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">
+      Templates are blueprints — pick one and give it a name to stamp out an
+      independent component you own and can build up. Builtin and any workspace
+      component marked as a template both show here.</p>
+    <div id="templates"><span class="muted">loading…</span></div>
+  </div>
+
   <div class="body" id="import-tab" hidden>
     <p class="muted" style="font-size:12px;margin:0 0 8px">
       Optional tiles bundled with buxon. Import copies one into this workspace;
@@ -105,8 +115,10 @@
     tabs.forEach((b) => b.onclick = () => {
       tabs.forEach((x) => x.classList.toggle('on', x === b));
       document.getElementById('create-tab').hidden = b.dataset.tab !== 'create';
+      document.getElementById('template-tab').hidden = b.dataset.tab !== 'template';
       document.getElementById('import-tab').hidden = b.dataset.tab !== 'import';
       if (b.dataset.tab === 'import') loadBuiltins();
+      if (b.dataset.tab === 'template') loadTemplates();
     });
 
     // --- create tab ---
@@ -135,8 +147,55 @@
       finally { btn.disabled = false; }
     });
 
-    // --- import tab ---
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // --- template tab ---
+    async function loadTemplates() {
+      const host = document.getElementById('templates');
+      try {
+        const r = await buxon.fetch('/api/buxon/templates');
+        const tpls = await r.json();
+        if (!Array.isArray(tpls) || tpls.length === 0) { host.innerHTML = '<span class="muted">no templates</span>'; return; }
+        host.innerHTML = '';
+        for (const t of tpls) host.append(templateCard(t));
+      } catch (e) { host.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
+    }
+    function templateCard(t) {
+      const el = document.createElement('div');
+      el.className = 'tile';
+      el.innerHTML = `
+        <div class="h"><span class="title">${esc(t.title || t.id)}</span>
+          <span class="name">${esc(t.source)}</span><span class="spacer"></span></div>
+        <div class="desc">${esc(t.description || '')}</div>
+        <div class="row">
+          <span class="muted" style="font-size:11px">create at</span>
+          <input class="path" value="apps/${esc(t.defaultName || '')}" size="18">
+          <button class="btn make">create</button>
+        </div>
+        <div class="imsg"></div>`;
+      const imsg = el.querySelector('.imsg');
+      el.querySelector('.make').onclick = async (ev) => {
+        const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'creating…';
+        try {
+          const r = await buxon.fetch('/api/buxon/templates/new', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim() }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error ?? r.status);
+          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          let note = `created ${d.path} — it's in the sidebar`;
+          if (d.pendingGrants && d.pendingGrants.length) {
+            note += `. Approve ${d.pendingGrants.length} grant(s) in the admin/grants panel.`;
+          }
+          imsg.textContent = note;
+        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        finally { b.disabled = false; }
+      };
+      return el;
+    }
+
+    // --- import tab ---
     async function loadBuiltins() {
       const host = document.getElementById('tiles');
       try {

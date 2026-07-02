@@ -35,15 +35,25 @@ type Expose struct {
 	Implies map[string][]string `json:"implies,omitempty"`
 }
 
+// TemplateMeta, when present in a manifest, marks the component as a
+// **template** (plans/templates.md): a blueprint that is not plugged in
+// (no backend, not a live tile) until instantiated into a named copy.
+type TemplateMeta struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	DefaultName string `json:"defaultName,omitempty"` // suggested instance basename
+}
+
 // Manifest is a component's buxon.json. All fields optional; a bare directory
 // with index.html is a valid static component.
 type Manifest struct {
-	Runtime string   `json:"runtime,omitempty"` // static|go|node|python|cgi
-	Entry   string   `json:"entry,omitempty"`   // runtime-specific; defaults in runner
-	Deps    []string `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
-	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
-	Expose  *Expose  `json:"expose,omitempty"`
-	Inject  *bool    `json:"inject,omitempty"` // false disables D4 HTML injection
+	Runtime  string        `json:"runtime,omitempty"` // static|go|node|python|cgi
+	Entry    string        `json:"entry,omitempty"`   // runtime-specific; defaults in runner
+	Deps     []string      `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
+	Uses     []Use         `json:"uses,omitempty"`    // runtime call grant requests
+	Expose   *Expose       `json:"expose,omitempty"`
+	Inject   *bool         `json:"inject,omitempty"` // false disables D4 HTML injection
+	Template *TemplateMeta `json:"template,omitempty"`
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.
@@ -84,8 +94,16 @@ type Component struct {
 	Scope       string // nearest ancestor scope path; "" = workspace scope
 }
 
-// HasBackend reports whether the component declares a runnable backend.
+// IsTemplate reports whether the component is a template blueprint (not
+// plugged in until instantiated).
+func (c *Component) IsTemplate() bool { return c.Manifest.Template != nil }
+
+// HasBackend reports whether the component declares a runnable backend. A
+// template never runs (it's instantiated first).
 func (c *Component) HasBackend() bool {
+	if c.IsTemplate() {
+		return false
+	}
 	switch c.Manifest.Runtime {
 	case "go", "node", "python", "cgi":
 		return true

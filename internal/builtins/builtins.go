@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/magik6k/buxon/internal/jsonc"
 	"github.com/magik6k/buxon/internal/util"
 )
 
@@ -88,6 +89,101 @@ func (s *Set) Get(name string) (Meta, bool) {
 	return m, ok
 }
 
+// TemplateEntry is a builtin template's catalog entry, derived from its
+// buxon.json "template" block (plans/templates.md). Unlike tiles, templates
+// carry no separate tile.json — the marker in buxon.json is the catalog.
+type TemplateEntry struct {
+	Name        string `json:"name"`        // embedded dir name = builtin id
+	Title       string `json:"title"`       //
+	Description string `json:"description"` //
+	DefaultName string `json:"defaultName"` // suggested instance basename
+	DefaultPath string `json:"-"`           // the template's authored path (for rewrite)
+}
+
+// TemplateSet is the embedded builtin template catalog.
+type TemplateSet struct {
+	fsys      fs.FS
+	templates map[string]TemplateEntry
+}
+
+// LoadTemplates reads every builtin template's buxon.json "template" block from
+// the embedded FS (rooted at the builtin-templates directory).
+func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
+	s := &TemplateSet{fsys: fsys, templates: map[string]TemplateEntry{}}
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		b, err := fs.ReadFile(fsys, path.Join(e.Name(), "buxon.json"))
+		if err != nil {
+			continue
+		}
+		var man struct {
+			Template *struct {
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				DefaultName string `json:"defaultName"`
+			} `json:"template"`
+		}
+		if err := jsonc.Unmarshal(b, &man); err != nil {
+			return nil, fmt.Errorf("builtin-template %s/buxon.json: %w", e.Name(), err)
+		}
+		if man.Template == nil {
+			continue // a dir without a template block isn't a template
+		}
+		name := man.Template.DefaultName
+		if name == "" {
+			name = e.Name()
+		}
+		s.templates[e.Name()] = TemplateEntry{
+			Name:        e.Name(),
+			Title:       man.Template.Title,
+			Description: man.Template.Description,
+			DefaultName: name,
+			DefaultPath: "apps/" + name,
+		}
+	}
+	return s, nil
+}
+
+// List returns builtin template entries sorted by name.
+func (s *TemplateSet) List() []TemplateEntry {
+	out := make([]TemplateEntry, 0, len(s.templates))
+	for _, t := range s.templates {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func (s *TemplateSet) Get(name string) (TemplateEntry, bool) {
+	t, ok := s.templates[name]
+	return t, ok
+}
+
+// Instantiate copies builtin template `name` into workspaceRoot at targetPath
+// (empty = "apps/"+DefaultName), stripping the template marker so the copy is
+// a normal, plugged-in component. Returns the installed path and files written.
+func (s *TemplateSet) Instantiate(workspaceRoot, name, targetPath string) (string, []string, error) {
+	t, ok := s.templates[name]
+	if !ok {
+		return "", nil, fmt.Errorf("no builtin template %q", name)
+	}
+	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
+	if targetPath == "" {
+		targetPath = t.DefaultPath
+	}
+	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, t.DefaultPath, true)
+	if err != nil {
+		return "", written, err
+	}
+	return targetPath, written, nil
+}
+
 // filesToSkip are catalog/dev artifacts never copied into a workspace.
 func skip(rel string) bool {
 	base := filepath.Base(rel)
@@ -95,7 +191,11 @@ func skip(rel string) bool {
 		return true
 	}
 	for _, p := range strings.Split(rel, "/") {
-		if p == ".claude" || p == ".git" || strings.HasPrefix(p, ".") && p != "." {
+		switch p {
+		case ".claude", ".git", "deps", "data", "node_modules":
+			return true
+		}
+		if strings.HasPrefix(p, ".") && p != "." {
 			return true
 		}
 	}
@@ -141,41 +241,70 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 	if targetPath == "" {
 		targetPath = m.DefaultPath
 	}
+	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, m.DefaultPath, false)
+	if err != nil {
+		return "", written, err
+	}
+	return targetPath, written, nil
+}
+
+// CopyTree copies a component tree from srcFS (rooted at srcRoot) into
+// workspaceRoot at targetPath — the shared copy-with-rewrite machinery behind
+// both builtin-tile import and template instantiation.
+//
+// It rewrites the component's *own* authored path (defaultPath) to targetPath
+// in text files so self-references (view <script src>, its scope's resource
+// ids) point at the new location; cross-component references are left intact.
+// A Go backend's manifest, shipped as go.mod.tile so go:embed bundles it (or a
+// plain go.mod for a workspace source), is restored/rewritten with the unique
+// target module path so two instances coexist in go.work. When stripTemplate
+// is set, the buxon.json "template" block is removed so the copy is a normal,
+// plugged-in component. Never overwrites an existing component.
+func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, stripTemplate bool) ([]string, error) {
+	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
 	if !util.ComponentPathOK(targetPath) {
-		return "", nil, fmt.Errorf("invalid target path %q", targetPath)
+		return nil, fmt.Errorf("invalid target path %q", targetPath)
 	}
 	dstRoot, _, err := util.SafeJoin(workspaceRoot, targetPath)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	if _, err := os.Stat(filepath.Join(dstRoot, "buxon.json")); err == nil {
-		return "", nil, fmt.Errorf("%s already exists", targetPath)
+		return nil, fmt.Errorf("%s already exists", targetPath)
 	}
-
-	rename := targetPath != m.DefaultPath
+	rename := defaultPath != "" && targetPath != defaultPath
 
 	var written []string
-	err = fs.WalkDir(s.fsys, name, func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		rel := strings.TrimPrefix(p, name+"/")
+		rel := strings.TrimPrefix(p, srcRoot)
+		rel = strings.TrimPrefix(rel, "/")
 		if skip(rel) {
 			return nil
 		}
-		data, err := fs.ReadFile(s.fsys, p)
+		data, err := fs.ReadFile(srcFS, p)
 		if err != nil {
 			return err
 		}
-		// A Go backend's manifest ships as go.mod.tile so go:embed (which
-		// skips nested modules) still bundles the tile; restore it on import
-		// and set its module path to the (unique) target component path, so
-		// importing the same tile twice doesn't collide in go.work.
-		if rel == "go.mod.tile" {
+		switch {
+		case rel == "go.mod.tile":
 			rel = "go.mod"
 			data = setModulePath(data, targetPath)
-		} else if rename && textFile(rel) {
-			data = []byte(strings.ReplaceAll(string(data), m.DefaultPath, targetPath))
+		case rel == "go.mod":
+			data = setModulePath(data, targetPath)
+		case rel == "buxon.json":
+			if stripTemplate {
+				data = stripTemplateBlock(data)
+			}
+			if rename {
+				data = []byte(strings.ReplaceAll(string(data), defaultPath, targetPath))
+			}
+		default:
+			if rename && textFile(rel) {
+				data = []byte(strings.ReplaceAll(string(data), defaultPath, targetPath))
+			}
 		}
 		out := filepath.Join(dstRoot, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -191,8 +320,24 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 		written = append(written, targetPath+"/"+rel)
 		return nil
 	})
-	if err != nil {
-		return "", written, err
+	return written, err
+}
+
+// stripTemplateBlock removes the top-level "template" key from a buxon.json so
+// an instantiated copy is a normal, plugged-in component. Best-effort: on any
+// parse failure the original bytes are returned unchanged.
+func stripTemplateBlock(data []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(jsonc.Strip(data), &m) != nil {
+		return data
 	}
-	return targetPath, written, nil
+	if _, ok := m["template"]; !ok {
+		return data
+	}
+	delete(m, "template")
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return data
+	}
+	return append(out, '\n')
 }

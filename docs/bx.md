@@ -12,6 +12,8 @@ bx status                              backend states (building/healthy/failed, 
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"]
                                        scaffold a component
 bx tile ls | import <name> [as <path>] list/install builtin tiles
+bx template ls | new <source> [as <path>]
+                                       list/instantiate template components (blueprints)
 bx user ls | add <id> [flags] | set <id> [flags] | rm <id>
                                        manage users (admin/buxon:users)
 bx logs [-f] <component>               backend logs (tail -f style with -f)
