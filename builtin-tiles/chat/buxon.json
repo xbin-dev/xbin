@@ -1,0 +1,6 @@
+{
+  // LLM chat tile — pure frontend, talks to the llm-gw proxy.
+  "uses": [
+    { "target": "apps/llm-gw", "role": "writer" }
+  ]
+}

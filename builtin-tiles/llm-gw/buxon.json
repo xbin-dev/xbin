@@ -1,0 +1,17 @@
+{
+  // OpenAI-compatible LLM gateway. Other tiles get a reader/writer grant to
+  // call the proxied /v1/* API; base URL + model aliases are configured on
+  // this tile's own frontend (self is always admin of itself, see
+  // docs/auth.md — that's how the settings panel talks to /config and to
+  // this component's own vault key without any extra grant).
+  "runtime": "go",
+  "uses": [
+    { "target": "res:apps/llm-gw/state", "role": "writer" }
+  ],
+  "expose": {
+    "roles": {
+      "reader": "List available models (real + aliases) via GET /v1/models",
+      "writer": "Call the OpenAI-compatible API — chat/completions, embeddings, etc. (implies reader)"
+    }
+  }
+}

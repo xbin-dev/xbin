@@ -23,6 +23,7 @@ import (
 	"github.com/magik6k/buxon"
 	"github.com/magik6k/buxon/internal/auth"
 	"github.com/magik6k/buxon/internal/broker"
+	"github.com/magik6k/buxon/internal/builtins"
 	"github.com/magik6k/buxon/internal/deps"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/proxy"
@@ -166,6 +167,20 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 	brk, err := broker.New(reg, hub, scopeUIDs && os.Geteuid() == 0)
 	if err != nil {
 		return err
+	}
+	// Embedded optional tile catalog (plans/tile-sharing.md).
+	if set, err := builtins.Load(buxon.BuiltinTilesFS()); err != nil {
+		slog.Warn("builtin tiles", "err", err)
+	} else {
+		brk.SetBuiltins(set)
+	}
+	// After a broker-driven structure change (tile import), reconcile deps and
+	// regenerate go.work immediately so the new tile is usable at once.
+	brk.OnStructureChange = func() {
+		deps.Reconcile(reg)
+		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
+			slog.Warn("go.work", "err", err)
+		}
 	}
 
 	// Vault encryption barrier (docs/auth.md §vault). Auto-unseal (or

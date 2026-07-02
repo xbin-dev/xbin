@@ -1,0 +1,9 @@
+{
+  "name": "llm-gw",
+  "title": "LLM Gateway",
+  "description": "OpenAI-compatible LLM proxy. Configure a provider base URL, upstream token, and model aliases once; other tiles get a grant to call /v1/* (chat, embeddings, …) exactly like the OpenAI API. Works with OpenAI, OpenRouter, Ollama, vLLM, etc.",
+  "defaultPath": "apps/llm-gw",
+  "tags": ["llm", "ai", "infrastructure"],
+  "provides": ["apps/llm-gw"],
+  "requires": []
+}

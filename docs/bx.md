@@ -11,6 +11,7 @@ bx ls                                  list components (runtime, exposed roles, 
 bx status                              backend states (building/healthy/failed, generations)
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"]
                                        scaffold a component
+bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx logs [-f] <component>               backend logs (tail -f style with -f)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests

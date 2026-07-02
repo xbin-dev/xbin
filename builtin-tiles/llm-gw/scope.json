@@ -1,0 +1,8 @@
+{
+  // apps/llm-gw is a scope: an OpenAI-compatible LLM gateway. Base URL and
+  // model aliases live in this kv resource; the upstream API key lives in
+  // the vault (never here, never in a resource).
+  "resources": {
+    "state": { "type": "kv" }
+  }
+}

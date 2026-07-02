@@ -433,3 +433,51 @@ func getFramed(t *testing.T, path, tok string) int {
 	defer r.Body.Close()
 	return r.StatusCode
 }
+
+// TestTileImport verifies the builtin tile catalog: llm-gw is listed and
+// embedded (Go backend included despite go:embed's nested-module skip),
+// imports at its default path, and its backend compiles and runs — proving
+// the go.mod.tile rename + immediate go.work regen work end to end.
+func TestTileImport(t *testing.T) {
+	// Catalog includes the Go-backed llm-gw (would be missing if go:embed
+	// had dropped its nested module).
+	_, body := get(t, "/api/buxon/builtins")
+	if !strings.Contains(body, `"llm-gw"`) || !strings.Contains(body, `"chat"`) {
+		t.Fatalf("builtins catalog missing tiles: %s", firstN(body, 200))
+	}
+
+	if c, b := req(t, "POST", "/api/buxon/builtins/import", `{"name":"llm-gw"}`); c != 200 {
+		t.Fatalf("import llm-gw: %d %s", c, b)
+	}
+	// go.mod restored from go.mod.tile.
+	if _, err := os.Stat(filepath.Join(ws, "apps", "llm-gw", "go.mod")); err != nil {
+		t.Fatalf("go.mod not restored: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "apps", "llm-gw", "backend", "main.go")); err != nil {
+		t.Fatalf("backend not imported: %v", err)
+	}
+
+	// The backend compiles (via regenerated go.work) and answers — no OpenAI
+	// token, so it returns the "no token" body, not a build error.
+	if !waitFor(func() bool {
+		c, b := get(t, "/api/apps/llm-gw/v1/models")
+		return c == 200 && strings.Contains(b, "no upstream API token")
+	}, 120*time.Second) {
+		c, b := get(t, "/api/apps/llm-gw/v1/models")
+		t.Fatalf("llm-gw backend never built/ran: %d %s", c, b)
+	}
+
+	// Re-import at a different path: files copied, self-refs rewritten,
+	// unique module path so both coexist.
+	if c, b := req(t, "POST", "/api/buxon/builtins/import", `{"name":"llm-gw","path":"apps/gw2"}`); c != 200 {
+		t.Fatalf("import as apps/gw2: %d %s", c, b)
+	}
+	mod, _ := os.ReadFile(filepath.Join(ws, "apps", "gw2", "go.mod"))
+	if !strings.Contains(string(mod), "module apps/gw2") {
+		t.Errorf("renamed module path missing: %s", mod)
+	}
+	idx, _ := os.ReadFile(filepath.Join(ws, "apps", "gw2", "index.html"))
+	if strings.Contains(string(idx), "apps/llm-gw") {
+		t.Error("import-as left a stale self-reference to apps/llm-gw")
+	}
+}

@@ -1,15 +1,22 @@
 <!doctype html>
-<!-- Tile Manager — create new tiles without touching a shell. Talks to
-     POST /api/buxon/create with this element's identity (buxon.fetch); the
-     grant behind it is declared in buxon.json. More management features
-     will land here over time. -->
+<!-- Tile Manager — create tiles or import builtins without touching a shell.
+     Create → POST /api/buxon/create; Import → GET/POST /api/buxon/builtins.
+     Both need this element's buxon:writer grant (declared in buxon.json). -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Tile Manager</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 10px 14px 12px; }
+    body { padding: 0; }
+    .tabs { display: flex; gap: 2px; padding: 6px 8px 0;
+            border-bottom: 1px solid var(--bx-border); background: var(--bx-panel-2); }
+    .tabs button { border: 1px solid transparent; border-bottom: none; background: none;
+      font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
+      color: var(--bx-muted); border-radius: 5px 5px 0 0; }
+    .tabs button.on { background: var(--bx-panel); color: var(--bx-text);
+      border-color: var(--bx-border); margin-bottom: -1px; }
+    .body { padding: 10px 14px 12px; }
     h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
          text-transform: uppercase; color: var(--bx-muted); }
     .field { margin-bottom: 7px; }
@@ -31,75 +38,152 @@
     }
     .slug-row input { border-radius: 0 5px 5px 0; font-family: var(--bx-mono); font-size: 11.5px; }
     .actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-    .actions button {
+    .btn {
       background: var(--bx-accent); color: #fff; border: 0; border-radius: 5px;
       padding: 4px 14px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
     }
-    .actions button:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
-    .actions button:disabled { opacity: .5; cursor: default; }
+    .btn:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
+    .btn:disabled { opacity: .5; cursor: default; }
     .msg { font-size: 11.5px; }
     .msg.ok { color: var(--bx-green); }
     .msg.err { color: var(--bx-red); }
+    .muted { color: var(--bx-muted); }
+    /* import list */
+    .tile { border: 1px solid var(--bx-border); border-radius: 6px; padding: 8px 10px;
+            margin-bottom: 8px; }
+    .tile .h { display: flex; align-items: baseline; gap: 8px; }
+    .tile .title { font-weight: 600; font-size: 12.5px; }
+    .tile .name { font: 11px var(--bx-mono); color: var(--bx-muted); }
+    .tile .spacer { flex: 1; }
+    .tile .desc { font-size: 12px; color: var(--bx-muted); margin: 4px 0 6px; line-height: 1.45; }
+    .tile .tags span { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 999px;
+      background: var(--bx-panel-2); border: 1px solid var(--bx-border); margin-right: 3px; color: var(--bx-muted); }
+    .tile .row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .tile .row input { font: 11.5px var(--bx-mono); padding: 3px 7px; border: 1px solid var(--bx-border);
+      border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
+    .tile .installed { color: var(--bx-green); font-size: 11px; }
+    .imsg { font-size: 11.5px; margin-top: 4px; }
   </style>
 </head>
 <body class="bx">
-  <h3>Tile Manager</h3>
-  <form id="f">
-    <div class="field">
-      <label for="pretty">Pretty name</label>
-      <input id="pretty" placeholder="My New Tile" autocomplete="off" required>
-    </div>
-    <div class="field">
-      <label for="slug">URL-safe name</label>
-      <div class="slug-row">
-        <span class="prefix">apps/</span>
-        <input id="slug" placeholder="my-new-tile" autocomplete="off"
-               pattern="[a-z0-9][a-z0-9\-/]*" required>
+  <div class="tabs">
+    <button data-tab="create" class="on">create</button>
+    <button data-tab="import">import builtin</button>
+  </div>
+
+  <div class="body" id="create-tab">
+    <form id="f">
+      <div class="field">
+        <label for="pretty">Pretty name</label>
+        <input id="pretty" placeholder="My New Tile" autocomplete="off" required>
       </div>
-    </div>
-    <div class="actions">
-      <button id="create">Create</button>
-      <span class="msg" id="msg"></span>
-    </div>
-  </form>
+      <div class="field">
+        <label for="slug">URL-safe name</label>
+        <div class="slug-row">
+          <span class="prefix">apps/</span>
+          <input id="slug" placeholder="my-new-tile" autocomplete="off"
+                 pattern="[a-z0-9][a-z0-9\-/]*" required>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="create">Create</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <div class="body" id="import-tab" hidden>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">
+      Optional tiles bundled with buxon. Import copies one into this workspace;
+      cross-scope tiles will need a grant you approve afterwards.</p>
+    <div id="tiles"><span class="muted">loading…</span></div>
+  </div>
+
   <script type="module">
+    // --- tabs ---
+    const tabs = document.querySelectorAll('.tabs button');
+    tabs.forEach((b) => b.onclick = () => {
+      tabs.forEach((x) => x.classList.toggle('on', x === b));
+      document.getElementById('create-tab').hidden = b.dataset.tab !== 'create';
+      document.getElementById('import-tab').hidden = b.dataset.tab !== 'import';
+      if (b.dataset.tab === 'import') loadBuiltins();
+    });
+
+    // --- create tab ---
     const pretty = document.getElementById('pretty');
     const slug = document.getElementById('slug');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('create');
-
-    // Auto-derive the url-safe name until the user edits it themselves.
     let slugTouched = false;
-    const slugify = (s) => s.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    pretty.addEventListener('input', () => {
-      if (!slugTouched) slug.value = slugify(pretty.value);
-    });
+    const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    pretty.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(pretty.value); });
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
-
     document.getElementById('f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const path = 'apps/' + slug.value.replace(/^\/+|\/+$/g, '');
-      btn.disabled = true;
-      msg.className = 'msg'; msg.textContent = 'creating…';
+      btn.disabled = true; msg.className = 'msg'; msg.textContent = 'creating…';
       try {
         const r = await buxon.fetch('/api/buxon/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, title: pretty.value.trim() }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error ?? r.status);
-        msg.className = 'msg ok';
-        msg.textContent = `created ${d.path} — it's in the sidebar`;
+        msg.className = 'msg ok'; msg.textContent = `created ${d.path} — it's in the sidebar`;
         pretty.value = ''; slug.value = ''; slugTouched = false;
-      } catch (e) {
-        msg.className = 'msg err';
-        msg.textContent = String(e.message ?? e);
-      } finally {
-        btn.disabled = false;
-      }
+      } catch (e) { msg.className = 'msg err'; msg.textContent = String(e.message ?? e); }
+      finally { btn.disabled = false; }
     });
+
+    // --- import tab ---
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    async function loadBuiltins() {
+      const host = document.getElementById('tiles');
+      try {
+        const r = await buxon.fetch('/api/buxon/builtins');
+        const tiles = await r.json();
+        if (!Array.isArray(tiles) || tiles.length === 0) { host.innerHTML = '<span class="muted">no builtin tiles</span>'; return; }
+        host.innerHTML = '';
+        for (const t of tiles) host.append(tileCard(t));
+      } catch (e) { host.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
+    }
+    function tileCard(t) {
+      const el = document.createElement('div');
+      el.className = 'tile';
+      el.innerHTML = `
+        <div class="h"><span class="title">${esc(t.title || t.name)}</span>
+          <span class="name">${esc(t.name)}</span><span class="spacer"></span>
+          ${t.installed ? '<span class="installed">✓ installed</span>' : ''}</div>
+        <div class="desc">${esc(t.description || '')}</div>
+        <div class="tags">${(t.tags || []).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
+        <div class="row">
+          <span class="muted" style="font-size:11px">import as</span>
+          <input class="path" value="${esc(t.defaultPath)}" size="18">
+          <button class="btn imp">${t.installed ? 'import copy' : 'import'}</button>
+        </div>
+        <div class="imsg"></div>`;
+      const imsg = el.querySelector('.imsg');
+      el.querySelector('.imp').onclick = async (ev) => {
+        const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'importing…';
+        try {
+          const r = await buxon.fetch('/api/buxon/builtins/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: t.name, path: el.querySelector('.path').value.trim() }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error ?? r.status);
+          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          let note = `imported ${d.path} — it's in the sidebar`;
+          if (d.pendingGrants && d.pendingGrants.length) {
+            note += `. Approve ${d.pendingGrants.length} grant(s) in the admin/grants panel.`;
+          }
+          imsg.textContent = note;
+          loadBuiltins();
+        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        finally { b.disabled = false; }
+      };
+      return el;
+    }
   </script>
 </body>
 </html>

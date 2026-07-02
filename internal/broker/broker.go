@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/magik6k/buxon/internal/auth"
+	"github.com/magik6k/buxon/internal/builtins"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/server"
@@ -33,7 +34,17 @@ type Broker struct {
 	cron    *cronRunner
 	uids    *uidAllocator  // nil = tier 1
 	barrier *vault.Barrier // vault encryption-at-rest barrier
+	tiles   *builtins.Set  // embedded optional tile catalog (nil = none)
+
+	// OnStructureChange, if set, is called after the broker changes the
+	// component tree (e.g. a tile import) so the host can reconcile deps/
+	// symlinks and regenerate go.work without waiting for the watcher.
+	OnStructureChange func()
 }
+
+// SetBuiltins installs the embedded builtin tile catalog (from main, which
+// owns the embedded FS). Call before Register.
+func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}
@@ -98,6 +109,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("PUT /cron/jobs", b.apiCronPut)
 	srv.RegisterAPI("DELETE /cron/jobs/{name}", b.apiCronDelete)
 	b.registerAdmin(srv)
+	b.registerTiles(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin
 }

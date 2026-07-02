@@ -1,0 +1,283 @@
+<!doctype html>
+<!-- LLM chat tile. One-off chats: nothing persists — history lives in page
+     memory and dies on reload/new chat. Models and completions come from
+     apps/llm-gw (OpenAI-compatible proxy); streaming via SSE. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Chat</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    /* Fixed body height + natural html height: the frame's auto-height
+       measures documentElement, so html must wrap content, not fill the
+       iframe (height:100% here collapses the tile). */
+    html, body { margin: 0; }
+    body { padding: 10px 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; height: 560px; }
+    .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+              text-transform: uppercase; color: var(--bx-muted); flex: 1; }
+    select {
+      background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
+      color: var(--bx-text); font: 11.5px var(--bx-mono); padding: 3px 6px; max-width: 260px;
+    }
+    button {
+      background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
+      color: var(--bx-text); font: inherit; font-size: 11.5px; padding: 3px 10px; cursor: pointer;
+    }
+    button:hover { background: var(--bx-panel-2); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; font-weight: 600; }
+    button.primary:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
+
+    .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
+    .msg { max-width: 92%; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; line-height: 1.45; }
+    .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--bx-accent) 12%, var(--bx-panel));
+                border: 1px solid color-mix(in srgb, var(--bx-accent) 30%, var(--bx-border));
+                white-space: pre-wrap; }
+    .msg.assistant { align-self: flex-start; background: var(--bx-panel); border: 1px solid var(--bx-border); }
+    .msg.assistant .md > :first-child { margin-top: 0; }
+    .msg.assistant .md > :last-child { margin-bottom: 0; }
+    .msg.assistant .md pre { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+                             border-radius: 5px; padding: 6px 8px; overflow-x: auto; }
+    .msg.assistant .md code { font: 11.5px var(--bx-mono); }
+    .msg .err { color: var(--bx-red); font-size: 11.5px; white-space: pre-wrap; }
+
+    details.think { margin: 0 0 6px; border: 1px dashed var(--bx-border); border-radius: 6px;
+                    background: var(--bx-panel-2); }
+    details.think summary { cursor: pointer; font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
+                            text-transform: uppercase; color: var(--bx-muted); padding: 3px 8px;
+                            user-select: none; list-style-position: inside; }
+    details.think pre { margin: 0; padding: 4px 10px 8px; font: 11px/1.5 var(--bx-mono);
+                        color: var(--bx-muted); white-space: pre-wrap; word-break: break-word;
+                        max-height: 160px; overflow-y: auto; }
+    summary .dots::after { content: '…'; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+    .composer { display: flex; gap: 6px; margin-top: 8px; align-items: flex-end; }
+    textarea {
+      flex: 1; resize: none; background: var(--bx-panel); border: 1px solid var(--bx-border);
+      border-radius: 6px; color: var(--bx-text); font: 12.5px/1.4 var(--bx-font, inherit);
+      padding: 6px 9px; min-height: 34px; max-height: 120px; box-sizing: border-box;
+    }
+    textarea:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
+    .note { font-size: 11.5px; color: var(--bx-muted); padding: 4px 2px; }
+    .note.err { color: var(--bx-red); }
+  </style>
+</head>
+<body class="bx">
+  <div class="top">
+    <h3>Chat</h3>
+    <select id="model" title="Model"><option>loading models…</option></select>
+    <button id="clear" title="Discard this chat">New chat</button>
+  </div>
+  <div class="log" id="log"></div>
+  <div class="note" id="note" hidden></div>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button class="primary" id="send">Send</button>
+  </div>
+
+  <script type="module">
+    import { marked } from '/vendor/marked.esm.js';
+
+    const GW = '/api/apps/llm-gw';
+    const $ = (id) => document.getElementById(id);
+    const log = $('log'), input = $('input'), sendBtn = $('send'), modelSel = $('model'), note = $('note');
+
+    let history = [];          // [{role, content}] — memory only, gone on reload
+    let controller = null;     // AbortController while a reply streams
+
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const render = (s) => marked.parse(esc(s));
+
+    function setNote(text, isErr) {
+      note.hidden = !text;
+      note.textContent = text || '';
+      note.classList.toggle('err', !!isErr);
+    }
+
+    // --- models ---
+    async function loadModels() {
+      try {
+        const r = await buxon.fetch(`${GW}/v1/models`);
+        if (r.status === 403) {
+          setNote('No access to apps/llm-gw yet — approve the pending grant ' +
+                  '(apps/chat → apps/llm-gw:writer) in the grants panel on the root page.', true);
+          return;
+        }
+        if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+        const { data = [] } = await r.json();
+        if (!data.length) { setNote('llm-gw reports no models — configure it on its tile.', true); return; }
+        // Aliases (workspace-curated names) first, then everything alphabetically.
+        const isAlias = (m) => !!m.alias_of || m.owned_by === 'alias';
+        data.sort((a, b) => (isAlias(b) - isAlias(a)) || a.id.localeCompare(b.id));
+        modelSel.replaceChildren(...data.map(m => {
+          const o = document.createElement('option');
+          o.value = m.id;
+          o.textContent = m.alias_of ? `${m.id} → ${m.alias_of}` : m.id;
+          return o;
+        }));
+        setNote('');
+      } catch (e) {
+        setNote(`Failed to list models: ${e.message}`, true);
+      }
+    }
+
+    // --- one assistant bubble with a foldable thinking section ---
+    function assistantBubble() {
+      const el = document.createElement('div');
+      el.className = 'msg assistant';
+      el.innerHTML = `
+        <details class="think" open hidden>
+          <summary>Thinking<span class="dots"></span></summary>
+          <pre></pre>
+        </details>
+        <div class="md"></div>`;
+      log.append(el);
+      const details = el.querySelector('details'), thinkPre = el.querySelector('pre');
+      const summary = el.querySelector('summary'), md = el.querySelector('.md');
+      let folded = false;
+      return {
+        el,
+        update(thinking, content) {
+          if (thinking) {
+            details.hidden = false;
+            thinkPre.textContent = thinking;
+          }
+          if (content) {
+            if (!folded) {              // first visible token: fold thinking away
+              folded = true;
+              details.open = false;
+              summary.textContent = 'Thinking';
+            }
+            md.innerHTML = render(content);
+          }
+        },
+        fail(text) {
+          const p = document.createElement('div');
+          p.className = 'err';
+          p.textContent = text;
+          el.append(p);
+        },
+        done() {
+          summary.textContent = 'Thinking';   // stop the animated dots
+        },
+      };
+    }
+
+    function autoscroll() {
+      const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+      if (nearBottom) log.scrollTop = log.scrollHeight;
+    }
+
+    // Some models put reasoning in delta.reasoning_content / delta.reasoning,
+    // others inline it as a leading <think>…</think> block. Handle both;
+    // returns {thinking, content} views of the accumulated raw stream.
+    function splitThink(raw, apiThinking) {
+      let thinking = apiThinking, content = raw;
+      const lead = raw.trimStart();
+      if (lead.startsWith('<think>')) {
+        const end = lead.indexOf('</think>');
+        if (end === -1) { thinking += lead.slice(7); content = ''; }
+        else { thinking += lead.slice(7, end); content = lead.slice(end + 8).replace(/^\s+/, ''); }
+      } else if (lead && '<think>'.startsWith(lead)) {
+        content = '';                    // partial tag at stream start — wait
+      }
+      return { thinking, content };
+    }
+
+    async function send() {
+      const text = input.value.trim();
+      if (!text || controller) return;
+      input.value = '';
+
+      history.push({ role: 'user', content: text });
+      const u = document.createElement('div');
+      u.className = 'msg user';
+      u.textContent = text;
+      log.append(u);
+
+      const bubble = assistantBubble();
+      autoscroll();
+
+      controller = new AbortController();
+      sendBtn.textContent = 'Stop';
+      sendBtn.onclick = () => controller.abort();
+
+      let raw = '', apiThinking = '', finalContent = '';
+      let pending = false;
+      const paint = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          const { thinking, content } = splitThink(raw, apiThinking);
+          finalContent = content;
+          bubble.update(thinking, content);
+          autoscroll();
+        });
+      };
+
+      try {
+        const r = await buxon.fetch(`${GW}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: modelSel.value, messages: history, stream: true }),
+          signal: controller.signal,
+        });
+        if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 400)}`);
+
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (payload === '[DONE]') continue;
+            let j; try { j = JSON.parse(payload); } catch { continue; }
+            if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+            const d = j.choices?.[0]?.delta || {};
+            apiThinking += d.reasoning_content ?? d.reasoning ?? '';
+            raw += d.content ?? '';
+            paint();
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') bubble.fail('— stopped —');
+        else bubble.fail(`Error: ${e.message}`);
+      } finally {
+        const { thinking, content } = splitThink(raw, apiThinking);
+        finalContent = content;
+        bubble.update(thinking, content);
+        bubble.done();
+        // Keep whatever we got so the conversation can continue after a stop.
+        history.push({ role: 'assistant', content: finalContent || raw });
+        controller = null;
+        sendBtn.textContent = 'Send';
+        sendBtn.onclick = send;
+        autoscroll();
+        input.focus();
+      }
+    }
+
+    sendBtn.onclick = send;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    $('clear').onclick = () => {
+      if (controller) controller.abort();
+      history = [];
+      log.replaceChildren();
+      input.focus();
+    };
+
+    loadModels();
+  </script>
+</body>
+</html>

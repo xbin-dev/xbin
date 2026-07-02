@@ -75,6 +75,11 @@ POST   /create                     owner, or an element granted target
                                    management). body {path, runtime?, title?,
                                    expose?} → {path, files}. Same scaffolder
                                    as `bx new`; never overwrites.
+GET    /builtins                   any. optional tile catalog
+                                   [{name,title,description,defaultPath,installed}]
+POST   /builtins/import            buxon:writer (as /create). body {name, path?}
+                                   → {path, files, pendingGrants} — installs an
+                                   embedded tile (plans/tile-sharing.md).
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add

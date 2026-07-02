@@ -28,6 +28,8 @@ func main() {
 		err = cmdLs()
 	case "new":
 		err = cmdNew(os.Args[2:])
+	case "tile":
+		err = cmdTile(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "doctor":
@@ -60,6 +62,8 @@ func usage() {
   bx status                             backend states, terminals
   bx new <path> [--runtime go|node|python|cgi] [--expose]
                                         scaffold a component
+  bx tile ls | import <name> [as <path>]
+                                        list/install builtin tiles
   bx logs [-f] <component>              show backend logs
   bx api <component>                    roles + API.md of a component
   bx grants                             grant table + pending requests
