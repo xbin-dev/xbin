@@ -194,6 +194,57 @@ boundary today is the container — treat the workspace as one trust domain
 against determined-malicious code, and the grant system as seatbelts and
 audit trail, not a jail.
 
+## Multi-user (users, roles, tile access)
+
+buxon can have **human users** on top of the root token (plans/multi-user.md).
+
+- **Root token** (`BUXON_TOKEN`) — the admin/bootstrap service credential.
+  Full admin; used by `bx`, terminals, automation. Always valid.
+- **Admin user** — logs in with username+password; full access (all tiles,
+  terminals, user management).
+- **Regular user** — logs in; may open/drive only the tiles on their
+  allow-list; no terminal or admin unless explicitly granted.
+
+No users configured ⇒ single-user mode (the root token is the only
+principal), exactly as before. The first user is created by an admin.
+
+**Tile-level RBAC.** A user's `tiles` is an allow-list of component paths or
+`prefix/*` (a scope/subtree; `*` = all). They can load `/c/<tile>/` and get a
+frame token only for allowed tiles; the shell sidebar shows only those; every
+door (view, frame-token mint) enforces it. A tile a user is allowed to use
+runs with its *own* grants — allowing a user a tile lets them use that tile's
+capabilities, like app permissions on a phone. A tile never inherits the
+driving user's admin: opening the admin tile only grants admin because the
+tile itself holds `buxon:admin` — so **don't add admin/privileged tiles to a
+non-admin user's allow-list**.
+
+**Terminals are admin-only.** `/ws/term` is a **root shell** in a tile's
+directory, gated behind a per-user `terminal` permission (admins have it;
+grant it to others only if you mean root).
+
+**User management API** — gated by `buxon:users` (distinct from
+`buxon:admin`, so a dedicated user-admin tile can hold just this; admin
+implies it):
+
+```
+GET    /api/buxon/whoami            caller identity + permissions (any principal)
+GET    /api/buxon/users             list (no hashes)
+POST   /api/buxon/users             create {id,name,role,tiles,terminal,password}
+PATCH  /api/buxon/users/<id>        update (role/tiles/terminal/password reset)
+DELETE /api/buxon/users/<id>        remove (revokes their sessions)
+```
+
+The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
+Passwords are Argon2id-hashed in `data/users.json` (0600); sessions are
+server-side (delete/edit revokes immediately) and drop on restart.
+
+**Public-surface lockdown.** Only `/healthz` and `/login`/`/logout` are
+unauthenticated; everything else needs a valid principal. Login uses a
+per-IP throttle and a generic "invalid credentials" (never reveals whether a
+user exists). Nothing sensitive (vault values, tokens, grants, backend
+status/logs) is reachable by a non-admin. Expose a buxon port only behind
+Tailscale or a TLS proxy regardless — the boundary is still the container.
+
 ## Owner login mechanics
 
 - First boot generates a token (`.buxon/token`); buxond prints

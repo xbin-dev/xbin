@@ -16,7 +16,7 @@ import (
 // request shows up in the grants panel like any other).
 func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
-	if !p.Owner {
+	if !b.IsAdmin(p) {
 		role, ok := b.grantedRole(p.Component, "buxon")
 		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{

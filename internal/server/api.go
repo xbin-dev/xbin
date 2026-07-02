@@ -61,8 +61,13 @@ type componentInfo struct {
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalOf(r)
 	out := []componentInfo{}
 	for _, c := range s.Reg.Components() {
+		// A user sees only the tiles they may use (plus chrome); admins, all.
+		if !isChrome(c.Path) && !p.CanUseTile(c.Path) {
+			continue
+		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
@@ -104,16 +109,18 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{"component": ci, "apiDoc": apiMD})
 }
 
-// apiFrameToken refreshes a frame token. Allowed for the owner (any
-// component) or an element frontend refreshing its own token.
+// apiFrameToken refreshes a frame token. Allowed for a principal that may use
+// the tile (admin/owner any; a user only tiles on their allow-list; a tile
+// frontend only its own component). The token is re-bound to the caller's user.
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)
-	if comp == "" || (!p.Owner && p.Component != comp) {
-		apiErr(w, http.StatusForbidden, "cannot mint frame token for other components")
+	ok := comp != "" && (p.Component == comp || (p.Component == "" && p.CanUseTile(comp)))
+	if !ok {
+		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]string{
-		"token": s.Auth.MintFrameToken(comp, frameTokenTTL),
+		"token": s.Auth.MintFrameToken(comp, p.UserID, frameTokenTTL),
 	})
 }

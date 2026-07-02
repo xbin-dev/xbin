@@ -30,6 +30,8 @@ func main() {
 		err = cmdNew(os.Args[2:])
 	case "tile":
 		err = cmdTile(os.Args[2:])
+	case "user":
+		err = cmdUser(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "doctor":

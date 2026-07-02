@@ -24,6 +24,7 @@ export class BxAdmin extends LitElement {
     _vaults: { state: true },   // [{component, keys}]
     _reveal: { state: true },   // "comp\0key" -> value (revealed secrets)
     _cron: { state: true },
+    _users: { state: true },
     _err: { state: true },
     _denied: { state: true },
   };
@@ -87,6 +88,7 @@ export class BxAdmin extends LitElement {
   // {id, label} — ids stay URL-safe (no spaces/&) for hash deep-links.
   static TABS = [
     { id: 'overview', label: 'overview' },
+    { id: 'users', label: 'users' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
     { id: 'cron', label: 'cron' },
@@ -117,10 +119,12 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron] = await Promise.all([
+      const [ov, vaults, cron, users] = await Promise.all([
         api('/auth-overview'), api('/vaults'), api('/cron/jobs'),
+        api('/users').catch(() => ({ users: [] })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
+      this._users = users.users ?? [];
       this._err = ''; this._denied = false;
     } catch (e) {
       if (String(e.message).includes('admin')) this._denied = true;
@@ -183,7 +187,8 @@ export class BxAdmin extends LitElement {
       </div>
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
-        ${tab === 'overview' ? this._overview()
+        ${tab === 'users' ? this._usersView()
+          : tab === 'overview' ? this._overview()
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
           : this._cronView()}
@@ -308,6 +313,75 @@ export class BxAdmin extends LitElement {
             <td style="text-align:right"><button class="act rm" @click=${() => this._delCron(j)}>delete</button></td>
           </tr>`)}
         </table>`}`;
+  }
+
+  // ---- users ----
+  async _createUser(f) {
+    const tiles = f.tiles.value.split(',').map((s) => s.trim()).filter(Boolean);
+    await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
+        tiles, terminal: f.terminal.checked, password: f.password.value }) });
+    f.reset(); this._refresh();
+  }
+  async _patchUser(id, patch) {
+    await api(`/users/${encodeURIComponent(id)}`, { method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    this._refresh();
+  }
+  async _resetPw(id) {
+    const pw = prompt(`New password for ${id}:`);
+    if (!pw) return;
+    await this._patchUser(id, { password: pw });
+    this._err = `password reset for ${id}`;
+  }
+  async _editTiles(u) {
+    const v = prompt(`Allowed tiles for ${u.id} (comma-separated paths or prefix/*; * = all):`,
+      (u.tiles || []).join(', '));
+    if (v == null) return;
+    this._patchUser(u.id, { tiles: v.split(',').map((s) => s.trim()).filter(Boolean) });
+  }
+  async _delUser(id) {
+    if (!confirm(`Delete user ${id}? Their sessions are revoked immediately.`)) return;
+    await api(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    this._refresh();
+  }
+
+  _usersView() {
+    const users = this._users ?? [];
+    return html`
+      <h4>users</h4>
+      <table>
+        <tr><th>id</th><th>name</th><th>role</th><th>tiles</th><th>terminal</th><th></th></tr>
+        ${users.length ? users.map((u) => html`<tr>
+          <td class="mono">${u.id}</td>
+          <td>${u.name}</td>
+          <td><span class="pill">${u.role}</span></td>
+          <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
+            : (u.tiles || []).length ? (u.tiles || []).map((t) => html`<span class="pill">${t}</span>`)
+            : html`<span class="muted">none</span>`}</td>
+          <td>${u.terminal || u.role === 'admin' ? '✓' : ''}</td>
+          <td style="text-align:right; white-space:nowrap">
+            <button class="act" @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote' : 'make admin'}</button>
+            ${u.role === 'admin' ? nothing : html`<button class="act" @click=${() => this._editTiles(u)}>tiles</button>
+              <button class="act" @click=${() => this._patchUser(u.id, { terminal: !u.terminal })}>${u.terminal ? '− term' : '+ term'}</button>`}
+            <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
+            <button class="act rm" @click=${() => this._delUser(u.id)}>del</button>
+          </td>
+        </tr>`) : html`<tr><td class="muted" colspan="6">no users — the root token is the only admin. Add one below.</td></tr>`}
+      </table>
+
+      <h4>add user</h4>
+      <form class="inline" @submit=${(e) => { e.preventDefault(); this._createUser(e.target); }}>
+        <input name="id" placeholder="username" size="12" required>
+        <input name="name" placeholder="display name" size="14">
+        <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
+        <input name="tiles" placeholder="apps/chat, lib/*  (blank = none)" size="22">
+        <label class="muted" style="font-size:11px"><input type="checkbox" name="terminal"> terminal</label>
+        <input name="password" type="password" placeholder="password" size="12" required>
+        <button class="act go">create</button>
+      </form>
+      <p class="muted" style="font-size:11px;margin-top:6px">
+        Terminal = a <b>root shell</b> in a tile's directory; grant it only to trusted users.</p>`;
   }
 }
 

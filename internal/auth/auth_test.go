@@ -18,21 +18,21 @@ func testAuth(t *testing.T) *Auth {
 
 func TestFrameTokens(t *testing.T) {
 	a := testAuth(t)
-	tok := a.MintFrameToken("apps/x", time.Minute)
-	comp, ok := a.VerifyFrameToken(tok)
+	tok := a.MintFrameToken("apps/x", "", time.Minute)
+	comp, _, ok := a.VerifyFrameToken(tok)
 	if !ok || comp != "apps/x" {
 		t.Fatalf("verify: %q %v", comp, ok)
 	}
-	if _, ok := a.VerifyFrameToken(tok + "x"); ok {
+	if _, _, ok := a.VerifyFrameToken(tok + "x"); ok {
 		t.Fatal("tampered token verified")
 	}
-	expired := a.MintFrameToken("apps/x", -time.Minute)
-	if _, ok := a.VerifyFrameToken(expired); ok {
+	expired := a.MintFrameToken("apps/x", "", -time.Minute)
+	if _, _, ok := a.VerifyFrameToken(expired); ok {
 		t.Fatal("expired token verified")
 	}
 	// Token from a different secret must not verify.
 	b := testAuth(t)
-	if _, ok := b.VerifyFrameToken(tok); ok {
+	if _, _, ok := b.VerifyFrameToken(tok); ok {
 		t.Fatal("cross-instance token verified")
 	}
 }
@@ -74,7 +74,7 @@ func TestFromRequest(t *testing.T) {
 	if p, ok := a.FromRequest(r); !ok || !p.Owner {
 		t.Fatal("cookie owner rejected")
 	}
-	r.Header.Set(FrameTokenHeader, a.MintFrameToken("apps/y", time.Minute))
+	r.Header.Set(FrameTokenHeader, a.MintFrameToken("apps/y", "", time.Minute))
 	if p, ok := a.FromRequest(r); !ok || p.Owner || p.Component != "apps/y" {
 		t.Fatalf("frame principal: %+v %v", p, ok)
 	}

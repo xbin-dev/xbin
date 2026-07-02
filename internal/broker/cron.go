@@ -196,7 +196,7 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
-	if !p.Owner {
+	if !b.IsAdmin(p) {
 		j.Component = p.Component // elements schedule only themselves
 	} else if j.Component == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "owner-registered jobs need \"component\""})

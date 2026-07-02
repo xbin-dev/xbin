@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	baseURL string
-	repo    string
-	ws      string
+	baseURL   string
+	repo      string
+	ws        string
+	buxondBin string // built daemon, reused by tests that need their own instance
 )
 
 func TestMain(m *testing.M) {
@@ -41,6 +42,7 @@ func TestMain(m *testing.M) {
 	ws = filepath.Join(tmp, "ws")
 
 	bin := filepath.Join(tmp, "buxond")
+	buxondBin = bin
 	build := exec.Command("go", "build", "-o", bin, "./cmd/buxond")
 	build.Dir = repo
 	if out, err := build.CombinedOutput(); err != nil {
@@ -420,6 +422,135 @@ func frameToken(t *testing.T, comp string) (string, bool) {
 		return "", false
 	}
 	return d.Token, true
+}
+
+// TestMultiUser verifies human users + tile-level RBAC end to end against a
+// dedicated auth-ON instance (the shared harness runs --no-auth). The root
+// token creates a restricted and an admin user; login works; the restricted
+// user is confined (allowed tile 200; others, admin endpoints, terminal 403),
+// the admin user is not; deleting a user revokes their session.
+func TestMultiUser(t *testing.T) {
+	dir := t.TempDir()
+	muWS := filepath.Join(dir, "ws")
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close()
+	base := "http://" + addr
+
+	cmd := exec.Command(buxondBin, "--workspace", muWS, "--listen", addr) // auth ON
+	cmd.Env = append(os.Environ(), "BUXON_SDK_PATH="+filepath.Join(repo, "sdk"))
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	if !waitFor(func() bool {
+		r, err := http.Get(base + "/healthz")
+		if err != nil {
+			return false
+		}
+		r.Body.Close()
+		return r.StatusCode == 200
+	}, 10*time.Second) {
+		t.Fatalf("auth instance never healthy: %s", out.String())
+	}
+	rootTok := strings.TrimSpace(mustReadFile(t, filepath.Join(muWS, ".buxon", "token")))
+
+	root := func(method, path, body string) int {
+		var rd io.Reader
+		if body != "" {
+			rd = strings.NewReader(body)
+		}
+		rq, _ := http.NewRequest(method, base+path, rd)
+		rq.Header.Set("Authorization", "Bearer "+rootTok)
+		if body != "" {
+			rq.Header.Set("Content-Type", "application/json")
+		}
+		r, err := http.DefaultClient.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		return r.StatusCode
+	}
+	if c := root("POST", "/api/buxon/users", `{"id":"alice","role":"user","tiles":["apps/welcome"],"password":"pw1"}`); c != 200 {
+		t.Fatalf("create alice: %d", c)
+	}
+	if c := root("POST", "/api/buxon/users", `{"id":"bob","role":"admin","password":"pw2"}`); c != 200 {
+		t.Fatalf("create bob: %d", c)
+	}
+
+	login := func(user, pass string) (*http.Cookie, bool) {
+		rq, _ := http.NewRequest("POST", base+"/login", strings.NewReader("username="+user+"&password="+pass))
+		rq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		r, err := cl.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		for _, c := range r.Cookies() {
+			if c.Name == "buxon_session" && c.Value != "" {
+				return c, true
+			}
+		}
+		return nil, false
+	}
+	as := func(cookie *http.Cookie, path string) int {
+		rq, _ := http.NewRequest("GET", base+path, nil)
+		rq.AddCookie(cookie)
+		r, err := http.DefaultClient.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		return r.StatusCode
+	}
+
+	if _, ok := login("alice", "nope"); ok {
+		t.Fatal("wrong password logged in")
+	}
+	aliceC, ok := login("alice", "pw1")
+	if !ok {
+		t.Fatal("alice login failed")
+	}
+	bobC, ok := login("bob", "pw2")
+	if !ok {
+		t.Fatal("bob login failed")
+	}
+
+	if code := as(aliceC, "/c/apps/welcome/"); code != 200 {
+		t.Errorf("alice allowed tile: %d, want 200", code)
+	}
+	for _, p := range []string{"/c/tiles/admin/", "/api/buxon/backends", "/api/buxon/users",
+		"/ws/term?cwd=apps/welcome"} {
+		if code := as(aliceC, p); code != 403 {
+			t.Errorf("alice %s: %d, want 403", p, code)
+		}
+	}
+	if code := as(bobC, "/api/buxon/backends"); code != 200 {
+		t.Errorf("bob backends: %d, want 200", code)
+	}
+	if code := as(bobC, "/c/tiles/admin/"); code != 200 {
+		t.Errorf("bob admin tile: %d, want 200", code)
+	}
+
+	if c := root("DELETE", "/api/buxon/users/alice", ""); c != 200 {
+		t.Fatal("delete alice failed")
+	}
+	if code := as(aliceC, "/api/buxon/whoami"); code != 401 {
+		t.Errorf("deleted alice session still valid: %d, want 401", code)
+	}
+}
+
+func mustReadFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func getFramed(t *testing.T, path, tok string) int {

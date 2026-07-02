@@ -39,6 +39,12 @@ deploy step and **no JS build step — ever** (plain ES modules + import maps).
 You are the **owner** principal: every API call you make passes every
 permission check as role `admin`. Running components are not — see §Auth.
 
+**Multi-user:** buxon can have human users with per-tile permissions (admins:
+all tiles + terminals + user mgmt; regular users: only allow-listed tiles, no
+terminal). Manage them with `bx user ls|add|set|rm` or the admin console's
+Users tab. Terminal access is a **root shell** — admin-only by default. Full
+model: docs/auth.md §multi-user.
+
 ## Recipes
 
 **Create a static component and show it:**

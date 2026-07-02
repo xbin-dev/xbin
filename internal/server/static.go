@@ -32,6 +32,16 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tile-level RBAC: a user may load only permitted tiles (plans/multi-user.md).
+	// Chrome (root, shell) is always viewable; the shell then shows only the
+	// tiles the user may use.
+	if owner := s.owningComponent(cleaned); !isChrome(owner) {
+		if p := auth.PrincipalOf(r); !p.CanUseTile(owner) {
+			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
+			return
+		}
+	}
+
 	fi, err := os.Stat(full)
 	if err != nil {
 		http.NotFound(w, r)
@@ -61,6 +71,25 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.ServeFile(w, r, full)
+}
+
+// owningComponent returns the registered component that owns a /c/ path (its
+// longest registered prefix), falling back to the first path segment when
+// nothing is registered yet (a just-created dir before rescan).
+func (s *Server) owningComponent(cleaned string) string {
+	if c, _, ok := s.Reg.Resolve(cleaned); ok {
+		return c.Path
+	}
+	if i := strings.IndexByte(cleaned, '/'); i >= 0 {
+		return cleaned[:i]
+	}
+	return cleaned
+}
+
+// isChrome reports workspace-chrome components that every authenticated user
+// may load (the shell frame itself); tile-access RBAC applies to the rest.
+func isChrome(path string) bool {
+	return path == "root" || path == "shell"
 }
 
 // pathAllowed blocks serving reserved trees and internals through /c/.
@@ -106,8 +135,8 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	frameTok := ""
-	if p := auth.PrincipalOf(r); p.Owner || p.Component == compPath {
-		frameTok = s.Auth.MintFrameToken(compPath, frameTokenTTL)
+	if p := auth.PrincipalOf(r); p.CanUseTile(compPath) {
+		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 
 	inject := fmt.Sprintf(

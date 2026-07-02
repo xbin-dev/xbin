@@ -36,7 +36,7 @@ const (
 type Policy func(p auth.Principal, target *registry.Component) (role string, ok bool)
 
 func DefaultPolicy(p auth.Principal, target *registry.Component) (string, bool) {
-	if p.Owner {
+	if p.IsAdmin() {
 		return "admin", true
 	}
 	if p.Component != "" && p.Component == target.Path {

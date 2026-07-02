@@ -38,7 +38,7 @@ func (b *Broker) apiBuiltinsList(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 	// Importing a tile creates a component: same capability as /create.
 	p := auth.PrincipalOf(r)
-	if !p.Owner {
+	if !b.IsAdmin(p) {
 		role, ok := b.grantedRole(p.Component, "buxon")
 		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{

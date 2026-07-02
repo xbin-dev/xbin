@@ -37,7 +37,8 @@ type Server struct {
 	// nil ⇒ owner-only.
 	IsAdmin func(p auth.Principal) bool
 
-	apiMux *http.ServeMux // /api/buxon/… extensions (broker, grants, vault)
+	apiMux        *http.ServeMux // /api/buxon/… extensions (broker, grants, vault)
+	loginThrottle *loginThrottle
 }
 
 // RegisterAPI mounts a handler under /api/buxon/. Pattern is a ServeMux
@@ -50,6 +51,7 @@ func (s *Server) RegisterAPI(pattern string, h http.HandlerFunc) {
 }
 
 func (s *Server) Handler() http.Handler {
+	s.loginThrottle = newLoginThrottle()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +59,8 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /login", s.handleLogin)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.Handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
@@ -68,7 +72,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
 
-	mux.Handle("GET /ws/term", s.authedOwner(http.HandlerFunc(s.Term.ServeWS)))
+	mux.Handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	mux.Handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
@@ -87,35 +91,80 @@ func (s *Server) authed(next http.Handler) http.Handler {
 	})
 }
 
-// authedOwner additionally requires the owner principal (terminals are the
-// editing plane; elements never get shells).
-func (s *Server) authedOwner(next http.Handler) http.Handler {
+// authedTerminal additionally requires terminal (root-shell) permission
+// (plans/multi-user.md): the root token, admins, or a user explicitly flagged.
+func (s *Server) authedTerminal(next http.Handler) http.Handler {
 	return s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !auth.PrincipalOf(r).Owner {
-			http.Error(w, "owner only", http.StatusForbidden)
+		if !auth.PrincipalOf(r).CanTerminal() {
+			http.Error(w, "terminal access is admin-only (root shell)", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	}))
 }
 
+func setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
+	secure := r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil
+	http.SetCookie(w, &http.Cookie{
+		Name: auth.CookieName, Value: value, Path: "/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,
+		MaxAge: int((30 * 24 * time.Hour).Seconds()),
+	})
+}
+
+// handleLogin: GET serves the login page (username/password), and the
+// `?token=` bootstrap sets the root/admin cookie. POST authenticates a user.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	tok := r.URL.Query().Get("token")
 	if s.Auth.NoAuth() {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	if tok != s.Auth.OwnerToken {
-		http.Error(w, "bad token", http.StatusForbidden)
+	if r.Method == http.MethodPost {
+		s.handleLoginPost(w, r)
 		return
 	}
-	secure := r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil
-	http.SetCookie(w, &http.Cookie{
-		Name: auth.CookieName, Value: tok, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,
-		MaxAge: int((365 * 24 * time.Hour).Seconds()),
-	})
+	if tok := r.URL.Query().Get("token"); tok != "" {
+		if tok != s.Auth.OwnerToken {
+			http.Error(w, "bad token", http.StatusForbidden)
+			return
+		}
+		setSessionCookie(w, r, tok) // root token as the admin cookie
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(loginPageHTML))
+}
+
+func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
+	if !s.loginThrottle.allow(clientIP(r)) {
+		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
+		return
+	}
+	_ = r.ParseForm()
+	user, pass := r.FormValue("username"), r.FormValue("password")
+	if s.Auth.Users == nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	u, ok := s.Auth.Users.Verify(user, pass)
+	if !ok {
+		s.loginThrottle.fail(clientIP(r))
+		// Generic error — never reveal whether the username exists.
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	s.loginThrottle.ok(clientIP(r))
+	setSessionCookie(w, r, s.Auth.NewSession(u.ID))
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(auth.CookieName); err == nil {
+		s.Auth.DropSession(c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 // handleAPI routes /api/buxon/* to the core+extension mux and everything else
@@ -141,7 +190,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		if e.Type != "bus" {
 			return true
 		}
-		if p.Owner {
+		if p.IsAdmin() {
 			return true
 		}
 		if s.BusFilter == nil {

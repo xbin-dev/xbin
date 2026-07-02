@@ -32,7 +32,9 @@ X-Buxon-Role: <role granted on the callee>
 
 ```
 GET  /healthz                    200 "ok", unauthenticated (liveness)
-GET  /login?token=<owner-token>  set cookie, redirect /
+GET  /login                      login page; ?token=<root> sets the admin cookie
+POST /login                      {username,password} form → session cookie (throttled)
+POST /logout                     revoke the session
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  <head> injection (import map, component
@@ -68,7 +70,13 @@ GET    /vaults                     admin. [{component, keys}] across all vaults
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex, roles, uses, deps, manifestError}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
-GET    /frame-token?component=<p>  owner, or that component. {token}
+GET    /frame-token?component=<p>  a principal that may use the tile. {token}
+
+GET    /whoami                    any. caller identity + permissions
+GET    /users                     admin or buxon:users. [{id,name,role,tiles,terminal}]
+POST   /users                     admin/buxon:users. create {id,name,role,tiles,terminal,password}
+PATCH  /users/<id>                admin/buxon:users. update fields (+password reset)
+DELETE /users/<id>                admin/buxon:users. remove (revokes sessions)
 
 POST   /create                     owner, or an element granted target
                                    "buxon" at role writer (workspace

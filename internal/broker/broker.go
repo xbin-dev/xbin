@@ -19,6 +19,7 @@ import (
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/buxon/internal/users"
 	"github.com/magik6k/buxon/internal/vault"
 )
 
@@ -35,6 +36,7 @@ type Broker struct {
 	uids    *uidAllocator  // nil = tier 1
 	barrier *vault.Barrier // vault encryption-at-rest barrier
 	tiles   *builtins.Set  // embedded optional tile catalog (nil = none)
+	Users   *users.Store   // human users (nil = single-user/root-only)
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -110,6 +112,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("DELETE /cron/jobs/{name}", b.apiCronDelete)
 	b.registerAdmin(srv)
 	b.registerTiles(srv)
+	b.registerUsers(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin
 }
@@ -250,7 +253,7 @@ func (b *Broker) sameScope(caller *registry.Component, target string) bool {
 // at role admin (plans/admin-tile.md). Installed into the server as its
 // IsAdmin hook so owner-only management endpoints become admin-capable.
 func (b *Broker) IsAdmin(p auth.Principal) bool {
-	if p.Owner {
+	if p.IsAdmin() { // root token or an admin-role user (plans/multi-user.md)
 		return true
 	}
 	if p.Component == "" {
@@ -262,7 +265,7 @@ func (b *Broker) IsAdmin(p auth.Principal) bool {
 
 // Policy is installed into the proxy: decides element→element API calls.
 func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, bool) {
-	if p.Owner {
+	if p.IsAdmin() {
 		return "admin", true
 	}
 	if p.Component == target.Path {
@@ -281,7 +284,7 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	if !ok || res == nil {
 		return fmt.Errorf("unknown resource %s", target)
 	}
-	if p.Owner {
+	if p.IsAdmin() {
 		return nil
 	}
 	if p.Component == "" {

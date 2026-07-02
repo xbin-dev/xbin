@@ -31,6 +31,7 @@ import (
 	"github.com/magik6k/buxon/internal/runner"
 	"github.com/magik6k/buxon/internal/server"
 	"github.com/magik6k/buxon/internal/term"
+	"github.com/magik6k/buxon/internal/users"
 	"github.com/magik6k/buxon/internal/watch"
 )
 
@@ -115,6 +116,16 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 	if err != nil {
 		return err
 	}
+	// Human users (plans/multi-user.md). No users configured ⇒ single-user
+	// mode: the root token is the only principal.
+	userStore, err := users.Open(filepath.Join(ws, "data"))
+	if err != nil {
+		return err
+	}
+	a.SetUsers(userStore)
+	if n := userStore.Count(); n > 0 {
+		slog.Info("multi-user mode", "users", n)
+	}
 	reg, err := registry.Open(ws)
 	if err != nil {
 		return err
@@ -182,6 +193,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 			slog.Warn("go.work", "err", err)
 		}
 	}
+	brk.Users = userStore
 
 	// Vault encryption barrier (docs/auth.md §vault). Auto-unseal (or
 	// first-time init) from BUXON_VAULT_PASSPHRASE; otherwise the vault runs
