@@ -47,6 +47,23 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 
 ## Defaults set — veto if wrong
 
+### Builtin updates (new, from `builtin-updates.md`)
+- **BU-1 — Version signal**: content-hash decides *whether* an update exists
+  (auto, no manual bumping); a small human `version` + one-line changelog in the
+  catalog communicates *what*. Alt (hand-maintained semver only) rejected —
+  someone always forgets to bump.
+- **BU-2 — Marker + base snapshot in `.buxon/`** (gitignored, per-deployment):
+  `.buxon/builtins.json` + `.buxon/builtins/<id>/`. Lost on a bare clone → the
+  adoption path re-seeds. Alt (tracked root lockfile) kept as an option for
+  teams that want builtin versions in git history.
+- **BU-3 — 3-way merge via `git merge-file`** (workspace is already a git repo);
+  no bespoke merge engine.
+- **BU-4 — Scope**: scaffold + imported tiles are managed; **template instances
+  are forks and are never auto-updated** (plans/templates.md). Updating a
+  template changes only the *next* instantiation.
+- **BU-5 — Recoverability**: "Replace" is safe because everything is in git;
+  optional pre-update checkpoint commit makes the diff reviewable.
+
 ### Auth (new, from `auth.md`)
 - **ND2 — Browser-side caller attribution via injected frame tokens.** Owner cookie
   authenticates the human; per-frame token (injected at the D4 point, attached by
