@@ -210,26 +210,30 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error 
 	}
 	brk.Users = userStore
 
-	// Vault encryption barrier (docs/auth.md §vault). Secure by default: a real
-	// production start (no --dev, no --no-auth) refuses a plaintext vault
-	// unless --insecure-vault is given explicitly. The dev/no-auth modes are
-	// insecure by definition and permit plaintext; the broker also enforces
-	// this per-write.
+	// Vault encryption barrier (docs/auth.md §vault). Secure by default: in
+	// production (no --dev/--no-auth/--insecure-vault) secrets are never
+	// written in the clear. Three ways in:
+	//   - BUXON_VAULT_PASSPHRASE set → auto-init/unseal at boot (convenient).
+	//   - no env, barrier already set up → start SEALED; an admin unseals
+	//     after login (bx vault unseal / admin console).
+	//   - no env, no barrier → start LOCKED (writes refused) until an admin
+	//     unseals, which creates the barrier on first use. The passphrase
+	//     never touches the container env — the strongest mode.
+	// --dev/--no-auth/--insecure-vault instead permit plaintext at rest.
 	allowPlaintextVault := dev || noAuth || insecureVault
 	brk.AllowInsecureVault = allowPlaintextVault
-	if pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); pass != "" {
+	switch pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); {
+	case pass != "":
 		if err := brk.UnsealOrInit(pass); err != nil {
 			return fmt.Errorf("vault unseal: %w", err)
 		}
-		slog.Info("vault barrier unsealed (encryption at rest active)")
-	} else if !brk.Barrier().Initialized() && !allowPlaintextVault {
-		return fmt.Errorf("refusing to start with an unencrypted vault: set BUXON_VAULT_PASSPHRASE " +
-			"(auto-creates + unseals the encryption barrier), or pass --insecure-vault to allow plaintext " +
-			"at rest (not recommended). See docs/auth.md §vault")
-	} else if brk.Barrier().Initialized() {
-		slog.Warn("vault is encrypted but SEALED — set BUXON_VAULT_PASSPHRASE or POST /api/buxon/vault-unseal; secret reads/writes fail until unsealed")
-	} else if brk.VaultInsecure() {
-		slog.Warn("vault has NO encryption at rest — secrets are plaintext on disk; set BUXON_VAULT_PASSPHRASE to enable the barrier (docs/auth.md)")
+		slog.Info("vault: encryption at rest active (auto-unsealed from env)")
+	case brk.Barrier().Initialized():
+		slog.Warn("vault: encrypted and SEALED — an admin must unseal it after login (bx vault unseal, or the admin console); secret reads/writes fail until then")
+	case allowPlaintextVault:
+		slog.Warn("vault: NO encryption at rest — secrets are plaintext on disk (dev/--insecure-vault). Set BUXON_VAULT_PASSPHRASE or unseal to encrypt")
+	default:
+		slog.Warn("vault: LOCKED — no encryption configured. An admin sets it up after login (bx vault unseal, or the admin console); secret storage is refused until then")
 	}
 
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}

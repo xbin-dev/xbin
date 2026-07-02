@@ -26,11 +26,12 @@ docker run -d --name buxon \
 docker logs buxon        # → one-time login URL
 ```
 
-`BUXON_VAULT_PASSPHRASE` is **required in production** — buxond refuses to
-start with a plaintext vault (secrets encrypted at rest; the key is never in
-the data dir). For a real deployment use **[Docker Compose](#deployment)**
-rather than a raw `docker run`, and keep the passphrase in a gitignored
-`.env`, not on the command line.
+`BUXON_VAULT_PASSPHRASE` encrypts the vault at rest (the key never touches the
+data dir). Set it for hands-off auto-unseal, or **omit it and unseal manually
+after login** (`bx vault unseal`) for the stronger mode where the passphrase
+is never stored — either way production never writes secrets in the clear. For
+a real deployment use **[Docker Compose](#deployment)** rather than a raw
+`docker run`, and keep any passphrase in a gitignored `.env`.
 
 Full docs are served by the workspace itself at `/docs/` (also in
 [docs/](docs/) here): getting started, the component contract, auth/grants,
@@ -91,11 +92,22 @@ kv) are the runtime bits; source, manifests, and the grant table are plain
 files you can commit. Ownership: started as root, buxond drops to the bind
 mount's owner uid, so files stay yours.
 
-**Secrets.** `BUXON_VAULT_PASSPHRASE` gates the encryption barrier and is
-**required** — production refuses to start with a plaintext vault (override
-only with `--insecure-vault` if you knowingly accept plaintext). Keep it in
-`.env` (Compose reads it automatically) or a Docker/Swarm secret, never inline
-in `compose.yml`. Lose it and the encrypted secrets are unrecoverable.
+**Secrets / the vault.** Production never stores secrets in the clear. Two
+ways to run the encryption barrier:
+
+- **Env auto-unseal** — set `BUXON_VAULT_PASSPHRASE` (Compose reads it from
+  `.env`; use a Docker/Swarm secret in a cluster). Hands-off; the passphrase
+  lives in the container env.
+- **Manual unseal (stronger)** — leave it unset. buxond boots with the vault
+  **locked**: it runs and you can log in, but secret storage is refused until
+  an admin runs `bx vault unseal` (or the admin console) once, which creates
+  the barrier from the passphrase they type and encrypts anything existing.
+  The passphrase never touches the container env or disk; you re-unseal after
+  each restart, like HashiCorp Vault.
+
+`--insecure-vault` (or `--dev`) is the only way to store plaintext, for
+throwaway setups. Whatever you choose, keep the passphrase out of
+`compose.yml` and git — lose it and the encrypted secrets are unrecoverable.
 
 **Exposure.** The example binds to `127.0.0.1` on purpose. buxon runs
 arbitrary code by design and does no TLS itself — reach it over **Tailscale**

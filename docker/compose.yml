@@ -21,10 +21,12 @@ services:
       #   - buxon-data:/workspace   (and add a top-level `volumes:` block)
       - ${BUXON_WORKSPACE:-./workspace}:/workspace
     environment:
-      # Required: encrypts the vault at rest. buxond refuses to start without
-      # it (unless you pass --insecure-vault). Comes from .env — keep it out
-      # of this file and out of git; losing it loses the encrypted secrets.
-      - BUXON_VAULT_PASSPHRASE=${BUXON_VAULT_PASSPHRASE:?set BUXON_VAULT_PASSPHRASE in .env}
+      # Encrypts the vault at rest. Set it in .env for hands-off auto-unseal,
+      # or leave it empty to boot with the vault LOCKED and unseal manually
+      # after login (`bx vault unseal`) — the stronger mode, passphrase never
+      # in the container env. Either way secrets are never stored plaintext
+      # (that needs --insecure-vault). Keep any value out of git.
+      - BUXON_VAULT_PASSPHRASE=${BUXON_VAULT_PASSPHRASE:-}
     # Reasonable fences for a box whose job is running arbitrary code:
     mem_limit: 4g
     pids_limit: 2048

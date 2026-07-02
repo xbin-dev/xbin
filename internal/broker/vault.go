@@ -271,11 +271,23 @@ func (b *Broker) apiVaultStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := b.barrier.Status()
+	// mode: unsealed (encryption active) | sealed (encrypted, needs unseal) |
+	// plaintext (no barrier, plaintext allowed) | unconfigured (no barrier,
+	// locked — unseal to set it up, writes refused until then).
+	mode := "unconfigured"
+	switch {
+	case st.Initialized && !st.Sealed:
+		mode = "unsealed"
+	case st.Initialized:
+		mode = "sealed"
+	case b.AllowInsecureVault:
+		mode = "plaintext"
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"initialized": st.Initialized,
 		"sealed":      st.Sealed,
-		// true only when secrets are stored plaintext at rest (no barrier).
-		"insecure": !st.Initialized,
+		"mode":        mode,
+		"insecure":    mode == "plaintext",
 	})
 }
 

@@ -330,20 +330,20 @@ func cmdVault(args []string) error {
 	switch args[0] {
 	case "status":
 		var st struct {
-			Initialized bool `json:"initialized"`
-			Sealed      bool `json:"sealed"`
-			Insecure    bool `json:"insecure"`
+			Mode string `json:"mode"`
 		}
 		if err := apiJSON("GET", "/api/buxon/vault-status", nil, &st); err != nil {
 			return err
 		}
-		switch {
-		case st.Insecure:
-			fmt.Println("insecure: NO encryption at rest (plaintext on disk). Set BUXON_VAULT_PASSPHRASE to enable the barrier.")
-		case st.Sealed:
-			fmt.Println("sealed: encrypted, locked. Run: bx vault unseal")
-		default:
+		switch st.Mode {
+		case "unsealed":
 			fmt.Println("unsealed: encryption at rest active")
+		case "sealed":
+			fmt.Println("sealed: encrypted, locked. Run: bx vault unseal")
+		case "plaintext":
+			fmt.Println("plaintext: NO encryption at rest (dev/--insecure-vault). Run: bx vault unseal to encrypt.")
+		default: // unconfigured
+			fmt.Println("unconfigured: locked, no encryption set up. Run: bx vault unseal to create the barrier (secret storage is refused until then).")
 		}
 		return nil
 	case "unseal":

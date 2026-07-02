@@ -43,9 +43,11 @@ Grants are rows in the workspace `buxon.json`; revoking is deleting the row.
 `pass show imap | bx vault set apps/email imap-pass`.
 
 **`bx vault unseal`** — prompts for the passphrase without echo (or reads it
-piped). First run creates the encryption barrier and encrypts existing
-plaintext; later runs unlock it. `bx vault status` shows insecure / sealed /
-unsealed; boot modes (`BUXON_VAULT_PASSPHRASE` auto-unseal vs manual) are in
+piped). First run **creates** the encryption barrier and encrypts existing
+plaintext; later runs unlock it after a restart. This is how you bring an
+env-less production instance online: boot leaves the vault locked, then an
+admin unseals once after login. `bx vault status` reports the mode
+(unsealed / sealed / plaintext / unconfigured); the boot modes are in
 docs/auth.md §vault.
 
 **`bx doctor`** — checks: buxond reachable; manifest parse errors; dangling

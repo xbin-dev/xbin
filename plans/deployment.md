@@ -50,10 +50,13 @@ docker run -d --name buxon \
 docker logs buxon   # prints one-time login URL with token
 ```
 
-- **Secure-by-default vault:** production (no `--dev`) refuses to start with a
-  plaintext vault. Provide `BUXON_VAULT_PASSPHRASE` (auto-creates + unseals the
-  AES-256-GCM barrier) or, to knowingly accept plaintext, pass
-  `--insecure-vault`. Keep the passphrase in `.env`/a secret, never inline.
+- **Secure-by-default vault:** production never stores secrets plaintext.
+  Either set `BUXON_VAULT_PASSPHRASE` (auto-creates + unseals the AES-256-GCM
+  barrier at boot) or leave it unset — buxond boots with the vault **locked**
+  and an admin unseals after login (`bx vault unseal`, which creates the
+  barrier), so the passphrase never lands in the container env. Only
+  `--insecure-vault`/`--dev` permit plaintext. Keep any passphrase in `.env`/a
+  secret, never inline.
 - **Data persistence:** always mount `/workspace` explicitly (bind mount or
   named volume). A bare run without the mount lands data in an anonymous
   volume — orphaned on `docker rm`, easy to lose. Bind mount is preferred

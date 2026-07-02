@@ -133,19 +133,28 @@ bx vault unseal                 # prompts (no echo); creates the barrier on
 bx vault seal                   # drop the key from memory
 ```
 
-Boot modes:
+Boot modes (production never persists secrets in the clear — the broker
+refuses plaintext writes unless explicitly allowed):
 
 - `BUXON_VAULT_PASSPHRASE=…` → **auto-unseal** at startup (convenient; the
   passphrase lives in the container env, readable by root — the weaker mode,
   same tradeoff as Vault's env unseal).
-- Unset, barrier initialized → boots **sealed**; an admin unseals via
-  `bx vault unseal` / `POST /api/buxon/vault-unseal` (strongest: the
-  passphrase touches nothing at rest).
-- Unset, no barrier → **production refuses to start** (secure by default): you
-  must set `BUXON_VAULT_PASSPHRASE`, or pass `--insecure-vault` to knowingly
-  allow plaintext at rest. `--dev` implies the opt-out (local workflows keep
-  working). Even under the opt-out, the broker only writes plaintext when it's
-  explicitly allowed — production never persists secrets in the clear.
+- Unset, barrier already set up → boots **sealed**; an admin unseals after
+  login via `bx vault unseal` / `POST /api/buxon/vault-unseal` (**strongest**:
+  the passphrase never touches the container env or the data dir). Re-unseal
+  after every restart, like Vault.
+- Unset, no barrier yet → boots **locked** (unconfigured): the daemon runs
+  and you can reach the UI, but secret storage is refused (503) until an admin
+  runs `bx vault unseal` once — which **creates** the barrier with the
+  passphrase they type and encrypts any existing plaintext. Also the
+  passphrase-never-in-env mode.
+- `--dev` / `--no-auth` / `--insecure-vault` → **plaintext at rest** permitted
+  (for local/dev; a loud warning). Only these modes ever write plaintext.
+
+So: set the env for hands-off convenience, or leave it unset and unseal
+manually after login for the stronger posture where the passphrase is never
+stored anywhere. `bx vault status` reports which mode you're in
+(unsealed / sealed / plaintext / unconfigured).
 
 **Honest limits.** Go's GC gives no guaranteed memory zeroing, so while
 unsealed the DEK/plaintext may be copied on the heap or appear in a core
