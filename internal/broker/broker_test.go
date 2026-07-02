@@ -168,3 +168,21 @@ func TestBusFilter(t *testing.T) {
 		t.Fatal("other component received bus event")
 	}
 }
+
+func TestVaultRefusesPlaintextByDefault(t *testing.T) {
+	b := testBroker(t) // no barrier configured, AllowInsecureVault defaults false
+	// Secure default: a write with no encryption barrier is refused, not
+	// silently written in the clear.
+	if err := b.vaultWrite("apps/calendar", map[string]string{"k": "v"}); err == nil {
+		t.Fatal("vaultWrite persisted plaintext with no barrier and AllowInsecureVault=false")
+	}
+	// Opt-in (dev / --insecure-vault) allows plaintext.
+	b.AllowInsecureVault = true
+	if err := b.vaultWrite("apps/calendar", map[string]string{"k": "v"}); err != nil {
+		t.Fatalf("plaintext write should succeed when allowed: %v", err)
+	}
+	m, err := b.vaultRead("apps/calendar")
+	if err != nil || m["k"] != "v" {
+		t.Fatalf("read back: %v %v", err, m)
+	}
+}

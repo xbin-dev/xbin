@@ -42,6 +42,12 @@ type Broker struct {
 	// component tree (e.g. a tile import) so the host can reconcile deps/
 	// symlinks and regenerate go.work without waiting for the watcher.
 	OnStructureChange func()
+
+	// AllowInsecureVault permits storing secrets as plaintext at rest when no
+	// encryption barrier is configured (dev / --insecure-vault only). When
+	// false, vault writes without a barrier are refused rather than written
+	// in the clear.
+	AllowInsecureVault bool
 }
 
 // SetBuiltins installs the embedded builtin tile catalog (from main, which

@@ -1,5 +1,12 @@
-# docker compose -f docker/compose.yml up -d
-# Then: docker compose -f docker/compose.yml logs buxon   → login URL
+# buxon — recommended deployment (see README §Deployment).
+#
+#   1. put a strong passphrase in .env (gitignored):
+#        printf 'BUXON_VAULT_PASSPHRASE=%s\n' "$(openssl rand -base64 24)" > .env
+#   2. docker compose up -d   &&   docker compose logs   (→ login URL)
+#
+# All state lives in the bind-mounted ./workspace — a real directory you can
+# inspect, git, and back up. Never run without an explicit /workspace mount
+# (a bare `docker run` would orphan your data in an anonymous volume).
 services:
   buxon:
     image: ghcr.io/magik6k/buxon:latest
@@ -7,16 +14,17 @@ services:
     restart: unless-stopped
     ports:
       # Loopback on purpose: put Tailscale/Caddy in front for remote access
-      # (docs/getting-started.md). Never raw-expose to the internet.
+      # (README §Deployment). Never raw-expose to the internet.
       - "127.0.0.1:8642:8642"
     volumes:
+      # Bind mount (recommended). Swap for a named volume if you prefer:
+      #   - buxon-data:/workspace   (and add a top-level `volumes:` block)
       - ${BUXON_WORKSPACE:-./workspace}:/workspace
-    # environment:
-    #   # Encrypt the vault at rest (docs/auth.md §vault). Auto-unseals at
-    #   # boot; the passphrase lives in the container env (readable by root).
-    #   # For the stronger posture, leave this unset and unseal after boot
-    #   # with `bx vault unseal`.
-    #   - BUXON_VAULT_PASSPHRASE=change-me
+    environment:
+      # Required: encrypts the vault at rest. buxond refuses to start without
+      # it (unless you pass --insecure-vault). Comes from .env — keep it out
+      # of this file and out of git; losing it loses the encrypted secrets.
+      - BUXON_VAULT_PASSPHRASE=${BUXON_VAULT_PASSPHRASE:?set BUXON_VAULT_PASSPHRASE in .env}
     # Reasonable fences for a box whose job is running arbitrary code:
     mem_limit: 4g
     pids_limit: 2048

@@ -56,11 +56,12 @@ func main() {
 	}
 
 	var (
-		wsFlag    = flag.String("workspace", envOr("BUXON_WORKSPACE", "/workspace"), "workspace directory")
-		listen    = flag.String("listen", envOr("BUXON_LISTEN", "127.0.0.1:8642"), "listen address")
-		dev       = flag.Bool("dev", false, "dev mode: no auth, web/docs served from source tree")
-		noAuth    = flag.Bool("no-auth", false, "disable auth (dev only; implied by -dev)")
-		scopeUIDs = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
+		wsFlag        = flag.String("workspace", envOr("BUXON_WORKSPACE", "/workspace"), "workspace directory")
+		listen        = flag.String("listen", envOr("BUXON_LISTEN", "127.0.0.1:8642"), "listen address")
+		dev           = flag.Bool("dev", false, "dev mode: web/docs served from source tree, debug logs")
+		noAuth        = flag.Bool("no-auth", false, "disable auth (dev only; every request is admin)")
+		scopeUIDs     = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
+		insecureVault = flag.Bool("insecure-vault", false, "allow the vault to store secrets as PLAINTEXT at rest (not recommended; --dev implies it)")
 	)
 	flag.Parse()
 
@@ -70,14 +71,14 @@ func main() {
 	}
 	// --dev serves web/docs from the source tree and turns on debug logs; it
 	// no longer implies --no-auth, so `make dev` can exercise multi-user auth
-	// while still live-editing core elements. Use --no-auth explicitly (or
+	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
-	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs); err != nil {
+	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault); err != nil {
 		fatal("%v", err)
 	}
 }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -209,15 +210,22 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 	}
 	brk.Users = userStore
 
-	// Vault encryption barrier (docs/auth.md §vault). Auto-unseal (or
-	// first-time init) from BUXON_VAULT_PASSPHRASE; otherwise the vault runs
-	// in plaintext-at-rest mode with a warning, or stays sealed until an
-	// admin unseals it via the API.
+	// Vault encryption barrier (docs/auth.md §vault). Secure by default: a real
+	// production start (no --dev, no --no-auth) refuses a plaintext vault
+	// unless --insecure-vault is given explicitly. The dev/no-auth modes are
+	// insecure by definition and permit plaintext; the broker also enforces
+	// this per-write.
+	allowPlaintextVault := dev || noAuth || insecureVault
+	brk.AllowInsecureVault = allowPlaintextVault
 	if pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); pass != "" {
 		if err := brk.UnsealOrInit(pass); err != nil {
 			return fmt.Errorf("vault unseal: %w", err)
 		}
 		slog.Info("vault barrier unsealed (encryption at rest active)")
+	} else if !brk.Barrier().Initialized() && !allowPlaintextVault {
+		return fmt.Errorf("refusing to start with an unencrypted vault: set BUXON_VAULT_PASSPHRASE " +
+			"(auto-creates + unseals the encryption barrier), or pass --insecure-vault to allow plaintext " +
+			"at rest (not recommended). See docs/auth.md §vault")
 	} else if brk.Barrier().Initialized() {
 		slog.Warn("vault is encrypted but SEALED — set BUXON_VAULT_PASSPHRASE or POST /api/buxon/vault-unseal; secret reads/writes fail until unsealed")
 	} else if brk.VaultInsecure() {

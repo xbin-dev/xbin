@@ -437,7 +437,9 @@ func TestMultiUser(t *testing.T) {
 	ln.Close()
 	base := "http://" + addr
 
-	cmd := exec.Command(buxondBin, "--workspace", muWS, "--listen", addr) // auth ON
+	// auth ON, real (non-dev) start; --insecure-vault so it boots without a
+	// passphrase (this test isn't exercising the vault).
+	cmd := exec.Command(buxondBin, "--workspace", muWS, "--listen", addr, "--insecure-vault")
 	cmd.Env = append(os.Environ(), "BUXON_SDK_PATH="+filepath.Join(repo, "sdk"))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out

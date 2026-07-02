@@ -141,9 +141,11 @@ Boot modes:
 - Unset, barrier initialized → boots **sealed**; an admin unseals via
   `bx vault unseal` / `POST /api/buxon/vault-unseal` (strongest: the
   passphrase touches nothing at rest).
-- Unset, no barrier → **plaintext at rest** with a loud warning. This is the
-  zero-config default so dev/local workflows keep working; enable the barrier
-  by setting a passphrase or running `bx vault unseal` once.
+- Unset, no barrier → **production refuses to start** (secure by default): you
+  must set `BUXON_VAULT_PASSPHRASE`, or pass `--insecure-vault` to knowingly
+  allow plaintext at rest. `--dev` implies the opt-out (local workflows keep
+  working). Even under the opt-out, the broker only writes plaintext when it's
+  explicitly allowed — production never persists secrets in the clear.
 
 **Honest limits.** Go's GC gives no guaranteed memory zeroing, so while
 unsealed the DEK/plaintext may be copied on the heap or appear in a core

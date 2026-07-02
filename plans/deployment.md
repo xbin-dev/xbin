@@ -36,16 +36,28 @@ cgi-shell only) is backlog, not v1.
 
 ## Install / first run
 
+Recommended: **Compose + bind mount + `.env` passphrase** (see README
+§Deployment). The bare `docker run` still works for a quick try:
+
 ```sh
 mkdir -p ~/buxon-ws
 docker run -d --name buxon \
   -v ~/buxon-ws:/workspace \
+  -e BUXON_VAULT_PASSPHRASE='a-strong-passphrase' \
   -p 127.0.0.1:8642:8642 \
   --restart unless-stopped \
   ghcr.io/<owner>/buxon:latest
 docker logs buxon   # prints one-time login URL with token
 ```
 
+- **Secure-by-default vault:** production (no `--dev`) refuses to start with a
+  plaintext vault. Provide `BUXON_VAULT_PASSPHRASE` (auto-creates + unseals the
+  AES-256-GCM barrier) or, to knowingly accept plaintext, pass
+  `--insecure-vault`. Keep the passphrase in `.env`/a secret, never inline.
+- **Data persistence:** always mount `/workspace` explicitly (bind mount or
+  named volume). A bare run without the mount lands data in an anonymous
+  volume — orphaned on `docker rm`, easy to lose. Bind mount is preferred
+  (transparent, git-able, back up by copying the dir).
 - Empty mount → buxond runs `init` automatically (template + git init per `[D2]`).
 - Binds `0.0.0.0:8642` **inside** the container; the example maps to loopback on
   purpose — remote exposure is explicitly the operator's move (below).

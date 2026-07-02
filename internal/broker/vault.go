@@ -35,6 +35,11 @@ type vaultEnvelope struct {
 	Data []byte `json:"data"` // barrier ciphertext of the JSON map
 }
 
+// errVaultUnconfigured is returned when a write is attempted with no
+// encryption barrier and plaintext is not allowed (production default).
+var errVaultUnconfigured = errors.New(
+	"vault encryption not configured — set BUXON_VAULT_PASSPHRASE (or unseal the barrier) before storing secrets")
+
 func (b *Broker) vaultPath(comp string) string {
 	return filepath.Join(b.Reg.Root, "data", "vault", util.CompKey(comp)+".json")
 }
@@ -79,8 +84,9 @@ func (b *Broker) vaultWrite(comp string, m map[string]string) error {
 		return err
 	}
 	var bts []byte
-	// Encrypt whenever a barrier is available and unsealed; otherwise fall
-	// back to legacy plaintext (dev / no-barrier deployments).
+	// Encrypt whenever a barrier is available and unsealed. Without a barrier,
+	// only write plaintext when explicitly allowed (dev / --insecure-vault);
+	// otherwise refuse, so production can never persist secrets in the clear.
 	if b.barrier != nil && b.barrier.Initialized() {
 		if b.barrier.Sealed() {
 			return vault.ErrSealed
@@ -92,10 +98,12 @@ func (b *Broker) vaultWrite(comp string, m map[string]string) error {
 		if bts, err = json.MarshalIndent(vaultEnvelope{Enc: 1, Data: ct}, "", "  "); err != nil {
 			return err
 		}
-	} else {
+	} else if b.AllowInsecureVault {
 		if bts, err = json.MarshalIndent(m, "", "  "); err != nil {
 			return err
 		}
+	} else {
+		return errVaultUnconfigured
 	}
 	tmp := p + ".tmp"
 	if err := os.WriteFile(tmp, bts, 0o600); err != nil {
@@ -244,6 +252,12 @@ func (b *Broker) vaultError(w http.ResponseWriter, err error) {
 		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "vault is sealed — unseal it first (bx vault unseal, or the admin console)",
 			"docs":  "/docs/auth.md",
+		})
+		return
+	}
+	if errors.Is(err, errVaultUnconfigured) {
+		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": err.Error(), "docs": "/docs/auth.md",
 		})
 		return
 	}

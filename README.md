@@ -19,11 +19,18 @@ Workspace (one container, one git repo)
 mkdir -p ~/buxon-ws
 docker run -d --name buxon \
   -v ~/buxon-ws:/workspace \
+  -e BUXON_VAULT_PASSPHRASE='change-me-to-a-strong-passphrase' \
   -p 127.0.0.1:8642:8642 \
   --restart unless-stopped \
   ghcr.io/magik6k/buxon:latest
 docker logs buxon        # → one-time login URL
 ```
+
+`BUXON_VAULT_PASSPHRASE` is **required in production** — buxond refuses to
+start with a plaintext vault (secrets encrypted at rest; the key is never in
+the data dir). For a real deployment use **[Docker Compose](#deployment)**
+rather than a raw `docker run`, and keep the passphrase in a gitignored
+`.env`, not on the command line.
 
 Full docs are served by the workspace itself at `/docs/` (also in
 [docs/](docs/) here): getting started, the component contract, auth/grants,
@@ -50,17 +57,73 @@ resources, SDKs, wire protocol, CLI.
   buildless frontend (Lit via import maps; vendored, offline-capable, no
   bundler anywhere).
 
+## Deployment
+
+buxon is a **single-container appliance**: one image with the toolchains baked
+in, all state in one bind-mounted `/workspace`. The recommended model is
+**Docker Compose with a bind mount** — it's transparent (your workspace is a
+real directory you can inspect, `git` and back up), declarative, and keeps the
+vault passphrase out of your shell history.
+
+```sh
+mkdir -p ~/buxon-ws && cd ~/buxon-ws
+curl -O https://raw.githubusercontent.com/magik6k/buxon/master/docker/compose.yml
+printf 'BUXON_VAULT_PASSPHRASE=%s\n' "$(openssl rand -base64 24)" > .env   # gitignore this
+docker compose up -d
+docker compose logs        # → one-time login URL
+```
+
+**Data persistence — the one thing to get right.** All state lives under
+`/workspace`; the image declares it a volume. **Always mount it explicitly**
+(a bind mount like `./workspace:/workspace`, or a named volume). If you run a
+bare `docker run` *without* mounting `/workspace`, Docker puts your data in an
+**anonymous volume** that is orphaned on `docker rm` and easy to lose — the
+classic footgun. With an explicit mount, `docker rm -f buxon` /
+`docker compose down` throws away only the container; your workspace stays.
+
+| Mount style | Good for |
+|---|---|
+| **bind mount** (`./workspace:/workspace`) | recommended — inspectable, git-able, back up by copying the dir |
+| **named volume** (`buxon-data:/workspace`) | portable/host-agnostic; back up with a helper container |
+
+`.buxon/` (build cache, sockets, logs) and `data/` (resource state, vault,
+kv) are the runtime bits; source, manifests, and the grant table are plain
+files you can commit. Ownership: started as root, buxond drops to the bind
+mount's owner uid, so files stay yours.
+
+**Secrets.** `BUXON_VAULT_PASSPHRASE` gates the encryption barrier and is
+**required** — production refuses to start with a plaintext vault (override
+only with `--insecure-vault` if you knowingly accept plaintext). Keep it in
+`.env` (Compose reads it automatically) or a Docker/Swarm secret, never inline
+in `compose.yml`. Lose it and the encrypted secrets are unrecoverable.
+
+**Exposure.** The example binds to `127.0.0.1` on purpose. buxon runs
+arbitrary code by design and does no TLS itself — reach it over **Tailscale**
+(map the port on the tailnet) or a **TLS reverse proxy** (Caddy/Traefik;
+buxon's cookie flips to `Secure` behind `X-Forwarded-Proto: https`). Never
+raw-expose the port to the internet: the login/token is the only lock.
+
+**Backups & upgrades.** Backup = the workspace directory (`tar` it, minus
+`.buxon/`), or `bx backup` which checkpoints sqlite safely. Upgrade =
+`docker compose pull && docker compose up -d`; the mounted workspace and its
+schema migrate forward untouched. Roll back by pinning the previous image tag.
+
+Sysctl (host, once, for large workspaces): `fs.inotify.max_user_watches` — see
+`docs/getting-started.md`; `bx doctor` checks the effective limit.
+
 ## Hacking on buxon itself
 
 ```sh
-make dev        # buxond from source against ./devws, auth off, assets from disk
-make test       # unit tests
+make dev          # buxond from source against ./devws — auth ON (login admin/admin),
+                  #   web/docs served from disk for live editing
+make dev-noauth   # frictionless: every request is admin
+make test         # unit tests
 make integration
-make image      # docker build
+make image        # docker build
 ```
 
 Design documents: [ARCHITECTURE.md](ARCHITECTURE.md) and [plans/](plans/)
-(implementation plan, auth design, decision log with rationale).
+(implementation plan, auth/multi-user design, decision log with rationale).
 
 ## Security posture, honestly
 
