@@ -80,11 +80,17 @@ func (s *Server) Handler() http.Handler {
 }
 
 // authed requires any valid principal and stores it in the request context.
+// An unauthenticated browser navigation is redirected to the login page; API
+// clients get a 401.
 func (s *Server) authed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := s.Auth.FromRequest(r)
 		if !ok {
-			http.Error(w, "unauthorized — open the login URL printed by buxond", http.StatusUnauthorized)
+			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
+			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))

@@ -68,7 +68,11 @@ func main() {
 	if err != nil {
 		fatal("%v", err)
 	}
-	if err := serve(ws, *listen, *dev, *noAuth || *dev, *scopeUIDs); err != nil {
+	// --dev serves web/docs from the source tree and turns on debug logs; it
+	// no longer implies --no-auth, so `make dev` can exercise multi-user auth
+	// while still live-editing core elements. Use --no-auth explicitly (or
+	// `make dev-noauth`) for the frictionless admin-everything mode.
+	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs); err != nil {
 		fatal("%v", err)
 	}
 }
@@ -125,6 +129,16 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs bool) error {
 	a.SetUsers(userStore)
 	if n := userStore.Count(); n > 0 {
 		slog.Info("multi-user mode", "users", n)
+	}
+	// Dev convenience: with auth on and no users yet, seed a known admin so
+	// you can sign in immediately and iterate on the multi-user UI. DEV ONLY
+	// (gated on --dev, which never runs in production).
+	if dev && !noAuth && userStore.Count() == 0 {
+		if _, err := userStore.Upsert(users.User{
+			ID: "admin", Name: "Dev Admin", Role: users.RoleAdmin, Terminal: true,
+		}, "admin"); err == nil {
+			slog.Warn("dev: seeded admin user — login 'admin' / 'admin' — DEV ONLY, never expose")
+		}
 	}
 	reg, err := registry.Open(ws)
 	if err != nil {

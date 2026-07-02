@@ -2,13 +2,22 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev build test integration vet fmt-check vendor image dev-reset
+.PHONY: dev dev-noauth build test integration vet fmt-check vendor image dev-reset
 
-# The core loop: buxond from source against ./devws, auth off, assets from disk.
+# The core loop: buxond from source against ./devws.
+# Live-editable core assets + debug logs, with auth ON (multi-user works).
+# First run seeds a dev admin: login 'admin' / 'admin'. The token URL is also
+# printed for the root admin. Use `make dev-noauth` for admin-everything.
 dev:
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev
 	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --workspace ./devws --listen 127.0.0.1:8642
+
+# Frictionless mode: no auth, every request is admin (the old `make dev`).
+dev-noauth:
+	@mkdir -p devws
+	go build -o bin/bx ./cmd/bx
+	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --no-auth --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:
 	rm -rf devws

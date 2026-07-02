@@ -13,12 +13,17 @@ deps are checked in), Docker only needed for image/e2e work.
 ### The loop
 
 ```
-make dev        # runs: go run ./cmd/buxond --dev --workspace ./devws
+make dev          # go run ./cmd/buxond --dev … (auth ON, assets from disk)
+make dev-noauth   # same, but --no-auth: every request is admin
 ```
 
-`--dev` means: no auth, `web/` served from disk (edit bx-frame.js → hard-refresh
-browser, no rebuild), verbose logs, and `devws/` auto-initialized from
-`workspace-template/` on first run (gitignored).
+`--dev` means: `web/`+`docs/` served from disk (edit bx-frame.js →
+hard-refresh browser, no rebuild), verbose logs, and `devws/` auto-initialized
+from `workspace-template/` on first run (gitignored). It **no longer implies
+`--no-auth`** — `make dev` runs with auth on and seeds a dev admin (login
+`admin`/`admin`, plus the root token URL in the logs) so multi-user RBAC can
+be exercised while live-editing core elements. `make dev-noauth` is the old
+frictionless admin-everything loop (`--dev --no-auth`).
 
 - Restarting buxond on Go changes: `hack/dev.sh` wraps `go run` with a file watcher
   (use `gow` or a 10-line inotify loop — do **not** take a dependency on air; keep
