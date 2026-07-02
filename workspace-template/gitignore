@@ -1,0 +1,4 @@
+# buxon workspace — derived/runtime state stays out of git (decision D2).
+.buxon/
+data/
+home/

@@ -1,0 +1,13 @@
+{
+  // Admin console: full owner-view into the running workspace. Needs the
+  // workspace-administration capability — a grant on the reserved target
+  // "buxon" at role "admin". The template pre-approves it; revoke with
+  //   bx grant --revoke tiles/admin buxon:admin
+  // and every panel here 403s (the request reappears in the grants panel).
+  //
+  // buxon:admin is heavy: it reads every vault secret and rewrites the
+  // grant table. Grant it only to tiles you trust as you trust yourself.
+  "uses": [
+    { "target": "buxon", "role": "admin" }
+  ]
+}

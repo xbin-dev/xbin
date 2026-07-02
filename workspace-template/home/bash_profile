@@ -1,0 +1,2 @@
+# seeded by buxon init — login bash shells share the interactive config.
+[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"

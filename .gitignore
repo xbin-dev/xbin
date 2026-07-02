@@ -1,0 +1,5 @@
+bin/
+devws*/
+go.work.sum
+*.log
+*_scrot.png

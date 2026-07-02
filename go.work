@@ -1,0 +1,13 @@
+// Dev workspace for the buxon repo itself: lets the examples build (and
+// gopls resolve the sdk) without publishing the sdk module. Workspaces
+// created by `buxond init` get their own generated go.work — this one is
+// only for hacking on buxon.
+go 1.25.0
+
+use (
+	.
+	./sdk
+	./examples/calendar
+	./examples/counter-go
+	./examples/email
+)

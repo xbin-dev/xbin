@@ -1,0 +1,33 @@
+<!doctype html>
+<!--
+  The workspace root — a thin page composing the shell. The layout itself is
+  the `shell/` component in this workspace (open a terminal there to restyle
+  everything live); theme tokens live in /vendor/theme.css and can be
+  overridden in the <style> below.
+
+  Pin components to the canvas by adding children inside <bx-shell>:
+      <bx-frame src="apps/thing"></bx-frame>
+  Pinned cards are closeable too (hides them until reload; remove the line
+  here to unpin for good). Anything in the sidebar opens as a card on click.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>buxon workspace</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <script type="module" src="/c/shell/bx-shell.js"></script>
+  <style>
+    body { margin: 0; }
+    /* Override theme tokens here, e.g.:
+       :root { --bx-accent: #7c3aed; } */
+  </style>
+</head>
+<body class="bx">
+  <bx-shell name="workspace">
+    <bx-frame src="tiles/manager"></bx-frame>
+    <bx-frame src="apps/welcome"></bx-frame>
+    <bx-frame src="tiles/admin" height="480px"></bx-frame>
+  </bx-shell>
+</body>
+</html>

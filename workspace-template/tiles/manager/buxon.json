@@ -1,0 +1,10 @@
+{
+  // Tile Manager: creates new tiles via POST /api/buxon/create. That is a
+  // workspace-management capability, requested here as a grant on the
+  // reserved target "buxon" (pre-approved in the workspace manifest —
+  // revoke it with `bx grant --revoke tiles/manager buxon:writer` and the
+  // request reappears in the grants panel).
+  "uses": [
+    { "target": "buxon", "role": "writer" }
+  ]
+}

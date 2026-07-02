@@ -1,0 +1,9 @@
+{
+  "runtime": "go",
+  "uses": [
+    // Cross-scope: these show up as pending grants until the owner approves
+    // (root page panel, or: bx grant apps/email apps/calendar:reader).
+    { "target": "apps/calendar",         "role": "reader" },
+    { "target": "res:apps/calendar/bus", "role": "reader" }
+  ]
+}

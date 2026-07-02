@@ -1,0 +1,303 @@
+# AGENTS.md — building in this buxon workspace
+
+You are inside a **buxon workspace**: a self-modifying browser workspace
+where every piece of UI is a directory ("component"/"element"), every
+directory can have a live backend, and everything you see — including the
+root page — is editable from shells like the one you're probably in.
+This file is the complete builder reference. The long-form docs are served
+by the daemon; fetch any of them with:
+
+```sh
+curl -s -H "Authorization: Bearer $BUXON_TOKEN" "$BUXON_URL/docs/index.md?raw=1"
+# also: getting-started.md elements.md auth.md resources.md sdk.md protocol.md bx.md
+```
+
+## The model in five lines
+
+```
+Workspace = this directory tree, served by buxond, git-versioned
+Scope     = subtree with scope.json = an app; owns resources; a trust unit
+Component = dir with index.html and/or buxon.json; its PATH is its identity
+Frontend  = /c/<path>/ (iframe'd by <bx-frame>)   Backend = /api/<path>/…
+Terminals (you) are root; running components are least-privileged tenants
+```
+
+`mv` renames a component, `cp -r` forks it, `rm -r` deletes it. Saving any
+file live-reloads the frontend and rebuilds/swaps the backend. There is no
+deploy step and **no JS build step — ever** (plain ES modules + import maps).
+
+## Terminal environment
+
+| Env | Meaning |
+|-----|---------|
+| `BUXON_WORKSPACE` | workspace root (this file lives there) |
+| `BUXON_COMPONENT` | component this terminal was opened on ("" = root) |
+| `BUXON_URL` | buxond, e.g. `http://127.0.0.1:8642` |
+| `BUXON_TOKEN` | owner bearer token — full access; `bx` and curl use it |
+| `HOME` | `<workspace>/home` — contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
+
+You are the **owner** principal: every API call you make passes every
+permission check as role `admin`. Running components are not — see §Auth.
+
+## Recipes
+
+**Create a static component and show it:**
+
+```sh
+mkdir -p apps/thing && $EDITOR apps/thing/index.html
+```
+
+It appears in the shell sidebar immediately (click to open as a card). To
+**pin** it, add `<bx-frame src="apps/thing"></bx-frame>` inside the
+`<bx-shell>` in `root/index.html` — or frame it from any other component.
+
+**Create a Go backend component:** `bx new apps/thing --runtime go --expose`
+(scaffolds manifest, view, `backend/main.go`, `go.mod`, `API.md`). Other
+runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
+
+The same scaffolder is exposed as `POST /api/buxon/create`
+(`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**
+tile (`tiles/manager`, pinned on the root page) uses. Programmatic creation
+from an element requires the workspace-management capability: a grant on the
+reserved target `buxon` at role `writer` (the template pre-approves it for
+tiles/manager; check `bx grants`).
+
+**Workspace-management capabilities** ride the reserved `buxon` target:
+`buxon:writer` = create components; `buxon:admin` = full administration
+(read/write any vault, manage any grant/cron, read system state) — held by
+the **Admin console** tile (`tiles/admin`). `buxon:admin` is the heaviest
+grant in the system; grant it only to tiles you trust as yourself, and
+revoke to disarm. Admin-capable endpoints: `/auth-overview`, `/vaults`,
+`/resources`, `/status`, `/backends`, and the grants/cron/any-vault
+operations (docs/protocol.md, docs/auth.md).
+
+**See it work / debug it:**
+
+```sh
+curl -s -H "Authorization: Bearer $BUXON_TOKEN" $BUXON_URL/api/apps/thing/hello
+bx status                 # backend states: building | healthy | failed (+error)
+bx logs -f apps/thing     # backend stdout/stderr, per generation
+bx doctor                 # manifest errors, missing API.md, dangling deps, …
+bx ls                     # all components
+```
+
+**Version your work:** `cd $BUXON_WORKSPACE && git add -A && git commit`
+(`.buxon/`, `data/`, `home/` are gitignored — leave it that way).
+
+## Component anatomy & manifest
+
+```
+apps/thing/
+  buxon.json     # manifest (JSONC — comments allowed)
+  index.html     # view (optional)
+  backend/       # backend entry (optional)
+  API.md         # REQUIRED if you set "expose" (bx doctor enforces)
+  deps/          # machine-managed symlinks — never create/edit by hand
+```
+
+Full manifest reference (all fields optional):
+
+```jsonc
+{
+  "runtime": "go",              // static(default) | go | node | python | cgi
+  "entry": "./backend",         // defaults: go ./backend, node backend/server.js,
+                                //   python backend/server.py, cgi backend/handler
+  "deps": ["lib/ui-kit"],       // SOURCE visibility: deps/ui-kit symlink appears.
+                                //   Editing-plane only; grants no call rights.
+  "uses": [                     // RUNTIME call rights you want (see §Auth):
+    { "target": "apps/calendar",          "role": "reader" },   // another element's API
+    { "target": "res:apps/thing/db",      "role": "writer" }    // a resource
+  ],
+  "expose": {                   // what others may be granted on YOU
+    "roles": {                  // name → description (description REQUIRED)
+      "reader": "Read thing data",
+      "writer": "Modify thing data"
+    },
+    "implies": { "auditor": ["reader"] }  // only for custom role names
+  },
+  "inject": true                // false = serve HTML byte-exact (rarely wanted)
+}
+```
+
+Scopes: put a `scope.json` at an app's root dir to declare resources and
+import-map overrides:
+
+```jsonc
+// apps/thing/scope.json
+{ "resources": { "db": {"type":"sqlite"}, "bus": {"type":"bus"},
+                 "kvx": {"type":"kv"}, "files": {"type":"blob"},
+                 "cron": {"type":"cron"} } }
+```
+
+Reserved names — do not create components named/under: `buxon`, `vendor`,
+`data`, `home`, `.buxon`. Dirs named `deps`, `node_modules`, `.git`, `.*`
+are never scanned.
+
+## Frontends
+
+Your HTML is served at `/c/<path>/` inside an iframe. buxond injects into
+`<head>`: the import map (`import {LitElement, html, css} from 'lit'` just
+works, vendored/offline), identity metas, and `buxon-client.js`, which gives
+every component document:
+
+```js
+buxon.self                                  // "apps/thing"
+await buxon.fetch(`/api/${buxon.self}/x`)   // ALWAYS use buxon.fetch for /api/ —
+                                            // raw fetch to other elements 403s
+buxon.bus.on('res:apps/thing/bus/', (topic, data) => {…})   // live events
+await buxon.bus.publish('res:apps/thing/bus', 'changed', {…})
+buxon.events.on(e => {…})                   // reload/build/bus/grants stream
+```
+
+Embedding other components:
+
+```html
+<bx-frame src="apps/other"></bx-frame>             <!-- auto-height -->
+<bx-frame src="apps/other" height="400px"></bx-frame>
+```
+
+(`bx-frame`/`bx-grants` are importable via `import '/vendor/bx-frame.js'`
+etc.) Frames live-reload on save; backend build errors overlay the frame
+with compiler output until the next good save.
+
+**Theme & shell.** The workspace look is a light, dense theme defined by
+CSS tokens in `/vendor/theme.css` — link it and use `--bx-bg/-panel/
+-panel-2/-border/-text/-muted/-accent/-green/-amber/-red/-radius/-shadow/
+-font/-mono` (plus `body.bx` base and the `.bx-label` small-caps class).
+Match it in your components; override tokens per document to retheme. The
+entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
+component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
+composed by `root/index.html`. Edit it like any component; shells nest
+(`shell/index.html` is a working nested preview). Sidebar dots encode
+runtime: gray static, blue go, green node, amber python, red cgi. Canvas
+cards drag by their title bar into a column layout (drop to reorder within a
+column or move between columns); column count follows the canvas width.
+
+## Backends
+
+Contract: plain HTTP server on the unix socket `$BUXON_SOCKET`. buxond
+routes `ANY /api/<your-path>/<p>` to you with the prefix stripped. Backend
+process env: `BUXON_SOCKET`, `BUXON_COMPONENT`, `BUXON_GATEWAY` +
+`BUXON_TOKEN` (this generation's credential for outbound calls),
+`BUXON_RES_<NAME>` per granted resource.
+
+Go (SDK `github.com/magik6k/buxon/sdk`, resolved by the generated
+`go.work` — just `require` it, no replace needed):
+
+```go
+import buxon "github.com/magik6k/buxon/sdk"
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /items", list)                       // any granted role
+	mux.Handle("POST /items", buxon.RoleFunc("writer", add)) // role-guarded
+	buxon.Serve(mux)                                         // socket + SIGTERM drain
+}
+
+c := buxon.Caller(r)              // verified {From, Role, Owner} — trustworthy
+resp, _ := buxon.Client().Get("http://buxon/api/apps/calendar/events") // outbound
+kv := buxon.KV(buxon.Resource("kvx"))   // Get/GetJSON/Put/PutJSON/Delete/List
+secret, _ := buxon.Secret("api-key")    // own vault only
+_ = buxon.Publish(buxon.Resource("bus"), "changed", payload)
+```
+
+node/python: no SDK needed — listen on `process.env.BUXON_SOCKET` /
+`os.environ["BUXON_SOCKET"]`, read `X-Buxon-From`/`X-Buxon-Role` headers,
+call outbound via the `BUXON_GATEWAY` unix socket with
+`Authorization: Bearer $BUXON_TOKEN`. `bx new` scaffolds working skeletons.
+cgi: any executable; CGI/1.1 env + `BUXON_FROM`/`BUXON_ROLE`; response on
+stdout.
+
+Lifecycle facts you must design around:
+
+- **A save = a new process.** Keep state in resources (kv/sqlite), not RAM.
+- Lazy start; idle-reaped after ~30 min (next request revives, ~200 ms).
+  Periodic work ⇒ `cron` resource, never a sleeping loop.
+- Blue/green swap: in-flight requests finish; long-lived WS/SSE die at the
+  30 s drain — clients must reconnect.
+- 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.
+- Handle SIGTERM (the SDKs/skeletons do).
+
+## Auth (read docs/auth.md before building multi-app systems)
+
+- **Callee declares roles** (`expose.roles`, with descriptions), and ships
+  an **`API.md`** documenting endpoints per role + a copy-paste `uses`
+  snippet. `bx api apps/other` shows you how to integrate with anything.
+- **Caller requests** in `uses`. Same scope → auto-granted. Cross-scope →
+  pending until the owner approves: `bx grant apps/me apps/other:reader`
+  (role goes after the LAST colon; also the panel on the root page).
+- **Agents: do not approve cross-scope grants yourself.** Declaring `uses`
+  is your job; *approving* a cross-scope (or `buxon:*`) grant is the owner's
+  call — it is the human-in-the-loop the whole permission model exists for,
+  and your terminal runs as owner so `bx grant` would silently bypass it.
+  Instead: add the `uses` entry, then tell the user it's pending and let
+  them approve (grants panel, or by explicitly telling you to run
+  `bx grant`). Same-scope grants need no approval — nothing to do. Only run
+  `bx grant` for a cross-scope/`buxon:*` grant when the user has very
+  explicitly asked you to.
+- buxond verifies identity on every call and injects `X-Buxon-From` /
+  `X-Buxon-Role` — never verify auth yourself; never trust a role you
+  didn't receive in those headers.
+- Role convention: `reader` / `writer` / `admin`, implication downward.
+  On bus resources, `subscriber`/`publisher` alias reader/writer.
+- **Vault** = per-element private secrets: `bx vault set apps/thing key`
+  (value via stdin keeps it out of history); code reads its own via
+  `buxon.Secret`. No cross-element vault access exists — wrap shared
+  secrets behind a role-guarded API instead. Never put secrets in source,
+  manifests, or env files.
+- Prefer **service APIs over shared state** across scopes: "email reads
+  calendar" is a reader grant on calendar's API, not a shared db file.
+
+## Resources (docs/resources.md)
+
+Declare in `scope.json` (or workspace `buxon.json` `resources` for
+`res:workspace/<name>`), request in `uses`, address as
+`res:<scope-path>/<name>`. Granted ⇒ env `BUXON_RES_<NAME>`.
+
+| type | what | access |
+|------|------|--------|
+| `sqlite` | db file, same-scope only | `BUXON_RES_<N>` = file path; use WAL; cross-scope: expose an API instead |
+| `kv` | namespaced kv (≤1 MiB values) | SDK `buxon.KV` or `/api/buxon/kv/res:…/<key>` |
+| `blob` | file store (≤256 MiB/write) | `/api/buxon/blob/res:…/<path>` |
+| `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `buxon.bus.on` (backends: use cron to sweep, not subscriptions) |
+| `cron` | scheduled POSTs to your own endpoints | `PUT /api/buxon/cron/jobs {"name","resource","schedule","path","role"}`; wakes idle backends; make handlers idempotent |
+
+Bus is a change-notification, not a queue: truth lives in kv/sqlite,
+offline subscribers miss messages.
+
+## bx cheat sheet
+
+```
+bx ls | status | doctor
+bx new <path> [--runtime go|node|python|cgi] [--expose]
+bx logs [-f] <component>
+bx api <component>                      # roles + API.md of anything
+bx grants
+bx grant [--revoke] <caller> <target>:<role>
+bx vault ls|get|set|rm <component> [key] [value]
+bx cron ls
+```
+
+Everything bx does is plain HTTP (`/api/buxon/…`, docs/protocol.md) — curl
+with `Authorization: Bearer $BUXON_TOKEN` works for all of it.
+
+## Conventions & common mistakes
+
+- **Ship `API.md` when you expose roles.** It's the integration contract;
+  `bx doctor` flags its absence. Keep it truthful.
+- **Use `buxon.fetch` in frontends** for any `/api/` call. Raw `fetch` to
+  another element = 403 by design (identity attribution).
+- **Don't hand-edit**: `deps/` (symlinks are reconciled from the manifest),
+  `go.work` (generated — has a marker line; removing the marker takes
+  ownership), the `grants` array in workspace `buxon.json` (use `bx grant`;
+  the file is machine-rewritten and comments there don't survive).
+- **Don't touch `data/` paths directly** except a sqlite path you were
+  handed via env. Broker state layout is not API.
+- **Don't store state in process memory** across requests you care about —
+  swaps and reaps will eat it.
+- Keep components self-contained: relative asset URLs inside your dir,
+  shared code via `deps` + (for Go) workspace go.work packages.
+- Editor droppings (`*.swp`, `*~`) and `node_modules` are ignored by the
+  watcher; a save is visible within ~300–500 ms, Go swaps in ~1 s.
+- After structural changes (new scope.json, renamed components), give the
+  scanner a beat, then `bx doctor` to confirm the workspace is coherent.

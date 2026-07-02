@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>welcome</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { padding: 12px 14px; }
+    h2 { margin: 0 0 8px; font-size: 13px; color: var(--bx-text); }
+    p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text); }
+    code { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+           border-radius: 4px; padding: 0 4px;
+           font: 11.5px var(--bx-mono); }
+    a { color: var(--bx-accent); text-decoration: none; }
+    table { border-collapse: collapse; width: 100%; margin: 4px 0; }
+    td { padding: 4px 8px 4px 0; font-size: 12.5px; vertical-align: top;
+         border-top: 1px solid var(--bx-border); }
+    tr:first-child td { border-top: none; }
+    td:first-child { white-space: nowrap; padding-right: 14px; }
+    .bx-label { display: block; margin-top: 10px; color: var(--bx-muted); }
+    welcome-notes { display: block; margin-top: 10px; }
+  </style>
+</head>
+<body class="bx">
+  <h2>the mental model</h2>
+
+  <table>
+    <tr><td><code>workspace</code></td>
+        <td>this directory tree, served live and git-versioned — the page
+            you're looking at <em>is</em> the filesystem</td></tr>
+    <tr><td><code>component</code></td>
+        <td>any directory with an <code>index.html</code> (a card / view)
+            and/or a backend; its path is its identity —
+            <code>mv</code> renames it, <code>cp -r</code> forks it</td></tr>
+    <tr><td><code>backend</code></td>
+        <td>an optional live process (go / node / python) next to the view;
+            rebuilt and swapped every time you save</td></tr>
+    <tr><td><code>scope</code></td>
+        <td>a subtree that acts as one app: owns its resources
+            (kv, sqlite, files, pub/sub, cron) and its trust boundary</td></tr>
+    <tr><td><code>shell</code></td>
+        <td>the layout around this card — top bar, sidebar, canvas — is
+            itself just the <code>shell/</code> component, editable like
+            anything else</td></tr>
+    <tr><td><code>terminal</code></td>
+        <td>your root-access seat: components run least-privileged and ask
+            for grants; you (and your shell) can do anything</td></tr>
+  </table>
+
+  <span class="bx-label">what that adds up to</span>
+  <p>You can build and reshape apps from the inside, while they run:
+     make a directory and it appears in the sidebar; save a file and the
+     card reloads; give an app a backend and wire apps to each other
+     through granted APIs. No deploy step, no build step —
+     see <a href="/docs/" target="_top">/docs/</a> or <code>AGENTS.md</code>
+     to start.</p>
+
+  <span class="bx-label">the working parts — click a note</span>
+  <welcome-notes></welcome-notes>
+  <script type="module" src="./notes.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  // A minimal Go-backend component: one counter, reader/writer roles.
+  "runtime": "go",
+  "expose": {
+    "roles": {
+      "reader": "Read the counter value",
+      "writer": "Increment the counter"
+    }
+  }
+}

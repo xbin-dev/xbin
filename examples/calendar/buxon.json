@@ -1,0 +1,15 @@
+{
+  "runtime": "go",
+  "expose": {
+    "roles": {
+      "reader": "Read events and calendars",
+      "writer": "Create and modify events",
+      "admin":  "Manage calendar settings"
+    }
+  },
+  "uses": [
+    // Same scope → auto-granted (no approval needed).
+    { "target": "res:apps/calendar/events", "role": "writer" },
+    { "target": "res:apps/calendar/bus",    "role": "writer" }
+  ]
+}

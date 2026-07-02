@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>calendar</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { padding: 10px 14px; }
+    h3 { margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+         text-transform: uppercase; color: var(--bx-muted); }
+    ul { list-style: none; padding: 0; margin: 0 0 10px; }
+    li { padding: 2px 0; font-size: 12.5px; border-bottom: 1px solid var(--bx-border); }
+    li:last-child { border-bottom: 0; }
+    li b { color: var(--bx-accent); font-family: var(--bx-mono); font-weight: 600; font-size: 12px; }
+    form { display: flex; gap: 6px; }
+    input { background: var(--bx-panel); border: 1px solid var(--bx-border); color: inherit;
+            border-radius: 5px; padding: 3px 8px; font: inherit; font-size: 12px; }
+    input[name=title] { flex: 1; }
+    button { background: var(--bx-green); color: #fff; border: 0; border-radius: 5px;
+             padding: 3px 12px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+    .empty { color: var(--bx-muted); }
+  </style>
+</head>
+<body class="bx">
+  <h3>today</h3>
+  <ul id="list"><li class="empty">loading…</li></ul>
+  <form id="add">
+    <input name="time" placeholder="HH:MM" size="5">
+    <input name="title" placeholder="new event" required>
+    <button>add</button>
+  </form>
+  <script type="module">
+    const list = document.getElementById('list');
+    const load = async () => {
+      const d = await (await buxon.fetch(`/api/${buxon.self}/events`)).json();
+      list.innerHTML = d.events.length === 0 ? '<li class="empty">nothing today</li>'
+        : d.events.map((e) => `<li><b>${e.time || '--:--'}</b> ${e.title}</li>`).join('');
+    };
+    document.getElementById('add').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const f = new FormData(ev.target);
+      await buxon.fetch(`/api/${buxon.self}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          day: new Date().toISOString().slice(0, 10),
+          time: f.get('time'), title: f.get('title'),
+        }),
+      });
+      ev.target.reset();
+    };
+    // Live updates from our own bus (also how other apps stay in sync).
+    buxon.bus.on('res:apps/calendar/bus/events/', load);
+    await load();
+  </script>
+</body>
+</html>

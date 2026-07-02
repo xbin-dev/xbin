@@ -1,0 +1,9 @@
+{
+  // apps/calendar is a scope: an app with its own resources. Components in
+  // this subtree get same-scope auto-grants to these (docs/resources.md).
+  "resources": {
+    "events": { "type": "kv" },
+    "bus":    { "type": "bus" },
+    "cron":   { "type": "cron" }
+  }
+}

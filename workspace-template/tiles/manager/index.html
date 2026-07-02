@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Tile Manager — create new tiles without touching a shell. Talks to
+     POST /api/buxon/create with this element's identity (buxon.fetch); the
+     grant behind it is declared in buxon.json. More management features
+     will land here over time. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tile Manager</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { padding: 10px 14px 12px; }
+    h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+         text-transform: uppercase; color: var(--bx-muted); }
+    .field { margin-bottom: 7px; }
+    .field label { display: block; font-size: 10.5px; font-weight: 600;
+                   letter-spacing: .06em; text-transform: uppercase;
+                   color: var(--bx-muted); margin-bottom: 2px; }
+    .field input {
+      width: 100%; box-sizing: border-box;
+      background: var(--bx-panel); border: 1px solid var(--bx-border);
+      border-radius: 5px; color: var(--bx-text);
+      font: 12.5px/1.4 inherit; padding: 4px 8px;
+    }
+    .field input:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
+    .slug-row { display: flex; align-items: center; gap: 0; }
+    .slug-row .prefix {
+      font: 11.5px var(--bx-mono); color: var(--bx-muted);
+      background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+      border-right: 0; border-radius: 5px 0 0 5px; padding: 4px 4px 4px 8px;
+    }
+    .slug-row input { border-radius: 0 5px 5px 0; font-family: var(--bx-mono); font-size: 11.5px; }
+    .actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .actions button {
+      background: var(--bx-accent); color: #fff; border: 0; border-radius: 5px;
+      padding: 4px 14px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+    }
+    .actions button:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
+    .actions button:disabled { opacity: .5; cursor: default; }
+    .msg { font-size: 11.5px; }
+    .msg.ok { color: var(--bx-green); }
+    .msg.err { color: var(--bx-red); }
+  </style>
+</head>
+<body class="bx">
+  <h3>Tile Manager</h3>
+  <form id="f">
+    <div class="field">
+      <label for="pretty">Pretty name</label>
+      <input id="pretty" placeholder="My New Tile" autocomplete="off" required>
+    </div>
+    <div class="field">
+      <label for="slug">URL-safe name</label>
+      <div class="slug-row">
+        <span class="prefix">apps/</span>
+        <input id="slug" placeholder="my-new-tile" autocomplete="off"
+               pattern="[a-z0-9][a-z0-9\-/]*" required>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="create">Create</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </form>
+  <script type="module">
+    const pretty = document.getElementById('pretty');
+    const slug = document.getElementById('slug');
+    const msg = document.getElementById('msg');
+    const btn = document.getElementById('create');
+
+    // Auto-derive the url-safe name until the user edits it themselves.
+    let slugTouched = false;
+    const slugify = (s) => s.toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    pretty.addEventListener('input', () => {
+      if (!slugTouched) slug.value = slugify(pretty.value);
+    });
+    slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
+
+    document.getElementById('f').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const path = 'apps/' + slug.value.replace(/^\/+|\/+$/g, '');
+      btn.disabled = true;
+      msg.className = 'msg'; msg.textContent = 'creating…';
+      try {
+        const r = await buxon.fetch('/api/buxon/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, title: pretty.value.trim() }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error ?? r.status);
+        msg.className = 'msg ok';
+        msg.textContent = `created ${d.path} — it's in the sidebar`;
+        pretty.value = ''; slug.value = ''; slugTouched = false;
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = String(e.message ?? e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

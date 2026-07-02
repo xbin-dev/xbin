@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>email</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { padding: 10px 14px; }
+    h3 { margin: 0 0 4px; font-size: 13px; color: var(--bx-text); }
+    .cal { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+           border-radius: 6px; padding: 6px 10px; margin-top: 8px; }
+    .cal h4 { margin: 0 0 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+              text-transform: uppercase; color: var(--bx-muted); }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { font-size: 12.5px; padding: 1px 0; }
+    li b { color: var(--bx-accent); font-family: var(--bx-mono); font-size: 12px; }
+    .empty, .denied { color: var(--bx-muted); font-size: 12px; }
+    .denied { color: var(--bx-red); }
+  </style>
+</head>
+<body class="bx">
+  <h3>inbox (demo)</h3>
+  <div class="empty">no mail — this demo exists for the calendar widget below</div>
+  <div class="cal">
+    <h4>TODAY FROM apps/calendar</h4>
+    <ul id="today"><li class="empty">loading…</li></ul>
+  </div>
+  <script type="module">
+    const el = document.getElementById('today');
+    const load = async () => {
+      // Server-side path: our backend calls calendar with our identity.
+      const r = await buxon.fetch(`/api/${buxon.self}/today`);
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        el.innerHTML = `<li class="denied">${e.error ?? r.status} — approve the grant on the root page</li>`;
+        return;
+      }
+      const d = await r.json();
+      el.innerHTML = d.events.length === 0 ? '<li class="empty">nothing today</li>'
+        : d.events.map((e) => `<li><b>${e.time || '--:--'}</b> ${e.title}</li>`).join('');
+    };
+    // Live badge update when calendar changes (needs the bus grant).
+    buxon.bus.on('res:apps/calendar/bus/events/', load);
+    await load();
+  </script>
+</body>
+</html>

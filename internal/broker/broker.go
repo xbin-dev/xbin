@@ -1,0 +1,330 @@
+// Package broker implements the runtime-plane authorization and shared
+// resources of plans/auth.md: the grant table and policy (RBAC §3), private
+// vaults (§4), and brokered resources — kv, blob, bus, cron, sqlite
+// provisioning (§5). It installs itself into the server (API endpoints),
+// proxy (policy), runner (per-component env, tier-2 spawn users), and events
+// hub (bus filter).
+package broker
+
+import (
+	"fmt"
+	"net/http"
+	"path"
+	"strings"
+	"sync"
+
+	"github.com/magik6k/buxon/internal/auth"
+	"github.com/magik6k/buxon/internal/events"
+	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/buxon/internal/server"
+)
+
+// CronPrincipal is the From identity of scheduler-invoked calls.
+const CronPrincipal = "buxon/cron"
+
+type Broker struct {
+	Reg *registry.Registry
+	Hub *events.Hub
+
+	mu   sync.Mutex
+	kv   *kvStore
+	cron *cronRunner
+	uids *uidAllocator // nil = tier 1
+}
+
+func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
+	b := &Broker{Reg: reg, Hub: hub}
+	var err error
+	if b.kv, err = openKV(reg.Root); err != nil {
+		return nil, err
+	}
+	if scopeUIDs {
+		if b.uids, err = newUIDAllocator(reg.Root); err != nil {
+			return nil, err
+		}
+	}
+	b.cron = newCronRunner(b)
+	b.Provision()
+	return b, nil
+}
+
+// Register mounts the broker's /api/buxon/* endpoints.
+func (b *Broker) Register(srv *server.Server) {
+	srv.RegisterAPI("POST /create", b.apiCreate)
+	srv.RegisterAPI("GET /grants", b.apiGrantsList)
+	srv.RegisterAPI("POST /grants", b.apiGrantsAdd)
+	srv.RegisterAPI("DELETE /grants", b.apiGrantsRevoke)
+	srv.RegisterAPI("GET /vault/{rest...}", b.apiVaultGet)
+	srv.RegisterAPI("PUT /vault/{rest...}", b.apiVaultPut)
+	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)
+	srv.RegisterAPI("POST /bus/publish", b.apiBusPublish)
+	srv.RegisterAPI("GET /kv/{rest...}", b.apiKVGet)
+	srv.RegisterAPI("PUT /kv/{rest...}", b.apiKVPut)
+	srv.RegisterAPI("DELETE /kv/{rest...}", b.apiKVDelete)
+	srv.RegisterAPI("GET /blob/{rest...}", b.apiBlobGet)
+	srv.RegisterAPI("PUT /blob/{rest...}", b.apiBlobPut)
+	srv.RegisterAPI("DELETE /blob/{rest...}", b.apiBlobDelete)
+	srv.RegisterAPI("GET /cron/jobs", b.apiCronList)
+	srv.RegisterAPI("PUT /cron/jobs", b.apiCronPut)
+	srv.RegisterAPI("DELETE /cron/jobs/{name}", b.apiCronDelete)
+	b.registerAdmin(srv)
+	srv.BusFilter = b.busFilter
+	srv.IsAdmin = b.IsAdmin
+}
+
+// --- resource identity -------------------------------------------------
+
+// resTarget is a parsed "res:<scope>/<name>" grant target.
+type resTarget struct {
+	Scope string // scope path; "" = workspace
+	Name  string
+}
+
+func (rt resTarget) String() string {
+	s := rt.Scope
+	if s == "" {
+		s = "workspace"
+	}
+	return "res:" + s + "/" + rt.Name
+}
+
+// parseRes resolves "res:apps/calendar/db" against declared scopes: the
+// longest declared scope prefix wins, the remainder is the resource name.
+// "res:workspace/<name>" addresses workspace-level resources.
+func (b *Broker) parseRes(target string) (resTarget, *registry.Resource, bool) {
+	rest, ok := strings.CutPrefix(target, "res:")
+	if !ok {
+		return resTarget{}, nil, false
+	}
+	if name, ok := strings.CutPrefix(rest, "workspace/"); ok {
+		// Workspace-level resources are declared in the workspace buxon.json.
+		if r, ok := b.Reg.Workspace().Resources[name]; ok {
+			return resTarget{Scope: "", Name: name}, &r, true
+		}
+		return resTarget{Scope: "", Name: name}, nil, false
+	}
+	scopes := b.Reg.Scopes()
+	p := rest
+	for p != "." && p != "" {
+		dir := path.Dir(p)
+		if sm, ok := scopes[dir]; ok && dir != "." {
+			name := strings.TrimPrefix(rest, dir+"/")
+			if r, ok := sm.Resources[name]; ok {
+				return resTarget{Scope: dir, Name: name}, &r, true
+			}
+			return resTarget{Scope: dir, Name: name}, nil, false
+		}
+		p = dir
+	}
+	return resTarget{}, nil, false
+}
+
+// --- policy (plans/auth.md §3) ------------------------------------------
+
+// roleSatisfies: conventional ordering plus manifest-declared implications.
+func roleSatisfies(have, want string, exp *registry.Expose) bool {
+	norm := func(r string) string {
+		switch r { // bus aliases
+		case "subscriber":
+			return "reader"
+		case "publisher":
+			return "writer"
+		}
+		return r
+	}
+	have, want = norm(have), norm(want)
+	if have == want {
+		return true
+	}
+	rank := map[string]int{"reader": 1, "writer": 2, "admin": 3}
+	if rank[have] > 0 && rank[want] > 0 {
+		return rank[have] >= rank[want]
+	}
+	if exp != nil {
+		seen := map[string]bool{}
+		var walk func(r string) bool
+		walk = func(r string) bool {
+			if r == want {
+				return true
+			}
+			if seen[r] {
+				return false
+			}
+			seen[r] = true
+			for _, imp := range exp.Implies[r] {
+				if walk(norm(imp)) {
+					return true
+				}
+			}
+			return false
+		}
+		return walk(have)
+	}
+	return false
+}
+
+// grantedRole returns the role `from` holds on `target` (component path or
+// res:…), combining the explicit grant table with same-scope auto-grants
+// from `uses` declarations (decision ND5).
+func (b *Broker) grantedRole(from, target string) (string, bool) {
+	ws := b.Reg.Workspace()
+	best := ""
+	for _, g := range ws.Grants {
+		if g.From == from && g.Target == target {
+			if best == "" || roleSatisfies(g.Role, best, nil) {
+				best = g.Role
+			}
+		}
+	}
+	if best != "" {
+		return best, true
+	}
+	// Same-scope auto-grant: the use declaration itself is the grant.
+	caller, ok := b.Reg.Component(from)
+	if !ok {
+		return "", false
+	}
+	for _, u := range caller.Manifest.Uses {
+		if u.Target != target {
+			continue
+		}
+		if b.sameScope(caller, target) {
+			return u.Role, true
+		}
+	}
+	return "", false
+}
+
+func (b *Broker) sameScope(caller *registry.Component, target string) bool {
+	if rt, _, ok := b.parseRes(target); ok || strings.HasPrefix(target, "res:") {
+		return ok && rt.Scope != "" && rt.Scope == caller.Scope
+	}
+	tc, ok := b.Reg.Component(target)
+	return ok && tc.Scope != "" && tc.Scope == caller.Scope
+}
+
+// IsAdmin reports whether a principal may use workspace-administration
+// endpoints: the owner, or an element granted the reserved target "buxon"
+// at role admin (plans/admin-tile.md). Installed into the server as its
+// IsAdmin hook so owner-only management endpoints become admin-capable.
+func (b *Broker) IsAdmin(p auth.Principal) bool {
+	if p.Owner {
+		return true
+	}
+	if p.Component == "" {
+		return false
+	}
+	role, ok := b.grantedRole(p.Component, "buxon")
+	return ok && roleSatisfies(role, "admin", nil)
+}
+
+// Policy is installed into the proxy: decides element→element API calls.
+func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, bool) {
+	if p.Owner {
+		return "admin", true
+	}
+	if p.Component == target.Path {
+		return "admin", true // element is admin of itself
+	}
+	if p.Component == CronPrincipal {
+		return p.Role, true // role bound at job registration (cron.go)
+	}
+	role, ok := b.grantedRole(p.Component, target.Path)
+	return role, ok
+}
+
+// allowRes authorizes principal p on a resource target at want role.
+func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
+	rt, res, ok := b.parseRes(target)
+	if !ok || res == nil {
+		return fmt.Errorf("unknown resource %s", target)
+	}
+	if p.Owner {
+		return nil
+	}
+	if p.Component == "" {
+		return fmt.Errorf("unauthenticated")
+	}
+	role, ok := b.grantedRole(p.Component, rt.String())
+	if !ok || !roleSatisfies(role, want, nil) {
+		return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, rt)
+	}
+	return nil
+}
+
+// Pending computes unsatisfied cross-scope `uses` declarations.
+func (b *Broker) Pending() []registry.Grant {
+	out := []registry.Grant{} // non-nil: JSON-encodes as [] not null (frontends do .length)
+	for _, c := range b.Reg.Components() {
+		for _, u := range c.Manifest.Uses {
+			if u.Target == "" || u.Role == "" {
+				continue
+			}
+			if _, ok := b.grantedRole(c.Path, u.Target); ok {
+				continue
+			}
+			out = append(out, registry.Grant{From: c.Path, Target: u.Target, Role: u.Role})
+		}
+	}
+	return out
+}
+
+// --- grants API ---------------------------------------------------------
+
+func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
+	if !b.IsAdmin(auth.PrincipalOf(r)) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"grants":  b.Reg.Workspace().Grants,
+		"pending": b.Pending(),
+	})
+}
+
+func (b *Broker) apiGrantsAdd(w http.ResponseWriter, r *http.Request) {
+	if g, ok := b.grantMutation(w, r, func(ws *registry.WorkspaceManifest, g registry.Grant) {
+		for _, e := range ws.Grants {
+			if e == g {
+				return
+			}
+		}
+		ws.Grants = append(ws.Grants, g)
+	}); ok {
+		// Carry the affected caller so its already-loaded frame reloads and
+		// retries against the new grant — no manual page refresh needed.
+		b.Hub.Publish(events.Event{Type: "grants", Component: g.From})
+	}
+}
+
+func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
+	if g, ok := b.grantMutation(w, r, func(ws *registry.WorkspaceManifest, g registry.Grant) {
+		out := ws.Grants[:0]
+		for _, e := range ws.Grants {
+			if e != g {
+				out = append(out, e)
+			}
+		}
+		ws.Grants = out
+	}); ok {
+		b.Hub.Publish(events.Event{Type: "grants", Component: g.From})
+	}
+}
+
+func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {
+	if !b.IsAdmin(auth.PrincipalOf(r)) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — grants are approved by the owner or an admin-capable tile"})
+		return registry.Grant{}, false
+	}
+	var g registry.Grant
+	if err := decodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, target, role}"})
+		return registry.Grant{}, false
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return registry.Grant{}, false
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	return g, true
+}

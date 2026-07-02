@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>counter</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
+    button { background: var(--bx-accent); color: #fff; border: 0; border-radius: 6px;
+             padding: 4px 12px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+    #n { font: 600 20px var(--bx-mono); color: var(--bx-accent); min-width: 3ch; }
+  </style>
+</head>
+<body class="bx">
+  <span id="n">…</span>
+  <button id="inc">+1</button>
+  <script type="module">
+    // buxon.fetch attributes this call to examples/counter-go (its own API —
+    // always allowed). Other elements calling it need a grant. See /docs/auth.md.
+    const n = document.getElementById('n');
+    const load = async () =>
+      { n.textContent = (await (await buxon.fetch(`/api/${buxon.self}/count`)).json()).count; };
+    document.getElementById('inc').onclick = async () => {
+      await buxon.fetch(`/api/${buxon.self}/count`, { method: 'POST' });
+      await load();
+    };
+    await load();
+  </script>
+</body>
+</html>

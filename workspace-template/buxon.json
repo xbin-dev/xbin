@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "importMap": {
+    "lit": "/vendor/lit-all.min.js"
+  },
+  "grants": [
+    // Tile Manager may create components (workspace-management capability).
+    { "from": "tiles/manager", "target": "buxon", "role": "writer" },
+    // Admin console: full workspace administration (reads every vault,
+    // manages grants/cron). Heavy — revoke to disarm the admin tile.
+    { "from": "tiles/admin", "target": "buxon", "role": "admin" }
+  ]
+}

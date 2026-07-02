@@ -1,0 +1,64 @@
+/* buxon light theme tokens — dense, Sketch-like.
+   Loaded via <link href="/vendor/theme.css"> in main-document pages and
+   component views. Custom properties pierce shadow DOM, so core elements
+   (bx-frame, bx-grants, bx-shell) pick these up wherever the document sets
+   them; every element also carries the same values as var() fallbacks, so
+   bare documents still render correctly. */
+:root {
+  --bx-bg: #f0f2f5;            /* canvas */
+  --bx-panel: #ffffff;         /* cards, bars, sidebars */
+  --bx-panel-2: #f7f8fa;       /* inset panels, hover rows */
+  --bx-border: #e4e8ed;
+  --bx-text: #33414e;
+  --bx-muted: #8794a1;
+  --bx-accent: #1e88e5;
+  --bx-green: #43a047;
+  --bx-amber: #f2a71b;
+  --bx-red: #e5484d;
+  --bx-radius: 6px;
+  --bx-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --bx-font: 13px/1.45 -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
+  --bx-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  color-scheme: light;
+}
+
+/* Base for component documents that opt in by linking this sheet. */
+body.bx {
+  margin: 0;
+  background: var(--bx-panel);
+  color: var(--bx-text);
+  font: var(--bx-font);
+}
+
+/* Small-caps section label, as in the sidebar/property groups. */
+.bx-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bx-muted);
+}
+
+/* Dense controls. */
+.bx button, button.bx {
+  background: var(--bx-panel);
+  border: 1px solid var(--bx-border);
+  border-radius: var(--bx-radius);
+  color: var(--bx-text);
+  font: var(--bx-font);
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.bx button:hover, button.bx:hover { background: var(--bx-panel-2); }
+.bx input, input.bx, .bx select, select.bx {
+  background: var(--bx-panel);
+  border: 1px solid var(--bx-border);
+  border-radius: var(--bx-radius);
+  color: var(--bx-text);
+  font: var(--bx-font);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.bx input:focus, input.bx:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }

@@ -1,0 +1,277 @@
+/**
+ * <bx-frame src="apps/calendar"> — the core buxon element: renders a
+ * component's index.html in a same-origin iframe, carries the always-visible
+ * 7×7 edit button, live-reloads on source changes, shows build errors as an
+ * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
+ * the component's source directory).
+ *
+ * Attributes:
+ *   src     — component path (workspace-relative)
+ *   height  — fixed CSS height; omit for auto-height (the framed document
+ *             reports its size via buxon-client.js)
+ *   no-edit — hide the edit button
+ *
+ * The edit button opens a floating terminal window: anchored at the frame's
+ * top-right corner when opened, draggable by its title bar, resizable by the
+ * native bottom-right handle (ctrl+scroll inside adjusts the font). It uses
+ * viewport-fixed positioning so container overflow clipping (e.g. shell
+ * cards) can't cut it off; windows share a bring-to-front z-order.
+ *
+ * See /docs/elements.md.
+ */
+import { LitElement, html, css, nothing } from 'lit';
+import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
+import '/vendor/bx-terminal.js';
+
+// Shared z-order for all terminal windows on the page.
+let zTop = 2000;
+
+export class BxFrame extends LitElement {
+  static properties = {
+    src: { type: String },
+    height: { type: String },
+    _termOpen: { state: true },
+    _sessions: { state: true },
+    _active: { state: true },
+    _buildError: { state: true },
+    _autoHeight: { state: true },
+  };
+
+  static styles = css`
+    :host { display: block; position: relative; }
+    .frame-wrap { position: relative; }
+    iframe {
+      display: block; width: 100%; border: 0;
+      height: var(--bx-frame-height, 100%);
+      background: transparent;
+    }
+    .edit {
+      position: absolute; top: 2px; right: 2px;
+      width: 7px; height: 7px; padding: 0; border: 0; border-radius: 2px;
+      background: var(--bx-accent, #1e88e5);
+      opacity: 0.35; cursor: pointer; z-index: 10;
+    }
+    .edit:hover { opacity: 1; }
+    .overlay {
+      position: absolute; inset: 0; z-index: 9; overflow: auto;
+      background: color-mix(in srgb, var(--bx-panel, #fff) 96%, var(--bx-red, #e5484d));
+      color: var(--bx-red, #b3261e);
+      font: 11.5px/1.55 var(--bx-mono, ui-monospace, monospace);
+      padding: 10px 12px; margin: 0; white-space: pre-wrap;
+      border-top: 2px solid var(--bx-red, #e5484d);
+    }
+    .overlay b { color: var(--bx-red, #b3261e); }
+
+    /* ---- floating terminal window ---- */
+    .pop {
+      position: fixed;
+      display: flex; flex-direction: column;
+      background: var(--bx-panel, #fff);
+      border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(16, 24, 40, 0.20), var(--bx-shadow, 0 1px 2px rgba(16,24,40,.05));
+      resize: both; overflow: hidden;
+      min-width: 380px; min-height: 220px;
+    }
+    .titlebar {
+      display: flex; align-items: center; gap: 2px;
+      background: var(--bx-panel-2, #f7f8fa);
+      border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      padding: 3px 6px; user-select: none; cursor: grab;
+      touch-action: none; flex: none;
+    }
+    .titlebar:active { cursor: grabbing; }
+    .titlebar .path {
+      color: var(--bx-text, #33414e); font-weight: 600;
+      font: 11px var(--bx-mono, ui-monospace, monospace);
+      padding: 0 8px 0 4px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .titlebar .spacer { flex: 1; }
+    .titlebar button {
+      border: 1px solid transparent; background: transparent;
+      color: var(--bx-muted, #8794a1);
+      font: 11px var(--bx-mono, ui-monospace, monospace); padding: 1px 7px;
+      border-radius: 4px; cursor: pointer;
+    }
+    .titlebar button.on {
+      background: var(--bx-panel, #fff);
+      border-color: var(--bx-border, #e4e8ed);
+      color: var(--bx-text, #33414e);
+    }
+    .titlebar button:hover { color: var(--bx-text, #33414e); }
+    .term-host { flex: 1; min-height: 0; background: #1b1e24; }
+  `;
+
+  constructor() {
+    super();
+    this._termOpen = false;
+    this._sessions = []; // [{id: string|null}] — null until server assigns
+    this._active = 0;
+    this._buildError = null;
+    this._autoHeight = false;
+    this._pop = null; // {x, y, w, h} — owned imperatively after open
+    this._offEvents = null;
+    this._onMsg = (e) => this._message(e);
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    mountedFrames.add(this);
+    this._autoHeight = !this.height && !this.style.height;
+    this._offEvents = onEvent((e) => this._event(e));
+    window.addEventListener('message', this._onMsg);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    mountedFrames.delete(this);
+    this._offEvents?.();
+    window.removeEventListener('message', this._onMsg);
+  }
+
+  get _iframe() { return this.renderRoot?.querySelector('iframe'); }
+  get _popEl() { return this.renderRoot?.querySelector('.pop'); }
+
+  _event(e) {
+    if (!e.component) return;
+    const mine = e.component === this.src || e.component.startsWith(this.src + '/');
+    if (!mine) return;
+    switch (e.type) {
+      case 'reload':
+        if (isReloadTarget(this, e.component)) this._reload();
+        break;
+      case 'build-error':
+        if (e.component === this.src) this._buildError = e.text || 'build failed';
+        break;
+      case 'build-ok':
+        if (e.component === this.src) this._buildError = null;
+        break;
+      case 'grants':
+        // A grant affecting this component changed — reload so a frontend
+        // that was 403'ing retries against the new permissions.
+        if (e.component === this.src) this._reload();
+        break;
+    }
+  }
+
+  _reload() {
+    this._buildError = null;
+    try { this._iframe?.contentWindow?.location.reload(); }
+    catch { if (this._iframe) this._iframe.src = this._url(); }
+  }
+
+  _message(e) {
+    if (!this._autoHeight) return;
+    const d = e.data;
+    if (d?.type !== 'buxon:resize') return;
+    if (e.source !== this._iframe?.contentWindow) return;
+    const h = Math.max(24, Math.min(d.height, 20000));
+    this.style.setProperty('--bx-frame-height', h + 'px');
+  }
+
+  _url() { return `/c/${this.src}/`; }
+
+  // ---- terminal window ----
+
+  _toggleTerm() {
+    if (this._termOpen) { this._termOpen = false; return; }
+    if (!this._pop) {
+      // Anchor at the frame's top-right corner, clamped to the viewport.
+      const r = this.getBoundingClientRect();
+      const w = 560, h = 320;
+      this._pop = {
+        x: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)),
+        y: Math.max(8, Math.min(r.top + 8, window.innerHeight - h - 8)),
+        w, h,
+      };
+    }
+    this._termOpen = true;
+    if (this._sessions.length === 0) this._newTerm();
+    this.updateComplete.then(() => this._front());
+  }
+
+  _front() {
+    const el = this._popEl;
+    if (el) el.style.zIndex = String(++zTop);
+  }
+
+  // Title-bar drag; the native CSS resize handle owns width/height, and we
+  // read the final geometry back into _pop so reopening keeps it.
+  _dragStart(ev) {
+    if (ev.button !== 0 || ev.target.closest('button')) return;
+    const el = this._popEl;
+    if (!el) return;
+    ev.preventDefault();
+    const startX = ev.clientX - el.offsetLeft;
+    const startY = ev.clientY - el.offsetTop;
+    const move = (e) => {
+      const x = Math.max(-el.offsetWidth + 60, Math.min(e.clientX - startX, window.innerWidth - 40));
+      const y = Math.max(0, Math.min(e.clientY - startY, window.innerHeight - 24));
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      this._pop.x = x; this._pop.y = y;
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  _popDown() {
+    this._front();
+    const el = this._popEl; // capture size after native resizes too
+    if (el && this._pop) { this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; }
+  }
+
+  _newTerm() {
+    this._sessions = [...this._sessions, { id: null }];
+    this._active = this._sessions.length - 1;
+  }
+
+  _gotSession(i, ev) {
+    const s = [...this._sessions];
+    s[i] = { id: ev.detail.id };
+    this._sessions = s;
+  }
+
+  render() {
+    const style = this._autoHeight ? nothing
+      : `--bx-frame-height: ${this.height || this.style.height}`;
+    return html`
+      <div class="frame-wrap" style=${style ?? nothing}>
+        <iframe src=${this._url()} title=${this.src}></iframe>
+        ${this._buildError !== null ? html`
+          <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
+        ${this.hasAttribute('no-edit') ? nothing : html`
+          <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
+      </div>
+      ${this._termOpen ? html`
+        <div class="pop"
+             style="left:${this._pop.x}px; top:${this._pop.y}px; width:${this._pop.w}px; height:${this._pop.h}px"
+             @pointerdown=${this._popDown}>
+          <div class="titlebar" @pointerdown=${this._dragStart}>
+            <span class="path">${this.src}</span>
+            ${this._sessions.map((s, i) => html`
+              <button class=${i === this._active ? 'on' : ''}
+                      @click=${() => { this._active = i; }}>${i + 1}</button>`)}
+            <button title="new terminal" @click=${this._newTerm}>+</button>
+            <span class="spacer"></span>
+            <button title="close (session keeps running)"
+                    @click=${() => { this._termOpen = false; }}>✕</button>
+          </div>
+          <div class="term-host">
+            ${this._sessions.map((s, i) => html`
+              <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
+                cwd=${this.src} session=${s.id ?? nothing}
+                @bx-session=${(ev) => this._gotSession(i, ev)}></bx-terminal>`)}
+          </div>
+        </div>` : nothing}
+    `;
+  }
+}
+
+customElements.define('bx-frame', BxFrame);
