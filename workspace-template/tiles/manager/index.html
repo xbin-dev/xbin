@@ -71,6 +71,7 @@
     <button data-tab="create" class="on">create</button>
     <button data-tab="template">new from template</button>
     <button data-tab="import">import builtin</button>
+    <button data-tab="updates">updates</button>
   </div>
 
   <div class="body" id="create-tab">
@@ -109,6 +110,15 @@
     <div id="tiles"><span class="muted">loading…</span></div>
   </div>
 
+  <div class="body" id="updates-tab" hidden>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">
+      Newer versions of builtin components (the shell, manager/admin tiles,
+      imported tiles) that shipped with this buxond. <b>Replace</b> takes the new
+      version; <b>Merge</b> 3-way-merges it with your edits (everything is in git,
+      so it's recoverable). Template instances are yours and aren't tracked.</p>
+    <div id="updates"><span class="muted">loading…</span></div>
+  </div>
+
   <script type="module">
     // --- tabs ---
     const tabs = document.querySelectorAll('.tabs button');
@@ -117,8 +127,10 @@
       document.getElementById('create-tab').hidden = b.dataset.tab !== 'create';
       document.getElementById('template-tab').hidden = b.dataset.tab !== 'template';
       document.getElementById('import-tab').hidden = b.dataset.tab !== 'import';
+      document.getElementById('updates-tab').hidden = b.dataset.tab !== 'updates';
       if (b.dataset.tab === 'import') loadBuiltins();
       if (b.dataset.tab === 'template') loadTemplates();
+      if (b.dataset.tab === 'updates') loadUpdates();
     });
 
     // --- create tab ---
@@ -192,6 +204,60 @@
         } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
         finally { b.disabled = false; }
       };
+      return el;
+    }
+
+    // --- updates tab ---
+    async function loadUpdates() {
+      const host = document.getElementById('updates');
+      try {
+        const r = await buxon.fetch('/api/buxon/builtins/updates');
+        const ups = await r.json();
+        if (!Array.isArray(ups) || ups.length === 0) { host.innerHTML = '<span class="muted">everything up to date</span>'; return; }
+        host.innerHTML = '';
+        for (const u of ups) host.append(updateCard(u));
+      } catch (e) { host.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
+    }
+    function updateCard(u) {
+      const el = document.createElement('div');
+      el.className = 'tile';
+      const ver = u.fromVersion === u.toVersion ? `v${u.toVersion}` : `v${u.fromVersion}→v${u.toVersion}`;
+      const counts = [];
+      if (u.clean) counts.push(`${u.clean} clean`);
+      if (u.conflicts) counts.push(`<span style="color:var(--bx-amber,#d9a441)">${u.conflicts} conflict</span>`);
+      if (u.adopted) counts.push('<span style="color:var(--bx-amber,#d9a441)">adopted — no base</span>');
+      el.innerHTML = `
+        <div class="h"><span class="title">${esc(u.id)}</span>
+          <span class="name">${esc(u.installPath)} · ${ver}</span><span class="spacer"></span></div>
+        <div class="desc">${counts.join(' · ')}</div>
+        <div class="desc" style="font-family:var(--bx-mono);font-size:11px">${(u.files || []).map((f) =>
+          `${esc(f.path)} <span class="muted">(${esc(f.status)})</span>`).join('<br>')}</div>
+        <div class="row">
+          <button class="btn go" data-mode="replace">Replace</button>
+          ${u.adopted ? '' : '<button class="btn ghost go" data-mode="merge">Merge</button>'}
+          <button class="btn ghost go" data-mode="pin">Skip (pin)</button>
+        </div>
+        <div class="imsg"></div>`;
+      const imsg = el.querySelector('.imsg');
+      el.querySelectorAll('.go').forEach((b) => b.onclick = async () => {
+        const mode = b.dataset.mode;
+        if (mode === 'replace' && !confirm(`Replace ${u.id} with the new version? Local edits to its files are discarded (recoverable via git).`)) return;
+        b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = mode + '…';
+        try {
+          const r = await buxon.fetch('/api/buxon/builtins/update', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: u.id, mode }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error ?? r.status);
+          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          imsg.textContent = mode === 'merge'
+            ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
+            : `${mode}d — reload tiles to see changes`;
+          loadUpdates();
+        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        finally { b.disabled = false; }
+      });
       return el;
     }
 

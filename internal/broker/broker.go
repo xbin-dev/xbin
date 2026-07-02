@@ -37,6 +37,7 @@ type Broker struct {
 	barrier   *vault.Barrier        // vault encryption-at-rest barrier
 	tiles     *builtins.Set         // embedded optional tile catalog (nil = none)
 	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
+	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
 
 	// OnStructureChange, if set, is called after the broker changes the
@@ -58,6 +59,10 @@ func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
 // SetBuiltinTemplates installs the embedded builtin template catalog. Call
 // before Register.
 func (b *Broker) SetBuiltinTemplates(s *builtins.TemplateSet) { b.templates = s }
+
+// SetUpdater installs the builtin update tracker (plans/builtin-updates.md).
+// Call before Register.
+func (b *Broker) SetUpdater(u *builtins.Updater) { b.updater = u }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}

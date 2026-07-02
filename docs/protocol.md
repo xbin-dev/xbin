@@ -95,6 +95,20 @@ GET    /builtins                   any. optional tile catalog
 POST   /builtins/import            buxon:writer (as /create). body {name, path?}
                                    → {path, files, pendingGrants} — installs an
                                    embedded tile (plans/tile-sharing.md).
+GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
+                                   a newer embedded version. [{id,installPath,
+                                   fromVersion,toVersion,adopted,files:[{path,
+                                   status}],clean,conflicts}] (plans/builtin-updates.md)
+POST   /builtins/update             buxon:writer. body {id, mode:
+                                   replace|merge|pin|unpin} → {files}. replace
+                                   overwrites, merge 3-way-merges (git merge-file);
+                                   both re-record provenance. Never touches template
+                                   instances.
+GET    /templates                   any. template blueprints (builtin ∪ workspace).
+                                   [{id,source,title,description,defaultName}]
+POST   /templates/new               buxon:writer. body {source, path?} → {path,
+                                   files, pendingGrants} — instantiates a template
+                                   into a named copy (plans/templates.md).
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add

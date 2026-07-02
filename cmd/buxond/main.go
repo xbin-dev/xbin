@@ -206,6 +206,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error 
 	} else {
 		brk.SetBuiltinTemplates(set)
 	}
+	// Builtin update tracking (plans/builtin-updates.md): offer newer embedded
+	// scaffold/tiles to existing workspaces without trampling customizations.
+	{
+		tileSet, _ := builtins.Load(buxon.BuiltinTilesFS())
+		brk.SetUpdater(builtins.NewUpdater(reg.Root, tileSet, buxon.TemplateFS()))
+	}
 	// After a broker-driven structure change (tile import), reconcile deps and
 	// regenerate go.work immediately so the new tile is usable at once.
 	brk.OnStructureChange = func() {
@@ -400,6 +406,11 @@ func initWorkspace(dir string) error {
 				slog.Warn("git init failed", "out", string(out))
 			}
 		}
+	}
+	// Record scaffold provenance so a future buxond can offer updates to these
+	// components without clobbering the user's edits (plans/builtin-updates.md).
+	if err := builtins.NewUpdater(dir, nil, buxon.TemplateFS()).RecordScaffoldSeed(); err != nil {
+		slog.Warn("record scaffold provenance", "err", err)
 	}
 	return nil
 }

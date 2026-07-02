@@ -35,6 +35,8 @@ type Meta struct {
 	Tags        []string `json:"tags,omitempty"`
 	Provides    []string `json:"provides,omitempty"` // component paths dependents rely on
 	Requires    []string `json:"requires,omitempty"` // other builtin tile names
+	Version     int      `json:"version,omitempty"`  // bump when the tile's files change (plans/builtin-updates.md)
+	Changelog   string   `json:"changelog,omitempty"`
 }
 
 // Set is the embedded builtin tile catalog.
@@ -272,10 +274,23 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 	if _, err := os.Stat(filepath.Join(dstRoot, "buxon.json")); err == nil {
 		return nil, fmt.Errorf("%s already exists", targetPath)
 	}
-	rename := defaultPath != "" && targetPath != defaultPath
+	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, stripTemplate)
+	if err != nil {
+		return nil, err
+	}
+	written, err := WriteTree(dstRoot, targetPath, files)
+	return written, err
+}
 
-	var written []string
-	err = fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
+// RenderTree produces the *installed form* of a component tree from srcFS
+// (rooted at srcRoot): rel path → bytes, with the same transforms CopyTree
+// applies (go.mod.tile→go.mod + module path, own-path rewrite, optional
+// template-block strip). Sharing this with the writer lets update detection
+// compare the embedded source against a workspace copy byte-for-byte.
+func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, stripTemplate bool) (map[string][]byte, error) {
+	rename := defaultPath != "" && targetPath != defaultPath
+	out := map[string][]byte{}
+	err := fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -306,21 +321,36 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 				data = []byte(strings.ReplaceAll(string(data), defaultPath, targetPath))
 			}
 		}
+		out[rel] = data
+		return nil
+	})
+	return out, err
+}
+
+// WriteTree writes a rendered file set under dstRoot. Returns the workspace-
+// relative paths written (targetPath/<rel>).
+func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, error) {
+	rels := make([]string, 0, len(files))
+	for rel := range files {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	written := make([]string, 0, len(files))
+	for _, rel := range rels {
 		out := filepath.Join(dstRoot, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-			return err
+			return written, err
 		}
 		perm := os.FileMode(0o644)
 		if rel == "backend/handler" {
 			perm = 0o755
 		}
-		if err := os.WriteFile(out, data, perm); err != nil {
-			return err
+		if err := os.WriteFile(out, files[rel], perm); err != nil {
+			return written, err
 		}
 		written = append(written, targetPath+"/"+rel)
-		return nil
-	})
-	return written, err
+	}
+	return written, nil
 }
 
 // stripTemplateBlock removes the top-level "template" key from a buxon.json so

@@ -67,6 +67,14 @@ runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
 Import tab). Imported tiles bring their own `uses` — cross-scope grants land
 pending for the owner. Sharing model + roadmap: `plans/tile-sharing.md`.
 
+**Update copied builtins:** the scaffold (shell, manager/admin tiles) and
+imported tiles are copies you own; a newer buxond can carry newer versions.
+`bx builtin updates` lists what changed; `bx builtin update <id> [--replace|
+--merge]` applies it (or the Tile Manager's Updates tab). Merge is a 3-way
+`git merge-file`, so your customizations survive; everything's in git either
+way. Template instances are forks and aren't tracked. Design:
+`plans/builtin-updates.md`.
+
 The same scaffolder is exposed as `POST /api/buxon/create`
 (`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**
 tile (`tiles/manager`, pinned on the root page) uses. Programmatic creation

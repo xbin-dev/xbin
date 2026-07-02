@@ -1,5 +1,6 @@
 {
   "name": "chat",
+  "version": 1,
   "title": "Chat",
   "description": "A streaming LLM chat UI (with foldable reasoning). Pure frontend — talks to the LLM Gateway tile. Import llm-gw first, then approve the pending apps/chat → apps/llm-gw grant.",
   "defaultPath": "apps/chat",

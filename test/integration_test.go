@@ -692,3 +692,69 @@ func TestTemplateInstantiate(t *testing.T) {
 		t.Error("re-instantiating over an existing component should fail")
 	}
 }
+
+func TestBuiltinUpdates(t *testing.T) {
+	// The scaffold was recorded at init, so with a matching embed nothing is
+	// offered.
+	if c, b := get(t, "/api/buxon/builtins/updates"); c != 200 || strings.TrimSpace(b) != "[]" {
+		// Not fatal — other tests may have imported tiles; just require a 200 array.
+		if c != 200 || !strings.HasPrefix(strings.TrimSpace(b), "[") {
+			t.Fatalf("updates list: %d %s", c, firstN(b, 200))
+		}
+	}
+
+	// Simulate a pre-provenance ("adopted") workspace for one scaffold unit:
+	// drop its marker entry and diverge the local copy. It must then surface as
+	// an adopted conflict — never a silent fast-forward.
+	markerPath := filepath.Join(ws, ".buxon", "builtins.json")
+	raw, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("no origin marker (init should have written one): %v", err)
+	}
+	var marker struct {
+		Units map[string]json.RawMessage `json:"units"`
+	}
+	if err := json.Unmarshal(raw, &marker); err != nil {
+		t.Fatalf("marker parse: %v", err)
+	}
+	if _, ok := marker.Units["scaffold:apps/welcome"]; !ok {
+		t.Fatalf("scaffold not recorded at init; units: %v", keysOf(marker.Units))
+	}
+	delete(marker.Units, "scaffold:apps/welcome")
+	out, _ := json.Marshal(marker)
+	if err := os.WriteFile(markerPath, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	welcome := filepath.Join(ws, "apps", "welcome", "index.html")
+	orig := mustReadFile(t, welcome)
+	if err := os.WriteFile(welcome, []byte(orig+"\n<!-- local edit -->\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, b := get(t, "/api/buxon/builtins/updates")
+	if !strings.Contains(b, `"scaffold:apps/welcome"`) || !strings.Contains(b, `"adopted":true`) {
+		t.Fatalf("adopted unit not surfaced as an update: %s", firstN(b, 400))
+	}
+	// Merge is refused on an adopted unit (no trustworthy base).
+	if c, _ := req(t, "POST", "/api/buxon/builtins/update", `{"id":"scaffold:apps/welcome","mode":"merge"}`); c == 200 {
+		t.Error("merge on an adopted unit should be refused")
+	}
+	// Replace fast-forwards to the embedded version and re-records provenance.
+	if c, mb := req(t, "POST", "/api/buxon/builtins/update", `{"id":"scaffold:apps/welcome","mode":"replace"}`); c != 200 {
+		t.Fatalf("replace: %d %s", c, mb)
+	}
+	if got := mustReadFile(t, welcome); strings.Contains(got, "local edit") {
+		t.Error("replace did not discard the local edit")
+	}
+	if _, b := get(t, "/api/buxon/builtins/updates"); strings.Contains(b, `"scaffold:apps/welcome"`) {
+		t.Errorf("unit still offered after replace: %s", firstN(b, 300))
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	var k []string
+	for key := range m {
+		k = append(k, key)
+	}
+	return k
+}
