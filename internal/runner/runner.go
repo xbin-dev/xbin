@@ -33,6 +33,7 @@ import (
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/sandbox"
+	"github.com/magik6k/buxon/internal/sandbox/relay"
 	"github.com/magik6k/buxon/internal/util"
 )
 
@@ -54,6 +55,7 @@ type instance struct {
 	sock   string
 	token  string
 	cmd    *exec.Cmd
+	relay  *relay.Relay  // userspace egress relay (nil unless net:* granted)
 	waitCh chan struct{} // closed when the process exits
 }
 
@@ -89,6 +91,9 @@ type Runner struct {
 	// Rootfs, with default-deny egress (plans/isolation.md). Off by default.
 	Isolate bool
 	Rootfs  string
+	// Egress returns a component's granted egress policy (net:* grants). A
+	// non-empty policy enables the TUN + userspace relay; empty = default-deny.
+	Egress func(c *registry.Component) sandbox.EgressPolicy
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -340,13 +345,19 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	}
 
 	var cmd *exec.Cmd
+	var sb *sandbox.Handle
+	var pol sandbox.EgressPolicy
 	cleanup := func() {}
 	if r.Isolate && sandboxable(c.Manifest.Runtime) {
+		if r.Egress != nil {
+			pol = r.Egress(c)
+		}
 		var err error
-		cmd, cleanup, err = r.sandboxCmd(c, bin, dir, sock, env)
+		cmd, sb, err = r.sandboxCmd(c, bin, dir, sock, env, pol)
 		if err != nil {
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
+		cleanup = sb.Cleanup
 	} else {
 		switch c.Manifest.Runtime {
 		case "go":
@@ -382,14 +393,48 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	r.Auth.RegisterInstance(token, c.Path)
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, waitCh: make(chan struct{})}
+
+	// Granted egress: the init created a TUN in the netns and handed us its fd;
+	// run the userspace relay on it, enforcing the policy.
+	if sb.NeedsRelay() {
+		if fd, err := sb.RecvTUN(); err != nil {
+			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
+		} else if rl, err := relay.Start(fd, pol.Allow, r.resolver()); err != nil {
+			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
+		} else {
+			inst.relay = rl
+		}
+	}
+
 	go func() {
 		_ = cmd.Wait()
+		if inst.relay != nil {
+			inst.relay.Close()
+		}
 		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		logf.Close()
 		r.Auth.RevokeInstance(token)
 		close(inst.waitCh)
 	}()
 	return inst, nil
+}
+
+// resolver is the upstream DNS the relay forwards component :53 queries to:
+// the host's first nameserver, else a public default.
+func (r *Runner) resolver() string {
+	if b, err := os.ReadFile("/etc/resolv.conf"); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if ns, ok := strings.CutPrefix(line, "nameserver "); ok {
+				ns = strings.TrimSpace(ns)
+				if !strings.Contains(ns, ":") {
+					return ns + ":53"
+				}
+				return "[" + ns + "]:53"
+			}
+		}
+	}
+	return "1.1.1.1:53"
 }
 
 func sandboxable(runtime string) bool {
@@ -405,7 +450,7 @@ func sandboxable(runtime string) bool {
 // source is read-only, its run dir and same-scope resource files are read-write,
 // the gateway socket is the one door out, and the netns is empty (default-deny
 // egress; the egress relay is a follow-on).
-func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string) (*exec.Cmd, func(), error) {
+func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy) (*exec.Cmd, *sandbox.Handle, error) {
 	gw := filepath.Join(r.RunDir, "gateway.sock")
 	binds := []sandbox.Bind{
 		{Src: c.Dir, Dst: c.Dir, RO: true}, // component source, read-only
@@ -447,6 +492,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		Cwd:     c.Dir,
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
+	}
+	if !pol.Empty() {
+		spec.Net = "relay" // granted egress → TUN + userspace relay
 	}
 	return sandbox.Launch(spec)
 }

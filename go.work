@@ -2,12 +2,12 @@
 // gopls resolve the sdk) without publishing the sdk module. Workspaces
 // created by `buxond init` get their own generated go.work — this one is
 // only for hacking on buxon.
-go 1.25.0
+go 1.26.3
 
 use (
 	.
-	./sdk
 	./examples/calendar
 	./examples/counter-go
 	./examples/email
+	./sdk
 )

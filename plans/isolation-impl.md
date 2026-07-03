@@ -199,7 +199,13 @@ to keep it out of the core binary's import graph if we prefer.
    buxond-with-`--isolate` needs a real OCI rootfs (phase 4), since Go backends
    build against glibc by default — the fat rootfs provides it.
 3. **Egress relay** — TUN + gVisor forwarder + DNS + `net:*` policy; broker maps
-   `net:*` grants → `EgressPolicy`. (Next; big dep. `EgressPolicy` already lands.)
+   granted `net:*` uses → `EgressPolicy`. **DONE / validated live**: the in-ns
+   init creates a TUN and SCM_RIGHTS-passes its fd to buxond, which runs a gVisor
+   stack (TCP + UDP/DNS forwarders) enforcing the policy. Confirmed end-to-end —
+   `net:<ip>` reaches only that host, `net:internet` reaches public hosts by name
+   (DNS forwarded) but **not** RFC1918, and everything ungranted is refused;
+   grants go through the owner-approved grant table (no self-grant). Deps:
+   `gvisor.dev/gvisor@go`, `vishvananda/netlink`.
 4. **OCI base rootfs** — `hack/build-rootfs.sh` + `docker/rootfs.Dockerfile`
    (Ubuntu + go/node/python/git + `bx` + agent CLIs) → unpacked dir for
    `--rootfs`; isolated Go backends are built **static** (`CGO_ENABLED=0`) so

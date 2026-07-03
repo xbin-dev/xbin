@@ -79,11 +79,11 @@ func TestSandboxIsolation(t *testing.T) {
 		HostGID: os.Getgid(),
 	}
 
-	cmd, cleanup, err := Launch(spec)
+	cmd, h, err := Launch(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
+	defer h.Cleanup()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(err.Error(), "operation not permitted") {
@@ -154,11 +154,11 @@ func TestSandboxServesUnixSocket(t *testing.T) {
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 	}
-	cmd, cleanup, err := Launch(spec)
+	cmd, h, err := Launch(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
+	defer h.Cleanup()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}

@@ -100,6 +100,15 @@ func runInit(specPath string) error {
 		}
 	}
 
+	// Egress relay: create the TUN in this netns and hand its fd to buxond,
+	// which runs the userspace stack + policy. Without this the netns stays
+	// empty = default-deny (plans/isolation.md §3).
+	if s.Net == "relay" {
+		if err := setupEgress(newroot); err != nil {
+			return must(err, "egress")
+		}
+	}
+
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
 	if err := os.MkdirAll(oldroot, 0o700); err != nil {

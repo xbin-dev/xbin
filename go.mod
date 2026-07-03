@@ -1,6 +1,6 @@
 module github.com/magik6k/buxon
 
-go 1.25.0
+go 1.26.3
 
 require (
 	github.com/creack/pty v1.1.24
@@ -11,4 +11,10 @@ require (
 	golang.org/x/crypto v0.53.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
+)
+
+require (
+	github.com/vishvananda/netlink v1.3.1 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
+	gvisor.dev/gvisor v0.0.0-20260701204157-69c2d17aea96 // indirect
 )

@@ -1,9 +1,36 @@
 package sandbox
 
-import "errors"
+import (
+	"errors"
+	"os"
+)
 
 // ErrUnsupported is returned by Launch on non-Linux platforms.
 var ErrUnsupported = errors.New("sandbox: only supported on linux")
+
+// Handle carries the parent-side state of a launched sandbox: cleanup and, when
+// egress is requested (Spec.Net == "relay"), the control socket over which the
+// in-namespace init passes the TUN fd back to us. RecvTUN is Linux-only.
+type Handle struct {
+	cleanup func()
+	ctrl    *os.File // parent end of the fd-passing socketpair (nil = no relay)
+}
+
+// NeedsRelay reports whether the init will hand back a TUN fd for an egress relay.
+func (h *Handle) NeedsRelay() bool { return h != nil && h.ctrl != nil }
+
+// Cleanup releases the spec temp file and the control socket.
+func (h *Handle) Cleanup() {
+	if h == nil {
+		return
+	}
+	if h.cleanup != nil {
+		h.cleanup()
+	}
+	if h.ctrl != nil {
+		h.ctrl.Close()
+	}
+}
 
 // Bind is one mount into the sandbox root.
 type Bind struct {

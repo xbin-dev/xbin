@@ -279,6 +279,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 		run.Rootfs = abs
 		run.Isolate = true
+		run.Egress = brk.EgressFor
 		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
 	}
 
