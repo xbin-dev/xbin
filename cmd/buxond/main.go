@@ -17,6 +17,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	goruntime "runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,6 +39,14 @@ import (
 )
 
 var version = "dev" // set via -ldflags at release
+var startTime = time.Now()
+
+func kernelRelease() string {
+	if b, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
+}
 
 func main() {
 	if len(os.Args) > 1 {
@@ -295,6 +305,24 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			return
 		}
 		server.WriteJSON(w, http.StatusOK, run.Status())
+	})
+	// Full runtime visibility for the admin console: host + per-backend process,
+	// namespaces, and egress/network activity (plans/isolation.md).
+	srv.RegisterAPI("GET /runtime", func(w http.ResponseWriter, r *http.Request) {
+		if !brk.IsAdmin(auth.PrincipalOf(r)) {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		var ms goruntime.MemStats
+		goruntime.ReadMemStats(&ms)
+		host := map[string]any{
+			"version": version, "pid": os.Getpid(), "uid": os.Geteuid(),
+			"kernel": kernelRelease(), "numCPU": goruntime.NumCPU(),
+			"goroutines": goruntime.NumGoroutine(), "heapMB": float64(ms.HeapAlloc) / 1e6,
+			"uptimeSec": int64(time.Since(startTime).Seconds()),
+			"isolate":   run.Isolate, "rootfs": run.Rootfs, "scopeUids": scopeUIDs && os.Geteuid() == 0,
+		}
+		server.WriteJSON(w, http.StatusOK, map[string]any{"host": host, "backends": run.Inspect()})
 	})
 
 	// Watch → rescan, live reload, rebuilds.

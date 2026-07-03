@@ -63,6 +63,14 @@ failures carry compiler output in `detail`).
 ```
 GET    /status                     admin. terminals, component count
 GET    /backends                   admin. per-component backend state
+GET    /runtime                    admin. full runtime visibility →
+                                   {host:{version,kernel,pid,uid,numCPU,goroutines,
+                                   heapMB,uptimeSec,isolate,rootfs,scopeUids},
+                                   backends:[{path,runtime,state,isolated,pid,gen,
+                                   uptimeSec,restarts,activeConns,rssKb,threads,fds,
+                                   cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],
+                                   activity:{allowed,denied,active,txBytes,rxBytes,
+                                   recent:[{proto,dst,port,allowed,txBytes,rxBytes}]}}]}
                                    {state: idle|building|healthy|failed, gen, error?}
 GET    /auth-overview              admin. components(+roles/uses/vault), grants,
                                    pending, counts — powers the admin console

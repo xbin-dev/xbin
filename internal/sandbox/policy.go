@@ -146,6 +146,38 @@ func (p EgressPolicy) AllowsHost(name string, port int) bool {
 // Empty reports whether the policy grants no egress (default-deny → empty netns).
 func (p EgressPolicy) Empty() bool { return len(p.Rules) == 0 }
 
+// String renders a rule back to its net:… grant form (for display).
+func (r Rule) String() string {
+	var base string
+	switch {
+	case r.Internet:
+		base = "net:internet"
+	case r.Host != "":
+		base = "net:" + r.Host
+	case r.Net.IsValid():
+		if r.Net.Bits() == r.Net.Addr().BitLen() {
+			base = "net:" + r.Net.Addr().String()
+		} else {
+			base = "net:" + r.Net.String()
+		}
+	default:
+		base = "net:?"
+	}
+	if r.Port != 0 {
+		base += ":" + strconv.Itoa(r.Port)
+	}
+	return base
+}
+
+// Strings renders the policy's rules to their grant forms.
+func (p EgressPolicy) Strings() []string {
+	out := make([]string, len(p.Rules))
+	for i, r := range p.Rules {
+		out[i] = r.String()
+	}
+	return out
+}
+
 // isPublic is the "internet" test: a routable public address, explicitly NOT
 // RFC1918/ULA/loopback/link-local — so net:internet never reaches the LAN.
 func isPublic(ip netip.Addr) bool {

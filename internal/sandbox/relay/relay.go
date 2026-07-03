@@ -29,16 +29,71 @@ import (
 )
 
 const nicID = 1
-
-// Allow decides whether a flow to (ip, port) may leave. Called per new flow.
-type Allow func(ip netip.Addr, port int) bool
+const recentFlows = 64
 
 // Relay owns a gVisor stack forwarding a component's egress.
 type Relay struct {
 	stack *stack.Stack
 	dial  net.Dialer
 	allow Allow
+
+	mu      sync.Mutex
+	allowed int64
+	denied  int64
+	active  int64
+	txBytes int64
+	rxBytes int64
+	ring    []*Flow // most-recent-last, capped at recentFlows
 }
+
+// Stats returns a snapshot of this relay's activity.
+func (r *Relay) Stats() Stats {
+	if r == nil {
+		return Stats{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	recent := make([]Flow, 0, len(r.ring))
+	for i := len(r.ring) - 1; i >= 0; i-- { // newest first
+		recent = append(recent, *r.ring[i])
+	}
+	return Stats{
+		Allowed: r.allowed, Denied: r.denied, Active: r.active,
+		TxBytes: r.txBytes, RxBytes: r.rxBytes, Recent: recent,
+	}
+}
+
+// record starts a flow record, updates counters, and returns it (nil for a
+// denied flow beyond the count, which we still tally).
+func (r *Relay) record(proto string, ip netip.Addr, port int, allowed bool) *Flow {
+	f := &Flow{Proto: proto, Dst: ip.String(), Port: port, Allowed: allowed, Start: nowMS()}
+	r.mu.Lock()
+	if allowed {
+		r.allowed++
+		r.active++
+	} else {
+		r.denied++
+		f.End = f.Start
+	}
+	r.ring = append(r.ring, f)
+	if len(r.ring) > recentFlows {
+		r.ring = r.ring[len(r.ring)-recentFlows:]
+	}
+	r.mu.Unlock()
+	return f
+}
+
+// finish closes out an allowed flow with its byte counts.
+func (r *Relay) finish(f *Flow, tx, rx int64) {
+	r.mu.Lock()
+	f.TxBytes, f.RxBytes, f.End = tx, rx, nowMS()
+	r.active--
+	r.txBytes += tx
+	r.rxBytes += rx
+	r.mu.Unlock()
+}
+
+func nowMS() int64 { return time.Now().UnixMilli() }
 
 // Start attaches a stack to tunFD (a TUN opened inside the target netns and
 // passed to us) and begins forwarding. resolver is the host DNS server to
@@ -79,11 +134,14 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	ip, ok := addr(id.LocalAddress)
 	port := int(id.LocalPort)
 	if !ok || !r.allow(ip, port) {
-		req.Complete(true) // RST — denied
+		r.record("tcp", ip, port, false) // RST — denied
+		req.Complete(true)
 		return
 	}
 	out, err := r.dial.Dial("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
 	if err != nil {
+		f := r.record("tcp", ip, port, true) // allowed, but unreachable
+		r.finish(f, 0, 0)
 		req.Complete(true)
 		return
 	}
@@ -91,12 +149,15 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	gep, e := req.CreateEndpoint(&wq)
 	if e != nil {
 		out.Close()
+		f := r.record("tcp", ip, port, true)
+		r.finish(f, 0, 0)
 		req.Complete(true)
 		return
 	}
 	req.Complete(false)
 	in := gonet.NewTCPConn(&wq, gep)
-	go splice(in, out)
+	f := r.record("tcp", ip, port, true)
+	go func() { tx, rx := splice(in, out); r.finish(f, tx, rx) }()
 }
 
 // udpHandler forwards UDP flows: DNS (:53) is relayed to the configured host
@@ -124,28 +185,32 @@ func (r *Relay) udpHandler(resolver string) func(*udp.ForwarderRequest) bool {
 			return true
 		}
 		in := gonet.NewUDPConn(&wq, gep)
-		go splice(in, out)
+		f := r.record("udp", ip, port, true)
+		go func() { tx, rx := splice(in, out); r.finish(f, tx, rx) }()
 		return true
 	}
 }
 
-func splice(a, b net.Conn) {
-	defer a.Close()
-	defer b.Close()
+// splice copies bidirectionally and returns (a→b, b→a) byte counts.
+func splice(a, b net.Conn) (aToB, bToA int64) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-	cp := func(dst, src net.Conn) {
+	cp := func(dst, src net.Conn, n *int64) {
 		defer wg.Done()
-		_, _ = io.Copy(dst, src)
-		if c, ok := dst.(interface{ CloseWrite() error }); ok {
-			_ = c.CloseWrite()
+		c, _ := io.Copy(dst, src)
+		*n = c
+		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
 		} else {
 			dst.SetReadDeadline(time.Now().Add(2 * time.Second))
 		}
 	}
-	go cp(a, b)
-	go cp(b, a)
+	go cp(b, a, &aToB) // a → b
+	go cp(a, b, &bToA) // b → a
 	wg.Wait()
+	a.Close()
+	b.Close()
+	return aToB, bToA
 }
 
 func addr(a tcpip.Address) (netip.Addr, bool) {

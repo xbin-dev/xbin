@@ -2,13 +2,7 @@
 
 package relay
 
-import (
-	"errors"
-	"net/netip"
-)
-
-// Allow decides whether a flow to (ip, port) may leave.
-type Allow func(ip netip.Addr, port int) bool
+import "errors"
 
 // Relay is a no-op off Linux.
 type Relay struct{}
@@ -16,4 +10,5 @@ type Relay struct{}
 // Start is unsupported off Linux.
 func Start(int, Allow, string) (*Relay, error) { return nil, errors.New("relay: linux only") }
 
-func (r *Relay) Close() {}
+func (r *Relay) Close()       {}
+func (r *Relay) Stats() Stats { return Stats{} }

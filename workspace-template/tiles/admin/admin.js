@@ -65,6 +65,8 @@ export class BxAdmin extends LitElement {
     _codeLog: { state: true },  // its commits
     _codeDiff: { state: true }, // {rev, diff}
     _codeMode: { state: true }, // 'file' | 'diff'
+    _rt: { state: true },       // /runtime snapshot {host, backends}
+    _rtOpen: { state: true },   // set of expanded backend paths
   };
 
   static styles = css`
@@ -164,11 +166,48 @@ export class BxAdmin extends LitElement {
     .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id { color: #0184bb; }
     .hljs-emphasis { font-style: italic; }
     .hljs-strong { font-weight: 600; }
+
+    /* ---- runtime ---- */
+    .hostcard { display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--bx-panel-2, #f7f8fa);
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+    .hostcard .kv { font-size: 12px; }
+    .hostcard .kv b { font-family: var(--bx-mono, monospace); color: var(--bx-accent, #1e88e5); }
+    .hostcard .kv span { color: var(--bx-muted, #8794a1); }
+    .bk { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 7px; margin-bottom: 7px; overflow: hidden; }
+    .bk .row { display: grid; grid-template-columns: 18px minmax(120px,1.4fr) 78px repeat(5, minmax(52px, .8fr)) 1.2fr;
+      gap: 8px; align-items: center; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+    .bk .row:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .bk .row .caret { color: var(--bx-muted, #8794a1); transition: transform .1s; }
+    .bk.open .row .caret { transform: rotate(90deg); }
+    .bk .p { font-family: var(--bx-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bk .num { font-family: var(--bx-mono, monospace); text-align: right; }
+    .bk .hdr { text-transform: uppercase; font-size: 9.5px; letter-spacing: .05em; color: var(--bx-muted, #8794a1);
+      cursor: default; background: var(--bx-panel-2, #f7f8fa); }
+    .bk .hdr:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .state { font-size: 10px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border); text-align: center; }
+    .state.healthy { color: var(--bx-green, #43a047); border-color: color-mix(in srgb, var(--bx-green) 45%, var(--bx-border)); }
+    .state.building { color: var(--bx-accent, #1e88e5); }
+    .state.failed  { color: var(--bx-red, #e5484d); }
+    .state.idle    { color: var(--bx-muted, #8794a1); }
+    .lock { font-size: 11px; }
+    .detail { border-top: 1px solid var(--bx-border, #e4e8ed); padding: 8px 12px; background: var(--bx-panel-2, #f7f8fa);
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .detail h5 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
+    .detail .mono { font-family: var(--bx-mono, monospace); font-size: 11px; }
+    .nsrow { font-size: 11px; }
+    .nsrow .iso { color: var(--bx-green, #43a047); }
+    .nsrow .shared { color: var(--bx-muted, #8794a1); }
+    .flowtab { width: 100%; font-size: 11px; }
+    .flowtab td { padding: 1px 6px 1px 0; }
+    .flow-deny { color: var(--bx-red, #e5484d); }
+    .flow-allow { color: var(--bx-green, #43a047); }
+    .err-pill { color: var(--bx-red, #e5484d); font-size: 11px; }
   `;
 
   // {id, label} — ids stay URL-safe (no spaces/&) for hash deep-links.
   static TABS = [
     { id: 'overview', label: 'overview' },
+    { id: 'runtime', label: 'runtime' },
     { id: 'code', label: 'code & history' },
     { id: 'users', label: 'users' },
     { id: 'vault', label: 'vault' },
@@ -183,11 +222,13 @@ export class BxAdmin extends LitElement {
     this._reveal = {};
     this._err = '';
     this._denied = false;
+    this._rtOpen = new Set();
   }
 
   _setTab(t) {
     this._tab = t;
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
+    if (t === 'runtime') this._loadRuntime();
   }
 
   connectedCallback() {
@@ -196,8 +237,14 @@ export class BxAdmin extends LitElement {
       if (e.type === 'grants' || e.type === 'reload' || e.type === 'build-ok') this._refresh();
     });
     this._refresh();
+    // The runtime tab is live: poll while it's the active tab.
+    this._rtTimer = setInterval(() => { if (this._tab === 'runtime') this._loadRuntime(); }, 2000);
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._off?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); }
+
+  async _loadRuntime() {
+    try { this._rt = await api('/runtime'); } catch (e) { this._err = String(e.message ?? e); }
+  }
 
   async _refresh() {
     try {
@@ -381,11 +428,110 @@ export class BxAdmin extends LitElement {
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
           : tab === 'overview' ? this._overview()
+          : tab === 'runtime' ? this._runtimeView()
           : tab === 'code' ? this._codeView()
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
           : this._cronView()}
       </div>`;
+  }
+
+  // ---- runtime ----
+  _fmtBytes(n) {
+    n = n || 0; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(1)) + u[i];
+  }
+  _fmtDur(s) {
+    s = Math.max(0, s | 0);
+    if (s < 60) return s + 's';
+    if (s < 3600) return (s / 60 | 0) + 'm' + (s % 60) + 's';
+    if (s < 86400) return (s / 3600 | 0) + 'h' + ((s % 3600) / 60 | 0) + 'm';
+    return (s / 86400 | 0) + 'd' + ((s % 86400) / 3600 | 0) + 'h';
+  }
+  _toggleBk(path) {
+    const s = new Set(this._rtOpen); s.has(path) ? s.delete(path) : s.add(path); this._rtOpen = s;
+  }
+
+  _runtimeView() {
+    const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
+    const h = rt.host || {};
+    const kv = (label, val) => html`<div class="kv"><span>${label}</span> <b>${val}</b></div>`;
+    return html`
+      <div class="hostcard">
+        ${kv('buxond', h.version)}
+        ${kv('kernel', h.kernel || '—')}
+        ${kv('pid', h.pid)}
+        ${kv('euid', h.uid)}
+        ${kv('cpus', h.numCPU)}
+        ${kv('goroutines', h.goroutines)}
+        ${kv('heap', this._fmtBytes((h.heapMB || 0) * 1e6))}
+        ${kv('uptime', this._fmtDur(h.uptimeSec))}
+        ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
+        ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
+      </div>
+      <div class="bk"><div class="row hdr">
+        <span></span><span>component</span><span>state</span>
+        <span class="num">pid</span><span class="num">cpu·s</span><span class="num">rss</span>
+        <span class="num">fds</span><span class="num">conns</span><span>egress</span>
+      </div></div>
+      ${(rt.backends || []).map((b) => this._bkRow(b))}
+      ${(rt.backends || []).length === 0 ? html`<span class="muted">no backends running</span>` : nothing}`;
+  }
+
+  _bkRow(b) {
+    const open = this._rtOpen.has(b.path);
+    const act = b.activity;
+    const egress = b.isolated
+      ? (b.egress && b.egress.length
+          ? html`${b.egress.length} rule(s)${act ? html` · <span class="flow-allow">${act.allowed}↑</span>/<span class="flow-deny">${act.denied}⛔</span>` : nothing}`
+          : html`<span class="muted">deny-all</span>`)
+      : html`<span class="muted">host net</span>`;
+    return html`
+      <div class="bk ${open ? 'open' : ''}">
+        <div class="row" @click=${() => this._toggleBk(b.path)}>
+          <span class="caret">▶</span>
+          <span class="p" title=${b.path}>${b.path} ${b.isolated ? html`<span class="lock" title="sandboxed">🔒</span>` : nothing}</span>
+          <span class="state ${b.state}">${b.state}</span>
+          <span class="num">${b.pid || '—'}</span>
+          <span class="num">${b.cpuSec ? b.cpuSec.toFixed(1) : '—'}</span>
+          <span class="num">${b.rssKb ? this._fmtBytes(b.rssKb * 1024) : '—'}</span>
+          <span class="num">${b.fds || '—'}</span>
+          <span class="num">${b.activeConns}</span>
+          <span>${egress}</span>
+        </div>
+        ${open ? this._bkDetail(b) : nothing}
+      </div>`;
+  }
+
+  _bkDetail(b) {
+    const act = b.activity;
+    return html`<div class="detail">
+      <div>
+        <h5>process</h5>
+        <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${this._fmtDur(b.uptimeSec)}</div>
+        <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : this._fmtDur(b.lastReqSec) + ' ago'}</div>
+        ${b.error ? html`<div class="err-pill">${b.error}</div>` : nothing}
+      </div>
+      <div>
+        <h5>namespaces</h5>
+        ${b.namespaces
+          ? Object.entries(b.namespaces).map(([k, v]) => html`<div class="nsrow">${k}: <span class=${v.isolated ? 'iso' : 'shared'}>${v.isolated ? 'isolated' : 'shared'}</span> <span class="muted mono">${v.id}</span></div>`)
+          : html`<span class="muted">shared with host (not sandboxed)</span>`}
+      </div>
+      <div>
+        <h5>egress ${act ? html`· ${this._fmtBytes(act.txBytes)}↑ ${this._fmtBytes(act.rxBytes)}↓ · ${act.active} active` : nothing}</h5>
+        ${(b.egress && b.egress.length) ? html`<div class="mono">${b.egress.join(', ')}</div>` : html`<span class="muted">${b.isolated ? 'no egress granted (deny-all)' : 'unrestricted (host network)'}</span>`}
+        ${act && act.recent && act.recent.length ? html`
+          <table class="flowtab"><tbody>
+            ${act.recent.slice(0, 12).map((f) => html`<tr>
+              <td class=${f.allowed ? 'flow-allow' : 'flow-deny'}>${f.allowed ? '✓' : '⛔'}</td>
+              <td class="mono">${f.proto} ${f.dst}:${f.port}</td>
+              <td class="mono">${this._fmtBytes(f.txBytes)}↑ ${this._fmtBytes(f.rxBytes)}↓</td>
+            </tr>`)}
+          </tbody></table>` : nothing}
+      </div>
+    </div>`;
   }
 
   _overview() {

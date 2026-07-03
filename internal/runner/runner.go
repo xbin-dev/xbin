@@ -51,12 +51,14 @@ type BuildError struct{ Output string }
 func (e *BuildError) Error() string { return "build failed:\n" + e.Output }
 
 type instance struct {
-	gen    int
-	sock   string
-	token  string
-	cmd    *exec.Cmd
-	relay  *relay.Relay  // userspace egress relay (nil unless net:* granted)
-	waitCh chan struct{} // closed when the process exits
+	gen     int
+	sock    string
+	token   string
+	cmd     *exec.Cmd
+	relay   *relay.Relay  // userspace egress relay (nil unless net:* granted)
+	egress  []string      // granted net:* rules (for visibility)
+	started time.Time     // for uptime
+	waitCh  chan struct{} // closed when the process exits
 }
 
 type state struct {
@@ -392,7 +394,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	}
 	r.Auth.RegisterInstance(token, c.Path)
 
-	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, waitCh: make(chan struct{})}
+	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
 
 	// Granted egress: the init created a TUN in the netns and handed us its fd;
 	// run the userspace relay on it, enforcing the policy.
