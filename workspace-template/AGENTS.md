@@ -139,7 +139,8 @@ Full manifest reference (all fields optional):
                                 //   Editing-plane only; grants no call rights.
   "uses": [                     // RUNTIME call rights you want (see §Auth):
     { "target": "apps/calendar",          "role": "reader" },   // another element's API
-    { "target": "res:apps/thing/db",      "role": "writer" }    // a resource
+    { "target": "res:apps/thing/db",      "role": "writer" },   // a resource
+    { "target": "net:internet",           "role": "egress" }    // outbound network (see §Sandbox)
   ],
   "expose": {                   // what others may be granted on YOU
     "roles": {                  // name → description (description REQUIRED)
@@ -263,6 +264,30 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.
 - Handle SIGTERM (the SDKs/skeletons do).
+
+## Sandbox — what your backend can reach (isolation is on by default)
+
+Each backend runs in its own sandbox (namespaces + an overlay rootfs; `make dev`
+and production isolate). **Design for this — it's default-deny:**
+
+- **Filesystem:** you see the base rootfs (toolchains), your own component dir
+  (read-only at runtime — editing is the terminal's job), your granted `deps/*`
+  (read-only), and your granted resource files (rw). **Not** other components'
+  source, other vaults, `home/`, or the host — they aren't mounted. Persist
+  state in resources, not scattered files.
+- **Network egress is a grant.** With no `net:*` grant your backend has **zero
+  IP egress** — outbound calls fail (`dial tcp: lookup … connection refused`).
+  Reaching **buxond and other components** through the SDK/gateway always works
+  (that's not IP egress). To reach the outside, add a `net:*` **egress** use:
+  - `net:internet` — any **public** host (optionally `net:internet:443`). Never
+    covers LAN/RFC1918.
+  - `net:<cidr|host>[:port]` — a specific LAN / self-hosted endpoint, e.g.
+    `net:192.168.1.5:11434` for an Ollama on your network. (`localhost` is the
+    sandbox's own loopback, not the host — use the host's LAN address.)
+  These are **owner-approved like any cross-scope grant** (don't self-approve —
+  see §Auth). Approving one **restarts your backend** so it takes effect at once.
+- Same-scope resources (`res:<your-scope>/…`) are auto-granted; declare them in
+  `scope.json` and request in `uses`.
 
 ## Auth (read docs/auth.md before building multi-app systems)
 
