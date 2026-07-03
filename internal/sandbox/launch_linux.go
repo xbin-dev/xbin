@@ -45,10 +45,14 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	}
 	f.Close()
 
+	clone := uintptr(unix.CLONE_NEWUSER | unix.CLONE_NEWNS | unix.CLONE_NEWPID |
+		unix.CLONE_NEWIPC | unix.CLONE_NEWUTS)
+	if !s.HostNet {
+		clone |= unix.CLONE_NEWNET // components get their own (default-deny) netns
+	}
 	cmd := exec.Command("/proc/self/exe", InitArg, f.Name())
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: unix.CLONE_NEWUSER | unix.CLONE_NEWNS | unix.CLONE_NEWPID |
-			unix.CLONE_NEWNET | unix.CLONE_NEWIPC | unix.CLONE_NEWUTS,
+		Cloneflags:                 clone,
 		UidMappings:                []syscall.SysProcIDMap{{ContainerID: 0, HostID: s.HostUID, Size: 1}},
 		GidMappings:                []syscall.SysProcIDMap{{ContainerID: 0, HostID: s.HostGID, Size: 1}},
 		GidMappingsEnableSetgroups: false, // rootless: setgroups=deny

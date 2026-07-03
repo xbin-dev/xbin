@@ -195,7 +195,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"BUXON_URL=" + baseURL,
 			"BUXON_TOKEN=" + a.OwnerToken,
 			"BUXON_WORKSPACE=" + ws,
-			"HOME=" + home, // D6: dotfiles live inside the workspace
+			"HOME=" + home,                                      // D6: dotfiles live inside the workspace
+			"BUXON_DOCS=" + filepath.Join(ws, ".buxon", "docs"), // builder docs, on disk
 		}
 		if bxDir != "" {
 			env = append(env, "PATH="+bxDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -210,6 +211,11 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			webFS = os.DirFS(filepath.Join(src, "web"))
 			docsFS = os.DirFS(filepath.Join(src, "docs"))
 		}
+	}
+	// Materialize the builder docs on disk (BUXON_DOCS) so a terminal — sandboxed
+	// or not — can read AGENTS.md's companions (elements.md, auth.md, …) as files.
+	if err := extractFS(docsFS, filepath.Join(ws, ".buxon", "docs")); err != nil {
+		slog.Warn("extract docs", "err", err)
 	}
 
 	// Broker: grants/RBAC policy, vault, resources (plans/auth.md).
@@ -307,6 +313,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.Rootfs = abs
 		run.Isolate = true
 		run.Egress = brk.EgressFor
+		// Terminals share the base rootfs too (RT-4): the workspace is bound rw
+		// (editing plane), plus the SDK source ro so `go build` resolves.
+		tm.Isolate = true
+		tm.Rootfs = abs
+		if sdk, err := filepath.Abs(envOr("BUXON_SDK_PATH", "")); err == nil && dirExists(sdk) {
+			tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
+		}
 		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
 	}
 
@@ -558,6 +571,24 @@ func locateBx(dev bool) string {
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+// extractFS materializes an embedded FS to a directory (idempotent overwrite).
+func extractFS(src fs.FS, dst string) error {
+	return fs.WalkDir(src, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dst, filepath.FromSlash(p))
+		if d.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		b, err := fs.ReadFile(src, p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, b, 0o644)
+	})
 }
 
 func isFile(p string) bool {

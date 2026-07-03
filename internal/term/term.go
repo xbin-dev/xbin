@@ -15,12 +15,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"github.com/magik6k/buxon/internal/sandbox"
 	"github.com/magik6k/buxon/internal/util"
 )
 
@@ -42,11 +44,12 @@ type client struct {
 }
 
 type Session struct {
-	ID   string
-	Cwd  string // workspace-relative component path
-	cmd  *exec.Cmd
-	pty  *os.File
-	born time.Time
+	ID      string
+	Cwd     string // workspace-relative component path
+	cmd     *exec.Cmd
+	pty     *os.File
+	cleanup func() // sandbox spec temp cleanup (nil for a plain shell)
+	born    time.Time
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -59,6 +62,15 @@ type Manager struct {
 	Root     string          // workspace root
 	Env      func() []string // extra env for shells (token, HOME, …)
 	upgrader websocket.Upgrader
+
+	// Isolate + Rootfs run terminals in a rootfs sandbox (plans/runtime.md RT-4):
+	// the base rootfs userland (toolchains + agent CLIs), the workspace mounted
+	// read-write (editing plane), a persistent $HOME (shared agent config), and
+	// host network (owner plane — unrestricted). ExtraBinds add read-only mounts
+	// (e.g. the SDK source so `go build` resolves). Off ⇒ a plain host shell.
+	Isolate    bool
+	Rootfs     string
+	ExtraBinds []sandbox.Bind
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -150,31 +162,16 @@ func (m *Manager) create(cwd string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	cmd := exec.Command(shell)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-		"BUXON_COMPONENT="+rel,
-	)
-	if os.Getenv("LANG") == "" {
-		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
-	}
-	if m.Env != nil {
-		cmd.Env = append(cmd.Env, m.Env()...)
-	}
+	cmd, cleanup := m.shellCmd(dir, rel)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
 
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, cmd: cmd, pty: f,
+		ID: util.RandomToken(8), Cwd: rel, cmd: cmd, pty: f, cleanup: cleanup,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
@@ -184,6 +181,77 @@ func (m *Manager) create(cwd string) (*Session, error) {
 	go s.pump(func() { m.remove(s.ID) })
 	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel))
 	return s, nil
+}
+
+// shellCmd builds the (unstarted) shell command: a rootfs sandbox when
+// isolation is on, else a plain host shell. Returns a cleanup for sandbox state.
+func (m *Manager) shellCmd(dir, rel string) (*exec.Cmd, func()) {
+	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
+		if cmd, cleanup, err := m.sandboxShell(dir, rel); err == nil {
+			return cmd, cleanup
+		} else {
+			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
+		}
+	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	cmd := exec.Command(shell)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "BUXON_COMPONENT="+rel)
+	if os.Getenv("LANG") == "" {
+		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
+	}
+	if m.Env != nil {
+		cmd.Env = append(cmd.Env, m.Env()...)
+	}
+	return cmd, func() {}
+}
+
+// sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
+// whole workspace read-write (editing plane, incl. $HOME and AGENTS.md), any
+// read-only ExtraBinds (the SDK for `go build`), and the host network.
+func (m *Manager) sandboxShell(dir, rel string) (*exec.Cmd, func(), error) {
+	binds := append([]sandbox.Bind{
+		{Src: m.Root, Dst: m.Root}, // the workspace, rw
+	}, m.ExtraBinds...)
+	spec := &sandbox.Spec{
+		Lower:   []string{m.Rootfs},
+		Binds:   binds,
+		Entry:   "/bin/bash",
+		Argv:    []string{"bash"},
+		Env:     m.sandboxEnv(rel),
+		Cwd:     dir,
+		HostUID: os.Getuid(),
+		HostGID: os.Getgid(),
+		HostNet: true, // owner plane — unrestricted network
+	}
+	cmd, h, err := sandbox.Launch(spec)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cmd, h.Cleanup, nil
+}
+
+// sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
+// toolchains (not the host's), plus BUXON_URL/TOKEN/WORKSPACE/HOME from m.Env().
+func (m *Manager) sandboxEnv(rel string) []string {
+	env := []string{
+		"TERM=xterm-256color", "COLORTERM=truecolor",
+		"BUXON_COMPONENT=" + rel,
+		"LANG=C.UTF-8",
+		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	}
+	if m.Env != nil {
+		for _, e := range m.Env() {
+			if strings.HasPrefix(e, "PATH=") {
+				continue // the rootfs PATH above wins
+			}
+			env = append(env, e)
+		}
+	}
+	return env
 }
 
 func (m *Manager) remove(id string) {
@@ -246,6 +314,9 @@ func (s *Session) pump(onExit func()) {
 	s.clients = map[*client]struct{}{}
 	s.mu.Unlock()
 	_ = s.cmd.Wait()
+	if s.cleanup != nil {
+		s.cleanup()
+	}
 	onExit()
 	slog.Info("terminal session ended", "id", s.ID)
 }

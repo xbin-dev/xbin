@@ -62,6 +62,10 @@ type Spec struct {
 
 	// Net selects the network namespace mode. "" / "none" → an empty netns
 	// (loopback only) = default-deny egress; the gateway socket is bind-mounted
-	// in regardless. Egress-relay modes are added with the relay (phase 3).
+	// in regardless. "relay" → TUN + userspace egress relay under a policy.
 	Net string `json:"net,omitempty"`
+
+	// HostNet skips the network namespace entirely — the process shares the host
+	// network (unrestricted). For the owner plane (terminals), not components.
+	HostNet bool `json:"hostNet,omitempty"`
 }

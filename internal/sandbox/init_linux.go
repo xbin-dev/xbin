@@ -125,8 +125,10 @@ func runInit(specPath string) error {
 	}
 	_ = os.Remove("/.oldroot")
 
-	// Bring loopback up (best-effort; the netns is otherwise empty = deny).
-	upLoopback()
+	// Bring loopback up in our own netns (skip when sharing the host's).
+	if !s.HostNet {
+		upLoopback()
+	}
 
 	// Lock down and become the backend.
 	_ = unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)

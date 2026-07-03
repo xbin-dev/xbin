@@ -102,20 +102,24 @@ cgroup) across backend generations — only the process is re-execed
 (`isolation.md` ISO-4). A cold component costs one sandbox build; a save costs a
 re-exec.
 
-## Terminals — the same base, owner's power
+## Terminals — the same base, owner's power (RT-4, implemented)
 
 Terminals get the **same base rootfs** (so Go/Node/Python + `opencode`/
 `claude-code` + `bx` are simply *there*, consistent on VM and appliance alike),
 but:
 
-- the **full workspace mounted rw** (the owner edits any component), and
-- **no egress restriction** — terminals are the owner's plane, deliberately
-  **not** sandboxed from the workspace (auth.md non-goal).
+- the **full workspace mounted rw** (the owner edits any component), a persistent
+  **`$HOME`** = `<ws>/home` (so agent CLI config/auth in `~/.config`, `~/.local`
+  is shared across terminals and survives upgrades), the **SDK source ro** (so
+  `go build` resolves the go.work replace), and the builder docs on disk
+  (`$BUXON_DOCS`; `AGENTS.md` is in the workspace mount);
+- **no egress restriction** — terminals share the **host network** (`HostNet`),
+  deliberately **not** sandboxed from the workspace (auth.md non-goal).
 
-They still run in a mount/pid namespace with the base rootfs and cgroup limits —
-for a clean, consistent environment, not for security-from-owner. The fat rootfs
-is what makes "open a terminal, the agent and toolchains are ready" true by
-construction.
+They run in user+mount+pid+ipc+uts namespaces with the base rootfs — a clean,
+consistent environment (host paths outside the workspace/SDK are not mounted),
+not security-from-owner. Off `--isolate`, terminals fall back to a plain host
+shell. Implementation: `internal/term` + `sandbox.Spec.HostNet`.
 
 ## Data & lifecycle
 
