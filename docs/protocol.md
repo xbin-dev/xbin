@@ -69,8 +69,10 @@ GET    /runtime                    admin. full runtime visibility →
                                    backends:[{path,runtime,state,isolated,pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
                                    cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],
+                                   cgroup:{memCurrent,memMax,cpuUsec,pidsCurrent},
                                    activity:{allowed,denied,active,txBytes,rxBytes,
-                                   recent:[{proto,dst,port,allowed,txBytes,rxBytes}]}}]}
+                                   recent:[{proto,dst,port,allowed,txBytes,rxBytes,
+                                   start,end}]}}], resources:[{id,type,size,detail}]}
                                    {state: idle|building|healthy|failed, gen, error?}
 GET    /auth-overview              admin. components(+roles/uses/vault), grants,
                                    pending, counts — powers the admin console

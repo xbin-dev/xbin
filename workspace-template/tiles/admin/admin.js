@@ -174,8 +174,9 @@ export class BxAdmin extends LitElement {
     .hostcard .kv b { font-family: var(--bx-mono, monospace); color: var(--bx-accent, #1e88e5); }
     .hostcard .kv span { color: var(--bx-muted, #8794a1); }
     .bk { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 7px; margin-bottom: 7px; overflow: hidden; }
-    .bk .row { display: grid; grid-template-columns: 18px minmax(120px,1.4fr) 78px repeat(5, minmax(52px, .8fr)) 1.2fr;
+    .bk .row { display: grid; grid-template-columns: 16px minmax(110px,1.3fr) 70px repeat(5, minmax(44px, .7fr)) 84px 1.1fr;
       gap: 8px; align-items: center; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+    .bk .row.rrow { grid-template-columns: minmax(150px, 2fr) 64px 78px 1fr; }
     .bk .row:hover { background: var(--bx-panel-2, #f7f8fa); }
     .bk .row .caret { color: var(--bx-muted, #8794a1); transition: transform .1s; }
     .bk.open .row .caret { transform: rotate(90deg); }
@@ -243,7 +244,40 @@ export class BxAdmin extends LitElement {
   disconnectedCallback() { super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); }
 
   async _loadRuntime() {
-    try { this._rt = await api('/runtime'); } catch (e) { this._err = String(e.message ?? e); }
+    try {
+      const rt = await api('/runtime');
+      // Sample per-backend network totals for live rate sparklines.
+      this._hist = this._hist || {};
+      const now = Date.now();
+      for (const b of rt.backends || []) {
+        const a = b.activity;
+        const h = (this._hist[b.path] = this._hist[b.path] || []);
+        h.push({ t: now, tx: a ? a.txBytes : 0, rx: a ? a.rxBytes : 0 });
+        if (h.length > 40) h.shift();
+      }
+      this._rt = rt;
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  // rateSeries turns cumulative byte samples into a bytes/sec series.
+  _rateSeries(path) {
+    const h = (this._hist || {})[path] || [];
+    const out = [];
+    for (let i = 1; i < h.length; i++) {
+      const dt = (h[i].t - h[i - 1].t) / 1000 || 1;
+      out.push(Math.max(0, (h[i].tx + h[i].rx - h[i - 1].tx - h[i - 1].rx) / dt));
+    }
+    return out;
+  }
+  _spark(path, w = 76, ht = 16) {
+    const s = this._rateSeries(path);
+    if (s.length < 2 || Math.max(...s) === 0) return html`<span class="muted" style="font-size:10px">idle</span>`;
+    const max = Math.max(...s);
+    const step = w / (s.length - 1);
+    const pts = s.map((v, i) => `${(i * step).toFixed(1)},${(ht - (v / max) * (ht - 2) - 1).toFixed(1)}`).join(' ');
+    const peak = this._fmtBytes(max) + '/s';
+    return html`<svg width=${w} height=${ht} viewBox="0 0 ${w} ${ht}" title=${'peak ' + peak}>
+      <polyline points=${pts} fill="none" stroke="var(--bx-accent,#1e88e5)" stroke-width="1.2"></polyline></svg>`;
   }
 
   async _refresh() {
@@ -452,6 +486,18 @@ export class BxAdmin extends LitElement {
   _toggleBk(path) {
     const s = new Set(this._rtOpen); s.has(path) ? s.delete(path) : s.add(path); this._rtOpen = s;
   }
+  _mem(b) {
+    if (b.cgroup && b.cgroup.memCurrent) return this._fmtBytes(b.cgroup.memCurrent);
+    if (b.rssKb) return this._fmtBytes(b.rssKb * 1024);
+    return '—';
+  }
+  _flowTime(f) {
+    const ageS = Math.max(0, (Date.now() - f.start) / 1000);
+    const age = ageS < 60 ? (ageS | 0) + 's ago' : this._fmtDur(ageS) + ' ago';
+    if (!f.end) return age + ' · open';
+    const dur = (f.end - f.start) / 1000;
+    return age + (dur >= 0.05 ? ' · ' + dur.toFixed(1) + 's' : '');
+  }
 
   _runtimeView() {
     const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
@@ -472,11 +518,25 @@ export class BxAdmin extends LitElement {
       </div>
       <div class="bk"><div class="row hdr">
         <span></span><span>component</span><span>state</span>
-        <span class="num">pid</span><span class="num">cpu·s</span><span class="num">rss</span>
-        <span class="num">fds</span><span class="num">conns</span><span>egress</span>
+        <span class="num">pid</span><span class="num">cpu·s</span><span class="num">mem</span>
+        <span class="num">fds</span><span class="num">conns</span><span>net</span><span>egress</span>
       </div></div>
       ${(rt.backends || []).map((b) => this._bkRow(b))}
-      ${(rt.backends || []).length === 0 ? html`<span class="muted">no backends running</span>` : nothing}`;
+      ${(rt.backends || []).length === 0 ? html`<span class="muted">no backends running</span>` : nothing}
+      ${this._resourcesSection(rt.resources)}`;
+  }
+
+  _resourcesSection(resources) {
+    if (!resources || !resources.length) return nothing;
+    return html`
+      <h4>resources</h4>
+      <div class="bk"><div class="row hdr rrow"><span>id</span><span>type</span><span class="num">size</span><span>detail</span></div></div>
+      ${resources.map((r) => html`<div class="bk"><div class="row rrow">
+        <span class="p" title=${r.id}>${r.id}</span>
+        <span>${r.type}</span>
+        <span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>
+        <span class="muted">${r.detail || ''}</span>
+      </div></div>`)}`;
   }
 
   _bkRow(b) {
@@ -495,9 +555,10 @@ export class BxAdmin extends LitElement {
           <span class="state ${b.state}">${b.state}</span>
           <span class="num">${b.pid || '—'}</span>
           <span class="num">${b.cpuSec ? b.cpuSec.toFixed(1) : '—'}</span>
-          <span class="num">${b.rssKb ? this._fmtBytes(b.rssKb * 1024) : '—'}</span>
+          <span class="num" title=${b.cgroup ? 'cgroup memory.current' : 'RSS'}>${this._mem(b)}</span>
           <span class="num">${b.fds || '—'}</span>
           <span class="num">${b.activeConns}</span>
+          <span>${b.isolated ? this._spark(b.path) : html`<span class="muted" style="font-size:10px">—</span>`}</span>
           <span>${egress}</span>
         </div>
         ${open ? this._bkDetail(b) : nothing}
@@ -511,6 +572,7 @@ export class BxAdmin extends LitElement {
         <h5>process</h5>
         <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${this._fmtDur(b.uptimeSec)}</div>
         <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : this._fmtDur(b.lastReqSec) + ' ago'}</div>
+        ${b.cgroup ? html`<div class="mono">cgroup: ${this._fmtBytes(b.cgroup.memCurrent)}${b.cgroup.memMax > 0 ? ' / ' + this._fmtBytes(b.cgroup.memMax) : ''} · cpu ${(b.cgroup.cpuUsec / 1e6).toFixed(1)}s · ${b.cgroup.pidsCurrent} pid(s)</div>` : nothing}
         ${b.error ? html`<div class="err-pill">${b.error}</div>` : nothing}
       </div>
       <div>
@@ -528,6 +590,7 @@ export class BxAdmin extends LitElement {
               <td class=${f.allowed ? 'flow-allow' : 'flow-deny'}>${f.allowed ? '✓' : '⛔'}</td>
               <td class="mono">${f.proto} ${f.dst}:${f.port}</td>
               <td class="mono">${this._fmtBytes(f.txBytes)}↑ ${this._fmtBytes(f.rxBytes)}↓</td>
+              <td class="muted">${this._flowTime(f)}</td>
             </tr>`)}
           </tbody></table>` : nothing}
       </div>

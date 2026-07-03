@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/magik6k/buxon/internal/cgroup"
 	"github.com/magik6k/buxon/internal/sandbox/relay"
+	"github.com/magik6k/buxon/internal/util"
 )
 
 // nsKinds are the namespaces we report per backend.
@@ -39,6 +41,7 @@ type Backend struct {
 	Namespaces  map[string]NS `json:"namespaces,omitempty"`
 	Egress      []string      `json:"egress,omitempty"`
 	Activity    *relay.Stats  `json:"activity,omitempty"`
+	Cgroup      *cgroup.Usage `json:"cgroup,omitempty"`
 }
 
 // Inspect returns the runtime picture of every known component backend.
@@ -84,6 +87,11 @@ func (r *Runner) Inspect() []Backend {
 			if inst.cmd != nil && inst.cmd.Process != nil {
 				b.PID = inst.cmd.Process.Pid
 				fillProc(&b, self)
+			}
+			if r.Cgroup != nil {
+				if u, ok := r.Cgroup.Usage(util.CompKey(b.Path)); ok {
+					b.Cgroup = &u
+				}
 			}
 		}
 		out = append(out, b)

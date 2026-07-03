@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/magik6k/buxon/internal/auth"
+	"github.com/magik6k/buxon/internal/cgroup"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/sandbox"
@@ -96,6 +97,9 @@ type Runner struct {
 	// Egress returns a component's granted egress policy (net:* grants). A
 	// non-empty policy enables the TUN + userspace relay; empty = default-deny.
 	Egress func(c *registry.Component) sandbox.EgressPolicy
+	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
+	// for memory/CPU/pids accounting (best-effort; nil-safe).
+	Cgroup *cgroup.Manager
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -393,6 +397,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
 	r.Auth.RegisterInstance(token, c.Path)
+	if r.Cgroup != nil {
+		r.Cgroup.Add(util.CompKey(c.Path), cmd.Process.Pid)
+	}
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
 
@@ -412,6 +419,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		_ = cmd.Wait()
 		if inst.relay != nil {
 			inst.relay.Close()
+		}
+		if r.Cgroup != nil {
+			r.Cgroup.Remove(util.CompKey(c.Path))
 		}
 		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		logf.Close()

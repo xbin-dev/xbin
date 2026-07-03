@@ -26,6 +26,7 @@ import (
 	"github.com/magik6k/buxon/internal/auth"
 	"github.com/magik6k/buxon/internal/broker"
 	"github.com/magik6k/buxon/internal/builtins"
+	"github.com/magik6k/buxon/internal/cgroup"
 	"github.com/magik6k/buxon/internal/deps"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/proxy"
@@ -276,6 +277,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
 	}
+	// Per-component cgroup v2 accounting (memory/CPU/pids), best-effort — active
+	// only when buxond's cgroup is delegated (systemd Delegate=yes / a container).
+	if cg := cgroup.New(); cg.Enabled() {
+		run.Cgroup = cg
+		slog.Info("cgroup v2 accounting enabled")
+	}
 	if isolate && !dev {
 		if rootfs == "" {
 			fatal("--isolate needs --rootfs <dir> (an unpacked base OCI rootfs)")
@@ -322,7 +329,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"uptimeSec": int64(time.Since(startTime).Seconds()),
 			"isolate":   run.Isolate, "rootfs": run.Rootfs, "scopeUids": scopeUIDs && os.Geteuid() == 0,
 		}
-		server.WriteJSON(w, http.StatusOK, map[string]any{"host": host, "backends": run.Inspect()})
+		server.WriteJSON(w, http.StatusOK, map[string]any{
+			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
+		})
 	})
 
 	// Watch → rescan, live reload, rebuilds.
