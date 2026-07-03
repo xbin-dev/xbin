@@ -6,7 +6,13 @@
   // this component's own vault key without any extra grant).
   "runtime": "go",
   "uses": [
-    { "target": "res:apps/llm-gw/state", "role": "writer" }
+    { "target": "res:apps/llm-gw/state", "role": "writer" },
+    // Reaches the configured upstream provider (OpenAI, OpenRouter, …). Under
+    // isolation (buxond --isolate) a backend has NO network egress until granted;
+    // this is the owner-approved grant that lets llm-gw call out. net:internet is
+    // public providers only — for a LAN/self-hosted endpoint (Ollama, vLLM on
+    // your network) add e.g. { "target": "net:192.168.1.5:11434", "role": "egress" }.
+    { "target": "net:internet", "role": "egress" }
   ],
   "expose": {
     "roles": {

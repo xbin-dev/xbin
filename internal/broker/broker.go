@@ -45,6 +45,12 @@ type Broker struct {
 	// symlinks and regenerate go.work without waiting for the watcher.
 	OnStructureChange func()
 
+	// OnGrantChange, if set, is called with a component whose spawn-materialized
+	// access changed (a net:* egress or res:* resource grant added/revoked) so
+	// the host can restart its backend to pick up the new policy/env — those are
+	// captured at spawn, not per request.
+	OnGrantChange func(component string)
+
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
 	// false, vault writes without a barrier are refused rather than written
@@ -357,6 +363,7 @@ func (b *Broker) apiGrantsAdd(w http.ResponseWriter, r *http.Request) {
 		// Carry the affected caller so its already-loaded frame reloads and
 		// retries against the new grant — no manual page refresh needed.
 		b.Hub.Publish(events.Event{Type: "grants", Component: g.From})
+		b.grantRestart(g)
 	}
 }
 
@@ -371,6 +378,19 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 		ws.Grants = out
 	}); ok {
 		b.Hub.Publish(events.Event{Type: "grants", Component: g.From})
+		b.grantRestart(g)
+	}
+}
+
+// grantRestart restarts the caller's backend when the changed grant is one whose
+// effect is materialized at spawn (egress policy or resource env), so approving
+// e.g. net:internet takes effect without a manual restart.
+func (b *Broker) grantRestart(g registry.Grant) {
+	if b.OnGrantChange == nil {
+		return
+	}
+	if strings.HasPrefix(g.Target, "net:") || strings.HasPrefix(g.Target, "res:") {
+		b.OnGrantChange(g.From)
 	}
 }
 

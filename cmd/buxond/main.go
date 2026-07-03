@@ -274,6 +274,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
+	// Approving a net:*/res:* grant restarts the caller so the new egress policy
+	// / resource env (both captured at spawn) takes effect immediately.
+	brk.OnGrantChange = func(comp string) {
+		if c, ok := reg.Component(comp); ok {
+			run.Changed(c)
+		}
+	}
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
 	}

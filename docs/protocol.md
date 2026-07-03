@@ -135,7 +135,10 @@ GET    /git/diff                   admin. ?component=<path>&rev=<hash> → {repo
                                    diff}. rev empty = uncommitted changes vs HEAD.
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
-POST   /grants                     admin. body {from,target,role} — approve/add
+POST   /grants                     admin. body {from,target,role} — approve/add.
+                                   Approving a net:* / res:* grant restarts the
+                                   caller's backend (that policy/env is captured
+                                   at spawn) so it takes effect at once.
 DELETE /grants                     admin. body {from,target,role} — revoke
 
 GET    /vault-status              admin. {initialized, sealed, insecure}
