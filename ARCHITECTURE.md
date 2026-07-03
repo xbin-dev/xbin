@@ -327,8 +327,10 @@ Honest framing: Buxon is a **remote code execution appliance by design**. Theref
   cleanly.
 - Intra-workspace hardening is tiered (`plans/auth.md` §9): instance credentials +
   gateway default-deny → per-scope uids (identity, vault, and file grants become
-  mechanical; elements lose write access to source) → wazero + netns for
-  syscall/egress caps. Each tier tightens the floor without changing the model.
+  mechanical; elements lose write access to source) → **mount+network namespaces:
+  filesystem isolation, ingress = runtime-only, and default-deny egress with
+  `net:*` grants** (`plans/isolation.md`). Each tier tightens the floor without
+  changing the model.
 
 ---
 

@@ -230,7 +230,7 @@ other at each tier; the terminal stays root throughout.
 | 0 | `--dev`, no auth | everything (dev only) | — |
 | 1 | single uid; instance tokens; gateway default-deny; vault broker-owned | read sibling env via `/proc` (steal tokens), open sibling sockets, write any workspace file | phase 2–3 |
 | 2 | **per-scope uids** `[ND1]`: buxond (root, per D13) spawns each scope's backends as a dedicated uid (20000+n); source dirs owner-writable/world-readable → elements **cannot modify any source, incl. their own**; sockets/vault/data enforced by fs perms; `/proc` closed | abuse whatever it was *granted*; local network egress | phase 4 |
-| 3 | wazero runtime (syscall-level caps), netns egress control, subdomain-per-scope browser isolation | approximately nothing ungrantied | phase 5+ |
+| 3 | **mount ns (fs isolation) + netns egress control** (full design: `plans/isolation.md`); wazero syscall caps and subdomain-per-scope browser isolation as further options | approximately nothing ungranted | phase 5+ |
 
 Tier 2 detail worth naming: **running elements lose write access to code** — editing
 is exclusively the terminal's (owner's) power. Self-modification stays a first-class

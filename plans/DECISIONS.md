@@ -47,6 +47,26 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 
 ## Defaults set — veto if wrong
 
+### Per-component isolation — Tier 3 (new, from `isolation.md`)
+- **ISO-1 — Egress mechanism**: target is netns + a transparent userspace egress
+  relay (per-component, DNS-aware, rootless-capable); nftables-per-uid owner
+  rules are the simpler interim (per-scope, kernel-enforced). Phased, not
+  either/or.
+- **ISO-2 — Egress grants**: `net:internet[:port]` (the internet **scope**, all-
+  or-nothing, never covers RFC1918) and `net:<cidr|host>[:port]` (LAN/specific,
+  per address/subnet/port) as `uses` targets at role `egress`. Internet and LAN
+  are separately grantable; owner-approved, never self-approved. Egress **to the
+  buxond gateway** (unix socket) is always allowed — that's the RBAC path.
+- **ISO-3 — Capabilities**: the default container stays **unprivileged (Tier 1)**;
+  Tier 3 is opt-in (`--isolate`) and needs user namespaces (preferred) or
+  CAP_NET_ADMIN/CAP_SYS_ADMIN, shipped as a separate hardened deployment.
+- **ISO-4 — Namespace lifecycle**: default to reusing a per-scope namespace across
+  backend generations (hot-reload perf) over a fresh ns per spawn; measure.
+- **ISO-5 — Filesystem view**: the sandbox root is exactly {own dir ro, granted
+  deps ro, granted resource files rw, toolchain ro, gateway socket, private
+  tmp/dev/proc}; everything else is unmounted, not just unreadable. Ingress stays
+  unix-socket-only (only buxond can connect in).
+
 ### Code management — one workspace repo, per-component views
 - **CM-1 — No per-component git repos.** Considered giving each component its
   own `.git`; rejected. The workspace is already one git repo (D2), so nested
