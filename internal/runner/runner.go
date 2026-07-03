@@ -291,6 +291,11 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		cmd.Env = append(os.Environ(),
 			"GOCACHE="+filepath.Join(r.Root, ".buxon", "cache", "go-build"),
 		)
+		if r.Isolate {
+			// Build fully static so the backend runs on any sandbox rootfs,
+			// independent of the base image's glibc (plans/isolation-impl.md).
+			cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+		}
 		if outp, err := cmd.CombinedOutput(); err != nil {
 			return "", &BuildError{Output: string(outp)}
 		}
@@ -374,12 +379,12 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		cleanup()
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
-	cleanup() // remove the sandbox spec temp file (init has read it by now)
 	r.Auth.RegisterInstance(token, c.Path)
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, waitCh: make(chan struct{})}
 	go func() {
 		_ = cmd.Wait()
+		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		logf.Close()
 		r.Auth.RevokeInstance(token)
 		close(inst.waitCh)

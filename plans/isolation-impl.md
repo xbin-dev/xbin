@@ -200,8 +200,14 @@ to keep it out of the core binary's import graph if we prefer.
    build against glibc by default — the fat rootfs provides it.
 3. **Egress relay** — TUN + gVisor forwarder + DNS + `net:*` policy; broker maps
    `net:*` grants → `EgressPolicy`. (Next; big dep. `EgressPolicy` already lands.)
-4. **cgroups + seccomp + subuid**; **OCI rootfs pull** (`bx rootfs`); hardened
-   appliance image (`plans/runtime.md`).
+4. **OCI base rootfs** — `hack/build-rootfs.sh` + `docker/rootfs.Dockerfile`
+   (Ubuntu + go/node/python/git + `bx` + agent CLIs) → unpacked dir for
+   `--rootfs`; isolated Go backends are built **static** (`CGO_ENABLED=0`) so
+   they run on any base. **DONE / validated live**: `buxond --isolate --rootfs
+   <ubuntu>` builds, sandboxes, and serves the counter-go example end-to-end; the
+   backend runs in its own user+net+mount ns (host `/home` hidden, netns lo-only).
+   Still to do here: `bx rootfs pull` (unpack an OCI ref without docker), cgroups
+   + seccomp + subuid, and the hardened appliance image (`plans/runtime.md`).
 5. **wasm/wazero** runtime (tabled; architecture keeps the runtime pluggable so it
    slots in beside go/node/python as a no-rootfs sandbox).
 

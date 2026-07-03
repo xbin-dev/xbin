@@ -76,6 +76,19 @@ func runInit(specPath string) error {
 		return must(err, "mount overlay ("+opt+")")
 	}
 
+	// Fresh /proc (needs the new pid ns) and a private /tmp, /dev/shm — mounted
+	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
+	// gateway socket use a /tmp fallback for the 108-byte unix-socket limit, and
+	// the workspace itself may live under /tmp) land on top rather than being
+	// shadowed.
+	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
+		return err
+	}
+	if err := mountAt(newroot, "tmp", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"); err != nil {
+		return err
+	}
+	_ = mountAt(newroot, "dev/shm", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777")
+
 	// Default minimal /dev nodes (bound from the host before we pivot away).
 	for _, d := range []string{"null", "zero", "full", "random", "urandom", "tty"} {
 		_ = bindNode(newroot, "/dev/"+d)
@@ -86,15 +99,6 @@ func runInit(specPath string) error {
 			return err
 		}
 	}
-
-	// Fresh /proc (needs the new pid ns) and a private /tmp, /dev/shm.
-	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
-		return err
-	}
-	if err := mountAt(newroot, "tmp", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"); err != nil {
-		return err
-	}
-	_ = mountAt(newroot, "dev/shm", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777")
 
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
