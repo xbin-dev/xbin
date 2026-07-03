@@ -110,6 +110,16 @@ POST   /templates/new               buxon:writer. body {source, path?} → {path
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md).
 
+GET    /code/tree                  admin. ?component=<path> → {component, files:
+                                   [{path,size}]} — a component's files.
+GET    /code/file                  admin. ?component=<path>&file=<rel> →
+                                   {path, content|binary|truncated}.
+GET    /git/log                    admin. ?component=<path>&limit=N → {repo,
+                                   commits:[{hash,short,author,date,subject}]}
+                                   scoped to the component (single workspace repo).
+GET    /git/diff                   admin. ?component=<path>&rev=<hash> → {repo,
+                                   diff}. rev empty = uncommitted changes vs HEAD.
+
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add
 DELETE /grants                     admin. body {from,target,role} — revoke

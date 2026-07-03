@@ -101,8 +101,21 @@ bx doctor                 # manifest errors, missing API.md, dangling deps, …
 bx ls                     # all components
 ```
 
-**Version your work:** `cd $BUXON_WORKSPACE && git add -A && git commit`
-(`.buxon/`, `data/`, `home/` are gitignored — leave it that way).
+**Commit policy (agents: follow this):** the workspace is one git repo; commit
+**often and on your own initiative** — after any meaningful change (a working
+component, a fix, a refactor that builds), not in big batches. **Never ask the
+user whether to commit**; committing is your job, and git is the safety net that
+makes every other edit reversible. Keep commits small and scoped to one
+component or concern, with a short imperative message (`counter: fix overflow`).
+
+```sh
+cd $BUXON_WORKSPACE && git add -A && git commit -m "…"
+```
+
+`.buxon/`, `data/`, `home/` are gitignored — leave it that way. History and
+diffs per component are viewable in the Admin tile's **code & history** tab. Do
+**not** create nested git repos inside a component — the workspace is a single
+repo (paths are identity, `cp -r` forks, git is history).
 
 ## Component anatomy & manifest
 

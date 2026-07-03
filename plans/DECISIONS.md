@@ -47,6 +47,26 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 
 ## Defaults set — veto if wrong
 
+### Code management — one workspace repo, per-component views
+- **CM-1 — No per-component git repos.** Considered giving each component its
+  own `.git`; rejected. The workspace is already one git repo (D2), so nested
+  repos mean embedded-repo/gitlink confusion, `cp -r` copying `.git` (shared
+  history), and friction with go.work/deps and the "just files in one repo"
+  ethos. Instead the Admin tile's **code & history** tab scopes to a component's
+  path (`git log/diff -- <path>`, read files under the dir), giving per-component
+  history/diffs/code with none of the downsides. Independent per-component
+  *push/share* can be layered later via `git subtree`/`filter-repo` (see
+  `tile-sharing.md` rungs 2–3) without changing this. *(Decided while the user
+  was away; veto if per-component repos are actually wanted.)*
+- **CM-2 — Commit policy.** Agents commit **often and unprompted** on any
+  meaningful change; the user is never asked to approve a commit. Small,
+  component-scoped commits. buxond still **never auto-commits** (D2) — commits
+  are the agent's/human's action, git is the reversibility net. Documented in
+  `AGENTS.md`.
+- **CM-3 — Code/history endpoints are admin-gated.** `/api/buxon/{code,git}/*`
+  need `buxon:admin` (like the rest of the console) — they expose source and
+  history across the whole workspace, which is owner-level.
+
 ### Builtin updates (new, from `builtin-updates.md`)
 - **BU-1 — Version signal**: content-hash decides *whether* an update exists
   (auto, no manual bumping); a small human `version` + one-line changelog in the

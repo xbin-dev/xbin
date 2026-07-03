@@ -18,6 +18,7 @@ func (b *Broker) registerAdmin(srv *server.Server) {
 	srv.RegisterAPI("GET /vaults", b.apiVaults)
 	srv.RegisterAPI("GET /resources", b.apiResources)
 	srv.RegisterAPI("GET /auth-overview", b.apiAuthOverview)
+	b.registerCode(srv)
 }
 
 func (b *Broker) requireAdmin(w http.ResponseWriter, r *http.Request) bool {

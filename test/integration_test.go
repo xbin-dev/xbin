@@ -758,3 +758,46 @@ func keysOf(m map[string]json.RawMessage) []string {
 	}
 	return k
 }
+
+func TestComponentCode(t *testing.T) {
+	// Make a commit so history exists.
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "test snapshot"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+
+	// Files of a component.
+	if _, tb := get(t, "/api/buxon/code/tree?component=shell"); !strings.Contains(tb, "bx-shell.js") {
+		t.Fatalf("code tree missing bx-shell.js: %s", firstN(tb, 200))
+	}
+	// One file's content.
+	if _, fb := get(t, "/api/buxon/code/file?component=shell&file=buxon.json"); !strings.Contains(fb, `"content"`) {
+		t.Fatalf("code file: %s", firstN(fb, 200))
+	}
+	// History scoped to the component.
+	_, lb := get(t, "/api/buxon/git/log?component=shell")
+	if !strings.Contains(lb, `"repo":true`) || !strings.Contains(lb, "test snapshot") {
+		t.Fatalf("git log: %s", firstN(lb, 300))
+	}
+	var log struct {
+		Commits []struct {
+			Hash string `json:"hash"`
+		} `json:"commits"`
+	}
+	_ = json.Unmarshal([]byte(lb), &log)
+	if len(log.Commits) == 0 {
+		t.Fatal("git log returned no commits")
+	}
+	if _, db := get(t, "/api/buxon/git/diff?component=shell&rev="+log.Commits[0].Hash); !strings.Contains(db, `"diff"`) {
+		t.Errorf("git diff: %s", firstN(db, 200))
+	}
+	// Path traversal is rejected.
+	if c, _ := get(t, "/api/buxon/code/file?component=shell&file=../../data/vault"); c != 400 {
+		t.Errorf("path traversal not rejected: %d", c)
+	}
+}

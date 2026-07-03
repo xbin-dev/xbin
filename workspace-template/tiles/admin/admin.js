@@ -27,6 +27,12 @@ export class BxAdmin extends LitElement {
     _users: { state: true },
     _err: { state: true },
     _denied: { state: true },
+    _codeComp: { state: true }, // component being browsed in the code tab
+    _codeTree: { state: true }, // its files
+    _codeFile: { state: true }, // {path, content|binary|truncated}
+    _codeLog: { state: true },  // its commits
+    _codeDiff: { state: true }, // {rev, diff}
+    _codeMode: { state: true }, // 'file' | 'diff'
   };
 
   static styles = css`
@@ -83,11 +89,37 @@ export class BxAdmin extends LitElement {
     .secret { font-family: var(--bx-mono, monospace); }
     .muted { color: var(--bx-muted, #8794a1); }
     form.inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+    a.link { color: var(--bx-accent, #1e88e5); cursor: pointer; text-decoration: none; }
+    a.link:hover { text-decoration: underline; }
+
+    /* ---- code & history ---- */
+    .code { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
+    .code .side { min-width: 0; }
+    .code .main { min-width: 0; }
+    .code .files, .code .hist { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;
+      overflow: hidden; margin-bottom: 10px; }
+    .code .files .row, .code .hist .row { padding: 3px 8px; cursor: pointer; font-size: 12px;
+      border-top: 1px solid var(--bx-border, #e4e8ed); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .code .files .row:first-child, .code .hist .row:first-child { border-top: 0; }
+    .code .files .row.on, .code .hist .row.on { background: var(--bx-panel-2, #f7f8fa); }
+    .code .files .row:hover, .code .hist .row:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .code .hist .row .s { font-family: var(--bx-mono, monospace); color: var(--bx-muted, #8794a1); font-size: 10.5px; }
+    .code .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .code .hd .path { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    .code pre { margin: 0; padding: 10px 12px; background: var(--bx-panel-2, #f7f8fa);
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px; overflow: auto; max-height: 70vh;
+      font: 11.5px/1.5 var(--bx-mono, monospace); white-space: pre; }
+    .code pre.diff .a { color: var(--bx-red, #e5484d); }
+    .code pre.diff .d { color: var(--bx-green, #43a047); }
+    .code pre.diff .h { color: var(--bx-accent, #1e88e5); }
+    .grouphd { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--bx-muted, #8794a1); padding: 4px 8px; background: var(--bx-panel-2, #f7f8fa); }
   `;
 
   // {id, label} — ids stay URL-safe (no spaces/&) for hash deep-links.
   static TABS = [
     { id: 'overview', label: 'overview' },
+    { id: 'code', label: 'code & history' },
     { id: 'users', label: 'users' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
@@ -173,6 +205,95 @@ export class BxAdmin extends LitElement {
     this._refresh();
   }
 
+  // ---- code & history ----
+  async _openCode(comp) {
+    this._setTab('code');
+    this._codeComp = comp; this._codeFile = null; this._codeDiff = null; this._codeMode = 'file';
+    await this._loadCode();
+    const files = this._codeTree?.files ?? [];
+    const def = files.find((f) => f.path === 'index.html') || files.find((f) => f.path === 'buxon.json') || files[0];
+    if (def) this._loadFile(def.path);
+  }
+  async _loadCode() {
+    const c = encodeURIComponent(this._codeComp);
+    try {
+      const [tree, log] = await Promise.all([api(`/code/tree?component=${c}`), api(`/git/log?component=${c}`)]);
+      this._codeTree = tree; this._codeLog = log;
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  async _loadFile(path) {
+    try {
+      this._codeFile = await api(`/code/file?component=${encodeURIComponent(this._codeComp)}&file=${encodeURIComponent(path)}`);
+      this._codeMode = 'file';
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  async _loadDiff(rev) {
+    try {
+      const d = await api(`/git/diff?component=${encodeURIComponent(this._codeComp)}&rev=${encodeURIComponent(rev)}`);
+      this._codeDiff = { rev, diff: d.diff ?? '' }; this._codeMode = 'diff';
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  _fmtDate(iso) { try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
+  _diffLines(diff) {
+    if (!diff) return html`<span class="muted">no changes</span>`;
+    return diff.split('\n').map((l) => {
+      const cls = /^\+\+\+|^---/.test(l) ? '' : l[0] === '+' ? 'd' : l[0] === '-' ? 'a' : l.startsWith('@@') ? 'h' : '';
+      return html`<span class=${cls}>${l}
+</span>`;
+    });
+  }
+
+  _codeView() {
+    if (!this._codeComp) {
+      const comps = this._ov?.components ?? [];
+      return html`
+        <p class="muted" style="margin-top:0">Pick a component to browse its files and git history.</p>
+        <div class="files" style="max-width:360px">
+          ${comps.map((k) => html`<div class="row" @click=${() => this._openCode(k.path)}>${k.path}</div>`)}
+        </div>`;
+    }
+    const tree = this._codeTree?.files ?? [];
+    const log = this._codeLog?.commits ?? [];
+    const noRepo = this._codeLog?.repo === false;
+    return html`
+      <div class="hd">
+        <a class="link" @click=${() => { this._codeComp = null; }}>← components</a>
+        <span class="path">${this._codeComp}</span>
+      </div>
+      <div class="code">
+        <div class="side">
+          <div class="files">
+            <div class="grouphd">files</div>
+            ${tree.length ? tree.map((f) => html`
+              <div class="row ${this._codeMode === 'file' && this._codeFile?.path === f.path ? 'on' : ''}"
+                   @click=${() => this._loadFile(f.path)}>${f.path}</div>`)
+              : html`<div class="row muted">—</div>`}
+          </div>
+          <div class="hist">
+            <div class="grouphd">history</div>
+            <div class="row ${this._codeMode === 'diff' && this._codeDiff?.rev === '' ? 'on' : ''}"
+                 @click=${() => this._loadDiff('')}>● uncommitted changes</div>
+            ${noRepo ? html`<div class="row muted">not a git repo</div>`
+              : log.length ? log.map((c) => html`
+                <div class="row ${this._codeMode === 'diff' && this._codeDiff?.rev === c.hash ? 'on' : ''}"
+                     @click=${() => this._loadDiff(c.hash)}>
+                  <div>${c.subject}</div><div class="s">${c.short} · ${c.author} · ${this._fmtDate(c.date)}</div>
+                </div>`)
+              : html`<div class="row muted">no commits touch this component</div>`}
+          </div>
+        </div>
+        <div class="main">
+          ${this._codeMode === 'diff'
+            ? html`<pre class="diff">${this._diffLines(this._codeDiff?.diff)}</pre>`
+            : this._codeFile
+              ? (this._codeFile.binary ? html`<span class="muted">binary file (${this._codeFile.size} bytes)</span>`
+                : this._codeFile.truncated ? html`<span class="muted">file too large to display (${this._codeFile.size} bytes)</span>`
+                : html`<pre>${this._codeFile.content}</pre>`)
+              : html`<span class="muted">select a file or a commit</span>`}
+        </div>
+      </div>`;
+  }
+
   render() {
     if (this._denied) return html`<div class="denied">
       <b>No admin access.</b> This tile needs the <code>buxon:admin</code> grant.
@@ -189,6 +310,7 @@ export class BxAdmin extends LitElement {
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
           : tab === 'overview' ? this._overview()
+          : tab === 'code' ? this._codeView()
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
           : this._cronView()}
@@ -209,7 +331,7 @@ export class BxAdmin extends LitElement {
       <table>
         <tr><th>component</th><th>runtime</th><th>exposes</th><th>uses</th><th>vault</th></tr>
         ${ov.components.map((k) => html`<tr>
-          <td class="mono">${k.path}${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
+          <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
           <td class="muted">${k.runtime || 'static'}</td>
           <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
           <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
