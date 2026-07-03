@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/magik6k/buxon/internal/auth"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/buxon/internal/sandbox"
 	"github.com/magik6k/buxon/internal/util"
 )
 
@@ -81,6 +83,12 @@ type Runner struct {
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
+
+	// Isolate + Rootfs enable per-component sandboxing (auth tier 3): each
+	// backend runs in its own user/mount/pid/net namespaces over an overlay of
+	// Rootfs, with default-deny egress (plans/isolation.md). Off by default.
+	Isolate bool
+	Rootfs  string
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -316,28 +324,39 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 
 	token := util.RandomToken(24)
 
-	var cmd *exec.Cmd
-	switch c.Manifest.Runtime {
-	case "go":
-		cmd = exec.Command(bin)
-	case "node":
-		cmd = exec.Command("node", bin)
-	case "python":
-		cmd = exec.Command("python3", bin)
-	}
-	cmd.Dir = c.Dir
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"BUXON_SOCKET="+sock,
 		"BUXON_COMPONENT="+c.Path,
 		"BUXON_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
 		"BUXON_TOKEN="+token,
 	)
 	if r.EnvForComponent != nil {
-		cmd.Env = append(cmd.Env, r.EnvForComponent(c)...)
+		env = append(env, r.EnvForComponent(c)...)
 	}
-	if r.SpawnUser != nil {
-		if cred := r.SpawnUser(c); cred != nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+
+	var cmd *exec.Cmd
+	cleanup := func() {}
+	if r.Isolate && sandboxable(c.Manifest.Runtime) {
+		var err error
+		cmd, cleanup, err = r.sandboxCmd(c, bin, dir, sock, env)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: %w", err)
+		}
+	} else {
+		switch c.Manifest.Runtime {
+		case "go":
+			cmd = exec.Command(bin)
+		case "node":
+			cmd = exec.Command("node", bin)
+		case "python":
+			cmd = exec.Command("python3", bin)
+		}
+		cmd.Dir = c.Dir
+		cmd.Env = env
+		if r.SpawnUser != nil {
+			if cred := r.SpawnUser(c); cred != nil {
+				cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+			}
 		}
 	}
 
@@ -352,8 +371,10 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 
 	if err := cmd.Start(); err != nil {
 		logf.Close()
+		cleanup()
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
+	cleanup() // remove the sandbox spec temp file (init has read it by now)
 	r.Auth.RegisterInstance(token, c.Path)
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, waitCh: make(chan struct{})}
@@ -365,6 +386,71 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	}()
 	return inst, nil
 }
+
+func sandboxable(runtime string) bool {
+	switch runtime {
+	case "go", "node", "python":
+		return true
+	}
+	return false
+}
+
+// sandboxCmd builds the isolated backend command (plans/isolation.md): a
+// per-component namespace set over an overlay of r.Rootfs. The component's
+// source is read-only, its run dir and same-scope resource files are read-write,
+// the gateway socket is the one door out, and the netns is empty (default-deny
+// egress; the egress relay is a follow-on).
+func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string) (*exec.Cmd, func(), error) {
+	gw := filepath.Join(r.RunDir, "gateway.sock")
+	binds := []sandbox.Bind{
+		{Src: c.Dir, Dst: c.Dir, RO: true}, // component source, read-only
+		{Src: dir, Dst: dir},               // run dir — the listen socket lands here
+		{Src: gw, Dst: gw},                 // the gateway socket (component↔component + RBAC)
+	}
+	// Same-scope resource files (sqlite/blob) are handed to the backend as env
+	// paths; bind just those, read-write.
+	for _, e := range env {
+		i := strings.IndexByte(e, '=')
+		if i < 0 {
+			continue
+		}
+		v := e[i+1:]
+		if strings.HasPrefix(v, "/") && within(v, r.Root) && pathExists(v) {
+			binds = append(binds, sandbox.Bind{Src: v, Dst: v})
+		}
+	}
+
+	var entry string
+	var argv []string
+	switch c.Manifest.Runtime {
+	case "go":
+		entry = "/run/backend" // the built static binary, bound in
+		argv = []string{entry}
+		binds = append(binds, sandbox.Bind{Src: bin, Dst: entry, RO: true})
+	case "node":
+		entry, argv = "/usr/bin/node", []string{"node", bin} // bin is a script under c.Dir (bound)
+	case "python":
+		entry, argv = "/usr/bin/python3", []string{"python3", bin}
+	}
+
+	spec := &sandbox.Spec{
+		Lower:   []string{r.Rootfs},
+		Binds:   binds,
+		Entry:   entry,
+		Argv:    argv,
+		Env:     env,
+		Cwd:     c.Dir,
+		HostUID: os.Getuid(),
+		HostGID: os.Getgid(),
+	}
+	return sandbox.Launch(spec)
+}
+
+func within(p, root string) bool {
+	return p == root || strings.HasPrefix(p, strings.TrimRight(root, "/")+"/")
+}
+
+func pathExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func (r *Runner) stop(inst *instance, deadline time.Duration) {
 	if inst.cmd.Process == nil {

@@ -29,6 +29,7 @@ import (
 	"github.com/magik6k/buxon/internal/proxy"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/runner"
+	"github.com/magik6k/buxon/internal/sandbox"
 	"github.com/magik6k/buxon/internal/server"
 	"github.com/magik6k/buxon/internal/term"
 	"github.com/magik6k/buxon/internal/users"
@@ -40,6 +41,15 @@ var version = "dev" // set via -ldflags at release
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "__sandbox-init":
+			// Hidden re-exec target: run as PID 1 inside a component's fresh
+			// namespaces, assemble its rootfs, and exec the backend. Must be
+			// handled before any flag parsing (plans/isolation-impl.md).
+			if len(os.Args) < 3 {
+				fatal("usage: buxond __sandbox-init <spec>")
+			}
+			sandbox.RunInit(os.Args[2]) // never returns on linux
+			return
 		case "init":
 			if len(os.Args) < 3 {
 				fatal("usage: buxond init <dir>")
@@ -62,6 +72,8 @@ func main() {
 		noAuth        = flag.Bool("no-auth", false, "disable auth (dev only; every request is admin)")
 		scopeUIDs     = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
 		insecureVault = flag.Bool("insecure-vault", false, "allow the vault to store secrets as PLAINTEXT at rest (not recommended; --dev implies it)")
+		isolate       = flag.Bool("isolate", false, "run each backend in a per-component sandbox (namespaces + overlay rootfs; auth tier 3, needs --rootfs)")
+		rootfs        = flag.String("rootfs", envOr("BUXON_ROOTFS", ""), "base rootfs dir (unpacked OCI image) for --isolate sandboxes")
 	)
 	flag.Parse()
 
@@ -73,12 +85,12 @@ func main() {
 	// no longer implies --no-auth, so `make dev` can exercise multi-user auth
 	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
-	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault); err != nil {
+	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs); err != nil {
 		fatal("%v", err)
 	}
 }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error {
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -253,6 +265,21 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault bool) error 
 	run.EnvForComponent = brk.EnvFor
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
+	}
+	if isolate && !dev {
+		if rootfs == "" {
+			fatal("--isolate needs --rootfs <dir> (an unpacked base OCI rootfs)")
+		}
+		if !sandbox.Available() {
+			fatal("--isolate: unprivileged user namespaces unavailable on this host")
+		}
+		abs, err := filepath.Abs(rootfs)
+		if err != nil || !dirExists(abs) {
+			fatal("--isolate: rootfs %q not found", rootfs)
+		}
+		run.Rootfs = abs
+		run.Isolate = true
+		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
 	}
 
 	srv := &server.Server{
@@ -478,6 +505,11 @@ func locateBx(dev bool) string {
 		return filepath.Dir(p)
 	}
 	return ""
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func isFile(p string) bool {

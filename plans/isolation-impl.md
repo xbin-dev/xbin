@@ -189,12 +189,17 @@ to keep it out of the core binary's import graph if we prefer.
 
 1. **`internal/sandbox` foundation** — reexec init, userns+mnt+pid+ipc+uts+**empty
    netns**, overlay rootfs + binds + pivot_root + exec; `EgressPolicy` parsing.
-   Standalone test: spawn a probe, assert it sees only the assembled tree, has no
-   IP route, and can reach a unix socket bind. **← this change.**
-2. **Runner wiring** behind `--isolate`/`--rootfs`; a real Go backend serves
-   through the gateway while sandboxed; default-deny egress. **← this change.**
+   **DONE** — tested: a probe sees only the assembled tree (host `/home`,
+   `/etc/passwd` absent), the component ro bind + rw resource bind behave, the
+   netns has only `lo`, and a bind-mounted unix socket is reachable.
+2. **Runner wiring** behind `--isolate`/`--rootfs` (`runner.Sandbox`/`sandboxCmd`,
+   buxond `__sandbox-init` dispatch). **DONE** — tested: a real HTTP backend
+   serves on its unix socket inside the sandbox and is reachable from the host via
+   the bound run dir; default path unchanged (isolation off by default). Live
+   buxond-with-`--isolate` needs a real OCI rootfs (phase 4), since Go backends
+   build against glibc by default — the fat rootfs provides it.
 3. **Egress relay** — TUN + gVisor forwarder + DNS + `net:*` policy; broker maps
-   `net:*` grants → `EgressPolicy`. (Separate change; big dep.)
+   `net:*` grants → `EgressPolicy`. (Next; big dep. `EgressPolicy` already lands.)
 4. **cgroups + seccomp + subuid**; **OCI rootfs pull** (`bx rootfs`); hardened
    appliance image (`plans/runtime.md`).
 5. **wasm/wazero** runtime (tabled; architecture keeps the runtime pluggable so it
