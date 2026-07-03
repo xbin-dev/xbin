@@ -57,9 +57,11 @@ gave us — just one level down.
 Every sandbox — and every terminal — needs a userland. Ship one:
 
 - A **fat OCI image, Ubuntu-based** (glibc, familiar, broad toolchain support):
-  Go, Node LTS, Python 3, `build-essential`, git, ripgrep, curl, vim/nano, `bx`,
-  **and the agent CLIs (`opencode`, `claude-code`)** so a freshly-opened terminal
-  is a first-class AI-assisted builder shell with zero setup.
+  Go, Node LTS, Python 3, `build-essential`, git, ripgrep, curl/wget, jq, tmux,
+  vim/nano, common net/debug tooling (`ip`, `ping`, `dig`, `traceroute`, `ss`,
+  `lsof`, `htop`, `nc`, `socat`, `rsync`, `ssh`), `bx`, **and the agent CLIs
+  (`opencode`, `claude-code`)** so a freshly-opened terminal is a first-class
+  AI-assisted builder shell with zero setup. (docker/rootfs.Dockerfile)
 - Published as `ghcr.io/magik6k/buxon-rootfs:<tag>`, **unpacked** (skopeo/umoci,
   or buxond's own puller) into a content dir on the host. buxond bind-mounts it
   **read-only** as the base layer of every sandbox. Baked into the appliance;

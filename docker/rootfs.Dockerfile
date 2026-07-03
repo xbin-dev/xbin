@@ -13,9 +13,13 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git ripgrep less vim-tiny nano \
-      python3 python3-pip python3-venv \
-      build-essential pkg-config passwd \
+      ca-certificates curl wget git ripgrep less vim-tiny nano tmux \
+      python3 python3-pip python3-venv python-is-python3 \
+      build-essential pkg-config passwd sudo \
+      iproute2 iputils-ping traceroute dnsutils net-tools \
+      procps psmisc lsof \
+      jq unzip zip xz-utils file tree \
+      htop netcat-openbsd socat rsync openssh-client gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Go (full toolchain — components build against it).

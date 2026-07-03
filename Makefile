@@ -11,9 +11,11 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # Override the rootfs with `ROOTFS=/path make dev`.
 ROOTFS ?= $(CURDIR)/.rootfs
 
-# Build the dev/base rootfs once (docker → unpacked dir). Cached after first run.
-$(ROOTFS)/etc/os-release:
-	@echo ">> building base rootfs into $(ROOTFS) (first run; needs docker; cached after)"
+# Build the dev/base rootfs (docker → unpacked dir). Rebuilds when the
+# Dockerfile or build script change; otherwise cached.
+$(ROOTFS)/etc/os-release: docker/rootfs.Dockerfile hack/build-rootfs.sh
+	@echo ">> building base rootfs into $(ROOTFS) (needs docker; cached after)"
+	rm -rf $(ROOTFS)
 	./hack/build-rootfs.sh $(ROOTFS)
 rootfs: $(ROOTFS)/etc/os-release
 

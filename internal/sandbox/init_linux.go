@@ -108,6 +108,13 @@ func runInit(specPath string) error {
 			return must(err, "egress")
 		}
 	}
+	// Sharing the host network (terminals): give the sandbox the host's DNS +
+	// hosts so name resolution / internet works (the rootfs's own resolv.conf is
+	// typically empty). We're still on the host root here (pre-pivot).
+	if s.HostNet {
+		copyHostFile(newroot, "/etc/resolv.conf")
+		copyHostFile(newroot, "/etc/hosts")
+	}
 
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
@@ -223,6 +230,19 @@ func mountAt(newroot, rel, source, fstype string, flags uintptr, data string) er
 		return must(err, "mount "+fstype+" at "+rel)
 	}
 	return nil
+}
+
+// copyHostFile copies a host config file (following symlinks, e.g. a
+// systemd-resolved stub) into newroot at the same path — used to seed DNS for
+// host-network sandboxes.
+func copyHostFile(newroot, p string) {
+	data, err := os.ReadFile(p) // reads through symlinks; we're pre-pivot on host root
+	if err != nil {
+		return
+	}
+	dst := filepath.Join(newroot, p)
+	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+	_ = os.WriteFile(dst, data, 0o644)
 }
 
 // upLoopback sets lo UP via an ioctl on an AF_INET socket (no external tools).
