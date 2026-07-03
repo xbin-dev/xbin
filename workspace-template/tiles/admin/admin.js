@@ -3,11 +3,15 @@
  * into the running system, powered by buxond's admin-capable endpoints via
  * the buxon:admin capability (see buxon.json / API.md).
  *
- * Tabs: overview · vault · roles & grants · cron. All reads go through
- * buxon.fetch (admin identity attributed by frame token) and refresh on the
- * grants/reload event stream.
+ * Tabs: overview · code & history · users · vault · roles & grants · cron.
+ * All reads go through buxon.fetch (admin identity attributed by frame token)
+ * and refresh on the grants/reload event stream. The code & history tab browses
+ * a component's files and git log/diffs (syntax-highlighted via vendored
+ * highlight.js), scoped to its path in the single workspace repo.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { unsafeHTML } from 'lit';
+import hljs from '/vendor/highlight.min.js';
 
 const api = async (path, opts) => {
   const r = await buxon.fetch('/api/buxon' + path, opts);
@@ -16,6 +20,34 @@ const api = async (path, opts) => {
   if (!r.ok) throw new Error(data?.error ?? r.status);
   return data;
 };
+
+// Map a file path to a highlight.js language (empty = let hljs auto-detect).
+const LANG_BY_EXT = {
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript',
+  jsx: 'javascript', json: 'json', jsonc: 'json', go: 'go', mod: 'go',
+  py: 'python', rb: 'ruby', rs: 'rust', sh: 'bash', bash: 'bash', zsh: 'bash',
+  css: 'css', scss: 'scss', less: 'less', html: 'xml', xml: 'xml', svg: 'xml',
+  md: 'markdown', markdown: 'markdown', yml: 'yaml', yaml: 'yaml',
+  toml: 'ini', ini: 'ini', sql: 'sql', java: 'java', c: 'c', h: 'c',
+  cpp: 'cpp', cs: 'csharp', php: 'php', lua: 'lua', swift: 'swift', kt: 'kotlin',
+};
+function langFor(path) {
+  const base = path.split('/').pop();
+  if (base === 'go.mod' || base === 'go.sum') return 'go';
+  if (base === 'Makefile' || base === 'makefile') return 'makefile';
+  if (base === 'Dockerfile') return 'dockerfile';
+  const ext = base.includes('.') ? base.split('.').pop().toLowerCase() : '';
+  return LANG_BY_EXT[ext] || '';
+}
+const escHTML = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Highlight one chunk of code to an HTML string (escaped + tokenized), falling
+// back to plain escaped text for unknown languages.
+function hl(code, lang) {
+  try {
+    if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+  } catch { /* fall through */ }
+  return escHTML(code);
+}
 
 export class BxAdmin extends LitElement {
   static properties = {
@@ -108,12 +140,30 @@ export class BxAdmin extends LitElement {
     .code .hd .path { font-family: var(--bx-mono, monospace); font-size: 12px; }
     .code pre { margin: 0; padding: 10px 12px; background: var(--bx-panel-2, #f7f8fa);
       border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px; overflow: auto; max-height: 70vh;
-      font: 11.5px/1.5 var(--bx-mono, monospace); white-space: pre; }
-    .code pre.diff .a { color: var(--bx-red, #e5484d); }
-    .code pre.diff .d { color: var(--bx-green, #43a047); }
-    .code pre.diff .h { color: var(--bx-accent, #1e88e5); }
+      font: 11.5px/1.5 var(--bx-mono, monospace); white-space: pre;
+      color: var(--bx-text, #383a42); tab-size: 4; }
+    /* diff: tint add/del lines (a line is a direct-child span), keep syntax colors */
+    .code pre.diff > span { display: block; }
+    .code pre.diff > .d { background: color-mix(in srgb, var(--bx-green, #43a047) 14%, transparent); }
+    .code pre.diff > .a { background: color-mix(in srgb, var(--bx-red, #e5484d) 14%, transparent); }
+    .code pre.diff > .h { color: var(--bx-accent, #1e88e5);
+      background: color-mix(in srgb, var(--bx-accent, #1e88e5) 8%, transparent); }
+    .code pre.diff > .fh { color: var(--bx-muted, #8794a1); }
     .grouphd { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
       color: var(--bx-muted, #8794a1); padding: 4px 8px; background: var(--bx-panel-2, #f7f8fa); }
+
+    /* highlight.js — light palette (Atom-One-Light-ish) scoped to this shadow */
+    .hljs-comment, .hljs-quote { color: #a0a1a7; font-style: italic; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-formula { color: #a626a4; }
+    .hljs-name, .hljs-section, .hljs-tag, .hljs-deletion { color: #e45649; }
+    .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: #50a14f; }
+    .hljs-number, .hljs-literal, .hljs-type, .hljs-attr, .hljs-attribute,
+    .hljs-variable, .hljs-template-variable, .hljs-selector-attr,
+    .hljs-selector-pseudo, .hljs-selector-class { color: #986801; }
+    .hljs-title, .hljs-title.function_, .hljs-built_in, .hljs-title.class_ { color: #4078f2; }
+    .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id { color: #0184bb; }
+    .hljs-emphasis { font-style: italic; }
+    .hljs-strong { font-weight: 600; }
   `;
 
   // {id, label} — ids stay URL-safe (no spaces/&) for hash deep-links.
@@ -234,13 +284,34 @@ export class BxAdmin extends LitElement {
     } catch (e) { this._err = String(e.message ?? e); }
   }
   _fmtDate(iso) { try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
-  _diffLines(diff) {
-    if (!diff) return html`<span class="muted">no changes</span>`;
-    return diff.split('\n').map((l) => {
-      const cls = /^\+\+\+|^---/.test(l) ? '' : l[0] === '+' ? 'd' : l[0] === '-' ? 'a' : l.startsWith('@@') ? 'h' : '';
-      return html`<span class=${cls}>${l}
-</span>`;
-    });
+
+  // Render a unified diff to syntax-highlighted HTML: add/del lines tinted,
+  // their code tokenized by the current file's language (tracked from headers).
+  _diffHTML(diff) {
+    if (!diff) return '<span class="muted">no changes</span>';
+    const hdr = /^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)/;
+    let lang = '';
+    const out = [];
+    for (const raw of diff.split('\n')) {
+      if (raw.startsWith('diff --git')) {
+        const m = raw.match(/ b\/(\S+)/); if (m) lang = langFor(m[1]);
+        out.push(`<span class="fh">${escHTML(raw)}</span>`); continue;
+      }
+      if (raw.startsWith('+++ ')) {
+        const m = raw.match(/\+\+\+ b\/(.+)/); if (m) lang = langFor(m[1]);
+      }
+      if (hdr.test(raw) || raw.startsWith('index ') || raw.startsWith('new file')
+        || raw.startsWith('deleted file') || raw.startsWith('similarity ') || raw.startsWith('rename ')) {
+        out.push(`<span class="fh">${escHTML(raw)}</span>`); continue;
+      }
+      if (raw.startsWith('@@')) { out.push(`<span class="h">${escHTML(raw)}</span>`); continue; }
+      const sign = raw[0];
+      if (sign === '+') out.push(`<span class="d">+${hl(raw.slice(1), lang)}</span>`);
+      else if (sign === '-') out.push(`<span class="a">-${hl(raw.slice(1), lang)}</span>`);
+      else if (sign === ' ') out.push(`<span class="ctx"> ${hl(raw.slice(1), lang)}</span>`);
+      else out.push(`<span class="fh">${escHTML(raw)}</span>`); // '\ No newline', blanks
+    }
+    return out.join('');
   }
 
   _codeView() {
@@ -284,11 +355,11 @@ export class BxAdmin extends LitElement {
         </div>
         <div class="main">
           ${this._codeMode === 'diff'
-            ? html`<pre class="diff">${this._diffLines(this._codeDiff?.diff)}</pre>`
+            ? html`<pre class="diff hljs">${unsafeHTML(this._diffHTML(this._codeDiff?.diff))}</pre>`
             : this._codeFile
               ? (this._codeFile.binary ? html`<span class="muted">binary file (${this._codeFile.size} bytes)</span>`
                 : this._codeFile.truncated ? html`<span class="muted">file too large to display (${this._codeFile.size} bytes)</span>`
-                : html`<pre>${this._codeFile.content}</pre>`)
+                : html`<pre class="hljs"><code>${unsafeHTML(hl(this._codeFile.content ?? '', langFor(this._codeFile.path ?? '')))}</code></pre>`)
               : html`<span class="muted">select a file or a commit</span>`}
         </div>
       </div>`;
