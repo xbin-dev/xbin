@@ -1,5 +1,12 @@
 # Buxon — Deployment Flow
 
+> **Scope:** this doc is the **Docker** deployment — now the **dev / Tier-1**
+> path (container-as-boundary, no per-component isolation). The target model for
+> production and proper isolation — buxond on a VM/host as the sandbox runtime,
+> plus a virtual appliance — is `plans/runtime.md` (mechanics in
+> `plans/isolation.md`). The Docker path below keeps working; it stops being the
+> production recommendation once the appliance ships.
+
 Target: one container, one bind-mounted workspace, one exposed port. A person with
 Docker and five minutes gets a running workspace; upgrades never touch their data.
 

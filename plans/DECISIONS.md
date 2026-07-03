@@ -47,6 +47,24 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 
 ## Defaults set — veto if wrong
 
+### Runtime & deployment model (new, from `runtime.md`)
+- **RT-1 — Production boundary is a VM/host buxond controls**, not the Docker
+  container; buxond becomes the sandbox runtime for its components. Docker is
+  demoted to dev / Tier-1 (supersedes the "container is the boundary" framing in
+  D1/deployment.md for production). *(Decided while the user was away; the user
+  proposed dropping the docker deployment model for rootless isolation.)*
+- **RT-2 — Component userland is a fat, Ubuntu-based OCI rootfs** (Go/Node/Python/
+  git + `opencode`/`claude-code` + `bx`), mounted ro as every sandbox's base,
+  overlayfs per component; kept separate from a minimal host OS.
+- **RT-3 — Ship a virtual appliance** (qcow2/OVA/ISO/cloud), immutable + A/B
+  updates, workspace on a data disk, as the eventual production on-ramp.
+- **RT-4 — Terminals share the base rootfs** (agents + toolchains present by
+  default) but stay unsandboxed-from-workspace (owner plane).
+- **RT-5 — `wasm`/wazero is a first-class lightweight runtime** alongside the
+  rootfs-based ones.
+- **D1 revisited**: the fat image stays, but as the base **OCI rootfs** for
+  sandboxes/terminals, not as the deployment boundary; `-slim` remains backlog.
+
 ### Per-component isolation — Tier 3 (new, from `isolation.md`)
 - **ISO-1 — Egress mechanism**: target is netns + a transparent userspace egress
   relay (per-component, DNS-aware, rootless-capable); nftables-per-uid owner

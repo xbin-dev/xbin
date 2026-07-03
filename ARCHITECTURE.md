@@ -287,6 +287,14 @@ wazero/netns later for syscall- and egress-level caps.
 
 One Docker container, one bind-mounted data dir. Container is cattle, workspace is pet.
 
+> **Direction of travel** (`plans/runtime.md`): the container-as-boundary is the
+> **dev / Tier-1** model. The target for real per-component isolation is buxond
+> on a **VM/host it controls** — buxond becomes the sandbox runtime, workloads
+> get namespaces (`plans/isolation.md`), and a fat OCI **base rootfs**
+> (toolchains + `opencode`/`claude-code`) backs both sandboxes and terminals.
+> An immutable **virtual appliance** (qcow2/OVA/ISO/cloud) is the eventual
+> on-ramp. Docker stays for dev.
+
 ```
 /workspace                  ← bind mount; ALL non-runtime state
   buxon.json                # workspace manifest, grants table

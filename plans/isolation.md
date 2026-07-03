@@ -132,18 +132,24 @@ and is rootless-capable.
 
 ## 4. Deployment & capabilities
 
-The default container runs with **no extra capabilities** (deployment.md) — that
-stays **Tier 1** (unprivileged, attribution-only). Tier 3 is **opt-in** and needs
-one of:
+Proper per-component isolation wants buxond to build namespaces, attach cgroups,
+and run an egress relay — which is exactly what an **unprivileged Docker
+container can't host well**. So the deployment model moves down a level: buxond
+runs on a **VM / host it controls** and *becomes* the sandbox runtime for its
+components. Full design in **`plans/runtime.md`**; in short:
 
-- **User namespaces (rootless)** — mount + net ns + tap without host caps.
-  Preferred long-term; matches where rootless containers are going.
-- **`CAP_NET_ADMIN` + `CAP_SYS_ADMIN`** (or a small privileged helper) for the
-  classic root path with real veth/netns.
+- The **Docker container stays dev / Tier-1 only** (container-as-boundary, no
+  per-component isolation). It keeps working; it stops being the production
+  recommendation.
+- **Production = a VM** (or bare host / microVM); an **immutable virtual
+  appliance** (qcow2/OVA/ISO/cloud image) is the eventual "five-minutes"
+  on-ramp. The VM is the hard outer boundary; namespaces are the inner one.
+- Tier 3 then needs either **user namespaces (rootless)** — mount + net ns + tap
+  without host caps, preferred — or **`CAP_NET_ADMIN` + `CAP_SYS_ADMIN`** on the
+  root path. On a VM buxond controls, both are available.
 
 Gate it like `--scope-uids`: e.g. `--isolate` selecting the tier. `--dev` /
-`--no-auth` ⇒ Tier 0, no sandbox. Ship a **hardened `docker-compose`** variant
-documenting the added caps / userns config alongside the default one.
+`--no-auth` ⇒ Tier 0, no sandbox.
 
 **Overhead:** building a ns per spawn taxes the hot-reload loop. Mitigate by
 **reusing a per-scope namespace** across generations (the scope's uid/ns is
