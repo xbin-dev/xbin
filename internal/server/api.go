@@ -16,6 +16,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /components", s.apiComponents)
 	s.RegisterAPI("GET /components/{path...}", s.apiComponent)
 	s.RegisterAPI("GET /frame-token", s.apiFrameToken)
+	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
 }
 
 func WriteJSON(w http.ResponseWriter, code int, v any) {

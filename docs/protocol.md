@@ -83,6 +83,10 @@ GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile. {token}
 
 GET    /whoami                    any. caller identity + permissions
+GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
+                                   incl. the RBAC capability per endpoint
+                                   (x-buxon-capability). Rendered by the API-docs
+                                   tile; importable into Swagger UI / Postman.
 
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
