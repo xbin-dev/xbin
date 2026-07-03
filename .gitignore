@@ -1,5 +1,6 @@
 bin/
 devws*/
+.rootfs/
 go.work.sum
 *.log
 *_scrot.png

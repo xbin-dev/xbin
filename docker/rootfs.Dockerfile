@@ -15,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git ripgrep less vim-tiny nano \
       python3 python3-pip python3-venv \
-      build-essential pkg-config \
+      build-essential pkg-config passwd \
     && rm -rf /var/lib/apt/lists/*
 
 # Go (full toolchain — components build against it).

@@ -7,23 +7,33 @@ product, the first is our daily life.
 ## 1. Working on Buxon core
 
 ### Prerequisites
-Go ≥ 1.24 and git. Nothing else — no Node toolchain (frontend is buildless; vendored
-deps are checked in), Docker only needed for image/e2e work.
+Go ≥ 1.24 and git, plus **Docker** (to build the dev rootfs once) and
+unprivileged **user namespaces** — because `make dev` now runs **isolated**.
+The frontend is still buildless (vendored deps checked in).
 
 ### The loop
 
 ```
-make dev          # go run ./cmd/buxond --dev … (auth ON, assets from disk)
+make rootfs       # once: build the base rootfs (docker → .rootfs/, ~2 GB, cached)
+make dev          # go run ./cmd/buxond --dev --isolate … (auth ON, assets from disk)
 make dev-noauth   # same, but --no-auth: every request is admin
 ```
 
-`--dev` means: `web/`+`docs/` served from disk (edit bx-frame.js →
-hard-refresh browser, no rebuild), verbose logs, and `devws/` auto-initialized
-from `workspace-template/` on first run (gitignored). It **no longer implies
-`--no-auth`** — `make dev` runs with auth on and seeds a dev admin (login
-`admin`/`admin`, plus the root token URL in the logs) so multi-user RBAC can
-be exercised while live-editing core elements. `make dev-noauth` is the old
-frictionless admin-everything loop (`--dev --no-auth`).
+**Dev runs isolated** (per-component namespaces + overlay rootfs + egress relay):
+the sandbox network/fs model is different enough from unsandboxed that dev must
+match it. It's rootless (no root needed) but requires unprivileged user
+namespaces and a base rootfs — `make dev` builds it via `make rootfs` on first
+run (docker; cached in `.rootfs/`; override with `ROOTFS=/path make dev`).
+Component backends run in their sandboxes; the netns is default-deny egress
+until a component is granted `net:*` (docs/auth.md).
+
+`--dev` (orthogonal to `--isolate`) means: `web/`+`docs/` served from disk (edit
+bx-frame.js → hard-refresh browser, no rebuild), verbose logs, and `devws/`
+auto-initialized from `workspace-template/` on first run (gitignored). It **does
+not imply `--no-auth`** — `make dev` runs with auth on and seeds a dev admin
+(login `admin`/`admin`, plus the root token URL in the logs) so multi-user RBAC
+can be exercised while live-editing core elements. `make dev-noauth` is the
+frictionless admin-everything loop (`--dev --no-auth --isolate`).
 
 - Restarting buxond on Go changes: `hack/dev.sh` wraps `go run` with a file watcher
   (use `gow` or a 10-line inotify loop — do **not** take a dependency on air; keep

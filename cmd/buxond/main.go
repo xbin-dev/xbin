@@ -283,9 +283,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.Cgroup = cg
 		slog.Info("cgroup v2 accounting enabled")
 	}
-	if isolate && !dev {
+	// Isolation is orthogonal to --dev/--no-auth (which only change asset serving
+	// and logging): the sandbox network/fs model is different enough that dev
+	// should run against it too (`make dev`).
+	if isolate {
 		if rootfs == "" {
-			fatal("--isolate needs --rootfs <dir> (an unpacked base OCI rootfs)")
+			fatal("--isolate needs --rootfs <dir> (an unpacked base OCI rootfs; `make rootfs`)")
 		}
 		if !sandbox.Available() {
 			fatal("--isolate: unprivileged user namespaces unavailable on this host")

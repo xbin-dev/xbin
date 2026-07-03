@@ -173,8 +173,10 @@ to keep it out of the core binary's import graph if we prefer.
 
 ## 6. Runner integration
 
-- New flags: `--isolate[=tier2|tier3]` and `--rootfs <dir>`. `--dev`/`--no-auth`
-  force Tier 0 (no sandbox). Off by default → zero behaviour change.
+- New flags: `--isolate` and `--rootfs <dir>`. Off by default → zero behaviour
+  change. **Orthogonal to `--dev`/`--no-auth`** (which only change asset serving
+  and logging): `--isolate` is honoured in dev too, so `make dev` runs against
+  the real sandbox network/fs model rather than a divergent unsandboxed one.
 - `runner.Runner` gains `Sandbox func(c) *sandbox.Spec` (nil ⇒ legacy spawn),
   mirroring the existing `SpawnUser`/`EnvForComponent` hooks. When set, `start()`
   builds the backend command via `sandbox.Launch(spec)` instead of a bare

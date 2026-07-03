@@ -148,8 +148,9 @@ components. Full design in **`plans/runtime.md`**; in short:
   without host caps, preferred — or **`CAP_NET_ADMIN` + `CAP_SYS_ADMIN`** on the
   root path. On a VM buxond controls, both are available.
 
-Gate it like `--scope-uids`: e.g. `--isolate` selecting the tier. `--dev` /
-`--no-auth` ⇒ Tier 0, no sandbox.
+Gate it with `--isolate` (+ `--rootfs`). It is **independent of `--dev`/
+`--no-auth`** — `make dev` runs isolated so development matches the sandbox
+network/fs model rather than a divergent unsandboxed one.
 
 **Overhead:** building a ns per spawn taxes the hot-reload loop. Mitigate by
 **reusing a per-scope namespace** across generations (the scope's uid/ns is

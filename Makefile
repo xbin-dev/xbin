@@ -2,22 +2,35 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth build test integration vet fmt-check vendor image dev-reset
+.PHONY: dev dev-noauth rootfs build test integration vet fmt-check vendor image dev-reset
 
-# The core loop: buxond from source against ./devws.
+# Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
+# the sandbox network/fs model is different enough from unsandboxed that dev must
+# match it. Rootless — no root needed — but requires unprivileged user
+# namespaces, and a base rootfs (built once from an OCI image via `make rootfs`).
+# Override the rootfs with `ROOTFS=/path make dev`.
+ROOTFS ?= $(CURDIR)/.rootfs
+
+# Build the dev/base rootfs once (docker → unpacked dir). Cached after first run.
+$(ROOTFS)/etc/os-release:
+	@echo ">> building base rootfs into $(ROOTFS) (first run; needs docker; cached after)"
+	./hack/build-rootfs.sh $(ROOTFS)
+rootfs: $(ROOTFS)/etc/os-release
+
+# The core loop: buxond from source against ./devws, isolated.
 # Live-editable core assets + debug logs, with auth ON (multi-user works).
 # First run seeds a dev admin: login 'admin' / 'admin'. The token URL is also
 # printed for the root admin. Use `make dev-noauth` for admin-everything.
-dev:
+dev: rootfs
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev
-	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --workspace ./devws --listen 127.0.0.1:8642
+	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
-# Frictionless mode: no auth, every request is admin (the old `make dev`).
-dev-noauth:
+# Frictionless mode: no auth, every request is admin (still isolated).
+dev-noauth: rootfs
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx
-	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --no-auth --workspace ./devws --listen 127.0.0.1:8642
+	BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:
 	rm -rf devws
