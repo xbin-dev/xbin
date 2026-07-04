@@ -9,6 +9,15 @@
   "uses": [
     { "target": "res:apps/s3-archiver/state", "role": "writer" }
   ],
+  // This tile reaches the S3 endpoint over the network, so it needs egress — a
+  // `net` interface the owner binds (plans/interfaces.md). Under isolation it has
+  // ZERO egress until bound: `bx bind apps/s3-archiver net=internet` for a public
+  // bucket (AWS/R2/B2), or bind it to a `lan:<cidr>` / a provider tile to reach a
+  // LAN MinIO or route through a VPN/proxy. Backups fail with "dial tcp … refused"
+  // if this is left unbound.
+  "interfaces": {
+    "net": { "kind": "net" }
+  },
   // Offer the archive interface. The owner binds components' @archive to it; only
   // the owner (buxond) calls the /archive endpoints, so no exposed role is needed.
   "provides": {

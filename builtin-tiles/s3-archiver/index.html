@@ -30,7 +30,9 @@
 </head>
 <body>
   <h3>S3 Archiver</h3>
-  <p class="hint">Where component backups are stored. Any S3-compatible endpoint (AWS, MinIO, R2, B2).</p>
+  <p class="hint">Where component backups are stored. Any S3-compatible endpoint (AWS, MinIO, R2, B2).
+    Needs egress: bind its <b>net</b> interface (admin → Interfaces / bind-on-install prompt) —
+    <code>net=internet</code> for a public bucket, or a <code>lan:…</code>/provider for a LAN MinIO.</p>
 
   <label>Endpoint</label>
   <input id="endpoint" placeholder="https://s3.us-east-1.amazonaws.com">

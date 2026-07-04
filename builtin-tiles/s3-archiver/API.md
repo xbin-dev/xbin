@@ -10,6 +10,12 @@ owner, streams component backup tars here; this tile stores them in S3 as
 Configure the endpoint/region/bucket/prefix on the tile's page; the access key
 and secret are stored in the tile's **vault** (never in a resource).
 
+It reaches the S3 endpoint over the network, so it declares a `net` interface the
+owner must bind (it has zero egress under isolation until then):
+
+    bx bind apps/s3-archiver net=internet     # public bucket (AWS/R2/B2)
+    # or bind to a lan:<cidr> / a provider tile for a LAN MinIO or a VPN/proxy
+
 ## Archive contract (called by buxond only — admin)
 
 | Method | Path | Body / Query | Returns |

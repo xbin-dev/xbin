@@ -173,6 +173,8 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
    VACUUM-INTO hardening is a later drop-in).
 3. **S3 archiver tile** *(done)* — `builtin-tiles/s3-archiver`, dependency-free
    SigV4 (unit-tested against AWS's vector), path-style, config UI + vault creds.
+   It `interfaces: {net}` (it egresses to the bucket) — the owner binds it
+   (`net=internet`, or a `lan:`/provider for a LAN MinIO); unbound = no backups.
 4. **Offload / restore** *(done)* — both depths, wired into `POST /lifecycle`.
 5. **Cron scheduling + retention** *(done)* — owner-scheduled backups on the cron
    engine + version pruning.
