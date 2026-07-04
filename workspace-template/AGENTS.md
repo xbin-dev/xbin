@@ -39,13 +39,16 @@ deploy step and **no JS build step — ever** (plain ES modules + import maps).
 You are the **owner** principal: every API call you make passes every
 permission check as role `admin`. Running components are not — see §Auth.
 
-**Terminal scope:** a terminal opened on a component has **that component's
-source read-write and every other component read-only** — you can read siblings
-(for deps/patterns) but only edit the component you're on. `$HOME`, `.git`, and
-workspace files stay writable, so `git commit` works. To edit a *different*
-component, open a terminal on it; to edit across the whole workspace or create
-components freely, use a **root terminal** (opened on the workspace root — full
-workspace rw). Writing to a read-only sibling fails with `Read-only file system`.
+**Terminal scope:** a terminal opened on a component can write **only that
+component's own directory and `$HOME`** — the **entire rest of the workspace is
+read-only** (other components, workspace files like `buxon.json`/`AGENTS.md`/
+`go.work`, and `data/`). So you can read siblings for deps/patterns but can't
+touch anything outside your component; a rogue agent can't break the environment.
+**Each component is its own git repo**, so `cd` into it and `git commit` works
+even though the root is read-only. To edit a *different* component, open a
+terminal on it; to work across the whole workspace or create components, use a
+**root terminal** (opened on the workspace root — full workspace rw). Writing
+outside your component fails with `Read-only file system`.
 
 **Multi-user:** buxon can have human users with per-tile permissions (admins:
 all tiles + terminals + user mgmt; regular users: only allow-listed tiles, no
@@ -109,21 +112,25 @@ bx doctor                 # manifest errors, missing API.md, dangling deps, …
 bx ls                     # all components
 ```
 
-**Commit policy (agents: follow this):** the workspace is one git repo; commit
+**Commit policy (agents: follow this):** **each component is its own git repo**,
+so commit **inside your component** — `cd` into it and `git commit`. Commit
 **often and on your own initiative** — after any meaningful change (a working
 component, a fix, a refactor that builds), not in big batches. **Never ask the
 user whether to commit**; committing is your job, and git is the safety net that
-makes every other edit reversible. Keep commits small and scoped to one
-component or concern, with a short imperative message (`counter: fix overflow`).
+makes every edit reversible. Keep commits small with a short imperative message
+(`fix overflow`).
 
 ```sh
-cd $BUXON_WORKSPACE && git add -A && git commit -m "…"
+cd $BUXON_WORKSPACE/apps/thing && git add -A && git commit -m "…"
 ```
 
-`.buxon/`, `data/`, `home/` are gitignored — leave it that way. History and
-diffs per component are viewable in the Admin tile's **code & history** tab. Do
-**not** create nested git repos inside a component — the workspace is a single
-repo (paths are identity, `cp -r` forks, git is history).
+This per-component repo is what makes components **installable/shareable** (push
+to GitHub, `git pull` to update — the Admin console shows a component's remote,
+the Tile Manager shows update tags). buxond creates the repo when a component is
+scaffolded/imported/instantiated; you just commit into it. Its `.buxon/`, `data/`
+(and `node_modules/`) are runtime, not source — leave those to buxond and the
+backup system. History/diffs are in the Admin tile's component **code & history**
+drill-in (click a component in the overview).
 
 ## Component anatomy & manifest
 

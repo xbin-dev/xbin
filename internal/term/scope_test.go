@@ -1,6 +1,8 @@
 package term
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/magik6k/buxon/internal/sandbox"
@@ -19,50 +21,46 @@ func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {
 }
 
 func TestScopedBinds(t *testing.T) {
-	root := "/ws"
-	comps := []string{"apps/welcome", "apps/welcome/sub", "apps/s3-archiver", "root", "shell", "apps"}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	extra := []sandbox.Bind{{Src: "/sdk", Dst: "/sdk", RO: true}}
 
-	// Root terminal: whole workspace rw, no per-component ro binds (+ the extra).
-	root0 := scopedBinds(root, "", comps, extra)
-	if len(root0) != 2 || root0[0].Src != root || root0[0].RO {
-		t.Fatalf("root terminal should bind only the rw workspace (+extra): %+v", root0)
+	// Root terminal (owner plane): the whole workspace rw, no ro root bind.
+	rw, ro := rwRO(scopedBinds(root, "", extra))
+	if !rw[root] || ro[root] {
+		t.Fatalf("root terminal must bind the workspace rw")
 	}
 
-	// Component terminal on apps/welcome.
-	rw, ro := rwRO(scopedBinds(root, "apps/welcome", comps, extra))
-	if !rw[root] || ro[root] {
-		t.Errorf("workspace must stay rw (so $HOME/.git/commits work)")
+	// Component terminal: workspace read-only, $HOME + the component read-write.
+	rw, ro = rwRO(scopedBinds(root, "apps/welcome", extra))
+	if !ro[root] || rw[root] {
+		t.Errorf("component terminal: workspace root must be READ-ONLY")
 	}
-	// Siblings + unrelated components are read-only.
-	for _, s := range []string{"/ws/apps/s3-archiver", "/ws/root", "/ws/shell"} {
-		if !ro[s] {
-			t.Errorf("%s should be read-only", s)
-		}
+	if !rw[filepath.Join(root, "home")] {
+		t.Errorf("$HOME must be read-write")
 	}
-	// The current component, its ancestor ("apps"), and its descendant stay writable.
-	for _, w := range []string{"/ws/apps/welcome", "/ws/apps/welcome/sub", "/ws/apps"} {
-		if ro[w] {
-			t.Errorf("%s must NOT be read-only (current component's path)", w)
-		}
+	if !rw[filepath.Join(root, "apps/welcome")] {
+		t.Errorf("the component's own dir must be read-write (code + its .git)")
 	}
-	// Read-only ExtraBinds (the SDK) are preserved.
+	// A sibling is not separately bound — it's covered by the read-only root.
+	if rw[filepath.Join(root, "apps/other")] {
+		t.Errorf("a sibling component must not be writable")
+	}
 	if !ro["/sdk"] {
 		t.Errorf("SDK extra bind lost")
 	}
 }
 
-func TestUnderPath(t *testing.T) {
-	if underPath("apps/we", "apps/welcome") {
-		t.Error("apps/we is not under apps/welcome (segment-aware)")
+// $HOME is only rw-bound if it exists (fresh/odd workspaces without one still work).
+func TestScopedBindsNoHome(t *testing.T) {
+	root := t.TempDir()
+	rw, _ := rwRO(scopedBinds(root, "apps/x", nil))
+	if rw[filepath.Join(root, "home")] {
+		t.Errorf("no home dir → no home bind")
 	}
-	if !underPath("apps/welcome/sub", "apps/welcome") {
-		t.Error("descendant should be under")
-	}
-	if !underPath("apps/welcome", "apps/welcome") {
-		t.Error("equal path counts as under")
-	}
-	if underPath("apps/welcome", "apps/welcome/sub") {
-		t.Error("parent is not under its child")
+	if !rw[filepath.Join(root, "apps/x")] {
+		t.Errorf("component still rw")
 	}
 }

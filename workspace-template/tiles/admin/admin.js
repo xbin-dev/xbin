@@ -420,6 +420,7 @@ export class BxAdmin extends LitElement {
       <div class="hd">
         <a class="link" @click=${() => { this._codeComp = null; }}>← components</a>
         <span class="path">${this._codeComp}</span>
+        ${this._codeLog?.remote ? html`<span class="muted" style="font-size:11px" title="git remote (origin)">${this._codeLog.remote.replace(/^https:\/\/|\.git$/g, '')}</span>` : nothing}
       </div>
       <div class="code">
         <div class="side">

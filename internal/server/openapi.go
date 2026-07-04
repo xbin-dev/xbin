@@ -117,7 +117,7 @@ func endpoints() []ep {
 		// --- code & git ---
 		{"GET", "/code/tree", "Code", "A component's files", "admin", "", []oapi{queryParam("component", "component path", true)}, nil, "{component, files:[{path,size}]}"},
 		{"GET", "/code/file", "Code", "One file's content", "admin", "Binary/oversized files are flagged, not dumped.", []oapi{queryParam("component", "component path", true), queryParam("file", "path within the component", true)}, nil, "{path, content|binary|truncated}"},
-		{"GET", "/git/log", "Code", "Component git history", "admin", "Commits touching the component, scoped to its path in the single workspace repo.", []oapi{queryParam("component", "component path", true), queryParam("limit", "max commits", false)}, nil, "{repo, commits[]}"},
+		{"GET", "/git/log", "Code", "Component git history", "admin", "Commits from the component's OWN git repo (each component is its own repo); includes its origin `remote` if set.", []oapi{queryParam("component", "component path", true), queryParam("limit", "max commits", false)}, nil, "{repo, commits[], remote}"},
 		{"GET", "/git/diff", "Code", "Commit diff / uncommitted changes", "admin", "rev empty = uncommitted changes vs HEAD; else that commit's diff, scoped to the component.", []oapi{queryParam("component", "component path", true), queryParam("rev", "commit hash (empty = working tree)", false)}, nil, "{repo, diff}"},
 
 		// --- grants ---

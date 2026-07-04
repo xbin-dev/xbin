@@ -100,13 +100,6 @@ type Manager struct {
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
-	// Components lists every component's workspace-relative path. A terminal
-	// opened on a component gets that component's source read-write and every
-	// OTHER component's source read-only (you can read siblings, not tamper with
-	// them); the rest of the workspace ($HOME, .git, workspace files) stays rw so
-	// commits and the shell keep working. nil ⇒ the whole workspace is rw (the
-	// legacy behaviour; used for a root terminal). Wired to the registry by main.
-	Components func() []string
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -334,36 +327,33 @@ func (m *Manager) ResetEnv(rel string) error {
 	return os.RemoveAll(filepath.Join(m.Root, ".buxon", "term", key))
 }
 
-// scopedBinds builds a terminal's workspace binds. The workspace is bound
-// read-write (so $HOME, .git and workspace files stay writable — commits and the
-// shell keep working); for a component-scoped terminal (rel != "") every OTHER
-// component's source directory is then bound **read-only** on top, so you can
-// read siblings but only write your own component. A root terminal (rel == "")
-// or no component list ⇒ the whole workspace stays rw. Read-only ExtraBinds
-// (e.g. the SDK) are appended last.
-func scopedBinds(root, rel string, components []string, extra []sandbox.Bind) []sandbox.Bind {
-	binds := []sandbox.Bind{{Src: root, Dst: root}} // workspace, rw
-	if rel != "" {
-		sorted := append([]string(nil), components...)
-		sort.Strings(sorted)
-		for _, comp := range sorted {
-			// Keep the current component's own subtree writable: skip it, its
-			// ancestors (locking those would lock it), and its descendants.
-			if comp == "" || underPath(rel, comp) || underPath(comp, rel) {
-				continue
-			}
-			d := filepath.Join(root, filepath.FromSlash(comp))
-			binds = append(binds, sandbox.Bind{Src: d, Dst: d, RO: true})
-		}
+// scopedBinds builds a terminal's workspace binds (plans/runtime.md).
+//
+//   - A ROOT terminal (rel == "") is the owner plane: the whole workspace
+//     read-write (edit anything, create components, workspace-level git).
+//   - A COMPONENT terminal (rel != "") is isolated: the workspace is read-only
+//     EXCEPT $HOME and this component's own directory (its code + its own .git
+//     repo). So a rogue agent can only touch its component and $HOME — never
+//     workspace state (buxon.json, AGENTS.md, go.work), runtime data (data/,
+//     .buxon/), or other components. Commits work because each component is its
+//     own git repo, writable inside the component dir even while the root is ro.
+//
+// Read-only ExtraBinds (e.g. the SDK) are appended last. rw binds go AFTER the
+// ro root so they shadow it at their paths.
+func scopedBinds(root, rel string, extra []sandbox.Bind) []sandbox.Bind {
+	if rel == "" {
+		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw
 	}
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}} // workspace: read-only
+	if home := filepath.Join(root, "home"); pathIsDir(home) {
+		binds = append(binds, sandbox.Bind{Src: home, Dst: home}) // $HOME: read-write
+	}
+	comp := filepath.Join(root, filepath.FromSlash(rel))
+	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write
 	return append(binds, extra...)
 }
 
-// underPath reports whether child is at or below parent (path-segment aware, so
-// "apps/we" is not under "apps/welcome").
-func underPath(child, parent string) bool {
-	return child == parent || strings.HasPrefix(child, parent+"/")
-}
+func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
 // workspace read-write with other components' source read-only (see scopedBinds)
@@ -375,11 +365,7 @@ func underPath(child, parent string) bool {
 // hold a component's layer; concurrent sessions on the same component fall back
 // to an ephemeral upper. netMode picks the network scope (internet/host/none).
 func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
-	var comps []string
-	if m.Components != nil {
-		comps = m.Components()
-	}
-	binds := scopedBinds(m.Root, rel, comps, m.ExtraBinds)
+	binds := scopedBinds(m.Root, rel, m.ExtraBinds)
 	env := m.sandboxEnv(rel, netMode)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if gpuMode != "" && gpuMode != "none" {

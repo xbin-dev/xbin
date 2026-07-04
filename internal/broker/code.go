@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -47,10 +48,11 @@ func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, stri
 	return comp, dir, true
 }
 
-// runGit runs a git subcommand in the workspace repo, returning stdout (and,
-// on failure, stderr as the error text).
-func (b *Broker) runGit(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", b.Reg.Root}, args...)...)
+// runGitIn runs a git subcommand in dir (a component's own repo — each component
+// is its own repo, plans/lifecycle.md), returning stdout (and, on failure, stderr
+// as the error text).
+func runGitIn(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -67,9 +69,51 @@ type gitError struct{ msg string }
 
 func (e *gitError) Error() string { return e.msg }
 
-func (b *Broker) hasRepo() bool {
-	_, err := os.Stat(filepath.Join(b.Reg.Root, ".git"))
+func isRepo(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
 	return err == nil
+}
+
+// gitInitComponent makes a component directory its own git repo with a baseline
+// commit, unless it already is one. Idempotent and non-destructive: a component
+// terminal edits + commits inside this repo even though the workspace root is
+// read-only to it (plans/runtime.md). The identity is only for the baseline
+// commit; the owner/agents author later commits.
+func gitInitComponent(dir string) error {
+	if isRepo(dir) {
+		return nil
+	}
+	if _, err := runGitIn(dir, "init", "-q", "-b", "main"); err != nil {
+		return err
+	}
+	_, _ = runGitIn(dir, "add", "-A")
+	_, _ = runGitIn(dir,
+		"-c", "user.email=buxon@localhost", "-c", "user.name=buxon",
+		"commit", "-q", "--allow-empty", "-m", "initial commit")
+	return nil
+}
+
+// EnsureComponentRepos gives every component its own git repo (idempotent). Run
+// at start and after structural changes so new/imported/instantiated components
+// are versioned; existing ones are migrated on first sight.
+func (b *Broker) EnsureComponentRepos() {
+	for _, c := range b.Reg.Components() {
+		if err := gitInitComponent(c.Dir); err != nil {
+			slog.Debug("git init component", "path", c.Path, "err", err)
+		}
+	}
+}
+
+// componentRemote returns a component repo's origin URL, or "" if none/no repo.
+func componentRemote(dir string) string {
+	if !isRepo(dir) {
+		return ""
+	}
+	out, err := runGitIn(dir, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // GET /code/tree?component=<path> — the component's files (flat, sorted).
@@ -154,11 +198,11 @@ func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
 		return
 	}
-	comp, _, ok := b.component(w, r)
+	_, dir, ok := b.component(w, r)
 	if !ok {
 		return
 	}
-	if !b.hasRepo() {
+	if !isRepo(dir) {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": false, "commits": []any{}})
 		return
 	}
@@ -166,10 +210,11 @@ func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 500 {
 		limit = n
 	}
-	out, err := b.runGit("log", "--no-color", "-n", strconv.Itoa(limit),
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s", "--", comp)
+	// The component's own repo — its whole history is the component's history.
+	out, err := runGitIn(dir, "log", "--no-color", "-n", strconv.Itoa(limit),
+		"--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s")
 	if err != nil {
-		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": []any{}, "note": err.Error()})
+		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": []any{}, "note": err.Error(), "remote": componentRemote(dir)})
 		return
 	}
 	commits := []map[string]string{}
@@ -185,7 +230,7 @@ func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
 			"hash": f[0], "short": f[1], "author": f[2], "date": f[3], "subject": f[4],
 		})
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": commits})
+	server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": commits, "remote": componentRemote(dir)})
 }
 
 // GET /git/diff?component=<path>&rev=<hash> — a commit's diff scoped to the
@@ -194,11 +239,11 @@ func (b *Broker) apiGitDiff(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
 		return
 	}
-	comp, _, ok := b.component(w, r)
+	_, dir, ok := b.component(w, r)
 	if !ok {
 		return
 	}
-	if !b.hasRepo() {
+	if !isRepo(dir) {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": false, "diff": ""})
 		return
 	}
@@ -206,17 +251,17 @@ func (b *Broker) apiGitDiff(w http.ResponseWriter, r *http.Request) {
 	var out string
 	var err error
 	if rev == "" {
-		// Uncommitted changes for this component (vs last commit).
-		out, err = b.runGit("diff", "--no-color", "HEAD", "--", comp)
+		// Uncommitted changes in this component (vs last commit).
+		out, err = runGitIn(dir, "diff", "--no-color", "HEAD")
 		if err != nil { // no commits yet
-			out, err = b.runGit("diff", "--no-color", "--", comp)
+			out, err = runGitIn(dir, "diff", "--no-color")
 		}
 	} else {
 		if !revRE.MatchString(rev) {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad revision"})
 			return
 		}
-		out, err = b.runGit("show", "--no-color", rev, "--", comp)
+		out, err = runGitIn(dir, "show", "--no-color", rev)
 	}
 	if err != nil {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "diff": "", "note": err.Error()})

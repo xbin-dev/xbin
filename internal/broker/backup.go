@@ -106,7 +106,10 @@ func skipSource(rel string) bool {
 	if i := strings.IndexByte(rel, '/'); i >= 0 {
 		top = rel[:i]
 	}
-	return top == ".git" || top == "node_modules" || top == ".buxon"
+	// Keep .git — a component is its own repo now (history + remote travel with
+	// the backup, so a restore is a full, re-pullable clone). Still drop
+	// node_modules (reproducible) and .buxon (runtime layers).
+	return top == "node_modules" || top == ".buxon"
 }
 
 func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *registry.ScopeManifest) error {

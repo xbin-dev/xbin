@@ -111,15 +111,16 @@ Terminals get the **same base rootfs** (so Go/Node/Python + `opencode`/
 `claude-code` + `bx` are simply *there*, consistent on VM and appliance alike),
 but:
 
-- the **workspace mounted rw**, but **scoped to the terminal's component**: a
-  terminal opened on component `X` gets `X`'s source read-write and **every other
-  component's source read-only** (you can read siblings — for deps, patterns — but
-  can't tamper with them; blast-radius containment for an agent told to work on
-  `X`). The rest of the workspace stays rw — `$HOME`, `.git`, `AGENTS.md`,
-  non-component dirs — so commits and the shell keep working. A **root terminal**
-  (opened on `""`) gets the **full workspace rw** (the owner edits anything /
-  creates components). Implemented by binding the workspace rw, then ro-binding
-  each other component dir on top (`term.scopedBinds`).
+- the **workspace mounted read-only, scoped to the terminal's component**: a
+  terminal opened on component `X` can write **only `X`'s own dir and `$HOME`** —
+  the entire rest of the workspace (other components, workspace files like
+  `buxon.json`/`AGENTS.md`/`go.work`, `data/`) is **read-only**. So a rogue agent
+  can read siblings for deps/patterns but can't touch workspace state, runtime
+  data, or other components — it can only break its own component. Commits still
+  work because **each component is its own git repo** (writable inside `X`'s dir
+  even though the root is ro). A **root terminal** (opened on `""`) is the owner
+  plane: the **full workspace rw**. Implemented by binding the workspace ro, then
+  rw-binding `$HOME` and the component dir on top (`term.scopedBinds`).
 - a persistent **`$HOME`** = `<ws>/home` (so agent CLI config/auth in `~/.config`,
   `~/.local` is shared across terminals and survives upgrades), the **SDK source
   ro** (so `go build` resolves the go.work replace), and the builder docs on disk
@@ -176,13 +177,14 @@ base rootfs / fuse-overlayfs.
   overlayfs per component. Kept separate from the minimal host OS.
 - **RT-3 — Ship a virtual appliance** (qcow2/OVA/ISO/cloud) eventually; immutable
   OS + A/B updates; workspace on a data disk.
-- **RT-4 — Terminals share the base rootfs** (nice builder env with agents) but
-  stay unsandboxed-from-workspace (owner plane). The workspace is rw but **scoped
-  to the terminal's component** — other components' source is read-only (a root
-  terminal gets the full workspace rw); `$HOME`/`.git`/workspace files stay rw.
-  Network is a **per-session scope** (default: own netns + internet-only egress
-  relay, no host interfaces; `host`/`none` available), with buxond reachable via a
-  relay gateway host-forward.
+- **RT-4 — Terminals share the base rootfs** (nice builder env with agents). A
+  **component** terminal is isolated: the workspace is **read-only except the
+  component's own dir + `$HOME`** (a rogue agent can't touch workspace state,
+  `data/`, or other components); **each component is its own git repo** so commits
+  work under the ro root. A **root** terminal is the owner plane (full workspace
+  rw). Network is a **per-session scope** (default: own netns + internet-only
+  egress relay, no host interfaces; `host`/`none` available), with buxond
+  reachable via a relay gateway host-forward.
 - **RT-5 — `wasm`/wazero is a first-class lightweight runtime** alongside the
   rootfs-based runtimes.
 - **RT-6 — Two nested boundaries**: VM (hard, outer) + per-component namespaces

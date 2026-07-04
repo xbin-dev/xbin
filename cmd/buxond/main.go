@@ -250,7 +250,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
 			slog.Warn("go.work", "err", err)
 		}
+		brk.EnsureComponentRepos() // new/imported components get their own git repo
 	}
+	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
 
 	// Vault encryption barrier (docs/auth.md §vault). Secure by default: in
@@ -331,16 +333,6 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		// (editing plane), plus the SDK source ro so `go build` resolves.
 		tm.Isolate = true
 		tm.Rootfs = abs
-		// A component-scoped terminal gets its own component rw and every other
-		// component's source ro (plans/runtime.md): let the manager enumerate them.
-		tm.Components = func() []string {
-			cs := reg.Components()
-			paths := make([]string, 0, len(cs))
-			for _, c := range cs {
-				paths = append(paths, c.Path)
-			}
-			return paths
-		}
 		if sdk, err := filepath.Abs(envOr("BUXON_SDK_PATH", "")); err == nil && dirExists(sdk) {
 			tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
 		}
