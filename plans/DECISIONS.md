@@ -243,3 +243,19 @@ Deviations and refinements made while implementing; all deliberate:
 - Frame-token UX friction: element authors must use `buxon.fetch()` (or copy the
   header) for cross-element calls; raw `fetch` to a sibling 403s. Mitigate with a
   crisp error body pointing at the docs.
+
+## Lifecycle & backup (LC-*, see plans/lifecycle.md)
+
+- **LC-1** — component lifecycle (`disabled`/`offloaded`/`offloaded-full`) in
+  `WorkspaceManifest.Lifecycle`; absent = enabled; owner-only; gated at the proxy
+  + `runner.Ensure`; still listed (stub for `-full`).
+- **LC-2** — per-component backup scope = **data + source + terminal-env layer**;
+  component env layer excluded (rebuilt from `setup`); vault excluded by default.
+  sqlite checkpointed.
+- **LC-3** — `archive` is an interface kind; the archiver tile *provides* an HTTP
+  tar-in / versions-and-file-out contract; **buxond is the client**; owner binds
+  an archiver (workspace default + per-component override), no component decl.
+- **LC-4** — offload/restore/scheduled+manual backup share the one archive path;
+  two offload depths (data, or data+source+term-env).
+- **LC-5** — backups schedule on the existing cron engine as owner jobs; retention
+  prunes versions.

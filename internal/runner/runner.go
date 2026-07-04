@@ -603,6 +603,25 @@ func (r *Runner) stop(inst *instance, deadline time.Duration) {
 	_ = os.Remove(inst.sock)
 }
 
+// Stop terminates a single component's running backend, if any (e.g. when the
+// owner disables/offloads it). A subsequent request re-spawns it (unless the
+// caller has since gated it). No-op if it isn't running.
+func (r *Runner) Stop(comp string) {
+	r.mu.Lock()
+	s := r.states[comp]
+	r.mu.Unlock()
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	inst := s.cur
+	s.cur = nil
+	s.mu.Unlock()
+	if inst != nil {
+		r.stop(inst, 5*time.Second)
+	}
+}
+
 // StopAll terminates all backends (buxond shutdown).
 func (r *Runner) StopAll() {
 	r.mu.Lock()

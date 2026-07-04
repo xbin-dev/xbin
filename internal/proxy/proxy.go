@@ -69,6 +69,20 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("component %s has no backend (runtime %q)", comp.Path, comp.Manifest.Runtime), "")
 		return
 	}
+	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component's
+	// backend must not spawn. 409 with the state so callers/the frame can show a
+	// placeholder; offloaded also means its data isn't local until restored.
+	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled {
+		w.Header().Set("X-Buxon-Lifecycle", state)
+		msg := fmt.Sprintf("component %s is %s", comp.Path, state)
+		if registry.IsOffloaded(state) {
+			msg += " — restore it to use (admin)"
+		} else {
+			msg += " — enable it to use (admin)"
+		}
+		jsonErr(w, http.StatusConflict, msg, "")
+		return
+	}
 
 	p := auth.PrincipalOf(r)
 	pol := px.Policy

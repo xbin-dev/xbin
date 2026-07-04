@@ -60,6 +60,10 @@ func main() {
 		err = cmdCron(os.Args[2:])
 	case "status":
 		err = cmdStatus()
+	case "enable":
+		err = cmdLifecycle(os.Args[2:], "enabled")
+	case "disable":
+		err = cmdLifecycle(os.Args[2:], "disabled")
 	default:
 		usage()
 	}
@@ -90,6 +94,7 @@ func usage() {
   bx iface                              interface requests, providers, bindings
   bx bind <component> <slot>=<provider> wire an interface to a provider
   bx bind --unset <component> <slot>
+  bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
   bx vault ls|get|set|rm <component> [key] [value]
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
@@ -348,6 +353,19 @@ func cmdIface() error {
 //
 //	bx bind <component> <slot>=<provider> [<slot>=<provider> …]
 //	bx bind --unset <component> <slot>
+//
+// cmdLifecycle sets a component's lifecycle state (plans/lifecycle.md).
+func cmdLifecycle(args []string, state string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: bx %s <component>", map[string]string{"enabled": "enable", "disabled": "disable"}[state])
+	}
+	if err := apiJSON("POST", "/api/buxon/lifecycle", map[string]string{"component": args[0], "state": state}, nil); err != nil {
+		return err
+	}
+	fmt.Printf("%s %s\n", args[0], state)
+	return nil
+}
+
 func cmdBind(args []string) error {
 	if len(args) >= 3 && args[0] == "--unset" {
 		body := map[string]string{"component": args[1], "slot": args[2]}

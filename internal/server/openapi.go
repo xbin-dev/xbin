@@ -131,6 +131,8 @@ func endpoints() []ep {
 			jsonBody("binding", oapi{"component": str("apps/x"), "slot": str("net"), "provider": str("apps/firewall | internet | host")}, "component", "slot", "provider"), "ok"},
 		{"DELETE", "/bindings", "Grants", "Clear a binding", "admin", "", nil,
 			jsonBody("binding to clear", oapi{"component": str("apps/x"), "slot": str("net")}, "component", "slot"), "ok"},
+		{"POST", "/lifecycle", "Grants", "Set a component's lifecycle state", "admin", "Enable/disable a component (plans/lifecycle.md). A non-enabled backend won't spawn; disabling stops it now. offloaded states need an archiver (later).", nil,
+			jsonBody("lifecycle", oapi{"component": str("apps/x"), "state": str("enabled|disabled")}, "component", "state"), "{ok, state}"},
 
 		// --- vault ---
 		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "", nil, nil, "{initialized, sealed, insecure}"},

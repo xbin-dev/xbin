@@ -289,6 +289,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			run.Changed(c)
 		}
 	}
+	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
 	}

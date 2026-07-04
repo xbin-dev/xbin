@@ -158,6 +158,15 @@ POST   /bindings                   admin. body {component, slot, provider} — b
                                    roster changed) so wiring takes effect at once.
 DELETE /bindings                   admin. body {component, slot} — clear a binding
 
+POST   /lifecycle                  admin. body {component, state} — component
+                                   lifecycle (plans/lifecycle.md). state:
+                                   enabled | disabled (offloaded* need an
+                                   archiver, later). A non-enabled backend is not
+                                   spawned (the proxy returns 409 + an
+                                   X-Buxon-Lifecycle header); disabling stops a
+                                   running backend now. State is in the overview's
+                                   component list (state field; "" = enabled).
+
 GET    /vault-status              admin. {initialized, sealed, insecure}
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init
                                    the barrier on first use). {created}

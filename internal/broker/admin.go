@@ -104,6 +104,7 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 		Roles    map[string]string `json:"roles,omitempty"`
 		Uses     []registry.Use    `json:"uses,omitempty"`
 		HasVault bool              `json:"hasVault"`
+		State    string            `json:"state,omitempty"` // lifecycle; "" = enabled
 		Manifest string            `json:"manifestError,omitempty"`
 	}
 	comps := []comp{}
@@ -111,6 +112,9 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 	for _, c := range b.Reg.Components() {
 		ci := comp{Path: c.Path, Runtime: c.Manifest.Runtime, Scope: c.Scope,
 			Uses: c.Manifest.Uses, Manifest: c.ManifestErr}
+		if s := b.Reg.LifecycleState(c.Path); s != registry.StateEnabled {
+			ci.State = s
+		}
 		if c.Manifest.Expose != nil && len(c.Manifest.Expose.Roles) > 0 {
 			ci.Roles = c.Manifest.Expose.Roles
 			exposed++

@@ -105,6 +105,33 @@ type WorkspaceManifest struct {
 	// Bindings wire each component's requested interface slots to a provider
 	// (plans/interfaces.md): bindings[component][slot] = provider. Owner-managed.
 	Bindings map[string]map[string]string `json:"bindings,omitempty"`
+	// Lifecycle holds each component's non-default state (plans/lifecycle.md):
+	// "disabled" | "offloaded" | "offloaded-full". Absent = enabled. Owner-managed.
+	Lifecycle map[string]string `json:"lifecycle,omitempty"`
+}
+
+// Lifecycle states (plans/lifecycle.md). Enabled is the implicit default (a
+// component with no entry in WorkspaceManifest.Lifecycle).
+const (
+	StateEnabled       = "enabled"
+	StateDisabled      = "disabled"
+	StateOffloaded     = "offloaded"      // resource data archived + removed
+	StateOffloadedFull = "offloaded-full" // + source/term-env archived + removed
+)
+
+// LifecycleState returns a component's lifecycle state, defaulting to enabled.
+func (r *Registry) LifecycleState(comp string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if s := r.workspace.Lifecycle[comp]; s != "" {
+		return s
+	}
+	return StateEnabled
+}
+
+// IsOffloaded reports whether a state means the component's data is not local.
+func IsOffloaded(state string) bool {
+	return state == StateOffloaded || state == StateOffloadedFull
 }
 
 // Component is a scanned workspace component.

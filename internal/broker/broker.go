@@ -51,6 +51,11 @@ type Broker struct {
 	// new policy/env — those are captured at spawn, not per request.
 	OnGrantChange func(component string)
 
+	// StopBackend, if set, terminates a component's running backend now (used
+	// when the owner disables/offloads it; plans/lifecycle.md). Wired to
+	// runner.Stop by main.
+	StopBackend func(component string)
+
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
 	// false, vault writes without a barrier are refused rather than written
@@ -119,6 +124,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /bindings", b.apiBindingsList)
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
+	srv.RegisterAPI("POST /lifecycle", b.apiLifecycleSet)
 	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
 	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
 	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)

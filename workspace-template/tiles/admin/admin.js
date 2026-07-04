@@ -613,15 +613,33 @@ export class BxAdmin extends LitElement {
       </div>
       <h4>principals</h4>
       <table>
-        <tr><th>component</th><th>runtime</th><th>exposes</th><th>uses</th><th>vault</th></tr>
+        <tr><th>component</th><th>runtime</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
         ${ov.components.map((k) => html`<tr>
           <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
           <td class="muted">${k.runtime || 'static'}</td>
           <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
           <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
           <td>${k.hasVault ? '🔑' : ''}</td>
+          <td>${this._lifecycleCell(k)}</td>
         </tr>`)}
       </table>`;
+  }
+
+  // Lifecycle toggle (plans/lifecycle.md). Static/CGI components with no backend
+  // still list, but only a running-backend runtime benefits — offer the toggle
+  // for any runtime the owner may want paused.
+  _lifecycleCell(k) {
+    const st = k.state || 'enabled';
+    const disabled = st !== 'enabled';
+    return html`${disabled ? html`<span class="pill st-failed" title="not running">${st}</span> ` : nothing}
+      <a class="link" @click=${() => this._setLifecycle(k.path, disabled ? 'enabled' : 'disabled')}>${disabled ? 'enable' : 'disable'}</a>`;
+  }
+
+  async _setLifecycle(path, state) {
+    try {
+      await api('/lifecycle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: path, state }) });
+      this._refresh();
+    } catch (e) { this._err = String(e.message ?? e); }
   }
 
   _vaultView() {
