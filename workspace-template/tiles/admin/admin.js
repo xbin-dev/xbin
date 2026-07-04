@@ -58,6 +58,10 @@ export class BxAdmin extends LitElement {
     _cron: { state: true },
     _users: { state: true },
     _ifaces: { state: true },   // {bindings, components} — interface wiring
+    _schedules: { state: true }, // [{component, schedule, retention}]
+    _versions: { state: true },  // comp -> [{version,time,size}] (lazy)
+    _verOpen: { state: true },   // set of comps whose version list is expanded
+    _busy: { state: true },      // comp path mid heavy op (offload/restore/backup)
     _err: { state: true },
     _denied: { state: true },
     _codeComp: { state: true }, // component being browsed in the code tab
@@ -215,6 +219,7 @@ export class BxAdmin extends LitElement {
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
     { id: 'interfaces', label: 'interfaces' },
+    { id: 'backup', label: 'backup' },
     { id: 'cron', label: 'cron' },
   ];
 
@@ -226,6 +231,9 @@ export class BxAdmin extends LitElement {
     this._err = '';
     this._denied = false;
     this._rtOpen = new Set();
+    this._versions = {};
+    this._verOpen = new Set();
+    this._schedules = [];
   }
 
   _setTab(t) {
@@ -233,6 +241,7 @@ export class BxAdmin extends LitElement {
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
     if (t === 'runtime') this._loadRuntime();
     if (t === 'interfaces') this._loadIfaces();
+    if (t === 'backup') this._loadBackup();
   }
 
   connectedCallback() {
@@ -470,6 +479,7 @@ export class BxAdmin extends LitElement {
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
           : tab === 'interfaces' ? this._ifacesView()
+          : tab === 'backup' ? this._backupView()
           : this._cronView()}
       </div>`;
   }
@@ -636,10 +646,19 @@ export class BxAdmin extends LitElement {
   }
 
   async _setLifecycle(path, state) {
+    // Offload removes local bytes (after archiving) — confirm before the flip.
+    if ((state === 'offloaded' || state === 'offloaded-full') &&
+        !confirm(`Offload ${path}? Its ${state === 'offloaded-full' ? 'data + source' : 'data'} will be archived, then removed locally.`)) {
+      this._refresh(); // revert the <select>
+      return;
+    }
+    this._busy = path;
     try {
       await api('/lifecycle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: path, state }) });
-      this._refresh();
+      await this._refresh();
+      if (this._tab === 'backup') await this._loadBackup();
     } catch (e) { this._err = String(e.message ?? e); }
+    finally { this._busy = null; }
   }
 
   _vaultView() {
@@ -776,6 +795,180 @@ export class BxAdmin extends LitElement {
         })}
         ${requests.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces</td></tr>` : nothing}
       </table>`;
+  }
+
+  // ---- backup (plans/lifecycle.md) ----
+  async _loadBackup() {
+    try {
+      const [ifaces, sched] = await Promise.all([api('/bindings'), api('/backup-schedule')]);
+      this._ifaces = ifaces;
+      this._schedules = sched.schedules || [];
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  // Components that provide an `archive` interface (candidate archivers).
+  _archivers() {
+    const out = [];
+    for (const c of (this._ifaces?.components || []))
+      for (const def of Object.values(c.provides || {}))
+        if (def.kind === 'archive') out.push(c.component);
+    return out;
+  }
+
+  // '*' sets the workspace default; provider '' clears an override.
+  async _setArchiver(comp, provider) {
+    try {
+      const body = JSON.stringify(provider ? { component: comp, slot: '@archive', provider } : { component: comp, slot: '@archive' });
+      await api('/bindings', { method: provider ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json' }, body });
+      await this._loadBackup();
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  async _toggleVersions(comp) {
+    const s = new Set(this._verOpen);
+    if (s.has(comp)) { s.delete(comp); this._verOpen = s; return; }
+    s.add(comp); this._verOpen = s;
+    await this._loadVersions(comp);
+  }
+  async _loadVersions(comp) {
+    try {
+      const d = await api('/backups?component=' + encodeURIComponent(comp));
+      this._versions = { ...this._versions, [comp]: d.versions || [] };
+    } catch (e) { this._versions = { ...this._versions, [comp]: [] }; this._err = String(e.message ?? e); }
+  }
+
+  async _backupNow(comp) {
+    this._busy = comp;
+    try {
+      await api('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp }) });
+      this._verOpen = new Set(this._verOpen).add(comp);
+      await this._loadVersions(comp);
+    } catch (e) { this._err = String(e.message ?? e); }
+    finally { this._busy = null; }
+  }
+
+  async _restoreVersion(comp, version) {
+    if (!confirm(`Restore ${comp} from ${version}? This replaces its current data/source.`)) return;
+    this._busy = comp;
+    try {
+      await api('/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp, version }) });
+      await this._refresh();
+    } catch (e) { this._err = String(e.message ?? e); }
+    finally { this._busy = null; }
+  }
+
+  // Restore one file from a version — streamed back and offered as a download.
+  async _restoreFile(comp, version) {
+    const path = prompt('File path within the archive (e.g. source/index.html or data/kv.json):');
+    if (!path) return;
+    try {
+      const r = await buxon.fetch('/api/buxon/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ component: comp, version, file: path }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || r.status);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = path.split('/').pop() || 'file';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  async _setSchedule(comp, every, keep) {
+    if (!every.trim()) return;
+    try {
+      await api('/backup-schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ component: comp, schedule: '@every ' + every.trim(), retention: parseInt(keep, 10) || 0 }) });
+      await this._loadBackup();
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  async _clearSchedule(comp) {
+    try { await api('/backup-schedule?component=' + encodeURIComponent(comp), { method: 'DELETE' }); await this._loadBackup(); }
+    catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  _backupView() {
+    const ov = this._ov, ifaces = this._ifaces;
+    if (!ov || !ifaces) return html`<div class="muted">loading…</div>`;
+    const archivers = this._archivers();
+    if (archivers.length === 0)
+      return html`<p class="muted">No archiver installed. Import the <b>S3 Archiver</b> tile (or another
+        <code>archive</code> provider) from the Tile Manager, then pick it as the default below.</p>`;
+    const defArch = ifaces.bindings?.['*']?.['@archive'] || '';
+    const comps = (ov.components || []).filter((c) => !archivers.includes(c.path)); // an archiver isn't its own target
+    const schedFor = (p) => this._schedules.find((s) => s.component === p);
+    return html`
+      <p class="muted">Back up a component (its source + data + terminal layer) to an archiver, offload to
+        free disk, or restore a version/file. Vault is not backed up. See
+        <a href="/docs/protocol.md" target="_blank">plans/lifecycle.md</a>.</p>
+      <h3>Default archiver</h3>
+      <select @change=${(e) => this._setArchiver('*', e.target.value)}>
+        <option value="" ?selected=${!defArch}>— none —</option>
+        ${archivers.map((a) => html`<option value=${a} ?selected=${defArch === a}>${a}</option>`)}
+      </select>
+      <span class="muted" style="margin-left:8px">used unless a component overrides it</span>
+
+      <h3>Components</h3>
+      <table class="tbl">
+        <tr><th>component</th><th>lifecycle</th><th>archiver</th><th>schedule</th><th></th></tr>
+        ${comps.map((c) => this._backupRow(c, archivers, defArch, schedFor(c.path)))}
+      </table>`;
+  }
+
+  _backupRow(c, archivers, defArch, sched) {
+    const st = c.state || 'enabled';
+    const override = this._ifaces.bindings?.[c.path]?.['@archive'] || '';
+    const busy = this._busy === c.path;
+    const open = this._verOpen.has(c.path);
+    return html`
+      <tr>
+        <td class="mono">${c.path}</td>
+        <td><select ?disabled=${busy} @change=${(e) => this._setLifecycle(c.path, e.target.value)}>
+          ${['enabled', 'disabled', 'offloaded', 'offloaded-full'].map((s) =>
+            html`<option value=${s} ?selected=${st === s}>${s}</option>`)}
+        </select></td>
+        <td><select @change=${(e) => this._setArchiver(c.path, e.target.value)}>
+          <option value="" ?selected=${!override}>default${defArch ? ' (' + defArch + ')' : ''}</option>
+          ${archivers.map((a) => html`<option value=${a} ?selected=${override === a}>${a}</option>`)}
+        </select></td>
+        <td class="mono">${sched
+          ? html`${sched.schedule}${sched.retention ? ' ·keep ' + sched.retention : ''}
+              <a class="link" title="remove schedule" @click=${() => this._clearSchedule(c.path)}>✕</a>`
+          : this._scheduleForm(c.path)}</td>
+        <td style="white-space:nowrap">
+          <a class="link" @click=${() => !busy && this._backupNow(c.path)}>${busy ? 'working…' : 'back up'}</a>
+          · <a class="link" @click=${() => this._toggleVersions(c.path)}>versions${open ? ' ▾' : ''}</a>
+        </td>
+      </tr>
+      ${open ? html`<tr><td colspan="5">${this._versionsList(c.path)}</td></tr>` : nothing}`;
+  }
+
+  _scheduleForm(comp) {
+    return html`<span>
+      <input class="ev" placeholder="24h" style="width:48px">
+      <input class="kp" placeholder="keep" style="width:44px">
+      <a class="link" @click=${(e) => { const s = e.target.parentElement; this._setSchedule(comp, s.querySelector('.ev').value, s.querySelector('.kp').value); }}>set</a>
+    </span>`;
+  }
+
+  _versionsList(comp) {
+    const vers = this._versions[comp];
+    if (!vers) return html`<span class="muted">loading…</span>`;
+    if (vers.length === 0) return html`<span class="muted">no backups yet</span>`;
+    return html`<table class="tbl" style="margin:2px 0 4px 16px">
+      ${vers.map((v) => html`<tr>
+        <td class="mono">${v.version}</td>
+        <td class="muted">${v.time}</td>
+        <td class="mono">${this._fmtBytes(v.size)}</td>
+        <td style="white-space:nowrap">
+          <a class="link" @click=${() => this._restoreVersion(comp, v.version)}>restore</a>
+          · <a class="link" @click=${() => this._restoreFile(comp, v.version)}>file…</a>
+        </td>
+      </tr>`)}
+    </table>`;
   }
 
   _cronView() {

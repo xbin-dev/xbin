@@ -175,9 +175,12 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
    SigV4 (unit-tested against AWS's vector), path-style, config UI + vault creds.
 4. **Offload / restore** *(done)* — both depths, wired into `POST /lifecycle`.
 5. **Cron scheduling + retention** *(done)* — owner-scheduled backups on the cron
-   engine + version pruning. Still to do: the admin backup *panel* (list versions
-   / restore / schedule in the UI — API is all there), and the `archive` family
-   entry in the interfaces UX.
+   engine + version pruning.
+6. **Admin UX** *(done)* — the admin tile's **backup** tab: default + per-component
+   archiver binding, a lifecycle control per component (enable/disable/offload/
+   offload-full, with an offload confirm), back-up-now, lazy version list with
+   restore-version + restore-one-file (download), and schedule set/clear with
+   retention. The overview keeps the quick enable/disable toggle.
 
 ## Touchpoints
 
