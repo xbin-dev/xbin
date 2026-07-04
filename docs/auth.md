@@ -195,15 +195,20 @@ depends on the tier:
 | Tier | When | What a hostile element could still do |
 |---|---|---|
 | 1 (default) | all backends run as one uid | read a sibling's env via `/proc` (steal its instance token), open sibling sockets directly, write any workspace file |
-| 2 (`--scope-uids`, container runs privileged as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
-| 3 (roadmap) | wasm runtime, netns egress, subdomain isolation | approximately nothing ungranted |
+| 2 (`--scope-uids`, buxond runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
+| 3 (`--isolate`, rootless) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **default-deny egress** via the `net:*` relay; cgroup limits | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, and no network beyond its `net:*` grants |
 
-Browser side, all elements are same-origin: frame tokens give
-**attribution** (RBAC works), not **isolation** (a malicious element's JS
-runs in the same origin). Origin isolation per scope is roadmap. The real
-boundary today is the container — treat the workspace as one trust domain
-against determined-malicious code, and the grant system as seatbelts and
-audit trail, not a jail.
+Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`): it's
+rootless (unprivileged user namespaces) and best run on a VM/host buxond
+controls (README → Deployment). `wasm`/wazero backends and per-scope **origin**
+isolation are still roadmap.
+
+Browser side, all elements are same-origin: frame tokens give **attribution**
+(RBAC works), not **isolation** (a malicious element's JS runs in the same
+origin). Origin isolation per scope is roadmap. So the real boundary is the
+container (Tier 1) or the VM/host plus per-component namespaces (Tier 3); treat
+same-origin element *frontends* as one trust domain, and the grant system as
+seatbelts and audit trail, not a jail.
 
 ## Multi-user (users, roles, tile access)
 
