@@ -257,6 +257,21 @@ export class BxFrame extends LitElement {
     this._sessions = s;
   }
 
+  // Reset the component's persistent terminal sandbox layer (installed packages,
+  // system configs). Wipes it server-side, then restarts the active terminal on
+  // the now-clean layer.
+  _resetEnv() {
+    if (!confirm(`Reset the sandbox for ${this.src}? Installed packages and system changes in this component's terminal will be wiped (your workspace files and $HOME are untouched).`)) return;
+    fetch(`/ws/term/env?cwd=${encodeURIComponent(this.src)}`, { method: 'DELETE' })
+      .catch(() => { })
+      .finally(() => {
+        const s = [...this._sessions];
+        if (s[this._active]) s[this._active] = { id: null, net: s[this._active].net || 'internet' };
+        this._sessions = s;
+        this.renderRoot?.querySelectorAll('bx-terminal')[this._active]?.restartFresh?.();
+      });
+  }
+
   // Switch the active terminal's network scope. The netns/relay is fixed at
   // spawn, so this restarts the session: end the old one and drop to a fresh
   // session in the new scope (bx-terminal reconnects on the net change).
@@ -301,6 +316,8 @@ export class BxFrame extends LitElement {
               <option value="host">🖧 host net</option>
               <option value="none">⛔ offline</option>
             </select>
+            <button title="reset this component's sandbox (wipe installed packages)"
+                    @click=${this._resetEnv}>⟲</button>
             <button title="close (session keeps running)"
                     @click=${() => { this._termOpen = false; }}>✕</button>
           </div>

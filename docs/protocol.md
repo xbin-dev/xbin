@@ -200,6 +200,13 @@ the old one and opens a new WS).
 `DELETE /ws/term?session=<id>` (owner only) ends a session immediately (used
 by the UI to restart under a new scope); `204` on success, `404` if unknown.
 
+`DELETE /ws/term/env?cwd=<component-path>` (owner only) wipes that component's
+**persistent terminal layer** (installed packages / system changes) back to the
+base rootfs, killing any live session on it first; `204` on success. Each
+component's terminal has its own persistent overlay layer (`.buxon/term/<key>/`)
+so system-level changes survive across sessions — a resettable dev sandbox
+(`plans/component-env.md`). Workspace files and `$HOME` persist independently.
+
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 buxond restart kills them (run `tmux` inside if you care).
 

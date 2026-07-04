@@ -37,6 +37,14 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // runtime call rights (that's "uses").
   "deps": ["lib/ui-kit"],
 
+  // Extra system/runtime deps this component's BACKEND needs beyond the base
+  // rootfs (go/node/python + tools) — a freeform shell script run once at build
+  // time to populate a cached environment layer (under isolation, with
+  // fuse-overlayfs). Rebuilt only when this changes; the running backend stacks
+  // the result read-only. Runs with net:internet in a sandbox. Update the system
+  // and pin/verify what you install (see AGENTS.md). E.g. give the backend Ruby:
+  "setup": "apt-get update && apt-get install -y --no-install-recommends ruby && gem install --no-document sinatra",
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), or — under isolation
   // (buxond --isolate) — network egress ("net:internet[:port]" for the public

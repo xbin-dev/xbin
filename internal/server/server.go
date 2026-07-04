@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	mux.Handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
+	mux.Handle("DELETE /ws/term/env", s.authedTerminal(http.HandlerFunc(s.handleTermReset)))
 	mux.Handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
@@ -116,6 +117,17 @@ func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("session")
 	if id == "" || !s.Term.Kill(id) {
 		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleTermReset wipes a component's persistent terminal layer (?cwd=<path>)
+// back to the base rootfs, killing any live session on it first
+// (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
+func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
+	if err := s.Term.ResetEnv(r.URL.Query().Get("cwd")); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

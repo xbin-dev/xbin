@@ -358,8 +358,12 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		if r.Egress != nil {
 			pol = r.Egress(c)
 		}
-		var err error
-		cmd, sb, err = r.sandboxCmd(c, bin, dir, sock, env, pol)
+		// Build the component's env layer (setup deps) if declared, then stack it.
+		envLower, err := r.ensureEnvLayer(c)
+		if err != nil {
+			return nil, err
+		}
+		cmd, sb, err = r.sandboxCmd(c, bin, dir, sock, env, pol, envLower)
 		if err != nil {
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
@@ -449,7 +453,7 @@ func sandboxable(runtime string) bool {
 // source is read-only, its run dir and same-scope resource files are read-write,
 // the gateway socket is the one door out, and the netns is empty (default-deny
 // egress; the egress relay is a follow-on).
-func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy) (*exec.Cmd, *sandbox.Handle, error) {
+func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy, envLower string) (*exec.Cmd, *sandbox.Handle, error) {
 	gw := filepath.Join(r.RunDir, "gateway.sock")
 	binds := []sandbox.Bind{
 		{Src: c.Dir, Dst: c.Dir, RO: true}, // component source, read-only
@@ -482,8 +486,14 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		entry, argv = "/usr/bin/python3", []string{"python3", bin}
 	}
 
+	// Overlay lowers: the component env layer (setup deps) on top of the base
+	// rootfs, so the layer's files win.
+	lower := []string{r.Rootfs}
+	if envLower != "" {
+		lower = []string{envLower, r.Rootfs}
+	}
 	spec := &sandbox.Spec{
-		Lower:   []string{r.Rootfs},
+		Lower:   lower,
 		Binds:   binds,
 		Entry:   entry,
 		Argv:    argv,

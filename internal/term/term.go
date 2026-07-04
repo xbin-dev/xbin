@@ -74,6 +74,7 @@ type Session struct {
 	pty     *os.File
 	cleanup func()       // sandbox spec temp cleanup (nil for a plain shell)
 	relay   *relay.Relay // egress relay (internet scope only; nil otherwise)
+	envKey  string       // persistent per-component layer this session holds ("" = none/ephemeral)
 	born    time.Time
 
 	mu         sync.Mutex
@@ -101,12 +102,14 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+	envHeld  map[string]bool // component key → a live session holds its persistent layer
 }
 
 func NewManager(root string, env func() []string) *Manager {
 	m := &Manager{
 		Root: root, Env: env,
 		sessions: map[string]*Session{},
+		envHeld:  map[string]bool{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize: 4096, WriteBufferSize: 4096,
 			// Same-origin app; auth middleware has already run.
@@ -201,11 +204,14 @@ func (m *Manager) create(cwd, netMode string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	cmd, cleanup, postStart := m.shellCmd(dir, rel, netMode)
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
 		cleanup()
+		if envKey != "" {
+			m.releaseEnv(envKey)
+		}
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
 	// The egress relay can only start once init has created the TUN in its netns
@@ -217,26 +223,31 @@ func (m *Manager) create(cwd, netMode string) (*Session, error) {
 
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
-		cleanup: cleanup, relay: rl,
+		cleanup: cleanup, relay: rl, envKey: envKey,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 
-	go s.pump(func() { m.remove(s.ID) })
+	go s.pump(func() {
+		m.remove(s.ID)
+		if envKey != "" {
+			m.releaseEnv(envKey)
+		}
+	})
 	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", netMode)
 	return s, nil
 }
 
 // shellCmd builds the (unstarted) shell command: a rootfs sandbox when
-// isolation is on, else a plain host shell. Returns a cleanup for sandbox state
-// and an optional postStart hook (run after the PTY starts) that wires the
-// egress relay and returns it (nil for non-relay scopes / a host shell).
-func (m *Manager) shellCmd(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay) {
+// isolation is on, else a plain host shell. Returns a cleanup for sandbox state,
+// an optional postStart hook (run after the PTY starts) that wires the egress
+// relay, and the persistent env-layer key this session holds ("" = none).
+func (m *Manager) shellCmd(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, err := m.sandboxShell(dir, rel, netMode); err == nil {
-			return cmd, cleanup, post
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode); err == nil {
+			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
 		}
@@ -254,16 +265,75 @@ func (m *Manager) shellCmd(dir, rel, netMode string) (*exec.Cmd, func(), func() 
 	if m.Env != nil {
 		cmd.Env = append(cmd.Env, m.Env()...)
 	}
-	return cmd, func() {}, nil
+	return cmd, func() {}, nil, ""
+}
+
+// termKey is the per-component key for a terminal's persistent layer.
+func termKey(rel string) string {
+	if rel == "" {
+		return "_root"
+	}
+	return util.CompKey(rel)
+}
+
+// acquireEnv reserves the persistent layer for key if free (only one live
+// session may mount a given component's layer at a time — concurrent overlay
+// mounts of the same upperdir would corrupt it). Returns false if already held.
+func (m *Manager) acquireEnv(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.envHeld[key] {
+		return false
+	}
+	m.envHeld[key] = true
+	return true
+}
+
+func (m *Manager) releaseEnv(key string) {
+	m.mu.Lock()
+	delete(m.envHeld, key)
+	m.mu.Unlock()
+}
+
+// ResetEnv wipes a component's persistent terminal layer back to the base rootfs.
+// Any live session holding it is killed first (its overlay must be unmounted
+// before the upperdir can be removed).
+func (m *Manager) ResetEnv(rel string) error {
+	key := termKey(rel)
+	m.mu.Lock()
+	var victims []*Session
+	for _, s := range m.sessions {
+		if s.envKey == key {
+			victims = append(victims, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range victims {
+		s.kill()
+	}
+	// Wait for the killed session(s) to fully tear down (pump → cleanup unmounts
+	// the sandbox) so the upperdir is free before we remove it.
+	for i := 0; i < 50; i++ {
+		m.mu.Lock()
+		held := m.envHeld[key]
+		m.mu.Unlock()
+		if !held {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return os.RemoveAll(filepath.Join(m.Root, ".buxon", "term", key))
 }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
 // whole workspace read-write (editing plane, incl. $HOME and AGENTS.md) and any
-// read-only ExtraBinds (the SDK for `go build`). The network scope depends on
-// netMode: internet = own netns + egress relay (net:internet, no host interfaces
-// visible, buxond reachable via the relay host-forward); host = share the host
-// network; none = an isolated netns with no egress.
-func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, error) {
+// read-only ExtraBinds (the SDK for `go build`). The overlay upper is a
+// **persistent per-component layer** (`.buxon/term/<key>/`) so system-level
+// changes (apt installs, /etc configs) survive across sessions — a resettable
+// dev sandbox per component (plans/component-env.md). Only one live session may
+// hold a component's layer; concurrent sessions on the same component fall back
+// to an ephemeral upper. netMode picks the network scope (internet/host/none).
+func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
 	binds := append([]sandbox.Bind{
 		{Src: m.Root, Dst: m.Root}, // the workspace, rw
 	}, m.ExtraBinds...)
@@ -277,6 +347,22 @@ func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), fun
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 	}
+
+	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
+	envKey := termKey(rel)
+	if m.acquireEnv(envKey) {
+		layer := filepath.Join(m.Root, ".buxon", "term", envKey)
+		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
+		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
+			spec.Upper, spec.Work = up, work
+		} else {
+			m.releaseEnv(envKey)
+			envKey = ""
+		}
+	} else {
+		envKey = "" // someone else holds it → ephemeral, no persistence this session
+	}
+
 	switch netMode {
 	case NetHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
@@ -287,7 +373,10 @@ func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), fun
 	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
-		return nil, nil, nil, err
+		if envKey != "" {
+			m.releaseEnv(envKey)
+		}
+		return nil, nil, nil, "", err
 	}
 
 	pol, _ := sandbox.Parse([]string{"net:internet"})
@@ -316,7 +405,7 @@ func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), fun
 		}
 		return rl
 	}
-	return cmd, h.Cleanup, post, nil
+	return cmd, h.Cleanup, post, envKey, nil
 }
 
 // hostForward maps the buxond listen port on the relay gateway IP to buxond on

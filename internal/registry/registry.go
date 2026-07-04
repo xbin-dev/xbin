@@ -54,6 +54,11 @@ type Manifest struct {
 	Expose   *Expose       `json:"expose,omitempty"`
 	Inject   *bool         `json:"inject,omitempty"` // false disables D4 HTML injection
 	Template *TemplateMeta `json:"template,omitempty"`
+	// Setup is a freeform shell script run once at build time to populate the
+	// component's environment layer — extra system/runtime deps beyond the base
+	// rootfs (e.g. install Ruby). Built in a sandbox with net:internet, cached,
+	// rebuilt only when this changes. See plans/component-env.md.
+	Setup string `json:"setup,omitempty"`
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.

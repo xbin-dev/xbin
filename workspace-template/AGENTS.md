@@ -135,6 +135,8 @@ Full manifest reference (all fields optional):
   "runtime": "go",              // static(default) | go | node | python | cgi
   "entry": "./backend",         // defaults: go ./backend, node backend/server.js,
                                 //   python backend/server.py, cgi backend/handler
+  "setup": "apt-get update && apt-get install -y ruby",  // extra backend deps →
+                                //   cached env layer, built once (see §Extra deps)
   "deps": ["lib/ui-kit"],       // SOURCE visibility: deps/ui-kit symlink appears.
                                 //   Editing-plane only; grants no call rights.
   "uses": [                     // RUNTIME call rights you want (see §Auth):
@@ -288,6 +290,36 @@ and production isolate). **Design for this — it's default-deny:**
   see §Auth). Approving one **restarts your backend** so it takes effect at once.
 - Same-scope resources (`res:<your-scope>/…`) are auto-granted; declare them in
   `scope.json` and request in `uses`.
+
+## Extra deps: `setup` + the terminal dev sandbox
+
+The base rootfs has go/node/python + common tools. For **anything else your
+backend needs** (a Ruby runtime, imagemagick, a gem/pip package…), add a
+**`setup`** script to `buxon.json` — a freeform shell script run once at build
+time into a cached environment layer the backend then gets read-only:
+
+```jsonc
+"setup": "apt-get update && apt-get install -y --no-install-recommends ruby && gem install --no-document sinatra"
+```
+
+Rebuilt only when `setup` changes; runs with internet access in a sandbox. Make
+it a **safe, reproducible supply chain:**
+
+- **Update first** — start with `apt-get update` (consider `apt-get upgrade`) so
+  installs resolve and pick up security fixes.
+- **Pin and verify** — pin versions (`ruby=1:3.2*`, `gem install foo -v X`),
+  prefer integrity-checked installs (`npm ci`, `pip install --require-hashes`,
+  `bundle install` with `Gemfile.lock`, `cargo --locked`), and verify
+  checksums/signatures for anything you download. **Avoid unpinned `curl … | sh`.**
+- Keep it minimal and deterministic (prefer distro/registry packages) so the
+  cached layer is stable and auditable.
+
+Your **terminal** is a separate **persistent, resettable dev sandbox per
+component** (`.buxon/term/<component>/`): `apt install`, dotfiles, and toolchains
+you set up in it survive across terminal sessions (your workspace files and
+`$HOME` persist independently). It does **not** auto-inherit a component's
+`setup` layer — install what you need for interactive work in the terminal
+itself. "Reset sandbox" (⟲ in the terminal window) wipes it back to clean.
 
 ## Auth (read docs/auth.md before building multi-app systems)
 

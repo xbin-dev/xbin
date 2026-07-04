@@ -72,9 +72,17 @@ export class BxTerminal extends HTMLElement {
   static get observedAttributes() { return ['net']; }
   attributeChangedCallback(name, oldV, newV) {
     if (name !== 'net' || oldV === null || oldV === newV || !this.#term) return;
+    this.#restart(`switching network → ${newV}…`);
+  }
+
+  // restartFresh drops the current session and reconnects a brand-new one — used
+  // after the persistent sandbox layer is reset out from under it.
+  restartFresh() { if (this.#term) this.#restart('resetting sandbox…'); }
+
+  #restart(msg) {
     this.removeAttribute('session');
     this.#retries = 0;
-    this.#term.write(`\r\n\x1b[90m[switching network → ${newV}…]\x1b[0m\r\n`);
+    if (msg) this.#term.write(`\r\n\x1b[90m[${msg}]\x1b[0m\r\n`);
     const old = this.#ws;
     this.#ws = null;
     if (old) { old.onclose = null; old.close(); }
