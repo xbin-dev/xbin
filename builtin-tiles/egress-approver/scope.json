@@ -1,0 +1,8 @@
+{
+  // apps/egress-approver is a scope. The approve/deny decisions persist in this
+  // kv resource so they survive a restart; the byte counters do not (they are
+  // "since last restart" by design).
+  "resources": {
+    "approvals": { "type": "kv" }
+  }
+}

@@ -48,9 +48,15 @@ on the binding:
   DPI / meter tile. buxond gives the provider **one TUN per bound client** (a
   point-to-point `/30` link) plus the provider's *own* egress (its own `net`
   binding), and **dumb-splices raw IP packets** `client.TUN ↔ provider.clientTUN`.
-  The provider is then a real **multi-homed Linux router**: `ip_forward` + `nft
-  masquerade` to its egress; a firewall is its ruleset, a VPN is a `wg` egress, a
-  router is `ip rule`s, DPI reads packets. Return traffic via conntrack.
+  The provider is then a real **multi-homed Linux router**: `ip_forward` + gating
+  to its egress; a firewall is its ruleset, a VPN is a `wg` egress, a router is
+  `ip rule`s, DPI reads packets. Two worked builtins ship: `examples/netrouter`
+  (the minimal `ip_forward` pass-through skeleton) and the **`egress-approver`
+  builtin tile** — a default-deny provider that gates *per destination IP* with
+  human approval (forward-only policy routing so its own reverse-DNS/RDAP lookups
+  stay free) and taps the client links with `AF_PACKET` to surface + meter each
+  destination. It's the reference for a programmable net provider + its per-tile
+  admin UI.
 - **Chaining** = a provider's egress bound to *another* provider. gVisor runs only
   at the terminal `internet` binding (guest flows → host sockets); every
   intermediate hop is a raw splice.
@@ -158,4 +164,6 @@ workspace) · `internal/broker` (binding resolution, provider rosters) ·
 `internal/sandbox` (multi-TUN provider + spliced client) · a splice pump ·
 `internal/runner` (orchestrate provider+client lifecycle + splice) ·
 `cmd/buxond` wiring · `cmd/bx` (`bind`/`iface`) · `internal/server` (bindings
-API) · `web/` (per-family UX) · `examples/netfn` (a router skeleton).
+API + `pending` bind-on-install list) · `web/bx-bindings.js` (the bind-on-install
+prompt) · `examples/netrouter` (a router skeleton) · `builtin-tiles/egress-approver`
+(the worked programmable-provider + admin-UX example).

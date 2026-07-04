@@ -1,0 +1,163 @@
+<!doctype html>
+<!-- Egress Approver UI. Talks only to its own backend (buxon.self is admin of
+     itself, docs/auth.md): GET /state to render, POST /approve|/deny|/forget to
+     decide, GET /detail?ip= for reverse-DNS + RDAP/whois. Polls /state so newly
+     attempted destinations appear as the owner watches. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Egress Approver</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    html, body { margin: 0; }
+    body { padding: 10px 14px 14px; box-sizing: border-box; font: 13px/1.45 system-ui, sans-serif;
+           color: var(--bx-text); background: var(--bx-bg, transparent); }
+    .top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+    .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+              text-transform: uppercase; color: var(--bx-muted); }
+    .meta { font: 11px var(--bx-mono); color: var(--bx-muted); }
+    h4 { margin: 14px 0 4px; font-size: 10px; font-weight: 600; letter-spacing: .08em;
+         text-transform: uppercase; color: var(--bx-muted); }
+    h4 .count { color: var(--bx-text); }
+    .row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px;
+           border: 1px solid var(--bx-border); background: var(--bx-panel); margin-bottom: 4px; }
+    .row.pending { border-left: 3px solid var(--bx-amber, #f2a71b); }
+    .row.approved { border-left: 3px solid var(--bx-green, #43a047); }
+    .ip { font: 12px var(--bx-mono); font-weight: 600; min-width: 118px; }
+    .rdns { color: var(--bx-muted); font-size: 11.5px; flex: 1; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .stat { font: 11px var(--bx-mono); color: var(--bx-muted); white-space: nowrap; }
+    .stat b { color: var(--bx-text); font-weight: 600; }
+    button { border: 0; border-radius: 5px; padding: 3px 10px; cursor: pointer;
+             font: inherit; font-size: 11.5px; font-weight: 600; }
+    .approve { background: var(--bx-green, #43a047); color: #fff; }
+    .deny { background: var(--bx-panel); color: var(--bx-red, #e5484d);
+            border: 1px solid color-mix(in srgb, var(--bx-red,#e5484d) 40%, transparent); }
+    .info { background: transparent; color: var(--bx-muted); border: 1px solid var(--bx-border);
+            font-weight: 500; padding: 3px 8px; }
+    .rm { background: var(--bx-panel); color: var(--bx-muted); border: 1px solid var(--bx-border);
+          font-weight: 500; }
+    .detail { font: 11px var(--bx-mono); color: var(--bx-text); background: var(--bx-panel-2, #f6f8fa);
+              border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 9px;
+              margin: -1px 0 6px 6px; white-space: pre-wrap; }
+    .detail .k { color: var(--bx-muted); }
+    .empty { color: var(--bx-muted); font-style: italic; font-size: 12px; padding: 3px 6px; }
+    details summary { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h3>Egress Approver</h3>
+    <span class="meta" id="meta"></span>
+  </div>
+  <section id="pending"></section>
+  <section id="approved"></section>
+  <details id="deniedWrap" style="margin-top:12px">
+    <summary class="meta">denied</summary>
+    <div id="denied" style="margin-top:6px"></div>
+  </details>
+
+  <script type="module">
+    const self = buxon.self;
+    const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
+    const open = new Set();          // IPs whose whois detail is expanded
+    let latest = { pending: [], approved: [], denied: [] };
+
+    const fmtBytes = (n) => {
+      if (!n) return '0';
+      const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
+      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+      return (i ? n.toFixed(1) : n) + u[i];
+    };
+    const ago = (ms) => {
+      if (!ms) return '—';
+      const s = Math.max(0, (Date.now() - ms) / 1000);
+      if (s < 60) return `${s | 0}s ago`;
+      if (s < 3600) return `${s / 60 | 0}m ago`;
+      if (s < 86400) return `${s / 3600 | 0}h ago`;
+      return `${s / 86400 | 0}d ago`;
+    };
+    const esc = (s) => (s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+    async function act(ip, action) {
+      await api(`/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip }) });
+      open.delete(ip);
+      refresh();
+    }
+
+    async function toggleDetail(ip) {
+      if (open.has(ip)) { open.delete(ip); render(); return; }
+      open.add(ip); render();
+      const box = document.getElementById(`d-${ip}`);
+      try {
+        const r = await api(`/detail?ip=${encodeURIComponent(ip)}`);
+        const d = await r.json();
+        const w = d.rdap || {};
+        const lines = [
+          ['reverse dns', d.rdns || '(none)'],
+          ['network', w.name], ['range', w.cidr], ['org', w.org],
+          ['country', w.country], ['handle', w.handle], ['error', w.error],
+        ].filter(([, v]) => v);
+        if (box) box.innerHTML = lines.map(([k, v]) =>
+          `<span class="k">${k.padEnd(11)}</span>${esc(String(v))}`).join('\n');
+      } catch { if (box) box.textContent = 'lookup failed'; }
+    }
+    window._act = act; window._detail = toggleDetail;
+
+    function pendingRow(v) {
+      const detail = open.has(v.ip)
+        ? `<div class="detail" id="d-${v.ip}">looking up…</div>` : '';
+      return `<div class="row pending">
+        <span class="ip">${v.ip}</span>
+        <span class="rdns">${esc(v.rdns) || '<i>resolving…</i>'}</span>
+        <span class="stat">↑${fmtBytes(v.bytesOut)} · ${ago(v.lastSeen)}</span>
+        <button class="info" onclick="_detail('${v.ip}')">whois</button>
+        <button class="approve" onclick="_act('${v.ip}','approve')">approve</button>
+        <button class="deny" onclick="_act('${v.ip}','deny')">deny</button>
+      </div>${detail}`;
+    }
+    function approvedRow(v) {
+      return `<div class="row approved">
+        <span class="ip">${v.ip}</span>
+        <span class="rdns">${esc(v.rdns)}</span>
+        <span class="stat"><b>↑${fmtBytes(v.bytesOut)}</b> <b>↓${fmtBytes(v.bytesIn)}</b> · ${ago(v.lastSeen)}</span>
+        <button class="rm" onclick="_act('${v.ip}','forget')">revoke</button>
+      </div>`;
+    }
+    function deniedRow(v) {
+      return `<div class="row">
+        <span class="ip">${v.ip}</span>
+        <span class="rdns">${esc(v.rdns)}</span>
+        <button class="rm" onclick="_act('${v.ip}','forget')">un-deny</button>
+      </div>`;
+    }
+
+    function render() {
+      const s = latest;
+      document.getElementById('meta').textContent =
+        `${s.clients ?? 0} client${s.clients === 1 ? '' : 's'} · egress ${s.egressReady ? 'ready' : 'unbound'}`;
+      document.getElementById('pending').innerHTML =
+        `<h4>pending <span class="count">${s.pending.length}</span></h4>` +
+        (s.pending.length ? s.pending.map(pendingRow).join('')
+          : `<div class="empty">${s.clients ? 'no new destinations — all quiet' : 'bind a component’s net to this tile to start gating'}</div>`);
+      document.getElementById('approved').innerHTML =
+        `<h4>approved <span class="count">${s.approved.length}</span></h4>` +
+        (s.approved.length ? s.approved.map(approvedRow).join('')
+          : `<div class="empty">nothing approved yet</div>`);
+      document.getElementById('denied').innerHTML =
+        s.denied.length ? s.denied.map(deniedRow).join('') : `<div class="empty">none</div>`;
+      document.getElementById('deniedWrap').style.display = s.denied.length ? '' : 'none';
+    }
+
+    async function refresh() {
+      try {
+        const r = await api('/state');
+        if (r.ok) { latest = await r.json(); render(); }
+      } catch { /* transient; next tick */ }
+    }
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

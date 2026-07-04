@@ -1,0 +1,32 @@
+{
+  // Egress manual approver — a `net` PROVIDER tile (plans/interfaces.md) that
+  // is a default-deny firewall with a human in the loop. Bind other components'
+  // `net` interface to this tile (admin Interfaces tab / `bx bind <comp>
+  // net=apps/egress-approver`); their egress is spliced through here. Every new
+  // destination IP is held and surfaced on this tile's page for the owner to
+  // approve or deny (with reverse-DNS + RDAP/whois detail); approved IPs get a
+  // route out, denied ones stay blocked. The approved list shows last-seen +
+  // bytes in/out per IP since the last restart. A worked example of a
+  // programmable net provider — the dataplane is the point, the UI validates it.
+  "runtime": "go",
+  // This tile's OWN egress — the owner binds what provides internet to it
+  // (usually the `internet` builtin): `bx bind apps/egress-approver net=internet`.
+  // Client traffic it approves is forwarded out this egress.
+  "interfaces": {
+    "net": { "kind": "net" }
+  },
+  // The net interface it offers others. Bind a component's `net` here to route
+  // that component's egress through the approver.
+  "provides": {
+    "egress": { "kind": "net" }
+  },
+  // Persist the approve/deny lists across restarts (byte counters are in-memory,
+  // "since last restart"). Its own frontend is admin of it (docs/auth.md), so the
+  // settings page reaches /state, /approve, … without any extra grant.
+  "uses": [
+    { "target": "res:apps/egress-approver/approvals", "role": "writer" }
+  ],
+  // iproute2 gives us `ip rule`/`ip route` for the per-destination forward gate
+  // (the base rootfs configures net via the netlink library, not the binary).
+  "setup": "apt-get update && apt-get install -y --no-install-recommends iproute2"
+}

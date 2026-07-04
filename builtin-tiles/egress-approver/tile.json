@@ -1,0 +1,11 @@
+{
+  "name": "egress-approver",
+  "version": 1,
+  "changelog": "v1: default-deny net provider with human-in-the-loop per-IP approval",
+  "title": "Egress Approver",
+  "description": "A default-deny firewall tile with a human in the loop. Bind other components' network to it and every new outbound destination IP is held for you to approve or deny — with reverse DNS and RDAP/whois detail. Approved destinations show live bytes in/out. A worked example of a programmable net provider.",
+  "defaultPath": "apps/egress-approver",
+  "tags": ["network", "security", "firewall", "infrastructure"],
+  "provides": ["apps/egress-approver"],
+  "requires": []
+}
