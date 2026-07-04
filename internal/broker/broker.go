@@ -142,6 +142,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPrefs(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin
+	srv.Interfaces = b.HTTPInterfaces
 }
 
 // --- resource identity -------------------------------------------------
@@ -250,6 +251,10 @@ func (b *Broker) grantedRole(from, target string) (string, bool) {
 	}
 	if best != "" {
 		return best, true
+	}
+	// An http-interface binding to target is also the call grant (plans/interfaces.md).
+	if role, ok := b.httpBindingRole(from, target); ok {
+		return role, true
 	}
 	// Same-scope auto-grant: the use declaration itself is the grant.
 	caller, ok := b.Reg.Component(from)

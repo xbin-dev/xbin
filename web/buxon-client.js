@@ -3,6 +3,9 @@
  * (decision D4). Provides the in-frame side of the buxon contract:
  *
  *   buxon.self              — this component's path
+ *   buxon.iface(slot)       — a bound http interface: { url, service } (or null).
+ *                             Call a typed, swappable dependency instead of a
+ *                             hard-coded path, e.g. buxon.iface('llm').url
  *   buxon.fetch(url, opts)  — fetch with frame-token attribution attached;
  *                             REQUIRED for calling other elements' APIs
  *                             (streams fine: SSE / chunked responses work)
@@ -23,6 +26,13 @@ const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?
 
 const self = meta('buxon-component');
 let frameToken = meta('buxon-frame-token');
+
+// Resolved http interface slots this component is bound to (plans/interfaces.md):
+// { <slot>: { url, service } }. buxon.iface(slot) returns the bound provider so a
+// component calls a *typed, swappable* dependency instead of a hard-coded path.
+let ifaces = {};
+try { ifaces = JSON.parse(meta('buxon-interfaces') || '{}'); } catch { ifaces = {}; }
+const iface = (slot) => ifaces[slot] || null;
 
 // --- token refresh (tokens are short-lived; see docs/auth.md) ---
 async function refreshToken() {
@@ -106,4 +116,4 @@ if (window.parent !== window) {
   addEventListener('load', report);
 }
 
-window.buxon = Object.freeze({ self, fetch: bfetch, ws: bws, bus, events });
+window.buxon = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events });

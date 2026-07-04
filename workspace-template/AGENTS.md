@@ -295,12 +295,8 @@ and production isolate). **Design for this — it's default-deny:**
   A terminal can pick a GPU per session from its window menu (owner plane).
 - Same-scope resources (`res:<your-scope>/…`) are auto-granted; declare them in
   `scope.json` and request in `uses`.
-- **Interfaces (plans/interfaces.md):** for richer wiring, a component can
-  `interfaces: {net: {kind:net}}` (request egress) and the owner **binds** it to
-  a provider — a builtin (`internet`/`host`) or a **provider tile** that
-  `provides: {…: {kind:net}}` (a firewall/VPN/router your traffic routes
-  through). Binding is owner-only (`bx bind <comp> net=<provider>`); agents
-  declare `interfaces`/`provides` and leave binding to the owner.
+- See **§Interfaces** below for the richer wiring model (`net` providers, `http`
+  service dependencies).
 
 ## Extra deps: `setup` + the terminal dev sandbox
 
@@ -331,6 +327,37 @@ you set up in it survive across terminal sessions (your workspace files and
 `$HOME` persist independently). It does **not** auto-inherit a component's
 `setup` layer — install what you need for interactive work in the terminal
 itself. "Reset sandbox" (⟲ in the terminal window) wipes it back to clean.
+
+## Interfaces — typed, swappable dependencies (plans/interfaces.md)
+
+An **interface** is a typed capability slot: a component **requests** slots
+(`interfaces`), builtins or tiles **provide** them (`provides`), and the **owner
+binds** each request to a provider. The binding is the authorization (owner-only;
+you can't self-bind, same rule as grants) — unbound means no capability.
+
+- **`http` — a service dependency you call.** When your component needs a service
+  that has a *standard shape* (an LLM, object storage, email, …), **request an
+  interface instead of hard-coding a provider**:
+  `"interfaces": { "llm": { "kind": "http", "service": "openai" } }`. The owner
+  binds it to whatever tile provides that service; you discover the endpoint at
+  runtime — `buxon.iface('llm').url` in a frontend, `$BUXON_IFACE_LLM_URL` in a
+  backend — and the binding is also your call grant. This makes providers
+  **swappable** (Ollama ↔ a cloud proxy) with no code change.
+- **Providing a standard API?** Declare it so others can bind you:
+  `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
+  (`role` = the exposed role a binding grants callers).
+- **`net` — L3 egress through a provider tile.** `"interfaces": { "net": { "kind":
+  "net" } }`, bound to a builtin (`internet`/`host`) or a provider tile
+  (`"provides": { "egress": { "kind": "net" } }`) — a firewall/VPN/router your
+  traffic routes through. A provider is a real Linux router in its sandbox
+  (`ip_forward` + `nftables`/`wg`); it's also a client of its own egress.
+
+**Before you build:** look for an existing interface/service contract to reuse
+(check `bx iface` / the admin Interfaces tab); reuse a standard `service` name
+(`openai`, …) so your component is interchangeable; define a *new* service
+contract only for a genuinely new standard API — and if you expose one, `provide`
+it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
+<comp> <slot>=<provider>` or the admin Interfaces tab).
 
 ## Auth (read docs/auth.md before building multi-app systems)
 

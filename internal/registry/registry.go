@@ -71,6 +71,9 @@ type Manifest struct {
 type Iface struct {
 	Kind    string `json:"kind"`              // net | http | gpu | resource
 	Service string `json:"service,omitempty"` // for kind=http: the service contract (e.g. "openai")
+	// Role is which exposed role a kind=http PROVIDER grants bound requesters
+	// (so the binding is also the call grant). Defaults to "reader".
+	Role string `json:"role,omitempty"`
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.

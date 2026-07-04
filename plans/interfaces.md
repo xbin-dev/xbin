@@ -62,16 +62,18 @@ on the binding:
 Builtin providers = host GPUs (index/uuid); binding = choose device(s); mechanism
 = the existing device-node + driver-lib bind (`internal/gpu`).
 
-### `http` / service — a typed API endpoint *(designed, not implemented)*
+### `http` / service — a typed API endpoint *(implemented)*
 
 Requester declares `{kind:"http", service:"<contract>"}` (e.g. `openai`, `s3`,
-`smtp`). Providers are tiles that `provides {kind:"http", service:"openai"}`.
-Binding → buxond injects `$BUXON_IFACE_<slot>_URL` (the provider, reached through
-the gateway) + a scoped call token/role; the requester just calls it. Providers
-are **swappable behind a service contract** (DI: swap Ollama ↔ an OpenAI proxy
-with no requester change). No TUN — it's endpoint + token injection over the
-existing gateway/RBAC. HTTPS stays opaque to a proxy/DPI unless its CA is bound
-into the client's trust store (a separate explicit toggle).
+`smtp`). Providers are tiles that `provides {kind:"http", service:"openai",
+role:"writer"}`. Binding → the provider URL is injected as `$BUXON_IFACE_<slot>_URL`
+for a backend and `buxon.iface(slot).url` (a `buxon-interfaces` meta) for a
+frontend, and the **binding is also the call grant** (it grants the requester the
+provider's declared `role`, so RBAC passes — no separate `uses`). Providers are
+**swappable behind a service contract** (DI: swap Ollama ↔ an OpenAI proxy with no
+requester change). No TUN — it reuses the gateway/RBAC. The builtin `llm-gw` +
+`chat` tiles use this. HTTPS stays opaque to a proxy/DPI unless its CA is bound
+into the client's trust store (a separate explicit toggle, deferred).
 
 ### `resource` — buxond builtins *(designed, not implemented)*
 
@@ -122,7 +124,9 @@ gpu=0`, `bx net graph`, `bx net flows`.
    per-client TUN **splice** + builtin providers (`internet`/`host`/`lan`) + a
    `netfn` masquerade-router skeleton + `bx bind` + the net wiring UI. `gpu`/`net:*`
    grants keep working as builtins so nothing regresses.
-2. **`http`/service family** — endpoint+token injection + the service-catalog UX.
+2. **`http`/service family** *(done)* — URL injection (`$BUXON_IFACE_*_URL` /
+   `buxon.iface`) + binding-as-grant; `llm-gw`/`chat` use it. Still to do: the
+   service-catalog UX and a TLS CA-trust binding.
 3. **`resource` family** — fold `res:*` into bindings.
 4. Perf (veth/kernel forwarding, eBPF metering), roster **hot-add**, recursive-
    chain polish, **ingress** chains (WAF), and the parked **flow-plane** as a
@@ -139,8 +143,8 @@ gpu=0`, `bx net graph`, `bx net flows`.
 - **IFACE-4** — builtins (`internet`/`host`/`lan`, GPU devices) are system
   providers; `net:*`/`gpu:*`/`res:*` grants are compat sugar that synthesize
   bindings.
-- **IFACE-5** — `http`/service + `resource` families are designed here but
-  deferred; the flow-plane becomes a future `flow` kind.
+- **IFACE-5** — `http`/service is implemented (URL injection + binding-as-grant,
+  used by `llm-gw`/`chat`); the `resource` family and a `flow` kind are deferred.
 
 ## Touchpoints
 

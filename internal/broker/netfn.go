@@ -94,6 +94,69 @@ func (b *Broker) NetClientTarget(c *registry.Component) (provider, addr, gw stri
 	return "", "", "", false
 }
 
+// --- http/service interfaces (plans/interfaces.md) ----------------------------
+
+// httpProvide returns provider p's first http interface definition, if any.
+func httpProvide(p *registry.Component) (registry.Iface, bool) {
+	for _, def := range p.Manifest.Provides {
+		if def.Kind == "http" {
+			return def, true
+		}
+	}
+	return registry.Iface{}, false
+}
+
+// httpBindingRole returns the role a from→target http-interface binding grants —
+// so the binding is also the call grant (from may call target's API). ok=false
+// unless from has an http interface slot bound to target and target provides one.
+func (b *Broker) httpBindingRole(from, target string) (string, bool) {
+	c, ok := b.Reg.Component(from)
+	if !ok {
+		return "", false
+	}
+	for slot, prov := range b.Reg.Workspace().Bindings[from] {
+		if prov != target {
+			continue
+		}
+		if req, ok := c.Manifest.Interfaces[slot]; !ok || req.Kind != "http" {
+			continue
+		}
+		if p, ok := b.Reg.Component(target); ok {
+			if def, ok := httpProvide(p); ok {
+				if def.Role != "" {
+					return def.Role, true
+				}
+				return "reader", true
+			}
+		}
+	}
+	return "", false
+}
+
+// HTTPInterfaces resolves a component's requested http interface slots to their
+// bound provider URL + service (for the frame client + backend env).
+func (b *Broker) HTTPInterfaces(comp string) map[string]map[string]string {
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return nil
+	}
+	out := map[string]map[string]string{}
+	for slot, req := range c.Manifest.Interfaces {
+		if req.Kind != "http" {
+			continue
+		}
+		prov := b.Reg.Workspace().Bindings[comp][slot]
+		if prov == "" {
+			continue
+		}
+		if _, ok := b.Reg.Component(prov); !ok {
+			continue
+		}
+		out[slot] = map[string]string{"url": "/api/" + prov, "service": req.Service}
+	}
+	return out
+}
+
 // --- bindings API (plans/interfaces.md) ---------------------------------------
 
 // apiBindingsList returns the binding table plus the interfaces components

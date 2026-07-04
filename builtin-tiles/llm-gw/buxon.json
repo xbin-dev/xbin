@@ -19,5 +19,12 @@
       "reader": "List available models (real + aliases) via GET /v1/models",
       "writer": "Call the OpenAI-compatible API — chat/completions, embeddings, etc. (implies reader)"
     }
+  },
+  // Offer an "openai" http interface (plans/interfaces.md): any tile can request
+  // an { kind: http, service: "openai" } interface and the owner binds it here —
+  // the binding grants the caller the "writer" role, so providers are swappable
+  // without the caller hard-coding this path.
+  "provides": {
+    "openai": { "kind": "http", "service": "openai", "role": "writer" }
   }
 }

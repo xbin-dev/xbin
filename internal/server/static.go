@@ -139,12 +139,21 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 
+	ifaceMeta := ""
+	if s.Interfaces != nil {
+		if ifaces := s.Interfaces(compPath); len(ifaces) > 0 {
+			j, _ := json.Marshal(ifaces)
+			ifaceMeta = fmt.Sprintf("<meta name=\"buxon-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
+		}
+	}
+
 	inject := fmt.Sprintf(
 		"\n<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"buxon-component\" content=\"%s\">\n"+
 			"<meta name=\"buxon-frame-token\" content=\"%s\">\n"+
+			"%s"+
 			"<script type=\"module\" src=\"/vendor/buxon-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok)
+		im, htmlEscape(compPath), frameTok, ifaceMeta)
 
 	var out []byte
 	if loc := headRe.FindIndex(body); loc != nil {

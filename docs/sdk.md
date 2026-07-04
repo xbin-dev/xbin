@@ -126,6 +126,13 @@ manifest sets `inject: false`). No imports needed.
 ```js
 buxon.self                       // "apps/thing" — this component's path
 
+// a bound http interface (plans/interfaces.md): { url, service } or null. Call a
+// typed, swappable dependency instead of hard-coding a path — the owner binds
+// which provider satisfies it (bx bind / admin Interfaces tab), and the binding
+// is also the call grant.
+const llm = buxon.iface('llm');  // { url: '/api/apps/llm-gw', service: 'openai' }
+if (llm) await buxon.fetch(`${llm.url}/v1/chat/completions`, { method: 'POST', … });
+
 // fetch with identity attribution. REQUIRED for calling other elements'
 // APIs from the browser; plain fetch to a sibling 403s (auth.md).
 // Streaming responses (SSE via ReadableStream) work.

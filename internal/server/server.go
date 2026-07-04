@@ -37,6 +37,10 @@ type Server struct {
 	// nil ⇒ owner-only.
 	IsAdmin func(p auth.Principal) bool
 
+	// Interfaces resolves a component's http interface slots to {url, service}
+	// for injection into its frame (plans/interfaces.md). Installed by the broker.
+	Interfaces func(comp string) map[string]map[string]string
+
 	apiMux        *http.ServeMux // /api/buxon/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle
 }

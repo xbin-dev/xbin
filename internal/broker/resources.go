@@ -84,6 +84,11 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 			env = append(env, key+"="+rt.String())
 		}
 	}
+	// http interface slots → a URL the backend calls the bound provider at
+	// (via the gateway); the binding also grants the call (plans/interfaces.md).
+	for slot, iface := range b.HTTPInterfaces(c.Path) {
+		env = append(env, "BUXON_IFACE_"+envName(slot)+"_URL=http://buxon"+iface["url"])
+	}
 	return env
 }
 
