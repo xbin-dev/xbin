@@ -137,11 +137,11 @@ Boot modes (production never persists secrets in the clear — the broker
 refuses plaintext writes unless explicitly allowed):
 
 - `BUXON_VAULT_PASSPHRASE=…` → **auto-unseal** at startup (convenient; the
-  passphrase lives in the container env, readable by root — the weaker mode,
+  passphrase lives in the process env, readable by root — the weaker mode,
   same tradeoff as Vault's env unseal).
 - Unset, barrier already set up → boots **sealed**; an admin unseals after
   login via `bx vault unseal` / `POST /api/buxon/vault-unseal` (**strongest**:
-  the passphrase never touches the container env or the data dir). Re-unseal
+  the passphrase never touches the process env or the data dir). Re-unseal
   after every restart, like Vault.
 - Unset, no barrier yet → boots **locked** (unconfigured): the daemon runs
   and you can reach the UI, but secret storage is refused (503) until an admin
@@ -160,7 +160,7 @@ stored anywhere. `bx vault status` reports which mode you're in
 unsealed the DEK/plaintext may be copied on the heap or appear in a core
 dump — the same fundamental constraint Vault (also Go) has. The barrier
 defends **data at rest**; it does not defend against a root-compromised
-container while unsealed. There is no Shamir key splitting, transit engine,
+host while unsealed. There is no Shamir key splitting, transit engine,
 dynamic secrets, or leasing — this is at-rest encryption with seal/unseal,
 not full Vault parity. Losing the passphrase means losing the secrets: the
 DEK is unrecoverable without it. `bx vault status` on a running workspace
@@ -194,21 +194,21 @@ depends on the tier:
 
 | Tier | When | What a hostile element could still do |
 |---|---|---|
-| 1 (default) | all backends run as one uid | read a sibling's env via `/proc` (steal its instance token), open sibling sockets directly, write any workspace file |
+| 1 (no `--isolate`; dev/local) | all backends run as one uid | read a sibling's env via `/proc` (steal its instance token), open sibling sockets directly, write any workspace file |
 | 2 (`--scope-uids`, buxond runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
-| 3 (`--isolate`, rootless) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **default-deny egress** via the `net:*` relay; cgroup limits | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, and no network beyond its `net:*` grants |
+| 3 (`--isolate`, rootless — production) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **default-deny egress** via the `net:*` relay; cgroup accounting | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, and no network beyond its `net:*` grants |
 
-Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`): it's
-rootless (unprivileged user namespaces) and best run on a VM/host buxond
-controls (README → Deployment). `wasm`/wazero backends and per-scope **origin**
-isolation are still roadmap.
+Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`) and the
+production model: rootless (unprivileged user namespaces), run on a VM/host
+buxond controls (README → Running it). Still roadmap: a default **seccomp**
+profile, enforced **cgroup resource limits** (today it's accounting only),
+`wasm`/wazero backends, and per-scope **origin** isolation.
 
 Browser side, all elements are same-origin: frame tokens give **attribution**
 (RBAC works), not **isolation** (a malicious element's JS runs in the same
-origin). Origin isolation per scope is roadmap. So the real boundary is the
-container (Tier 1) or the VM/host plus per-component namespaces (Tier 3); treat
-same-origin element *frontends* as one trust domain, and the grant system as
-seatbelts and audit trail, not a jail.
+origin). So the outer boundary is the VM/host; treat same-origin element
+*frontends* as one trust domain, and the grant system as seatbelts and audit
+trail, not a jail.
 
 ## Multi-user (users, roles, tile access)
 
@@ -259,7 +259,7 @@ unauthenticated; everything else needs a valid principal. Login uses a
 per-IP throttle and a generic "invalid credentials" (never reveals whether a
 user exists). Nothing sensitive (vault values, tokens, grants, backend
 status/logs) is reachable by a non-admin. Expose a buxon port only behind
-Tailscale or a TLS proxy regardless — the boundary is still the container.
+Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
 
 ## Owner login mechanics
 

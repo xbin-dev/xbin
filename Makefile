@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth rootfs fuse-overlayfs build test integration vet fmt-check vendor image dev-reset
+.PHONY: dev dev-noauth rootfs fuse-overlayfs build test integration vet fmt-check vendor dev-reset
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -64,6 +64,3 @@ fmt-check:
 
 vendor:
 	./hack/vendor.sh
-
-image:
-	docker build -f docker/Dockerfile --build-arg VERSION=$(VERSION) -t buxon:$(VERSION) .

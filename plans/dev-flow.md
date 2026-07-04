@@ -57,12 +57,11 @@ components that will otherwise rot into heisenbugs — they get table-driven uni
 suites from day one.
 
 ### CI (GitHub Actions)
-1. `lint`: `golangci-lint` + `go vet` + `gofmt` check.
-2. `test`: unit + integration (Linux; macOS integration job weekly, not per-PR).
-3. `image`: build `docker/Dockerfile` (no push) — catches image rot per-PR.
-4. `e2e`: Playwright against the built image (after phase 1 lands).
-5. On tag `v*`: push multi-arch image (amd64/arm64) to registry `[D10]`, attach
-   `buxond` binaries to the GitHub release.
+1. `lint`: `go vet` + `gofmt` check.
+2. `test`: unit + integration (Linux).
+3. On tag `v*`: attach `buxond` binaries to the GitHub release. (The
+   single-container Docker runtime was dropped, so there is no image build/push;
+   the base rootfs is published separately — `plans/runtime.md`.)
 
 ### Conventions
 - Commits: conventional-ish (`term:`, `runner:`, `web:` prefixes), PRs optional while

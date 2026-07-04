@@ -2,29 +2,28 @@
 
 ## Run it
 
-```sh
-mkdir -p ~/buxon-ws
-docker run -d --name buxon \
-  -v ~/buxon-ws:/workspace \
-  -p 127.0.0.1:8642:8642 \
-  --restart unless-stopped \
-  ghcr.io/magik6k/buxon:latest
+buxon runs as a single binary on a Linux host it controls, with `--isolate`
+turning on per-component OS sandboxing (see the repo README → Running it for
+the host requirements — unprivileged user namespaces, sub-id delegation,
+`/dev/fuse`, `/dev/net/tun`):
 
-docker logs buxon    # prints the one-time login URL
+```sh
+buxond --isolate --rootfs /var/lib/buxon/rootfs \
+       --workspace ~/buxon-ws --listen 127.0.0.1:8642
+# prints the one-time login URL
 ```
 
 Open the login URL. It sets a cookie and drops you on the workspace root
-page. The mapping to `127.0.0.1` is deliberate: buxon is remote code
-execution by design, so expose it via Tailscale/WireGuard or a TLS reverse
-proxy, never raw to the internet (see the deployment notes in the repo).
+page. Binding to `127.0.0.1` is deliberate: buxon is remote code execution by
+design, so expose it via Tailscale/WireGuard or a TLS reverse proxy, never raw
+to the internet.
 
-Without docker (dev / power user): build `buxond` from the repo and run
-`buxond --workspace ~/buxon-ws`. The container is the supported path — it
-ships the toolchains (go, node, python, vim, git, …) that terminals and
-backends use.
+The base rootfs (`make rootfs`) ships the toolchains (go, node, python, vim,
+git, …) that terminals and backends use. For quick local hacking, `make dev`
+runs buxond from source, isolated, against `./devws`.
 
-**Host sysctl** (once, on the docker host): buxond watches every directory in
-the workspace; the kernel default inotify budget is too small for big trees.
+**Host sysctl** (once, on the host): buxond watches every directory in the
+workspace; the kernel default inotify budget is too small for big trees.
 
 ```sh
 sudo sysctl -w fs.inotify.max_user_watches=524288   # persist in /etc/sysctl.d/
@@ -96,7 +95,7 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 | `BUXON_WORKSPACE` | workspace root path |
 | `BUXON_COMPONENT` | the component this terminal was opened on |
 | `BUXON_URL`, `BUXON_TOKEN` | how to call buxond as the owner (`bx` uses these) |
-| `HOME` | `<workspace>/home` — dotfiles persist across container upgrades |
+| `HOME` | `<workspace>/home` — dotfiles persist across upgrades |
 
 `home/` is deliberately **not** your host home: it's a contained, persistent
 $HOME seeded with a minimal `.zshrc`/`.bashrc` (component-aware prompt,

@@ -43,14 +43,15 @@ living inside someone else's.
    buxond + the component base rootfs. Boot it, attach a data disk for
    `/workspace`, open the login URL. Built with mkosi/osbuild; **A/B** image
    updates so a bad upgrade rolls back.
-4. **Docker (dev / interim, Tier 1 only).** The existing image stays for
-   `make dev` and low-stakes single-tenant use, explicitly at **Tier 1**
-   (container-as-boundary, no per-component isolation). Once the appliance
-   exists, docs stop recommending it for production.
+The **Docker single-container runtime was dropped** (container-as-boundary, no
+per-component isolation — less secure than the sandbox runtime; `plans/deployment.md`
+is retained only for history). Docker survives as a *build tool* for the base
+rootfs and fuse-overlayfs, not as a way to run buxon. Off `--isolate` buxond
+still runs unsandboxed (Tier 1) for local dev, but that's not a deployment target.
 
 VMs are the honest answer once you want rootless per-component isolation, and an
-appliance ISO/image is the "five minutes to running" story that `docker run`
-gave us — just one level down.
+appliance ISO/image is the "five minutes to running" on-ramp — just one level
+down from the old `docker run`.
 
 ## The component base rootfs (a fat OCI image)
 
@@ -149,17 +150,19 @@ shell. Implementation: `internal/term` + `sandbox.Spec.{Net,HostNet}` +
 2. **Tier-3 sandboxing** (`isolation.md`) using the rootfs as the overlay base:
    mount+net ns, egress relay, cgroups, seccomp.
 3. **VM appliance**: build + ship `qcow2`/`OVA`/ISO/cloud images; make it the
-   recommended production deployment; demote Docker to dev/Tier-1 in the docs.
+   recommended production deployment.
 4. **microVM option** (Firecracker) and `wasm` runtime as follow-ons.
 
-Meanwhile the **Docker image keeps working** for dev and Tier-1 — nothing breaks;
-the recommendation moves.
+The **Docker single-container runtime has been dropped** (done): production is
+buxond on a VM/host with `--isolate`. Docker remains only a build tool for the
+base rootfs / fuse-overlayfs.
 
 ## Decisions (RT-*)
 
-- **RT-1 — Production boundary is a VM/host buxond controls**, not the Docker
-  container. buxond becomes the sandbox runtime for its components; Docker is
-  demoted to dev / Tier-1.
+- **RT-1 — Production boundary is a VM/host buxond controls**, not a Docker
+  container. buxond becomes the sandbox runtime for its components; the
+  single-container Docker runtime is **dropped** (Docker stays only as a build
+  tool for the rootfs / fuse-overlayfs).
 - **RT-2 — Component userland is a fat, Ubuntu-based OCI rootfs** (Go/Node/Python/
   git + `opencode`/`claude-code` + `bx`), bind-mounted ro as every sandbox's base,
   overlayfs per component. Kept separate from the minimal host OS.

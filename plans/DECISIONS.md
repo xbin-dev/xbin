@@ -48,11 +48,14 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 ## Defaults set — veto if wrong
 
 ### Runtime & deployment model (new, from `runtime.md`)
-- **RT-1 — Production boundary is a VM/host buxond controls**, not the Docker
-  container; buxond becomes the sandbox runtime for its components. Docker is
-  demoted to dev / Tier-1 (supersedes the "container is the boundary" framing in
-  D1/deployment.md for production). *(Decided while the user was away; the user
-  proposed dropping the docker deployment model for rootless isolation.)*
+- **RT-1 — Production boundary is a VM/host buxond controls**, not a Docker
+  container; buxond becomes the sandbox runtime for its components. **The
+  single-container Docker runtime is now dropped** (2026-07, at the user's
+  direction — it was container-as-boundary with no per-component isolation, less
+  secure than the sandbox runtime): `docker/Dockerfile`, `docker/compose.yml`,
+  the `make image` target, and the CI image job are removed; Docker survives only
+  as a build tool for the base rootfs / fuse-overlayfs. `plans/deployment.md` is
+  retained as history. (Supersedes the "container is the boundary" framing in D1.)
 - **RT-2 — Component userland is a fat, Ubuntu-based OCI rootfs** (Go/Node/Python/
   git + `opencode`/`claude-code` + `bx`), mounted ro as every sandbox's base,
   overlayfs per component; kept separate from a minimal host OS.

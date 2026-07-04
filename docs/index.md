@@ -31,7 +31,7 @@ cheat sheets, and the mistakes to avoid, all in one file on disk.
 ## The 60-second mental model
 
 ```
-Workspace  = one directory tree (one host — a container or a VM), git-versioned
+Workspace  = one directory tree (one host — typically a VM), git-versioned
 Scope      = a subtree marked by scope.json = "an app"; owns resources
 Component  = any directory with index.html and/or buxon.json = "an element"
 ```

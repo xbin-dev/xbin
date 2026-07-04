@@ -131,8 +131,9 @@ Server side:
   only *reacts* to file changes. This keeps the editing story trivially powerful and
   the core small.
 
-Since the whole premise is arbitrary code execution, per-component terminal sandboxing
-is theater — the **container is the security boundary** (§8).
+Terminals are the owner plane, deliberately not sandboxed from the workspace; the
+**outer boundary is the VM/host** buxond runs on (§8). Component *backends*, by
+contrast, do get per-component OS isolation under `--isolate` (`plans/isolation.md`).
 
 ---
 
@@ -283,17 +284,18 @@ wazero/netns later for syscall- and egress-level caps.
 
 ---
 
-## 7. The container & data layout
+## 7. The host & data layout
 
-One Docker container, one bind-mounted data dir. Container is cattle, workspace is pet.
+buxond runs on a **VM/host it controls**, one bind-mounted data dir. Host is
+cattle, workspace is pet.
 
-> **Direction of travel** (`plans/runtime.md`): the container-as-boundary is the
-> **dev / Tier-1** model. The target for real per-component isolation is buxond
-> on a **VM/host it controls** — buxond becomes the sandbox runtime, workloads
-> get namespaces (`plans/isolation.md`), and a fat OCI **base rootfs**
-> (toolchains + `opencode`/`claude-code`) backs both sandboxes and terminals.
-> An immutable **virtual appliance** (qcow2/OVA/ISO/cloud) is the eventual
-> on-ramp. Docker stays for dev.
+> **Where we landed** (`plans/runtime.md`): buxond is the sandbox runtime —
+> workloads get namespaces (`plans/isolation.md`) over a fat OCI **base rootfs**
+> (toolchains + `opencode`/`claude-code`) that backs both sandboxes and
+> terminals. The old **single-Docker-container runtime was dropped** (it was
+> container-as-boundary, no per-component isolation); Docker survives only as a
+> build tool for the rootfs. An immutable **virtual appliance**
+> (qcow2/OVA/ISO/cloud) is the eventual on-ramp.
 
 ```
 /workspace                  ← bind mount; ALL non-runtime state
@@ -321,8 +323,9 @@ One Docker container, one bind-mounted data dir. Container is cattle, workspace 
 
 Honest framing: Buxon is a **remote code execution appliance by design**. Therefore:
 
-- The **container is the boundary**. Run it like you'd run a dev box: no secrets you
-  wouldn't put on one, resource limits, its own network segment if paranoid.
+- The **VM/host is the outer boundary**; per-component OS namespaces (`--isolate`,
+  `plans/isolation.md`) are the inner one. Run the host like a dev box: no secrets
+  you wouldn't put on one, its own network segment if paranoid.
 - **Two planes** (`plans/auth.md`): the *editing plane* (terminals, `bx`, git) is
   owner-privileged and unrestricted; the *runtime plane* (running elements) is
   default-deny, identity-carrying, role-scoped. Owner auth at the front door:

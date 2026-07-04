@@ -46,31 +46,23 @@ auth/grants, resources, SDKs, wire protocol, CLI.
 
 ## Running it
 
-buxond runs the workspace on a Linux host and — with `--isolate` — **becomes
-the sandbox runtime** for its components, building each one's namespaces,
-overlay rootfs, and egress relay itself. Two ways to run it, by how strong you
-need the boundary between components:
-
-- **Isolated, on a VM or host buxond controls (recommended).** Full
-  per-component OS isolation. It's rootless (unprivileged user namespaces), but
-  building sandboxes from *inside* someone else's unprivileged container is the
-  fragile part (nested userns, missing devices) — so the honest substrate is a
-  **Linux VM or bare-metal host**: the host is the outer boundary, the
-  per-component namespaces the inner one.
-- **Docker, single container (quick / Tier 1).** One container is the boundary;
-  components share it. RBAC/grants still apply, but there's no OS-level
-  per-component isolation. Simplest to stand up; fine for single-user or
-  low-stakes use.
+buxond runs the workspace on a Linux host and **becomes the sandbox runtime**
+for its components, building each one's namespaces, overlay rootfs, and egress
+relay itself. It's rootless (unprivileged user namespaces), but building
+sandboxes from *inside* someone else's unprivileged container is the fragile
+part (nested userns, missing devices) — so buxon runs on a **Linux VM or
+bare-metal host it controls**: the host/hypervisor is the outer boundary, the
+per-component namespaces the inner one. (An earlier single-Docker-container mode
+existed but was container-as-boundary with no per-component isolation; it's been
+dropped — see `plans/runtime.md`.)
 
 A prebuilt VM/appliance image (qcow2/OVA/ISO/cloud) is on the roadmap
 (`plans/runtime.md`); until it ships you run the binary yourself. Design detail:
 `plans/runtime.md` (where it runs) + `plans/isolation.md` (mechanics).
 
-### Isolated (VM / host)
-
 Put buxond on a Linux host (a release binary, or `go build ./cmd/buxond`), build
-the base rootfs once (`make rootfs` — needs Docker; the appliance will ship it),
-and run it as a service (systemd unit, or PID 1 under a tiny init):
+the base rootfs once (`make rootfs` — needs Docker as a build tool; the appliance
+will ship it), and run it as a service (systemd unit, or PID 1 under a tiny init):
 
 ```sh
 buxond --isolate --rootfs /var/lib/buxon/rootfs \
@@ -92,24 +84,7 @@ The base rootfs (Go/Node/Python + agent CLIs + `bx`) is bind-mounted read-only
 under every sandbox and terminal; refresh it by rebuilding the OCI image
 (`docker/rootfs.Dockerfile` → `make rootfs`).
 
-### Docker (single container)
-
-```sh
-mkdir -p ~/buxon-ws && cd ~/buxon-ws
-curl -O https://raw.githubusercontent.com/magik6k/buxon/master/docker/compose.yml
-printf 'BUXON_VAULT_PASSPHRASE=%s\n' "$(openssl rand -base64 24)" > .env   # gitignore this
-docker compose up -d
-docker compose logs        # → one-time login URL
-```
-
-**Always mount `/workspace` explicitly** — a bind mount (`./workspace:/workspace`,
-inspectable and git-able) or a named volume. A bare `docker run` *without* it
-lands your data in an anonymous volume that's orphaned on `docker rm` — the
-classic footgun. With an explicit mount, `docker compose down` throws away only
-the container. The image runs as uid 1000 and drops to the bind mount's owner,
-so files stay yours.
-
-## Operating (either mode)
+## Operating
 
 **Data.** Everything is the workspace directory: source, manifests, and the
 grant table are plain files you can commit; `.buxon/` (build cache, sockets,
@@ -121,9 +96,9 @@ pinning the previous version.
 **Vault.** Production never stores secrets in the clear — two ways to run the
 encryption barrier:
 
-- **Env auto-unseal** — set `BUXON_VAULT_PASSPHRASE` (Compose reads it from
-  `.env`; a systemd `EnvironmentFile` or secret store on a host). Hands-off; the
-  passphrase lives in the process env.
+- **Env auto-unseal** — set `BUXON_VAULT_PASSPHRASE` (a systemd
+  `EnvironmentFile`, or a secret store). Hands-off; the passphrase lives in the
+  process env.
 - **Manual unseal (stronger)** — leave it unset. buxond boots with the vault
   **locked**: it runs and you can log in, but secret storage is refused until an
   admin runs `bx vault unseal` (or the admin console) once. The passphrase never
@@ -150,7 +125,6 @@ make dev          # buxond from source against ./devws, ISOLATED — auth ON (lo
 make dev-noauth   # frictionless: every request is admin
 make test         # unit tests
 make integration
-make image        # build the Docker (Tier-1) image
 ```
 
 `make dev` runs **isolated** on purpose — it should match the sandbox model.
@@ -167,14 +141,13 @@ decision log with rationale).
 ## Security posture, honestly
 
 buxon is remote code execution as a feature — treat the box like a dev machine.
-The **outer boundary** is the VM/host (isolated) or the container (Tier 1); keep
-it bound to loopback behind Tailscale or a TLS proxy. Inside, defense is layered:
-real RBAC/grants at the API, per-scope uids (`--scope-uids`), and — with
-`--isolate` — genuine per-component OS sandboxing (user/mount/pid/net namespaces
-+ overlay rootfs, **default-deny `net:*` egress**, cgroup accounting). Terminals
-are the deliberate **owner plane** (full workspace, a host-network escape hatch)
-— not sandboxed from you. Browser-side, elements are same-origin: frame tokens
-give attribution, not isolation — per-scope origin isolation is roadmap. Details:
+The **outer boundary** is the VM/host buxond runs on; keep it bound to loopback
+behind Tailscale or a TLS proxy. Inside, `--isolate` gives genuine per-component
+OS sandboxing (user/mount/pid/net namespaces + overlay rootfs, **default-deny
+`net:*` egress**), on top of real RBAC/grants at the API. Terminals are the
+deliberate **owner plane** (full workspace, a host-network escape hatch) — not
+sandboxed from you. Browser-side, elements are same-origin: frame tokens give
+attribution, not isolation — per-scope origin isolation is roadmap. Details:
 [docs/auth.md](docs/auth.md), `plans/isolation.md`.
 
 ## License
