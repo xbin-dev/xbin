@@ -160,12 +160,31 @@ DELETE /bindings                   admin. body {component, slot} — clear a bin
 
 POST   /lifecycle                  admin. body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:
-                                   enabled | disabled (offloaded* need an
-                                   archiver, later). A non-enabled backend is not
-                                   spawned (the proxy returns 409 + an
-                                   X-Buxon-Lifecycle header); disabling stops a
-                                   running backend now. State is in the overview's
-                                   component list (state field; "" = enabled).
+                                   enabled | disabled | offloaded | offloaded-full.
+                                   A non-enabled backend is not spawned (the proxy
+                                   returns 409 + an X-Buxon-Lifecycle header);
+                                   disabling stops a running backend now. Offload
+                                   archives then frees local bytes (data, or +
+                                   source/term-env for -full); enabling an
+                                   offloaded component restores it. State is in the
+                                   overview's component list (state field).
+
+POST   /backup                     admin. body {component} — build a self-
+                                   describing tar (source + scope data + terminal
+                                   env; NOT vault/env-layer) and stream it to the
+                                   component's bound @archive provider. {ok, version}
+GET    /backups?component=…         admin. the archiver's version list passed
+                                   through: {versions:[{version,time,size}]}
+POST   /restore                    admin. body {component, version?, file?}.
+                                   No file → restore the whole version (stops the
+                                   component, replaces its data/source from the
+                                   archive; version defaults to latest). With file
+                                   → stream one member back (recover without a full
+                                   rollback). Restore is fully archive-driven — no
+                                   local metadata needed (plans/lifecycle.md).
+                                   The archiver is chosen by the @archive binding:
+                                   bindings["<comp>"] override, else bindings["*"]
+                                   default (set via POST /bindings).
 
 GET    /vault-status              admin. {initialized, sealed, insecure}
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init

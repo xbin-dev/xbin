@@ -64,6 +64,14 @@ func main() {
 		err = cmdLifecycle(os.Args[2:], "enabled")
 	case "disable":
 		err = cmdLifecycle(os.Args[2:], "disabled")
+	case "offload":
+		err = cmdOffload(os.Args[2:])
+	case "backup":
+		err = cmdBackup(os.Args[2:])
+	case "backups":
+		err = cmdBackups(os.Args[2:])
+	case "restore":
+		err = cmdRestore(os.Args[2:])
 	default:
 		usage()
 	}
@@ -95,6 +103,11 @@ func usage() {
   bx bind <component> <slot>=<provider> wire an interface to a provider
   bx bind --unset <component> <slot>
   bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
+  bx offload <component> [--full]       archive + free local bytes
+  bx backup <component>                 back up now to the bound archiver
+  bx backups <component>                list archived versions
+  bx restore <component> [--version v] [--file path]
+                                        restore a version, or one file to stdout
   bx vault ls|get|set|rm <component> [key] [value]
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
@@ -354,6 +367,114 @@ func cmdIface() error {
 //	bx bind <component> <slot>=<provider> [<slot>=<provider> …]
 //	bx bind --unset <component> <slot>
 //
+// cmdOffload archives a component and frees local bytes (plans/lifecycle.md):
+//
+//	bx offload <component> [--full]   (--full also removes source + term-env)
+func cmdOffload(args []string) error {
+	full := false
+	var comp string
+	for _, a := range args {
+		if a == "--full" {
+			full = true
+		} else {
+			comp = a
+		}
+	}
+	if comp == "" {
+		return fmt.Errorf("usage: bx offload <component> [--full]")
+	}
+	state := "offloaded"
+	if full {
+		state = "offloaded-full"
+	}
+	if err := apiJSON("POST", "/api/buxon/lifecycle", map[string]string{"component": comp, "state": state}, nil); err != nil {
+		return err
+	}
+	fmt.Printf("%s %s\n", comp, state)
+	return nil
+}
+
+func cmdBackup(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: bx backup <component>")
+	}
+	var out struct{ Version string }
+	if err := apiJSON("POST", "/api/buxon/backup", map[string]string{"component": args[0]}, &out); err != nil {
+		return err
+	}
+	fmt.Printf("backed up %s → version %s\n", args[0], out.Version)
+	return nil
+}
+
+func cmdBackups(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: bx backups <component>")
+	}
+	var out struct {
+		Versions []struct {
+			Version string `json:"version"`
+			Time    string `json:"time"`
+			Size    int64  `json:"size"`
+		} `json:"versions"`
+	}
+	if err := apiJSON("GET", "/api/buxon/backups?component="+args[0], nil, &out); err != nil {
+		return err
+	}
+	if len(out.Versions) == 0 {
+		fmt.Println("no backups")
+		return nil
+	}
+	for _, v := range out.Versions {
+		fmt.Printf("%-32s %s\t%d bytes\n", v.Version, v.Time, v.Size)
+	}
+	return nil
+}
+
+// cmdRestore restores a whole version or a single file (--file):
+//
+//	bx restore <component> [--version v]
+//	bx restore <component> --file <path> [--version v]   (streams the file to stdout)
+func cmdRestore(args []string) error {
+	var comp, version, file string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--version":
+			i++
+			if i < len(args) {
+				version = args[i]
+			}
+		case "--file":
+			i++
+			if i < len(args) {
+				file = args[i]
+			}
+		default:
+			comp = args[i]
+		}
+	}
+	if comp == "" {
+		return fmt.Errorf("usage: bx restore <component> [--version v] [--file path]")
+	}
+	body := map[string]string{"component": comp, "version": version, "file": file}
+	if file != "" {
+		resp, err := api("POST", "/api/buxon/restore", body)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("%s", resp.Status)
+		}
+		_, err = io.Copy(os.Stdout, resp.Body)
+		return err
+	}
+	if err := apiJSON("POST", "/api/buxon/restore", body, nil); err != nil {
+		return err
+	}
+	fmt.Printf("restored %s\n", comp)
+	return nil
+}
+
 // cmdLifecycle sets a component's lifecycle state (plans/lifecycle.md).
 func cmdLifecycle(args []string, state string) error {
 	if len(args) != 1 {

@@ -25,18 +25,37 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, state}"})
 		return
 	}
-	if _, ok := b.Reg.Component(body.Component); !ok {
+	// A component whose source was removed (offloaded-full) may not be in the
+	// registry; only reject truly-unknown components.
+	cur := b.Reg.LifecycleState(body.Component)
+	if _, ok := b.Reg.Component(body.Component); !ok && cur == registry.StateEnabled {
 		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
 		return
 	}
+	// Heavy transitions run before the state flips, so a failure leaves the
+	// component untouched (nothing removed until its archive is confirmed).
 	switch body.State {
-	case registry.StateEnabled, registry.StateDisabled:
-		// implemented
-	case registry.StateOffloaded, registry.StateOffloadedFull:
-		server.WriteJSON(w, http.StatusNotImplemented, map[string]string{"error": "offload needs an archiver binding — not wired yet (plans/lifecycle.md phase 4)"})
-		return
+	case registry.StateEnabled:
+		if registry.IsOffloaded(cur) {
+			if _, err := b.doRestore(body.Component, ""); err != nil {
+				server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "restore failed: " + err.Error()})
+				return
+			}
+		}
+	case registry.StateDisabled:
+		// no data movement
+	case registry.StateOffloaded:
+		if err := b.offload(body.Component, false); err != nil {
+			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+	case registry.StateOffloadedFull:
+		if err := b.offload(body.Component, true); err != nil {
+			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
 	default:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be one of: enabled, disabled"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be one of: enabled, disabled, offloaded, offloaded-full"})
 		return
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
@@ -52,10 +71,15 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	// Disabling stops the backend now (free compute); enabling lets the next
-	// request re-spawn it.
-	if body.State != registry.StateEnabled && b.StopBackend != nil {
-		b.StopBackend(body.Component)
+	// Disabling/offloading stops the backend now (free compute); enabling lets
+	// the next request re-spawn it. Offload/restore changed files on disk.
+	if body.State != registry.StateEnabled {
+		b.StopBackendSafe(body.Component)
+	}
+	_ = b.Reg.Rescan()
+	b.Provision()
+	if b.OnStructureChange != nil {
+		b.OnStructureChange()
 	}
 	b.Hub.Publish(events.Event{Type: "reload", Component: body.Component})
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "state": body.State})

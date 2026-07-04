@@ -131,8 +131,13 @@ func endpoints() []ep {
 			jsonBody("binding", oapi{"component": str("apps/x"), "slot": str("net"), "provider": str("apps/firewall | internet | host")}, "component", "slot", "provider"), "ok"},
 		{"DELETE", "/bindings", "Grants", "Clear a binding", "admin", "", nil,
 			jsonBody("binding to clear", oapi{"component": str("apps/x"), "slot": str("net")}, "component", "slot"), "ok"},
-		{"POST", "/lifecycle", "Grants", "Set a component's lifecycle state", "admin", "Enable/disable a component (plans/lifecycle.md). A non-enabled backend won't spawn; disabling stops it now. offloaded states need an archiver (later).", nil,
-			jsonBody("lifecycle", oapi{"component": str("apps/x"), "state": str("enabled|disabled")}, "component", "state"), "{ok, state}"},
+		{"POST", "/lifecycle", "Grants", "Set a component's lifecycle state", "admin", "Enable/disable/offload a component (plans/lifecycle.md). A non-enabled backend won't spawn; disabling stops it now; offloaded[-full] archives + frees local bytes; enabling an offloaded component restores it. Needs an @archive binding for offload.", nil,
+			jsonBody("lifecycle", oapi{"component": str("apps/x"), "state": str("enabled|disabled|offloaded|offloaded-full")}, "component", "state"), "{ok, state}"},
+		{"POST", "/backup", "Backup", "Back up a component now", "admin", "Streams a self-describing tar (source + scope data + terminal env) of the component to its bound @archive provider (plans/lifecycle.md).", nil,
+			jsonBody("backup", oapi{"component": str("apps/x")}, "component"), "{ok, version}"},
+		{"GET", "/backups", "Backup", "List a component's archived versions", "admin", "Passes the bound archiver's version list through: [{version, time, size}].", []oapi{queryParam("component", "the component", true)}, nil, "{versions:[{version,time,size}], archiver}"},
+		{"POST", "/restore", "Backup", "Restore a version or a single file", "admin", "Restore a whole version (stops + replaces the component's data/source from the archive) or, with `file`, stream one member back without touching live state (plans/lifecycle.md).", nil,
+			jsonBody("restore", oapi{"component": str("apps/x"), "version": str("optional; default latest"), "file": str("optional; one path within the archive")}, "component"), "{ok, component, restored} or the file bytes"},
 
 		// --- vault ---
 		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "", nil, nil, "{initialized, sealed, insecure}"},

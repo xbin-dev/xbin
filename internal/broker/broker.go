@@ -56,6 +56,14 @@ type Broker struct {
 	// runner.Stop by main.
 	StopBackend func(component string)
 
+	// ProxyHandler is the element proxy, used to call an archiver tile's API
+	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by
+	// main to avoid a broker→proxy import cycle.
+	ProxyHandler http.Handler
+
+	// Version is the buxond version, stamped into backup manifests.
+	Version string
+
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
 	// false, vault writes without a barrier are refused rather than written
@@ -125,6 +133,9 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
 	srv.RegisterAPI("POST /lifecycle", b.apiLifecycleSet)
+	srv.RegisterAPI("POST /backup", b.apiBackupNow)
+	srv.RegisterAPI("GET /backups", b.apiBackupList)
+	srv.RegisterAPI("POST /restore", b.apiRestore)
 	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
 	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
 	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)

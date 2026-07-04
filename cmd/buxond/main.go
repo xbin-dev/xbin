@@ -290,6 +290,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+	brk.Version = version
+	brk.ProxyHandler = px // internal archiver calls for backup/restore
 
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
