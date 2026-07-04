@@ -108,6 +108,9 @@ type Runner struct {
 	// net interface is bound to a provider tile (plans/interfaces.md).
 	NetRoster func(c *registry.Component) []sandbox.NetClient
 	NetTarget func(c *registry.Component) (provider, addr, gw string, ok bool)
+	// NetHost reports whether a component's net interface is bound to the host
+	// builtin (share the host network).
+	NetHost func(c *registry.Component) bool
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
@@ -562,18 +565,20 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		HostGID: os.Getgid(),
 	}
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
-	// bound client; a client bound to a provider splices its egress to it instead
-	// of running its own relay.
+	// bound client; a component's `net` interface resolves to host-share, a splice
+	// through a provider tile, or the relay under a builtin (internet/lan) policy.
 	if r.NetRoster != nil {
 		spec.NetClients = r.NetRoster(c)
 	}
-	if r.NetTarget != nil {
+	if r.NetHost != nil && r.NetHost(c) {
+		spec.HostNet = true // net → host builtin (share the host network)
+	} else if r.NetTarget != nil {
 		if _, addr, gw, ok := r.NetTarget(c); ok {
 			spec.Net, spec.NetAddr, spec.NetGw = "splice", addr, gw
 		}
 	}
-	if spec.Net == "" && !pol.Empty() {
-		spec.Net = "relay" // granted egress → TUN + userspace relay
+	if spec.Net == "" && !spec.HostNet && !pol.Empty() {
+		spec.Net = "relay" // granted / bound builtin egress → TUN + userspace relay
 	}
 	return sandbox.Launch(spec)
 }

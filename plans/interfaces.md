@@ -38,9 +38,11 @@ New families plug into the same model without changing it.
 The requester's netns gets a TUN + default route; who's on the other end depends
 on the binding:
 
-- **Builtin providers** (buxond): `internet` (gVisor relay, public-only),
-  `host` (share host net), `lan:<cidr>` (relay under a LAN policy). These are the
-  current `net:*` behaviors.
+- **Builtin providers** (buxond, *implemented as bindable providers*): `internet`
+  (gVisor relay, public-only), `host` (share host net = HostNet), `lan:<cidr>`
+  (relay under a LAN policy). `bx bind <comp> net=internet` etc.; unbound =
+  default-deny. `net:*` grants remain as a legacy alternative that resolve to the
+  same egress policy.
 - **Tile providers** (`provides: {…: {kind:"net"}}`): a firewall / VPN / router /
   DPI / meter tile. buxond gives the provider **one TUN per bound client** (a
   point-to-point `/30` link) plus the provider's *own* egress (its own `net`
@@ -140,9 +142,9 @@ gpu=0`, `bx net graph`, `bx net flows`.
   own admin UX; families register into a common shell.
 - **IFACE-3** — `net` tile-providers get **one TUN per client**; buxond does a
   dumb L3 splice; the provider is a real router; chains are emergent (DAG).
-- **IFACE-4** — builtins (`internet`/`host`/`lan`, GPU devices) are system
-  providers; `net:*`/`gpu:*`/`res:*` grants are compat sugar that synthesize
-  bindings.
+- **IFACE-4** — builtins (`internet`/`host`/`lan` for net; GPU devices) are
+  bindable system providers (net builtins *implemented*); `net:*`/`gpu:*` grants
+  remain a legacy alternative resolving to the same egress. `res:*` → later.
 - **IFACE-5** — `http`/service is implemented (URL injection + binding-as-grant,
   used by `llm-gw`/`chat`); the `resource` family and a `flow` kind are deferred.
 

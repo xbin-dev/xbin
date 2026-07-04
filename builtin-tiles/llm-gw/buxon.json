@@ -6,14 +6,16 @@
   // this component's own vault key without any extra grant).
   "runtime": "go",
   "uses": [
-    { "target": "res:apps/llm-gw/state", "role": "writer" },
-    // Reaches the configured upstream provider (OpenAI, OpenRouter, …). Under
-    // isolation (buxond --isolate) a backend has NO network egress until granted;
-    // this is the owner-approved grant that lets llm-gw call out. net:internet is
-    // public providers only — for a LAN/self-hosted endpoint (Ollama, vLLM on
-    // your network) add e.g. { "target": "net:192.168.1.5:11434", "role": "egress" }.
-    { "target": "net:internet", "role": "egress" }
+    { "target": "res:apps/llm-gw/state", "role": "writer" }
   ],
+  // Egress is a `net` interface the owner binds (plans/interfaces.md) — pick what
+  // provides internet to it: the `internet` builtin, or a provider tile (a VPN so
+  // the upstream sees your VPN IP, a firewall that pins it to one host, a router
+  // to a LAN Ollama/vLLM). No binding = no egress (owner-authorized, like the old
+  // net:internet grant). Bind on the root page: bx bind apps/llm-gw net=internet.
+  "interfaces": {
+    "net": { "kind": "net" }
+  },
   "expose": {
     "roles": {
       "reader": "List available models (real + aliases) via GET /v1/models",

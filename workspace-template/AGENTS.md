@@ -277,17 +277,19 @@ and production isolate). **Design for this — it's default-deny:**
   (read-only), and your granted resource files (rw). **Not** other components'
   source, other vaults, `home/`, or the host — they aren't mounted. Persist
   state in resources, not scattered files.
-- **Network egress is a grant.** With no `net:*` grant your backend has **zero
-  IP egress** — outbound calls fail (`dial tcp: lookup … connection refused`).
-  Reaching **buxond and other components** through the SDK/gateway always works
-  (that's not IP egress). To reach the outside, add a `net:*` **egress** use:
-  - `net:internet` — any **public** host (optionally `net:internet:443`). Never
-    covers LAN/RFC1918.
-  - `net:<cidr|host>[:port]` — a specific LAN / self-hosted endpoint, e.g.
-    `net:192.168.1.5:11434` for an Ollama on your network. (`localhost` is the
-    sandbox's own loopback, not the host — use the host's LAN address.)
-  These are **owner-approved like any cross-scope grant** (don't self-approve —
-  see §Auth). Approving one **restarts your backend** so it takes effect at once.
+- **Network egress is an owner-bound interface (§Interfaces).** With no egress
+  bound your backend has **zero IP egress** — outbound calls fail (`dial tcp:
+  lookup … connection refused`). Reaching **buxond and other components** through
+  the SDK/gateway always works (that's not IP egress). To reach the outside,
+  declare a `net` interface and let the owner pick what provides it:
+  `"interfaces": { "net": { "kind": "net" } }` → owner binds it to `internet`
+  (public only, never LAN/RFC1918), `host`, `lan:<cidr>`, or a **provider tile**
+  (a VPN/firewall/router your traffic routes through). `bx bind <you> net=internet`
+  or the admin Interfaces tab; the binding is owner-authorized (don't self-bind)
+  and **restarts your backend**.
+  - Legacy form (still works): a `net:*` **egress** use in `uses`
+    (`net:internet`, `net:192.168.1.5:11434`, …), owner-approved like a grant.
+    Prefer the interface — it lets the owner reroute you without a code change.
 - **GPUs are a grant too.** Request `gpu:all`, `gpu:<index>`, or `gpu:<uuid>` in
   `uses` (role `egress`); the granted GPU's device nodes + NVIDIA driver appear
   in your sandbox with `CUDA_VISIBLE_DEVICES` set. Pair with `setup` for the CUDA

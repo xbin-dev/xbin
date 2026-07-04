@@ -28,13 +28,29 @@ func providesNet(p *registry.Component) bool {
 	return false
 }
 
-// netProvider returns the provider component a comp's net interface is bound to
-// (a component path that provides net), or "" if none.
-func (b *Broker) netProvider(comp string) string {
-	for _, prov := range b.Reg.Workspace().Bindings[comp] {
-		if p, ok := b.Reg.Component(prov); ok && providesNet(p) {
-			return prov
+// netBinding returns the provider a component's `net` interface is bound to —
+// a builtin ("internet"/"host"/"lan:<cidr>") or a provider-tile path — or "" if
+// the component has no net interface or it's unbound. Owner-set; there is no
+// implicit default, so egress stays owner-authorized (like a net:internet grant).
+func (b *Broker) netBinding(comp string) string {
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return ""
+	}
+	for slot, req := range c.Manifest.Interfaces {
+		if req.Kind == "net" {
+			return b.Reg.Workspace().Bindings[comp][slot]
 		}
+	}
+	return ""
+}
+
+// netProvider returns the provider *tile* a comp's net interface is bound to
+// (a component path that provides net), or "" (builtin / unbound / none).
+func (b *Broker) netProvider(comp string) string {
+	nb := b.netBinding(comp)
+	if p, ok := b.Reg.Component(nb); ok && providesNet(p) {
+		return nb
 	}
 	return ""
 }
@@ -43,16 +59,19 @@ func (b *Broker) netProvider(comp string) string {
 // sorted (so link indices are stable for a given membership).
 func (b *Broker) netClientsOf(provider string) []string {
 	var clients []string
-	for comp, slots := range b.Reg.Workspace().Bindings {
-		for _, prov := range slots {
-			if prov == provider {
-				clients = append(clients, comp)
-				break
-			}
+	for _, c := range b.Reg.Components() {
+		if b.netBinding(c.Path) == provider {
+			clients = append(clients, c.Path)
 		}
 	}
 	sort.Strings(clients)
 	return clients
+}
+
+// NetHostShare reports whether a component's net interface is bound to the
+// "host" builtin (share the host network — a powerful, owner-only binding).
+func (b *Broker) NetHostShare(c *registry.Component) bool {
+	return b.netBinding(c.Path) == "host"
 }
 
 // link addresses for client index i: a /30 point-to-point, provider .1, client .2.
