@@ -110,24 +110,49 @@ func cleanStale(c *registry.Component, want map[string]string) {
 
 // GoWork (re)generates <root>/go.work. sdkPath optionally adds the buxon SDK
 // module (BUXON_SDK_PATH / /opt/buxon/sdk in the container image).
+//
+// A go.work without our marker is treated as hand-managed and left alone — but
+// ONLY while it already lists every component's Go module. If a component's
+// module is missing (e.g. a `go work use …`, which the go toolchain itself
+// suggests in build errors, rewrote the file and stripped our marker), the file
+// is stale and would break builds, so we reclaim it. This keeps go.work
+// self-healing against the toolchain editing it out from under us.
 func GoWork(reg *registry.Registry, sdkPath string) error {
 	var mods []string
 	for _, c := range reg.Components() {
-		if _, err := os.Stat(filepath.Join(c.Dir, "go.mod")); err == nil {
-			mods = append(mods, "./"+c.Path)
+		switch {
+		case fileExists(filepath.Join(c.Dir, "go.mod")):
+			mods = append(mods, "./"+c.Path) // canonical: module at the component root
+		case fileExists(filepath.Join(c.Dir, "backend", "go.mod")):
+			mods = append(mods, "./"+c.Path+"/backend") // module in backend/ (also supported)
 		}
 	}
 	workPath := filepath.Join(reg.Root, "go.work")
 	if len(mods) == 0 && sdkPath == "" {
 		return nil // nothing Go in the workspace; leave whatever exists alone
 	}
-	if b, err := os.ReadFile(workPath); err == nil {
-		if !strings.Contains(string(b), workMarker) {
-			slog.Debug("go.work is hand-managed; not regenerating")
+	sort.Strings(mods)
+	desired := renderGoWork(mods, sdkPath)
+
+	cur, err := os.ReadFile(workPath)
+	if err != nil {
+		return os.WriteFile(workPath, []byte(desired), 0o644) // no file yet
+	}
+	if string(cur) == desired {
+		return nil // already correct — don't feed the file watcher
+	}
+	if !strings.Contains(string(cur), workMarker) {
+		if missing := missingModules(string(cur), mods); len(missing) == 0 {
+			slog.Debug("go.work is hand-managed and complete; not regenerating")
 			return nil
+		} else {
+			slog.Warn("go.work is missing component modules — reclaiming it (a `go work use` likely rewrote it and stripped buxond's marker)", "missing", missing)
 		}
 	}
-	sort.Strings(mods)
+	return os.WriteFile(workPath, []byte(desired), 0o644)
+}
+
+func renderGoWork(mods []string, sdkPath string) string {
 	var sb strings.Builder
 	sb.WriteString(workMarker + "\n\ngo 1.24\n\nuse (\n")
 	for _, m := range mods {
@@ -141,13 +166,33 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 		// An all-versions replace resolves it locally in every case.
 		fmt.Fprintf(&sb, "\nreplace github.com/magik6k/buxon/sdk => %s\n", sdkPath)
 	}
-
-	// Only rewrite on change (avoid feeding the file watcher).
-	if cur, err := os.ReadFile(workPath); err == nil && string(cur) == sb.String() {
-		return nil
-	}
-	return os.WriteFile(workPath, []byte(sb.String()), 0o644)
+	return sb.String()
 }
+
+// missingModules returns the wanted `use` paths not referenced by an existing
+// go.work (matching with or without a leading "./", so it recognises entries
+// written by the go toolchain, which omits it).
+func missingModules(content string, want []string) []string {
+	have := map[string]bool{}
+	for _, line := range strings.Split(content, "\n") {
+		t := strings.TrimSpace(line)
+		t = strings.TrimSpace(strings.TrimPrefix(t, "use "))
+		t = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(t, "(")), ")")
+		t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), "./"))
+		if t != "" {
+			have[t] = true
+		}
+	}
+	var missing []string
+	for _, w := range want {
+		if !have[strings.TrimPrefix(w, "./")] {
+			missing = append(missing, w)
+		}
+	}
+	return missing
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // SDKPath locates the buxon Go SDK for go.work generation.
 func SDKPath() string {
