@@ -31,6 +31,12 @@ import (
 const nicID = 1
 const recentFlows = 64
 
+// udpIdleTimeout ends a UDP flow after this much silence. UDP has no close, so
+// without it a flow (e.g. a DNS query/reply) would show as "open" forever and
+// keep counting toward Active. Any datagram in either direction refreshes it —
+// mirroring conntrack's UDP idle expiry — so a live flow stays up.
+const udpIdleTimeout = 30 * time.Second
+
 // Relay owns a gVisor stack forwarding a component's egress.
 type Relay struct {
 	stack   *stack.Stack
@@ -228,7 +234,7 @@ func (r *Relay) udpHandler(resolver string) func(*udp.ForwarderRequest) bool {
 		}
 		in := gonet.NewUDPConn(&wq, gep)
 		f := r.record("udp", ip, port, true)
-		go func() { tx, rx := splice(in, out); r.finish(f, tx, rx) }()
+		go func() { tx, rx := spliceUDPIdle(in, out, udpIdleTimeout); r.finish(f, tx, rx) }()
 		return true
 	}
 }
@@ -245,6 +251,43 @@ func splice(a, b net.Conn) (aToB, bToA int64) {
 			_ = cw.CloseWrite()
 		} else {
 			dst.SetReadDeadline(time.Now().Add(2 * time.Second))
+		}
+	}
+	go cp(b, a, &aToB) // a → b
+	go cp(a, b, &bToA) // b → a
+	wg.Wait()
+	a.Close()
+	b.Close()
+	return aToB, bToA
+}
+
+// spliceUDPIdle copies bidirectionally like splice, but — since UDP has no close
+// — treats an idle stretch (no datagram either way for idle) as end-of-flow.
+// Every datagram in either direction refreshes the shared read deadline, so a
+// live flow keeps going while a quiet one is reaped (conntrack-style). Read
+// deadlines are goroutine-safe, so the two directions can extend concurrently.
+func spliceUDPIdle(a, b net.Conn, idle time.Duration) (aToB, bToA int64) {
+	extend := func() {
+		d := time.Now().Add(idle)
+		_ = a.SetReadDeadline(d)
+		_ = b.SetReadDeadline(d)
+	}
+	extend()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	cp := func(dst, src net.Conn, n *int64) {
+		defer wg.Done()
+		buf := make([]byte, 64*1024)
+		for {
+			k, err := src.Read(buf)
+			if k > 0 {
+				extend()
+				w, _ := dst.Write(buf[:k])
+				*n += int64(w)
+			}
+			if err != nil { // idle deadline or peer gone
+				return
+			}
 		}
 	}
 	go cp(b, a, &aToB) // a → b
