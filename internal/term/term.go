@@ -25,6 +25,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"github.com/magik6k/buxon/internal/gpu"
 	"github.com/magik6k/buxon/internal/sandbox"
 	"github.com/magik6k/buxon/internal/sandbox/relay"
 	"github.com/magik6k/buxon/internal/util"
@@ -126,6 +127,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	sessID := r.URL.Query().Get("session")
 	cwd := r.URL.Query().Get("cwd")
 	netMode := normalizeNet(r.URL.Query().Get("net"))
+	gpuMode := r.URL.Query().Get("gpu") // ""/none | all | <index> (owner plane)
 
 	var (
 		s   *Session
@@ -140,7 +142,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		s, err = m.create(cwd, netMode)
+		s, err = m.create(cwd, netMode, gpuMode)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -183,7 +185,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode string) (*Session, error) {
+func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -204,7 +206,7 @@ func (m *Manager) create(cwd, netMode string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode)
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -244,9 +246,9 @@ func (m *Manager) create(cwd, netMode string) (*Session, error) {
 // isolation is on, else a plain host shell. Returns a cleanup for sandbox state,
 // an optional postStart hook (run after the PTY starts) that wires the egress
 // relay, and the persistent env-layer key this session holds ("" = none).
-func (m *Manager) shellCmd(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, string) {
+func (m *Manager) shellCmd(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode); err == nil {
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode); err == nil {
 			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
@@ -333,16 +335,24 @@ func (m *Manager) ResetEnv(rel string) error {
 // dev sandbox per component (plans/component-env.md). Only one live session may
 // hold a component's layer; concurrent sessions on the same component fall back
 // to an ephemeral upper. netMode picks the network scope (internet/host/none).
-func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
 	binds := append([]sandbox.Bind{
 		{Src: m.Root, Dst: m.Root}, // the workspace, rw
 	}, m.ExtraBinds...)
+	env := m.sandboxEnv(rel, netMode)
+	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
+	if gpuMode != "" && gpuMode != "none" {
+		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + gpuMode})); len(gb) > 0 {
+			binds = append(binds, gb...)
+			env = append(env, genv...)
+		}
+	}
 	spec := &sandbox.Spec{
 		Lower:   []string{m.Rootfs},
 		Binds:   binds,
 		Entry:   "/bin/bash",
 		Argv:    []string{"bash"},
-		Env:     m.sandboxEnv(rel, netMode),
+		Env:     env,
 		Cwd:     dir,
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),

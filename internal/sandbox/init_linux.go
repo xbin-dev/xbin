@@ -117,6 +117,19 @@ func runInit(specPath string) error {
 	if err := mountAt(newroot, "tmp", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"); err != nil {
 		return err
 	}
+	// Private tmpfs /dev: device-node binds (incl. conditional GPU nodes) land on
+	// an ephemeral layer, never the overlay upper — so a persistent terminal layer
+	// doesn't accumulate stale device placeholders. (No MS_NODEV — this is /dev.)
+	if err := mountAt(newroot, "dev", "tmpfs", "tmpfs", unix.MS_NOSUID, "mode=0755"); err != nil {
+		return err
+	}
+	// Standard /dev symlinks a fresh tmpfs lacks (programs expect /dev/stdin, …).
+	for _, ln := range [][2]string{
+		{"/proc/self/fd", "dev/fd"}, {"/proc/self/fd/0", "dev/stdin"},
+		{"/proc/self/fd/1", "dev/stdout"}, {"/proc/self/fd/2", "dev/stderr"},
+	} {
+		_ = os.Symlink(ln[0], filepath.Join(newroot, ln[1]))
+	}
 	_ = mountAt(newroot, "dev/shm", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777")
 
 	// Default minimal /dev nodes (bound from the host before we pivot away).

@@ -383,13 +383,13 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 // grantRestart restarts the caller's backend when the changed grant is one whose
-// effect is materialized at spawn (egress policy or resource env), so approving
-// e.g. net:internet takes effect without a manual restart.
+// effect is materialized at spawn (egress policy, resource env, or GPU devices),
+// so approving e.g. net:internet or gpu:0 takes effect without a manual restart.
 func (b *Broker) grantRestart(g registry.Grant) {
 	if b.OnGrantChange == nil {
 		return
 	}
-	if strings.HasPrefix(g.Target, "net:") || strings.HasPrefix(g.Target, "res:") {
+	if strings.HasPrefix(g.Target, "net:") || strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") {
 		b.OnGrantChange(g.From)
 	}
 }

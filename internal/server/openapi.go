@@ -73,6 +73,7 @@ func endpoints() []ep {
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
 			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (buxon-client.js uses this).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
 		{"GET", "/status", "Runtime", "Terminals + component counts", "admin", "", nil, nil, "status summary"},
+		{"GET", "/gpus", "Runtime", "Host NVIDIA GPUs (for gpu:* grants / terminal picker)", "admin", "", nil, nil, "{gpus:[{index,uuid,name,node}]}"},
 		{"GET", "/backends", "Runtime", "Per-component backend state", "admin",
 			"Compact backend states: idle | building | healthy | failed, with generation and last error.", nil, nil, "{path: {state, gen, error?}}"},
 		{"GET", "/runtime", "Runtime", "Full runtime visibility", "admin",

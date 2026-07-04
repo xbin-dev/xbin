@@ -69,10 +69,10 @@ export class BxTerminal extends HTMLElement {
   // spawn), so a live change to `net` restarts the session: drop the current
   // session id and reconnect, which asks buxond for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
-  static get observedAttributes() { return ['net']; }
+  static get observedAttributes() { return ['net', 'gpu']; }
   attributeChangedCallback(name, oldV, newV) {
-    if (name !== 'net' || oldV === null || oldV === newV || !this.#term) return;
-    this.#restart(`switching network → ${newV}…`);
+    if ((name !== 'net' && name !== 'gpu') || oldV === null || oldV === newV || !this.#term) return;
+    this.#restart(name === 'gpu' ? `switching GPU → ${newV}…` : `switching network → ${newV}…`);
   }
 
   // restartFresh drops the current session and reconnects a brand-new one — used
@@ -133,7 +133,8 @@ export class BxTerminal extends HTMLElement {
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
       : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
-        `&net=${encodeURIComponent(this.getAttribute('net') || 'internet')}`;
+        `&net=${encodeURIComponent(this.getAttribute('net') || 'internet')}` +
+        `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}`;
     const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
     ws.binaryType = 'arraybuffer';
     this.#ws = ws;

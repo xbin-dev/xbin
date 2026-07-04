@@ -26,6 +26,16 @@ import '/vendor/bx-terminal.js';
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
 
+// Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
+let _gpuInv;
+function gpuInventory() {
+  _gpuInv ??= fetch('/api/buxon/gpus')
+    .then((r) => (r.ok ? r.json() : { gpus: [] }))
+    .then((d) => d.gpus || [])
+    .catch(() => []);
+  return _gpuInv;
+}
+
 // dragShield lays a transparent full-viewport layer over the page during a
 // title-bar drag, so tile <iframe>s (this one and any others) can't capture the
 // pointer when the cursor races ahead of the window — which otherwise stalls
@@ -44,6 +54,7 @@ export class BxFrame extends LitElement {
     _termOpen: { state: true },
     _sessions: { state: true },
     _active: { state: true },
+    _gpus: { state: true },
     _buildError: { state: true },
     _autoHeight: { state: true },
   };
@@ -123,8 +134,9 @@ export class BxFrame extends LitElement {
   constructor() {
     super();
     this._termOpen = false;
-    this._sessions = []; // [{id: string|null, net}] — id null until server assigns
+    this._sessions = []; // [{id: string|null, net, gpu}] — id null until server assigns
     this._active = 0;
+    this._gpus = []; // host GPU inventory (empty unless a GPU host)
     this._buildError = null;
     this._autoHeight = false;
     this._pop = null; // {x, y, w, h} — owned imperatively after open
@@ -204,6 +216,7 @@ export class BxFrame extends LitElement {
       };
     }
     this._termOpen = true;
+    if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (this._sessions.length === 0) this._newTerm();
     this.updateComplete.then(() => this._front());
   }
@@ -247,13 +260,26 @@ export class BxFrame extends LitElement {
   }
 
   _newTerm() {
-    this._sessions = [...this._sessions, { id: null, net: 'internet' }];
+    this._sessions = [...this._sessions, { id: null, net: 'internet', gpu: 'none' }];
     this._active = this._sessions.length - 1;
   }
 
   _gotSession(i, ev) {
     const s = [...this._sessions];
-    s[i] = { id: ev.detail.id, net: ev.detail.net || s[i]?.net || 'internet' };
+    s[i] = { id: ev.detail.id, net: ev.detail.net || s[i]?.net || 'internet', gpu: s[i]?.gpu || 'none' };
+    this._sessions = s;
+  }
+
+  // Switch the active terminal's GPU (device binds are fixed at spawn, so this
+  // restarts the session), mirroring _setNet.
+  _setGpu(i, gpu) {
+    const cur = this._sessions[i];
+    if (!cur || (cur.gpu || 'none') === gpu) return;
+    if (cur.id) {
+      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' }).catch(() => { });
+    }
+    const s = [...this._sessions];
+    s[i] = { id: null, net: cur.net || 'internet', gpu };
     this._sessions = s;
   }
 
@@ -266,7 +292,7 @@ export class BxFrame extends LitElement {
       .catch(() => { })
       .finally(() => {
         const s = [...this._sessions];
-        if (s[this._active]) s[this._active] = { id: null, net: s[this._active].net || 'internet' };
+        if (s[this._active]) s[this._active] = { id: null, net: s[this._active].net || 'internet', gpu: s[this._active].gpu || 'none' };
         this._sessions = s;
         this.renderRoot?.querySelectorAll('bx-terminal')[this._active]?.restartFresh?.();
       });
@@ -283,7 +309,7 @@ export class BxFrame extends LitElement {
         .catch(() => { });
     }
     const s = [...this._sessions];
-    s[i] = { id: null, net };
+    s[i] = { id: null, net, gpu: cur.gpu || 'none' };
     this._sessions = s;
   }
 
@@ -316,6 +342,14 @@ export class BxFrame extends LitElement {
               <option value="host">🖧 host net</option>
               <option value="none">⛔ offline</option>
             </select>
+            ${this._gpus.length ? html`
+              <select class="scope" title="GPU (switching restarts the terminal)"
+                      .value=${this._sessions[this._active]?.gpu || 'none'}
+                      @change=${(e) => this._setGpu(this._active, e.target.value)}>
+                <option value="none">no GPU</option>
+                ${this._gpus.map((g) => html`<option value=${g.index}>🎮 GPU ${g.index}</option>`)}
+                ${this._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
+              </select>` : nothing}
             <button title="reset this component's sandbox (wipe installed packages)"
                     @click=${this._resetEnv}>⟲</button>
             <button title="close (session keeps running)"
@@ -324,7 +358,7 @@ export class BxFrame extends LitElement {
           <div class="term-host">
             ${this._sessions.map((s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'}
+                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'}
                 @bx-session=${(ev) => this._gotSession(i, ev)}></bx-terminal>`)}
           </div>
         </div>` : nothing}

@@ -288,6 +288,11 @@ and production isolate). **Design for this — it's default-deny:**
     sandbox's own loopback, not the host — use the host's LAN address.)
   These are **owner-approved like any cross-scope grant** (don't self-approve —
   see §Auth). Approving one **restarts your backend** so it takes effect at once.
+- **GPUs are a grant too.** Request `gpu:all`, `gpu:<index>`, or `gpu:<uuid>` in
+  `uses` (role `egress`); the granted GPU's device nodes + NVIDIA driver appear
+  in your sandbox with `CUDA_VISIBLE_DEVICES` set. Pair with `setup` for the CUDA
+  userland (`"setup":"pip install torch"`). Owner-approved; ungranted = no GPU.
+  A terminal can pick a GPU per session from its window menu (owner plane).
 - Same-scope resources (`res:<your-scope>/…`) are auto-granted; declare them in
   `scope.json` and request in `uses`.
 

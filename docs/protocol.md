@@ -188,8 +188,12 @@ Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
   interfaces visible). The escape hatch.
 - `none` — an isolated namespace with no egress (buxond unreachable).
 
-The scope is fixed at spawn; switching it restarts the session (the UI ends
-the old one and opens a new WS).
+A new session also takes `?gpu=<none|all|index|uuid>` (default `none`) to bind
+host NVIDIA GPU(s) into the terminal's dev sandbox (owner plane; no grant
+needed). Enumerate host GPUs at `GET /api/buxon/gpus` (admin).
+
+The scope is fixed at spawn; switching net or GPU restarts the session (the UI
+ends the old one and opens a new WS).
 
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.

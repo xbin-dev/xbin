@@ -79,6 +79,7 @@ Rootless — no root needed — but the host must provide:
 | **`/dev/fuse`** | mount each sandbox root with fuse-overlayfs so unprivileged directory renames work (`apt install`). buxond ships its own static one (`make` builds it from source); absent it, falls back to kernel overlay |
 | **`/dev/net/tun`** | the per-netns egress relay TUN — needed for any `net:*` grant or the terminal internet scope |
 | **cgroup v2** (optional) | per-component CPU/mem/pids accounting; under systemd, `Delegate=yes` |
+| **NVIDIA driver** (optional) | enables `gpu:*` grants — components/terminals get GPUs by binding the world-readable `/dev/nvidia*` + host driver libs (rootless, no container toolkit). `plans/gpu.md` |
 
 The base rootfs (Go/Node/Python + agent CLIs + `bx`) is bind-mounted read-only
 under every sandbox and terminal; refresh it by rebuilding the OCI image

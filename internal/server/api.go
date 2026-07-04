@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/magik6k/buxon/internal/auth"
+	"github.com/magik6k/buxon/internal/gpu"
 )
 
 // registerCoreAPI mounts the always-present /api/buxon/* endpoints. Broker,
@@ -15,8 +16,18 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /status", s.apiStatus)
 	s.RegisterAPI("GET /components", s.apiComponents)
 	s.RegisterAPI("GET /components/{path...}", s.apiComponent)
+	s.RegisterAPI("GET /gpus", s.apiGPUs)
 	s.RegisterAPI("GET /frame-token", s.apiFrameToken)
 	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
+}
+
+// apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.
+func (s *Server) apiGPUs(w http.ResponseWriter, r *http.Request) {
+	if !s.admin(r) {
+		apiErr(w, http.StatusForbidden, "admin only")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"gpus": gpu.Inventory()})
 }
 
 func WriteJSON(w http.ResponseWriter, code int, v any) {

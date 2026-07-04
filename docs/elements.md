@@ -48,13 +48,15 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), or — under isolation
   // (buxond --isolate) — network egress ("net:internet[:port]" for the public
-  // internet, "net:<cidr|host>[:port]" for a LAN address). All are owner-
-  // approved grants; without them a sandboxed backend has no IP egress at all
-  // ("net:internet" never covers LAN/RFC1918). See plans/isolation.md.
+  // internet, "net:<cidr|host>[:port]" for a LAN address) and GPUs ("gpu:all",
+  // "gpu:<index>", or "gpu:<uuid>"). All are owner-approved grants; without them
+  // a sandboxed backend has no IP egress ("net:internet" never covers
+  // LAN/RFC1918) and no GPU. See plans/isolation.md, plans/gpu.md.
   "uses": [
     { "target": "apps/calendar",         "role": "reader" },
     { "target": "res:apps/thing/db",     "role": "writer" },
-    { "target": "net:internet:443",      "role": "egress" }
+    { "target": "net:internet:443",      "role": "egress" },
+    { "target": "gpu:0",                 "role": "egress" }
   ],
 
   // The callable surface this component offers to others.

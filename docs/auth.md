@@ -64,6 +64,10 @@ once; buxond enforces at every call.
   resource, `subscriber`/`publisher` are aliases for reader/writer.
 - The **owner passes every check as `admin`** — your curl and the root UI
   are never blocked.
+- **Sandbox capability targets** (under `--isolate`): besides components and
+  `res:*`, `uses` can request `net:*` egress (`plans/isolation.md`) and `gpu:*`
+  GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`plans/gpu.md`). Same
+  owner-approval flow; ungranted means the sandbox gets no egress / no GPU.
 
 Enforcing in the callee is one middleware:
 

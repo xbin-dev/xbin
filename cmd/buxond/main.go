@@ -29,6 +29,7 @@ import (
 	"github.com/magik6k/buxon/internal/cgroup"
 	"github.com/magik6k/buxon/internal/deps"
 	"github.com/magik6k/buxon/internal/events"
+	"github.com/magik6k/buxon/internal/gpu"
 	"github.com/magik6k/buxon/internal/proxy"
 	"github.com/magik6k/buxon/internal/registry"
 	"github.com/magik6k/buxon/internal/runner"
@@ -281,8 +282,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
-	// Approving a net:*/res:* grant restarts the caller so the new egress policy
-	// / resource env (both captured at spawn) takes effect immediately.
+	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
+	// policy / resource env / GPU devices (all captured at spawn) take effect now.
 	brk.OnGrantChange = func(comp string) {
 		if c, ok := reg.Component(comp); ok {
 			run.Changed(c)
@@ -314,6 +315,10 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.Rootfs = abs
 		run.Isolate = true
 		run.Egress = brk.EgressFor
+		run.GPU = brk.GPUFor
+		if inv := gpu.Inventory(); len(inv) > 0 {
+			slog.Info("NVIDIA GPUs available for gpu:* grants", "count", len(inv))
+		}
 		// Terminals share the base rootfs too (RT-4): the workspace is bound rw
 		// (editing plane), plus the SDK source ro so `go build` resolves.
 		tm.Isolate = true
