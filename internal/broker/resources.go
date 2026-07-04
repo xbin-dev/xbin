@@ -39,7 +39,7 @@ func (b *Broker) Provision() {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					slog.Warn("provision", "err", err)
 				}
-			case "blob":
+			case "filesystem", "blob":
 				if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
 					slog.Warn("provision", "err", err)
 				}
@@ -74,11 +74,18 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 		}
 		key := "BUXON_RES_" + envName(rt.Name)
 		switch {
+		case res.Type == "filesystem" && rt.Scope == c.Scope:
+			// A rw directory the backend owns — BUXON_RES_<N> is the DIR path
+			// (put a db, files, a cache… anything). buxond binds it rw.
+			p := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(rt.Scope), rt.Name)
+			env = append(env, key+"="+p)
 		case res.Type == "sqlite" && rt.Scope == c.Scope:
+			// Convenience over `filesystem`: BUXON_RES_<N> points at a .sqlite
+			// FILE in that dir (the dir is still what's bound rw).
 			p := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(rt.Scope), rt.Name+".sqlite")
 			env = append(env, key+"="+p)
-		case res.Type == "sqlite":
-			// Cross-scope sqlite is deliberately not a shared file; the
+		case res.Type == "filesystem" || res.Type == "sqlite":
+			// Cross-scope direct filesystem is deliberately not shared; the
 			// owning scope should expose an API (docs/resources.md).
 		default:
 			env = append(env, key+"="+rt.String())

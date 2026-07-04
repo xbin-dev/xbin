@@ -616,7 +616,13 @@ func resourceBinds(env []string, root string) []sandbox.Bind {
 		if !strings.HasPrefix(v, "/") || !within(v, root) {
 			continue
 		}
-		d := filepath.Dir(v)
+		// A `filesystem` resource hands the backend a DIRECTORY (bind it); a
+		// `sqlite` resource hands a FILE path (bind its dir so a fresh db + the
+		// -wal/-shm sidecars persist, not just the file).
+		d := v
+		if fi, err := os.Stat(v); err != nil || !fi.IsDir() {
+			d = filepath.Dir(v)
+		}
 		if seen[d] || !pathExists(d) {
 			continue
 		}

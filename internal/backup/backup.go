@@ -36,6 +36,7 @@ const (
 	KVName       = "data/kv.json"
 	SQLitePrefix = "data/sqlite/"
 	BlobPrefix   = "data/blob/"
+	FSPrefix     = "data/fs/" // filesystem resources (a rw directory)
 	TermPrefix   = "term/"
 )
 

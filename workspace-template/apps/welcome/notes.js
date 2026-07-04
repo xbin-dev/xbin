@@ -266,7 +266,7 @@ bx vault rm  apps/email imap-pass</pre>
       through <code>uses</code>, addressed as
       <code>res:&lt;scope&gt;/&lt;name&gt;</code>.</p>
       <pre>// apps/thing/scope.json
-{ "resources": { "db":    {"type":"sqlite"},
+{ "resources": { "store": {"type":"filesystem"},
                  "kvx":   {"type":"kv"},
                  "files": {"type":"blob"} } }</pre>
       <p>Each granted resource shows up in the backend's env as
@@ -288,17 +288,21 @@ keys, _ := kv.List("item/")</pre>
           <pre>GET/PUT/DELETE /api/buxon/kv/res:apps/thing/kvx/&lt;key&gt;</pre>`,
       },
       {
-        id: 'sqlite', title: 'sqlite', color: 'yellow',
-        teaser: 'a real db file — same-scope only',
+        id: 'filesystem', title: 'filesystem', color: 'yellow',
+        teaser: 'a rw directory — same-scope only',
         body: html`
-          <p><code>BUXON_RES_DB</code> is a file path — open it with any
-          sqlite driver, and use WAL mode so readers don't block the
-          writer.</p>
-          <p>sqlite is <strong>same-scope only</strong>, deliberately: file
-          locking across trust boundaries is how data gets corrupted and
-          permissions get fuzzy. If another app needs your data, expose a
-          role-guarded API over it — "email reads calendar" is a reader
-          grant on calendar's API, never a shared db file.</p>`,
+          <p><code>BUXON_RES_STORE</code> is a <strong>directory</strong> path
+          your backend can write — a db, files, a cache, anything. It's bound
+          read-write and backed up. Write only inside it; anywhere else is a
+          throwaway overlay.</p>
+          <pre>dir := buxon.Resource("store")
+db, _ := sql.Open("sqlite", dir+"/app.db?_journal_mode=WAL")</pre>
+          <p>(<code>type:"sqlite"</code> is a convenience — the same rw dir with
+          <code>BUXON_RES_&lt;N&gt;</code> pre-pointed at a <code>.sqlite</code>
+          file.) Same-scope only, deliberately: direct file access across trust
+          boundaries corrupts data and blurs permissions. If another app needs
+          your data, expose a role-guarded API — "email reads calendar" is a
+          reader grant on calendar's API, never a shared file.</p>`,
       },
       {
         id: 'blob', title: 'blob', color: 'yellow',

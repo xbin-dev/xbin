@@ -178,7 +178,7 @@ import-map overrides:
 
 ```jsonc
 // apps/thing/scope.json
-{ "resources": { "db": {"type":"sqlite"}, "bus": {"type":"bus"},
+{ "resources": { "store": {"type":"filesystem"}, "bus": {"type":"bus"},
                  "kvx": {"type":"kv"}, "files": {"type":"blob"},
                  "cron": {"type":"cron"} } }
 ```
@@ -421,7 +421,8 @@ Declare in `scope.json` (or workspace `buxon.json` `resources` for
 
 | type | what | access |
 |------|------|--------|
-| `sqlite` | db file, same-scope only | **open `BUXON_RES_<N>` directly** (`buxon.Resource("<name>")` = the file path); use WAL. Don't invent a path or write elsewhere — buxond binds that resource dir rw; anywhere else is a throwaway overlay (lost on restart, not backed up). cross-scope: expose an API instead |
+| `filesystem` | a **rw directory**, same-scope only | `BUXON_RES_<N>` (= `buxon.Resource("<name>")`) is a **DIRECTORY** path — put a db, files, a cache, anything, and it persists + is backed up. Don't write anywhere else — outside it is a throwaway overlay (lost on restart, not backed up). cross-scope: expose an API instead |
+| `sqlite` | a `filesystem` resource pre-pointed at a `.sqlite` **file** | `BUXON_RES_<N>` is the file path (open with WAL). Same rw-dir mechanism as `filesystem` — use `filesystem` if you need a general directory rather than one db |
 | `kv` | namespaced kv (≤1 MiB values) | SDK `buxon.KV` or `/api/buxon/kv/res:…/<key>` |
 | `blob` | file store (≤256 MiB/write) | `/api/buxon/blob/res:…/<path>` |
 | `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `buxon.bus.on` (backends: use cron to sweep, not subscriptions) |

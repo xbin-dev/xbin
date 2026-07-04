@@ -78,7 +78,7 @@ type Iface struct {
 
 // Resource is a broker-provisioned resource declared in scope.json.
 type Resource struct {
-	Type string `json:"type"` // sqlite|kv|blob|bus|cron
+	Type string `json:"type"` // filesystem|sqlite|kv|blob|bus|cron
 }
 
 // ScopeManifest is a scope.json: marks a directory as a scope root.

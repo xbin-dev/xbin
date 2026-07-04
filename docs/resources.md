@@ -1,4 +1,4 @@
-# Resources: kv, blob, bus, cron, sqlite
+# Resources: filesystem, kv, blob, bus, cron, sqlite
 
 Resources are broker-provisioned shared state and infrastructure, addressed
 in the same grant grammar as element APIs. Declare them at the scope (or
@@ -8,7 +8,7 @@ cross-scope needs owner approval ([auth.md](/docs/auth.md)).
 ```jsonc
 // apps/thing/scope.json — this subtree is an app with these resources
 { "resources": {
-    "db":     { "type": "sqlite" },
+    "store":  { "type": "filesystem" },
     "events": { "type": "kv" },
     "files":  { "type": "blob" },
     "bus":    { "type": "bus" },
@@ -27,9 +27,10 @@ cross-scope needs owner approval ([auth.md](/docs/auth.md)).
 
 Delivery: each granted resource appears in the backend env as
 `BUXON_RES_<NAME>` (name uppercased; e.g. `events` → `BUXON_RES_EVENTS`).
-For brokered types the value is the canonical id you pass to the APIs; for
-sqlite it's a file path. State lives under `data/resources/<scope>/` —
-gitignored, captured by `bx backup`.
+For brokered types (kv/blob/bus/cron) the value is the canonical id you pass to
+the APIs; for **filesystem** it's a directory path, and for **sqlite** a file
+path (both a real rw path bound into your sandbox). State lives under
+`data/resources/<scope>/` — gitignored, captured by backups.
 
 Roles: `reader` / `writer` as usual (`subscriber`/`publisher` accepted for
 bus).
@@ -117,44 +118,55 @@ Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
 component log); there are no retries — make handlers idempotent and let the
 next tick catch up.
 
-## sqlite — a real database, zero ops
+## filesystem — a persistent read-write directory
+
+The primitive for "my backend needs a real writable directory": a db, a cache,
+generated files, a git checkout, whatever. buxond binds it read-write into your
+sandbox and backs it up.
+
+```jsonc
+{ "resources": { "store": { "type": "filesystem" } } }
+// component: { "uses": [{ "target": "res:apps/thing/store", "role": "writer" }] }
+```
+
+Same-scope components get `BUXON_RES_STORE` = a **directory** path under
+`data/resources/`. **Write only inside it** — anywhere else is the backend's
+throwaway overlay (lost on restart, not backed up).
+
+```go
+dir := buxon.Resource("store")             // == $BUXON_RES_STORE, a directory
+os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
+db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_journal_mode=WAL")
+```
+
+## sqlite — a filesystem resource pointed at a db file
+
+A convenience over `filesystem` for the common "I just want one sqlite db" case:
 
 ```jsonc
 { "resources": { "db": { "type": "sqlite" } } }
-// component: { "uses": [{ "target": "res:apps/thing/db", "role": "writer" }] }
 ```
 
-Same-scope components get `BUXON_RES_DB` = a file path under
-`data/resources/`. **Open exactly that path — don't invent your own** (`./db`,
-`/tmp/…`, a path under your component dir). buxond binds the resource's directory
-read-write, so a fresh db and its `-wal`/`-shm` sidecars persist there; any other
-path lands in the backend's throwaway overlay — lost on restart and not captured
-by backups.
+Same rw-directory mechanism, but `BUXON_RES_DB` is the `.sqlite` **file** path —
+just open it (with `modernc.org/sqlite` for CGO-free builds). Use WAL if multiple
+same-scope components share it. Prefer `filesystem` when you need a general
+directory rather than a single db.
 
 ```go
-import (
-	"database/sql"
-	_ "modernc.org/sqlite" // CGO-free
-	buxon "github.com/magik6k/buxon/sdk"
-)
-
-// buxon.Resource("db") == $BUXON_RES_DB, the file path. Just open it.
-db, err := sql.Open("sqlite", buxon.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
+db, _ := sql.Open("sqlite", buxon.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
 ```
 
-Use WAL mode if multiple components in the scope share the db.
-
-**Cross-scope sqlite is deliberately not a thing.** The file path is only
-handed to same-scope components; other apps go through your service API.
-Sharing a database file across app boundaries welds schemas together — the
-whole point of the roles/API model is to avoid that. (A brokered read-only
-query API may come later if a real need shows up.)
+**Cross-scope direct filesystem/sqlite is deliberately not a thing.** The path is
+only handed to same-scope components; other apps go through your service API.
+Sharing files across app boundaries welds schemas together — the whole point of
+the roles/API model is to avoid that.
 
 ## Choosing
 
 | Need | Use |
 |------|-----|
-| App state, queries, transactions | `sqlite` |
+| A writable directory (files, caches, a git checkout, anything) | `filesystem` |
+| App state, queries, transactions (one db) | `sqlite` |
 | Settings, small documents, indexes by prefix | `kv` |
 | Files | `blob` |
 | "Something changed" notifications | `bus` |

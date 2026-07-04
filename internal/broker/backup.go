@@ -123,6 +123,10 @@ func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *regi
 					return err
 				}
 			}
+		case "filesystem":
+			if err := bw.Tree(backup.FSPrefix+name+"/", filepath.Join(dir, name), nil); err != nil {
+				return err
+			}
 		case "blob":
 			if err := bw.Tree(backup.BlobPrefix+name+"/", filepath.Join(dir, name), nil); err != nil {
 				return err
@@ -224,8 +228,15 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 			if err := writeFileFrom(filepath.Join(dataRoot, strings.TrimPrefix(name, backup.SQLitePrefix)), rd); err != nil {
 				return m, err
 			}
+		case strings.HasPrefix(name, backup.FSPrefix):
+			// filesystem resource → data/resources/<scopekey>/<name>/…
+			if err := writeFileFrom(backup.SafeJoin(dataRoot, strings.TrimPrefix(name, backup.FSPrefix)), rd); err != nil {
+				return m, err
+			}
 		case strings.HasPrefix(name, backup.BlobPrefix):
-			if err := writeFileFrom(backup.SafeJoin(dataRoot, strings.TrimPrefix(name, backup.DataPrefix)), rd); err != nil {
+			// blob dir → data/resources/<scopekey>/<name>/… (trim BlobPrefix, not
+			// DataPrefix — otherwise it lands one level too deep under blob/).
+			if err := writeFileFrom(backup.SafeJoin(dataRoot, strings.TrimPrefix(name, backup.BlobPrefix)), rd); err != nil {
 				return m, err
 			}
 		case strings.HasPrefix(name, backup.SourcePrefix):
@@ -282,6 +293,10 @@ func writeFileFrom(dst string, r io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	// Replace even if the existing file is read-only — git objects (.git/objects)
+	// are mode 0444, and os.Create can't reopen those for writing. A restore
+	// overwrites wholesale, so removing first is correct.
+	_ = os.Remove(dst)
 	f, err := os.Create(dst)
 	if err != nil {
 		return err
