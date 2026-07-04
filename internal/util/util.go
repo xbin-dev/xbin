@@ -9,8 +9,50 @@ import (
 	"errors"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+// Slugify turns arbitrary text into a URL-safe component name (lowercase,
+// non-alphanumeric runs collapsed to '-', trimmed).
+func Slugify(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// VersionLess compares version-like tags (e.g. "v1.10.0" > "v1.9.0") field by
+// field, numerically where both fields are numbers. Good enough to sort a tag
+// list newest-first; not a full semver prerelease ordering.
+func VersionLess(a, b string) bool {
+	fa, fb := verFields(a), verFields(b)
+	for i := 0; i < len(fa) && i < len(fb); i++ {
+		if fa[i] == fb[i] {
+			continue
+		}
+		na, ea := strconv.Atoi(fa[i])
+		nb, eb := strconv.Atoi(fb[i])
+		if ea == nil && eb == nil {
+			return na < nb
+		}
+		return fa[i] < fb[i]
+	}
+	return len(fa) < len(fb)
+}
+
+func verFields(v string) []string {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	return strings.FieldsFunc(v, func(r rune) bool { return r == '.' || r == '-' || r == '+' })
+}
 
 var ErrUnsafePath = errors.New("path escapes workspace")
 

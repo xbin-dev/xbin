@@ -31,6 +31,8 @@ func (b *Broker) registerCode(srv *server.Server) {
 	srv.RegisterAPI("GET /code/file", b.apiCodeFile)
 	srv.RegisterAPI("GET /git/log", b.apiGitLog)
 	srv.RegisterAPI("GET /git/diff", b.apiGitDiff)
+	srv.RegisterAPI("GET /git/remote-info", b.apiGitRemoteInfo)
+	srv.RegisterAPI("POST /git/import", b.apiGitImport)
 }
 
 // component validates the ?component= query param and returns its OS dir.

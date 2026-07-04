@@ -129,10 +129,21 @@ GET    /code/tree                  admin. ?component=<path> → {component, file
 GET    /code/file                  admin. ?component=<path>&file=<rel> →
                                    {path, content|binary|truncated}.
 GET    /git/log                    admin. ?component=<path>&limit=N → {repo,
-                                   commits:[{hash,short,author,date,subject}]}
-                                   scoped to the component (single workspace repo).
+                                   commits:[{hash,short,author,date,subject}],
+                                   remote}. From the component's OWN repo (each
+                                   component is its own git repo); remote = origin.
 GET    /git/diff                   admin. ?component=<path>&rev=<hash> → {repo,
                                    diff}. rev empty = uncommitted changes vs HEAD.
+GET    /git/remote-info            buxon:writer. ?url=<git-url> → {defaultBranch,
+                                   tags:[…] (newest first), remote}. git ls-remote
+                                   on a URL to preview versions before install.
+POST   /git/import                 buxon:writer. body {url, path?, ref?} — clone a
+                                   component in from a git remote (GitHub/GitLab/
+                                   any git URL); path defaults to apps/<repo>, ref
+                                   = a tag/branch. Its origin remote is kept (so
+                                   it's updatable). → {path, remote, ref,
+                                   pendingGrants}. Rejects local/file:// URLs and
+                                   repos with no buxon.json/index.html.
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add.

@@ -71,6 +71,7 @@
     <button data-tab="create" class="on">create</button>
     <button data-tab="template">new from template</button>
     <button data-tab="import">import builtin</button>
+    <button data-tab="git">from git</button>
     <button data-tab="updates">updates</button>
   </div>
 
@@ -110,6 +111,21 @@
     <div id="tiles"><span class="muted">loading…</span></div>
   </div>
 
+  <div class="body" id="git-tab" hidden>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">
+      Install a component from a git remote — GitHub, GitLab, or any git URL. It's
+      cloned in as its own repo, so its origin remote makes it updatable later.</p>
+    <div class="field">
+      <label for="git-url">Repository URL</label>
+      <div class="slug-row">
+        <input id="git-url" placeholder="https://github.com/user/tile" autocomplete="off"
+               spellcheck="false" style="flex:1">
+        <button class="btn" id="git-check" type="button">Check</button>
+      </div>
+    </div>
+    <div id="git-info"></div>
+  </div>
+
   <div class="body" id="updates-tab" hidden>
     <p class="muted" style="font-size:12px;margin:0 0 8px">
       Newer versions of builtin components (the shell, manager/admin tiles,
@@ -127,6 +143,7 @@
       document.getElementById('create-tab').hidden = b.dataset.tab !== 'create';
       document.getElementById('template-tab').hidden = b.dataset.tab !== 'template';
       document.getElementById('import-tab').hidden = b.dataset.tab !== 'import';
+      document.getElementById('git-tab').hidden = b.dataset.tab !== 'git';
       document.getElementById('updates-tab').hidden = b.dataset.tab !== 'updates';
       if (b.dataset.tab === 'import') loadBuiltins();
       if (b.dataset.tab === 'template') loadTemplates();
@@ -160,6 +177,55 @@
     });
 
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // --- from git tab ---
+    const gitSlug = (url) => (url.trim().replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || 'tile')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    document.getElementById('git-check').onclick = checkGit;
+    document.getElementById('git-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); checkGit(); } });
+    async function checkGit() {
+      const url = document.getElementById('git-url').value.trim();
+      const info = document.getElementById('git-info');
+      if (!url) return;
+      info.innerHTML = '<span class="muted">checking…</span>';
+      try {
+        const r = await buxon.fetch('/api/buxon/git/remote-info?url=' + encodeURIComponent(url));
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error ?? r.status);
+        const opts = [];
+        if (d.defaultBranch) opts.push(`<option value="">${esc(d.defaultBranch)} (default branch)</option>`);
+        for (const t of (d.tags || [])) opts.push(`<option value="${esc(t)}">${esc(t)}</option>`);
+        info.innerHTML = `
+          <div class="tile">
+            <div class="row"><span class="muted" style="font-size:11px;min-width:64px">version</span>
+              <select id="git-ref">${opts.join('') || '<option value="">(default)</option>'}</select></div>
+            <div class="row"><span class="muted" style="font-size:11px;min-width:64px">install at</span>
+              <input id="git-path" value="apps/${esc(gitSlug(url))}" size="20"></div>
+            <div class="actions"><button class="btn" id="git-import" type="button">Import</button>
+              <span class="msg" id="git-imsg"></span></div>
+          </div>`;
+        document.getElementById('git-import').onclick = () => doGitImport(url);
+      } catch (e) { info.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
+    }
+    async function doGitImport(url) {
+      const ref = document.getElementById('git-ref').value;
+      const path = document.getElementById('git-path').value.trim();
+      const imsg = document.getElementById('git-imsg');
+      const btn = document.getElementById('git-import');
+      btn.disabled = true; imsg.className = 'msg'; imsg.textContent = 'cloning…';
+      try {
+        const r = await buxon.fetch('/api/buxon/git/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, path, ref }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error ?? r.status);
+        let note = `imported ${d.path} — it's in the sidebar`;
+        if (d.pendingGrants?.length) note += `. Approve ${d.pendingGrants.length} grant(s) in the admin grants panel.`;
+        imsg.className = 'msg ok'; imsg.textContent = note;
+      } catch (e) { imsg.className = 'msg err'; imsg.textContent = String(e.message ?? e); }
+      finally { btn.disabled = false; }
+    }
 
     // --- template tab ---
     async function loadTemplates() {
