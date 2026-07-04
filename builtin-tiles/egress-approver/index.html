@@ -61,7 +61,9 @@
     const self = buxon.self;
     const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
     const open = new Set();          // IPs whose whois detail is expanded
-    let latest = { pending: [], approved: [], denied: [] };
+    const detailCache = {};          // ip -> pre-rendered whois HTML (survives polls)
+    let latest = { pending: [], approved: [], denied: [], clients: 0, egressReady: false };
+    let lastSig = '';
 
     const fmtBytes = (n) => {
       if (!n) return '0';
@@ -78,36 +80,45 @@
       return `${s / 86400 | 0}d ago`;
     };
     const esc = (s) => (s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const norm = (d) => { d.pending ??= []; d.approved ??= []; d.denied ??= []; return d; };
 
+    // Move an IP between lists locally so the click lands *instantly*, then tell
+    // the backend and reconcile from its response. No waiting on the round-trip.
     async function act(ip, action) {
-      await api(`/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip }) });
+      const v = [...latest.pending, ...latest.approved, ...latest.denied].find((x) => x.ip === ip) || { ip, rdns: '' };
+      latest.pending = latest.pending.filter((x) => x.ip !== ip);
+      latest.approved = latest.approved.filter((x) => x.ip !== ip);
+      latest.denied = latest.denied.filter((x) => x.ip !== ip);
+      if (action === 'approve') latest.approved.unshift(v);
+      else if (action === 'deny') latest.denied.unshift(v);
       open.delete(ip);
-      refresh();
+      render(true);
+      try { await api(`/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip }) }); }
+      catch { /* reconciled by refresh */ }
+      refresh(true);
     }
 
+    // Expand/collapse whois. The result is cached, so the periodic refresh never
+    // wipes it back to "looking up…" (that was the old flicker/"slow" bug).
     async function toggleDetail(ip) {
-      if (open.has(ip)) { open.delete(ip); render(); return; }
-      open.add(ip); render();
-      const box = document.getElementById(`d-${ip}`);
+      if (open.has(ip)) { open.delete(ip); render(true); return; }
+      open.add(ip); render(true);
+      if (detailCache[ip]) return;
       try {
-        const r = await api(`/detail?ip=${encodeURIComponent(ip)}`);
-        const d = await r.json();
+        const d = await (await api(`/detail?ip=${encodeURIComponent(ip)}`)).json();
         const w = d.rdap || {};
         const lines = [
-          ['reverse dns', d.rdns || '(none)'],
-          ['network', w.name], ['range', w.cidr], ['org', w.org],
-          ['country', w.country], ['handle', w.handle], ['error', w.error],
-        ].filter(([, v]) => v);
-        if (box) box.innerHTML = lines.map(([k, v]) =>
-          `<span class="k">${k.padEnd(11)}</span>${esc(String(v))}`).join('\n');
-      } catch { if (box) box.textContent = 'lookup failed'; }
+          ['reverse dns', d.rdns || '(none)'], ['network', w.name], ['range', w.cidr],
+          ['org', w.org], ['country', w.country], ['handle', w.handle], ['error', w.error],
+        ].filter(([, x]) => x);
+        detailCache[ip] = lines.map(([k, x]) => `<span class="k">${k.padEnd(11)}</span>${esc(String(x))}`).join('\n') || '(no data)';
+      } catch { detailCache[ip] = 'lookup failed'; }
+      render(true);
     }
     window._act = act; window._detail = toggleDetail;
 
+    const detailBox = (ip) => open.has(ip) ? `<div class="detail">${detailCache[ip] || 'looking up…'}</div>` : '';
     function pendingRow(v) {
-      const detail = open.has(v.ip)
-        ? `<div class="detail" id="d-${v.ip}">looking up…</div>` : '';
       return `<div class="row pending">
         <span class="ip">${v.ip}</span>
         <span class="rdns">${esc(v.rdns) || '<i>resolving…</i>'}</span>
@@ -115,7 +126,7 @@
         <button class="info" onclick="_detail('${v.ip}')">whois</button>
         <button class="approve" onclick="_act('${v.ip}','approve')">approve</button>
         <button class="deny" onclick="_act('${v.ip}','deny')">deny</button>
-      </div>${detail}`;
+      </div>${detailBox(v.ip)}`;
     }
     function approvedRow(v) {
       return `<div class="row approved">
@@ -133,31 +144,37 @@
       </div>`;
     }
 
-    function render() {
-      const s = latest;
+    // Only touch the DOM when something actually changed — otherwise the 1.2s
+    // poll would rebuild everything (and thrash the frame's auto-height) forever.
+    const sig = () => JSON.stringify([latest, [...open], detailCache]);
+    function render(force) {
+      const s = sig();
+      if (!force && s === lastSig) return;
+      lastSig = s;
+      const st = latest;
       document.getElementById('meta').textContent =
-        `${s.clients ?? 0} client${s.clients === 1 ? '' : 's'} · egress ${s.egressReady ? 'ready' : 'unbound'}`;
+        `${st.clients ?? 0} client${st.clients === 1 ? '' : 's'} · egress ${st.egressReady ? 'ready' : 'unbound'}`;
       document.getElementById('pending').innerHTML =
-        `<h4>pending <span class="count">${s.pending.length}</span></h4>` +
-        (s.pending.length ? s.pending.map(pendingRow).join('')
-          : `<div class="empty">${s.clients ? 'no new destinations — all quiet' : 'bind a component’s net to this tile to start gating'}</div>`);
+        `<h4>pending <span class="count">${st.pending.length}</span></h4>` +
+        (st.pending.length ? st.pending.map(pendingRow).join('')
+          : `<div class="empty">${st.clients ? 'no new destinations — all quiet' : 'bind a component’s net to this tile to start gating'}</div>`);
       document.getElementById('approved').innerHTML =
-        `<h4>approved <span class="count">${s.approved.length}</span></h4>` +
-        (s.approved.length ? s.approved.map(approvedRow).join('')
+        `<h4>approved <span class="count">${st.approved.length}</span></h4>` +
+        (st.approved.length ? st.approved.map(approvedRow).join('')
           : `<div class="empty">nothing approved yet</div>`);
       document.getElementById('denied').innerHTML =
-        s.denied.length ? s.denied.map(deniedRow).join('') : `<div class="empty">none</div>`;
-      document.getElementById('deniedWrap').style.display = s.denied.length ? '' : 'none';
+        st.denied.length ? st.denied.map(deniedRow).join('') : `<div class="empty">none</div>`;
+      document.getElementById('deniedWrap').style.display = st.denied.length ? '' : 'none';
     }
 
-    async function refresh() {
+    async function refresh(force) {
       try {
         const r = await api('/state');
-        if (r.ok) { latest = await r.json(); render(); }
+        if (r.ok) { latest = norm(await r.json()); render(force); }
       } catch { /* transient; next tick */ }
     }
-    refresh();
-    setInterval(refresh, 2000);
+    refresh(true);
+    setInterval(() => refresh(false), 1200);
   </script>
 </body>
 </html>

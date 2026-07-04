@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -26,6 +27,19 @@ import (
 
 	buxon "github.com/magik6k/buxon/sdk"
 )
+
+// resolveTimeout bounds a reverse-DNS lookup so a slow/no-PTR address never
+// leaves the UI showing "resolving…" indefinitely.
+const resolveTimeout = 3 * time.Second
+
+func lookupPTR(ip string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	defer cancel()
+	if names, err := net.DefaultResolver.LookupAddr(ctx, ip); err == nil && len(names) > 0 {
+		return strings.TrimSuffix(names[0], ".")
+	}
+	return ""
+}
 
 var kv = buxon.KV(buxon.Resource("approvals"))
 
@@ -94,38 +108,29 @@ func (a *approver) onFlow(remote net.IP, inbound bool, n int) {
 }
 
 func (a *approver) lookupRDNS(ip string) {
-	name := ""
-	if names, err := net.LookupAddr(ip); err == nil && len(names) > 0 {
-		name = strings.TrimSuffix(names[0], ".")
-	}
+	name := lookupPTR(ip)
 	a.mu.Lock()
 	a.rdns[ip] = name
 	delete(a.rdnsWIP, ip)
 	a.mu.Unlock()
 }
 
-// approvedList returns the sorted allowed IPs (for persistence + the gate).
-func (a *approver) approvedList() []string {
-	out := make([]string, 0, len(a.approved))
-	for ip := range a.approved {
-		out = append(out, ip)
+// keysSorted returns a set's members, sorted (for persistence + the gate).
+func keysSorted(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
 	sort.Strings(out)
 	return out
 }
 
-func (a *approver) persist() {
-	den := make([]string, 0, len(a.denied))
-	for ip := range a.denied {
-		den = append(den, ip)
-	}
-	sort.Strings(den)
-	_ = kv.PutJSON("approved", a.approvedList())
-	_ = kv.PutJSON("denied", den)
-}
-
 // decide moves an IP into approved / denied / undecided and reconciles the
 // kernel gate to the new approved set. cmd is "approve", "deny", or "forget".
+// The in-memory maps are updated synchronously (so the very next /state — and
+// the optimistic UI — reflect the decision at once); the slow parts (kv writes
+// + `ip` route reconciliation) run off the request path so the click feels
+// instant and never blocks /state on the lock.
 func (a *approver) decide(ip, cmd string) error {
 	if net.ParseIP(ip) == nil {
 		return fmt.Errorf("not an IP: %q", ip)
@@ -144,10 +149,17 @@ func (a *approver) decide(ip, cmd string) error {
 		a.mu.Unlock()
 		return fmt.Errorf("unknown action %q", cmd)
 	}
-	allowed := a.approvedList()
-	a.persist()
+	allowed, denied := keysSorted(a.approved), keysSorted(a.denied)
 	a.mu.Unlock()
-	return applyGate(a.egress, allowed) // shells out; don't hold the lock
+
+	go func() {
+		_ = kv.PutJSON("approved", allowed)
+		_ = kv.PutJSON("denied", denied)
+		if err := applyGate(a.egress, allowed); err != nil {
+			logf("apply gate: %v", err)
+		}
+	}()
+	return nil
 }
 
 // --- JSON API (served to this tile's own frontend) ---------------------------
@@ -238,9 +250,7 @@ func (a *approver) handleDetail(w http.ResponseWriter, r *http.Request) {
 	rdns := a.rdns[ip]
 	a.mu.Unlock()
 	if rdns == "" {
-		if names, err := net.LookupAddr(ip); err == nil && len(names) > 0 {
-			rdns = strings.TrimSuffix(names[0], ".")
-		}
+		rdns = lookupPTR(ip)
 	}
 	writeJSON(w, map[string]any{"ip": ip, "rdns": rdns, "rdap": rdapLookup(ip)})
 }
@@ -262,7 +272,7 @@ func main() {
 	if err := setupGate(a.egress); err != nil {
 		logf("gate setup: %v", err)
 	}
-	if err := applyGate(a.egress, a.approvedList()); err != nil {
+	if err := applyGate(a.egress, keysSorted(a.approved)); err != nil {
 		logf("apply approvals: %v", err)
 	}
 	go sniffClients(a.onFlow)
