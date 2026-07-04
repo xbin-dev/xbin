@@ -111,10 +111,18 @@ Terminals get the **same base rootfs** (so Go/Node/Python + `opencode`/
 `claude-code` + `bx` are simply *there*, consistent on VM and appliance alike),
 but:
 
-- the **full workspace mounted rw** (the owner edits any component), a persistent
-  **`$HOME`** = `<ws>/home` (so agent CLI config/auth in `~/.config`, `~/.local`
-  is shared across terminals and survives upgrades), the **SDK source ro** (so
-  `go build` resolves the go.work replace), and the builder docs on disk
+- the **workspace mounted rw**, but **scoped to the terminal's component**: a
+  terminal opened on component `X` gets `X`'s source read-write and **every other
+  component's source read-only** (you can read siblings — for deps, patterns — but
+  can't tamper with them; blast-radius containment for an agent told to work on
+  `X`). The rest of the workspace stays rw — `$HOME`, `.git`, `AGENTS.md`,
+  non-component dirs — so commits and the shell keep working. A **root terminal**
+  (opened on `""`) gets the **full workspace rw** (the owner edits anything /
+  creates components). Implemented by binding the workspace rw, then ro-binding
+  each other component dir on top (`term.scopedBinds`).
+- a persistent **`$HOME`** = `<ws>/home` (so agent CLI config/auth in `~/.config`,
+  `~/.local` is shared across terminals and survives upgrades), the **SDK source
+  ro** (so `go build` resolves the go.work replace), and the builder docs on disk
   (`$BUXON_DOCS`; `AGENTS.md` is in the workspace mount);
 - a **per-session network scope** (menu in the terminal window; switching
   restarts the session — the netns/relay is fixed at spawn):
@@ -169,10 +177,12 @@ base rootfs / fuse-overlayfs.
 - **RT-3 — Ship a virtual appliance** (qcow2/OVA/ISO/cloud) eventually; immutable
   OS + A/B updates; workspace on a data disk.
 - **RT-4 — Terminals share the base rootfs** (nice builder env with agents) but
-  stay unsandboxed-from-workspace (owner plane). Network is a **per-session
-  scope** (default: own netns + internet-only egress relay, no host interfaces;
-  `host`/`none` available), with buxond reachable via a relay gateway
-  host-forward.
+  stay unsandboxed-from-workspace (owner plane). The workspace is rw but **scoped
+  to the terminal's component** — other components' source is read-only (a root
+  terminal gets the full workspace rw); `$HOME`/`.git`/workspace files stay rw.
+  Network is a **per-session scope** (default: own netns + internet-only egress
+  relay, no host interfaces; `host`/`none` available), with buxond reachable via a
+  relay gateway host-forward.
 - **RT-5 — `wasm`/wazero is a first-class lightweight runtime** alongside the
   rootfs-based runtimes.
 - **RT-6 — Two nested boundaries**: VM (hard, outer) + per-component namespaces

@@ -39,6 +39,14 @@ deploy step and **no JS build step — ever** (plain ES modules + import maps).
 You are the **owner** principal: every API call you make passes every
 permission check as role `admin`. Running components are not — see §Auth.
 
+**Terminal scope:** a terminal opened on a component has **that component's
+source read-write and every other component read-only** — you can read siblings
+(for deps/patterns) but only edit the component you're on. `$HOME`, `.git`, and
+workspace files stay writable, so `git commit` works. To edit a *different*
+component, open a terminal on it; to edit across the whole workspace or create
+components freely, use a **root terminal** (opened on the workspace root — full
+workspace rw). Writing to a read-only sibling fails with `Read-only file system`.
+
 **Multi-user:** buxon can have human users with per-tile permissions (admins:
 all tiles + terminals + user mgmt; regular users: only allow-listed tiles, no
 terminal). Manage them with `bx user ls|add|set|rm` or the admin console's

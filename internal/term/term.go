@@ -100,6 +100,13 @@ type Manager struct {
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
+	// Components lists every component's workspace-relative path. A terminal
+	// opened on a component gets that component's source read-write and every
+	// OTHER component's source read-only (you can read siblings, not tamper with
+	// them); the rest of the workspace ($HOME, .git, workspace files) stays rw so
+	// commits and the shell keep working. nil ⇒ the whole workspace is rw (the
+	// legacy behaviour; used for a root terminal). Wired to the registry by main.
+	Components func() []string
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -327,8 +334,40 @@ func (m *Manager) ResetEnv(rel string) error {
 	return os.RemoveAll(filepath.Join(m.Root, ".buxon", "term", key))
 }
 
+// scopedBinds builds a terminal's workspace binds. The workspace is bound
+// read-write (so $HOME, .git and workspace files stay writable — commits and the
+// shell keep working); for a component-scoped terminal (rel != "") every OTHER
+// component's source directory is then bound **read-only** on top, so you can
+// read siblings but only write your own component. A root terminal (rel == "")
+// or no component list ⇒ the whole workspace stays rw. Read-only ExtraBinds
+// (e.g. the SDK) are appended last.
+func scopedBinds(root, rel string, components []string, extra []sandbox.Bind) []sandbox.Bind {
+	binds := []sandbox.Bind{{Src: root, Dst: root}} // workspace, rw
+	if rel != "" {
+		sorted := append([]string(nil), components...)
+		sort.Strings(sorted)
+		for _, comp := range sorted {
+			// Keep the current component's own subtree writable: skip it, its
+			// ancestors (locking those would lock it), and its descendants.
+			if comp == "" || underPath(rel, comp) || underPath(comp, rel) {
+				continue
+			}
+			d := filepath.Join(root, filepath.FromSlash(comp))
+			binds = append(binds, sandbox.Bind{Src: d, Dst: d, RO: true})
+		}
+	}
+	return append(binds, extra...)
+}
+
+// underPath reports whether child is at or below parent (path-segment aware, so
+// "apps/we" is not under "apps/welcome").
+func underPath(child, parent string) bool {
+	return child == parent || strings.HasPrefix(child, parent+"/")
+}
+
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
-// whole workspace read-write (editing plane, incl. $HOME and AGENTS.md) and any
+// workspace read-write with other components' source read-only (see scopedBinds)
+// — the editing plane scoped to this component (incl. $HOME and AGENTS.md) — and any
 // read-only ExtraBinds (the SDK for `go build`). The overlay upper is a
 // **persistent per-component layer** (`.buxon/term/<key>/`) so system-level
 // changes (apt installs, /etc configs) survive across sessions — a resettable
@@ -336,9 +375,11 @@ func (m *Manager) ResetEnv(rel string) error {
 // hold a component's layer; concurrent sessions on the same component fall back
 // to an ephemeral upper. netMode picks the network scope (internet/host/none).
 func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
-	binds := append([]sandbox.Bind{
-		{Src: m.Root, Dst: m.Root}, // the workspace, rw
-	}, m.ExtraBinds...)
+	var comps []string
+	if m.Components != nil {
+		comps = m.Components()
+	}
+	binds := scopedBinds(m.Root, rel, comps, m.ExtraBinds)
 	env := m.sandboxEnv(rel, netMode)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if gpuMode != "" && gpuMode != "none" {
