@@ -13,10 +13,11 @@ import (
 )
 
 // Network-function interface wiring (plans/interfaces.md): a component's `net`
-// interface can be bound to a provider tile (one that `provides` a net
-// interface). buxond then routes that client's egress through the provider via a
-// per-client point-to-point link (splice). Builtins (internet/host/lan) stay on
-// the legacy net:* grant path; this file only resolves the tile-provider case.
+// interface is bound either to a builtin (internet/host/lan:<cidr>, resolved in
+// egress.go / NetHostShare) or to a provider tile (one that `provides` a net
+// interface). For a provider tile buxond routes that client's egress through it
+// via a per-client point-to-point link (splice); this file resolves both cases
+// and serves the owner's bindings API.
 
 // providesNet reports whether component p offers a net interface.
 func providesNet(p *registry.Component) bool {
@@ -142,10 +143,7 @@ func (b *Broker) httpBindingRole(from, target string) (string, bool) {
 		}
 		if p, ok := b.Reg.Component(target); ok {
 			if def, ok := httpProvide(p); ok {
-				if def.Role != "" {
-					return def.Role, true
-				}
-				return "reader", true
+				return provideRole(def), true
 			}
 		}
 	}
@@ -200,7 +198,86 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"bindings":   b.Reg.Workspace().Bindings,
 		"components": comps,
+		"pending":    b.pendingBindings(),
 	})
+}
+
+// bindOption is one provider the owner can pick for a requested interface slot.
+type bindOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// pendingBind is a requested interface slot that is not yet bound, with the
+// providers that could satisfy it — the data behind the owner's bind-on-install
+// prompt (mirrors a pending `uses` grant request).
+type pendingBind struct {
+	Component string       `json:"component"`
+	Slot      string       `json:"slot"`
+	Kind      string       `json:"kind"`
+	Service   string       `json:"service,omitempty"`
+	Options   []bindOption `json:"options"`
+}
+
+// pendingBindings lists every requested interface slot with no binding yet.
+func (b *Broker) pendingBindings() []pendingBind {
+	var out []pendingBind
+	for _, c := range b.Reg.Components() {
+		for slot, req := range c.Manifest.Interfaces {
+			if b.Reg.Workspace().Bindings[c.Path][slot] != "" {
+				continue // already bound
+			}
+			out = append(out, pendingBind{
+				Component: c.Path, Slot: slot, Kind: req.Kind, Service: req.Service,
+				Options: b.bindOptions(c.Path, req),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Component != out[j].Component {
+			return out[i].Component < out[j].Component
+		}
+		return out[i].Slot < out[j].Slot
+	})
+	return out
+}
+
+// bindOptions returns the providers that can satisfy a requested interface: the
+// builtins for its kind plus every tile that `provides` a matching interface
+// (excluding the requester itself — a component can't be its own provider).
+func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
+	var builtins, tiles []bindOption
+	switch req.Kind {
+	case "net":
+		builtins = []bindOption{
+			{ID: "internet", Label: "internet — public internet (gVisor relay, no LAN)"},
+			{ID: "host", Label: "host — share the host's network (powerful)"},
+		}
+		for _, p := range b.Reg.Components() {
+			if p.Path != comp && providesNet(p) {
+				tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — net provider tile"})
+			}
+		}
+	case "http":
+		for _, p := range b.Reg.Components() {
+			if p.Path == comp {
+				continue
+			}
+			if def, ok := httpProvide(p); ok && (req.Service == "" || def.Service == req.Service) {
+				tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — " + def.Service + " (grants " + provideRole(def) + ")"})
+			}
+		}
+	}
+	sort.Slice(tiles, func(i, j int) bool { return tiles[i].ID < tiles[j].ID })
+	return append(builtins, tiles...)
+}
+
+// provideRole is the role an http provider grants a bound requester (default reader).
+func provideRole(def registry.Iface) string {
+	if def.Role != "" {
+		return def.Role
+	}
+	return "reader"
 }
 
 // apiBindingSet handles POST (set) and DELETE (clear) of one binding:

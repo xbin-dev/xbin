@@ -141,9 +141,12 @@ Full manifest reference (all fields optional):
                                 //   Editing-plane only; grants no call rights.
   "uses": [                     // RUNTIME call rights you want (see §Auth):
     { "target": "apps/calendar",          "role": "reader" },   // another element's API
-    { "target": "res:apps/thing/db",      "role": "writer" },   // a resource
-    { "target": "net:internet",           "role": "egress" }    // outbound network (see §Sandbox)
+    { "target": "res:apps/thing/db",      "role": "writer" }    // a resource
   ],
+  "interfaces": {               // typed deps the OWNER binds (see §Interfaces):
+    "net": { "kind": "net" },                       // outbound network (see §Sandbox)
+    "llm": { "kind": "http", "service": "openai" }  // a service endpoint
+  },
   "expose": {                   // what others may be granted on YOU
     "roles": {                  // name → description (description REQUIRED)
       "reader": "Read thing data",
@@ -286,10 +289,9 @@ and production isolate). **Design for this — it's default-deny:**
   (public only, never LAN/RFC1918), `host`, `lan:<cidr>`, or a **provider tile**
   (a VPN/firewall/router your traffic routes through). `bx bind <you> net=internet`
   or the admin Interfaces tab; the binding is owner-authorized (don't self-bind)
-  and **restarts your backend**.
-  - Legacy form (still works): a `net:*` **egress** use in `uses`
-    (`net:internet`, `net:192.168.1.5:11434`, …), owner-approved like a grant.
-    Prefer the interface — it lets the owner reroute you without a code change.
+  and **restarts your backend**. (There is no `net:*`-in-`uses` egress grant —
+  egress is *only* this interface, so the owner can always reroute you without a
+  code change. `bx` and the SDK reach buxond over the gateway with or without it.)
 - **GPUs are a grant too.** Request `gpu:all`, `gpu:<index>`, or `gpu:<uuid>` in
   `uses` (role `egress`); the granted GPU's device nodes + NVIDIA driver appear
   in your sandbox with `CUDA_VISIBLE_DEVICES` set. Pair with `setup` for the CUDA

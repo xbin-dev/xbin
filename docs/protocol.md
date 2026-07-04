@@ -136,10 +136,27 @@ GET    /git/diff                   admin. ?component=<path>&rev=<hash> → {repo
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add.
-                                   Approving a net:* / res:* grant restarts the
-                                   caller's backend (that policy/env is captured
+                                   Approving a res:* / gpu:* grant restarts the
+                                   caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.
 DELETE /grants                     admin. body {from,target,role} — revoke
+
+GET    /bindings                   admin. Typed interface wiring (see
+                                   plans/interfaces.md; manifest fields in
+                                   docs/elements.md).
+                                   {bindings: {comp: {slot: provider}},
+                                    components: [{component, interfaces, provides}],
+                                    pending: [{component, slot, kind, service,
+                                              options: [{id, label}]}]}. `pending`
+                                   is the unbound slots + candidate providers —
+                                   the bind-on-install prompt.
+POST   /bindings                   admin. body {component, slot, provider} — bind
+                                   a requested interface to a provider (a builtin
+                                   id like internet/host/lan:<cidr>, or a tile
+                                   path). Owner-only (agents can't self-bind).
+                                   Restarts the component (+ a net provider whose
+                                   roster changed) so wiring takes effect at once.
+DELETE /bindings                   admin. body {component, slot} — clear a binding
 
 GET    /vault-status              admin. {initialized, sealed, insecure}
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init

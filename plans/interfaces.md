@@ -41,8 +41,9 @@ on the binding:
 - **Builtin providers** (buxond, *implemented as bindable providers*): `internet`
   (gVisor relay, public-only), `host` (share host net = HostNet), `lan:<cidr>`
   (relay under a LAN policy). `bx bind <comp> net=internet` etc.; unbound =
-  default-deny. `net:*` grants remain as a legacy alternative that resolve to the
-  same egress policy.
+  default-deny. Egress is *only* this binding — there is no `net:*`-in-`uses`
+  grant (removed); the `internet`/`lan` builtins still resolve internally to the
+  `net:internet` / `net:<cidr>` relay *policy* language (the mechanism).
 - **Tile providers** (`provides: {…: {kind:"net"}}`): a firewall / VPN / router /
   DPI / meter tile. buxond gives the provider **one TUN per bound client** (a
   point-to-point `/30` link) plus the provider's *own* egress (its own `net`
@@ -84,9 +85,10 @@ buxond builtins; `res:*` grants become bindings. Migration, later.
 
 ## Binding replaces grant-approval
 
-- `net:*` / `gpu:*` / `res:*` grant strings become **compat sugar**: e.g. a
-  `net:internet` grant synthesizes a binding (slot → `internet` builtin). Legacy
-  components keep working; new config uses explicit bindings.
+- `net:*` egress grants are **removed** — egress is a `net` interface binding,
+  full stop (no compat sugar; a `net:*` in `uses` is ignored). `gpu:*` / `res:*`
+  remain grant strings for now (they fold into bindings later; §resource,
+  §gpu).
 - **Owner-gated**: only the owner/admin creates bindings (`bx bind`, admin UI);
   agents declare `interfaces`/`provides` and leave binding to the owner (AGENTS.md
   restates the no-self-approve rule).
@@ -143,8 +145,9 @@ gpu=0`, `bx net graph`, `bx net flows`.
 - **IFACE-3** — `net` tile-providers get **one TUN per client**; buxond does a
   dumb L3 splice; the provider is a real router; chains are emergent (DAG).
 - **IFACE-4** — builtins (`internet`/`host`/`lan` for net; GPU devices) are
-  bindable system providers (net builtins *implemented*); `net:*`/`gpu:*` grants
-  remain a legacy alternative resolving to the same egress. `res:*` → later.
+  bindable system providers (net builtins *implemented*). `net:*`-in-`uses`
+  egress grants are **removed** (egress is the `net` binding only); `gpu:*` /
+  `res:*` remain grants for now, folding into bindings later.
 - **IFACE-5** — `http`/service is implemented (URL injection + binding-as-grant,
   used by `llm-gw`/`chat`); the `resource` family and a `flow` kind are deferred.
 

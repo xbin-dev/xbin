@@ -46,9 +46,9 @@ type Broker struct {
 	OnStructureChange func()
 
 	// OnGrantChange, if set, is called with a component whose spawn-materialized
-	// access changed (a net:* egress or res:* resource grant added/revoked) so
-	// the host can restart its backend to pick up the new policy/env — those are
-	// captured at spawn, not per request.
+	// access changed (a res:* resource / gpu:* grant, or a `net` interface
+	// binding added/revoked) so the host can restart its backend to pick up the
+	// new policy/env — those are captured at spawn, not per request.
 	OnGrantChange func(component string)
 
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
@@ -391,13 +391,15 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 // grantRestart restarts the caller's backend when the changed grant is one whose
-// effect is materialized at spawn (egress policy, resource env, or GPU devices),
-// so approving e.g. net:internet or gpu:0 takes effect without a manual restart.
+// effect is materialized at spawn (a resource env var or GPU devices), so
+// approving e.g. res:… or gpu:0 takes effect without a manual restart. (Egress
+// is no longer a grant — it's a `net` interface binding, restarted via the
+// bindings API; see apiBindingSet.)
 func (b *Broker) grantRestart(g registry.Grant) {
 	if b.OnGrantChange == nil {
 		return
 	}
-	if strings.HasPrefix(g.Target, "net:") || strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") {
+	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") {
 		b.OnGrantChange(g.From)
 	}
 }
@@ -410,6 +412,13 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	var g registry.Grant
 	if err := decodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, target, role}"})
+		return registry.Grant{}, false
+	}
+	// Egress is no longer a grant — it's a `net` interface binding. Reject new
+	// net:* grants loudly (rather than storing a silent no-op); DELETE still
+	// works so a stale net:* grant from an older workspace can be cleaned up.
+	if r.Method == http.MethodPost && strings.HasPrefix(g.Target, "net:") {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/buxon/bindings (see plans/interfaces.md)"})
 		return registry.Grant{}, false
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {

@@ -22,6 +22,7 @@
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
+import '/vendor/bx-bindings.js';
 
 const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
 // Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
@@ -145,7 +146,7 @@ export class BxShell extends LitElement {
     .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #8794a1); }
 
     main { flex: 1; min-width: 0; overflow-y: auto; padding: 14px; }
-    .grants { margin-bottom: 12px; }
+    .grants { margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
 
     /* ---- draggable column canvas ---- */
     .canvas { display: flex; gap: 14px; align-items: flex-start; }
@@ -489,7 +490,7 @@ export class BxShell extends LitElement {
           ${this._groups.length === 0 ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
         </aside>
         <main>
-          <div class="grants"><bx-grants></bx-grants></div>
+          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <div class="canvas">
             ${Array.from({ length: this._cols }, (_, i) => this._column(i))}
           </div>

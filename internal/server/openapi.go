@@ -122,11 +122,11 @@ func endpoints() []ep {
 
 		// --- grants ---
 		{"GET", "/grants", "Grants", "Grant table + pending", "admin", "", nil, nil, "{grants:[{from,target,role}], pending:[…]}"},
-		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, or net:… egress.", nil,
-			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | net:internet"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
+		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, or gpu:… devices. (Network egress is not a grant — it's a `net` interface binding; see /bindings.)", nil,
+			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | gpu:0"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
 		{"DELETE", "/grants", "Grants", "Revoke a grant", "admin", "", nil,
 			jsonBody("grant to revoke", oapi{"from": str(""), "target": str(""), "role": str("")}, "from", "target", "role"), "ok"},
-		{"GET", "/bindings", "Grants", "Interface requests/providers + bindings", "admin", "Typed capability wiring (plans/interfaces.md).", nil, nil, "{bindings, components:[{component,interfaces,provides}]}"},
+		{"GET", "/bindings", "Grants", "Interface requests/providers + bindings", "admin", "Typed capability wiring (plans/interfaces.md). `pending` lists unbound interface slots with the providers that can satisfy each — the bind-on-install prompt.", nil, nil, "{bindings, components:[{component,interfaces,provides}], pending:[{component,slot,kind,service,options:[{id,label}]}]}"},
 		{"POST", "/bindings", "Grants", "Bind a component's interface slot to a provider", "admin", "", nil,
 			jsonBody("binding", oapi{"component": str("apps/x"), "slot": str("net"), "provider": str("apps/firewall | internet | host")}, "component", "slot", "provider"), "ok"},
 		{"DELETE", "/bindings", "Grants", "Clear a binding", "admin", "", nil,

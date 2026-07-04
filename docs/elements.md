@@ -47,23 +47,23 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), or — under isolation
-  // (buxond --isolate) — network egress ("net:internet[:port]" for the public
-  // internet, "net:<cidr|host>[:port]" for a LAN address) and GPUs ("gpu:all",
-  // "gpu:<index>", or "gpu:<uuid>"). All are owner-approved grants; without them
-  // a sandboxed backend has no IP egress ("net:internet" never covers
-  // LAN/RFC1918) and no GPU. See plans/isolation.md, plans/gpu.md.
+  // (buxond --isolate) — GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All
+  // are owner-approved grants. (Network egress is NOT a use — it is a "net"
+  // interface the owner binds, below.)
   "uses": [
     { "target": "apps/calendar",         "role": "reader" },
     { "target": "res:apps/thing/db",     "role": "writer" },
-    { "target": "net:internet:443",      "role": "egress" },
     { "target": "gpu:0",                 "role": "egress" }
   ],
 
   // Typed capability wiring (plans/interfaces.md). "interfaces" are slots this
   // component REQUESTS; the owner binds each to a provider (a builtin or a tile).
-  // "provides" are slots it offers others (e.g. a firewall/VPN tile provides a
-  // "net" interface that other components route their egress through). Kinds:
-  // net (L3 egress), http (a service endpoint, "service": "<contract>"), gpu.
+  // This is how a sandboxed backend gets network egress — with nothing bound it
+  // has zero IP egress ("internet" never covers LAN/RFC1918). "provides" are
+  // slots it offers others (e.g. a firewall/VPN tile provides a "net" interface
+  // that other components route their egress through). Kinds: net (L3 egress;
+  // bind to "internet"/"host"/"lan:<cidr>"/a provider tile), http (a service
+  // endpoint, "service": "<contract>").
   "interfaces": { "net": { "kind": "net" } },
   "provides":   { "egress": { "kind": "net" } },
 

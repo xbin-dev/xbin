@@ -1,13 +1,17 @@
-// bx — the buxon workspace CLI, available in every terminal session.
-// A thin client of buxond's API (BUXON_URL + BUXON_TOKEN from the session
-// env) plus local scaffolding. Builder reference: /docs/bx.md.
+// bx — the buxon workspace CLI, available in every terminal session and inside
+// component sandboxes. A thin client of buxond's API plus local scaffolding: it
+// talks HTTP via BUXON_URL (terminals / the owner plane) or, inside a component,
+// over the BUXON_GATEWAY unix socket (works with no net egress, RBAC-gated by
+// BUXON_TOKEN). Builder reference: /docs/bx.md.
 package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,10 +100,7 @@ func usage() {
 // --- buxond API plumbing ---
 
 func api(method, path string, body any) (*http.Response, error) {
-	base := os.Getenv("BUXON_URL")
-	if base == "" {
-		base = "http://127.0.0.1:8642"
-	}
+	base, client := transport()
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -118,7 +119,32 @@ func api(method, path string, body any) (*http.Response, error) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	return client.Do(req)
+}
+
+// transport picks how bx reaches buxond:
+//   - BUXON_URL set (a terminal / the owner plane) → plain HTTP to that URL.
+//   - else BUXON_GATEWAY set (running inside a component sandbox) → the gateway
+//     unix socket. This is a component's *only* door to buxond and does not
+//     depend on any net egress — an unbound `net` interface (no internet) still
+//     leaves `bx api …` working, gated by the element's instance token (RBAC,
+//     default-deny). This is the dedicated per-component API tap.
+//   - else → the local default (host).
+func transport() (string, *http.Client) {
+	if base := os.Getenv("BUXON_URL"); base != "" {
+		return base, &http.Client{Timeout: 30 * time.Second}
+	}
+	if gw := os.Getenv("BUXON_GATEWAY"); gw != "" {
+		return "http://buxon", &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					return (&net.Dialer{}).DialContext(ctx, "unix", gw)
+				},
+			},
+		}
+	}
+	return "http://127.0.0.1:8642", &http.Client{Timeout: 30 * time.Second}
 }
 
 func apiJSON(method, path string, body, out any) error {
