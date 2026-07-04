@@ -167,14 +167,24 @@
       document.getElementById('deniedWrap').style.display = st.denied.length ? '' : 'none';
     }
 
+    // Single-flight: never let a slow /state pile up behind the timer (that
+    // overlap was the "wedges then recovers" behaviour). One request at a time.
+    let inFlight = false;
     async function refresh(force) {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const r = await api('/state');
         if (r.ok) { latest = norm(await r.json()); render(force); }
       } catch { /* transient; next tick */ }
+      finally { inFlight = false; }
     }
-    refresh(true);
-    setInterval(() => refresh(false), 1200);
+    // Self-scheduling loop (never overlaps). Force a render every ~5s even when
+    // data is unchanged, so relative times ("38s ago") keep ticking.
+    let ticks = 0;
+    (function loop() {
+      refresh(++ticks % 4 === 0).finally(() => setTimeout(loop, 1200));
+    })();
   </script>
 </body>
 </html>
