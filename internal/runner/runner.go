@@ -514,18 +514,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		{Src: dir, Dst: dir},               // run dir — the listen socket lands here
 		{Src: gw, Dst: gw},                 // the gateway socket (component↔component + RBAC)
 	}
-	// Same-scope resource files (sqlite/blob) are handed to the backend as env
-	// paths; bind just those, read-write.
-	for _, e := range env {
-		i := strings.IndexByte(e, '=')
-		if i < 0 {
-			continue
-		}
-		v := e[i+1:]
-		if strings.HasPrefix(v, "/") && within(v, r.Root) && pathExists(v) {
-			binds = append(binds, sandbox.Bind{Src: v, Dst: v})
-		}
-	}
+	// File-backed resources (sqlite) are handed to the backend as absolute
+	// BUXON_RES_* env paths; bind their dirs read-write so they persist.
+	binds = append(binds, resourceBinds(env, r.Root)...)
 
 	var entry string
 	var argv []string
@@ -588,6 +579,39 @@ func within(p, root string) bool {
 }
 
 func pathExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// resourceBinds returns the read-write binds for a component's file-backed
+// resources (sqlite). EnvFor hands each granted same-scope sqlite resource to the
+// backend as an absolute BUXON_RES_* path. We bind that path's **directory** (the
+// scope's resource dir), not the file, so that:
+//   - a *fresh* db works — the file doesn't exist yet (sqlite creates it on first
+//     open), so binding the file alone would drop it (pathExists was false) and
+//     the db would land on the throwaway overlay instead of persisting; and
+//   - sqlite's -wal/-shm sidecars, written next to the db, persist too.
+//
+// Non-path resources (kv/blob/bus, addressed by res: string over HTTP) aren't
+// paths and are skipped. Dirs are deduped; only paths under root are bound.
+func resourceBinds(env []string, root string) []sandbox.Bind {
+	seen := map[string]bool{}
+	var binds []sandbox.Bind
+	for _, e := range env {
+		i := strings.IndexByte(e, '=')
+		if i < 0 {
+			continue
+		}
+		v := e[i+1:]
+		if !strings.HasPrefix(v, "/") || !within(v, root) {
+			continue
+		}
+		d := filepath.Dir(v)
+		if seen[d] || !pathExists(d) {
+			continue
+		}
+		seen[d] = true
+		binds = append(binds, sandbox.Bind{Src: d, Dst: d})
+	}
+	return binds
+}
 
 func (r *Runner) stop(inst *instance, deadline time.Duration) {
 	if inst.cmd.Process == nil {

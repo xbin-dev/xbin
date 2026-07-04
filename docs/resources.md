@@ -125,9 +125,24 @@ next tick catch up.
 ```
 
 Same-scope components get `BUXON_RES_DB` = a file path under
-`data/resources/`; open it with your language's sqlite driver (Go:
-`modernc.org/sqlite` for CGO-free builds). Use WAL mode
-(`PRAGMA journal_mode=WAL`) if multiple components in the scope share it.
+`data/resources/`. **Open exactly that path — don't invent your own** (`./db`,
+`/tmp/…`, a path under your component dir). buxond binds the resource's directory
+read-write, so a fresh db and its `-wal`/`-shm` sidecars persist there; any other
+path lands in the backend's throwaway overlay — lost on restart and not captured
+by backups.
+
+```go
+import (
+	"database/sql"
+	_ "modernc.org/sqlite" // CGO-free
+	buxon "github.com/magik6k/buxon/sdk"
+)
+
+// buxon.Resource("db") == $BUXON_RES_DB, the file path. Just open it.
+db, err := sql.Open("sqlite", buxon.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
+```
+
+Use WAL mode if multiple components in the scope share the db.
 
 **Cross-scope sqlite is deliberately not a thing.** The file path is only
 handed to same-scope components; other apps go through your service API.
