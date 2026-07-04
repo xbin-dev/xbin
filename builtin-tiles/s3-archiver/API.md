@@ -32,6 +32,13 @@ owner must bind (it has zero egress under isolation until then):
 |--------|------|---------|
 | GET | `/config` | `{config:{endpoint,region,bucket,prefix}, hasCreds}` |
 | PUT | `/config` | `{ok}` — save endpoint/region/bucket/prefix |
+| POST | `/check` | `{ok, bucket}` — probe the bucket with the stored config + creds; `{error}` (with a net-binding hint on a dial failure) if unreachable |
+
+Credentials are written straight to the tile's **vault** by the settings page
+(`PUT /api/buxon/vault/<self>/{accessKey,secretKey}` with a `{"value":…}` body)
+and read by the backend with `buxon.Secret` — they never pass through `/config`
+or a resource. The page runs a `/check` on every save so a bad endpoint, wrong
+keys, or an unbound `net` interface surface immediately.
 
 The S3 client is path-style and SigV4-signed, so it works with AWS S3, MinIO,
 Cloudflare R2, Backblaze B2, and other S3-compatible stores. It has no external

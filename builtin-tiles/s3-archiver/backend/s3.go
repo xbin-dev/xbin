@@ -180,6 +180,22 @@ func (s *S3) Put(key string, body io.Reader, length int64) error {
 	return nil
 }
 
+// Probe checks connectivity + credentials + bucket access with the lightest
+// request possible (list one key). A dial error means no egress (net unbound);
+// 403 means bad credentials; 404 means the bucket/endpoint is wrong.
+func (s *S3) Probe() error {
+	resp, err := s.do("GET", "", url.Values{"list-type": {"2"}, "max-keys": {"1"}}, nil, 0, emptyHash)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
 // Get returns the object response; the caller streams and closes Body.
 func (s *S3) Get(key string) (*http.Response, error) {
 	resp, err := s.do("GET", key, url.Values{}, nil, 0, emptyHash)

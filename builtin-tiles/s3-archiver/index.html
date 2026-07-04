@@ -21,6 +21,8 @@
     .row > div { flex: 1; }
     button { margin-top: 14px; background: var(--bx-accent, #1e88e5); color: #fff; border: 0;
              border-radius: 5px; padding: 6px 16px; cursor: pointer; font: inherit; font-weight: 600; }
+    button.ghost { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border);
+                   font-weight: 500; margin-left: 8px; }
     button:disabled { opacity: .5; cursor: default; }
     .msg { margin-top: 10px; font-size: 12px; min-height: 1.2em; }
     .msg.ok { color: var(--bx-green, #43a047); }
@@ -50,14 +52,17 @@
     <input id="secretKey" type="password" autocomplete="off" placeholder="•••••• (leave blank to keep)">
   </div>
 
-  <button id="save">Save</button>
+  <button id="save">Save &amp; test</button>
+  <button id="test" class="ghost">Test connection</button>
   <div class="msg" id="msg"></div>
 
   <script type="module">
     const self = buxon.self;
     const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
-    const vault = (key, o) => buxon.fetch(`/api/buxon/vault/${self}/${encodeURIComponent(key)}`, o);
     const $ = (id) => document.getElementById(id);
+    // Vault writes take {"value": …} JSON (docs/auth.md) — a raw body 400s.
+    const setSecret = (key, value) => buxon.fetch(`/api/buxon/vault/${self}/${encodeURIComponent(key)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
 
     async function load() {
       try {
@@ -75,19 +80,39 @@
       const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Saving…';
       $('save').disabled = true;
       try {
-        await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        const cfgRes = await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: $('endpoint').value.trim(), region: $('region').value.trim(),
             bucket: $('bucket').value.trim(), prefix: $('prefix').value.trim() }) });
-        if ($('accessKey').value.trim()) await vault('accessKey', { method: 'PUT', body: $('accessKey').value.trim() });
-        if ($('secretKey').value) await vault('secretKey', { method: 'PUT', body: $('secretKey').value });
+        if (!cfgRes.ok) throw new Error((await cfgRes.json().catch(() => ({}))).error || 'save failed');
+        if ($('accessKey').value.trim()) {
+          const r = await setSecret('accessKey', $('accessKey').value.trim());
+          if (!r.ok) throw new Error('could not store access key in the vault');
+        }
+        if ($('secretKey').value) {
+          const r = await setSecret('secretKey', $('secretKey').value);
+          if (!r.ok) throw new Error('could not store secret key in the vault');
+        }
         $('secretKey').value = '';
-        msg.className = 'msg ok'; msg.textContent = 'Saved.';
-        load();
+        await load();
+        await check(); // saving verifies it actually reaches the bucket
       } catch (e) {
         msg.className = 'msg err'; msg.textContent = String(e.message ?? e);
       } finally { $('save').disabled = false; }
     }
+
+    // Ask the backend to hit the bucket with the stored config + creds.
+    async function check() {
+      const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Checking connection…';
+      try {
+        const r = await api('/check', { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) { msg.className = 'msg ok'; msg.textContent = `Connected — bucket “${d.bucket}” is reachable.`; }
+        else { msg.className = 'msg err'; msg.textContent = d.error || `Connection failed (${r.status}).`; }
+      } catch (e) { msg.className = 'msg err'; msg.textContent = 'Connection check failed: ' + (e.message ?? e); }
+    }
+
     $('save').addEventListener('click', save);
+    $('test').addEventListener('click', check);
     load();
   </script>
 </body>

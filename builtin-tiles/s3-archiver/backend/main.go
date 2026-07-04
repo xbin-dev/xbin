@@ -247,6 +247,24 @@ func putConfig(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
+// checkConn verifies the current config + credentials actually reach the bucket
+// (called by the settings page after a save). A dial error here means the `net`
+// interface isn't bound; 403 means bad keys; 404 means a wrong bucket/endpoint.
+func checkConn(w http.ResponseWriter, r *http.Request) {
+	s3, cfg, err := client()
+	if err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s3.Probe(); err != nil {
+		fail(w, http.StatusBadGateway, "cannot reach the bucket: "+err.Error()+
+			" (if this is a 'dial'/'connection refused' error, bind this tile's net interface: bx bind "+buxon.Self()+" net=internet)")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "bucket": cfg.Bucket})
+}
+
 func main() {
 	m := http.NewServeMux()
 	// The archive contract (called by buxond as the owner).
@@ -258,5 +276,6 @@ func main() {
 	// This tile's own settings panel.
 	m.HandleFunc("GET /config", getConfig)
 	m.HandleFunc("PUT /config", putConfig)
+	m.HandleFunc("POST /check", checkConn)
 	buxon.Serve(m)
 }
