@@ -130,6 +130,8 @@ export class BxAdmin extends LitElement {
     form.inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
     a.link { color: var(--bx-accent, #1e88e5); cursor: pointer; text-decoration: none; }
     a.link:hover { text-decoration: underline; }
+    a.link.gated { color: var(--bx-muted, #8794a1); cursor: not-allowed; opacity: .55; }
+    a.link.gated:hover { text-decoration: none; }
 
     /* ---- code & history ---- */
     .code { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
@@ -804,6 +806,10 @@ export class BxAdmin extends LitElement {
       this._ifaces = ifaces;
       this._schedules = sched.schedules || [];
       this._err = '';
+      // Load versions for disabled components so the offload gate is computable
+      // (does a post-disable backup exist?) without expanding each one.
+      const disabled = (this._ov?.components || []).filter((c) => c.state === 'disabled');
+      await Promise.all(disabled.map((c) => this._loadVersions(c.path)));
     } catch (e) { this._err = String(e.message ?? e); }
   }
 
@@ -919,17 +925,13 @@ export class BxAdmin extends LitElement {
   }
 
   _backupRow(c, archivers, defArch, sched) {
-    const st = c.state || 'enabled';
     const override = this._ifaces.bindings?.[c.path]?.['@archive'] || '';
     const busy = this._busy === c.path;
     const open = this._verOpen.has(c.path);
     return html`
       <tr>
         <td class="mono">${c.path}</td>
-        <td><select ?disabled=${busy} @change=${(e) => this._setLifecycle(c.path, e.target.value)}>
-          ${['enabled', 'disabled', 'offloaded', 'offloaded-full'].map((s) =>
-            html`<option value=${s} ?selected=${st === s}>${s}</option>`)}
-        </select></td>
+        <td>${this._lifecycleControls(c)}</td>
         <td><select @change=${(e) => this._setArchiver(c.path, e.target.value)}>
           <option value="" ?selected=${!override}>default${defArch ? ' (' + defArch + ')' : ''}</option>
           ${archivers.map((a) => html`<option value=${a} ?selected=${override === a}>${a}</option>`)}
@@ -944,6 +946,41 @@ export class BxAdmin extends LitElement {
         </td>
       </tr>
       ${open ? html`<tr><td colspan="5">${this._versionsList(c.path)}</td></tr>` : nothing}`;
+  }
+
+  // Guided lifecycle controls (plans/lifecycle.md). Offload is deliberately a
+  // two-step, safe flow: you must DISABLE first (stops the backend → a consistent
+  // db), then take a backup, and only then does offload un-gray — so you never
+  // free local data without a verified, stopped-state snapshot.
+  _lifecycleControls(c) {
+    const st = c.state || 'enabled';
+    const busy = this._busy === c.path;
+    const act = (label, state, opts = {}) => html`<a
+      class="link ${opts.gated ? 'gated' : ''}" title=${opts.title || ''}
+      @click=${() => !busy && !opts.gated && this._setLifecycle(c.path, state)}>${busy ? '…' : label}</a>`;
+
+    if (st === 'enabled') return html`enabled · ${act('disable', 'disabled')}`;
+    if (st === 'disabled') {
+      const ready = this._hasPostDisableBackup(c);
+      const why = ready ? 'Archive + remove local data (source kept).'
+        : 'Back up first — offload needs a backup taken while disabled (a consistent snapshot).';
+      const whyFull = ready ? 'Archive + remove data AND source.' : why;
+      return html`disabled · ${act('enable', 'enabled')}
+        · ${act('offload', 'offloaded', { gated: !ready, title: why })}
+        · ${act('offload+src', 'offloaded-full', { gated: !ready, title: whyFull })}
+        ${ready ? nothing : html`<span class="muted" style="font-size:11px"> (back up to enable offload)</span>`}`;
+    }
+    // offloaded / offloaded-full
+    return html`${st} · ${act('restore', 'enabled')}`;
+  }
+
+  // Offload is allowed only once a backup exists that was taken AFTER the tile was
+  // disabled (its snapshot is consistent because the backend is stopped).
+  _hasPostDisableBackup(c) {
+    if ((c.state || 'enabled') !== 'disabled' || !c.stateAt) return false;
+    const since = Date.parse(c.stateAt);
+    const vers = this._versions[c.path];
+    return Array.isArray(vers) && vers.some((v) => Date.parse(v.time) >= since);
   }
 
   _scheduleForm(comp) {
