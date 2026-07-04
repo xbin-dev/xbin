@@ -60,7 +60,7 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		return nil, nil, err
 	}
 
-	if s.Net == "relay" {
+	if s.Net == "relay" || s.Net == "splice" {
 		parent, child, err := socketpair()
 		if err != nil {
 			return fail(err)

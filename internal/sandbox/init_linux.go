@@ -159,8 +159,8 @@ func runInit(specPath string) error {
 	// Egress relay: create the TUN in this netns and hand its fd to buxond,
 	// which runs the userspace stack + policy. Without this the netns stays
 	// empty = default-deny (plans/isolation.md §3).
-	if s.Net == "relay" {
-		if err := setupEgress(newroot, s.CtrlFD); err != nil {
+	if s.Net == "relay" || s.Net == "splice" {
+		if err := setupEgress(newroot, &s); err != nil {
 			return must(err, "egress")
 		}
 	}

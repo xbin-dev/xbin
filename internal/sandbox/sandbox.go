@@ -68,6 +68,12 @@ func HostResolver() string {
 	return "1.1.1.1:53"
 }
 
+// NetClient is one per-client link a net-provider tile terminates.
+type NetClient struct {
+	Name string `json:"name"` // the client component (for buxond's bookkeeping)
+	Addr string `json:"addr"` // provider-side link address, e.g. "10.42.0.1/30"
+}
+
 // Bind is one mount into the sandbox root.
 type Bind struct {
 	Src string `json:"src"` // host path (as seen before pivot_root)
@@ -99,7 +105,20 @@ type Spec struct {
 	// Net selects the network namespace mode. "" / "none" → an empty netns
 	// (loopback only) = default-deny egress; the gateway socket is bind-mounted
 	// in regardless. "relay" → TUN + userspace egress relay under a policy.
+	// "splice" → a TUN whose fd buxond splices to a provider tile (plans/
+	// interfaces.md) instead of running the relay on it.
 	Net string `json:"net,omitempty"`
+
+	// NetAddr/NetGw override the egress TUN's address/gateway (empty = the relay
+	// defaults 10.0.2.15/24 via 10.0.2.2). A client spliced to a provider tile
+	// puts its point-to-point link addresses here.
+	NetAddr string `json:"netAddr,omitempty"`
+	NetGw   string `json:"netGw,omitempty"`
+	// NetClients are a net-provider tile's per-client links: init creates one
+	// extra TUN per entry (its /30 provider-side address, no default route) and
+	// hands each fd to buxond, which splices it to that client's egress TUN. The
+	// egress TUN fd is sent first, then these in order.
+	NetClients []NetClient `json:"netClients,omitempty"`
 
 	// HostNet skips the network namespace entirely — the process shares the host
 	// network (unrestricted). For the owner plane (terminals), not components.

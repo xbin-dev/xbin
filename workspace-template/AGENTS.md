@@ -295,6 +295,12 @@ and production isolate). **Design for this — it's default-deny:**
   A terminal can pick a GPU per session from its window menu (owner plane).
 - Same-scope resources (`res:<your-scope>/…`) are auto-granted; declare them in
   `scope.json` and request in `uses`.
+- **Interfaces (plans/interfaces.md):** for richer wiring, a component can
+  `interfaces: {net: {kind:net}}` (request egress) and the owner **binds** it to
+  a provider — a builtin (`internet`/`host`) or a **provider tile** that
+  `provides: {…: {kind:net}}` (a firewall/VPN/router your traffic routes
+  through). Binding is owner-only (`bx bind <comp> net=<provider>`); agents
+  declare `interfaces`/`provides` and leave binding to the owner.
 
 ## Extra deps: `setup` + the terminal dev sandbox
 

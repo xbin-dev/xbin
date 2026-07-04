@@ -126,6 +126,11 @@ func endpoints() []ep {
 			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | net:internet"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
 		{"DELETE", "/grants", "Grants", "Revoke a grant", "admin", "", nil,
 			jsonBody("grant to revoke", oapi{"from": str(""), "target": str(""), "role": str("")}, "from", "target", "role"), "ok"},
+		{"GET", "/bindings", "Grants", "Interface requests/providers + bindings", "admin", "Typed capability wiring (plans/interfaces.md).", nil, nil, "{bindings, components:[{component,interfaces,provides}]}"},
+		{"POST", "/bindings", "Grants", "Bind a component's interface slot to a provider", "admin", "", nil,
+			jsonBody("binding", oapi{"component": str("apps/x"), "slot": str("net"), "provider": str("apps/firewall | internet | host")}, "component", "slot", "provider"), "ok"},
+		{"DELETE", "/bindings", "Grants", "Clear a binding", "admin", "", nil,
+			jsonBody("binding to clear", oapi{"component": str("apps/x"), "slot": str("net")}, "component", "slot"), "ok"},
 
 		// --- vault ---
 		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "", nil, nil, "{initialized, sealed, insecure}"},

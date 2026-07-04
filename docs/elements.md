@@ -59,6 +59,14 @@ JSONC (comments and trailing commas allowed). Everything is optional.
     { "target": "gpu:0",                 "role": "egress" }
   ],
 
+  // Typed capability wiring (plans/interfaces.md). "interfaces" are slots this
+  // component REQUESTS; the owner binds each to a provider (a builtin or a tile).
+  // "provides" are slots it offers others (e.g. a firewall/VPN tile provides a
+  // "net" interface that other components route their egress through). Kinds:
+  // net (L3 egress), http (a service endpoint, "service": "<contract>"), gpu.
+  "interfaces": { "net": { "kind": "net" } },
+  "provides":   { "egress": { "kind": "net" } },
+
   // The callable surface this component offers to others.
   "expose": {
     "roles": {

@@ -53,14 +53,16 @@ type BuildError struct{ Output string }
 func (e *BuildError) Error() string { return "build failed:\n" + e.Output }
 
 type instance struct {
-	gen     int
-	sock    string
-	token   string
-	cmd     *exec.Cmd
-	relay   *relay.Relay  // userspace egress relay (nil unless net:* granted)
-	egress  []string      // granted net:* rules (for visibility)
-	started time.Time     // for uptime
-	waitCh  chan struct{} // closed when the process exits
+	gen      int
+	sock     string
+	token    string
+	cmd      *exec.Cmd
+	relay    *relay.Relay   // userspace egress relay (nil unless net:* granted)
+	splicer  *relay.Splicer // L3 splice to a net-provider tile (nil unless bound)
+	provider string         // net-provider this instance is a client of ("" if none)
+	egress   []string       // granted net:* rules (for visibility)
+	started  time.Time      // for uptime
+	waitCh   chan struct{}  // closed when the process exits
 }
 
 type state struct {
@@ -101,12 +103,18 @@ type Runner struct {
 	// GPU returns a component's granted GPUs (gpu:* grants); their device nodes +
 	// driver libs are bound into the sandbox. nil = no GPU access.
 	GPU func(c *registry.Component) []gpu.Device
+	// NetRoster returns a net-provider tile's per-client links (empty = not a
+	// provider); NetTarget returns the provider + link addrs for a component whose
+	// net interface is bound to a provider tile (plans/interfaces.md).
+	NetRoster func(c *registry.Component) []sandbox.NetClient
+	NetTarget func(c *registry.Component) (provider, addr, gw string, ok bool)
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
 
 	mu     sync.Mutex
 	states map[string]*state
+	netmux *netMux
 }
 
 func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Runner {
@@ -115,7 +123,7 @@ func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Ru
 	_ = os.MkdirAll(filepath.Join(root, ".buxon", "cache"), 0o755)
 	r := &Runner{
 		Root: root, RunDir: runDir, Auth: a, Hub: hub, Reg: reg,
-		states: map[string]*state{},
+		states: map[string]*state{}, netmux: newNetMux(),
 	}
 	go r.reaper()
 	return r
@@ -416,15 +424,51 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
 
-	// Granted egress: the init created a TUN in the netns and handed us its fd;
-	// run the userspace relay on it, enforcing the policy.
+	// Network setup: the init handed back its TUN fd(s) — egress first, then one
+	// per provider client-link. The egress is either spliced to a provider tile
+	// (this component is a client of it) or run through the userspace relay.
 	if sb.NeedsRelay() {
+		var netClients []sandbox.NetClient
+		if r.NetRoster != nil {
+			netClients = r.NetRoster(c)
+		}
+		provider, _, _, spliced := "", "", "", false
+		if r.NetTarget != nil {
+			provider, _, _, spliced = r.NetTarget(c)
+		}
 		if fd, err := sb.RecvTUN(); err != nil {
-			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
+			fmt.Fprintf(logf, "egress tun: %v (egress disabled)\n", err)
+		} else if spliced {
+			r.ensureProvider(provider) // provider must be up so its links are registered
+			if pfd, ok := r.netmux.get(provider, c.Path); ok {
+				inst.splicer = relay.Splice(fd, pfd)
+				inst.provider = provider
+			} else {
+				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
+			}
 		} else if rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err != nil {
 			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
 		} else {
 			inst.relay = rl
+		}
+		// Provider tile: receive one TUN per client link and register it.
+		for _, cl := range netClients {
+			if fd, err := sb.RecvTUN(); err != nil {
+				fmt.Fprintf(logf, "client link %s: %v\n", cl.Name, err)
+			} else {
+				r.netmux.register(c.Path, cl.Name, fd)
+			}
+		}
+		if len(netClients) > 0 {
+			// This provider (re)started with fresh link fds; any client already
+			// running is spliced to a now-stale fd, so nudge each to re-splice.
+			go func(clients []sandbox.NetClient) {
+				for _, cl := range clients {
+					if cc, ok := r.Reg.Component(cl.Name); ok {
+						r.Changed(cc)
+					}
+				}
+			}(netClients)
 		}
 	}
 
@@ -432,6 +476,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		_ = cmd.Wait()
 		if inst.relay != nil {
 			inst.relay.Close()
+		}
+		if inst.splicer != nil {
+			inst.splicer.Close() // stop the L3 splice (leaves the provider link open)
 		}
 		if r.Cgroup != nil {
 			r.Cgroup.Remove(util.CompKey(c.Path))
@@ -514,7 +561,18 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 	}
-	if !pol.Empty() {
+	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
+	// bound client; a client bound to a provider splices its egress to it instead
+	// of running its own relay.
+	if r.NetRoster != nil {
+		spec.NetClients = r.NetRoster(c)
+	}
+	if r.NetTarget != nil {
+		if _, addr, gw, ok := r.NetTarget(c); ok {
+			spec.Net, spec.NetAddr, spec.NetGw = "splice", addr, gw
+		}
+	}
+	if spec.Net == "" && !pol.Empty() {
 		spec.Net = "relay" // granted egress → TUN + userspace relay
 	}
 	return sandbox.Launch(spec)

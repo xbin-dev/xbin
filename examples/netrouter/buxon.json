@@ -1,0 +1,9 @@
+{
+  // A net-provider tile (plans/interfaces.md): a plain L3 router. Components whose
+  // `net` interface is bound to this tile have their egress spliced through here;
+  // this tile forwards it to its own egress (bound below to the internet). Extend
+  // the backend with nftables rules for a firewall, a wg interface for a VPN, etc.
+  "runtime": "go",
+  "uses": [{ "target": "net:internet", "role": "egress" }],  // this router's own egress
+  "provides": { "net": { "kind": "net" } }                   // offers a net interface to others
+}

@@ -57,6 +57,7 @@ export class BxAdmin extends LitElement {
     _reveal: { state: true },   // "comp\0key" -> value (revealed secrets)
     _cron: { state: true },
     _users: { state: true },
+    _ifaces: { state: true },   // {bindings, components} — interface wiring
     _err: { state: true },
     _denied: { state: true },
     _codeComp: { state: true }, // component being browsed in the code tab
@@ -213,6 +214,7 @@ export class BxAdmin extends LitElement {
     { id: 'users', label: 'users' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
+    { id: 'interfaces', label: 'interfaces' },
     { id: 'cron', label: 'cron' },
   ];
 
@@ -230,6 +232,7 @@ export class BxAdmin extends LitElement {
     this._tab = t;
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
     if (t === 'runtime') this._loadRuntime();
+    if (t === 'interfaces') this._loadIfaces();
   }
 
   connectedCallback() {
@@ -466,6 +469,7 @@ export class BxAdmin extends LitElement {
           : tab === 'code' ? this._codeView()
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
+          : tab === 'interfaces' ? this._ifacesView()
           : this._cronView()}
       </div>`;
   }
@@ -697,6 +701,62 @@ export class BxAdmin extends LitElement {
           Object.entries(k.roles).map(([role, desc]) => html`<tr>
             <td class="mono">${k.path}</td><td><span class="pill">${role}</span></td>
             <td class="muted">${desc}</td></tr>`))}
+      </table>`;
+  }
+
+  // ---- interfaces (typed capability wiring; plans/interfaces.md) ----
+  async _loadIfaces() {
+    try { this._ifaces = await api('/bindings'); this._err = ''; }
+    catch (e) { this._err = String(e.message ?? e); }
+  }
+  async _bindSet(component, slot, provider) {
+    try {
+      await api('/bindings', {
+        method: provider ? 'POST' : 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ component, slot, provider }),
+      });
+      await this._loadIfaces();
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  _ifacesView() {
+    const d = this._ifaces;
+    if (!d) return html`<div class="muted">loading…</div>`;
+    const comps = d.components || [];
+    // providers of each kind, for the request dropdowns
+    const providersByKind = {};
+    for (const c of comps)
+      for (const def of Object.values(c.provides || {}))
+        (providersByKind[def.kind] ||= []).push(c.component);
+    // builtin net providers
+    const builtins = { net: ['internet', 'host'] };
+    const requests = comps.flatMap((c) =>
+      Object.entries(c.interfaces || {}).map(([slot, def]) => ({ comp: c.component, slot, def })));
+    return html`
+      <p class="muted">Each component <b>requests</b> typed interface slots; you <b>bind</b> each to a
+        provider (a builtin or a tile that <b>provides</b> it). The binding is the authorization —
+        unbound means no capability. See <a href="/docs/protocol.md" target="_blank">plans/interfaces.md</a>.</p>
+      <h3>Providers</h3>
+      <table class="tbl">
+        <tr><th>tile</th><th>slot</th><th>kind</th></tr>
+        ${comps.flatMap((c) => Object.entries(c.provides || {}).map(([slot, def]) => html`<tr>
+          <td class="mono">${c.component}</td><td>${slot}</td><td><span class="pill">${def.kind}</span></td></tr>`))}
+        ${Object.keys(providersByKind).length === 0 ? html`<tr><td class="muted" colspan="3">no provider tiles</td></tr>` : nothing}
+      </table>
+      <h3>Requests → binding</h3>
+      <table class="tbl">
+        <tr><th>component</th><th>slot</th><th>kind</th><th>bound to</th></tr>
+        ${requests.map((r) => {
+          const bound = d.bindings?.[r.comp]?.[r.slot] || '';
+          const opts = [...(builtins[r.def.kind] || []), ...(providersByKind[r.def.kind] || []).filter((p) => p !== r.comp)];
+          return html`<tr>
+            <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}</span></td>
+            <td><select @change=${(e) => this._bindSet(r.comp, r.slot, e.target.value)}>
+              <option value="" ?selected=${!bound}>— unbound —</option>
+              ${opts.map((p) => html`<option value=${p} ?selected=${bound === p}>${p}</option>`)}
+            </select></td></tr>`;
+        })}
+        ${requests.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces</td></tr>` : nothing}
       </table>`;
   }
 

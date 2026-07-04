@@ -22,30 +22,77 @@ const (
 	relayDNS = "10.0.2.3" // the relay answers DNS here
 )
 
-// setupEgress creates the TUN in this (the component's) netns, configures its
-// address/route/DNS, and hands the TUN fd back to buxond over the control
-// socket. buxond runs the userspace stack on it. Runs as netns-root, before
-// pivot_root (needs the host's /dev/net/tun). newroot is where /etc/resolv.conf
-// is written.
-func setupEgress(newroot string, ctrlFD int) error {
+// setupEgress creates this netns's TUN(s), configures address/route/DNS, and
+// hands the fd(s) back to buxond over the control socket. The egress TUN is sent
+// first (buxond runs the relay on it, or splices it to a provider); then one TUN
+// per NetClients entry (a provider tile's client links, which buxond splices).
+// Runs as netns-root, before pivot_root (needs the host's /dev/net/tun).
+func setupEgress(newroot string, s *Spec) error {
+	addr, gw := s.NetAddr, s.NetGw
+	if addr == "" {
+		addr = tunAddr
+	}
+	if gw == "" {
+		gw = tunGw
+	}
 	tunFD, err := createTUN(tunName)
 	if err != nil {
 		return fmt.Errorf("create tun: %w", err)
 	}
-	if err := configTUN(tunName, tunAddr, tunGw); err != nil {
+	if err := configTUN(tunName, addr, gw); err != nil {
 		return fmt.Errorf("config tun: %w", err)
+	}
+	// A spliced client reaches DNS through the provider chain to the terminal
+	// relay (which pins :53 to the host resolver), so any public resolver works;
+	// a direct relay client uses the relay's own DNS address.
+	ns := relayDNS
+	if s.Net == "splice" {
+		ns = "1.1.1.1"
 	}
 	_ = os.MkdirAll(filepath.Join(newroot, "etc"), 0o755)
 	_ = os.WriteFile(filepath.Join(newroot, "etc", "resolv.conf"),
-		[]byte("nameserver "+relayDNS+"\noptions single-request\n"), 0o644)
+		[]byte("nameserver "+ns+"\noptions single-request\n"), 0o644)
 
-	if err := sendFD(ctrlFD, tunFD); err != nil {
+	if err := sendFD(s.CtrlFD, tunFD); err != nil {
 		return fmt.Errorf("hand tun fd to buxond: %w", err)
 	}
-	// buxond now holds the TUN (via SCM_RIGHTS), keeping it alive; drop our copy.
-	unix.Close(tunFD)
-	unix.Close(ctrlFD)
+	unix.Close(tunFD) // buxond holds it via SCM_RIGHTS
+
+	// Provider tile: one extra TUN per client link (addr only, no default route —
+	// the provider routes among them and its egress).
+	for i, c := range s.NetClients {
+		name := fmt.Sprintf("bxc%d", i)
+		fd, err := createTUN(name)
+		if err != nil {
+			return fmt.Errorf("create client tun %s: %w", c.Name, err)
+		}
+		if err := configAddr(name, c.Addr); err != nil {
+			return fmt.Errorf("config client tun %s: %w", c.Name, err)
+		}
+		if err := sendFD(s.CtrlFD, fd); err != nil {
+			return fmt.Errorf("hand client tun %s: %w", c.Name, err)
+		}
+		unix.Close(fd)
+	}
+	unix.Close(s.CtrlFD)
 	return nil
+}
+
+// configAddr assigns an address and brings a link up, without adding a route
+// (used for a provider's client links — the provider owns routing between them).
+func configAddr(name, cidr string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return err
+	}
+	addr, err := netlink.ParseAddr(cidr)
+	if err != nil {
+		return err
+	}
+	if err := netlink.AddrAdd(link, addr); err != nil {
+		return err
+	}
+	return netlink.LinkSetUp(link)
 }
 
 func createTUN(name string) (int, error) {

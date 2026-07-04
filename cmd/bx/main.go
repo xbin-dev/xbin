@@ -46,6 +46,10 @@ func main() {
 		err = cmdGrant(os.Args[2:])
 	case "grants":
 		err = cmdGrants()
+	case "bind":
+		err = cmdBind(os.Args[2:])
+	case "iface", "ifaces":
+		err = cmdIface()
 	case "vault":
 		err = cmdVault(os.Args[2:])
 	case "cron":
@@ -79,6 +83,9 @@ func usage() {
   bx grants                             grant table + pending requests
   bx grant <caller> <target>:<role>     approve/add a grant
   bx grant --revoke <caller> <target>:<role>
+  bx iface                              interface requests, providers, bindings
+  bx bind <component> <slot>=<provider> wire an interface to a provider
+  bx bind --unset <component> <slot>
   bx vault ls|get|set|rm <component> [key] [value]
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
@@ -276,6 +283,69 @@ func cmdAPI(args []string) error {
 	} else if len(c.Roles) > 0 {
 		fmt.Println("\n(no API.md — the author should add one; see /docs/elements.md)")
 	}
+	return nil
+}
+
+// cmdIface lists interface requests, providers, and current bindings.
+func cmdIface() error {
+	var out struct {
+		Bindings   map[string]map[string]string `json:"bindings"`
+		Components []struct {
+			Component  string                       `json:"component"`
+			Interfaces map[string]map[string]string `json:"interfaces"`
+			Provides   map[string]map[string]string `json:"provides"`
+		} `json:"components"`
+	}
+	if err := apiJSON("GET", "/api/buxon/bindings", nil, &out); err != nil {
+		return err
+	}
+	fmt.Println("providers:")
+	for _, c := range out.Components {
+		for slot, def := range c.Provides {
+			fmt.Printf("  %-30s provides %s (%s)\n", c.Component, slot, def["kind"])
+		}
+	}
+	fmt.Println("requests → binding:")
+	for _, c := range out.Components {
+		for slot := range c.Interfaces {
+			bound := out.Bindings[c.Component][slot]
+			if bound == "" {
+				bound = "(unbound — no capability)"
+			}
+			fmt.Printf("  %-30s %s → %s\n", c.Component, slot, bound)
+		}
+	}
+	return nil
+}
+
+// cmdBind wires a component's interface slots to providers:
+//
+//	bx bind <component> <slot>=<provider> [<slot>=<provider> …]
+//	bx bind --unset <component> <slot>
+func cmdBind(args []string) error {
+	if len(args) >= 3 && args[0] == "--unset" {
+		body := map[string]string{"component": args[1], "slot": args[2]}
+		if err := apiJSON("DELETE", "/api/buxon/bindings", body, nil); err != nil {
+			return err
+		}
+		fmt.Println("ok")
+		return nil
+	}
+	if len(args) < 2 {
+		return fmt.Errorf("usage: bx bind <component> <slot>=<provider> …  |  bx bind --unset <component> <slot>")
+	}
+	comp := args[0]
+	for _, pair := range args[1:] {
+		slot, provider, ok := strings.Cut(pair, "=")
+		if !ok {
+			return fmt.Errorf("expected <slot>=<provider>, got %q", pair)
+		}
+		body := map[string]string{"component": comp, "slot": slot, "provider": provider}
+		if err := apiJSON("POST", "/api/buxon/bindings", body, nil); err != nil {
+			return err
+		}
+	}
+	fmt.Println("ok")
 	return nil
 }
 

@@ -59,6 +59,18 @@ type Manifest struct {
 	// rootfs (e.g. install Ruby). Built in a sandbox with net:internet, cached,
 	// rebuilt only when this changes. See plans/component-env.md.
 	Setup string `json:"setup,omitempty"`
+
+	// Interfaces are typed capability slots this component REQUESTS; the owner
+	// binds each to a provider (plans/interfaces.md). Provides are slots it offers
+	// to others (e.g. a firewall tile provides a "net" interface). Keyed by slot.
+	Interfaces map[string]Iface `json:"interfaces,omitempty"`
+	Provides   map[string]Iface `json:"provides,omitempty"`
+}
+
+// Iface declares one interface slot (requested or provided).
+type Iface struct {
+	Kind    string `json:"kind"`              // net | http | gpu | resource
+	Service string `json:"service,omitempty"` // for kind=http: the service contract (e.g. "openai")
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.
@@ -87,6 +99,9 @@ type WorkspaceManifest struct {
 	Grants    []Grant           `json:"grants,omitempty"`
 	// Resources declared at workspace level ("res:workspace/<name>" targets).
 	Resources map[string]Resource `json:"resources,omitempty"`
+	// Bindings wire each component's requested interface slots to a provider
+	// (plans/interfaces.md): bindings[component][slot] = provider. Owner-managed.
+	Bindings map[string]map[string]string `json:"bindings,omitempty"`
 }
 
 // Component is a scanned workspace component.

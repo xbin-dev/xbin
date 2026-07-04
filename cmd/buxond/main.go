@@ -316,6 +316,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.Isolate = true
 		run.Egress = brk.EgressFor
 		run.GPU = brk.GPUFor
+		run.NetRoster = brk.NetProviderRoster
+		run.NetTarget = brk.NetClientTarget
 		if inv := gpu.Inventory(); len(inv) > 0 {
 			slog.Info("NVIDIA GPUs available for gpu:* grants", "count", len(inv))
 		}
