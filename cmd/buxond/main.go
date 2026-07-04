@@ -290,6 +290,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+	run.ShouldRun = func(comp string) bool { return reg.LifecycleState(comp) == registry.StateEnabled }
 	brk.Version = version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 

@@ -88,6 +88,11 @@ type Runner struct {
 	// EnvForComponent returns resource/identity env for a component instance
 	// (installed by the broker; nil-safe).
 	EnvForComponent func(c *registry.Component) []string
+	// ShouldRun reports whether a component may spawn — false for a disabled/
+	// offloaded component (plans/lifecycle.md). Gates Ensure authoritatively, so
+	// the watcher/grant respawn paths (run.Changed) can't bring a disabled backend
+	// back. nil = always allowed. Wired to the registry lifecycle by main.
+	ShouldRun func(comp string) bool
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
@@ -149,6 +154,12 @@ func (r *Runner) state(comp string) *state {
 func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
 	if c.Manifest.Runtime == "cgi" || c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
 		return "", fmt.Errorf("component %s has no long-running backend", c.Path)
+	}
+	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component never
+	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
+	// can start it. The proxy still 409s earlier for a nicer message.
+	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
+		return "", fmt.Errorf("component %s is not enabled", c.Path)
 	}
 	s := r.state(c.Path)
 
@@ -225,7 +236,9 @@ func (r *Runner) Changed(c *registry.Component) {
 	s.crashes = nil
 	hadProcess := s.cur != nil || s.building || s.lastErr != nil
 	s.mu.Unlock()
-	if hadProcess {
+	// Don't respawn a disabled/offloaded component on a file change (Ensure would
+	// refuse anyway; this just skips the pointless goroutine + build).
+	if hadProcess && (r.ShouldRun == nil || r.ShouldRun(c.Path)) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()

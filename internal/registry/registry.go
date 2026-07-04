@@ -108,6 +108,10 @@ type WorkspaceManifest struct {
 	// Lifecycle holds each component's non-default state (plans/lifecycle.md):
 	// "disabled" | "offloaded" | "offloaded-full". Absent = enabled. Owner-managed.
 	Lifecycle map[string]string `json:"lifecycle,omitempty"`
+	// LifecycleAt records when each component's state last changed (RFC3339), so
+	// the UI can tell a "post-disable" backup (a consistent, stopped-state
+	// snapshot) from a stale one when gating offload.
+	LifecycleAt map[string]string `json:"lifecycleAt,omitempty"`
 }
 
 // Lifecycle states (plans/lifecycle.md). Enabled is the implicit default (a
