@@ -216,7 +216,6 @@ export class BxAdmin extends LitElement {
   static TABS = [
     { id: 'overview', label: 'overview' },
     { id: 'runtime', label: 'runtime' },
-    { id: 'code', label: 'code & history' },
     { id: 'users', label: 'users' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
@@ -241,6 +240,9 @@ export class BxAdmin extends LitElement {
   _setTab(t) {
     this._tab = t;
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
+    // Leaving/clicking overview drops any code drill-in (back to the list);
+    // _openCode re-sets _codeComp right after calling this to drill in.
+    this._codeComp = null;
     if (t === 'runtime') this._loadRuntime();
     if (t === 'interfaces') this._loadIfaces();
     if (t === 'backup') this._loadBackup();
@@ -350,9 +352,9 @@ export class BxAdmin extends LitElement {
     this._refresh();
   }
 
-  // ---- code & history ----
+  // ---- code & history (a drill-in from the overview; no separate tab) ----
   async _openCode(comp) {
-    this._setTab('code');
+    this._setTab('overview');
     this._codeComp = comp; this._codeFile = null; this._codeDiff = null; this._codeMode = 'file';
     await this._loadCode();
     const files = this._codeTree?.files ?? [];
@@ -410,14 +412,7 @@ export class BxAdmin extends LitElement {
   }
 
   _codeView() {
-    if (!this._codeComp) {
-      const comps = this._ov?.components ?? [];
-      return html`
-        <p class="muted" style="margin-top:0">Pick a component to browse its files and git history.</p>
-        <div class="files" style="max-width:360px">
-          ${comps.map((k) => html`<div class="row" @click=${() => this._openCode(k.path)}>${k.path}</div>`)}
-        </div>`;
-    }
+    if (!this._codeComp) return this._overview(); // reached only defensively; the overview is the picker
     const tree = this._codeTree?.files ?? [];
     const log = this._codeLog?.commits ?? [];
     const noRepo = this._codeLog?.repo === false;
@@ -475,9 +470,8 @@ export class BxAdmin extends LitElement {
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
-          : tab === 'overview' ? this._overview()
+          : tab === 'overview' ? (this._codeComp ? this._codeView() : this._overview())
           : tab === 'runtime' ? this._runtimeView()
-          : tab === 'code' ? this._codeView()
           : tab === 'vault' ? this._vaultView()
           : tab === 'grants' ? this._rolesView()
           : tab === 'interfaces' ? this._ifacesView()
