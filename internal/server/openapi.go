@@ -138,6 +138,10 @@ func endpoints() []ep {
 		{"GET", "/backups", "Backup", "List a component's archived versions", "admin", "Passes the bound archiver's version list through: [{version, time, size}].", []oapi{queryParam("component", "the component", true)}, nil, "{versions:[{version,time,size}], archiver}"},
 		{"POST", "/restore", "Backup", "Restore a version or a single file", "admin", "Restore a whole version (stops + replaces the component's data/source from the archive) or, with `file`, stream one member back without touching live state (plans/lifecycle.md).", nil,
 			jsonBody("restore", oapi{"component": str("apps/x"), "version": str("optional; default latest"), "file": str("optional; one path within the archive")}, "component"), "{ok, component, restored} or the file bytes"},
+		{"GET", "/backup-schedule", "Backup", "List scheduled backups", "admin", "", nil, nil, "{schedules:[{component,schedule,retention}]}"},
+		{"POST", "/backup-schedule", "Backup", "Schedule (or reschedule) backups for a component", "admin", "Owner-scheduled backup on the cron engine (plans/lifecycle.md). retention prunes to N newest versions after each run (0 = keep all).", nil,
+			jsonBody("schedule", oapi{"component": str("apps/x"), "schedule": str("0 3 * * * | @every 24h"), "retention": str("N (int)")}, "component", "schedule"), "ok"},
+		{"DELETE", "/backup-schedule", "Backup", "Remove a component's backup schedule", "admin", "", []oapi{queryParam("component", "the component", true)}, nil, "ok"},
 
 		// --- vault ---
 		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "", nil, nil, "{initialized, sealed, insecure}"},

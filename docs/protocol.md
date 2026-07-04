@@ -185,6 +185,11 @@ POST   /restore                    admin. body {component, version?, file?}.
                                    The archiver is chosen by the @archive binding:
                                    bindings["<comp>"] override, else bindings["*"]
                                    default (set via POST /bindings).
+GET    /backup-schedule            admin. {schedules:[{component,schedule,retention}]}
+POST   /backup-schedule            admin. body {component, schedule, retention} —
+                                   owner-scheduled backup on the cron engine;
+                                   retention prunes to N newest versions per run.
+DELETE /backup-schedule?component= admin. remove a component's schedule
 
 GET    /vault-status              admin. {initialized, sealed, insecure}
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init

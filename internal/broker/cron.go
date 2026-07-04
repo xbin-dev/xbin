@@ -41,6 +41,10 @@ type cronRunner struct {
 	sched   *cron.Cron
 	entries map[string]cron.EntryID // job key → entry
 	jobs    map[string]cronJob
+	// Scheduled component backups (plans/lifecycle.md), keyed by component. These
+	// share the same scheduler but fire a buxond backup, not an element endpoint.
+	backups       map[string]backupSchedule
+	backupEntries map[string]cron.EntryID
 	// Dispatch is how ticks reach elements: installed by main as a call into
 	// the proxy (keeps broker ↔ proxy import-cycle-free).
 	dispatch func(p auth.Principal, comp, path string) (int, string)
@@ -50,8 +54,10 @@ func newCronRunner(b *Broker) *cronRunner {
 	cr := &cronRunner{
 		b: b, sched: cron.New(),
 		entries: map[string]cron.EntryID{}, jobs: map[string]cronJob{},
+		backups: map[string]backupSchedule{}, backupEntries: map[string]cron.EntryID{},
 	}
 	cr.load()
+	cr.loadBackups()
 	cr.sched.Start()
 	return cr
 }

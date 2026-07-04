@@ -1,0 +1,92 @@
+<!doctype html>
+<!-- S3 Archiver settings. Endpoint/region/bucket/prefix save to this tile's
+     /config; the access key + secret save straight into its vault (self is admin
+     of itself, docs/auth.md). buxond streams component backups to the /archive
+     endpoints; this page is only the configuration surface. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>S3 Archiver</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    html, body { margin: 0; }
+    body { padding: 12px 16px 16px; box-sizing: border-box; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); }
+    h3 { margin: 0 0 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    p.hint { margin: 0 0 12px; color: var(--bx-muted); font-size: 12px; }
+    label { display: block; margin: 8px 0 2px; font-size: 11px; color: var(--bx-muted); }
+    input { width: 100%; box-sizing: border-box; font: 12px var(--bx-mono, ui-monospace, monospace);
+            padding: 5px 8px; border: 1px solid var(--bx-border); border-radius: 5px;
+            background: var(--bx-panel); color: var(--bx-text); }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    button { margin-top: 14px; background: var(--bx-accent, #1e88e5); color: #fff; border: 0;
+             border-radius: 5px; padding: 6px 16px; cursor: pointer; font: inherit; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    .msg { margin-top: 10px; font-size: 12px; min-height: 1.2em; }
+    .msg.ok { color: var(--bx-green, #43a047); }
+    .msg.err { color: var(--bx-red, #e5484d); }
+    .creds { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--bx-border); }
+  </style>
+</head>
+<body>
+  <h3>S3 Archiver</h3>
+  <p class="hint">Where component backups are stored. Any S3-compatible endpoint (AWS, MinIO, R2, B2).</p>
+
+  <label>Endpoint</label>
+  <input id="endpoint" placeholder="https://s3.us-east-1.amazonaws.com">
+  <div class="row">
+    <div><label>Region</label><input id="region" placeholder="us-east-1"></div>
+    <div><label>Bucket</label><input id="bucket" placeholder="my-backups"></div>
+  </div>
+  <label>Prefix (optional)</label>
+  <input id="prefix" placeholder="buxon/">
+
+  <div class="creds">
+    <label>Access key ID</label>
+    <input id="accessKey" autocomplete="off">
+    <label>Secret access key <span id="credState" style="color:var(--bx-muted)"></span></label>
+    <input id="secretKey" type="password" autocomplete="off" placeholder="•••••• (leave blank to keep)">
+  </div>
+
+  <button id="save">Save</button>
+  <div class="msg" id="msg"></div>
+
+  <script type="module">
+    const self = buxon.self;
+    const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
+    const vault = (key, o) => buxon.fetch(`/api/buxon/vault/${self}/${encodeURIComponent(key)}`, o);
+    const $ = (id) => document.getElementById(id);
+
+    async function load() {
+      try {
+        const d = await (await api('/config')).json();
+        const c = d.config || {};
+        $('endpoint').value = c.endpoint || '';
+        $('region').value = c.region || '';
+        $('bucket').value = c.bucket || '';
+        $('prefix').value = c.prefix || '';
+        $('credState').textContent = d.hasCreds ? '· set' : '· not set';
+      } catch { /* first load / not admin */ }
+    }
+
+    async function save() {
+      const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Saving…';
+      $('save').disabled = true;
+      try {
+        await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: $('endpoint').value.trim(), region: $('region').value.trim(),
+            bucket: $('bucket').value.trim(), prefix: $('prefix').value.trim() }) });
+        if ($('accessKey').value.trim()) await vault('accessKey', { method: 'PUT', body: $('accessKey').value.trim() });
+        if ($('secretKey').value) await vault('secretKey', { method: 'PUT', body: $('secretKey').value });
+        $('secretKey').value = '';
+        msg.className = 'msg ok'; msg.textContent = 'Saved.';
+        load();
+      } catch (e) {
+        msg.className = 'msg err'; msg.textContent = String(e.message ?? e);
+      } finally { $('save').disabled = false; }
+    }
+    $('save').addEventListener('click', save);
+    load();
+  </script>
+</body>
+</html>

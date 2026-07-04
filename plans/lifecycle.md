@@ -164,13 +164,20 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
 
 ## Phasing
 
-1. **Lifecycle states + enable/disable** (no archiver needed): state model,
-   gating, API, `bx`, admin toggle. *(this slice)*
-2. **Backup core**: the scoped tar builder (+sqlite checkpoint) + the `archive`
-   interface + `@archive` bindings + `restore` (version/file) against a provider.
-3. **S3 archiver tile**.
-4. **Offload / restore** wired to the backup core (both depths).
-5. **Cron scheduling + retention**; admin backup UI.
+1. **Lifecycle states + enable/disable** *(done)* — state model, gating, API,
+   `bx`, admin toggle.
+2. **Backup core** *(done)* — `internal/backup` self-describing tar (Manifest +
+   Writer/Reader), broker build/restore, `@archive` bindings, `restore`
+   (version/file). sqlite snapshot copies the file + WAL sidecars (no checkpoint
+   driver yet — consistent for offload since the component is stopped first;
+   VACUUM-INTO hardening is a later drop-in).
+3. **S3 archiver tile** *(done)* — `builtin-tiles/s3-archiver`, dependency-free
+   SigV4 (unit-tested against AWS's vector), path-style, config UI + vault creds.
+4. **Offload / restore** *(done)* — both depths, wired into `POST /lifecycle`.
+5. **Cron scheduling + retention** *(done)* — owner-scheduled backups on the cron
+   engine + version pruning. Still to do: the admin backup *panel* (list versions
+   / restore / schedule in the UI — API is all there), and the `archive` family
+   entry in the interfaces UX.
 
 ## Touchpoints
 

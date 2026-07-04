@@ -1,0 +1,7 @@
+{
+  // apps/s3-archiver is a scope. Endpoint/region/bucket/prefix live in this kv
+  // resource; the S3 access key + secret live in the tile's vault, not here.
+  "resources": {
+    "state": { "type": "kv" }
+  }
+}

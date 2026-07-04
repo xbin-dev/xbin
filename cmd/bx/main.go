@@ -72,6 +72,8 @@ func main() {
 		err = cmdBackups(os.Args[2:])
 	case "restore":
 		err = cmdRestore(os.Args[2:])
+	case "backup-schedule":
+		err = cmdBackupSchedule(os.Args[2:])
 	default:
 		usage()
 	}
@@ -108,6 +110,8 @@ func usage() {
   bx backups <component>                list archived versions
   bx restore <component> [--version v] [--file path]
                                         restore a version, or one file to stdout
+  bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]
+                                        list/set/remove scheduled backups
   bx vault ls|get|set|rm <component> [key] [value]
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
@@ -367,6 +371,83 @@ func cmdIface() error {
 //	bx bind <component> <slot>=<provider> [<slot>=<provider> …]
 //	bx bind --unset <component> <slot>
 //
+// cmdBackupSchedule manages scheduled backups (plans/lifecycle.md LC-5):
+//
+//	bx backup-schedule                                       list schedules
+//	bx backup-schedule <comp> --every 24h [--keep N]         schedule (interval)
+//	bx backup-schedule <comp> --cron "0 3 * * *" [--keep N]  schedule (cron)
+//	bx backup-schedule <comp> --rm                           remove a schedule
+func cmdBackupSchedule(args []string) error {
+	if len(args) == 0 {
+		var out struct {
+			Schedules []struct {
+				Component string `json:"component"`
+				Schedule  string `json:"schedule"`
+				Retention int    `json:"retention"`
+			} `json:"schedules"`
+		}
+		if err := apiJSON("GET", "/api/buxon/backup-schedule", nil, &out); err != nil {
+			return err
+		}
+		if len(out.Schedules) == 0 {
+			fmt.Println("no backup schedules")
+			return nil
+		}
+		for _, s := range out.Schedules {
+			keep := "keep all"
+			if s.Retention > 0 {
+				keep = fmt.Sprintf("keep %d", s.Retention)
+			}
+			fmt.Printf("%-32s %-16s %s\n", s.Component, s.Schedule, keep)
+		}
+		return nil
+	}
+	var comp, schedule string
+	keep := 0
+	rm := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--rm":
+			rm = true
+		case "--cron":
+			i++
+			if i < len(args) {
+				schedule = args[i]
+			}
+		case "--every":
+			i++
+			if i < len(args) {
+				schedule = "@every " + args[i]
+			}
+		case "--keep":
+			i++
+			if i < len(args) {
+				fmt.Sscanf(args[i], "%d", &keep)
+			}
+		default:
+			comp = args[i]
+		}
+	}
+	if comp == "" {
+		return fmt.Errorf("usage: bx backup-schedule <component> [--every 24h | --cron \"expr\"] [--keep N] | --rm")
+	}
+	if rm {
+		if err := apiJSON("DELETE", "/api/buxon/backup-schedule?component="+comp, nil, nil); err != nil {
+			return err
+		}
+		fmt.Printf("unscheduled %s\n", comp)
+		return nil
+	}
+	if schedule == "" {
+		return fmt.Errorf("need --every <dur> or --cron \"<expr>\"")
+	}
+	if err := apiJSON("POST", "/api/buxon/backup-schedule", map[string]any{"component": comp, "schedule": schedule, "retention": keep}, nil); err != nil {
+		return err
+	}
+	fmt.Printf("scheduled %s (%s)\n", comp, schedule)
+	return nil
+}
+
 // cmdOffload archives a component and frees local bytes (plans/lifecycle.md):
 //
 //	bx offload <component> [--full]   (--full also removes source + term-env)
