@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
 
 	mux.Handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
+	mux.Handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
 	mux.Handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
@@ -107,6 +108,17 @@ func (s *Server) authedTerminal(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// handleTermKill ends a terminal session by id (?session=). The UI uses it to
+// restart a session under a new network scope (DELETE /ws/term).
+func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("session")
+	if id == "" || !s.Term.Kill(id) {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {

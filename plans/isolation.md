@@ -60,6 +60,29 @@ is no longer a permission question, it's simply not mounted.
 Rootless note: with a **user namespace** the mount ns + binds need no host
 capability; otherwise `CAP_SYS_ADMIN`. See §4.
 
+**uid mapping.** When `/etc/sub{u,g}id` delegate a range to the buxond user and
+`newuidmap`/`newgidmap` are present, the sandbox maps a **full uid range**:
+container 0 → the buxond user (root-in-container is still this user on the host),
+container 1..N → the sub-id range. This makes `apt`/`dpkg` user switches, `sudo`,
+`useradd`, and **running a backend as a non-root in-container uid** work — a
+defense-in-depth layer. Because the parent must run `newuidmap` against the child
+(only that can apply a *range* rootless), init is two-stage: the first exec lands
+as the unmapped overflow uid (execve strips caps), blocks until the parent writes
+the maps, then **re-execs** so the second execve runs as mapped root and regains
+capabilities for the mount setup. Without delegated sub-ids it falls back to the
+prior **single-uid** map (container 0 → buxond user, `setgroups` denied) — fine
+for backends, but apt/user-switching won't work.
+
+**overlay backend.** The root overlay is mounted with **fuse-overlayfs** when a
+binary is found (`$BUXON_FUSE_OVERLAYFS`, next to the buxond executable, or
+`$PATH`). We vendor our own — `hack/build-fuse-overlayfs.sh` builds a static one
+from pinned source (wired into `make`), shipped next to buxond rather than
+depending on a host package. It honors `redirect_dir`/`metacopy`, which the
+kernel forbids for *unprivileged* overlay mounts — so dpkg's directory renames
+(and thus `apt install`) work. Absent it, buxond falls back to kernel overlayfs
+(installs hit `EXDEV`). A private **devpts** is mounted too, so PTY allocation
+(dpkg/debconf, `tmux`, `script`, `sudo`) works.
+
 ## 2. Ingress — only the runtime can go in
 
 Already most of the way there: a backend serves on a **unix socket**
@@ -92,6 +115,11 @@ the host, LAN, or internet. Then egress resolves in three classes:
    byte-for-byte, or refused (RST). Transparent ⇒ works for **any** binary or
    library, no `HTTP_PROXY` cooperation needed. DNS is answered by the relay,
    which then applies policy to the resolved address (or matches hostname rules).
+   TCP and UDP are forwarded this way; **ICMP echo (`ping`) too** — the relay
+   siphons echo requests at the link layer and pings the target from the host via
+   an *unprivileged* ICMP socket, under the same policy, so reachability/RTT are
+   real. `traceroute` (TTL-exceeded relaying) is not covered — it needs the
+   terminal's `host` scope.
 
 ### Egress grant vocabulary
 

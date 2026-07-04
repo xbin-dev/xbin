@@ -176,13 +176,29 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 ### `/ws/term` — terminals (owner only)
 
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
-(reattach; scrollback replays first).
+(reattach; scrollback replays first). A new session also takes an optional
+`?net=<scope>` (default `internet`):
+
+- `internet` — own network namespace with an **internet-only egress relay**
+  (`net:internet`: public addresses only, no host interfaces visible). TCP, UDP,
+  and ICMP echo (`ping`) are forwarded under the policy; `traceroute` needs the
+  `host` scope. buxond stays reachable at `$BUXON_URL` via the relay's gateway
+  host-forward, so `bx`/`curl` work.
+- `host` — share the host network (LAN + host services reachable, host
+  interfaces visible). The escape hatch.
+- `none` — an isolated namespace with no egress (buxond unreachable).
+
+The scope is fixed at spawn; switching it restarts the session (the UI ends
+the old one and opens a new WS).
 
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.
-  - server → client: `{"op":"session","id":"…"}` (first message),
-    `{"op":"exit"}` (shell ended)
+  - server → client: `{"op":"session","id":"…","net":"internet"}` (first
+    message), `{"op":"exit"}` (shell ended)
   - client → server: `{"op":"resize","cols":120,"rows":32}`
+
+`DELETE /ws/term?session=<id>` (owner only) ends a session immediately (used
+by the UI to restart under a new scope); `204` on success, `404` if unknown.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 buxond restart kills them (run `tmux` inside if you care).

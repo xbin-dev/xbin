@@ -18,9 +18,8 @@ import (
 const (
 	tunName  = "bx0"
 	tunAddr  = "10.0.2.15/24"
-	tunGw    = "10.0.2.2"
+	tunGw    = GatewayIP  // 10.0.2.2 — buxond may host-forward here
 	relayDNS = "10.0.2.3" // the relay answers DNS here
-	ctrlFD   = 3          // the fd-passing socket (Launch put it in ExtraFiles)
 )
 
 // setupEgress creates the TUN in this (the component's) netns, configures its
@@ -28,7 +27,7 @@ const (
 // socket. buxond runs the userspace stack on it. Runs as netns-root, before
 // pivot_root (needs the host's /dev/net/tun). newroot is where /etc/resolv.conf
 // is written.
-func setupEgress(newroot string) error {
+func setupEgress(newroot string, ctrlFD int) error {
 	tunFD, err := createTUN(tunName)
 	if err != nil {
 		return fmt.Errorf("create tun: %w", err)

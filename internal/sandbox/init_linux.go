@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,6 +14,10 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// mappedEnv marks the second stage of range-uid init (after the parent wrote
+// our uid/gid maps and we re-exec'd to regain capabilities).
+const mappedEnv = "BX_SANDBOX_MAPPED"
 
 // RunInit is the re-exec entrypoint (buxond … __sandbox-init <specfile>). It
 // runs inside the fresh namespaces as container-root, assembles the mount
@@ -31,11 +36,26 @@ func runInit(specPath string) error {
 	if err != nil {
 		return must(err, "read spec")
 	}
-	os.Remove(specPath) // best-effort; not secret, but no reason to linger
 	var s Spec
 	if err := json.Unmarshal(data, &s); err != nil {
+		os.Remove(specPath)
 		return must(err, "parse spec")
 	}
+
+	// Range-uid mode is two-stage. This first stage was exec'd as the unmapped
+	// (overflow) uid, so execve stripped its capabilities. Wait for the parent to
+	// write our uid/gid maps (via newuidmap), then re-exec: that execve runs as
+	// now-mapped root, which regains full capabilities — required for the mount
+	// setup below. Single-uid mode maps before exec, so it skips straight through.
+	if s.SyncFD > 0 && os.Getenv(mappedEnv) != "1" {
+		if err := awaitMaps(s.SyncFD); err != nil {
+			os.Remove(specPath)
+			return must(err, "await uid maps")
+		}
+		env := append(os.Environ(), mappedEnv+"=1")
+		return must(unix.Exec("/proc/self/exe", []string{"buxond", InitArg, specPath}, env), "re-exec mapped")
+	}
+	os.Remove(specPath) // consume the spec (final stage, or single-uid mode)
 
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -72,7 +92,17 @@ func runInit(specPath string) error {
 		return fmt.Errorf("spec has no rootfs lowerdir")
 	}
 	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
-	if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
+	if s.FuseOverlay != "" {
+		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
+		// overlayfs forbids), so directory renames work → `apt install` etc. It
+		// backgrounds itself once mounted; Run returns when the mount is ready.
+		// CombinedOutput so its harmless mount-flag warnings (e.g. "lazytime")
+		// don't print into every terminal; surface output only on failure.
+		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
+		if out, err := fo.CombinedOutput(); err != nil {
+			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
+		}
+	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
 		return must(err, "mount overlay ("+opt+")")
 	}
 
@@ -93,6 +123,19 @@ func runInit(specPath string) error {
 	for _, d := range []string{"null", "zero", "full", "random", "urandom", "tty"} {
 		_ = bindNode(newroot, "/dev/"+d)
 	}
+	// A private devpts so programs can allocate PTYs (dpkg/debconf, tmux, script,
+	// sudo). No gid=5 — the tty group may be unmapped in single-uid mode; nodes
+	// are owned by the mounter, which is fine here. /dev/ptmx → the new instance.
+	if err := mountAt(newroot, "dev/pts", "devpts", "devpts",
+		unix.MS_NOSUID|unix.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620"); err == nil {
+		ptmx := filepath.Join(newroot, "dev", "ptmx")
+		_ = os.Remove(ptmx)
+		_ = os.Symlink("pts/ptmx", ptmx)
+	}
+	// /dev/fuse, for the fuse-overlayfs backend (and anything else using FUSE).
+	if s.FuseOverlay != "" {
+		_ = bindNode(newroot, "/dev/fuse")
+	}
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	for _, b := range s.Binds {
 		if err := mountBind(newroot, b); err != nil {
@@ -104,7 +147,7 @@ func runInit(specPath string) error {
 	// which runs the userspace stack + policy. Without this the netns stays
 	// empty = default-deny (plans/isolation.md §3).
 	if s.Net == "relay" {
-		if err := setupEgress(newroot); err != nil {
+		if err := setupEgress(newroot, s.CtrlFD); err != nil {
 			return must(err, "egress")
 		}
 	}
@@ -155,6 +198,19 @@ func runInit(specPath string) error {
 		return must(err, "exec "+s.Entry)
 	}
 	return nil // unreachable
+}
+
+// awaitMaps blocks until the parent writes our uid/gid maps and signals via the
+// sync fd (one byte). EOF means the parent failed to map us — abort rather than
+// run privileged as the overflow uid.
+func awaitMaps(fd int) error {
+	f := os.NewFile(uintptr(fd), "bx-sync")
+	defer f.Close()
+	var b [1]byte
+	if n, err := f.Read(b[:]); err != nil || n == 0 {
+		return fmt.Errorf("parent did not complete uid mapping")
+	}
+	return nil
 }
 
 // mountBind binds Src to <newroot>/Dst (recursively), creating the target, and

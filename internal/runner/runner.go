@@ -400,6 +400,11 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	if r.Cgroup != nil {
 		r.Cgroup.Add(util.CompKey(c.Path), cmd.Process.Pid)
 	}
+	// Range-uid sandbox: map the child's uids and release its init (which is
+	// blocked waiting) before anything reads back from it (e.g. the TUN fd).
+	if err := sb.SetupUserns(); err != nil {
+		fmt.Fprintf(logf, "userns setup: %v\n", err)
+	}
 
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
 
@@ -408,7 +413,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	if sb.NeedsRelay() {
 		if fd, err := sb.RecvTUN(); err != nil {
 			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
-		} else if rl, err := relay.Start(fd, pol.Allow, r.resolver()); err != nil {
+		} else if rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err != nil {
 			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
 		} else {
 			inst.relay = rl
@@ -429,24 +434,6 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		close(inst.waitCh)
 	}()
 	return inst, nil
-}
-
-// resolver is the upstream DNS the relay forwards component :53 queries to:
-// the host's first nameserver, else a public default.
-func (r *Runner) resolver() string {
-	if b, err := os.ReadFile("/etc/resolv.conf"); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			line = strings.TrimSpace(line)
-			if ns, ok := strings.CutPrefix(line, "nameserver "); ok {
-				ns = strings.TrimSpace(ns)
-				if !strings.Contains(ns, ":") {
-					return ns + ":53"
-				}
-				return "[" + ns + "]:53"
-			}
-		}
-	}
-	return "1.1.1.1:53"
 }
 
 func sandboxable(runtime string) bool {

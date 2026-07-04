@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -96,6 +97,9 @@ func (r *Runner) Inspect() []Backend {
 		}
 		out = append(out, b)
 	}
+	// Stable order (r.states is a map) so the admin runtime view doesn't reshuffle
+	// between polls.
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
 

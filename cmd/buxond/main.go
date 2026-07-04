@@ -203,6 +203,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 		return env
 	})
+	tm.Listen = listen // for the internet-scope relay host-forward to buxond
 
 	webFS, docsFS := buxon.WebFS(), buxon.DocsFS()
 	if dev {

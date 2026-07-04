@@ -33,9 +33,12 @@ const recentFlows = 64
 
 // Relay owns a gVisor stack forwarding a component's egress.
 type Relay struct {
-	stack *stack.Stack
-	dial  net.Dialer
-	allow Allow
+	stack   *stack.Stack
+	dial    net.Dialer
+	allow   Allow
+	gateway netip.Addr     // virtual gateway IP that host-forwards apply to
+	hostFwd map[int]string // gateway port → host dial addr (e.g. buxond)
+	icmp    *icmpTap       // link-layer ICMP echo forwarder (nil if setup failed)
 
 	mu      sync.Mutex
 	allowed int64
@@ -95,11 +98,10 @@ func (r *Relay) finish(f *Flow, tx, rx int64) {
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 
-// Start attaches a stack to tunFD (a TUN opened inside the target netns and
-// passed to us) and begins forwarding. resolver is the host DNS server to
-// relay UDP :53 to (e.g. "1.1.1.1:53" or the host's resolv.conf server).
-func Start(tunFD int, allow Allow, resolver string) (*Relay, error) {
-	ep, err := fdbased.New(&fdbased.Options{FDs: []int{tunFD}, MTU: 1500})
+// Start attaches a stack to a TUN (opened inside the target netns and passed to
+// us) and begins forwarding under cfg.
+func Start(cfg Config) (*Relay, error) {
+	ep, err := fdbased.New(&fdbased.Options{FDs: []int{cfg.TunFD}, MTU: 1500})
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +109,23 @@ func Start(tunFD int, allow Allow, resolver string) (*Relay, error) {
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
-	if e := s.CreateNIC(nicID, ep); e != nil {
+
+	r := &Relay{
+		stack: s, allow: cfg.Allow, dial: net.Dialer{Timeout: 15 * time.Second},
+		gateway: cfg.Gateway, hostFwd: cfg.HostFwd,
+	}
+
+	// Interpose an ICMP-echo forwarder at the link layer so `ping` works
+	// (gVisor has no ICMP forwarder). Best-effort — on failure we just lack ping.
+	var nic stack.LinkEndpoint = ep
+	if tap, e := newICMPTap(ep, cfg.TunFD, r); e == nil {
+		r.icmp = tap
+		nic = tap
+	}
+	if e := s.CreateNIC(nicID, nic); e != nil {
+		if r.icmp != nil {
+			r.icmp.close()
+		}
 		return nil, errf(e)
 	}
 	// Accept packets addressed to anyone (we're a transparent gateway).
@@ -118,27 +136,51 @@ func Start(tunFD int, allow Allow, resolver string) (*Relay, error) {
 		{Destination: header.IPv6EmptySubnet, NIC: nicID},
 	})
 
-	r := &Relay{stack: s, allow: allow, dial: net.Dialer{Timeout: 15 * time.Second}}
-
 	tcpFwd := tcp.NewForwarder(s, 0, 2048, r.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
-	udpFwd := udp.NewForwarder(s, r.udpHandler(resolver))
+	udpFwd := udp.NewForwarder(s, r.udpHandler(cfg.Resolver))
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
 	return r, nil
 }
 
-func (r *Relay) Close() { r.stack.Close() }
+func (r *Relay) Close() {
+	r.stack.Close()
+	if r.icmp != nil {
+		r.icmp.close()
+	}
+}
 
 func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	id := req.ID()
 	ip, ok := addr(id.LocalAddress)
 	port := int(id.LocalPort)
+
+	// Gateway host-forward: flows to the virtual gateway IP on a mapped port go
+	// to a host service (e.g. buxond), policy-exempt — that's how a netns-isolated
+	// terminal reaches the workspace controller without seeing host interfaces.
+	if r.gateway.IsValid() && ip == r.gateway {
+		host, mapped := r.hostFwd[port]
+		if !mapped {
+			r.record("tcp", ip, port, false)
+			req.Complete(true)
+			return
+		}
+		r.proxyTCP(req, ip, port, host)
+		return
+	}
+
 	if !ok || !r.allow(ip, port) {
 		r.record("tcp", ip, port, false) // RST — denied
 		req.Complete(true)
 		return
 	}
-	out, err := r.dial.Dial("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+	r.proxyTCP(req, ip, port, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+}
+
+// proxyTCP dials dst on the host, accepts the netns-side endpoint, and splices
+// them, recording the flow under (ip, port).
+func (r *Relay) proxyTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, dst string) {
+	out, err := r.dial.Dial("tcp", dst)
 	if err != nil {
 		f := r.record("tcp", ip, port, true) // allowed, but unreachable
 		r.finish(f, 0, 0)

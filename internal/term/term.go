@@ -11,10 +11,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/magik6k/buxon/internal/sandbox"
+	"github.com/magik6k/buxon/internal/sandbox/relay"
 	"github.com/magik6k/buxon/internal/util"
 )
 
@@ -31,6 +35,25 @@ const (
 	maxSessions   = 64
 	idleTimeout   = 24 * time.Hour
 )
+
+// Network scope for a terminal session (query ?net=). The netns/relay is fixed
+// at spawn, so switching scope restarts the session (the frontend opens a fresh
+// WS with a new ?net=). Default is internet: own netns, no host interfaces.
+const (
+	NetInternet = "internet" // own netns + egress relay, net:internet only (default)
+	NetHost     = "host"     // share the host network (LAN + host services visible)
+	NetNone     = "none"     // isolated netns, no egress (airgapped; buxond unreachable)
+)
+
+// normalizeNet clamps an incoming ?net= value to a known scope (default internet).
+func normalizeNet(s string) string {
+	switch s {
+	case NetHost, NetNone:
+		return s
+	default:
+		return NetInternet
+	}
+}
 
 type control struct {
 	Op   string `json:"op"` // resize|ping
@@ -46,9 +69,11 @@ type client struct {
 type Session struct {
 	ID      string
 	Cwd     string // workspace-relative component path
+	Net     string // network scope (NetInternet|NetHost|NetNone)
 	cmd     *exec.Cmd
 	pty     *os.File
-	cleanup func() // sandbox spec temp cleanup (nil for a plain shell)
+	cleanup func()       // sandbox spec temp cleanup (nil for a plain shell)
+	relay   *relay.Relay // egress relay (internet scope only; nil otherwise)
 	born    time.Time
 
 	mu         sync.Mutex
@@ -60,14 +85,16 @@ type Session struct {
 
 type Manager struct {
 	Root     string          // workspace root
+	Listen   string          // buxond's listen addr (host:port) — for the relay host-forward
 	Env      func() []string // extra env for shells (token, HOME, …)
 	upgrader websocket.Upgrader
 
 	// Isolate + Rootfs run terminals in a rootfs sandbox (plans/runtime.md RT-4):
 	// the base rootfs userland (toolchains + agent CLIs), the workspace mounted
-	// read-write (editing plane), a persistent $HOME (shared agent config), and
-	// host network (owner plane — unrestricted). ExtraBinds add read-only mounts
-	// (e.g. the SDK source so `go build` resolves). Off ⇒ a plain host shell.
+	// read-write (editing plane), a persistent $HOME (shared agent config), and a
+	// per-session network scope (default: own netns + internet-only egress relay,
+	// so host interfaces stay hidden). ExtraBinds add read-only mounts (e.g. the
+	// SDK source so `go build` resolves). Off ⇒ a plain host shell.
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
@@ -91,10 +118,11 @@ func NewManager(root string, env func() []string) *Manager {
 }
 
 // ServeWS handles an authenticated /ws/term request.
-// Query: cwd=<component-path> (new session) or session=<id> (reattach).
+// Query: cwd=<component-path> + net=<scope> (new session) or session=<id> (reattach).
 func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	sessID := r.URL.Query().Get("session")
 	cwd := r.URL.Query().Get("cwd")
+	netMode := normalizeNet(r.URL.Query().Get("net"))
 
 	var (
 		s   *Session
@@ -109,7 +137,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		s, err = m.create(cwd)
+		s, err = m.create(cwd, netMode)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -125,15 +153,26 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	s.attach(conn)
 }
 
-// List returns session metadata for the status API.
+// List returns session metadata for the status API, ordered by creation time
+// (m.sessions is a map, so without sorting the admin view would reshuffle).
 func (m *Manager) List() []map[string]any {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := []map[string]any{}
+	sessions := make([]*Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.Unlock()
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].born.Equal(sessions[j].born) {
+			return sessions[i].ID < sessions[j].ID
+		}
+		return sessions[i].born.Before(sessions[j].born)
+	})
+	out := []map[string]any{}
+	for _, s := range sessions {
 		s.mu.Lock()
 		out = append(out, map[string]any{
-			"id": s.ID, "cwd": s.Cwd, "clients": len(s.clients),
+			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
 			"created": s.born.UTC().Format(time.RFC3339),
 		})
 		s.mu.Unlock()
@@ -141,7 +180,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd string) (*Session, error) {
+func (m *Manager) create(cwd, netMode string) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -162,16 +201,23 @@ func (m *Manager) create(cwd string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	cmd, cleanup := m.shellCmd(dir, rel)
+	cmd, cleanup, postStart := m.shellCmd(dir, rel, netMode)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
+	// The egress relay can only start once init has created the TUN in its netns
+	// (post-fork), so wire it up after StartWithSize.
+	var rl *relay.Relay
+	if postStart != nil {
+		rl = postStart()
+	}
 
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, cmd: cmd, pty: f, cleanup: cleanup,
+		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
+		cleanup: cleanup, relay: rl,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
@@ -179,16 +225,18 @@ func (m *Manager) create(cwd string) (*Session, error) {
 	m.mu.Unlock()
 
 	go s.pump(func() { m.remove(s.ID) })
-	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel))
+	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", netMode)
 	return s, nil
 }
 
 // shellCmd builds the (unstarted) shell command: a rootfs sandbox when
-// isolation is on, else a plain host shell. Returns a cleanup for sandbox state.
-func (m *Manager) shellCmd(dir, rel string) (*exec.Cmd, func()) {
+// isolation is on, else a plain host shell. Returns a cleanup for sandbox state
+// and an optional postStart hook (run after the PTY starts) that wires the
+// egress relay and returns it (nil for non-relay scopes / a host shell).
+func (m *Manager) shellCmd(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, err := m.sandboxShell(dir, rel); err == nil {
-			return cmd, cleanup
+		if cmd, cleanup, post, err := m.sandboxShell(dir, rel, netMode); err == nil {
+			return cmd, cleanup, post
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
 		}
@@ -206,13 +254,16 @@ func (m *Manager) shellCmd(dir, rel string) (*exec.Cmd, func()) {
 	if m.Env != nil {
 		cmd.Env = append(cmd.Env, m.Env()...)
 	}
-	return cmd, func() {}
+	return cmd, func() {}, nil
 }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
-// whole workspace read-write (editing plane, incl. $HOME and AGENTS.md), any
-// read-only ExtraBinds (the SDK for `go build`), and the host network.
-func (m *Manager) sandboxShell(dir, rel string) (*exec.Cmd, func(), error) {
+// whole workspace read-write (editing plane, incl. $HOME and AGENTS.md) and any
+// read-only ExtraBinds (the SDK for `go build`). The network scope depends on
+// netMode: internet = own netns + egress relay (net:internet, no host interfaces
+// visible, buxond reachable via the relay host-forward); host = share the host
+// network; none = an isolated netns with no egress.
+func (m *Manager) sandboxShell(dir, rel, netMode string) (*exec.Cmd, func(), func() *relay.Relay, error) {
 	binds := append([]sandbox.Bind{
 		{Src: m.Root, Dst: m.Root}, // the workspace, rw
 	}, m.ExtraBinds...)
@@ -221,37 +272,115 @@ func (m *Manager) sandboxShell(dir, rel string) (*exec.Cmd, func(), error) {
 		Binds:   binds,
 		Entry:   "/bin/bash",
 		Argv:    []string{"bash"},
-		Env:     m.sandboxEnv(rel),
+		Env:     m.sandboxEnv(rel, netMode),
 		Cwd:     dir,
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
-		HostNet: true, // owner plane — unrestricted network
+	}
+	switch netMode {
+	case NetHost:
+		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
+	case NetNone:
+		spec.Net = "none" // isolated netns, default-deny egress
+	default: // NetInternet
+		spec.Net = "relay" // own netns; egress relay enforces net:internet
 	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return cmd, h.Cleanup, nil
+
+	pol, _ := sandbox.Parse([]string{"net:internet"})
+	hostFwd := m.hostForward()
+	// post runs after the PTY starts: complete uid mapping (range mode) and, for
+	// the internet scope, stand up the egress relay on the init's TUN.
+	post := func() *relay.Relay {
+		if err := h.SetupUserns(); err != nil {
+			slog.Warn("terminal sandbox: userns setup", "err", err)
+		}
+		if netMode != NetInternet || !h.NeedsRelay() {
+			return nil
+		}
+		fd, err := h.RecvTUN()
+		if err != nil {
+			slog.Warn("terminal egress relay: recv tun (egress disabled)", "err", err)
+			return nil
+		}
+		rl, err := relay.Start(relay.Config{
+			TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
+			Gateway: netip.MustParseAddr(sandbox.GatewayIP), HostFwd: hostFwd,
+		})
+		if err != nil {
+			slog.Warn("terminal egress relay: start (egress disabled)", "err", err)
+			return nil
+		}
+		return rl
+	}
+	return cmd, h.Cleanup, post, nil
+}
+
+// hostForward maps the buxond listen port on the relay gateway IP to buxond on
+// host loopback, so an internet-scope terminal (in its own netns) can still
+// reach the workspace controller via BUXON_URL (bx/curl) without any host
+// interface being exposed. Nil if the listen addr can't be parsed.
+func (m *Manager) hostForward() map[int]string {
+	_, portStr, err := net.SplitHostPort(m.Listen)
+	if err != nil {
+		return nil
+	}
+	port, err := net.LookupPort("tcp", portStr)
+	if err != nil {
+		return nil
+	}
+	return map[int]string{port: "127.0.0.1:" + portStr}
 }
 
 // sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
 // toolchains (not the host's), plus BUXON_URL/TOKEN/WORKSPACE/HOME from m.Env().
-func (m *Manager) sandboxEnv(rel string) []string {
+// In internet scope the netns can't reach buxond's 127.0.0.1 listener, so
+// BUXON_URL is rewritten to the relay gateway host-forward.
+func (m *Manager) sandboxEnv(rel, netMode string) []string {
 	env := []string{
 		"TERM=xterm-256color", "COLORTERM=truecolor",
 		"BUXON_COMPONENT=" + rel,
 		"LANG=C.UTF-8",
 		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
+	var buxonURL string
+	if netMode == NetInternet {
+		if _, port, err := net.SplitHostPort(m.Listen); err == nil {
+			buxonURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
+		}
+	}
 	if m.Env != nil {
 		for _, e := range m.Env() {
 			if strings.HasPrefix(e, "PATH=") {
 				continue // the rootfs PATH above wins
 			}
+			if buxonURL != "" && strings.HasPrefix(e, "BUXON_URL=") {
+				continue // rewritten below to the relay gateway
+			}
 			env = append(env, e)
 		}
 	}
+	if buxonURL != "" {
+		env = append(env, "BUXON_URL="+buxonURL)
+	}
 	return env
+}
+
+// Kill terminates a session by id: the shell is signalled, its PTY closes, and
+// pump tears down the relay/sandbox. Used when the UI switches network scope
+// (which must restart the session). Returns false if there is no such session.
+func (m *Manager) Kill(id string) bool {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	if s == nil {
+		return false
+	}
+	s.kill()
+	return true
 }
 
 func (m *Manager) remove(id string) {
@@ -314,6 +443,9 @@ func (s *Session) pump(onExit func()) {
 	s.clients = map[*client]struct{}{}
 	s.mu.Unlock()
 	_ = s.cmd.Wait()
+	if s.relay != nil {
+		s.relay.Close()
+	}
 	if s.cleanup != nil {
 		s.cleanup()
 	}
@@ -349,7 +481,7 @@ func (s *Session) attach(conn *websocket.Conn) {
 	// order), then live stream.
 	go func() {
 		_ = conn.WriteMessage(websocket.TextMessage,
-			[]byte(fmt.Sprintf(`{"op":"session","id":"%s"}`, s.ID)))
+			[]byte(fmt.Sprintf(`{"op":"session","id":"%s","net":"%s"}`, s.ID, s.Net)))
 		if len(sb) > 0 {
 			if err := conn.WriteMessage(websocket.BinaryMessage, sb); err != nil {
 				return

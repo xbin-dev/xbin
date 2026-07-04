@@ -115,13 +115,22 @@ but:
   is shared across terminals and survives upgrades), the **SDK source ro** (so
   `go build` resolves the go.work replace), and the builder docs on disk
   (`$BUXON_DOCS`; `AGENTS.md` is in the workspace mount);
-- **no egress restriction** — terminals share the **host network** (`HostNet`),
-  deliberately **not** sandboxed from the workspace (auth.md non-goal).
+- a **per-session network scope** (menu in the terminal window; switching
+  restarts the session — the netns/relay is fixed at spawn):
+  - **`internet` (default)** — the terminal's *own* netns + the egress relay
+    under `net:internet` (public egress only). No host interfaces are visible
+    (`ip addr` shows just `lo` + `bx0`). buxond stays reachable at `$BUXON_URL`
+    because the relay **host-forwards** its gateway IP (`10.0.2.2:<port>`) to
+    buxond on host loopback — so `bx`/`curl` work without exposing the host.
+  - **`host`** — share the host network (LAN + host services, interfaces
+    visible); the owner escape hatch, deliberately not sandboxed from the host.
+  - **`none`** — an isolated netns with no egress (buxond unreachable).
 
 They run in user+mount+pid+ipc+uts namespaces with the base rootfs — a clean,
 consistent environment (host paths outside the workspace/SDK are not mounted),
 not security-from-owner. Off `--isolate`, terminals fall back to a plain host
-shell. Implementation: `internal/term` + `sandbox.Spec.HostNet`.
+shell. Implementation: `internal/term` + `sandbox.Spec.{Net,HostNet}` +
+`relay.Config.{Gateway,HostFwd}`.
 
 ## Data & lifecycle
 
@@ -157,7 +166,10 @@ the recommendation moves.
 - **RT-3 — Ship a virtual appliance** (qcow2/OVA/ISO/cloud) eventually; immutable
   OS + A/B updates; workspace on a data disk.
 - **RT-4 — Terminals share the base rootfs** (nice builder env with agents) but
-  stay unsandboxed-from-workspace (owner plane).
+  stay unsandboxed-from-workspace (owner plane). Network is a **per-session
+  scope** (default: own netns + internet-only egress relay, no host interfaces;
+  `host`/`none` available), with buxond reachable via a relay gateway
+  host-forward.
 - **RT-5 — `wasm`/wazero is a first-class lightweight runtime** alongside the
   rootfs-based runtimes.
 - **RT-6 — Two nested boundaries**: VM (hard, outer) + per-component namespaces

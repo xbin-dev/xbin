@@ -107,6 +107,24 @@ so it stays local to this workspace.
 Sessions survive browser disconnects (reattach happens automatically) but
 not buxond restarts — run `tmux` inside if that matters to you.
 
+The rootfs is mounted as an **ephemeral overlay**, so anything you `apt install`
+in a terminal lasts only for that session. To add a tool permanently, extend the
+base image (`docker/rootfs.Dockerfile`) and rebuild it (`make rootfs`) — that
+lands it in every terminal and sandbox. Terminals map a full uid range, so
+`sudo`, `apt install`, `useradd`, and running as a non-root in-container user all
+work: buxond mounts each sandbox with its own **fuse-overlayfs** (built from
+source by `make`, shipped alongside buxond). If it's ever missing, buxond falls
+back to kernel overlayfs — then `apt update` still works but a full install fails
+with `Invalid cross-device link`.
+
+The title bar has a **network scope** menu. By default a terminal has its own
+network namespace with **internet-only** egress — the host's interfaces aren't
+visible (`ip addr` shows just `lo` and `bx0`), but the public internet and
+buxond (`$BUXON_URL`, so `bx`/`curl`) work. `ping` works too (real reachability);
+`traceroute` needs host scope. Switch to **host net** to reach the LAN / services
+on the host, or **offline** for no network at all. Switching scope restarts the
+terminal (it can't change live).
+
 ## Versioning
 
 The workspace is a git repo (`buxond init` set it up; `.buxon/`, `data/`,

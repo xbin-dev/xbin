@@ -32,6 +32,13 @@ RUN mkdir -p /usr/local/node \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
        | tar -C /usr/local/node --strip-components=1 -xJ
 
+# apt normally drops privileges to the `_apt` user for downloads. In a rootless,
+# single-uid sandbox namespace only one uid is mapped, so that setuid/setgid
+# fails ("setgroups … Operation not permitted") and `apt update`/`install` break.
+# Tell apt to run as root instead — the standard fix for unprivileged containers.
+# (Terminal overlays are ephemeral, so installs last for the session.)
+RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00buxon-no-sandbox
+
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
 # Agent CLIs — so an opened terminal is AI-assisted with zero setup (RT-4).

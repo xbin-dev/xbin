@@ -111,13 +111,19 @@ export class BxFrame extends LitElement {
       color: var(--bx-text, #33414e);
     }
     .titlebar button:hover { color: var(--bx-text, #33414e); }
+    .titlebar select.scope {
+      margin-left: 2px; border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
+      font: 11px var(--bx-mono, ui-monospace, monospace);
+      padding: 1px 4px; border-radius: 4px; cursor: pointer;
+    }
     .term-host { flex: 1; min-height: 0; background: #1b1e24; }
   `;
 
   constructor() {
     super();
     this._termOpen = false;
-    this._sessions = []; // [{id: string|null}] — null until server assigns
+    this._sessions = []; // [{id: string|null, net}] — id null until server assigns
     this._active = 0;
     this._buildError = null;
     this._autoHeight = false;
@@ -210,7 +216,7 @@ export class BxFrame extends LitElement {
   // Title-bar drag; the native CSS resize handle owns width/height, and we
   // read the final geometry back into _pop so reopening keeps it.
   _dragStart(ev) {
-    if (ev.button !== 0 || ev.target.closest('button')) return;
+    if (ev.button !== 0 || ev.target.closest('button, select')) return;
     const el = this._popEl;
     if (!el) return;
     ev.preventDefault();
@@ -241,13 +247,28 @@ export class BxFrame extends LitElement {
   }
 
   _newTerm() {
-    this._sessions = [...this._sessions, { id: null }];
+    this._sessions = [...this._sessions, { id: null, net: 'internet' }];
     this._active = this._sessions.length - 1;
   }
 
   _gotSession(i, ev) {
     const s = [...this._sessions];
-    s[i] = { id: ev.detail.id };
+    s[i] = { id: ev.detail.id, net: ev.detail.net || s[i]?.net || 'internet' };
+    this._sessions = s;
+  }
+
+  // Switch the active terminal's network scope. The netns/relay is fixed at
+  // spawn, so this restarts the session: end the old one and drop to a fresh
+  // session in the new scope (bx-terminal reconnects on the net change).
+  _setNet(i, net) {
+    const cur = this._sessions[i];
+    if (!cur || cur.net === net) return;
+    if (cur.id) {
+      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' })
+        .catch(() => { });
+    }
+    const s = [...this._sessions];
+    s[i] = { id: null, net };
     this._sessions = s;
   }
 
@@ -273,13 +294,20 @@ export class BxFrame extends LitElement {
                       @click=${() => { this._active = i; }}>${i + 1}</button>`)}
             <button title="new terminal" @click=${this._newTerm}>+</button>
             <span class="spacer"></span>
+            <select class="scope" title="network scope (switching restarts the terminal)"
+                    .value=${this._sessions[this._active]?.net || 'internet'}
+                    @change=${(e) => this._setNet(this._active, e.target.value)}>
+              <option value="internet">🌐 internet</option>
+              <option value="host">🖧 host net</option>
+              <option value="none">⛔ offline</option>
+            </select>
             <button title="close (session keeps running)"
                     @click=${() => { this._termOpen = false; }}>✕</button>
           </div>
           <div class="term-host">
             ${this._sessions.map((s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                cwd=${this.src} session=${s.id ?? nothing}
+                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'}
                 @bx-session=${(ev) => this._gotSession(i, ev)}></bx-terminal>`)}
           </div>
         </div>` : nothing}

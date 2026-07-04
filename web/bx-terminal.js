@@ -3,10 +3,11 @@
  *
  * Attributes/properties:
  *   cwd      — component path to open the shell in (new session)
+ *   net      — network scope for a new session: internet (default) | host | none
  *   session  — existing session id to reattach (set automatically after
  *              connect; survives element re-creation if you persist it)
  *
- * Events: 'bx-session' (detail: {id}) once the server assigns a session.
+ * Events: 'bx-session' (detail: {id, net}) once the server assigns a session.
  * Wire protocol: docs/protocol.md §/ws/term.
  *
  * xterm.js ships as UMD, loaded lazily into the main document; bx-terminal
@@ -64,6 +65,22 @@ export class BxTerminal extends HTMLElement {
     this.#term?.dispose();
   }
 
+  // Switching network scope can't hot-reload (the netns/relay is fixed at
+  // spawn), so a live change to `net` restarts the session: drop the current
+  // session id and reconnect, which asks buxond for a fresh shell in the new
+  // scope. (The caller is expected to have already ended the old session.)
+  static get observedAttributes() { return ['net']; }
+  attributeChangedCallback(name, oldV, newV) {
+    if (name !== 'net' || oldV === null || oldV === newV || !this.#term) return;
+    this.removeAttribute('session');
+    this.#retries = 0;
+    this.#term.write(`\r\n\x1b[90m[switching network → ${newV}…]\x1b[0m\r\n`);
+    const old = this.#ws;
+    this.#ws = null;
+    if (old) { old.onclose = null; old.close(); }
+    this.#connect();
+  }
+
   async #start() {
     await loadXterm();
     if (this.#closed) return;
@@ -107,7 +124,8 @@ export class BxTerminal extends HTMLElement {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
-      : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}`;
+      : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
+        `&net=${encodeURIComponent(this.getAttribute('net') || 'internet')}`;
     const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
     ws.binaryType = 'arraybuffer';
     this.#ws = ws;
@@ -123,7 +141,8 @@ export class BxTerminal extends HTMLElement {
         let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
         if (ctl.op === 'session') {
           this.setAttribute('session', ctl.id);
-          this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id }, bubbles: true }));
+          if (ctl.net) this.setAttribute('net', ctl.net);
+          this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id, net: ctl.net }, bubbles: true }));
         } else if (ctl.op === 'exit') {
           this.#closed = true;
           this.#term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
