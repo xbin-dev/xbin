@@ -8,19 +8,20 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 
-// pastel paper colors per topic: [background, edge]
+// tinted dark-steel paper per topic: [background, edge]. Muted hues that
+// carry topic identity while light-gray note text stays readable on top.
 const PAPER = {
-  blue:   ['#e3f0fd', '#b5d4f5'],
-  purple: ['#f1e6fb', '#d8bef0'],
-  green:  ['#e5f4e8', '#b8dfc2'],
-  pink:   ['#fde7ef', '#f4bcd2'],
-  yellow: ['#fdf6cf', '#ecd98a'],
-  orange: ['#fdecd8', '#f2cba0'],
-  cyan:   ['#e0f4f6', '#aadde2'],
-  teal:   ['#daf2ec', '#a6ddce'],
-  slate:  ['#e9edf3', '#c3cedd'],
-  rose:   ['#fce6ea', '#f2b9c4'],
-  sky:    ['#dbeafe', '#93c5fd'], // the featured "start here" note
+  blue:   ['#1f2a39', '#35506e'],
+  purple: ['#292340', '#493d68'],
+  green:  ['#1d2f26', '#356149'],
+  pink:   ['#342330', '#5e3b4d'],
+  yellow: ['#312c1b', '#5f5531'],
+  orange: ['#322719', '#60482d'],
+  cyan:   ['#182e31', '#2d5960'],
+  teal:   ['#182e2a', '#2c5b50'],
+  slate:  ['#252a33', '#414b5a'],
+  rose:   ['#33222a', '#5e3a47'],
+  sky:    ['#1e2c40', '#3a5a86'], // the featured "start here" note
 };
 
 const NOTES = [
@@ -688,14 +689,14 @@ class WelcomeNotes extends LitElement {
     ul { margin: 6px 0 0; padding-left: 18px; }
     li { font-size: 12.5px; margin-top: 4px; }
     code {
-      background: rgba(255, 255, 255, 0.55);
-      border: 1px solid rgba(51, 65, 78, 0.12);
+      background: rgba(0, 0, 0, 0.24);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 4px; padding: 0 4px;
       font: 11.5px var(--bx-mono, ui-monospace, monospace);
     }
     pre {
-      background: rgba(255, 255, 255, 0.6);
-      border: 1px solid rgba(51, 65, 78, 0.12);
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 4px; padding: 7px 9px; margin: 8px 0 0;
       font: 11.5px/1.5 var(--bx-mono, ui-monospace, monospace);
       overflow-x: auto; white-space: pre;
@@ -728,7 +729,7 @@ class WelcomeNotes extends LitElement {
       border-radius: 2px;
       padding: 22px 12px 12px;
       min-height: 74px;
-      box-shadow: 1px 2px 5px rgba(16, 24, 40, 0.13);
+      box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.38);
       cursor: pointer;
       transform: rotate(-1deg);
       transition: transform 0.12s ease, box-shadow 0.12s ease;
@@ -738,14 +739,14 @@ class WelcomeNotes extends LitElement {
     .board .note:nth-child(3n)   { transform: rotate(-0.4deg); }
     .note:hover {
       transform: rotate(0deg) translateY(-2px);
-      box-shadow: 2px 5px 12px rgba(16, 24, 40, 0.18);
+      box-shadow: 2px 5px 14px rgba(0, 0, 0, 0.5);
     }
     .note::before {              /* tape */
       content: ""; position: absolute; top: -7px; left: 50%;
       width: 42px; height: 14px; transform: translateX(-50%) rotate(-2deg);
-      background: rgba(255, 255, 255, 0.55);
-      border: 1px solid rgba(51, 65, 78, 0.1);
-      box-shadow: 0 1px 1px rgba(16, 24, 40, 0.06);
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
     }
     .note h3 {
       margin: 0; font-size: 12.5px; font-weight: 700;
@@ -775,7 +776,7 @@ class WelcomeNotes extends LitElement {
     }
     .note .badge {
       position: absolute; top: -9px; right: 14px;
-      background: var(--bx-accent, #f5a623); color: #fff;
+      background: var(--bx-accent, #f5a623); color: #23272e;
       font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
       text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
       box-shadow: 0 1px 3px rgba(16, 24, 40, 0.28);
@@ -793,8 +794,8 @@ class WelcomeNotes extends LitElement {
     .sheet::before {
       content: ""; position: absolute; top: -8px; left: 26px;
       width: 52px; height: 16px; transform: rotate(-3deg);
-      background: rgba(255, 255, 255, 0.55);
-      border: 1px solid rgba(51, 65, 78, 0.1);
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .sheet h3 { margin: 0; font-size: 13px; font-weight: 700; }
     .sheet .kids-label {
