@@ -43,16 +43,16 @@ const (
 // Manifest is the self-describing header. Everything needed to place the tar's
 // files back without consulting local state lives here.
 type Manifest struct {
-	Schema       int               `json:"schema"`
-	Component    string            `json:"component"` // path = identity + restore target
-	Scope        string            `json:"scope"`     // scope path ("" = workspace scope)
-	ScopeRoot    bool              `json:"scopeRoot"` // component roots its scope → data included
-	Resources    map[string]string `json:"resources,omitempty"`
+	Schema      int               `json:"schema"`
+	Component   string            `json:"component"` // path = identity + restore target
+	Scope       string            `json:"scope"`     // scope path ("" = workspace scope)
+	ScopeRoot   bool              `json:"scopeRoot"` // component roots its scope → data included
+	Resources   map[string]string `json:"resources,omitempty"`
 	XBinVersion string            `json:"xbinVersion"`
-	Created      string            `json:"created"` // RFC3339
-	Includes     []string          `json:"includes"`
-	CronJobs     []json.RawMessage `json:"cronJobs,omitempty"`
-	WithVault    bool              `json:"withVault,omitempty"`
+	Created     string            `json:"created"` // RFC3339
+	Includes    []string          `json:"includes"`
+	CronJobs    []json.RawMessage `json:"cronJobs,omitempty"`
+	WithVault   bool              `json:"withVault,omitempty"`
 }
 
 func (m Manifest) Has(part string) bool {

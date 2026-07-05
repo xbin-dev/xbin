@@ -24,7 +24,7 @@ func TestResourceBinds(t *testing.T) {
 		"XBIN_RES_STORE=" + fsDir,                    // filesystem (dir) → bind the dir itself
 		"XBIN_RES_KVX=res:apps/sql-ui/kvx",           // kv → not a path, skip
 		"XBIN_SOCKET=/tmp/x/g0.sock",                 // outside root → skip
-		"PATH=/usr/bin",                               // not a resource
+		"PATH=/usr/bin",                              // not a resource
 	}
 
 	bound := map[string]bool{}
