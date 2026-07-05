@@ -125,6 +125,14 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 // SetUsers installs the user store (from main, after Load).
 func (a *Auth) SetUsers(s *users.Store) { a.Users = s }
 
+// TokenLoginDisabled reports whether the bootstrap owner-token *browser* login
+// has been turned off in the user store (the /login?token= URL and the
+// owner-token cookie). The Bearer owner token still authenticates — tooling
+// (bx, via XBIN_TOKEN) depends on it.
+func (a *Auth) TokenLoginDisabled() bool {
+	return a.Users != nil && a.Users.TokenLoginDisabled()
+}
+
 // --- sessions ---
 
 // NewSession creates a server-side session for a user, returning its id.
@@ -312,6 +320,12 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 	var base Principal
 	switch {
 	case subtleEqual(cookie.Value, a.OwnerToken):
+		// Owner-token browser login can be turned off once real accounts exist;
+		// when disabled, an owner-token cookie no longer authenticates (so a
+		// leaked token can't be pasted into a cookie either). Bearer is separate.
+		if a.TokenLoginDisabled() {
+			return Principal{}, false
+		}
 		base = Principal{Owner: true, Via: "cookie"}
 	default:
 		uid, ok := a.sessionUser(cookie.Value)

@@ -57,6 +57,8 @@ export class BxAdmin extends LitElement {
     _reveal: { state: true },   // "comp\0key" -> value (revealed secrets)
     _cron: { state: true },
     _users: { state: true },
+    _authSettings: { state: true }, // {tokenLoginDisabled, hasAdminUser}
+    _who: { state: true },          // whoami — is the viewer a real admin user?
     _ifaces: { state: true },   // {bindings, components} — interface wiring
     _schedules: { state: true }, // [{component, schedule, retention}]
     _versions: { state: true },  // comp -> [{version,time,size}] (lazy)
@@ -298,12 +300,15 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, who] = await Promise.all([
         api('/auth-overview'), api('/vaults'), api('/cron/jobs'),
         api('/users').catch(() => ({ users: [] })),
+        api('/auth-settings').catch(() => null),
+        api('/whoami').catch(() => null),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._users = users.users ?? [];
+      this._authSettings = authSettings; this._who = who;
       this._err = ''; this._denied = false;
     } catch (e) {
       if (String(e.message).includes('admin')) this._denied = true;
@@ -1051,6 +1056,43 @@ export class BxAdmin extends LitElement {
     this._refresh();
   }
 
+  async _setTokenLogin(disabled) {
+    try {
+      await api('/auth-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenLoginDisabled: disabled }) });
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    await this._refresh();
+    this.requestUpdate();
+  }
+
+  _signInSecurityView() {
+    const s = this._authSettings;
+    if (!s) return nothing;
+    const off = !!s.tokenLoginDisabled;                       // token login currently OFF
+    const who = this._who;
+    const amRealAdmin = !!(who && who.kind === 'user' && who.admin);
+    // Turning it OFF (disabling token login) needs an admin user + a signed-in
+    // admin-user caller. Turning it back ON is always allowed.
+    const canDisable = s.hasAdminUser && amRealAdmin;
+    return html`
+      <h4>sign-in security</h4>
+      <label style="display:flex; gap:8px; align-items:flex-start; font-size:12px; max-width:52ch">
+        <input type="checkbox" .checked=${off} ?disabled=${!off && !canDisable}
+          @change=${(e) => this._setTokenLogin(e.target.checked)}>
+        <span>
+          <b>Disable token-URL login.</b> Turns off the bootstrap
+          <span class="mono">/login?token=…</span> URL and the owner-token cookie —
+          everyone signs in with an account. The <span class="mono">bx</span> CLI
+          token (<span class="mono">Authorization: Bearer</span>) is unaffected.
+          ${off ? html`<br><span class="muted">Token login is off. Uncheck to allow it again.</span>`
+            : !s.hasAdminUser ? html`<br><span class="muted">Create an admin user first.</span>`
+            : !amRealAdmin ? html`<br><span class="muted">Sign in as an admin user (not the root token) to enable this.</span>`
+            : nothing}
+        </span>
+      </label>`;
+  }
+
   _usersView() {
     const users = this._users ?? [];
     return html`
@@ -1086,7 +1128,9 @@ export class BxAdmin extends LitElement {
         <button class="act go">create</button>
       </form>
       <p class="muted" style="font-size:11px;margin-top:6px">
-        Terminal = a <b>root shell</b> in a tile's directory; grant it only to trusted users.</p>`;
+        Terminal = a <b>root shell</b> in a tile's directory; grant it only to trusted users.</p>
+
+      ${this._signInSecurityView()}`;
   }
 }
 

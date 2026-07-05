@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/magik6k/xbin/internal/users"
 )
 
 func testAuth(t *testing.T) *Auth {
@@ -82,5 +84,52 @@ func TestFromRequest(t *testing.T) {
 	r.Header.Set(FrameTokenHeader, "garbage")
 	if _, ok := a.FromRequest(r); ok {
 		t.Fatal("invalid frame token downgraded to owner")
+	}
+}
+
+// Disabling token login must reject the owner-token *cookie* (so a leaked token
+// can't be pasted into a cookie) while leaving the *Bearer* path intact — bx
+// and component backends authenticate with the owner token over the gateway.
+func TestTokenLoginDisabledGating(t *testing.T) {
+	a := testAuth(t)
+	st, err := users.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Upsert(users.User{ID: "admin", Role: users.RoleAdmin}, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	a.SetUsers(st)
+
+	cookieReq := func() *http.Request {
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerToken})
+		return r
+	}
+	bearerReq := func() *http.Request {
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.Header.Set("Authorization", "Bearer "+a.OwnerToken)
+		return r
+	}
+
+	if p, ok := a.FromRequest(cookieReq()); !ok || !p.Owner {
+		t.Fatal("owner cookie rejected while token login enabled")
+	}
+
+	if err := st.SetTokenLoginDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.FromRequest(cookieReq()); ok {
+		t.Fatal("owner cookie still accepted after token login disabled")
+	}
+	if p, ok := a.FromRequest(bearerReq()); !ok || !p.Owner {
+		t.Fatal("owner Bearer rejected after token login disabled — this breaks bx")
+	}
+
+	if err := st.SetTokenLoginDisabled(false); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := a.FromRequest(cookieReq()); !ok || !p.Owner {
+		t.Fatal("owner cookie rejected after re-enabling token login")
 	}
 }

@@ -75,6 +75,12 @@ type Store struct {
 	path string
 	mu   sync.RWMutex
 	byID map[string]*User
+
+	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
+	// (the /login?token= URL and the owner-token cookie) once real accounts
+	// exist. The Bearer owner token still works for tooling (bx). Enforced in
+	// internal/auth and the login handler.
+	tokenLoginDisabled bool
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -88,7 +94,8 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	var doc struct {
-		Users []*User `json:"users"`
+		Users              []*User `json:"users"`
+		TokenLoginDisabled bool    `json:"tokenLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -96,7 +103,45 @@ func Open(dataDir string) (*Store, error) {
 	for _, u := range doc.Users {
 		s.byID[u.ID] = u
 	}
+	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	return s, nil
+}
+
+// TokenLoginDisabled reports whether owner-token browser login has been turned
+// off (see the field doc). The Bearer owner token is unaffected.
+func (s *Store) TokenLoginDisabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tokenLoginDisabled
+}
+
+// HasAdmin reports whether at least one admin user exists — a password login
+// that can't be locked out by disabling token login.
+func (s *Store) HasAdmin() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.hasAdminLocked()
+}
+
+func (s *Store) hasAdminLocked() bool {
+	for _, u := range s.byID {
+		if u.Role == RoleAdmin {
+			return true
+		}
+	}
+	return false
+}
+
+// SetTokenLoginDisabled toggles owner-token browser login. Enabling it requires
+// an existing admin user, so the operator can't lock everyone out.
+func (s *Store) SetTokenLoginDisabled(v bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v && !s.hasAdminLocked() {
+		return fmt.Errorf("create an admin user before disabling token login")
+	}
+	s.tokenLoginDisabled = v
+	return s.persistLocked()
 }
 
 // Count is the number of configured users (0 ⇒ single-user/root-only mode).
@@ -191,7 +236,7 @@ func (s *Store) persistLocked() error {
 		users = append(users, u)
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
-	b, err := json.MarshalIndent(map[string]any{"users": users}, "", "  ")
+	b, err := json.MarshalIndent(map[string]any{"users": users, "tokenLoginDisabled": s.tokenLoginDisabled}, "", "  ")
 	if err != nil {
 		return err
 	}

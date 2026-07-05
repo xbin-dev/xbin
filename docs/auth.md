@@ -275,6 +275,16 @@ Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
 - First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
 - CLI/scripts use `Authorization: Bearer` (terminals have `$XBIN_TOKEN`).
+- **Disabling token login.** Once you've created an admin *user*, an admin can
+  turn off the bootstrap token's *browser* login from the admin console's
+  **Users → sign-in security** toggle (`PATCH /api/xbin/auth-settings`
+  `{tokenLoginDisabled:true}`). Then the `…/login?token=` URL is refused **and**
+  an owner-token cookie no longer authenticates (a leaked token can't be pasted
+  into a cookie) — everyone signs in with an account. Guarded against lockout:
+  it needs an existing admin user and a signed-in admin-*user* caller (not the
+  bootstrap token itself). The **Bearer** owner token is deliberately
+  unaffected, so `bx`/terminals keep working; to revoke that too, rotate
+  `.xbin/token`.
 - Behind an https proxy the cookie turns `Secure` automatically
   (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or
   Caddy in front.

@@ -158,6 +158,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok := r.URL.Query().Get("token"); tok != "" {
+		if s.Auth.TokenLoginDisabled() {
+			http.Error(w, "token login is disabled — sign in with your account", http.StatusForbidden)
+			return
+		}
 		if tok != s.Auth.OwnerToken {
 			http.Error(w, "bad token", http.StatusForbidden)
 			return

@@ -112,6 +112,11 @@ func endpoints() []ep {
 			jsonBody("new user", oapi{"id": str(""), "name": str(""), "role": str("admin|user"), "tiles": arr(), "terminal": boolean(), "password": str("")}, "id"), "created user"},
 		{"PATCH", "/users/{id}", "Users", "Update a user", "xbin:users", "Update fields and/or reset the password.", []oapi{pathParam("id", "user id")}, freeBody("fields to update"), "updated user"},
 		{"DELETE", "/users/{id}", "Users", "Delete a user", "xbin:users", "Removes the user and revokes their sessions.", []oapi{pathParam("id", "user id")}, nil, "ok"},
+		{"GET", "/auth-settings", "Users", "Get auth settings", "xbin:users",
+			"Owner-token browser-login state ({tokenLoginDisabled, hasAdminUser}).", nil, nil, "{tokenLoginDisabled,hasAdminUser}"},
+		{"PATCH", "/auth-settings", "Users", "Update auth settings", "xbin:users",
+			"Enable/disable owner-token browser login (/login?token= + owner cookie). Disabling needs an admin user and a signed-in admin-user caller; the Bearer owner token is unaffected.",
+			nil, jsonBody("settings", oapi{"tokenLoginDisabled": boolean()}, "tokenLoginDisabled"), "{tokenLoginDisabled}"},
 
 		// --- workspace management ---
 		{"POST", "/create", "Workspace", "Create a component", "xbin:writer",
@@ -241,10 +246,10 @@ func operation(e ep) oapi {
 		desc = cap + "\n\n" + desc
 	}
 	op := oapi{
-		"tags":               []string{e.tag},
-		"summary":            e.summary,
-		"description":        desc,
-		"operationId":        operationID(e),
+		"tags":              []string{e.tag},
+		"summary":           e.summary,
+		"description":       desc,
+		"operationId":       operationID(e),
 		"x-xbin-capability": e.capability,
 		"responses": oapi{
 			"200": oapi{"description": orDefault(e.resp, "success")},

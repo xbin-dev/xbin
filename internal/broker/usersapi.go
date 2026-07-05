@@ -19,6 +19,8 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("POST /users", b.apiUsersCreate)
 	srv.RegisterAPI("PATCH /users/{id}", b.apiUsersUpdate)
 	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
+	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
+	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
 }
 
 // canManageUsers: root/admin, or an element granted xbin:users (or xbin:admin).
@@ -177,6 +179,56 @@ func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+// apiAuthSettingsGet reports the owner-token browser-login state and whether an
+// admin user exists (needed before it can be disabled).
+func (b *Broker) apiAuthSettingsGet(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"tokenLoginDisabled": st.TokenLoginDisabled(),
+		"hasAdminUser":       st.HasAdmin(),
+	})
+}
+
+// apiAuthSettingsUpdate toggles owner-token browser login. Disabling it is
+// guarded twice against lockout: an admin user must exist (enforced in the
+// store), and the caller must be a signed-in admin *user* — not the bootstrap
+// owner token itself, whose own session this would invalidate.
+func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	var body struct {
+		TokenLoginDisabled *bool `json:"tokenLoginDisabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.TokenLoginDisabled == nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool}"})
+		return
+	}
+	if *body.TokenLoginDisabled {
+		if p := auth.PrincipalOf(r); p.User == nil || !p.User.IsAdmin() {
+			server.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error": "sign in as an admin user (not the bootstrap token) before disabling token login",
+			})
+			return
+		}
+	}
+	if err := st.SetTokenLoginDisabled(*body.TokenLoginDisabled); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"tokenLoginDisabled": st.TokenLoginDisabled()})
 }
 
 func firstNonEmpty(a, b string) string {

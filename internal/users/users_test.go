@@ -64,3 +64,35 @@ func TestPublicStripsHash(t *testing.T) {
 		t.Fatal("Public must strip the password hash")
 	}
 }
+
+func TestTokenLoginDisabledGuardAndPersist(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+
+	// Refuse to disable token login while there's no admin (avoids lockout).
+	if err := s.SetTokenLoginDisabled(true); err == nil {
+		t.Fatal("disabled token login with no admin user present")
+	}
+	if s.TokenLoginDisabled() {
+		t.Fatal("flag set despite the guard erroring")
+	}
+
+	if _, err := s.Upsert(User{ID: "root", Role: RoleAdmin}, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTokenLoginDisabled(true); err != nil {
+		t.Fatalf("disable failed with an admin present: %v", err)
+	}
+	if !s.TokenLoginDisabled() || !s.HasAdmin() {
+		t.Fatal("expected tokenLoginDisabled + HasAdmin")
+	}
+
+	// Survives a reload (persisted in users.json).
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s2.TokenLoginDisabled() {
+		t.Fatal("tokenLoginDisabled not persisted across Open")
+	}
+}
