@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 236 64" fill="none" role="img" aria-label="X/BIN">
+  <!-- industrial container plate: chamfered top-left + bottom-right, machined corners + rivets -->
+  <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#23272e"/>
+  <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" stroke="#3a3f47" stroke-width="1.5"/>
+  <circle cx="53" cy="11" r="2.3" fill="#4a5058"/>
+  <circle cx="11" cy="53" r="2.3" fill="#4a5058"/>
+  <!-- the X: two structural beams, flat (angle-cut) ends -->
+  <path d="M21 21 43 43M43 21 21 43" stroke="#f5a623" stroke-width="9" stroke-linecap="butt"/>
+  <!-- wordmark: X / B I N  (the mark is the X; here we set the slash + BIN) -->
+  <g font-family="ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace" font-weight="800" font-size="42" letter-spacing="1">
+    <text x="78" y="46" fill="#f5a623">/</text>
+    <text x="104" y="46" fill="#23272e">BIN</text>
+  </g>
+</svg>

@@ -224,6 +224,7 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 
 const docViewerHTML = `<!doctype html><html><head><meta charset="utf-8">
 <title>xbin docs — %[1]s</title>
+<link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
 <link rel="stylesheet" href="/vendor/theme.css">
 <style>body{max-width:52rem;margin:1.5rem auto;padding:0 1rem;font:14px/1.65 -apple-system,"Segoe UI",system-ui,sans-serif;color:var(--bx-text,#33414e);background:var(--bx-panel,#fff)}
 pre{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.55}

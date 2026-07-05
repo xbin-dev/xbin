@@ -83,7 +83,8 @@ export class BxShell extends LitElement {
       border-bottom: 1px solid var(--bx-border, #e4e8ed);
       padding: 7px 12px; flex: none;
     }
-    .logo { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 14px; }
+    .logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; letter-spacing: .04em; }
+    .logo .mark { flex: none; }
     .logo .dot {
       width: 18px; height: 18px; border-radius: 6px; background: var(--bx-accent, #1e88e5);
       display: inline-flex; align-items: center; justify-content: center;
@@ -587,7 +588,14 @@ export class BxShell extends LitElement {
   render() {
     return html`
       <div class="top">
-        <span class="logo"><span class="dot">b</span>xbin</span>
+        <span class="logo">
+          <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
+            <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#1e88e5)"></path>
+            <path d="M21 21 43 43M43 21 21 43" stroke="#fff" stroke-width="9" stroke-linecap="butt"></path>
+            <circle cx="53" cy="11" r="2.6" fill="#fff" opacity=".7"></circle>
+            <circle cx="11" cy="53" r="2.6" fill="#fff" opacity=".7"></circle>
+          </svg>
+          X/BIN</span>
         <span class="ws-chip">${this.name}</span>
         <span class="spacer"></span>
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>

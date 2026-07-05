@@ -77,15 +77,15 @@ func clientIP(r *http.Request) string {
 const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>xbin — sign in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJYL0JJTiI+CiAgPHBhdGggZD0iTTE4IDRINTZhNCA0IDAgMCAxIDQgNHYzOEw0NiA2MEg4YTQgNCAwIDAgMS00LTRWMTh6IiBmaWxsPSIjMWU4OGU1Ii8+CiAgPHBhdGggZD0iTTIxIDIxIDQzIDQzTTQzIDIxIDIxIDQzIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iOSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiLz4KICA8Y2lyY2xlIGN4PSI1MyIgY3k9IjExIiByPSIyLjYiIGZpbGw9IiNmZmYiIG9wYWNpdHk9Ii43Ii8+CiAgPGNpcmNsZSBjeD0iMTEiIGN5PSI1MyIgcj0iMi42IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIuNyIvPgo8L3N2Zz4K">
 <style>
 :root{color-scheme:light}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
   background:#f0f2f5;color:#33414e;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
 .card{background:#fff;border:1px solid #e4e8ed;border-radius:10px;box-shadow:0 8px 28px rgba(16,24,40,.10);
   padding:26px 28px;width:300px}
-.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;margin-bottom:18px}
-.logo .d{width:22px;height:22px;border-radius:7px;background:#1e88e5;display:inline-flex;
-  align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:18px}
+.logo svg{flex:none}
 label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:#8794a1;margin:10px 0 3px}
 input{width:100%;box-sizing:border-box;border:1px solid #e4e8ed;border-radius:6px;padding:7px 9px;
@@ -97,7 +97,7 @@ button:hover{background:#1a76c9}
 .note{margin-top:14px;font-size:11.5px;color:#8794a1}
 </style></head><body>
 <form class="card" method="post" action="/login">
-  <div class="logo"><span class="d">b</span>xbin</div>
+  <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#1e88e5"/><path d="M21 21 43 43M43 21 21 43" stroke="#fff" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
   <label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
