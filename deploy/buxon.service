@@ -1,0 +1,52 @@
+# buxon workspace daemon — systemd unit. See README → "Deployment on a VM".
+# Installed to /etc/systemd/system/buxon.service by deploy/install.sh (which
+# renders these /opt/buxon paths); edit there, then `systemctl daemon-reload`.
+#
+# IMPORTANT — do NOT add systemd's namespace/filesystem hardening here.
+# buxond is a *rootless sandbox runtime*: it builds user/mount/pid/net
+# namespaces for every component itself and calls the setuid newuidmap/newgidmap
+# helpers to map a uid range. Directives like PrivateUsers=, RestrictNamespaces=,
+# ProtectSystem=strict, ReadOnlyPaths=, ProtectHome=, or NoNewPrivileges=yes will
+# BREAK the sandbox (backends fail to start, apt/user-switching in terminals
+# stops working). The real boundary is the VM/host this runs on — keep this unit
+# minimal and keep the host bound to loopback behind Tailscale or a TLS proxy.
+
+[Unit]
+Description=buxon self-modifying workspace daemon
+Documentation=https://github.com/magik6k/buxon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=buxon
+Group=buxon
+WorkingDirectory=/opt/buxon
+Environment=HOME=/opt/buxon
+# buxond compiles Go component backends with the host `go` on its PATH, so a Go
+# toolchain must be reachable. We list the host install first and the toolchain
+# shipped inside the base rootfs as a fallback (both build the static binaries
+# that then run in each sandbox). /opt/buxon/bin holds buxond, bx and the
+# bundled static fuse-overlayfs.
+Environment=PATH=/opt/buxon/bin:/usr/local/go/bin:/opt/buxon/rootfs/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=BUXON_ROOTFS=/opt/buxon/rootfs
+Environment=BUXON_FUSE_OVERLAYFS=/opt/buxon/bin/fuse-overlayfs
+# Optional hands-off vault: put BUXON_VAULT_PASSPHRASE=... in this file (mode
+# 0600) for auto-unseal. Leave the file absent to unseal manually after login —
+# the leading '-' makes it optional.
+EnvironmentFile=-/etc/buxon/buxon.env
+ExecStart=/opt/buxon/bin/buxond --isolate --rootfs /opt/buxon/rootfs --workspace /opt/buxon/workspace --listen 127.0.0.1:8642
+Restart=on-failure
+RestartSec=2
+
+# Per-component cgroup v2 accounting: buxond manages its own delegated subtree.
+Delegate=yes
+# A busy workspace holds many inotify watches, gateway sockets, and component
+# processes; give it generous limits and don't let one component's OOM take the
+# whole daemon down.
+LimitNOFILE=1048576
+TasksMax=infinity
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target

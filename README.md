@@ -85,6 +85,54 @@ The base rootfs (Go/Node/Python + agent CLIs + `bx`) is bind-mounted read-only
 under every sandbox and terminal; refresh it by rebuilding the OCI image
 (`docker/rootfs.Dockerfile` → `make rootfs`).
 
+## Deployment on a VM
+
+To stand buxon up on a Linux VM (or bare-metal host) you control, one command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/magik6k/buxon/master/deploy/install.sh | sudo bash
+```
+
+It's interactive, idempotent (re-run to upgrade), and does the whole job:
+
+- **Preflights** the kernel features rootless sandboxing needs — unprivileged
+  user namespaces, cgroup v2, `/dev/fuse`, `/dev/net/tun`, `newuidmap` (the
+  table above). Add `-s -- --check-only` to print just that report and stop.
+- **Installs deps** for your distro (apt/dnf/pacman/zypper): `uidmap`, `fuse3`,
+  `git` — and, to build, Go + podman.
+- **Builds** `buxond`, `bx`, a static `fuse-overlayfs`, and the base rootfs from
+  source. (No release binaries yet; set `BUXON_PREBUILT_BIN` + `BUXON_ROOTFS_DIR`
+  to your own to skip the build and the build-only deps.)
+- **Creates** the `buxon` system user with home `/opt/buxon` and delegates it a
+  `/etc/subuid`+`/etc/subgid` range (so `apt`/`sudo` work inside sandboxes),
+  then verifies a user namespace actually comes up for that user.
+- **Installs and starts** the service, waits for `/healthz`, and prints your
+  one-time login URL.
+
+What it leaves on disk:
+
+```
+/opt/buxon/bin/{buxond,bx,fuse-overlayfs}   # owned by the buxon user
+/opt/buxon/rootfs/                          # unpacked base rootfs
+/opt/buxon/workspace/                       # your data (auto-init on first boot)
+/etc/systemd/system/buxon.service           # rendered from deploy/buxon.service
+/etc/buxon/buxon.env                        # optional vault passphrase, mode 0600
+```
+
+From there it's plain systemd — `systemctl status buxon`, `journalctl -u buxon -f`
+(the login URL is in the log: `journalctl -u buxon | grep login`). The service
+binds **loopback only** by design; see **Operating → Exposure** to reach it over
+Tailscale or a TLS proxy, and **Vault** for the auto- vs manual-unseal choice the
+installer offers. Upgrade by re-running the script; uninstall with
+`systemctl disable --now buxon && rm /etc/systemd/system/buxon.service && userdel -r buxon`.
+
+Wiring it up by hand instead? The unit is [`deploy/buxon.service`](deploy/buxon.service)
+and the installer is [`deploy/install.sh`](deploy/install.sh) — both short and
+commented. The one rule: **don't add systemd namespace/filesystem hardening**
+(`PrivateUsers`, `RestrictNamespaces`, `ProtectSystem=strict`,
+`NoNewPrivileges=yes`, …). buxond builds the sandboxes itself and those directives
+break it; the boundary is the VM, kept on loopback behind Tailscale or a proxy.
+
 ## Operating
 
 **Data.** Everything is the workspace directory: source, manifests, and the
