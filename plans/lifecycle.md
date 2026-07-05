@@ -5,7 +5,7 @@ Two related capabilities:
 1. **Lifecycle** — a component is no longer always-on. It has a state the owner
    controls: `enabled` (today's behaviour), `disabled` (stopped, data kept), and
    `offloaded` (data archived off-box to free disk, restorable on demand).
-2. **Backup / archive** — a pluggable, per-component archive mechanism: buxond
+2. **Backup / archive** — a pluggable, per-component archive mechanism: xbind
    streams a component's state as a **tar** to an **archiver tile** (an interface
    provider; the builtin one targets S3). The same mechanism powers manual
    backups, scheduled backups (cron), and `offloaded`. Reads expose **restore a
@@ -54,27 +54,27 @@ Absent = **enabled** (so nothing changes for existing workspaces).
 Per component `<c>` rooted at scope `<s>`:
 
 - **include**
-  - source subtree `src/…` — the component's files (code, `buxon.json`, …).
+  - source subtree `src/…` — the component's files (code, `xbin.json`, …).
   - resource data — the scope's `data/resources/<scope-key>/` (kv `kv.db`,
     `*.sqlite` **checkpointed** via `VACUUM INTO` for a consistent snapshot,
     blob dirs).
-  - terminal dev layer `.buxon/term/<comp-key>/` — hand-installed, *not*
+  - terminal dev layer `.xbin/term/<comp-key>/` — hand-installed, *not*
     reproducible, so it travels with source (owner's call).
 - **exclude**
-  - component env layer `.buxon/env/…` — reproducible from `setup`, rebuilt on
+  - component env layer `.xbin/env/…` — reproducible from `setup`, rebuilt on
     restore (never archived).
-  - logs, runtime sockets (`.buxon/log`, `.buxon/run`), in-memory bus.
+  - logs, runtime sockets (`.xbin/log`, `.xbin/run`), in-memory bus.
   - **vault** (`data/vault/<comp-key>.json`) — excluded by default (consistent
     with the existing decision); `--with-vault` opts in and archives only the
     already-encrypted envelope (dead weight without the same barrier key).
 
-The tar carries a small `backup.json` header (component, scope, buxon version,
+The tar carries a small `backup.json` header (component, scope, xbin version,
 timestamp, what's included, sqlite checkpoint list) so restore is unambiguous.
 
 ### The archive interface — `kind:"archive"`
 
 A new interface family. The **archiver tile** `provides: {store: {kind:"archive"}}`
-and implements an HTTP contract on its own component API; **buxond is the client**
+and implements an HTTP contract on its own component API; **xbind is the client**
 (it owns the data + drives it on the owner's behalf — the component being backed
 up declares nothing):
 
@@ -87,7 +87,7 @@ DELETE /archive/<key>/versions/<v>        → prune                 (retention)
 ```
 
 `<key>` = the component key. The archiver may hash/dedupe/compress or store the
-tar as-is — buxond doesn't care. `restore file` lets the archiver stream a single
+tar as-is — xbind doesn't care. `restore file` lets the archiver stream a single
 member (it can extract from its stored tar, or from a dedup/CDC store).
 
 **Binding**: owner-driven, no component declaration. A **workspace default
@@ -111,7 +111,7 @@ with AWS, MinIO, R2, B2, etc.
 
 - **version**: fetch the tar → stop the component → replace its in-scope data
   (+source for `-full`) atomically (stage to a temp dir, checkpoint-swap) →
-  rebuild env → enable. Guarded by a version-compat check (buxon version in the
+  rebuild env → enable. Guarded by a version-compat check (xbin version in the
   header, like migrations).
 - **file**: fetch one member from a version — download it, or write it into place
   (recover a clobbered sqlite / config without a full rollback). Admin-only.
@@ -119,9 +119,9 @@ with AWS, MinIO, R2, B2, etc.
 ### Cron
 
 Backups reuse the existing cron engine (`internal/broker/cron.go`, robfig/cron)
-but as **owner-scheduled jobs invoking a buxond backup action** rather than an
+but as **owner-scheduled jobs invoking a xbind backup action** rather than an
 element endpoint. A `data/backups.json` holds `{component, schedule, retention}`;
-on tick buxond runs the backup and prunes to `retention` versions. `bx backup`
+on tick xbind runs the backup and prunes to `retention` versions. `bx backup`
 gains the per-component/scheduled forms; the monolithic workspace `bx backup`
 (deployment.md) stays for whole-workspace cold copies.
 
@@ -131,8 +131,8 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
   binding is the loud, explicit authorization, exactly like a `net` provider.
 - Vault excluded by default; `--with-vault` archives only the encrypted envelope.
 - Restore/restore-file and all lifecycle transitions are **admin-only**;
-  buxond strips inbound `X-Buxon-*`; the archiver never gets element principals.
-- Restore validates the backup header's buxon version (≤ one minor newer, like
+  xbind strips inbound `X-XBin-*`; the archiver never gets element principals.
+- Restore validates the backup header's xbin version (≤ one minor newer, like
   the migration guard) before overwriting live data.
 
 ## UX
@@ -154,7 +154,7 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
 - **LC-2** — backup scope is **data + source + terminal-env**; env layer
   excluded (rebuilt), vault excluded by default. sqlite checkpointed.
 - **LC-3** — `archive` is an interface **kind**; the archiver *provides* an
-  HTTP tar-in / versions-and-file-out contract; **buxond is the client**; owner
+  HTTP tar-in / versions-and-file-out contract; **xbind is the client**; owner
   binds an archiver (workspace default + per-component override), no component
   declaration.
 - **LC-4** — offload/restore/scheduled-backup/manual-backup all use the one

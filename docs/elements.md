@@ -1,13 +1,13 @@
 # Elements (components)
 
-A **component** is a directory. It becomes visible to buxon when it contains
-an `index.html` (a view), a `buxon.json` (a manifest), or both. Its
+A **component** is a directory. It becomes visible to xbin when it contains
+an `index.html` (a view), a `xbin.json` (a manifest), or both. Its
 workspace-relative path *is* its identity — `mv` renames it, `cp -r` forks
 it, `rm -r` deletes it. There is no registry beyond the filesystem.
 
 ```
 apps/thing/
-  buxon.json      # manifest (optional for pure-static components)
+  xbin.json      # manifest (optional for pure-static components)
   index.html      # view, rendered in <bx-frame>
   backend/        # backend entry (runtime-specific, see below)
   API.md          # required when exposing roles (see §API contract)
@@ -15,11 +15,11 @@ apps/thing/
   ...anything     # it's just a directory
 ```
 
-Reserved names you cannot use: component id `buxon`; top-level dirs
-`vendor`, `data`, `home`, `.buxon`. Dirs named `deps`, `node_modules`,
+Reserved names you cannot use: component id `xbin`; top-level dirs
+`vendor`, `data`, `home`, `.xbin`. Dirs named `deps`, `node_modules`,
 `.git`, or starting with `.` are never scanned or watched.
 
-## Manifest — `buxon.json`
+## Manifest — `xbin.json`
 
 JSONC (comments and trailing commas allowed). Everything is optional.
 
@@ -47,7 +47,7 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), or — under isolation
-  // (buxond --isolate) — GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All
+  // (xbind --isolate) — GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All
   // are owner-approved grants. (Network egress is NOT a use — it is a "net"
   // interface the owner binds, below.)
   "uses": [
@@ -81,7 +81,7 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   },
 
   // Set false to serve this component's HTML byte-exact, skipping the
-  // standard <head> injection. You lose the import map, buxon-client.js,
+  // standard <head> injection. You lose the import map, xbin-client.js,
   // and frame-token attribution (your frontend can then only be called as
   // anonymous). Escape hatch; leave it alone normally.
   "inject": true,
@@ -100,20 +100,20 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
 Manifest errors don't take the workspace down: the component keeps serving
 statically, the parse error shows in `bx ls` / `bx doctor` /
-`/api/buxon/components`.
+`/api/xbin/components`.
 
 ## Views
 
 `GET /c/<component>/` serves the component directory (`index.html` for the
 dir itself, correct MIME for everything, `Cache-Control: no-store` — it's a
-live system). HTML gets exactly one transform on the way out: buxond injects
+live system). HTML gets exactly one transform on the way out: xbind injects
 into `<head>`:
 
-- the merged **import map** (workspace `buxon.json` `importMap` + scope
+- the merged **import map** (workspace `xbin.json` `importMap` + scope
   overrides) — so `import { LitElement } from 'lit'` works with no build step
-- `<meta name="buxon-component">` and a short-lived frame token
-- `<script type="module" src="/vendor/buxon-client.js">` — the in-frame API
-  (`buxon.self`, `buxon.fetch`, `buxon.bus`; see [sdk.md](/docs/sdk.md))
+- `<meta name="xbin-component">` and a short-lived frame token
+- `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
+  (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
 
 Write your view as a plain HTML document. Relative URLs work (you're a real
 document in an iframe). Vendored libraries: `lit` via the import map,
@@ -135,7 +135,7 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 <bx-frame src="apps/thing" no-edit></bx-frame>
 ```
 
-- **Auto-height**: the framed document reports its size via buxon-client
+- **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
 - **Edit button**: 7×7 px, top-right, 35 % opacity until hover. Opens a
   **floating terminal window** with a shell cwd'd to `src`: it appears
@@ -155,8 +155,8 @@ frame the root inside the root if you enjoy that sort of thing.
 
 ## Runtimes & backend lifecycle
 
-Backends serve plain HTTP on a unix socket buxond hands them
-(`BUXON_SOCKET`). buxond routes `ANY /api/<component>/<path>` to them,
+Backends serve plain HTTP on a unix socket xbind hands them
+(`XBIN_SOCKET`). xbind routes `ANY /api/<component>/<path>` to them,
 stripping the prefix (your handler sees `/<path>`).
 
 | runtime | entry default | change behavior |
@@ -180,18 +180,18 @@ Lifecycle facts that matter when writing backends:
   resource, not a sleeping goroutine.
 - **Crash loops**: 3 quick exits → marked failed (overlay + `bx status`)
   until you save a change. Logs: `bx logs -f <component>`,
-  or `tail -f $BUXON_WORKSPACE/.buxon/log/<key>.log`.
-- **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `buxon.Serve`
+  or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log`.
+- **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `xbin.Serve`
   does).
 
 Env every backend instance gets:
 
 | Env | Meaning |
 |-----|---------|
-| `BUXON_SOCKET` | unix socket to listen on |
-| `BUXON_COMPONENT` | own path (identity) |
-| `BUXON_GATEWAY`, `BUXON_TOKEN` | how to call other elements / buxon APIs (this generation's credential — dies at swap) |
-| `BUXON_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
+| `XBIN_SOCKET` | unix socket to listen on |
+| `XBIN_COMPONENT` | own path (identity) |
+| `XBIN_GATEWAY`, `XBIN_TOKEN` | how to call other elements / xbin APIs (this generation's credential — dies at swap) |
+| `XBIN_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
 
 ## Scopes
 
@@ -232,7 +232,7 @@ Keep it truthful over pretty — it's a contract, not marketing.
 - `deps` in the manifest materializes `deps/<name>` symlinks (relative, so
   the workspace stays relocatable). Follow them, edit through them, build
   against them.
-- Go: buxond maintains a generated `go.work` at the workspace root listing
-  every Go component and the buxon SDK — any shell can `go build`/`gopls`
+- Go: xbind maintains a generated `go.work` at the workspace root listing
+  every Go component and the xbin SDK — any shell can `go build`/`gopls`
   across the whole workspace. If you hand-edit `go.work`, remove the
-  generated-marker line and buxond will leave it alone.
+  generated-marker line and xbind will leave it alone.

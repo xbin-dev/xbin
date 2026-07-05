@@ -6,7 +6,7 @@ import (
 )
 
 // cmdUser manages human users (plans/multi-user.md). Needs admin / the
-// buxon:users capability — a terminal runs as the root admin token, so it
+// xbin:users capability — a terminal runs as the root admin token, so it
 // always works from a shell.
 //
 //	bx user ls
@@ -26,7 +26,7 @@ func cmdUser(args []string) error {
 				Terminal       bool
 			} `json:"users"`
 		}
-		if err := apiJSON("GET", "/api/buxon/users", nil, &out); err != nil {
+		if err := apiJSON("GET", "/api/xbin/users", nil, &out); err != nil {
 			return err
 		}
 		for _, u := range out.Users {
@@ -93,9 +93,9 @@ func cmdUser(args []string) error {
 			}
 			body["password"] = pw
 		}
-		method, path := "POST", "/api/buxon/users"
+		method, path := "POST", "/api/xbin/users"
 		if args[0] == "set" {
-			method, path = "PATCH", "/api/buxon/users/"+id
+			method, path = "PATCH", "/api/xbin/users/"+id
 		}
 		if err := apiJSON(method, path, body, nil); err != nil {
 			return err
@@ -107,7 +107,7 @@ func cmdUser(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: bx user rm <id>")
 		}
-		if err := apiJSON("DELETE", "/api/buxon/users/"+args[1], nil, nil); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1], nil, nil); err != nil {
 			return err
 		}
 		fmt.Println("removed", args[1])

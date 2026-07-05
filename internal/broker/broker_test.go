@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
 )
 
 func testWorkspace(t *testing.T) *registry.Registry {
@@ -22,18 +22,18 @@ func testWorkspace(t *testing.T) *registry.Registry {
 			t.Fatal(err)
 		}
 	}
-	write("buxon.json", `{"schema":1,"grants":[
+	write("xbin.json", `{"schema":1,"grants":[
 		{"from":"apps/email","target":"apps/calendar","role":"reader"}
 	]}`)
 	write("apps/calendar/scope.json", `{"resources":{
 		"bus":{"type":"bus"},"events":{"type":"kv"},"db":{"type":"sqlite"}}}`)
-	write("apps/calendar/buxon.json", `{
+	write("apps/calendar/xbin.json", `{
 		"runtime":"go",
 		"expose":{"roles":{"reader":"r","writer":"w"}},
 		"uses":[{"target":"res:apps/calendar/events","role":"writer"},
 		        {"target":"res:apps/calendar/bus","role":"writer"}]}`)
 	write("apps/calendar/index.html", `<html></html>`)
-	write("apps/email/buxon.json", `{
+	write("apps/email/xbin.json", `{
 		"runtime":"go",
 		"uses":[{"target":"apps/calendar","role":"reader"},
 		        {"target":"res:apps/calendar/bus","role":"reader"}]}`)

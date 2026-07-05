@@ -17,7 +17,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Event is a debounced change notification for one workspace-relative path
@@ -57,9 +57,9 @@ func ignoreFile(name string) bool {
 
 func ignoreDir(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) > 0 && util.ReservedTop[parts[0]] && parts[0] != "buxon" {
-		// data/, home/, .buxon/, vendor/ never drive reloads. (Top-level
-		// "buxon" is reserved as an id but isn't a real directory.)
+	if len(parts) > 0 && util.ReservedTop[parts[0]] && parts[0] != "xbin" {
+		// data/, home/, .xbin/, vendor/ never drive reloads. (Top-level
+		// "xbin" is reserved as an id but isn't a real directory.)
 		return true
 	}
 	for _, p := range parts {

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fetches pinned ESM/UMD builds of buxon's frontend dependencies into
+# Fetches pinned ESM/UMD builds of xbin's frontend dependencies into
 # web/vendor/. Run from the repo root; commit the results. These are the only
 # third-party frontend deps — keep it that way (no-build rule, decision D12).
 set -eu

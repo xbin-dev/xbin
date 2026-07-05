@@ -1,13 +1,13 @@
 /**
  * <bx-llm-gw> — settings + model browser for the llm-gw tile. Talks to its
- * own backend (/config, /v1/models) via buxon.fetch, and to its own vault
- * key (api-token) directly via /api/buxon/vault/<self>/api-token — allowed
+ * own backend (/config, /v1/models) via xbin.fetch, and to its own vault
+ * key (api-token) directly via /api/xbin/vault/<self>/api-token — allowed
  * because an element always reaches its own vault (docs/auth.md).
  */
 import { LitElement, html, css, nothing } from 'lit';
 
 const api = async (path, opts) => {
-  const r = await buxon.fetch(`/api/${buxon.self}${path}`, opts);
+  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opts);
   const text = await r.text();
   let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!r.ok) throw new Error(data?.error ?? r.status);
@@ -15,7 +15,7 @@ const api = async (path, opts) => {
 };
 
 const vault = async (key, opts) => {
-  const r = await buxon.fetch(`/api/buxon/vault/${buxon.self}/${encodeURIComponent(key)}`, opts);
+  const r = await xbin.fetch(`/api/xbin/vault/${xbin.self}/${encodeURIComponent(key)}`, opts);
   const text = await r.text();
   let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!r.ok) throw new Error(data?.error ?? r.status);
@@ -100,7 +100,7 @@ export class BxLlmGw extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._off = window.buxon?.events.on((e) => {
+    this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'build-ok') this._refresh();
     });
     this._timer = setInterval(() => this._loadModels(), AUTO_REFRESH_MS);

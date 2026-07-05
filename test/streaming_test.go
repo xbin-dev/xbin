@@ -84,14 +84,14 @@ func TestStreaming(t *testing.T) {
 
 func writeStreamComponent(t *testing.T) {
 	t.Helper()
-	write(t, "apps/stream/buxon.json", `{"runtime":"go"}`)
+	write(t, "apps/stream/xbin.json", `{"runtime":"go"}`)
 	write(t, "apps/stream/go.mod", `module stream
 
 go 1.24
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/magik6k/buxon/sdk v0.0.0
+	github.com/magik6k/xbin/sdk v0.0.0
 )
 `)
 	write(t, "apps/stream/backend/main.go", `package main
@@ -102,7 +102,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 var up = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -135,7 +135,7 @@ func main() {
 			}
 		}
 	})
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }
 `)
 	// The component's go.sum needs gorilla's hashes (the sdk is a use'd

@@ -47,7 +47,7 @@ boot). Drives every run that is `sleeping` past its wake time or left `running`
 Each step: assemble context (system + memory blocks + running summary + live
 transcript, trimmed to `tokenBudget`, compacting the oldest turns when over)
 → LLM call with tool specs → execute tool calls → repeat, up to `maxIters` per
-drive. Built-in tools: `memory_set`/`memory_get`, `note`, `buxon_call` (reach
+drive. Built-in tools: `memory_set`/`memory_get`, `note`, `xbin_call` (reach
 other granted components), `finish`, `ask_user`, `yield`, `spawn_subagent`
 (when enabled), plus any `mcp:<server>:<tool>`. Extend these in
 `_backend/tools.go`.

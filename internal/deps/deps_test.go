@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/xbin/internal/registry"
 )
 
 func TestGoWorkSelfHeal(t *testing.T) {
@@ -21,10 +21,10 @@ func TestGoWorkSelfHeal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mk("buxon.json", `{"schema":1}`)
-	mk("apps/a/buxon.json", `{"runtime":"go"}`) // module at the component root
+	mk("xbin.json", `{"schema":1}`)
+	mk("apps/a/xbin.json", `{"runtime":"go"}`) // module at the component root
 	mk("apps/a/go.mod", "module a\ngo 1.24\n")
-	mk("apps/b/buxon.json", `{"runtime":"go"}`) // module in backend/ (non-standard)
+	mk("apps/b/xbin.json", `{"runtime":"go"}`) // module in backend/ (non-standard)
 	mk("apps/b/backend/go.mod", "module b\ngo 1.24\n")
 
 	reg, err := registry.Open(root)

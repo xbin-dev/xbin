@@ -2,27 +2,27 @@
 
 ## Run it
 
-buxon runs as a single binary on a Linux host it controls, with `--isolate`
+xbin runs as a single binary on a Linux host it controls, with `--isolate`
 turning on per-component OS sandboxing (see the repo README → Running it for
 the host requirements — unprivileged user namespaces, sub-id delegation,
 `/dev/fuse`, `/dev/net/tun`):
 
 ```sh
-buxond --isolate --rootfs /var/lib/buxon/rootfs \
-       --workspace ~/buxon-ws --listen 127.0.0.1:8642
+xbind --isolate --rootfs /var/lib/xbin/rootfs \
+       --workspace ~/xbin-ws --listen 127.0.0.1:8642
 # prints the one-time login URL
 ```
 
 Open the login URL. It sets a cookie and drops you on the workspace root
-page. Binding to `127.0.0.1` is deliberate: buxon is remote code execution by
+page. Binding to `127.0.0.1` is deliberate: xbin is remote code execution by
 design, so expose it via Tailscale/WireGuard or a TLS reverse proxy, never raw
 to the internet.
 
 The base rootfs (`make rootfs`) ships the toolchains (go, node, python, vim,
 git, …) that terminals and backends use. For quick local hacking, `make dev`
-runs buxond from source, isolated, against `./devws`.
+runs xbind from source, isolated, against `./devws`.
 
-**Host sysctl** (once, on the host): buxond watches every directory in the
+**Host sysctl** (once, on the host): xbind watches every directory in the
 workspace; the kernel default inotify budget is too small for big trees.
 
 ```sh
@@ -40,7 +40,7 @@ font size) with a shell *in that component's directory*.
 
 That terminal is **scoped to its component**: it can write its own directory and
 `$HOME`, but the rest of the workspace is **read-only**. So you don't `mkdir` a
-new app here — you create components through buxond, which isn't bound by that
+new app here — you create components through xbind, which isn't bound by that
 scope: the **Tile Manager** on the root page, or `bx new` from a *root* terminal.
 
 In the **Tile Manager**'s *create* tab, name it (e.g. `hello`) and hit
@@ -76,9 +76,9 @@ tab makes static tiles only, so scaffold a backend from a *root* terminal:
 bx new apps/counter --runtime go --expose
 ```
 
-This scaffolds `buxon.json`, `index.html`, `backend/main.go`, `go.mod`, and an
+This scaffolds `xbin.json`, `index.html`, `backend/main.go`, `go.mod`, and an
 `API.md`. Frame it, then edit `backend/main.go` (from the counter card's own
-terminal) and save — buxond recompiles and swaps the running backend in about a
+terminal) and save — xbind recompiles and swaps the running backend in about a
 second (typically ~200 ms warm). Compile errors appear as an overlay on the frame
 and clear on the next good save. Backend logs: `bx logs -f apps/counter`.
 
@@ -86,7 +86,7 @@ Try it from the shell too — your terminal has an owner token in the
 environment:
 
 ```sh
-curl -H "Authorization: Bearer $BUXON_TOKEN" $BUXON_URL/api/apps/counter/hello
+curl -H "Authorization: Bearer $XBIN_TOKEN" $XBIN_URL/api/apps/counter/hello
 ```
 
 ## What's in a terminal
@@ -96,15 +96,15 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 
 | Env | Meaning |
 |-----|---------|
-| `BUXON_WORKSPACE` | workspace root path |
-| `BUXON_COMPONENT` | the component this terminal was opened on |
-| `BUXON_URL`, `BUXON_TOKEN` | how to call buxond as the owner (`bx` uses these) |
+| `XBIN_WORKSPACE` | workspace root path |
+| `XBIN_COMPONENT` | the component this terminal was opened on |
+| `XBIN_URL`, `XBIN_TOKEN` | how to call xbind as the owner (`bx` uses these) |
 | `HOME` | `<workspace>/home` — dotfiles persist across upgrades |
 
 `home/` is deliberately **not** your host home: it's a contained, persistent
 $HOME seeded with a minimal `.zshrc`/`.bashrc` (component-aware prompt,
 history, aliases). Bring your own config by copying it in:
-`cp ~/.zshrc $BUXON_WORKSPACE/home/` from a host shell — it's gitignored,
+`cp ~/.zshrc $XBIN_WORKSPACE/home/` from a host shell — it's gitignored,
 so it stays local to this workspace.
 
 A terminal opened on a component is **scoped to it**: that component's dir and
@@ -114,11 +114,11 @@ workspace root) is the owner plane — the whole tree writable — for cross-com
 work and creating components. Full model: [isolation.md](/docs/isolation.md).
 
 Sessions survive browser disconnects (reattach happens automatically) but
-not buxond restarts — run `tmux` inside if that matters to you.
+not xbind restarts — run `tmux` inside if that matters to you.
 
 The base rootfs is read-only, but each terminal stacks a **persistent
-per-component overlay** on top (`.buxon/term/<component>/`). So an `apt install`,
-an `/etc` tweak, or an extra toolchain **survives across sessions and buxond
+per-component overlay** on top (`.xbin/term/<component>/`). So an `apt install`,
+an `/etc` tweak, or an extra toolchain **survives across sessions and xbind
 restarts** — each component gets its own long-lived dev box. The ⟲ button in the
 terminal window resets that layer back to a clean base. (Only one live session
 may hold a component's layer at a time; a second concurrent terminal on the same
@@ -130,15 +130,15 @@ runtime, not just in the shell.
 To land a tool in **every** terminal *and* every backend instead, extend the base
 image (`docker/rootfs.Dockerfile`) and rebuild it (`make rootfs`). Terminals map a
 full uid range, so `sudo`, `apt install`, `useradd`, and running as a non-root
-in-container user all work: buxond mounts each sandbox with its own
-**fuse-overlayfs** (built from source by `make`, shipped alongside buxond). If
-it's ever missing, buxond falls back to kernel overlayfs — then `apt update` still
+in-container user all work: xbind mounts each sandbox with its own
+**fuse-overlayfs** (built from source by `make`, shipped alongside xbind). If
+it's ever missing, xbind falls back to kernel overlayfs — then `apt update` still
 works but a full install fails with `Invalid cross-device link`.
 
 The title bar has a **network scope** menu. By default a terminal has its own
 network namespace with **internet-only** egress — the host's interfaces aren't
 visible (`ip addr` shows just `lo` and `bx0`), but the public internet and
-buxond (`$BUXON_URL`, so `bx`/`curl`) work. `ping` works too (real reachability);
+xbind (`$XBIN_URL`, so `bx`/`curl`) work. `ping` works too (real reachability);
 `traceroute` needs host scope. Switch to **host net** to reach the LAN / services
 on the host, or **offline** for no network at all. Switching scope restarts the
 terminal (it can't change live).
@@ -152,7 +152,7 @@ component's terminal you commit its own dir directly:
 git add -A && git commit -m "counter app"   # in apps/counter — its own repo
 ```
 
-The workspace root is *also* a repo (`.buxon/`, `data/`, `home/` ignored) for
+The workspace root is *also* a repo (`.xbin/`, `data/`, `home/` ignored) for
 workspace-level files and layout — commit that from a **root terminal**, which
 has the whole tree writable. Per-component repos are what make components
 **installable**: the Tile Manager can import one straight from a git URL, and

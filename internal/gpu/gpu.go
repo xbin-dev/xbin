@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/magik6k/buxon/internal/sandbox"
+	"github.com/magik6k/xbin/internal/sandbox"
 )
 
 // Device is one host GPU.

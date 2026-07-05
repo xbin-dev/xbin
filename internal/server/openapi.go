@@ -7,15 +7,15 @@ import (
 	"strings"
 )
 
-// OpenAPI describes buxond's built-in API surface (/api/buxon/*) as an
+// OpenAPI describes xbind's built-in API surface (/api/xbin/*) as an
 // OpenAPI 3.1 document, including the RBAC capability each endpoint needs
-// (docs/auth.md, docs/protocol.md). Served at GET /api/buxon/openapi.json and
+// (docs/auth.md, docs/protocol.md). Served at GET /api/xbin/openapi.json and
 // rendered by the API-docs tile; also importable into Swagger UI / Postman.
 
 type oapi = map[string]any
 
 // ep is one endpoint's spec metadata; the parenthetical after each capability is
-// surfaced as an x-buxon-capability extension and in the description.
+// surfaced as an x-xbin-capability extension and in the description.
 type ep struct {
 	method, path string
 	tag          string
@@ -27,7 +27,7 @@ type ep struct {
 	resp         string // 200 response description
 }
 
-const apiInfo = `The **built-in buxond API** — the reserved ` + "`/api/buxon/*`" + ` surface that
+const apiInfo = `The **built-in xbind API** — the reserved ` + "`/api/xbin/*`" + ` surface that
 ` + "`bx`" + `, the SDKs, and tiles are built on (docs/protocol.md). Component
 backends live under ` + "`/api/<component-path>/…`" + ` and are not described here.
 
@@ -48,23 +48,23 @@ Operations are grouped by tag; the main areas:
 
 Every route needs a **principal**, established by one of:
 
-- **Owner cookie** ` + "`buxon_session`" + ` (browser login) → the *owner*.
+- **Owner cookie** ` + "`xbin_session`" + ` (browser login) → the *owner*.
 - **Bearer token** ` + "`Authorization: Bearer <token>`" + ` → the owner, or the
   element an *instance token* belongs to (backends use this over the gateway
   unix socket).
-- **Frame token** ` + "`X-Buxon-Frame-Token`" + ` (with the owner cookie) → an
+- **Frame token** ` + "`X-XBin-Frame-Token`" + ` (with the owner cookie) → an
   element *frontend*.
 
-buxond strips inbound ` + "`X-Buxon-*`" + ` identity headers and re-injects verified
-` + "`X-Buxon-From` / `X-Buxon-Role`" + ` on proxied component calls.
+xbind strips inbound ` + "`X-XBin-*`" + ` identity headers and re-injects verified
+` + "`X-XBin-From` / `X-XBin-Role`" + ` on proxied component calls.
 
-## Capabilities (the ` + "`x-buxon-capability`" + ` on each operation)
+## Capabilities (the ` + "`x-xbin-capability`" + ` on each operation)
 
 - **authenticated** — any valid principal.
 - **owner** — the human owner (or an admin user).
-- **admin** — the reserved ` + "`buxon:admin`" + ` capability (owner implies it).
-- **buxon:writer** — workspace-management grant (create components, import tiles).
-- **buxon:users** — user-management grant.
+- **admin** — the reserved ` + "`xbin:admin`" + ` capability (owner implies it).
+- **xbin:writer** — workspace-management grant (create components, import tiles).
+- **xbin:users** — user-management grant.
 - **self or admin** — the element itself, or admin (e.g. its own vault).
 - **reader / writer (resource grant)** — a role grant on the named ` + "`res:…`" + `
   resource (docs/resources.md).
@@ -84,7 +84,7 @@ func endpoints() []ep {
 		{"GET", "/components/{path}", "Components", "Component detail + API.md", "authenticated",
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
-			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (buxon-client.js uses this).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
+			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
 		{"GET", "/status", "Runtime", "Terminals + component counts", "admin", "", nil, nil, "status summary"},
 		{"GET", "/gpus", "Runtime", "Host NVIDIA GPUs (for gpu:* grants / terminal picker)", "admin", "", nil, nil, "{gpus:[{index,uuid,name,node}]}"},
 		{"GET", "/backends", "Runtime", "Per-component backend state", "admin",
@@ -106,33 +106,33 @@ func endpoints() []ep {
 		{"DELETE", "/prefs/{key}", "Prefs", "Delete one pref", "authenticated", "", []oapi{pathParam("key", "pref key")}, nil, "ok"},
 
 		// --- users ---
-		{"GET", "/users", "Users", "List users", "buxon:users",
-			"Human users and their per-tile permissions. Admin or the buxon:users grant.", nil, nil, "[{id,name,role,tiles,terminal}]"},
-		{"POST", "/users", "Users", "Create a user", "buxon:users", "", nil,
+		{"GET", "/users", "Users", "List users", "xbin:users",
+			"Human users and their per-tile permissions. Admin or the xbin:users grant.", nil, nil, "[{id,name,role,tiles,terminal}]"},
+		{"POST", "/users", "Users", "Create a user", "xbin:users", "", nil,
 			jsonBody("new user", oapi{"id": str(""), "name": str(""), "role": str("admin|user"), "tiles": arr(), "terminal": boolean(), "password": str("")}, "id"), "created user"},
-		{"PATCH", "/users/{id}", "Users", "Update a user", "buxon:users", "Update fields and/or reset the password.", []oapi{pathParam("id", "user id")}, freeBody("fields to update"), "updated user"},
-		{"DELETE", "/users/{id}", "Users", "Delete a user", "buxon:users", "Removes the user and revokes their sessions.", []oapi{pathParam("id", "user id")}, nil, "ok"},
+		{"PATCH", "/users/{id}", "Users", "Update a user", "xbin:users", "Update fields and/or reset the password.", []oapi{pathParam("id", "user id")}, freeBody("fields to update"), "updated user"},
+		{"DELETE", "/users/{id}", "Users", "Delete a user", "xbin:users", "Removes the user and revokes their sessions.", []oapi{pathParam("id", "user id")}, nil, "ok"},
 
 		// --- workspace management ---
-		{"POST", "/create", "Workspace", "Create a component", "buxon:writer",
-			"Scaffolds a new component (same as `bx new`); never overwrites. Owner, or an element granted buxon:writer.", nil,
+		{"POST", "/create", "Workspace", "Create a component", "xbin:writer",
+			"Scaffolds a new component (same as `bx new`); never overwrites. Owner, or an element granted xbin:writer.", nil,
 			jsonBody("component to create", oapi{"path": str("apps/thing"), "runtime": str("static|go|node|python|cgi"), "title": str(""), "expose": boolean()}, "path"), "{path, files}"},
 		{"GET", "/builtins", "Tiles", "Builtin tile catalog", "authenticated", "Optional tiles bundled in the binary; `installed` marks ones already at their default path.", nil, nil, "[{name,title,description,defaultPath,installed}]"},
-		{"POST", "/builtins/import", "Tiles", "Import a builtin tile", "buxon:writer", "Copies an embedded tile into the workspace (plans/tile-sharing.md); returns any grants it now needs.", nil,
+		{"POST", "/builtins/import", "Tiles", "Import a builtin tile", "xbin:writer", "Copies an embedded tile into the workspace (plans/tile-sharing.md); returns any grants it now needs.", nil,
 			jsonBody("tile to import", oapi{"name": str("llm-gw"), "path": str("optional install path")}, "name"), "{path, files, pendingGrants}"},
 		{"GET", "/builtins/updates", "Tiles", "Available builtin updates", "authenticated", "Scaffold + imported tiles that have a newer embedded version (plans/builtin-updates.md).", nil, nil, "array of updatable builtins"},
-		{"POST", "/builtins/update", "Tiles", "Apply a builtin update", "buxon:writer", "replace overwrites; merge 3-way-merges (git merge-file); pin/unpin stop/resume offers. Never touches template instances.", nil,
+		{"POST", "/builtins/update", "Tiles", "Apply a builtin update", "xbin:writer", "replace overwrites; merge 3-way-merges (git merge-file); pin/unpin stop/resume offers. Never touches template instances.", nil,
 			jsonBody("update", oapi{"id": str("scaffold:shell"), "mode": str("replace|merge|pin|unpin")}, "id", "mode"), "{files}"},
 		{"GET", "/templates", "Tiles", "Template blueprints", "authenticated", "Builtin ∪ workspace template components (plans/templates.md).", nil, nil, "[{id,source,title,description,defaultName}]"},
-		{"POST", "/templates/new", "Tiles", "Instantiate a template", "buxon:writer", "Copies a blueprint into a named component, stripping the template marker.", nil,
+		{"POST", "/templates/new", "Tiles", "Instantiate a template", "xbin:writer", "Copies a blueprint into a named component, stripping the template marker.", nil,
 			jsonBody("instantiation", oapi{"source": str("agent | apps/mytpl"), "path": str("optional target path")}, "source"), "{path, files, pendingGrants}"},
 
 		// --- code & git ---
 		{"GET", "/code/tree", "Code", "A component's files", "admin", "", []oapi{queryParam("component", "component path", true)}, nil, "{component, files:[{path,size}]}"},
 		{"GET", "/code/file", "Code", "One file's content", "admin", "Binary/oversized files are flagged, not dumped.", []oapi{queryParam("component", "component path", true), queryParam("file", "path within the component", true)}, nil, "{path, content|binary|truncated}"},
 		{"GET", "/git/log", "Code", "Component git history", "admin", "Commits from the component's OWN git repo (each component is its own repo); includes its origin `remote` if set.", []oapi{queryParam("component", "component path", true), queryParam("limit", "max commits", false)}, nil, "{repo, commits[], remote}"},
-		{"GET", "/git/remote-info", "Tiles", "Inspect a git remote before install", "buxon:writer", "git ls-remote on a URL: its default branch + tags (newest first), so the UI can offer versions.", []oapi{queryParam("url", "git URL (https/ssh/git)", true)}, nil, "{defaultBranch, tags[], remote}"},
-		{"POST", "/git/import", "Tiles", "Install a component from a git remote", "buxon:writer", "Clones a component in (each component is its own repo). Optional ref = tag/branch; path defaults to apps/<repo>. Rejects non-git/local URLs and non-buxon repos.", nil,
+		{"GET", "/git/remote-info", "Tiles", "Inspect a git remote before install", "xbin:writer", "git ls-remote on a URL: its default branch + tags (newest first), so the UI can offer versions.", []oapi{queryParam("url", "git URL (https/ssh/git)", true)}, nil, "{defaultBranch, tags[], remote}"},
+		{"POST", "/git/import", "Tiles", "Install a component from a git remote", "xbin:writer", "Clones a component in (each component is its own repo). Optional ref = tag/branch; path defaults to apps/<repo>. Rejects non-git/local URLs and non-xbin repos.", nil,
 			jsonBody("git install", oapi{"url": str("https://github.com/user/tile"), "path": str("optional; apps/<repo> by default"), "ref": str("optional tag/branch")}, "url"), "{path, remote, ref, pendingGrants}"},
 		{"GET", "/git/diff", "Code", "Commit diff / uncommitted changes", "admin", "rev empty = uncommitted changes vs HEAD; else that commit's diff, scoped to the component.", []oapi{queryParam("component", "component path", true), queryParam("rev", "commit hash (empty = working tree)", false)}, nil, "{repo, diff}"},
 
@@ -205,18 +205,18 @@ func OpenAPI() oapi {
 	return oapi{
 		"openapi": "3.1.0",
 		"info": oapi{
-			"title":       "buxon built-in API",
+			"title":       "xbin built-in API",
 			"version":     "1",
 			"description": apiInfo,
 		},
-		"servers": []oapi{{"url": "/api/buxon", "description": "buxond reserved API"}},
+		"servers": []oapi{{"url": "/api/xbin", "description": "xbind reserved API"}},
 		"tags":    tags,
 		"paths":   paths,
 		"components": oapi{
 			"securitySchemes": oapi{
 				"bearerAuth": oapi{"type": "http", "scheme": "bearer", "description": "Owner or element instance token."},
-				"cookieAuth": oapi{"type": "apiKey", "in": "cookie", "name": "buxon_session", "description": "Browser owner session."},
-				"frameToken": oapi{"type": "apiKey", "in": "header", "name": "X-Buxon-Frame-Token", "description": "Element frontend (with the owner cookie)."},
+				"cookieAuth": oapi{"type": "apiKey", "in": "cookie", "name": "xbin_session", "description": "Browser owner session."},
+				"frameToken": oapi{"type": "apiKey", "in": "header", "name": "X-XBin-Frame-Token", "description": "Element frontend (with the owner cookie)."},
 			},
 			"schemas": oapi{
 				"Error": oapi{"type": "object", "properties": oapi{
@@ -226,7 +226,7 @@ func OpenAPI() oapi {
 				}},
 			},
 		},
-		// Any one of the schemes authenticates; the x-buxon-capability on each
+		// Any one of the schemes authenticates; the x-xbin-capability on each
 		// operation is the finer RBAC requirement.
 		"security": []oapi{{"bearerAuth": []any{}}, {"cookieAuth": []any{}}, {"frameToken": []any{}}},
 	}
@@ -245,11 +245,11 @@ func operation(e ep) oapi {
 		"summary":            e.summary,
 		"description":        desc,
 		"operationId":        operationID(e),
-		"x-buxon-capability": e.capability,
+		"x-xbin-capability": e.capability,
 		"responses": oapi{
 			"200": oapi{"description": orDefault(e.resp, "success")},
 			"400": errResp("bad request"),
-			"403": errResp("insufficient capability (see x-buxon-capability)"),
+			"403": errResp("insufficient capability (see x-xbin-capability)"),
 			"404": errResp("not found"),
 		},
 	}

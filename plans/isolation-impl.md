@@ -4,7 +4,7 @@ Implementation companion to `plans/isolation.md` (mechanics) and
 `plans/runtime.md` (deployment). This is the concrete build: package layout,
 the rootless-namespace launch pattern, rootfs assembly, and the egress relay.
 
-Production target (RT-1): buxond runs **as a normal user on a dedicated VM** and
+Production target (RT-1): xbind runs **as a normal user on a dedicated VM** and
 manages **per-component namespaces** rootlessly (user namespaces). Verified on
 the dev host: unprivileged `CLONE_NEWUSER|NEWNS|NEWPID|NEWNET|NEWIPC|NEWUTS`,
 rootless `overlayfs`, and rootless **TUN** creation inside the netns all work.
@@ -15,10 +15,10 @@ No host root ⇒ no veth into the host netns, no host NAT/masquerade, no
 `newuidmap` unless suid helpers exist. Consequences that shape the design:
 
 - **Networking must be userspace.** A component netns has *no* route to the host;
-  egress happens through a **TUN device + a userspace TCP/IP stack** buxond runs
+  egress happens through a **TUN device + a userspace TCP/IP stack** xbind runs
   (the slirp4netns/gVisor model), *not* veth+iptables. This is also exactly the
   seam where per-destination `net:*` egress policy lives.
-- **UID mapping is single-range by default.** Map container `uid 0 → buxond's
+- **UID mapping is single-range by default.** Map container `uid 0 → xbind's
   uid`, and (optionally, if `/etc/subuid` + `newuidmap` exist) a sub-uid range so
   the component runs as a distinct in-ns uid. Start single-uid; add subuid later.
 - **cgroups need delegation.** Rootless cgroup v2 limits require a delegated
@@ -38,7 +38,7 @@ internal/sandbox/
   sandbox_stub.go  //go:build !linux — Launch returns ErrUnsupported
 ```
 
-`cmd/buxond` gains a hidden subcommand `__sandbox-init` dispatched **before flag
+`cmd/xbind` gains a hidden subcommand `__sandbox-init` dispatched **before flag
 parsing** (like runc's `init`): it is the re-exec target that runs inside the new
 namespaces and never returns (it `exec`s the backend).
 
@@ -47,8 +47,8 @@ namespaces and never returns (it `exec`s the backend).
 Standard "reexec init" (runc/nsenter style), all in Go with `os/exec` +
 `golang.org/x/sys/unix`:
 
-1. **Parent (buxond `runner`)** builds `exec.Cmd`:
-   - `cmd.Path = /proc/self/exe`, `cmd.Args = ["buxond", "__sandbox-init"]`.
+1. **Parent (xbind `runner`)** builds `exec.Cmd`:
+   - `cmd.Path = /proc/self/exe`, `cmd.Args = ["xbind", "__sandbox-init"]`.
    - `SysProcAttr.Cloneflags = CLONE_NEWUSER|NEWNS|NEWPID|NEWNET|NEWIPC|NEWUTS`.
    - `UidMappings/GidMappings` (single: `{ContainerID:0, HostID:<uid>, Size:1}`;
      the process re-parents as PID 1 of the new pid ns).
@@ -79,12 +79,12 @@ component log) and exits non-zero → surfaces as a build/boot error like today.
 ## 3. Rootfs assembly (mount namespace)
 
 One **shared, read-only base rootfs** (RT-2), an unpacked OCI image dir pointed at
-by `--rootfs` (default `/opt/buxon/rootfs`, or `.buxon/rootfs` in dev). Per
+by `--rootfs` (default `/opt/xbin/rootfs`, or `.xbin/rootfs` in dev). Per
 component we overlay:
 
 ```
 lowerdir = <rootfs>            (ro, shared)   [+ granted deps dirs, ro]
-upperdir = <tmpfs or .buxon/overlay/<comp>/up>   (per-component writable)
+upperdir = <tmpfs or .xbin/overlay/<comp>/up>   (per-component writable)
 workdir  = <.../work>
 merged   = the new root
 ```
@@ -94,33 +94,33 @@ Then **bind** into `merged`:
 - the component's **source dir** → `/component` (ro; runtime can't edit source).
 - granted `deps/<x>` → visible under the component's own `deps/` (ro).
 - granted **resource files** (same-scope sqlite/blob) → their expected paths (rw).
-- the **gateway unix socket** → `BUXON_GATEWAY` path (rw) — the one door out.
-- the component's **listen socket dir** (rw) so buxond can dial in.
+- the **gateway unix socket** → `XBIN_GATEWAY` path (rw) — the one door out.
+- the component's **listen socket dir** (rw) so xbind can dial in.
 - `/dev` (bind host `/dev/null,zero,full,random,urandom,tty` or a fresh minimal
   devtmpfs-lite), `/proc` (fresh), `/tmp` (tmpfs), `/etc/resolv.conf` (points at
   the relay's DNS, §4).
 
 Everything not bound is **absent** — sibling source, `home/`, `data/vault/`,
 `.git` are not reachable because they were never mounted. `WORKDIR=/component`,
-`BUXON_COMPONENT` unchanged. Env `BUXON_SOCKET`/`BUXON_GATEWAY` point at the
+`XBIN_COMPONENT` unchanged. Env `XBIN_SOCKET`/`XBIN_GATEWAY` point at the
 in-sandbox bind paths.
 
 **Customizing the rootfs (RT-2):** users bring their own OCI image —
-`buxond --rootfs <dir>` (unpacked), or a future `bx rootfs pull <ref>` that
+`xbind --rootfs <dir>` (unpacked), or a future `bx rootfs pull <ref>` that
 unpacks an OCI ref via a vendored puller. Because we only ever *overlay* on top,
 there is **no `-slim` vs `-fat` split to maintain** (D1 revisited): the base is
-whatever image the operator chooses; buxon mounts it read-only and layers the
+whatever image the operator chooses; xbin mounts it read-only and layers the
 component on top. A component needing extra tooling ships a Dockerfile that
 `FROM`s the base — normal OCI customization.
 
 ## 4. Networking & the egress relay
 
 **Default (no `net:*` grant): empty netns.** Only `lo` (up) + the bind-mounted
-gateway unix socket. No IP route ⇒ **all IP egress fails closed**; buxond is still
+gateway unix socket. No IP route ⇒ **all IP egress fails closed**; xbind is still
 reachable (unix). This is implemented and testable now, and is the correct floor.
 
 **Granted egress: TUN + userspace relay.** When a component has `net:*` grants,
-buxond:
+xbind:
 
 1. `setns` into the child's netns, creates a **TUN** `bx0`, assigns it an address
    (e.g. `10.0.2.15/24`), adds a default route via a virtual gateway
@@ -163,7 +163,7 @@ to keep it out of the core binary's import graph if we prefer.
 ## 5. cgroups, seccomp, limits
 
 - **cgroup v2** (best-effort): if a delegated subtree exists
-  (`/sys/fs/cgroup/.../buxon.slice/`), create `comp-<key>`, write
+  (`/sys/fs/cgroup/.../xbin.slice/`), create `comp-<key>`, write
   `memory.max`/`pids.max`/`cpu.max` from scope config, and put the child's pid in
   `cgroup.procs`. Absent delegation ⇒ warn, skip.
 - **seccomp**: a default allow-list (deny `keyctl`, `add_key`, `ptrace` of others,
@@ -195,14 +195,14 @@ to keep it out of the core binary's import graph if we prefer.
    `/etc/passwd` absent), the component ro bind + rw resource bind behave, the
    netns has only `lo`, and a bind-mounted unix socket is reachable.
 2. **Runner wiring** behind `--isolate`/`--rootfs` (`runner.Sandbox`/`sandboxCmd`,
-   buxond `__sandbox-init` dispatch). **DONE** — tested: a real HTTP backend
+   xbind `__sandbox-init` dispatch). **DONE** — tested: a real HTTP backend
    serves on its unix socket inside the sandbox and is reachable from the host via
    the bound run dir; default path unchanged (isolation off by default). Live
-   buxond-with-`--isolate` needs a real OCI rootfs (phase 4), since Go backends
+   xbind-with-`--isolate` needs a real OCI rootfs (phase 4), since Go backends
    build against glibc by default — the fat rootfs provides it.
 3. **Egress relay** — TUN + gVisor forwarder + DNS + `net:*` policy; broker maps
    granted `net:*` uses → `EgressPolicy`. **DONE / validated live**: the in-ns
-   init creates a TUN and SCM_RIGHTS-passes its fd to buxond, which runs a gVisor
+   init creates a TUN and SCM_RIGHTS-passes its fd to xbind, which runs a gVisor
    stack (TCP + UDP/DNS forwarders) enforcing the policy. Confirmed end-to-end —
    `net:<ip>` reaches only that host, `net:internet` reaches public hosts by name
    (DNS forwarded) but **not** RFC1918, and everything ungranted is refused;
@@ -211,7 +211,7 @@ to keep it out of the core binary's import graph if we prefer.
 4. **OCI base rootfs** — `hack/build-rootfs.sh` + `docker/rootfs.Dockerfile`
    (Ubuntu + go/node/python/git + `bx` + agent CLIs) → unpacked dir for
    `--rootfs`; isolated Go backends are built **static** (`CGO_ENABLED=0`) so
-   they run on any base. **DONE / validated live**: `buxond --isolate --rootfs
+   they run on any base. **DONE / validated live**: `xbind --isolate --rootfs
    <ubuntu>` builds, sandboxes, and serves the counter-go example end-to-end; the
    backend runs in its own user+net+mount ns (host `/home` hidden, netns lo-only).
    Still to do here: `bx rootfs pull` (unpack an OCI ref without docker), cgroups

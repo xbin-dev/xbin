@@ -5,17 +5,17 @@ import (
 	"os"
 	"path"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/builtins"
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/builtins"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Template component endpoints (plans/templates.md). A template is a component
 // blueprint that isn't plugged in until instantiated into a named copy.
 // Sources are the embedded builtin catalog and any workspace component carrying
-// a buxon.json "template" block. Listing is open to any authenticated
+// a xbin.json "template" block. Listing is open to any authenticated
 // principal; instantiating creates a component, so it needs the same
-// workspace-management capability as POST /create (buxon:writer, admin implies).
+// workspace-management capability as POST /create (xbin:writer, admin implies).
 
 func (b *Broker) registerTemplates(srv *server.Server) {
 	srv.RegisterAPI("GET /templates", b.apiTemplatesList)
@@ -61,10 +61,10 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	// Instantiating a template creates a component: same capability as /create.
 	p := auth.PrincipalOf(r)
 	if !b.IsAdmin(p) {
-		role, ok := b.grantedRole(p.Component, "buxon")
+		role, ok := b.grantedRole(p.Component, "xbin")
 		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "instantiating templates needs the workspace-management grant (buxon:writer) — the same as creating components",
+				"error": "instantiating templates needs the workspace-management grant (xbin:writer) — the same as creating components",
 				"docs":  "/docs/auth.md",
 			})
 			return

@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Component code & git endpoints for the Admin console: browse a component's
-// files and its git history/diffs. Admin-gated (buxon:admin, like the rest of
+// files and its git history/diffs. Admin-gated (xbin:admin, like the rest of
 // the console) — this exposes source and history across the whole workspace,
 // which is owner-level. History is scoped to a component's path within the
 // single workspace repo (decision D2); there are no per-component repos.
@@ -90,7 +90,7 @@ func gitInitComponent(dir string) error {
 	}
 	_, _ = runGitIn(dir, "add", "-A")
 	_, _ = runGitIn(dir,
-		"-c", "user.email=buxon@localhost", "-c", "user.name=buxon",
+		"-c", "user.email=xbin@localhost", "-c", "user.name=xbin",
 		"commit", "-q", "--allow-empty", "-m", "initial commit")
 	return nil
 }

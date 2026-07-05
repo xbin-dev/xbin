@@ -22,7 +22,7 @@ func cmdTile(args []string) error {
 			DefaultPath string `json:"defaultPath"`
 			Installed   bool   `json:"installed"`
 		}
-		if err := apiJSON("GET", "/api/buxon/builtins", nil, &tiles); err != nil {
+		if err := apiJSON("GET", "/api/xbin/builtins", nil, &tiles); err != nil {
 			return err
 		}
 		if len(tiles) == 0 {
@@ -61,7 +61,7 @@ func cmdTile(args []string) error {
 		if path != "" {
 			body["path"] = path
 		}
-		if err := apiJSON("POST", "/api/buxon/builtins/import", body, &out); err != nil {
+		if err := apiJSON("POST", "/api/xbin/builtins/import", body, &out); err != nil {
 			return err
 		}
 		fmt.Printf("imported %s\nframe it:  <bx-frame src=%q></bx-frame>\n", out.Path, out.Path)

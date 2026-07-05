@@ -1,5 +1,5 @@
 // Calendar backend: events in the scope's kv resource, change notifications
-// on the scope's bus. The reference example for the buxon resource + RBAC
+// on the scope's bus. The reference example for the xbin resource + RBAC
 // model — apps/email consumes it read-only (see examples/email).
 package main
 
@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 type Event struct {
@@ -20,7 +20,7 @@ type Event struct {
 }
 
 func main() {
-	kv := buxon.KV(buxon.Resource("events"))
+	kv := xbin.KV(xbin.Resource("events"))
 
 	mux := http.NewServeMux()
 
@@ -47,7 +47,7 @@ func main() {
 	})
 
 	// POST /events {day, time, title} — role: writer
-	mux.Handle("POST /events", buxon.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /events", xbin.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
 		var ev Event
 		if err := json.NewDecoder(r.Body).Decode(&ev); err != nil || ev.Day == "" || ev.Title == "" {
 			http.Error(w, `{"error":"need {day, time?, title}"}`, http.StatusBadRequest)
@@ -59,10 +59,10 @@ func main() {
 			return
 		}
 		// Anyone granted reader on res:apps/calendar/bus sees this live.
-		_ = buxon.Publish(buxon.Resource("bus"), "events/created", ev)
+		_ = xbin.Publish(xbin.Resource("bus"), "events/created", ev)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ev)
 	}))
 
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }

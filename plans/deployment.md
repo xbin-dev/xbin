@@ -1,9 +1,9 @@
-# Buxon — Deployment Flow
+# XBin — Deployment Flow
 
 > **OBSOLETE (kept for history).** The single-Docker-container deployment
 > described below has been **dropped** — it was container-as-boundary with no
 > per-component isolation, and less secure than the sandbox runtime. Production
-> is now buxond on a **VM/host it controls** with `--isolate` (`plans/runtime.md`,
+> is now xbind on a **VM/host it controls** with `--isolate` (`plans/runtime.md`,
 > mechanics in `plans/isolation.md`; operator guide in the repo README → Running
 > it). Docker survives only as a *build tool* for the base rootfs
 > (`docker/rootfs.Dockerfile`) and fuse-overlayfs, not as a runtime.
@@ -15,32 +15,32 @@ Docker and five minutes gets a running workspace; upgrades never touch their dat
 
 `docker/Dockerfile`, multi-stage:
 
-1. **build**: `golang:1.x` → `CGO_ENABLED=0 go build ./cmd/buxond` (web assets
+1. **build**: `golang:1.x` → `CGO_ENABLED=0 go build ./cmd/xbind` (web assets
    embedded).
 2. **runtime**: base `debian:stable-slim` +
    - toolchains: Go (full toolchain — components need it), Node LTS, Python 3,
      `build-essential`, git `[D1: fat image, ~2.5–3 GB — accepted, slim variant later]`
    - editors/tools for the terminal experience: vim, nano, less, curl, jq, ripgrep,
      tmux (for people who want their own mux inside sessions), openssh-client
-   - `buxond`, `bx` in `/opt/buxon/bin` (on PATH)
+   - `xbind`, `bx` in `/opt/xbin/bin` (on PATH)
    - sysctl-friendly defaults documented (inotify limits — see Run)
-3. Image runs as **uid 1000 `buxon`**, not root `[D13]`. `ENTRYPOINT ["buxond"]`
-   (buxond does the PID-1 duties: signal forwarding to component processes, zombie
+3. Image runs as **uid 1000 `xbin`**, not root `[D13]`. `ENTRYPOINT ["xbind"]`
+   (xbind does the PID-1 duties: signal forwarding to component processes, zombie
    reaping — no tini needed, one less moving part).
 
-Variants: `buxon:<ver>` (fat, default). `buxon:<ver>-slim` (no toolchains, static +
+Variants: `xbin:<ver>` (fat, default). `xbin:<ver>-slim` (no toolchains, static +
 cgi-shell only) is backlog, not v1.
 
 ## Release flow
 
 - Tag `vX.Y.Z` → GitHub Actions: tests → multi-arch image (amd64, arm64) pushed to
-  `ghcr.io/<owner>/buxon` `[D10]` → GitHub release with standalone `buxond` binaries
+  `ghcr.io/<owner>/xbin` `[D10]` → GitHub release with standalone `xbind` binaries
   (linux/amd64, linux/arm64, darwin/arm64 — the binary alone is the "host mode" for
   dev/poweruser use; docs treat container as the supported path).
-- Versioning: semver; **workspace schema version** stored in workspace `buxon.json`
-  (`"schema": 1`). buxond refuses to open a *newer* schema; migrates older schemas
+- Versioning: semver; **workspace schema version** stored in workspace `xbin.json`
+  (`"schema": 1`). xbind refuses to open a *newer* schema; migrates older schemas
   forward automatically with a pre-migration safety commit if the workspace is a git
-  repo (else a `.buxon/backup-pre-migrate.tar.zst`).
+  repo (else a `.xbin/backup-pre-migrate.tar.zst`).
 
 ## Install / first run
 
@@ -48,19 +48,19 @@ Recommended: **Compose + bind mount + `.env` passphrase** (see README
 §Deployment). The bare `docker run` still works for a quick try:
 
 ```sh
-mkdir -p ~/buxon-ws
-docker run -d --name buxon \
-  -v ~/buxon-ws:/workspace \
-  -e BUXON_VAULT_PASSPHRASE='a-strong-passphrase' \
+mkdir -p ~/xbin-ws
+docker run -d --name xbin \
+  -v ~/xbin-ws:/workspace \
+  -e XBIN_VAULT_PASSPHRASE='a-strong-passphrase' \
   -p 127.0.0.1:8642:8642 \
   --restart unless-stopped \
-  ghcr.io/<owner>/buxon:latest
-docker logs buxon   # prints one-time login URL with token
+  ghcr.io/<owner>/xbin:latest
+docker logs xbin   # prints one-time login URL with token
 ```
 
 - **Secure-by-default vault:** production never stores secrets plaintext.
-  Either set `BUXON_VAULT_PASSPHRASE` (auto-creates + unseals the AES-256-GCM
-  barrier at boot) or leave it unset — buxond boots with the vault **locked**
+  Either set `XBIN_VAULT_PASSPHRASE` (auto-creates + unseals the AES-256-GCM
+  barrier at boot) or leave it unset — xbind boots with the vault **locked**
   and an admin unseals after login (`bx vault unseal`, which creates the
   barrier), so the passphrase never lands in the container env. Only
   `--insecure-vault`/`--dev` permit plaintext. Keep any passphrase in `.env`/a
@@ -69,7 +69,7 @@ docker logs buxon   # prints one-time login URL with token
   named volume). A bare run without the mount lands data in an anonymous
   volume — orphaned on `docker rm`, easy to lose. Bind mount is preferred
   (transparent, git-able, back up by copying the dir).
-- Empty mount → buxond runs `init` automatically (template + git init per `[D2]`).
+- Empty mount → xbind runs `init` automatically (template + git init per `[D2]`).
 - Binds `0.0.0.0:8642` **inside** the container; the example maps to loopback on
   purpose — remote exposure is explicitly the operator's move (below).
 - Compose file shipped in repo (`docker/compose.yml`) with the same content + named
@@ -82,12 +82,12 @@ docker logs buxon   # prints one-time login URL with token
 
 ## Remote access & TLS
 
-buxond speaks plain HTTP + its own auth; it will not grow TLS/ACME `[D14]`.
+xbind speaks plain HTTP + its own auth; it will not grow TLS/ACME `[D14]`.
 Documented patterns, in order of recommendation:
 1. **Tailscale/WireGuard** to the host, map port on tailnet IP. Zero certs, fits the
    single-user model.
 2. **Caddy/Traefik in front** for a public hostname (compose example provided).
-   Buxon's cookie is `Secure` when it sees `X-Forwarded-Proto: https`.
+   XBin's cookie is `Secure` when it sees `X-Forwarded-Proto: https`.
 3. Never raw-expose 8642 to the internet: token auth is the only lock, and the
    payload behind it is arbitrary code execution.
 
@@ -97,8 +97,8 @@ users: `Upgrade`/`Connection` headers).
 ## Upgrade
 
 ```sh
-docker pull ghcr.io/<owner>/buxon:latest
-docker rm -f buxon && docker run … (same flags)   # or: docker compose up -d
+docker pull ghcr.io/<owner>/xbin:latest
+docker rm -f xbin && docker run … (same flags)   # or: docker compose up -d
 ```
 
 - Workspace mount is untouched; schema migrations run on boot (see Release flow).
@@ -107,16 +107,16 @@ docker rm -f buxon && docker run … (same flags)   # or: docker compose up -d
   outside `/workspace` (catches accidental `/root/.cache` style leaks; HOME is inside
   the workspace `[D6]` largely for this reason).
 - Rollback = run the previous tag. Schema migrations must be
-  backward-tolerant within one minor version (older buxond opens a workspace touched
+  backward-tolerant within one minor version (older xbind opens a workspace touched
   by ≤ one minor newer, read-only warnings allowed) — cheap insurance, tested.
 
 ## Backup & restore
 
-- **The workspace dir is the backup unit.** `tar` of `/workspace` minus `.buxon/`
+- **The workspace dir is the backup unit.** `tar` of `/workspace` minus `.xbin/`
   is a complete cold backup.
 - Hot backups: sqlite in WAL mode is the only consistency hazard →
   `bx backup <dest.tar.zst>`: broker checkpoints each sqlite resource
-  (`VACUUM INTO` per db) into a staging dir, tars workspace (excluding `.buxon/`
+  (`VACUUM INTO` per db) into a staging dir, tars workspace (excluding `.xbin/`
   and `data/vault/` unless `--with-vault`, substituting checkpointed dbs), streams
   to dest. Cron it from the host or a
   scheduled component (dogfooding).
@@ -126,12 +126,12 @@ docker rm -f buxon && docker run … (same flags)   # or: docker compose up -d
 
 ## Ops surface (small on purpose)
 
-- Logs: buxond → container stdout (structured slog); component logs →
-  `/workspace/.buxon/log/` (rotated, also `bx logs`).
+- Logs: xbind → container stdout (structured slog); component logs →
+  `/workspace/.xbin/log/` (rotated, also `bx logs`).
 - Health: `GET /healthz` unauthenticated 200 (for restart policies / uptime checks),
-  `GET /api/buxon/status` authenticated (component states, build queue, session
+  `GET /api/xbin/status` authenticated (component states, build queue, session
   count, watch count).
-- Metrics: not in v1; `/api/buxon/status` is scrapeable JSON if someone insists.
-- Crash behavior: buxond exits → container exits → `--restart unless-stopped`
+- Metrics: not in v1; `/api/xbin/status` is scrapeable JSON if someone insists.
+- Crash behavior: xbind exits → container exits → `--restart unless-stopped`
   brings it back; terminal sessions are lost (documented), backends restart lazily,
   no data loss (all state on disk).

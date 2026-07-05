@@ -11,7 +11,7 @@ import (
 	"syscall"
 )
 
-// The dataplane. buxond hands us one point-to-point link per bound client
+// The dataplane. xbind hands us one point-to-point link per bound client
 // (bxc0, bxc1, …, each a /30 in 10.42.0.0/16) and our own egress (bx0). We turn
 // this netns into a router and gate *forwarded* client traffic per destination.
 //
@@ -33,7 +33,7 @@ const (
 	pktOutgoing = 4              // PACKET_OUTGOING (linux/if_packet.h)
 )
 
-// discoverLinks finds our egress and counts the client links buxond created.
+// discoverLinks finds our egress and counts the client links xbind created.
 func discoverLinks() (egress string, clients int) {
 	ifaces, _ := net.Interfaces()
 	for _, i := range ifaces {

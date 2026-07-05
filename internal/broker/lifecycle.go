@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Component lifecycle (plans/lifecycle.md). The owner enables/disables (and,
@@ -15,7 +15,7 @@ import (
 // manifest; the proxy refuses to spawn a non-enabled backend. Disabling also
 // stops any running backend now, to free compute.
 
-// apiLifecycleSet handles POST /api/buxon/lifecycle {component, state}.
+// apiLifecycleSet handles POST /api/xbin/lifecycle {component, state}.
 func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	if !b.IsAdmin(auth.PrincipalOf(r)) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — lifecycle is the owner's to set"})

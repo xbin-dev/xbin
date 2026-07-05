@@ -96,7 +96,7 @@ func (s MCPServer) session(ctx context.Context) (string, error) {
 	_, sid, err := s.rpc(ctx, "initialize", map[string]any{
 		"protocolVersion": "2025-06-18",
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "buxon-agent", "version": "0"},
+		"clientInfo":      map[string]any{"name": "xbin-agent", "version": "0"},
 	}, "")
 	return sid, err
 }

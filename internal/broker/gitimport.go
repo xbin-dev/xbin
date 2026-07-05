@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Install a component from a git remote (GitHub/GitLab/any git URL): each
@@ -155,10 +155,10 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// It must actually be a buxon component.
-	if !fileExists(filepath.Join(target, "buxon.json")) && !fileExists(filepath.Join(target, "index.html")) {
+	// It must actually be a xbin component.
+	if !fileExists(filepath.Join(target, "xbin.json")) && !fileExists(filepath.Join(target, "index.html")) {
 		_ = os.RemoveAll(target)
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "not a buxon component (no buxon.json or index.html at the repo root)"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "not a xbin component (no xbin.json or index.html at the repo root)"})
 		return
 	}
 
@@ -180,7 +180,7 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		_ = os.RemoveAll(target)
 		_ = b.Reg.Rescan()
 		server.WriteJSON(w, http.StatusBadRequest, map[string]any{
-			"error":    "import rejected: the component references things that don't exist — fix its buxon.json and re-import",
+			"error":    "import rejected: the component references things that don't exist — fix its xbin.json and re-import",
 			"warnings": warnings,
 		})
 		return

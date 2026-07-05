@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 const frameTokenTTL = 15 * time.Minute
@@ -22,7 +22,7 @@ const frameTokenTTL = 15 * time.Minute
 // handleComponentStatic serves /c/<component-path>/<file> from the workspace.
 // HTML responses get the single sanctioned transform (decision D4): the merged
 // import map, component identity meta tags, a frame token, and the
-// buxon-client module are injected into <head>. Everything else is served
+// xbin-client module are injected into <head>. Everything else is served
 // byte-exact. Cache-Control is no-store throughout: this is a live system.
 func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/c/")
@@ -102,7 +102,7 @@ func pathAllowed(cleaned string) bool {
 		return false
 	}
 	for _, part := range strings.Split(cleaned, "/") {
-		if part == ".git" || part == ".buxon" {
+		if part == ".git" || part == ".xbin" {
 			return false
 		}
 	}
@@ -143,16 +143,16 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	if s.Interfaces != nil {
 		if ifaces := s.Interfaces(compPath); len(ifaces) > 0 {
 			j, _ := json.Marshal(ifaces)
-			ifaceMeta = fmt.Sprintf("<meta name=\"buxon-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
+			ifaceMeta = fmt.Sprintf("<meta name=\"xbin-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
 		}
 	}
 
 	inject := fmt.Sprintf(
 		"\n<script type=\"importmap\">%s</script>\n"+
-			"<meta name=\"buxon-component\" content=\"%s\">\n"+
-			"<meta name=\"buxon-frame-token\" content=\"%s\">\n"+
+			"<meta name=\"xbin-component\" content=\"%s\">\n"+
+			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
 			"%s"+
-			"<script type=\"module\" src=\"/vendor/buxon-client.js\"></script>\n",
+			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
 		im, htmlEscape(compPath), frameTok, ifaceMeta)
 
 	var out []byte
@@ -223,7 +223,7 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 const docViewerHTML = `<!doctype html><html><head><meta charset="utf-8">
-<title>buxon docs — %[1]s</title>
+<title>xbin docs — %[1]s</title>
 <link rel="stylesheet" href="/vendor/theme.css">
 <style>body{max-width:52rem;margin:1.5rem auto;padding:0 1rem;font:14px/1.65 -apple-system,"Segoe UI",system-ui,sans-serif;color:var(--bx-text,#33414e);background:var(--bx-panel,#fff)}
 pre{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.55}

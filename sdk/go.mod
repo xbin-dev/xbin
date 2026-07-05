@@ -1,3 +1,3 @@
-module github.com/magik6k/buxon/sdk
+module github.com/magik6k/xbin/sdk
 
 go 1.24

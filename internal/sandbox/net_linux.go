@@ -14,18 +14,18 @@ import (
 )
 
 // Virtual egress network inside the component netns: the TUN carries all IP
-// traffic to buxond's userspace relay (plans/isolation.md §3).
+// traffic to xbind's userspace relay (plans/isolation.md §3).
 const (
 	tunName  = "bx0"
 	tunAddr  = "10.0.2.15/24"
-	tunGw    = GatewayIP  // 10.0.2.2 — buxond may host-forward here
+	tunGw    = GatewayIP  // 10.0.2.2 — xbind may host-forward here
 	relayDNS = "10.0.2.3" // the relay answers DNS here
 )
 
 // setupEgress creates this netns's TUN(s), configures address/route/DNS, and
-// hands the fd(s) back to buxond over the control socket. The egress TUN is sent
-// first (buxond runs the relay on it, or splices it to a provider); then one TUN
-// per NetClients entry (a provider tile's client links, which buxond splices).
+// hands the fd(s) back to xbind over the control socket. The egress TUN is sent
+// first (xbind runs the relay on it, or splices it to a provider); then one TUN
+// per NetClients entry (a provider tile's client links, which xbind splices).
 // Runs as netns-root, before pivot_root (needs the host's /dev/net/tun).
 func setupEgress(newroot string, s *Spec) error {
 	addr, gw := s.NetAddr, s.NetGw
@@ -54,9 +54,9 @@ func setupEgress(newroot string, s *Spec) error {
 		[]byte("nameserver "+ns+"\noptions single-request\n"), 0o644)
 
 	if err := sendFD(s.CtrlFD, tunFD); err != nil {
-		return fmt.Errorf("hand tun fd to buxond: %w", err)
+		return fmt.Errorf("hand tun fd to xbind: %w", err)
 	}
-	unix.Close(tunFD) // buxond holds it via SCM_RIGHTS
+	unix.Close(tunFD) // xbind holds it via SCM_RIGHTS
 
 	// Provider tile: one extra TUN per client link (addr only, no default route —
 	// the provider routes among them and its egress).

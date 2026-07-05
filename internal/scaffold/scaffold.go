@@ -1,6 +1,6 @@
 // Package scaffold creates new components: manifest, view, backend skeleton
 // for the chosen runtime, and the API.md contract when exposing. Shared by
-// `bx new` and the component-creation API (POST /api/buxon/create) that
+// `bx new` and the component-creation API (POST /api/xbin/create) that
 // tiles like tiles/manager build on. Never overwrites existing files.
 package scaffold
 
@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 type Options struct {
@@ -38,8 +38,8 @@ func Create(root string, o Options) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(dir, "buxon.json")); err == nil {
-		return nil, fmt.Errorf("%s already has a buxon.json", o.Path)
+	if _, err := os.Stat(filepath.Join(dir, "xbin.json")); err == nil {
+		return nil, fmt.Errorf("%s already has a xbin.json", o.Path)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func Create(root string, o Options) ([]string, error) {
 	if len(fields) > 0 {
 		manifest = "{\n" + strings.Join(fields, ",\n") + "\n}\n"
 	}
-	if err := write("buxon.json", manifest); err != nil {
+	if err := write("xbin.json", manifest); err != nil {
 		return written, err
 	}
 	if err := write("index.html", fmt.Sprintf(indexTpl, htmlEscape(title))); err != nil {

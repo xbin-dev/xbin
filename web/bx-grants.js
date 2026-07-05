@@ -71,7 +71,7 @@ export class BxGrants extends LitElement {
 
   async _load() {
     try {
-      const r = await fetch('/api/buxon/grants');
+      const r = await fetch('/api/xbin/grants');
       if (!r.ok) return;
       const d = await r.json();
       this._grants = d.grants ?? [];
@@ -79,24 +79,24 @@ export class BxGrants extends LitElement {
       // Pull role descriptions for pending component targets.
       for (const p of this._pending) {
         if (p.target.startsWith('res:') || this._roleDocs[p.target] !== undefined) continue;
-        const cr = await fetch(`/api/buxon/components/${p.target}`);
+        const cr = await fetch(`/api/xbin/components/${p.target}`);
         this._roleDocs = {
           ...this._roleDocs,
           [p.target]: cr.ok ? (await cr.json()).component?.roles ?? {} : {},
         };
       }
-    } catch { /* buxond restart etc.; next event reloads */ }
+    } catch { /* xbind restart etc.; next event reloads */ }
   }
 
   async _approve(g) {
-    await fetch('/api/buxon/grants', {
+    await fetch('/api/xbin/grants', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
     });
     this._load();
   }
 
   async _revoke(g) {
-    await fetch('/api/buxon/grants', {
+    await fetch('/api/xbin/grants', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
     });
     this._load();

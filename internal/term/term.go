@@ -1,6 +1,6 @@
 // Package term implements persistent PTY terminal sessions behind /ws/term.
 //
-// Sessions are owner-privileged (the editing plane): shells run as the buxond
+// Sessions are owner-privileged (the editing plane): shells run as the xbind
 // user with the owner token in env, cwd'd to a component's source directory.
 // A session outlives its WebSocket — reattach by id replays bounded
 // scrollback. Wire protocol in docs/protocol.md: binary frames are raw PTY
@@ -25,10 +25,10 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
-	"github.com/magik6k/buxon/internal/gpu"
-	"github.com/magik6k/buxon/internal/sandbox"
-	"github.com/magik6k/buxon/internal/sandbox/relay"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/gpu"
+	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/magik6k/xbin/internal/sandbox/relay"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 const (
 	NetInternet = "internet" // own netns + egress relay, net:internet only (default)
 	NetHost     = "host"     // share the host network (LAN + host services visible)
-	NetNone     = "none"     // isolated netns, no egress (airgapped; buxond unreachable)
+	NetNone     = "none"     // isolated netns, no egress (airgapped; xbind unreachable)
 )
 
 // normalizeNet clamps an incoming ?net= value to a known scope (default internet).
@@ -87,7 +87,7 @@ type Session struct {
 
 type Manager struct {
 	Root     string          // workspace root
-	Listen   string          // buxond's listen addr (host:port) — for the relay host-forward
+	Listen   string          // xbind's listen addr (host:port) — for the relay host-forward
 	Env      func() []string // extra env for shells (token, HOME, …)
 	upgrader websocket.Upgrader
 
@@ -150,7 +150,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := m.upgrader.Upgrade(w, r, http.Header{
-		"X-Buxon-Session": []string{s.ID},
+		"X-XBin-Session": []string{s.ID},
 	})
 	if err != nil {
 		return
@@ -260,7 +260,7 @@ func (m *Manager) shellCmd(dir, rel, netMode, gpuMode string) (*exec.Cmd, func()
 	}
 	cmd := exec.Command(shell)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "BUXON_COMPONENT="+rel)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
 	if os.Getenv("LANG") == "" {
 		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
 	}
@@ -324,7 +324,7 @@ func (m *Manager) ResetEnv(rel string) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return os.RemoveAll(filepath.Join(m.Root, ".buxon", "term", key))
+	return os.RemoveAll(filepath.Join(m.Root, ".xbin", "term", key))
 }
 
 // scopedBinds builds a terminal's workspace binds (plans/runtime.md).
@@ -334,8 +334,8 @@ func (m *Manager) ResetEnv(rel string) error {
 //   - A COMPONENT terminal (rel != "") is isolated: the workspace is read-only
 //     EXCEPT $HOME and this component's own directory (its code + its own .git
 //     repo). So a rogue agent can only touch its component and $HOME — never
-//     workspace state (buxon.json, AGENTS.md, go.work), runtime data (data/,
-//     .buxon/), or other components. Commits work because each component is its
+//     workspace state (xbin.json, AGENTS.md, go.work), runtime data (data/,
+//     .xbin/), or other components. Commits work because each component is its
 //     own git repo, writable inside the component dir even while the root is ro.
 //
 // Read-only ExtraBinds (e.g. the SDK) are appended last. rw binds go AFTER the
@@ -359,7 +359,7 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // workspace read-only except $HOME and this component's own dir (see scopedBinds)
 // — the editing plane scoped to this component — and any
 // read-only ExtraBinds (the SDK for `go build`). The overlay upper is a
-// **persistent per-component layer** (`.buxon/term/<key>/`) so system-level
+// **persistent per-component layer** (`.xbin/term/<key>/`) so system-level
 // changes (apt installs, /etc configs) survive across sessions — a resettable
 // dev sandbox per component (plans/component-env.md). Only one live session may
 // hold a component's layer; concurrent sessions on the same component fall back
@@ -388,7 +388,7 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, fu
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
 	envKey := termKey(rel)
 	if m.acquireEnv(envKey) {
-		layer := filepath.Join(m.Root, ".buxon", "term", envKey)
+		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
 		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
 		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
 			spec.Upper, spec.Work = up, work
@@ -445,9 +445,9 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, fu
 	return cmd, h.Cleanup, post, envKey, nil
 }
 
-// hostForward maps the buxond listen port on the relay gateway IP to buxond on
+// hostForward maps the xbind listen port on the relay gateway IP to xbind on
 // host loopback, so an internet-scope terminal (in its own netns) can still
-// reach the workspace controller via BUXON_URL (bx/curl) without any host
+// reach the workspace controller via XBIN_URL (bx/curl) without any host
 // interface being exposed. Nil if the listen addr can't be parsed.
 func (m *Manager) hostForward() map[int]string {
 	_, portStr, err := net.SplitHostPort(m.Listen)
@@ -462,20 +462,20 @@ func (m *Manager) hostForward() map[int]string {
 }
 
 // sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
-// toolchains (not the host's), plus BUXON_URL/TOKEN/WORKSPACE/HOME from m.Env().
-// In internet scope the netns can't reach buxond's 127.0.0.1 listener, so
-// BUXON_URL is rewritten to the relay gateway host-forward.
+// toolchains (not the host's), plus XBIN_URL/TOKEN/WORKSPACE/HOME from m.Env().
+// In internet scope the netns can't reach xbind's 127.0.0.1 listener, so
+// XBIN_URL is rewritten to the relay gateway host-forward.
 func (m *Manager) sandboxEnv(rel, netMode string) []string {
 	env := []string{
 		"TERM=xterm-256color", "COLORTERM=truecolor",
-		"BUXON_COMPONENT=" + rel,
+		"XBIN_COMPONENT=" + rel,
 		"LANG=C.UTF-8",
 		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
-	var buxonURL string
+	var xbinURL string
 	if netMode == NetInternet {
 		if _, port, err := net.SplitHostPort(m.Listen); err == nil {
-			buxonURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
+			xbinURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
 		}
 	}
 	if m.Env != nil {
@@ -483,14 +483,14 @@ func (m *Manager) sandboxEnv(rel, netMode string) []string {
 			if strings.HasPrefix(e, "PATH=") {
 				continue // the rootfs PATH above wins
 			}
-			if buxonURL != "" && strings.HasPrefix(e, "BUXON_URL=") {
+			if xbinURL != "" && strings.HasPrefix(e, "XBIN_URL=") {
 				continue // rewritten below to the relay gateway
 			}
 			env = append(env, e)
 		}
 	}
-	if buxonURL != "" {
-		env = append(env, "BUXON_URL="+buxonURL)
+	if xbinURL != "" {
+		env = append(env, "XBIN_URL="+xbinURL)
 	}
 	return env
 }

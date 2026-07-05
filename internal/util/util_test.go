@@ -34,7 +34,7 @@ func TestSafeJoin(t *testing.T) {
 func TestComponentPathOK(t *testing.T) {
 	good := []string{"apps/x", "root", "lib/ui-kit/button"}
 	bad := []string{"", "/abs", "a/../b", ".hidden", "apps/.x", "vendor/x",
-		"data/x", "home/x", ".buxon/x", "buxon", "apps/node_modules/x",
+		"data/x", "home/x", ".xbin/x", "xbin", "apps/node_modules/x",
 		"apps/deps/y", "a\\b"}
 	for _, p := range good {
 		if !ComponentPathOK(p) {

@@ -1,4 +1,4 @@
-# Buxon — Architecture
+# XBin — Architecture
 
 A self-modifying, in-browser, multi-directory project workspace. Every piece of UI on
 screen is backed by a directory you can open a shell into and edit live — including the
@@ -24,23 +24,23 @@ Workspace  →  Scope  →  Component
 
 **The self-hosting rule:** the workspace root UI is itself just a component
 (`/workspace/root/index.html` composing `<bx-frame>` elements). There is no privileged
-"chrome" that can't be edited from inside. This is the property that makes Buxon more
+"chrome" that can't be edited from inside. This is the property that makes XBin more
 than a dashboard builder.
 
 ### Component contract
 
 ```
 my-component/
-  buxon.json        # manifest (optional — sane defaults for bare dirs)
+  xbin.json        # manifest (optional — sane defaults for bare dirs)
   index.html        # view, iframe mode (default)
   element.js        # view, inline widget mode (opt-in, trusted)
   backend/          # backend entry, runtime-specific (main.go / server.js / handler.py)
-  deps/             # materialized dependency links, managed by buxond (§5)
+  deps/             # materialized dependency links, managed by xbind (§5)
   ...anything else  # it's just a directory; shells can do whatever
 ```
 
 ```jsonc
-// buxon.json
+// xbin.json
 {
   "runtime": "go",                        // go | node | python | cgi | static (default)
   "deps": ["lib/ui-kit", "apps/calendar/widgets/month-view"],
@@ -52,7 +52,7 @@ my-component/
 ```
 
 Component IDs are workspace-relative paths (`apps/calendar/widgets/month-view`). No
-registry to keep in sync; `mv` is rename, `cp -r` is fork. buxond watches the tree and
+registry to keep in sync; `mv` is rename, `cp -r` is fork. xbind watches the tree and
 rescans manifests on change.
 
 ---
@@ -64,12 +64,12 @@ rescans manifests on change.
   via JSDoc if wanted — still no build step).
 - All vendor deps (`lit`, `@xterm/xterm`, addons) are **vendored into
   `/workspace/vendor/`**, not loaded from a CDN. A workspace must be fully
-  self-contained and offline-capable; `buxon vendor add <pkg>` fetches ESM builds.
-- The import map is served at the document level. Scopes can extend it (buxond merges
+  self-contained and offline-capable; `xbin vendor add <pkg>` fetches ESM builds.
+- The import map is served at the document level. Scopes can extend it (xbind merges
   workspace + scope import maps when serving a scope's documents).
-- Since iframed components are their own documents, buxond performs exactly **one
+- Since iframed components are their own documents, xbind performs exactly **one
   sanctioned HTML transform** when serving component HTML: injecting the merged import
-  map and `buxon-client.js` into `<head>` (opt-out via manifest `"inject": false`).
+  map and `xbin-client.js` into `<head>` (opt-out via manifest `"inject": false`).
   No other rewriting, ever. (Decision D4 in `plans/DECISIONS.md`.)
 
 ### `<bx-frame>` — the main element
@@ -104,7 +104,7 @@ components that export a custom element and accept shared-realm discipline; pare
 embed those directly for seamless layout.
 
 Frame↔host protocol (postMessage, tiny): `resize`, `navigate`, `open-editor`,
-`bus` (event forwarding, §6). A ~50-line `vendor/buxon-client.js` inside the frame
+`bus` (event forwarding, §6). A ~50-line `vendor/xbin-client.js` inside the frame
 handles it; frames work (degraded) without it.
 
 ### `<bx-terminal>`
@@ -121,18 +121,18 @@ panel) containing `<bx-terminal>` with a shell **cwd'd to the component's source
 
 Server side:
 
-- `WS /ws/term?cwd=<component-id>&session=<id?>` → buxond spawns `$SHELL` via
+- `WS /ws/term?cwd=<component-id>&session=<id?>` → xbind spawns `$SHELL` via
   `creack/pty`.
 - **Sessions persist server-side.** Disconnect ≠ SIGHUP; reattach by session id
-  (tmux semantics without tmux; scrollback ring buffer kept in buxond). Multiple
+  (tmux semantics without tmux; scrollback ring buffer kept in xbind). Multiple
   terminals per component allowed.
 - The shell is a *real* shell in the *real* tree. `vim`, `go test`, `git`, `claude` —
-  whatever the container image ships. Editing is not mediated by Buxon at all; Buxon
+  whatever the container image ships. Editing is not mediated by XBin at all; XBin
   only *reacts* to file changes. This keeps the editing story trivially powerful and
   the core small.
 
 Terminals are the owner plane, deliberately not sandboxed from the workspace; the
-**outer boundary is the VM/host** buxond runs on (§8). Component *backends*, by
+**outer boundary is the VM/host** xbind runs on (§8). Component *backends*, by
 contrast, do get per-component OS isolation under `--isolate` (`plans/isolation.md`).
 
 ---
@@ -141,7 +141,7 @@ contrast, do get per-component OS isolation under `--isolate` (`plans/isolation.
 
 ### Routing
 
-buxond (single Go binary) owns the front door:
+xbind (single Go binary) owns the front door:
 
 ```
 GET  /c/<component-id>/...     static files of the component dir
@@ -169,10 +169,10 @@ type Runner interface {
 PHP-feel-for-Go answer, and it's boring on purpose:
 
 1. fsnotify on the component dir, debounced ~300 ms.
-2. `go build -o .buxon/build/<id>/next` with **shared `GOMODCACHE`/`GOCACHE`** across
+2. `go build -o .xbin/build/<id>/next` with **shared `GOMODCACHE`/`GOCACHE`** across
    the workspace → incremental rebuilds of small components are subsecond.
 3. Start the new process; it serves HTTP on a unix socket passed via
-   `BUXON_SOCKET` (SDK: `buxon.Serve(mux)` — ~20 lines, plain `net/http`).
+   `XBIN_SOCKET` (SDK: `xbin.Serve(mux)` — ~20 lines, plain `net/http`).
 4. Health check → atomically swap the proxy target → drain and kill the old process
    (blue/green; in-flight requests finish).
 5. Build failure → keep old process, push the compiler output to `/ws/events` (error
@@ -214,8 +214,8 @@ sub-components and dependency components.
 Containment *is* the dependency for the composition case. No machinery.
 
 **Dependency components: manifest-declared, symlink-materialized.** `deps` in
-`buxon.json` is the source of truth; buxond maintains `deps/<name> → ../../lib/ui-kit`
-symlinks. Cheap, visible in `ls`, honest, survives tools that don't know about Buxon.
+`xbin.json` is the source of truth; xbind maintains `deps/<name> → ../../lib/ui-kit`
+symlinks. Cheap, visible in `ls`, honest, survives tools that don't know about XBin.
 The manifest-as-truth detail matters: because components never hardcode the mechanism,
 the materialization can be upgraded later without changing any component:
 
@@ -229,7 +229,7 @@ the materialization can be upgraded later without changing any component:
 
 Start with symlinks; keep the escalation path.
 
-**Go-level code sharing:** buxond generates and maintains a workspace root `go.work`
+**Go-level code sharing:** xbind generates and maintains a workspace root `go.work`
 listing every Go component module. Any shell anywhere builds against dependency
 components' packages directly, cross-component refactors work, and gopls in any
 editor sees the whole workspace. Node equivalent: workspace-root `package.json`
@@ -242,12 +242,12 @@ workspaces, or just the `deps/` symlinks (Node resolves through symlinks fine).
 The calendar-DB-tapped-by-email problem. Two mechanisms, with a strong default:
 
 **A. Service APIs (preferred).** The calendar scope *is* a backend; email calls it
-server-side at `http://buxon/api/apps/calendar/...` through buxond's gateway, which
+server-side at `http://xbin/api/apps/calendar/...` through xbind's gateway, which
 authenticates the caller, checks the grant table, and injects verified
-`X-Buxon-From: apps/email` / `X-Buxon-Role: reader`. Callees declare **roles**
+`X-XBin-From: apps/email` / `X-XBin-Role: reader`. Callees declare **roles**
 (`expose.roles`, conventionally `reader`/`writer`/`admin`) and callers request them
 (`uses: [{target, role}]`) — RBAC with callee-defined roles, owner-approved grants,
-buxond-verified identity, callee-enforced routes. Elements also each get a private
+xbind-verified identity, callee-enforced routes. Elements also each get a private
 **vault** for third-party secrets, encrypted at rest by an AES-256-GCM barrier
 with a passphrase-derived key held only in memory (seal/unseal; the key never
 lives in the at-rest data). Full design: `plans/auth.md`.
@@ -260,18 +260,18 @@ workspace level:
 { "resources": { "db": { "type": "sqlite" }, "attachments": { "type": "blob" } } }
 ```
 
-buxond's **resource broker** provisions them under `/workspace/data/resources/<scope>/`
+xbind's **resource broker** provisions them under `/workspace/data/resources/<scope>/`
 and hands grants to components at process start via env
-(`BUXON_RES_CALENDAR_DB=/workspace/data/resources/apps~calendar/db.sqlite?mode=ro`).
+(`XBIN_RES_CALENDAR_DB=/workspace/data/resources/apps~calendar/db.sqlite?mode=ro`).
 Resource types, v1:
 
 - `sqlite` — the default database. Zero-ops, file-per-resource, WAL mode; same-scope
   grants hand the file path directly, cross-scope access is brokered (query API, no
   path disclosure). Postgres becomes a `type` later (broker provisions a database +
   role in a sidecar) without changing the model.
-- `kv` — namespaced keys in a buxond-owned store (bbolt), over a tiny HTTP API.
+- `kv` — namespaced keys in a xbind-owned store (bbolt), over a tiny HTTP API.
 - `blob` — a directory with quota.
-- `bus` — pub/sub topics. Served by buxond over `/ws/events`; bridged into frames via
+- `bus` — pub/sub topics. Served by xbind over `/ws/events`; bridged into frames via
   the postMessage protocol, so *frontend* components get cross-app reactivity too
   (email badge updates when calendar writes an event) without polling.
 
@@ -286,10 +286,10 @@ wazero/netns later for syscall- and egress-level caps.
 
 ## 7. The host & data layout
 
-buxond runs on a **VM/host it controls**, one bind-mounted data dir. Host is
+xbind runs on a **VM/host it controls**, one bind-mounted data dir. Host is
 cattle, workspace is pet.
 
-> **Where we landed** (`plans/runtime.md`): buxond is the sandbox runtime —
+> **Where we landed** (`plans/runtime.md`): xbind is the sandbox runtime —
 > workloads get namespaces (`plans/isolation.md`) over a fat OCI **base rootfs**
 > (toolchains + `opencode`/`claude-code`) that backs both sandboxes and
 > terminals. The old **single-Docker-container runtime was dropped** (it was
@@ -299,29 +299,29 @@ cattle, workspace is pet.
 
 ```
 /workspace                  ← bind mount; ALL non-runtime state
-  buxon.json                # workspace manifest, grants table
+  xbin.json                # workspace manifest, grants table
   root/                     # the root UI component (self-hosted shell)
   apps/<scope>/...          # scopes and their components
   lib/...                   # shared library components
-  vendor/                   # vendored frontend deps (lit, xterm, buxon-client)
+  vendor/                   # vendored frontend deps (lit, xterm, xbin-client)
   data/resources/...        # broker-provisioned state (sqlite, blobs, kv)
-  .buxon/                   # derived state: build outputs, caches, logs, PTY scrollback
+  .xbin/                   # derived state: build outputs, caches, logs, PTY scrollback
                             #   — safe to delete, excluded from backup/git
-/opt/buxon/buxond           # the binary
+/opt/xbin/xbind           # the binary
 /opt/toolchains             # go, node, python, git, vim, etc. (baked in image)
 ```
 
-- `git init /workspace` (ignore `.buxon/`, decide per-workspace on `data/`) — the whole
+- `git init /workspace` (ignore `.xbin/`, decide per-workspace on `data/`) — the whole
   workspace including its own UI is versioned. Time-machine via git.
-- Upgrading Buxon = new image, same mount. buxond migrates manifests if needed.
-- buxond runs as PID 1 (or under tini), supervises component processes as children,
+- Upgrading XBin = new image, same mount. xbind migrates manifests if needed.
+- xbind runs as PID 1 (or under tini), supervises component processes as children,
   reaps zombies, cgroup-limits per-scope if desired.
 
 ---
 
 ## 8. Security posture
 
-Honest framing: Buxon is a **remote code execution appliance by design**. Therefore:
+Honest framing: XBin is a **remote code execution appliance by design**. Therefore:
 
 - The **VM/host is the outer boundary**; per-component OS namespaces (`--isolate`,
   `plans/isolation.md`) are the inner one. Run the host like a dev box: no secrets
@@ -355,7 +355,7 @@ Honest framing: Buxon is a **remote code execution appliance by design**. Theref
   churn. Rejected for v1: wasip1 friction (no sockets, single-threaded Go) taxes every
   component to secure a system whose boundary is the container anyway.
 - **ttyd / wetty for terminals.** Faster to bolt on, but session persistence,
-  per-component cwd, and auth integration want the PTY loop in buxond;
+  per-component cwd, and auth integration want the PTY loop in xbind;
   `creack/pty` + xterm.js is ~200 lines.
 - **Shadow-DOM-only rendering (no iframes).** Seamless layout, but breaks
   `index.html` semantics (script execution, relative URLs, per-document import maps)
@@ -366,7 +366,7 @@ Honest framing: Buxon is a **remote code execution appliance by design**. Theref
 
 ## 10. Build order
 
-1. **Walking skeleton** — buxond: static serving of `/c/<id>/`, `<bx-frame>` (iframe +
+1. **Walking skeleton** — xbind: static serving of `/c/<id>/`, `<bx-frame>` (iframe +
    the 7×7 button), `<bx-terminal>` + PTY over WS with cwd. *Already usable as a
    "directory desktop."*
 2. **Backends** — process Runner (Go rebuild-on-change first, then node/python/cgi),

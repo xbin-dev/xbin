@@ -31,7 +31,7 @@ sandboxes consume as a lower. "Docker, but one layer."
 
 ## Declaring the environment — `setup`
 
-`buxon.json` gains an optional **`setup`**: a freeform shell script, run once at
+`xbin.json` gains an optional **`setup`**: a freeform shell script, run once at
 build time. Inline for one-liners; a `setup.sh` in the component dir for anything
 bigger (the component dir is mounted during the build, so `./setup.sh` works).
 
@@ -50,15 +50,15 @@ sandboxed (below) and by agent guidance on safe supply chains.
 ## Build — lazy, hash-keyed, a fresh layer per change
 
 - **Key**: `sha256(setup script content + base-rootfs id)`. The layer lives at
-  `.buxon/env/<compkey>/<hash>/` (upper + work). Per-component (CE-2); gitignored
-  cache, rebuildable, not backed up — same semantics as the rest of `.buxon`.
+  `.xbin/env/<compkey>/<hash>/` (upper + work). Per-component (CE-2); gitignored
+  cache, rebuildable, not backed up — same semantics as the rest of `.xbin`.
 - **Lazy**: built only when the current hash's layer is missing — i.e. **first
   run or after a `setup` change** (CE-4). A code save that doesn't touch `setup`
   reuses the existing layer (fast); a `setup` change mints a **new** `<hash>`
   directory built clean from the base rootfs — never an in-place re-apply onto the
   old layer (CE-3).
 - **Where it runs**: a throwaway sandbox — `Lower:[baseRootfs]`,
-  `Upper:.buxon/env/<compkey>/<hash>/upper` (persisted), the component source
+  `Upper:.xbin/env/<compkey>/<hash>/upper` (persisted), the component source
   bound read-only, `Net:"relay"` under **`net:internet`** always (CE-5, no
   separate per-import approval), entry `/bin/sh -exc "<setup>"`, run as
   container-root (the range-uid map makes `apt`/`useradd`/etc. work). On success
@@ -68,7 +68,7 @@ sandboxed (below) and by agent guidance on safe supply chains.
   surfaced through the current `build-start` / `build-error` events ("setting up
   environment…"), so the frame overlay shows progress and setup failures inline.
 - **GC**: on a successful new build, older `<hash>` dirs for that component are
-  removed (keep current). `.buxon` can be blown away and rebuilt at any time.
+  removed (keep current). `.xbin` can be blown away and rebuilt at any time.
 
 ## Runtime
 
@@ -85,7 +85,7 @@ live shell / rw workspace would be surprising). Instead each terminal gets its
 **own** per-component overlay upper — a persistent, resettable **dev sandbox**
 (CE-6):
 
-- **Persistent** at `.buxon/term/<key>/` (per component; `_root` for a
+- **Persistent** at `.xbin/term/<key>/` (per component; `_root` for a
   workspace-root shell). System-level changes — `apt install`, `/etc` configs,
   toolchains outside the workspace — survive across terminal sessions, so an
   agent's project setup sticks. (Workspace files and `$HOME` already persist via
@@ -93,7 +93,7 @@ live shell / rw workspace would be surprising). Instead each terminal gets its
 - **One live holder per component**: two overlay mounts of the same upperdir
   would corrupt it, so only one live session mounts a component's layer;
   concurrent sessions on the same component fall back to an ephemeral upper.
-  Reattaching to an existing session keeps its layer; a buxond restart frees it.
+  Reattaching to an existing session keeps its layer; a xbind restart frees it.
 - **Resettable**: `DELETE /ws/term/env?cwd=<path>` wipes the layer back to the
   base rootfs (killing any live holder first), surfaced as a "reset sandbox"
   action in the terminal window.
@@ -132,7 +132,7 @@ tile-sharing hardens (`plans/tile-sharing.md`).
 
 - **CE-1 — Freeform `setup` script**, not a structured package schema. Max
   flexibility ("Ruby or anything"); safety via sandboxing + agent guidance.
-- **CE-2 — Per-component cache** at `.buxon/env/<compkey>/<hash>/`.
+- **CE-2 — Per-component cache** at `.xbin/env/<compkey>/<hash>/`.
   Content-addressed cross-component dedup is a later optimization (needs
   refcount/GC).
 - **CE-3 — A `setup` change builds a fresh layer** from the base rootfs, never an
@@ -141,13 +141,13 @@ tile-sharing hardens (`plans/tile-sharing.md`).
   reuse the layer.
 - **CE-5 — Build egress is `net:internet`, always** — no per-import approval.
 - **CE-6 — Terminals get their own persistent, resettable per-component layer**
-  (`.buxon/term/<key>/`, one live holder each, `DELETE /ws/term/env` to reset) —
+  (`.xbin/term/<key>/`, one live holder each, `DELETE /ws/term/env` to reset) —
   a dev sandbox. They do *not* stack the component env layer.
 - **CE-7 — AGENTS.md encourages safe supply-chain installs + system update.**
 
 ## Touchpoints (for implementation)
 
-- `internal/registry` — add `Setup` to the manifest; parse from `buxon.json`.
+- `internal/registry` — add `Setup` to the manifest; parse from `xbin.json`.
 - `internal/runner` — env-layer build step before backend build/start (reuse
   single-flight + events); `Lower` wiring in `sandboxCmd`; GC.
 - `internal/sandbox` — none (Lower/Upper already support it).

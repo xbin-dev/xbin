@@ -1,13 +1,13 @@
 // agent.js — the control tile logic. Polls the backend and renders a run list
 // plus a live, interleaved timeline (transcript messages + the journal of LLM
 // calls / tool calls / compactions / yields) so a run is fully debuggable, and
-// wires the steering controls. Vanilla JS; buxon.fetch attributes calls to this
+// wires the steering controls. Vanilla JS; xbin.fetch attributes calls to this
 // element (self → admin of its own backend).
-const base = `/api/${buxon.self}`;
+const base = `/api/${xbin.self}`;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const api = async (method, path, body) => {
-  const r = await buxon.fetch(base + path, {
+  const r = await xbin.fetch(base + path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,

@@ -14,18 +14,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/builtins"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/resenc"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/users"
-	"github.com/magik6k/buxon/internal/vault"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/builtins"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/resenc"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/users"
+	"github.com/magik6k/xbin/internal/vault"
 )
 
 // CronPrincipal is the From identity of scheduler-invoked calls.
-const CronPrincipal = "buxon/cron"
+const CronPrincipal = "xbin/cron"
 
 type Broker struct {
 	Reg *registry.Registry
@@ -63,7 +63,7 @@ type Broker struct {
 	// main to avoid a broker→proxy import cycle.
 	ProxyHandler http.Handler
 
-	// Version is the buxond version, stamped into backup manifests.
+	// Version is the xbind version, stamped into backup manifests.
 	Version string
 
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
@@ -107,7 +107,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 
 // UnsealOrInit brings the vault barrier online with a passphrase: initializes
 // it on first use (migrating any legacy plaintext), or unseals an existing
-// one. Called at boot from BUXON_VAULT_PASSPHRASE, and by the unseal API.
+// one. Called at boot from XBIN_VAULT_PASSPHRASE, and by the unseal API.
 func (b *Broker) UnsealOrInit(passphrase string) error {
 	if b.barrier.Initialized() {
 		if err := b.barrier.Unseal(passphrase); err != nil {
@@ -131,7 +131,7 @@ func (b *Broker) Barrier() *vault.Barrier { return b.barrier }
 // (no barrier configured) — used to warn operators.
 func (b *Broker) VaultInsecure() bool { return !b.barrier.Initialized() }
 
-// Register mounts the broker's /api/buxon/* endpoints.
+// Register mounts the broker's /api/xbin/* endpoints.
 func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("POST /create", b.apiCreate)
 	srv.RegisterAPI("GET /grants", b.apiGrantsList)
@@ -198,7 +198,7 @@ func (b *Broker) parseRes(target string) (resTarget, *registry.Resource, bool) {
 		return resTarget{}, nil, false
 	}
 	if name, ok := strings.CutPrefix(rest, "workspace/"); ok {
-		// Workspace-level resources are declared in the workspace buxon.json.
+		// Workspace-level resources are declared in the workspace xbin.json.
 		if r, ok := b.Reg.Workspace().Resources[name]; ok {
 			return resTarget{Scope: "", Name: name}, &r, true
 		}
@@ -309,7 +309,7 @@ func (b *Broker) sameScope(caller *registry.Component, target string) bool {
 }
 
 // IsAdmin reports whether a principal may use workspace-administration
-// endpoints: the owner, or an element granted the reserved target "buxon"
+// endpoints: the owner, or an element granted the reserved target "xbin"
 // at role admin (plans/admin-tile.md). Installed into the server as its
 // IsAdmin hook so owner-only management endpoints become admin-capable.
 func (b *Broker) IsAdmin(p auth.Principal) bool {
@@ -319,7 +319,7 @@ func (b *Broker) IsAdmin(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	role, ok := b.grantedRole(p.Component, "buxon")
+	role, ok := b.grantedRole(p.Component, "xbin")
 	return ok && roleSatisfies(role, "admin", nil)
 }
 
@@ -446,7 +446,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	// net:* grants loudly (rather than storing a silent no-op); DELETE still
 	// works so a stale net:* grant from an older workspace can be cleaned up.
 	if r.Method == http.MethodPost && strings.HasPrefix(g.Target, "net:") {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/buxon/bindings (see plans/interfaces.md)"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)"})
 		return registry.Grant{}, false
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {

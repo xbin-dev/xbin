@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/scaffold"
+	"github.com/magik6k/xbin/internal/scaffold"
 )
 
-// cmdNew scaffolds a component (shared engine with POST /api/buxon/create;
-// see internal/scaffold). Purely local file writes; buxond picks the new
+// cmdNew scaffolds a component (shared engine with POST /api/xbin/create;
+// see internal/scaffold). Purely local file writes; xbind picks the new
 // component up via watch.
 func cmdNew(args []string) error {
 	o := scaffold.Options{}
@@ -40,7 +40,7 @@ func cmdNew(args []string) error {
 	}
 	ws := workspaceRoot()
 	if ws == "" {
-		return fmt.Errorf("not inside a buxon workspace")
+		return fmt.Errorf("not inside a xbin workspace")
 	}
 	if _, err := scaffold.Create(ws, o); err != nil {
 		return err

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 const defaultBaseURL = "https://api.openai.com"
@@ -26,7 +26,7 @@ type gwConfig struct {
 }
 
 var (
-	kv    = buxon.KV(buxon.Resource("state"))
+	kv    = xbin.KV(xbin.Resource("state"))
 	cfgMu sync.Mutex
 
 	// No overall timeout: chat completions can stream for a long time.
@@ -72,14 +72,14 @@ func main() {
 
 	// Settings — self (this tile's own frontend, always admin of itself)
 	// or the owner only. Not part of the reader/writer surface other tiles use.
-	mux.Handle("GET /config", buxon.RoleFunc("admin", handleGetConfig))
-	mux.Handle("PUT /config", buxon.RoleFunc("admin", handlePutConfig))
+	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
+	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 
 	// OpenAI-compatible surface.
-	mux.Handle("GET /v1/models", buxon.RoleFunc("reader", handleModels))
-	mux.Handle("/v1/{rest...}", buxon.RoleFunc("writer", handleProxy))
+	mux.Handle("GET /v1/models", xbin.RoleFunc("reader", handleModels))
+	mux.Handle("/v1/{rest...}", xbin.RoleFunc("writer", handleProxy))
 
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -96,7 +96,7 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
-	tok, _ := buxon.Secret("api-token")
+	tok, _ := xbin.Secret("api-token")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"baseURL":  c.BaseURL,
 		"hasToken": tok != "",
@@ -146,7 +146,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 
 func handleModels(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
-	tok, _ := buxon.Secret("api-token")
+	tok, _ := xbin.Secret("api-token")
 
 	var up struct {
 		Data []map[string]any `json:"data"`
@@ -206,7 +206,7 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
-	tok, err := buxon.Secret("api-token")
+	tok, err := xbin.Secret("api-token")
 	if err != nil || tok == "" {
 		writeErr(w, http.StatusBadGateway, "no upstream API token configured — set one in the llm-gw tile")
 		return

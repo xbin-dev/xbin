@@ -1,4 +1,4 @@
-# Buxon — Decision Log
+# XBin — Decision Log
 
 Status meanings:
 - **NEEDS CALL** — blocks or shapes early work; want an explicit decision.
@@ -10,17 +10,17 @@ Status meanings:
 
 ## Resolved (2026-07-02, magik6k)
 
-- **D10 — Repo & license**: `github.com/magik6k/buxon`, images at
-  `ghcr.io/magik6k/buxon`, **dual-licensed MIT + Apache-2.0** (Rust-style,
+- **D10 — Repo & license**: `github.com/magik6k/xbin`, images at
+  `ghcr.io/magik6k/xbin`, **dual-licensed MIT + Apache-2.0** (Rust-style,
   `LICENSE-MIT` + `LICENSE-APACHE`).
-- **D2 — Workspace git policy**: option (a) — auto `git init`, ignore `.buxon/` +
+- **D2 — Workspace git policy**: option (a) — auto `git init`, ignore `.xbin/` +
   `data/`, never auto-commit.
 - **D1 — Fat image**: confirmed; `-slim` stays backlog.
 - **D13 — Container user**: option (b) — start as root, drop to workspace-owner uid.
-  (Now also load-bearing for auth tier 2: root buxond is what enables per-scope uids.)
+  (Now also load-bearing for auth tier 2: root xbind is what enables per-scope uids.)
 - **D3 — Auth**: superseded — the single-token sketch was too weak for the intended
   element↔element model. Full design in **`auth.md`**: element identities, RBAC
-  roles/grants with a buxond gateway, per-element vaults, standardized `API.md` +
+  roles/grants with a xbind gateway, per-element vaults, standardized `API.md` +
   `expose.roles` docs, enforcement tiers. Owner/browser login mechanics from the old
   D3 (one-time URL → cookie, bearer for CLI) survive unchanged as the *owner*
   principal. New sub-decisions ND1–ND5 below.
@@ -35,7 +35,7 @@ Status meanings:
 ## Needs a call
 
 ### ND1 — Per-scope uids (auth tier 2): phase 4 or later?
-`auth.md` §9. Buxond already runs as root (D13b), so spawning each scope's backends
+`auth.md` §9. XBind already runs as root (D13b), so spawning each scope's backends
 under a dedicated uid is cheap mechanically, and it's what turns identity, vault, and
 resource grants from "attribution" into "enforcement" — including *elements can't
 modify source, even their own* (editing becomes terminal-only). Cost: uid allocation
@@ -48,8 +48,8 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 ## Defaults set — veto if wrong
 
 ### Runtime & deployment model (new, from `runtime.md`)
-- **RT-1 — Production boundary is a VM/host buxond controls**, not a Docker
-  container; buxond becomes the sandbox runtime for its components. **The
+- **RT-1 — Production boundary is a VM/host xbind controls**, not a Docker
+  container; xbind becomes the sandbox runtime for its components. **The
   single-container Docker runtime is now dropped** (2026-07, at the user's
   direction — it was container-as-boundary with no per-component isolation, less
   secure than the sandbox runtime): `docker/Dockerfile`, `docker/compose.yml`,
@@ -77,7 +77,7 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   or-nothing, never covers RFC1918) and `net:<cidr|host>[:port]` (LAN/specific,
   per address/subnet/port) as `uses` targets at role `egress`. Internet and LAN
   are separately grantable; owner-approved, never self-approved. Egress **to the
-  buxond gateway** (unix socket) is always allowed — that's the RBAC path.
+  xbind gateway** (unix socket) is always allowed — that's the RBAC path.
 - **ISO-3 — Capabilities**: the default container stays **unprivileged (Tier 1)**;
   Tier 3 is opt-in (`--isolate`) and needs user namespaces (preferred) or
   CAP_NET_ADMIN/CAP_SYS_ADMIN, shipped as a separate hardened deployment.
@@ -86,7 +86,7 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **ISO-5 — Filesystem view**: the sandbox root is exactly {own dir ro, granted
   deps ro, granted resource files rw, toolchain ro, gateway socket, private
   tmp/dev/proc}; everything else is unmounted, not just unreadable. Ingress stays
-  unix-socket-only (only buxond can connect in).
+  unix-socket-only (only xbind can connect in).
 
 ### Code management — one workspace repo, per-component views
 - **CM-1 — No per-component git repos.** Considered giving each component its
@@ -101,11 +101,11 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   was away; veto if per-component repos are actually wanted.)*
 - **CM-2 — Commit policy.** Agents commit **often and unprompted** on any
   meaningful change; the user is never asked to approve a commit. Small,
-  component-scoped commits. buxond still **never auto-commits** (D2) — commits
+  component-scoped commits. xbind still **never auto-commits** (D2) — commits
   are the agent's/human's action, git is the reversibility net. Documented in
   `AGENTS.md`.
-- **CM-3 — Code/history endpoints are admin-gated.** `/api/buxon/{code,git}/*`
-  need `buxon:admin` (like the rest of the console) — they expose source and
+- **CM-3 — Code/history endpoints are admin-gated.** `/api/xbin/{code,git}/*`
+  need `xbin:admin` (like the rest of the console) — they expose source and
   history across the whole workspace, which is owner-level.
 
 ### Builtin updates (new, from `builtin-updates.md`)
@@ -113,8 +113,8 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   (auto, no manual bumping); a small human `version` + one-line changelog in the
   catalog communicates *what*. Alt (hand-maintained semver only) rejected —
   someone always forgets to bump.
-- **BU-2 — Marker + base snapshot in `.buxon/`** (gitignored, per-deployment):
-  `.buxon/builtins.json` + `.buxon/builtins/<id>/`. Lost on a bare clone → the
+- **BU-2 — Marker + base snapshot in `.xbin/`** (gitignored, per-deployment):
+  `.xbin/builtins.json` + `.xbin/builtins/<id>/`. Lost on a bare clone → the
   adoption path re-seeds. Alt (tracked root lockfile) kept as an option for
   teams that want builtin versions in git history.
 - **BU-3 — 3-way merge via `git merge-file`** (workspace is already a git repo);
@@ -128,7 +128,7 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 ### Auth (new, from `auth.md`)
 - **ND2 — Browser-side caller attribution via injected frame tokens.** Owner cookie
   authenticates the human; per-frame token (injected at the D4 point, attached by
-  `buxon.fetch()`) attributes requests to an element; cookie-without-token = owner,
+  `xbin.fetch()`) attributes requests to an element; cookie-without-token = owner,
   only off element pages. Alternative (Referer-sniffing only) rejected as too
   heuristic; alternative (accept the same-origin hole) rejected as it guts RBAC in
   the plane users actually build in.
@@ -138,7 +138,7 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   wrapped by an Argon2id-derived KEK and only the wrapped DEK + salt sit on
   disk. Seal/unseal: the passphrase is supplied at unseal (never persisted)
   and the DEK held in memory (mlock best-effort). Boot modes:
-  `BUXON_VAULT_PASSPHRASE` auto-unseal, manual `bx vault unseal`, or
+  `XBIN_VAULT_PASSPHRASE` auto-unseal, manual `bx vault unseal`, or
   plaintext-with-warning when no passphrase is set (non-breaking zero-config
   default). Existing plaintext is migrated to ciphertext on first init.
   Scope is at-rest encryption + seal/unseal, **not** full Vault parity (no
@@ -166,11 +166,11 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   `api`, `vault`).
 - **D8 — Blue/green drain: 30 s then kill.** (Instance credentials also die at swap —
   auth.md §2.)
-- **D14 — No TLS in buxond**; Tailscale or fronting proxy.
+- **D14 — No TLS in xbind**; Tailscale or fronting proxy.
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
-- **Reserved namespace** — component id `buxon`; top-level `vendor`, `data`,
-  `.buxon`, `home`; URL prefixes `/c/ /api/ /ws/ /vendor/ /healthz`.
+- **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,
+  `.xbin`, `home`; URL prefixes `/c/ /api/ /ws/ /vendor/ /healthz`.
 
 ---
 
@@ -182,7 +182,7 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **Browser plane: attribution, not isolation.** Same-origin elements share the JS
   realm's ambient powers (DOM of embedding page, storage). Frame tokens make RBAC
   meaningful; subdomain-per-scope (phase 5) makes it enforced.
-- **D11 — buxond restart kills terminal sessions**; `tmux` inside is the workaround.
+- **D11 — xbind restart kills terminal sessions**; `tmux` inside is the workaround.
 - **In-memory bus, at-most-once**; durability is the subscribing app's job.
 
 ---
@@ -209,7 +209,7 @@ Deviations and refinements made while implementing; all deliberate:
 - **Backend bus subscriptions became "frontends subscribe, backends don't".**
   Long-lived backend WS subscriptions fight idle-reaping; instead of the
   planned manifest bus-hooks, v1 ships: frontends subscribe live
-  (`buxon.bus.on`), backends publish + use cron for reactions. Documented in
+  (`xbin.bus.on`), backends publish + use cron for reactions. Documented in
   docs/resources.md. Manifest-declared bus→endpoint webhooks remain a clean
   future addition if needed.
 - **Cross-scope sqlite = not supported (not even brokered).** The plans
@@ -228,8 +228,8 @@ Deviations and refinements made while implementing; all deliberate:
   run identical RBAC. Worth knowing when debugging "why is my curl owner but
   my backend isn't".
 - **Unix-socket 108-byte limit handled** by falling back to a tmp run dir
-  (symlinked from `.buxon/run`) when the workspace path is deep.
-- **`buxond init` is also auto-init**: an empty bind mount initializes on
+  (symlinked from `.xbin/run`) when the workspace path is deep.
+- **`xbind init` is also auto-init**: an empty bind mount initializes on
   first boot, per deployment.md.
 
 ## Residual risks (watching, no action now)
@@ -240,7 +240,7 @@ Deviations and refinements made while implementing; all deliberate:
 - fsnotify drift on macOS dev hosts — weekly macOS CI job.
 - Manual vendored-ESM upgrades — fine at 2 deps; growth would demand an import-map
   generator, not a bundler.
-- Frame-token UX friction: element authors must use `buxon.fetch()` (or copy the
+- Frame-token UX friction: element authors must use `xbin.fetch()` (or copy the
   header) for cross-element calls; raw `fetch` to a sibling 403s. Mitigate with a
   crisp error body pointing at the docs.
 
@@ -253,7 +253,7 @@ Deviations and refinements made while implementing; all deliberate:
   component env layer excluded (rebuilt from `setup`); vault excluded by default.
   sqlite checkpointed.
 - **LC-3** — `archive` is an interface kind; the archiver tile *provides* an HTTP
-  tar-in / versions-and-file-out contract; **buxond is the client**; owner binds
+  tar-in / versions-and-file-out contract; **xbind is the client**; owner binds
   an archiver (workspace default + per-component override), no component decl.
 - **LC-4** — offload/restore/scheduled+manual backup share the one archive path;
   two offload depths (data, or data+source+term-env).

@@ -4,7 +4,7 @@
 //
 //   - ciphertext lives under  data/resources-enc/<scopeKey>/<name>/  (this is
 //     what a stolen disk/backup/snapshot sees — encrypted names + contents);
-//   - the decrypted view is mounted at  .buxon/resenc/<scopeKey>/<name>/  and
+//   - the decrypted view is mounted at  .xbin/resenc/<scopeKey>/<name>/  and
 //     bind-mounted into the component sandbox, so the backend sees a normal rw
 //     directory / sqlite file;
 //   - the gocryptfs password is a 32-byte subkey the vault barrier derives from
@@ -44,11 +44,11 @@ func New(root, bin string, derive func(string) ([]byte, error)) *Manager {
 	return &Manager{root: root, bin: bin, derive: derive, mounts: map[string]string{}}
 }
 
-// Resolve finds the gocryptfs binary: $BUXON_GOCRYPTFS, a copy bundled next to
-// the buxond executable (single-artifact distribution), then $PATH. "" ⇒
+// Resolve finds the gocryptfs binary: $XBIN_GOCRYPTFS, a copy bundled next to
+// the xbind executable (single-artifact distribution), then $PATH. "" ⇒
 // encryption is unavailable and file-backed resources stay plaintext.
 func Resolve() string {
-	if p := os.Getenv("BUXON_GOCRYPTFS"); p != "" {
+	if p := os.Getenv("XBIN_GOCRYPTFS"); p != "" {
 		if isExecutable(p) {
 			return p
 		}
@@ -82,7 +82,7 @@ func (m *Manager) CipherDir(scopeKey, name string) string {
 
 // MountDir is the (runtime) decrypted mountpoint bound into sandboxes.
 func (m *Manager) MountDir(scopeKey, name string) string {
-	return filepath.Join(m.root, ".buxon", "resenc", scopeKey, name)
+	return filepath.Join(m.root, ".xbin", "resenc", scopeKey, name)
 }
 
 // Encrypted reports whether a resource is stored encrypted (its cipherdir has
@@ -176,10 +176,10 @@ func (m *Manager) UnmountAll() {
 	}
 }
 
-// RecoverStale lazy-unmounts any resenc mounts left over from a previous buxond
+// RecoverStale lazy-unmounts any resenc mounts left over from a previous xbind
 // (e.g. after a crash) so Ensure starts from a clean slate. Call once at start.
 func (m *Manager) RecoverStale() {
-	prefix, err := filepath.Abs(filepath.Join(m.root, ".buxon", "resenc"))
+	prefix, err := filepath.Abs(filepath.Join(m.root, ".xbin", "resenc"))
 	if err != nil {
 		return
 	}

@@ -1,5 +1,5 @@
-// Counter backend — the "hello world" of buxon Go backends.
-// Save this file and buxond rebuilds + swaps it in about a second.
+// Counter backend — the "hello world" of xbin Go backends.
+// Save this file and xbind rebuilds + swaps it in about a second.
 package main
 
 import (
@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 func main() {
@@ -15,11 +15,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /count", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"count":%d,"servedTo":%q}`+"\n", count.Load(), buxon.Caller(r).From)
+		fmt.Fprintf(w, `{"count":%d,"servedTo":%q}`+"\n", count.Load(), xbin.Caller(r).From)
 	})
-	mux.Handle("POST /count", buxon.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /count", xbin.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"count":%d}`+"\n", count.Add(1))
 	}))
 
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }

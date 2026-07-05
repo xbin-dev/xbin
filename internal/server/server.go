@@ -1,6 +1,6 @@
-// Package server is buxond's front door: route table, auth middleware, login
+// Package server is xbind's front door: route table, auth middleware, login
 // flow, static component serving (with the single sanctioned HTML transform),
-// and the /api/buxon/* core API. Endpoint reference: docs/protocol.md.
+// and the /api/xbin/* core API. Endpoint reference: docs/protocol.md.
 package server
 
 import (
@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/term"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/term"
 )
 
 type Server struct {
@@ -33,7 +33,7 @@ type Server struct {
 	BusFilter func(p auth.Principal, e events.Event) bool
 
 	// IsAdmin reports whether a principal may use admin-capable endpoints
-	// (owner, or an element granted buxon:admin). Installed by the broker;
+	// (owner, or an element granted xbin:admin). Installed by the broker;
 	// nil ⇒ owner-only.
 	IsAdmin func(p auth.Principal) bool
 
@@ -41,11 +41,11 @@ type Server struct {
 	// for injection into its frame (plans/interfaces.md). Installed by the broker.
 	Interfaces func(comp string) map[string]map[string]string
 
-	apiMux        *http.ServeMux // /api/buxon/… extensions (broker, grants, vault)
+	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle
 }
 
-// RegisterAPI mounts a handler under /api/buxon/. Pattern is a ServeMux
+// RegisterAPI mounts a handler under /api/xbin/. Pattern is a ServeMux
 // pattern rooted at "/" (e.g. "GET /kv/{res}/{key...}"). Called before Start.
 func (s *Server) RegisterAPI(pattern string, h http.HandlerFunc) {
 	if s.apiMux == nil {
@@ -201,13 +201,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-// handleAPI routes /api/buxon/* to the core+extension mux and everything else
+// handleAPI routes /api/xbin/* to the core+extension mux and everything else
 // to the component reverse proxy.
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
-	if rest == "buxon" || strings.HasPrefix(rest, "buxon/") {
+	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(rest, "buxon"), "/")
+		r2.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(rest, "xbin"), "/")
 		s.apiMux.ServeHTTP(w, r2)
 		return
 	}

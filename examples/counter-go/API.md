@@ -1,6 +1,6 @@
 # examples/counter-go API
 
-A single shared counter. The smallest useful example of the buxon API
+A single shared counter. The smallest useful example of the xbin API
 contract: roles in the manifest, this file describing the endpoints, and
 role-guarded routes in the backend.
 
@@ -19,7 +19,7 @@ role-guarded routes in the backend.
 {"count": 3, "servedTo": "apps/other-app"}
 ```
 
-`servedTo` echoes the verified caller (`X-Buxon-From`).
+`servedTo` echoes the verified caller (`X-XBin-From`).
 
 ### POST /count — role: writer
 
@@ -32,10 +32,10 @@ Increments and returns the new value.
 ## Use it
 
 ```jsonc
-// caller's buxon.json
+// caller's xbin.json
 { "uses": [{ "target": "examples/counter-go", "role": "reader" }] }
 ```
 
 ```go
-resp, _ := buxon.Client().Get("http://buxon/api/examples/counter-go/count")
+resp, _ := xbin.Client().Get("http://xbin/api/examples/counter-go/count")
 ```

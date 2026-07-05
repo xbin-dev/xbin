@@ -3,8 +3,8 @@ package broker
 import (
 	"strings"
 
-	"github.com/magik6k/buxon/internal/gpu"
-	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/xbin/internal/gpu"
+	"github.com/magik6k/xbin/internal/registry"
 )
 
 // GPUFor returns the GPUs a component is *granted* (plans/gpu.md): the gpu:*

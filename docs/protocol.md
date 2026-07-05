@@ -1,6 +1,6 @@
 # Protocol reference
 
-Every buxond endpoint, header, and wire format. This is the contract that
+Every xbind endpoint, header, and wire format. This is the contract that
 `bx`, the core web elements, and the SDKs are built on — anything here is
 fair game for your own tooling.
 
@@ -11,19 +11,19 @@ Every route except `/healthz` and `/login` requires a principal
 
 | Mechanism | Sent as | Principal |
 |---|---|---|
-| Owner cookie | `buxon_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
+| Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
 | Owner/instance bearer | `Authorization: Bearer <token>` | owner, or the element the instance token belongs to |
-| Frame token | `X-Buxon-Frame-Token` header, or `?frame=` on WS URLs | element frontend (requires the owner cookie too) |
+| Frame token | `X-XBin-Frame-Token` header, or `?frame=` on WS URLs | element frontend (requires the owner cookie too) |
 
-The gateway unix socket (`$BUXON_GATEWAY`, `.buxon/run/gateway.sock`) serves
+The gateway unix socket (`$XBIN_GATEWAY`, `.xbin/run/gateway.sock`) serves
 this same API; element backends use it with their instance bearer token.
 
-Identity headers **injected by buxond** on proxied component requests
+Identity headers **injected by xbind** on proxied component requests
 (inbound values are stripped — receiving them means they're verified):
 
 ```
-X-Buxon-From: owner | <component-path> | buxon/cron
-X-Buxon-Role: <role granted on the callee>
+X-XBin-From: owner | <component-path> | xbin/cron
+X-XBin-Role: <role granted on the callee>
 ```
 
 ## HTTP routes
@@ -38,19 +38,19 @@ POST /logout                     revoke the session
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  <head> injection (import map, component
-                                 meta, frame token, buxon-client.js) unless
+                                 meta, frame token, xbin-client.js) unless
                                  manifest inject:false. Cache-Control: no-store.
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…)
 GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
 ANY  /api/<component-path>/<p>   → component backend (see below)
-ANY  /api/buxon/<p>              → buxond's own API (below)
+ANY  /api/xbin/<p>              → xbind's own API (below)
 ```
 
 `/api/<component>` resolution is longest-prefix over registered components;
 the remainder is the backend path. Responses stream (SSE/chunked flush
 immediately) and WebSocket upgrades pass through; a `?frame=` query
-credential is accepted for browser WS attribution and is consumed by buxond
+credential is accepted for browser WS attribution and is consumed by xbind
 (stripped before forwarding). Backends with active streams are exempt from
 idle reaping; streams still end at the callee's blue/green drain (D8).
 Errors are JSON:
@@ -58,7 +58,7 @@ Errors are JSON:
 404 unknown component, 403 no grant, 502 build/backend failure (build
 failures carry compiler output in `detail`).
 
-### buxond API (`/api/buxon/…`)
+### xbind API (`/api/xbin/…`)
 
 ```
 GET    /status                     admin. terminals, component count
@@ -85,7 +85,7 @@ GET    /frame-token?component=<p>  a principal that may use the tile. {token}
 GET    /whoami                    any. caller identity + permissions
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
-                                   (x-buxon-capability). Rendered by the API-docs
+                                   (x-xbin-capability). Rendered by the API-docs
                                    tile; importable into Swagger UI / Postman.
 
 GET    /prefs                     the caller's per-(user×tile) prefs object
@@ -94,33 +94,33 @@ PUT    /prefs/<key>               set it (body = JSON value)
 DELETE /prefs/<key>               remove it
                                   (each principal reads/writes only its own
                                    bucket; the shell stores layout here)
-GET    /users                     admin or buxon:users. [{id,name,role,tiles,terminal}]
-POST   /users                     admin/buxon:users. create {id,name,role,tiles,terminal,password}
-PATCH  /users/<id>                admin/buxon:users. update fields (+password reset)
-DELETE /users/<id>                admin/buxon:users. remove (revokes sessions)
+GET    /users                     admin or xbin:users. [{id,name,role,tiles,terminal}]
+POST   /users                     admin/xbin:users. create {id,name,role,tiles,terminal,password}
+PATCH  /users/<id>                admin/xbin:users. update fields (+password reset)
+DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
 
 POST   /create                     owner, or an element granted target
-                                   "buxon" at role writer (workspace
+                                   "xbin" at role writer (workspace
                                    management). body {path, runtime?, title?,
                                    expose?} → {path, files}. Same scaffolder
                                    as `bx new`; never overwrites.
 GET    /builtins                   any. optional tile catalog
                                    [{name,title,description,defaultPath,installed}]
-POST   /builtins/import            buxon:writer (as /create). body {name, path?}
+POST   /builtins/import            xbin:writer (as /create). body {name, path?}
                                    → {path, files, pendingGrants} — installs an
                                    embedded tile (plans/tile-sharing.md).
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
                                    a newer embedded version. [{id,installPath,
                                    fromVersion,toVersion,adopted,files:[{path,
                                    status}],clean,conflicts}] (plans/builtin-updates.md)
-POST   /builtins/update             buxon:writer. body {id, mode:
+POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pin|unpin} → {files}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
                                    both re-record provenance. Never touches template
                                    instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
                                    [{id,source,title,description,defaultName}]
-POST   /templates/new               buxon:writer. body {source, path?} → {path,
+POST   /templates/new               xbin:writer. body {source, path?} → {path,
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md).
 
@@ -134,16 +134,16 @@ GET    /git/log                    admin. ?component=<path>&limit=N → {repo,
                                    component is its own git repo); remote = origin.
 GET    /git/diff                   admin. ?component=<path>&rev=<hash> → {repo,
                                    diff}. rev empty = uncommitted changes vs HEAD.
-GET    /git/remote-info            buxon:writer. ?url=<git-url> → {defaultBranch,
+GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.
-POST   /git/import                 buxon:writer. body {url, path?, ref?} — clone a
+POST   /git/import                 xbin:writer. body {url, path?, ref?} — clone a
                                    component in from a git remote (GitHub/GitLab/
                                    any git URL); path defaults to apps/<repo>, ref
                                    = a tag/branch. Its origin remote is kept (so
                                    it's updatable). → {path, remote, ref,
                                    pendingGrants}. Rejects local/file:// URLs and
-                                   repos with no buxon.json/index.html.
+                                   repos with no xbin.json/index.html.
 
 GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
 POST   /grants                     admin. body {from,target,role} — approve/add.
@@ -173,7 +173,7 @@ POST   /lifecycle                  admin. body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:
                                    enabled | disabled | offloaded | offloaded-full.
                                    A non-enabled backend is not spawned (the proxy
-                                   returns 409 + an X-Buxon-Lifecycle header);
+                                   returns 409 + an X-XBin-Lifecycle header);
                                    disabling stops a running backend now. Offload
                                    archives then frees local bytes (data, or +
                                    source/term-env for -full); enabling an
@@ -243,15 +243,15 @@ Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 - `internet` — own network namespace with an **internet-only egress relay**
   (`net:internet`: public addresses only, no host interfaces visible). TCP, UDP,
   and ICMP echo (`ping`) are forwarded under the policy; `traceroute` needs the
-  `host` scope. buxond stays reachable at `$BUXON_URL` via the relay's gateway
+  `host` scope. xbind stays reachable at `$XBIN_URL` via the relay's gateway
   host-forward, so `bx`/`curl` work.
 - `host` — share the host network (LAN + host services reachable, host
   interfaces visible). The escape hatch.
-- `none` — an isolated namespace with no egress (buxond unreachable).
+- `none` — an isolated namespace with no egress (xbind unreachable).
 
 A new session also takes `?gpu=<none|all|index|uuid>` (default `none`) to bind
 host NVIDIA GPU(s) into the terminal's dev sandbox (owner plane; no grant
-needed). Enumerate host GPUs at `GET /api/buxon/gpus` (admin).
+needed). Enumerate host GPUs at `GET /api/xbin/gpus` (admin).
 
 The scope is fixed at spawn; switching net or GPU restarts the session (the UI
 ends the old one and opens a new WS).
@@ -268,12 +268,12 @@ by the UI to restart under a new scope); `204` on success, `404` if unknown.
 `DELETE /ws/term/env?cwd=<component-path>` (owner only) wipes that component's
 **persistent terminal layer** (installed packages / system changes) back to the
 base rootfs, killing any live session on it first; `204` on success. Each
-component's terminal has its own persistent overlay layer (`.buxon/term/<key>/`)
+component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`plans/component-env.md`). Workspace files and `$HOME` persist independently.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
-buxond restart kills them (run `tmux` inside if you care).
+xbind restart kills them (run `tmux` inside if you care).
 
 ### `/ws/events` — event stream
 
@@ -294,32 +294,32 @@ consumers are disconnected; reconnect with backoff (the bundled clients do).
 
 ## Backend contract (what the runner promises your process)
 
-- Listen on `$BUXON_SOCKET` (unix, HTTP/1.1; WebSocket upgrades pass
+- Listen on `$XBIN_SOCKET` (unix, HTTP/1.1; WebSocket upgrades pass
   through; streaming/SSE works).
 - You're started lazily, health-checked by socket-connect within 5 s,
   swapped blue/green on change, SIGTERMed with a 30 s drain, idle-reaped
   after ~30 min, and crash-loop-broken after 3 fast exits.
-- stdout/stderr → `.buxon/log/<compkey>.log` (`bx logs`).
-- Env: `BUXON_SOCKET`, `BUXON_COMPONENT`, `BUXON_GATEWAY`, `BUXON_TOKEN`
-  (per-generation), `BUXON_RES_*` (grants).
+- stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`).
+- Env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY`, `XBIN_TOKEN`
+  (per-generation), `XBIN_RES_*` (grants).
 
 ## Filesystem contract
 
 ```
 <workspace>/
-  buxon.json          workspace manifest: schema, importMap, grants, resources
+  xbin.json          workspace manifest: schema, importMap, grants, resources
                       (machine-managed on grant changes — comments don't survive)
   */scope.json        scope marker: resources, importMap overrides
-  */buxon.json        component manifests (JSONC, yours to edit)
-  .buxon/             derived state — safe to delete when buxond is stopped:
+  */xbin.json        component manifests (JSONC, yours to edit)
+  .xbin/             derived state — safe to delete when xbind is stopped:
     token, secret     owner token, frame-token HMAC key
     run/              unix sockets (short tmp dir + symlink for deep paths)
     log/  build/  cache/  uids.json
   data/               resource state: resources/, vault/, kv.db, cron-jobs.json
                       (backup unit; gitignored)
   home/               terminal $HOME (dotfiles, persists across upgrades)
-  vendor-, buxon-, …  reserved top-level names: vendor, data, home, .buxon
+  vendor-, xbin-, …  reserved top-level names: vendor, data, home, .xbin
 ```
 
-Component keys in `.buxon` paths: `<path with / → ~, truncated>-<8-hex hash>`
+Component keys in `.xbin` paths: `<path with / → ~, truncated>-<8-hex hash>`
 (keeps unix socket paths under the 108-byte limit).

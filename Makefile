@@ -1,4 +1,4 @@
-# buxon developer entry points (plans/dev-flow.md).
+# xbin developer entry points (plans/dev-flow.md).
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -21,36 +21,36 @@ $(ROOTFS)/etc/os-release: docker/rootfs.Dockerfile hack/build-rootfs.sh
 	./hack/build-rootfs.sh $(ROOTFS)
 rootfs: $(ROOTFS)/etc/os-release
 
-# Our own static fuse-overlayfs (built from source, cached). buxond mounts each
+# Our own static fuse-overlayfs (built from source, cached). xbind mounts each
 # sandbox root with it so unprivileged directory renames work — i.e. `apt
-# install` succeeds in a terminal. Without it buxond falls back to kernel
-# overlayfs. It sits in bin/ next to buxond, which finds it automatically.
+# install` succeeds in a terminal. Without it xbind falls back to kernel
+# overlayfs. It sits in bin/ next to xbind, which finds it automatically.
 $(FUSE_OVERLAYFS): hack/build-fuse-overlayfs.sh
 	./hack/build-fuse-overlayfs.sh $(CURDIR)/bin
 fuse-overlayfs: $(FUSE_OVERLAYFS)
 
-# Our own static gocryptfs (built from source, cached). buxond mounts each
+# Our own static gocryptfs (built from source, cached). xbind mounts each
 # *encrypted* file-backed resource with it, keyed by the vault barrier, so a
 # stolen disk/backup yields only ciphertext (plans/vault-data.md). Sits in bin/
-# next to buxond, which finds it automatically.
+# next to xbind, which finds it automatically.
 $(GOCRYPTFS): hack/build-gocryptfs.sh
 	./hack/build-gocryptfs.sh $(CURDIR)/bin
 gocryptfs: $(GOCRYPTFS)
 
-# The core loop: buxond from source against ./devws, isolated.
+# The core loop: xbind from source against ./devws, isolated.
 # Live-editable core assets + debug logs, with auth ON (multi-user works).
 # First run seeds a dev admin: login 'admin' / 'admin'. The token URL is also
 # printed for the root admin. Use `make dev-noauth` for admin-everything.
 dev: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev
-	BUXON_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) BUXON_GOCRYPTFS=$(GOCRYPTFS) BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # Frictionless mode: no auth, every request is admin (still isolated).
 dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx
-	BUXON_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) BUXON_GOCRYPTFS=$(GOCRYPTFS) BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # A bare `make dev` encrypts tile data at rest by default (a built-in dev key;
 # plans/vault-data.md) — filesystem/sqlite/blob become gocryptfs mounts and kv
@@ -61,13 +61,13 @@ dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 dev-plaintext: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx
-	BUXON_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) BUXON_GOCRYPTFS=$(GOCRYPTFS) BUXON_SDK_PATH=$(CURDIR)/sdk go run ./cmd/buxond --dev --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:
 	rm -rf devws
 
 build: $(FUSE_OVERLAYFS) $(GOCRYPTFS)
-	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/buxond ./cmd/buxond
+	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 
 test:

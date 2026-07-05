@@ -1,10 +1,10 @@
-# Buxon — Development Flow
+# XBin — Development Flow
 
-Two distinct loops: **working on Buxon core** (this repo) and **working inside a
-Buxon workspace** (the product experience). Both must stay fast; the second is the
+Two distinct loops: **working on XBin core** (this repo) and **working inside a
+XBin workspace** (the product experience). Both must stay fast; the second is the
 product, the first is our daily life.
 
-## 1. Working on Buxon core
+## 1. Working on XBin core
 
 ### Prerequisites
 Go ≥ 1.24 and git, plus **Docker** (to build the dev rootfs once) and
@@ -15,7 +15,7 @@ The frontend is still buildless (vendored deps checked in).
 
 ```
 make rootfs       # once: build the base rootfs (docker → .rootfs/, ~2 GB, cached)
-make dev          # go run ./cmd/buxond --dev --isolate … (auth ON, assets from disk)
+make dev          # go run ./cmd/xbind --dev --isolate … (auth ON, assets from disk)
 make dev-noauth   # same, but --no-auth: every request is admin
 ```
 
@@ -35,9 +35,9 @@ not imply `--no-auth`** — `make dev` runs with auth on and seeds a dev admin
 can be exercised while live-editing core elements. `make dev-noauth` is the
 frictionless admin-everything loop (`--dev --no-auth --isolate`).
 
-- Restarting buxond on Go changes: `hack/dev.sh` wraps `go run` with a file watcher
+- Restarting xbind on Go changes: `hack/dev.sh` wraps `go run` with a file watcher
   (use `gow` or a 10-line inotify loop — do **not** take a dependency on air; keep
-  contributor setup at "go + git") `[D11: buxond restart kills terminal sessions in
+  contributor setup at "go + git") `[D11: xbind restart kills terminal sessions in
   dev — accepted]`.
 - `devws/` accumulates realistic mess on purpose; `make dev-reset` nukes it.
   `examples/` components are symlinked into `devws/` so example, test fixture, and
@@ -48,7 +48,7 @@ frictionless admin-everything loop (`--dev --no-auth --isolate`).
 | Layer | What | How |
 |---|---|---|
 | Unit | watch debounce/coalescing, path confinement, manifest parse, deps reconcile, import-map merge, runner state machine (fake exec) | `go test ./...`, no network, < 10 s |
-| Integration | real buxond on `httptest` listener + temp workspace + real `go build` of example components; terminal WS round-trip incl. reattach/scrollback; blue/green swap under concurrent requests; crash-loop breaker | `go test -tags=integration ./test/…`, needs Go toolchain only, ~1–2 min |
+| Integration | real xbind on `httptest` listener + temp workspace + real `go build` of example components; terminal WS round-trip incl. reattach/scrollback; blue/green swap under concurrent requests; crash-loop breaker | `go test -tags=integration ./test/…`, needs Go toolchain only, ~1–2 min |
 | E2E (thin) | Playwright: load root, frame renders, edit button opens drawer, type in terminal, live reload fires `[D12]` | `make e2e`, runs in CI on the built image, kept to ≤ ~10 flows |
 
 Policy: every bug fix lands with the test that would have caught it, at the lowest
@@ -59,7 +59,7 @@ suites from day one.
 ### CI (GitHub Actions)
 1. `lint`: `go vet` + `gofmt` check.
 2. `test`: unit + integration (Linux).
-3. On tag `v*`: attach `buxond` binaries to the GitHub release. (The
+3. On tag `v*`: attach `xbind` binaries to the GitHub release. (The
    single-container Docker runtime was dropped, so there is no image build/push;
    the base rootfs is published separately — `plans/runtime.md`.)
 
@@ -69,13 +69,13 @@ suites from day one.
 - Frontend code style: plain ES2022, Lit 3 idioms, no TS syntax; JSDoc types where it
   helps; `// @ts-check` headers welcome (checked by IDE only, never by CI —
   no build/typecheck step is a hard rule).
-- Every exported buxond HTTP/WS endpoint gets a paragraph in `docs/protocol.md` in
+- Every exported xbind HTTP/WS endpoint gets a paragraph in `docs/protocol.md` in
   the same PR that adds it (frames, `bx`, and future SDKs all consume this).
 
 ### Debugging notes
 - Component backend processes: `dlv attach $(pidof <bin>)` from any workspace
   terminal works because everything is same-user in one container/host.
-- buxond itself in dev: it's just `go run`; use dlv normally.
+- xbind itself in dev: it's just `go run`; use dlv normally.
 - `bx doctor` (phase 3) is also the support tool for "my thing doesn't reload".
 
 ## 2. Working inside a workspace (the product loop)
@@ -89,8 +89,8 @@ Documented here as the target UX; phases must not regress it.
 2. **Edit**: 7×7 → drawer shell → `vim`/`claude`/whatever. Save → frontend reloads /
    backend rebuilds automatically. Compiler errors appear as the frame overlay AND
    in red in the terminal that has the component's log tail open.
-3. **Inspect**: `tail -f .buxon/log/<id>.log`, `bx logs -f apps/thing`, `bx ls`,
-   `curl $BUXON_URL/api/apps/thing/...` (terminals have the token in env).
+3. **Inspect**: `tail -f .xbin/log/<id>.log`, `bx logs -f apps/thing`, `bx ls`,
+   `curl $XBIN_URL/api/apps/thing/...` (terminals have the token in env).
 4. **Compose**: declare `deps`, import through `deps/…` symlinks or Go packages via
    go.work; request resources in the manifest; approve grants in the root panel or
    `bx grant`.

@@ -1,8 +1,8 @@
 // Package users is the multi-user store (plans/multi-user.md): human users
 // with a role, a tile allow-list, and a terminal permission, persisted to
-// data/users.json (buxond-owned, 0600). Passwords are hashed with Argon2id.
+// data/users.json (xbind-owned, 0600). Passwords are hashed with Argon2id.
 //
-// The root token (BUXON_TOKEN) is separate and always admin — this store only
+// The root token (XBIN_TOKEN) is separate and always admin — this store only
 // holds the human users layered on top. No users configured ⇒ single-user
 // mode (the root token is the only principal).
 package users

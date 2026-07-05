@@ -1,22 +1,22 @@
 # tiles/admin
 
 The workspace admin console. It exposes no API of its own; it *consumes*
-buxond's admin-capable endpoints using the `buxon:admin` capability
+xbind's admin-capable endpoints using the `xbin:admin` capability
 (declared in `uses`, pre-granted in the workspace manifest).
 
 ## What it needs
 
-`buxon:admin` — a grant on the reserved target `buxon`. This is the
+`xbin:admin` — a grant on the reserved target `xbin`. This is the
 heaviest capability in the system: it can read every element's vault
 secrets and add/revoke any grant. Granting it to an element is equivalent
 to trusting that element as the owner for administration. It is shipped
 pre-granted only to this tile.
 
-Endpoints used (all gated by owner-or-`buxon:admin`, see /docs/protocol.md):
-`GET /api/buxon/auth-overview`, `GET /api/buxon/vaults`,
-`GET|PUT|DELETE /api/buxon/vault/<c>/<k>`, `GET|POST|DELETE /api/buxon/grants`,
-`GET /api/buxon/cron/jobs`, `DELETE /api/buxon/cron/jobs/<name>`,
-`GET /api/buxon/resources`, `GET /api/buxon/backends`.
+Endpoints used (all gated by owner-or-`xbin:admin`, see /docs/protocol.md):
+`GET /api/xbin/auth-overview`, `GET /api/xbin/vaults`,
+`GET|PUT|DELETE /api/xbin/vault/<c>/<k>`, `GET|POST|DELETE /api/xbin/grants`,
+`GET /api/xbin/cron/jobs`, `DELETE /api/xbin/cron/jobs/<name>`,
+`GET /api/xbin/resources`, `GET /api/xbin/backends`.
 
 ## Panels
 

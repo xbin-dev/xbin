@@ -2,8 +2,8 @@
 // for MCP-sourced tools. Control-flow tools (finish/ask_user/yield/
 // spawn_subagent) are advertised here but handled by the loop (loop.go), since
 // they change run status; the rest execute here. These builtins are the parts
-// you extend per instance — especially buxon_call, the point of the agent:
-// moving data between buxon components (bounded by grants a human approved).
+// you extend per instance — especially xbin_call, the point of the agent:
+// moving data between xbin components (bounded by grants a human approved).
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"strings"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 // obj builds a JSON-Schema object node from (name, schema) pairs.
@@ -47,7 +47,7 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"text"}, map[string]any{"text": strProp("the note")}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name: "buxon_call", Description: "Call another buxon component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
+			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
 			Parameters: obj([]string{"method", "path"}, map[string]any{
 				"method": strProp("HTTP method, e.g. GET or POST"),
 				"path":   strProp("request path, e.g. /api/apps/calendar/events"),
@@ -92,7 +92,7 @@ func isControlTool(name string) bool {
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
 func sideEffect(name string) bool {
 	switch name {
-	case "buxon_call":
+	case "xbin_call":
 		return true
 	}
 	return strings.HasPrefix(name, "mcp:")
@@ -128,8 +128,8 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		ag.db.journal(run.ID, "note", map[string]string{"text": text})
 		return "noted", nil
 
-	case "buxon_call":
-		return ag.toolBuxonCall(ctx, args)
+	case "xbin_call":
+		return ag.toolXBinCall(ctx, args)
 	}
 
 	if strings.HasPrefix(name, "mcp:") {
@@ -138,11 +138,11 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	return "", fmt.Errorf("unknown tool %q", name)
 }
 
-// toolBuxonCall lets the agent reach other components through the gateway.
-// Attribution + policy are the buxon gateway's job: the call only succeeds for
+// toolXBinCall lets the agent reach other components through the gateway.
+// Attribution + policy are the xbin gateway's job: the call only succeeds for
 // components this element holds a grant on — the agent cannot widen its own
 // reach (docs/auth.md).
-func (ag *Agent) toolBuxonCall(ctx context.Context, args map[string]any) (string, error) {
+func (ag *Agent) toolXBinCall(ctx context.Context, args map[string]any) (string, error) {
 	method, _ := args["method"].(string)
 	path, _ := args["path"].(string)
 	body, _ := args["body"].(string)
@@ -156,14 +156,14 @@ func (ag *Agent) toolBuxonCall(ctx context.Context, args map[string]any) (string
 	if body != "" {
 		rdr = strings.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(method), "http://buxon"+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(method), "http://xbin"+path, rdr)
 	if err != nil {
 		return "", err
 	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := buxon.Client().Do(req)
+	resp, err := xbin.Client().Do(req)
 	if err != nil {
 		return "", err
 	}

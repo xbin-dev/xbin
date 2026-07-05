@@ -58,12 +58,12 @@ var ErrUnsafePath = errors.New("path escapes workspace")
 
 // ReservedTop are workspace top-level names that cannot be components.
 var ReservedTop = map[string]bool{
-	".buxon": true, "vendor": true, "data": true, "home": true, "buxon": true,
+	".xbin": true, "vendor": true, "data": true, "home": true, "xbin": true,
 }
 
 // IgnoredDirs are never watched, scanned, or served as component internals.
 var IgnoredDirs = map[string]bool{
-	".git": true, ".buxon": true, "node_modules": true, "deps": true,
+	".git": true, ".xbin": true, "node_modules": true, "deps": true,
 	"__pycache__": true,
 }
 

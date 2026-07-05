@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/magik6k/buxon/internal/jsonc"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/jsonc"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Use is one entry of a manifest "uses" list: a runtime call grant request.
@@ -44,7 +44,7 @@ type TemplateMeta struct {
 	DefaultName string `json:"defaultName,omitempty"` // suggested instance basename
 }
 
-// Manifest is a component's buxon.json. All fields optional; a bare directory
+// Manifest is a component's xbin.json. All fields optional; a bare directory
 // with index.html is a valid static component.
 type Manifest struct {
 	Runtime  string        `json:"runtime,omitempty"` // static|go|node|python|cgi
@@ -94,7 +94,7 @@ type Grant struct {
 	Role   string `json:"role"`
 }
 
-// WorkspaceManifest is the workspace-root buxon.json. It is machine-managed
+// WorkspaceManifest is the workspace-root xbin.json. It is machine-managed
 // (rewritten as formatted JSON when grants change); comments do not survive.
 type WorkspaceManifest struct {
 	Schema    int               `json:"schema"`
@@ -219,7 +219,7 @@ func (r *Registry) Rescan() error {
 
 		c := &Component{Path: rel, Dir: p}
 		hasManifest := false
-		if b, err := os.ReadFile(filepath.Join(p, "buxon.json")); err == nil {
+		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
 			if err := jsonc.Unmarshal(b, &c.Manifest); err != nil {
 				c.ManifestErr = err.Error()
@@ -238,9 +238,9 @@ func (r *Registry) Rescan() error {
 	}
 
 	ws := WorkspaceManifest{Schema: 1}
-	if b, err := os.ReadFile(filepath.Join(r.Root, "buxon.json")); err == nil {
+	if b, err := os.ReadFile(filepath.Join(r.Root, "xbin.json")); err == nil {
 		if err := jsonc.Unmarshal(b, &ws); err != nil {
-			return fmt.Errorf("workspace buxon.json: %w", err)
+			return fmt.Errorf("workspace xbin.json: %w", err)
 		}
 	}
 
@@ -350,9 +350,9 @@ func (r *Registry) MutateWorkspace(fn func(*WorkspaceManifest)) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(r.Root, ".buxon.json.tmp")
+	tmp := filepath.Join(r.Root, ".xbin.json.tmp")
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(r.Root, "buxon.json"))
+	return os.Rename(tmp, filepath.Join(r.Root, "xbin.json"))
 }

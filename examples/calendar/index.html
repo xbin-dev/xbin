@@ -32,14 +32,14 @@
   <script type="module">
     const list = document.getElementById('list');
     const load = async () => {
-      const d = await (await buxon.fetch(`/api/${buxon.self}/events`)).json();
+      const d = await (await xbin.fetch(`/api/${xbin.self}/events`)).json();
       list.innerHTML = d.events.length === 0 ? '<li class="empty">nothing today</li>'
         : d.events.map((e) => `<li><b>${e.time || '--:--'}</b> ${e.title}</li>`).join('');
     };
     document.getElementById('add').onsubmit = async (ev) => {
       ev.preventDefault();
       const f = new FormData(ev.target);
-      await buxon.fetch(`/api/${buxon.self}/events`, {
+      await xbin.fetch(`/api/${xbin.self}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,7 +50,7 @@
       ev.target.reset();
     };
     // Live updates from our own bus (also how other apps stay in sync).
-    buxon.bus.on('res:apps/calendar/bus/events/', load);
+    xbin.bus.on('res:apps/calendar/bus/events/', load);
     await load();
   </script>
 </body>

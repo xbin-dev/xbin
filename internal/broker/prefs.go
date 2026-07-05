@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Per-user preferences (plans/multi-user.md follow-on): small, non-secret UI

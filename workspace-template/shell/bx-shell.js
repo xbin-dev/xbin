@@ -1,7 +1,7 @@
 /**
  * <bx-shell> — the workspace shell: top bar, screen tabs, component sidebar,
  * and a dense, draggable card canvas. Lives in YOUR workspace (component
- * `shell/`), not in buxon's core — open a terminal here and restyle it live.
+ * `shell/`), not in xbin's core — open a terminal here and restyle it live.
  *
  * Usage (see root/index.html):
  *
@@ -227,7 +227,7 @@ export class BxShell extends LitElement {
     super.connectedCallback();
     this._load();
     this._loadLayout();
-    this._off = window.buxon?.events.on((e) => {
+    this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
     window.addEventListener('blur', this._onBlur);
@@ -272,7 +272,7 @@ export class BxShell extends LitElement {
   // ---- persistence ----
   async _loadLayout() {
     try {
-      const r = await window.buxon?.fetch(`/api/buxon/prefs/${LAYOUT_PREF}`);
+      const r = await window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`);
       if (r?.ok) {
         const l = await r.json();
         if (Array.isArray(l?.screens) && l.screens.length) {
@@ -298,7 +298,7 @@ export class BxShell extends LitElement {
   _save() {
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
-      window.buxon?.fetch(`/api/buxon/prefs/${LAYOUT_PREF}`, {
+      window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ screens: this._screens, active: this._active }),
       }).catch(() => { /* best-effort; retried on next change */ });
@@ -320,9 +320,9 @@ export class BxShell extends LitElement {
 
   async _load() {
     try {
-      const r = await (window.buxon?.fetch ?? fetch)('/api/buxon/components');
+      const r = await (window.xbin?.fetch ?? fetch)('/api/xbin/components');
       if (r.ok) this._components = await r.json();
-    } catch { /* buxond restarting; next event retries */ }
+    } catch { /* xbind restarting; next event retries */ }
   }
 
   get _groups() {
@@ -587,7 +587,7 @@ export class BxShell extends LitElement {
   render() {
     return html`
       <div class="top">
-        <span class="logo"><span class="dot">b</span>buxon</span>
+        <span class="logo"><span class="dot">b</span>xbin</span>
         <span class="ws-chip">${this.name}</span>
         <span class="spacer"></span>
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>

@@ -1,8 +1,8 @@
-// bx — the buxon workspace CLI, available in every terminal session and inside
-// component sandboxes. A thin client of buxond's API plus local scaffolding: it
-// talks HTTP via BUXON_URL (terminals / the owner plane) or, inside a component,
-// over the BUXON_GATEWAY unix socket (works with no net egress, RBAC-gated by
-// BUXON_TOKEN). Builder reference: /docs/bx.md.
+// bx — the xbin workspace CLI, available in every terminal session and inside
+// component sandboxes. A thin client of xbind's API plus local scaffolding: it
+// talks HTTP via XBIN_URL (terminals / the owner plane) or, inside a component,
+// over the XBIN_GATEWAY unix socket (works with no net egress, RBAC-gated by
+// XBIN_TOKEN). Builder reference: /docs/bx.md.
 package main
 
 import (
@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 func main() {
@@ -84,7 +84,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `bx — buxon workspace CLI (docs: /docs/bx.md)
+	fmt.Fprint(os.Stderr, `bx — xbin workspace CLI (docs: /docs/bx.md)
 
   bx ls                                 list components
   bx status                             backend states, terminals
@@ -119,7 +119,7 @@ func usage() {
 	os.Exit(2)
 }
 
-// --- buxond API plumbing ---
+// --- xbind API plumbing ---
 
 func api(method, path string, body any) (*http.Response, error) {
 	base, client := transport()
@@ -135,7 +135,7 @@ func api(method, path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if tok := os.Getenv("BUXON_TOKEN"); tok != "" {
+	if tok := os.Getenv("XBIN_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	if body != nil {
@@ -144,20 +144,20 @@ func api(method, path string, body any) (*http.Response, error) {
 	return client.Do(req)
 }
 
-// transport picks how bx reaches buxond:
-//   - BUXON_URL set (a terminal / the owner plane) → plain HTTP to that URL.
-//   - else BUXON_GATEWAY set (running inside a component sandbox) → the gateway
-//     unix socket. This is a component's *only* door to buxond and does not
+// transport picks how bx reaches xbind:
+//   - XBIN_URL set (a terminal / the owner plane) → plain HTTP to that URL.
+//   - else XBIN_GATEWAY set (running inside a component sandbox) → the gateway
+//     unix socket. This is a component's *only* door to xbind and does not
 //     depend on any net egress — an unbound `net` interface (no internet) still
 //     leaves `bx api …` working, gated by the element's instance token (RBAC,
 //     default-deny). This is the dedicated per-component API tap.
 //   - else → the local default (host).
 func transport() (string, *http.Client) {
-	if base := os.Getenv("BUXON_URL"); base != "" {
+	if base := os.Getenv("XBIN_URL"); base != "" {
 		return base, &http.Client{Timeout: 30 * time.Second}
 	}
-	if gw := os.Getenv("BUXON_GATEWAY"); gw != "" {
-		return "http://buxon", &http.Client{
+	if gw := os.Getenv("XBIN_GATEWAY"); gw != "" {
+		return "http://xbin", &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -190,14 +190,14 @@ func apiJSON(method, path string, body, out any) error {
 }
 
 func workspaceRoot() string {
-	if ws := os.Getenv("BUXON_WORKSPACE"); ws != "" {
+	if ws := os.Getenv("XBIN_WORKSPACE"); ws != "" {
 		return ws
 	}
-	// Walk up from cwd looking for buxon.json.
+	// Walk up from cwd looking for xbin.json.
 	dir, _ := os.Getwd()
 	for d := dir; d != "/"; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, "buxon.json")); err == nil {
-			if _, err := os.Stat(filepath.Join(d, ".buxon")); err == nil {
+		if _, err := os.Stat(filepath.Join(d, "xbin.json")); err == nil {
+			if _, err := os.Stat(filepath.Join(d, ".xbin")); err == nil {
 				return d
 			}
 		}
@@ -217,7 +217,7 @@ type compInfo struct {
 
 func components() ([]compInfo, error) {
 	var out []compInfo
-	err := apiJSON("GET", "/api/buxon/components", nil, &out)
+	err := apiJSON("GET", "/api/xbin/components", nil, &out)
 	return out, err
 }
 
@@ -252,11 +252,11 @@ func cmdLs() error {
 
 func cmdStatus() error {
 	var backends map[string]any
-	if err := apiJSON("GET", "/api/buxon/backends", nil, &backends); err != nil {
+	if err := apiJSON("GET", "/api/xbin/backends", nil, &backends); err != nil {
 		return err
 	}
 	var status map[string]any
-	if err := apiJSON("GET", "/api/buxon/status", nil, &status); err != nil {
+	if err := apiJSON("GET", "/api/xbin/status", nil, &status); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(map[string]any{"backends": backends, "status": status}, "", "  ")
@@ -279,9 +279,9 @@ func cmdLogs(args []string) error {
 	}
 	ws := workspaceRoot()
 	if ws == "" {
-		return fmt.Errorf("not inside a buxon workspace")
+		return fmt.Errorf("not inside a xbin workspace")
 	}
-	path := filepath.Join(ws, ".buxon", "log", util.CompKey(comp)+".log")
+	path := filepath.Join(ws, ".xbin", "log", util.CompKey(comp)+".log")
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("no logs for %s yet (%s)", comp, path)
@@ -310,7 +310,7 @@ func cmdAPI(args []string) error {
 		Component compInfo `json:"component"`
 		APIDoc    string   `json:"apiDoc"`
 	}
-	if err := apiJSON("GET", "/api/buxon/components/"+args[0], nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/components/"+args[0], nil, &out); err != nil {
 		return err
 	}
 	c := out.Component
@@ -344,7 +344,7 @@ func cmdIface() error {
 			Provides   map[string]map[string]string `json:"provides"`
 		} `json:"components"`
 	}
-	if err := apiJSON("GET", "/api/buxon/bindings", nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/bindings", nil, &out); err != nil {
 		return err
 	}
 	fmt.Println("providers:")
@@ -386,7 +386,7 @@ func cmdBackupSchedule(args []string) error {
 				Retention int    `json:"retention"`
 			} `json:"schedules"`
 		}
-		if err := apiJSON("GET", "/api/buxon/backup-schedule", nil, &out); err != nil {
+		if err := apiJSON("GET", "/api/xbin/backup-schedule", nil, &out); err != nil {
 			return err
 		}
 		if len(out.Schedules) == 0 {
@@ -432,7 +432,7 @@ func cmdBackupSchedule(args []string) error {
 		return fmt.Errorf("usage: bx backup-schedule <component> [--every 24h | --cron \"expr\"] [--keep N] | --rm")
 	}
 	if rm {
-		if err := apiJSON("DELETE", "/api/buxon/backup-schedule?component="+comp, nil, nil); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/backup-schedule?component="+comp, nil, nil); err != nil {
 			return err
 		}
 		fmt.Printf("unscheduled %s\n", comp)
@@ -441,7 +441,7 @@ func cmdBackupSchedule(args []string) error {
 	if schedule == "" {
 		return fmt.Errorf("need --every <dur> or --cron \"<expr>\"")
 	}
-	if err := apiJSON("POST", "/api/buxon/backup-schedule", map[string]any{"component": comp, "schedule": schedule, "retention": keep}, nil); err != nil {
+	if err := apiJSON("POST", "/api/xbin/backup-schedule", map[string]any{"component": comp, "schedule": schedule, "retention": keep}, nil); err != nil {
 		return err
 	}
 	fmt.Printf("scheduled %s (%s)\n", comp, schedule)
@@ -468,7 +468,7 @@ func cmdOffload(args []string) error {
 	if full {
 		state = "offloaded-full"
 	}
-	if err := apiJSON("POST", "/api/buxon/lifecycle", map[string]string{"component": comp, "state": state}, nil); err != nil {
+	if err := apiJSON("POST", "/api/xbin/lifecycle", map[string]string{"component": comp, "state": state}, nil); err != nil {
 		return err
 	}
 	fmt.Printf("%s %s\n", comp, state)
@@ -480,7 +480,7 @@ func cmdBackup(args []string) error {
 		return fmt.Errorf("usage: bx backup <component>")
 	}
 	var out struct{ Version string }
-	if err := apiJSON("POST", "/api/buxon/backup", map[string]string{"component": args[0]}, &out); err != nil {
+	if err := apiJSON("POST", "/api/xbin/backup", map[string]string{"component": args[0]}, &out); err != nil {
 		return err
 	}
 	fmt.Printf("backed up %s → version %s\n", args[0], out.Version)
@@ -498,7 +498,7 @@ func cmdBackups(args []string) error {
 			Size    int64  `json:"size"`
 		} `json:"versions"`
 	}
-	if err := apiJSON("GET", "/api/buxon/backups?component="+args[0], nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/backups?component="+args[0], nil, &out); err != nil {
 		return err
 	}
 	if len(out.Versions) == 0 {
@@ -538,7 +538,7 @@ func cmdRestore(args []string) error {
 	}
 	body := map[string]string{"component": comp, "version": version, "file": file}
 	if file != "" {
-		resp, err := api("POST", "/api/buxon/restore", body)
+		resp, err := api("POST", "/api/xbin/restore", body)
 		if err != nil {
 			return err
 		}
@@ -549,7 +549,7 @@ func cmdRestore(args []string) error {
 		_, err = io.Copy(os.Stdout, resp.Body)
 		return err
 	}
-	if err := apiJSON("POST", "/api/buxon/restore", body, nil); err != nil {
+	if err := apiJSON("POST", "/api/xbin/restore", body, nil); err != nil {
 		return err
 	}
 	fmt.Printf("restored %s\n", comp)
@@ -561,7 +561,7 @@ func cmdLifecycle(args []string, state string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx %s <component>", map[string]string{"enabled": "enable", "disabled": "disable"}[state])
 	}
-	if err := apiJSON("POST", "/api/buxon/lifecycle", map[string]string{"component": args[0], "state": state}, nil); err != nil {
+	if err := apiJSON("POST", "/api/xbin/lifecycle", map[string]string{"component": args[0], "state": state}, nil); err != nil {
 		return err
 	}
 	fmt.Printf("%s %s\n", args[0], state)
@@ -571,7 +571,7 @@ func cmdLifecycle(args []string, state string) error {
 func cmdBind(args []string) error {
 	if len(args) >= 3 && args[0] == "--unset" {
 		body := map[string]string{"component": args[1], "slot": args[2]}
-		if err := apiJSON("DELETE", "/api/buxon/bindings", body, nil); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/bindings", body, nil); err != nil {
 			return err
 		}
 		fmt.Println("ok")
@@ -587,7 +587,7 @@ func cmdBind(args []string) error {
 			return fmt.Errorf("expected <slot>=<provider>, got %q", pair)
 		}
 		body := map[string]string{"component": comp, "slot": slot, "provider": provider}
-		if err := apiJSON("POST", "/api/buxon/bindings", body, nil); err != nil {
+		if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
 			return err
 		}
 	}
@@ -600,7 +600,7 @@ func cmdGrants() error {
 		Grants  []map[string]string `json:"grants"`
 		Pending []map[string]string `json:"pending"`
 	}
-	if err := apiJSON("GET", "/api/buxon/grants", nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/grants", nil, &out); err != nil {
 		return err
 	}
 	fmt.Println("granted:")
@@ -639,7 +639,7 @@ func cmdGrant(args []string) error {
 	if revoke {
 		method = "DELETE"
 	}
-	if err := apiJSON(method, "/api/buxon/grants", body, nil); err != nil {
+	if err := apiJSON(method, "/api/xbin/grants", body, nil); err != nil {
 		return err
 	}
 	fmt.Println("ok")
@@ -656,7 +656,7 @@ func cmdVault(args []string) error {
 		var st struct {
 			Mode string `json:"mode"`
 		}
-		if err := apiJSON("GET", "/api/buxon/vault-status", nil, &st); err != nil {
+		if err := apiJSON("GET", "/api/xbin/vault-status", nil, &st); err != nil {
 			return err
 		}
 		switch st.Mode {
@@ -678,7 +678,7 @@ func cmdVault(args []string) error {
 		var out struct {
 			Created bool `json:"created"`
 		}
-		if err := apiJSON("POST", "/api/buxon/vault-unseal", map[string]string{"passphrase": pass}, &out); err != nil {
+		if err := apiJSON("POST", "/api/xbin/vault-unseal", map[string]string{"passphrase": pass}, &out); err != nil {
 			return err
 		}
 		if out.Created {
@@ -688,7 +688,7 @@ func cmdVault(args []string) error {
 		}
 		return nil
 	case "seal":
-		if err := apiJSON("POST", "/api/buxon/vault-seal", map[string]any{}, nil); err != nil {
+		if err := apiJSON("POST", "/api/xbin/vault-seal", map[string]any{}, nil); err != nil {
 			return err
 		}
 		fmt.Println("vault sealed")
@@ -704,7 +704,7 @@ func cmdVault(args []string) error {
 		var out struct {
 			Keys []string `json:"keys"`
 		}
-		if err := apiJSON("GET", "/api/buxon/vault/"+comp, nil, &out); err != nil {
+		if err := apiJSON("GET", "/api/xbin/vault/"+comp, nil, &out); err != nil {
 			return err
 		}
 		for _, k := range out.Keys {
@@ -717,7 +717,7 @@ func cmdVault(args []string) error {
 		var out struct {
 			Value string `json:"value"`
 		}
-		if err := apiJSON("GET", "/api/buxon/vault/"+comp+"/"+args[2], nil, &out); err != nil {
+		if err := apiJSON("GET", "/api/xbin/vault/"+comp+"/"+args[2], nil, &out); err != nil {
 			return err
 		}
 		fmt.Println(out.Value)
@@ -735,7 +735,7 @@ func cmdVault(args []string) error {
 			}
 			val = strings.TrimRight(string(b), "\n")
 		}
-		if err := apiJSON("PUT", "/api/buxon/vault/"+comp+"/"+args[2],
+		if err := apiJSON("PUT", "/api/xbin/vault/"+comp+"/"+args[2],
 			map[string]string{"value": val}, nil); err != nil {
 			return err
 		}
@@ -744,7 +744,7 @@ func cmdVault(args []string) error {
 		if len(args) < 3 {
 			return fmt.Errorf("usage: bx vault rm <component> <key>")
 		}
-		if err := apiJSON("DELETE", "/api/buxon/vault/"+comp+"/"+args[2], nil, nil); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/vault/"+comp+"/"+args[2], nil, nil); err != nil {
 			return err
 		}
 		fmt.Println("ok")
@@ -761,7 +761,7 @@ func cmdCron(args []string) error {
 	var out struct {
 		Jobs []map[string]any `json:"jobs"`
 	}
-	if err := apiJSON("GET", "/api/buxon/cron/jobs", nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/cron/jobs", nil, &out); err != nil {
 		return err
 	}
 	for _, j := range out.Jobs {

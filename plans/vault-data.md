@@ -33,18 +33,18 @@ everything and is deferred).
 
 Resources reach backends two ways:
 
-- **Broker-mediated** (`kv`, `blob`): the backend calls buxond over HTTP, so
-  buxond is in the data path and can transparently encrypt/decrypt.
-- **Directly bind-mounted** (`filesystem`, `sqlite`): buxond binds the real
+- **Broker-mediated** (`kv`, `blob`): the backend calls xbind over HTTP, so
+  xbind is in the data path and can transparently encrypt/decrypt.
+- **Directly bind-mounted** (`filesystem`, `sqlite`): xbind binds the real
   directory into the sandbox and the backend touches files itself — **no
   interposition point**.
 
 Because **the vault key must never enter a component sandbox** (backends are
-least-privileged tenants), decryption must happen inside buxond's trust domain.
+least-privileged tenants), decryption must happen inside xbind's trust domain.
 That rules out handing a key to the backend (e.g. SQLCipher) and dictates:
 
 - `kv` / `blob` → encrypt in the broker.
-- `filesystem` / `sqlite` → a **buxond-owned encrypting FUSE** whose decrypted
+- `filesystem` / `sqlite` → a **xbind-owned encrypting FUSE** whose decrypted
   view is bind-mounted in. We use **gocryptfs** (see "gocryptfs" below).
 
 `blob` is grouped with the FUSE side rather than broker-encrypted: blobs are up
@@ -57,7 +57,7 @@ bbolt db) is broker-encrypted.
 
 ```
 passphrase --Argon2id--> KEK --unwraps--> DEK           (as today; in memory only)
-DEK --HKDF-SHA256("buxon/<label>")--> per-resource 32-byte subkey
+DEK --HKDF-SHA256("xbin/<label>")--> per-resource 32-byte subkey
      label "fs:<scopeKey>/<name>"  → gocryptfs password (base64) for that resource
      label "kv:<res-string>"       → AES-256-GCM key for that kv bucket's values
 ```
@@ -72,9 +72,9 @@ derivation returns `ErrSealed` when the vault is sealed.
 Selected over CryFS / securefs / an in-process FUSE: it's Go, MIT, independently
 audited (2017), rootless-native, and matches the existing `fuse-overlayfs`
 vendoring exactly (`hack/build-gocryptfs.sh` builds a fully-static
-`-tags without_openssl` binary; `resenc.Resolve` finds it next to buxond). Its
+`-tags without_openssl` binary; `resenc.Resolve` finds it next to xbind). Its
 metadata leak (directory structure, file sizes, counts — it encrypts contents +
-names) is acceptable for tile data. buxond supplies the per-resource password on
+names) is acceptable for tile data. xbind supplies the per-resource password on
 gocryptfs's **stdin** (`-passfile /dev/stdin`), so nothing sensitive lands on
 disk or in `ps`. Runtime dep: `fusermount3` (the `fuse3` package the installer
 already pulls in).
@@ -82,13 +82,13 @@ already pulls in).
 `internal/resenc` (`Manager`) owns the mounts:
 
 - ciphertext: `data/resources-enc/<scopeKey>/<name>/` (what a stolen disk sees);
-- decrypted view: `.buxon/resenc/<scopeKey>/<name>/`, bind-mounted into sandboxes;
+- decrypted view: `.xbin/resenc/<scopeKey>/<name>/`, bind-mounted into sandboxes;
 - `Ensure` inits (first use) + mounts + migrates a legacy plaintext dir;
-  `UnmountAll` on seal/shutdown; `RecoverStale` lazy-unmounts a crashed buxond's
+  `UnmountAll` on seal/shutdown; `RecoverStale` lazy-unmounts a crashed xbind's
   leftovers at start.
 
-Accessibility: in range-uid mode container-uid-0 maps to the host `buxon` user
-(`sandbox/launch_linux.go`), so a buxon-owned FUSE mount is reachable by the
+Accessibility: in range-uid mode container-uid-0 maps to the host `xbin` user
+(`sandbox/launch_linux.go`), so a xbin-owned FUSE mount is reachable by the
 backend running as in-ns root with **no `allow_other`** — the same profile as
 today's plain bind.
 
@@ -106,7 +106,7 @@ With tile data encrypted, a **sealed vault can't read any of it**. So:
   encrypted resources (releasing their binds), then `UnmountAll`.
 - `kv`/`blob` API calls while sealed return **503**.
 
-So an auto-unseal box (`BUXON_VAULT_PASSPHRASE`) behaves as before; a
+So an auto-unseal box (`XBIN_VAULT_PASSPHRASE`) behaves as before; a
 manual-unseal box boots, lets you log in, and brings stateful tiles alive on
 unseal.
 
@@ -123,7 +123,7 @@ builtin `s3-archiver` must gain client-side encryption as the companion change.
 
 ## Not encrypted (follow-ups)
 
-- buxond metadata: `data/cron-jobs.json`, `data/backup-schedule.json`,
+- xbind metadata: `data/cron-jobs.json`, `data/backup-schedule.json`,
   `data/prefs/`, the users db. Owner/config data, not tile state.
 - **No legacy migration.** Since there is no plaintext resource path, an existing
   plaintext workspace's `data/resources/…` isn't auto-encrypted on upgrade (the
@@ -132,7 +132,7 @@ builtin `s3-archiver` must gain client-side encryption as the companion change.
 - kv AAD (bind value↔key), and encrypting kv key *names* (currently plaintext for
   prefix-listing) — hardening, deferred.
 - **Stale mounts on workspace rename.** `RecoverStale` only scans the current
-  `.buxon/resenc`, so `mv`-ing a live workspace leaks its gocryptfs mounts —
+  `.xbin/resenc`, so `mv`-ing a live workspace leaks its gocryptfs mounts —
   cosmetic, cleanup deferred.
 
 ## Import validation (companion)
@@ -150,7 +150,7 @@ tiles survive a rename is a larger follow-up.)
   always gocryptfs mounts; kv always envelope-encrypted. If encryption can't run,
   the resource is *unavailable* (component held), never plaintext. Cost: seal ⇒
   stateful-down; a dev key auto-encrypts `make dev`.
-- **VD-2 — Key never enters the sandbox.** buxond (broker for kv, a buxond-owned
+- **VD-2 — Key never enters the sandbox.** xbind (broker for kv, a xbind-owned
   gocryptfs for files) does all crypto; backends only ever see plaintext.
 - **VD-3 — gocryptfs for file-backed resources** (filesystem/sqlite/blob),
   vendored static like fuse-overlayfs; kv is broker envelope-encrypted.

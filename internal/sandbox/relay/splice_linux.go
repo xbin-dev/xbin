@@ -5,7 +5,7 @@ package relay
 import "golang.org/x/sys/unix"
 
 // Splicer bidirectionally pumps raw IP packets between two TUN fds held by
-// buxond — the L3 backplane that links a spliced client's egress TUN to a
+// xbind — the L3 backplane that links a spliced client's egress TUN to a
 // provider tile's per-client TUN (plans/interfaces.md). Both fds are packet-
 // framed (IFF_NO_PI), so each read/write is exactly one IP packet.
 type Splicer struct{ a, b int }
@@ -39,7 +39,7 @@ func pump(from, to int) {
 }
 
 // Close stops the splice by closing the client-side fd (a). The provider-side fd
-// (b) is left open — buxond's netMux owns it and reuses it if the client
+// (b) is left open — xbind's netMux owns it and reuses it if the client
 // restarts and re-splices; it's closed when the provider itself tears down.
 func (s *Splicer) Close() {
 	if s == nil {

@@ -15,14 +15,14 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/backup"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/backup"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
 )
 
-// Per-component backup / archive (plans/lifecycle.md). buxond builds a
+// Per-component backup / archive (plans/lifecycle.md). xbind builds a
 // self-describing tar of a component (source + its scope's resource data +
 // terminal env layer) and streams it to the archiver tile bound to its
 // `@archive` interface; the same path powers offload and scheduled backups.
@@ -49,7 +49,7 @@ func (b *Broker) resourcesRoot(scope string) string {
 }
 
 func (b *Broker) termDir(comp string) string {
-	return filepath.Join(b.Reg.Root, ".buxon", "term", util.CompKey(comp))
+	return filepath.Join(b.Reg.Root, ".xbin", "term", util.CompKey(comp))
 }
 
 // --- build ------------------------------------------------------------------
@@ -62,7 +62,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 	includes := []string{"source"}
 	m := backup.Manifest{
 		Component: c.Path, Scope: c.Path, ScopeRoot: isRoot,
-		BuxonVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
+		XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
 	}
 	if isRoot {
 		m.Resources = map[string]string{}
@@ -108,8 +108,8 @@ func skipSource(rel string) bool {
 	}
 	// Keep .git — a component is its own repo now (history + remote travel with
 	// the backup, so a restore is a full, re-pullable clone). Still drop
-	// node_modules (reproducible) and .buxon (runtime layers).
-	return top == "node_modules" || top == ".buxon"
+	// node_modules (reproducible) and .xbin (runtime layers).
+	return top == "node_modules" || top == ".xbin"
 }
 
 func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *registry.ScopeManifest) error {
@@ -285,7 +285,7 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 	return m, nil
 }
 
-// restoreFileDest maps a backup tar entry (its name minus the buxon prefix) to
+// restoreFileDest maps a backup tar entry (its name minus the xbin prefix) to
 // the on-disk destination, mounting the resource first so restored data is
 // re-encrypted under the current vault. filesystem/sqlite/blob are all mount
 // dirs, so rest is always "<name>/<rel>".
@@ -469,13 +469,13 @@ func (b *Broker) removeScopeData(comp string) error {
 }
 
 // removeSourceBulk clears a component's source subtree but keeps a stub
-// (buxon.json + scope.json) so it stays listed and restorable (offloaded-full).
+// (xbin.json + scope.json) so it stays listed and restorable (offloaded-full).
 func (b *Broker) removeSourceBulk(comp string) error {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
 		return nil
 	}
-	keep := map[string]bool{"buxon.json": true, "scope.json": true}
+	keep := map[string]bool{"xbin.json": true, "scope.json": true}
 	entries, err := os.ReadDir(c.Dir)
 	if err != nil {
 		return err

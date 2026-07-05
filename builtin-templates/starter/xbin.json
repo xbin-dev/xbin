@@ -1,7 +1,7 @@
 {
   // A template component (plans/templates.md): not plugged in until you
   // instantiate it into a named copy. The "template" block below is the
-  // marker + catalog entry; it is stripped from each instance's buxon.json.
+  // marker + catalog entry; it is stripped from each instance's xbin.json.
   "template": {
     "title": "Starter",
     "description": "A blank static component — the simplest thing that shows up as a tile. Clone it and build.",

@@ -2,8 +2,8 @@
 //
 // Builtins are copied into a workspace once (scaffold at init, tiles on import)
 // and then owned/edited by the user. This tracks their provenance so a newer
-// buxond can offer updates without trampling local customizations: an origin
-// marker (.buxon/builtins.json) plus a base snapshot (.buxon/builtins/<id>/)
+// xbind can offer updates without trampling local customizations: an origin
+// marker (.xbin/builtins.json) plus a base snapshot (.xbin/builtins/<id>/)
 // record what was installed, and a per-file 3-way comparison (base / workspace
 // "ours" / embedded "theirs") drives replace-or-merge.
 //
@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	originFile  = "builtins.json" // under .buxon/
-	snapDirName = "builtins"      // under .buxon/ (base snapshots)
+	originFile  = "builtins.json" // under .xbin/
+	snapDirName = "builtins"      // under .xbin/ (base snapshots)
 )
 
 // UnitState is one managed builtin's recorded provenance.
@@ -78,7 +78,7 @@ func (u *Updater) scaffoldDefs() []unitDef {
 			return err
 		}
 		switch path.Base(p) {
-		case "buxon.json", "index.html":
+		case "xbin.json", "index.html":
 			if dir := path.Dir(p); dir != "." {
 				comps[dir] = true
 			}
@@ -129,12 +129,12 @@ func (u *Updater) defByID(id string) (unitDef, bool) {
 
 // --- origin marker + snapshots ------------------------------------------
 
-func (u *Updater) markerPath() string { return filepath.Join(u.root, ".buxon", originFile) }
+func (u *Updater) markerPath() string { return filepath.Join(u.root, ".xbin", originFile) }
 
 func encodeID(id string) string { return strings.NewReplacer(":", "~", "/", "~").Replace(id) }
 
 func (u *Updater) snapDir(id string) string {
-	return filepath.Join(u.root, ".buxon", snapDirName, encodeID(id))
+	return filepath.Join(u.root, ".xbin", snapDirName, encodeID(id))
 }
 
 func (u *Updater) load() *origin {
@@ -237,7 +237,7 @@ func (u *Updater) render(def unitDef, installPath string) (map[string][]byte, er
 
 func (u *Updater) installed(installPath string) bool {
 	base := filepath.Join(u.root, filepath.FromSlash(installPath))
-	for _, f := range []string{"buxon.json", "index.html"} {
+	for _, f := range []string{"xbin.json", "index.html"} {
 		if _, err := os.Stat(filepath.Join(base, f)); err == nil {
 			return true
 		}

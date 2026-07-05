@@ -82,7 +82,7 @@
 
     // The OpenAI-compatible endpoint comes from the "llm" interface binding
     // (plans/interfaces.md) — bind it on the root page to any provider tile.
-    const GW = buxon.iface('llm')?.url;
+    const GW = xbin.iface('llm')?.url;
     const $ = (id) => document.getElementById(id);
     const log = $('log'), input = $('input'), sendBtn = $('send'), modelSel = $('model'), note = $('note');
 
@@ -107,7 +107,7 @@
         return;
       }
       try {
-        const r = await buxon.fetch(`${GW}/v1/models`);
+        const r = await xbin.fetch(`${GW}/v1/models`);
         if (r.status === 403) {
           setNote('No access to the bound LLM provider yet — check the binding ' +
                   'in the admin Interfaces tab on the root page.', true);
@@ -227,7 +227,7 @@
       };
 
       try {
-        const r = await buxon.fetch(`${GW}/v1/chat/completions`, {
+        const r = await xbin.fetch(`${GW}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: modelSel.value, messages: history, stream: true }),

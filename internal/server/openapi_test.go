@@ -28,10 +28,10 @@ func TestOpenAPISpec(t *testing.T) {
 		"/grants":                  {"post", "admin"},
 		"/vault/{component}/{key}": {"put", "self or admin"},
 		"/kv/{resource}/{key}":     {"put", "writer (resource grant)"},
-		"/create":                  {"post", "buxon:writer"},
+		"/create":                  {"post", "xbin:writer"},
 		"/runtime":                 {"get", "admin"},
 		"/whoami":                  {"get", "authenticated"},
-		"/users":                   {"post", "buxon:users"},
+		"/users":                   {"post", "xbin:users"},
 	}
 	for p, w := range want {
 		item, ok := paths[p].(oapi)
@@ -44,8 +44,8 @@ func TestOpenAPISpec(t *testing.T) {
 			t.Errorf("%s missing %s", p, w.method)
 			continue
 		}
-		if op["x-buxon-capability"] != w.cap {
-			t.Errorf("%s %s capability = %v, want %q", w.method, p, op["x-buxon-capability"], w.cap)
+		if op["x-xbin-capability"] != w.cap {
+			t.Errorf("%s %s capability = %v, want %q", w.method, p, op["x-xbin-capability"], w.cap)
 		}
 		if op["responses"] == nil || op["operationId"] == "" {
 			t.Errorf("%s %s missing responses/operationId", w.method, p)

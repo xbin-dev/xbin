@@ -15,13 +15,13 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Cron resource (plans/auth.md §5): an element registers jobs that call its
 // OWN endpoints on a schedule — cron can never be aimed at a third element.
-// Invocations carry From: buxon/cron and the role the element chose at
+// Invocations carry From: xbin/cron and the role the element chose at
 // registration (bounded by its own declared roles). Jobs persist in
 // data/resources/<scope-key>/<res>.cron.json and survive restarts.
 
@@ -42,7 +42,7 @@ type cronRunner struct {
 	entries map[string]cron.EntryID // job key → entry
 	jobs    map[string]cronJob
 	// Scheduled component backups (plans/lifecycle.md), keyed by component. These
-	// share the same scheduler but fire a buxond backup, not an element endpoint.
+	// share the same scheduler but fire a xbind backup, not an element endpoint.
 	backups       map[string]backupSchedule
 	backupEntries map[string]cron.EntryID
 	// Dispatch is how ticks reach elements: installed by main as a call into

@@ -1,5 +1,5 @@
 // s3-archiver backend: an `archive` interface provider (plans/lifecycle.md)
-// that stores buxond's component backup tars in an S3 bucket. buxond (the owner)
+// that stores xbind's component backup tars in an S3 bucket. xbind (the owner)
 // PUTs a tar per version; this tile lists versions, streams a version back, or
 // extracts one file from a version. Config (endpoint/region/bucket/prefix) lives
 // in this tile's kv; the S3 credentials live in its vault.
@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
-var kv = buxon.KV(buxon.Resource("state"))
+var kv = xbin.KV(xbin.Resource("state"))
 
 type config struct {
 	Endpoint string `json:"endpoint"` // e.g. https://s3.us-east-1.amazonaws.com
@@ -42,8 +42,8 @@ func loadConfig() config {
 
 func client() (*S3, config, error) {
 	c := loadConfig()
-	ak, _ := buxon.Secret("accessKey")
-	sk, _ := buxon.Secret("secretKey")
+	ak, _ := xbin.Secret("accessKey")
+	sk, _ := xbin.Secret("secretKey")
 	if c.Bucket == "" || c.Endpoint == "" || ak == "" || sk == "" {
 		return nil, c, fmt.Errorf("s3-archiver is not configured — set endpoint/region/bucket and credentials on its page")
 	}
@@ -228,7 +228,7 @@ func deleteVersion(w http.ResponseWriter, r *http.Request) {
 
 func getConfig(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
-	ak, _ := buxon.Secret("accessKey")
+	ak, _ := xbin.Secret("accessKey")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"config": c, "hasCreds": ak != ""})
 }
@@ -258,7 +258,7 @@ func checkConn(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s3.Probe(); err != nil {
 		fail(w, http.StatusBadGateway, "cannot reach the bucket: "+err.Error()+
-			" (if this is a 'dial'/'connection refused' error, bind this tile's net interface: bx bind "+buxon.Self()+" net=internet)")
+			" (if this is a 'dial'/'connection refused' error, bind this tile's net interface: bx bind "+xbin.Self()+" net=internet)")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -267,7 +267,7 @@ func checkConn(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	m := http.NewServeMux()
-	// The archive contract (called by buxond as the owner).
+	// The archive contract (called by xbind as the owner).
 	m.HandleFunc("PUT /archive/{key}", putArchive)
 	m.HandleFunc("GET /archive/{key}/versions", listVersions)
 	m.HandleFunc("GET /archive/{key}/versions/{v}", getVersion)
@@ -277,5 +277,5 @@ func main() {
 	m.HandleFunc("GET /config", getConfig)
 	m.HandleFunc("PUT /config", putConfig)
 	m.HandleFunc("POST /check", checkConn)
-	buxon.Serve(m)
+	xbin.Serve(m)
 }

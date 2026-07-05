@@ -17,7 +17,7 @@ git) stays fully privileged — sandboxing the owner is a non-goal.
 - **Tier 1** (now): single uid; instance tokens; gateway default-deny; vault
   broker-owned. A hostile element can still read siblings' `/proc`, open their
   sockets, read/write any workspace file, and make **any** network connection.
-- **Tier 2** `[ND1]`: per-scope uids (buxond is root, D13). Source becomes
+- **Tier 2** `[ND1]`: per-scope uids (xbind is root, D13). Source becomes
   non-writable, `/proc` closes, vault/data enforced by fs perms. Residual: an
   element can still *read* much of the tree its uid can reach, and **local
   network + internet egress is wide open**.
@@ -31,8 +31,8 @@ injected agent, a bug). After Tier 3 it can:
 
 - **read/write** only: its own dir, granted `deps/*` (read-only), granted
   resource files (sqlite/blob), the toolchain (read-only), a private `/tmp`.
-- **be reached** only by buxond (the runtime) — never by a sibling or the LAN.
-- **reach out** only to: the buxond gateway (always), plus whatever network
+- **be reached** only by xbind (the runtime) — never by a sibling or the LAN.
+- **reach out** only to: the xbind gateway (always), plus whatever network
   egress it was **granted** (internet scope and/or specific LAN targets).
 
 Everything else fails closed. Terminals/owner are exempt (editing plane).
@@ -45,7 +45,7 @@ binary). So a compromised backend can persist nothing to the host in the clear:
 resource writes go through per-resource encryption (plans/vault-data.md), and
 everything else is throwaway. This is why the IPC run dir (the gateway + listen
 sockets) lives on a **tmpfs** (`runner.runDirFor` → `$RUNTIME_DIRECTORY` /
-`$XDG_RUNTIME_DIR`), not `.buxon/run` on the workspace disk.
+`$XDG_RUNTIME_DIR`), not `.xbin/run` on the workspace disk.
 
 ## 1. Filesystem isolation — mount namespace
 
@@ -56,23 +56,23 @@ root (`pivot_root` over an overlay/tmpfs, assembled from bind mounts):
 |---|---|---|
 | the component dir | `apps/<scope>/<comp>` | **ro** (source is terminal-only from tier 2; here also invisible to others) |
 | `deps/<x>` | each granted dep component | **ro** |
-| granted resource dir | decrypted gocryptfs mount `.buxon/resenc/<scope>/<name>/` | **rw** (encrypted at rest; only granted names) |
+| granted resource dir | decrypted gocryptfs mount `.xbin/resenc/<scope>/<name>/` | **rw** (encrypted at rest; only granted names) |
 | toolchain | `/opt/toolchains` | **ro** (node/python need interpreter+stdlib; Go backends are static → need ~nothing) |
-| `BUXON_GATEWAY` socket | tmpfs run dir (`$XDG_RUNTIME_DIR`/`/run/buxon`), symlinked from `.buxon/run` | bind (the one door to buxond) |
+| `XBIN_GATEWAY` socket | tmpfs run dir (`$XDG_RUNTIME_DIR`/`/run/xbin`), symlinked from `.xbin/run` | bind (the one door to xbind) |
 | its own listen socket dir | tmpfs run dir `<run>/<compkey>/` | **rw (tmpfs, not host disk)** |
 | `/tmp`, `/dev` (null/zero/urandom), `/proc` | fresh tmpfs / minimal / private | — |
 
 **Hidden by construction:** other components' source, `home/`, `data/vault/`,
-`.git`, the rest of `data/` and `.buxon`, the host root. The backend's entire
+`.git`, the rest of `data/` and `.xbin`, the host root. The backend's entire
 visible filesystem *is* its grant set — reading a sibling's secrets or source
 is no longer a permission question, it's simply not mounted.
 
 Rootless note: with a **user namespace** the mount ns + binds need no host
 capability; otherwise `CAP_SYS_ADMIN`. See §4.
 
-**uid mapping.** When `/etc/sub{u,g}id` delegate a range to the buxond user and
+**uid mapping.** When `/etc/sub{u,g}id` delegate a range to the xbind user and
 `newuidmap`/`newgidmap` are present, the sandbox maps a **full uid range**:
-container 0 → the buxond user (root-in-container is still this user on the host),
+container 0 → the xbind user (root-in-container is still this user on the host),
 container 1..N → the sub-id range. This makes `apt`/`dpkg` user switches, `sudo`,
 `useradd`, and **running a backend as a non-root in-container uid** work — a
 defense-in-depth layer. Because the parent must run `newuidmap` against the child
@@ -80,44 +80,44 @@ defense-in-depth layer. Because the parent must run `newuidmap` against the chil
 as the unmapped overflow uid (execve strips caps), blocks until the parent writes
 the maps, then **re-execs** so the second execve runs as mapped root and regains
 capabilities for the mount setup. Without delegated sub-ids it falls back to the
-prior **single-uid** map (container 0 → buxond user, `setgroups` denied) — fine
+prior **single-uid** map (container 0 → xbind user, `setgroups` denied) — fine
 for backends, but apt/user-switching won't work.
 
 **overlay backend.** The root overlay is mounted with **fuse-overlayfs** when a
-binary is found (`$BUXON_FUSE_OVERLAYFS`, next to the buxond executable, or
+binary is found (`$XBIN_FUSE_OVERLAYFS`, next to the xbind executable, or
 `$PATH`). We vendor our own — `hack/build-fuse-overlayfs.sh` builds a static one
-from pinned source (wired into `make`), shipped next to buxond rather than
+from pinned source (wired into `make`), shipped next to xbind rather than
 depending on a host package. It honors `redirect_dir`/`metacopy`, which the
 kernel forbids for *unprivileged* overlay mounts — so dpkg's directory renames
-(and thus `apt install`) work. Absent it, buxond falls back to kernel overlayfs
+(and thus `apt install`) work. Absent it, xbind falls back to kernel overlayfs
 (installs hit `EXDEV`). A private **devpts** is mounted too, so PTY allocation
 (dpkg/debconf, `tmux`, `script`, `sudo`) works.
 
 ## 2. Ingress — only the runtime can go in
 
 Already most of the way there: a backend serves on a **unix socket**
-(`BUXON_SOCKET`) in its private run dir, and buxond's proxy dials it. Tier 3
+(`XBIN_SOCKET`) in its private run dir, and xbind's proxy dials it. Tier 3
 finishes it:
 
 - Inside the **network namespace** (§3) there is no external interface, so any
   `listen()` a backend does binds only to an unreachable loopback — **nothing on
-  the LAN or from a sibling can connect to it**. buxond reaches the backend
+  the LAN or from a sibling can connect to it**. xbind reaches the backend
   through the bind-mounted unix socket, from outside the ns.
 - The socket is owned by the component's uid with a private parent dir, so even
   a same-host, same-uid confusion can't open a sibling's socket.
 
-Net: the only path *into* a component is buxond. "Only the runtime can go in."
+Net: the only path *into* a component is xbind. "Only the runtime can go in."
 
 ## 3. Egress — default-deny IP, grants, gateway always
 
 Spawn each backend into a **network namespace with only loopback** — no route to
 the host, LAN, or internet. Then egress resolves in three classes:
 
-1. **To buxond (the gateway).** It's a **unix socket**, bind-mounted into the ns
-   — unaffected by the empty netns, so component↔component calls and the buxon
+1. **To xbind (the gateway).** It's a **unix socket**, bind-mounted into the ns
+   — unaffected by the empty netns, so component↔component calls and the xbin
    RBAC APIs work exactly as today. *This is "egress to bx generally allowed."*
 2. **To an IP (LAN or internet).** The empty netns means the kernel has nowhere
-   to send it → **default deny**. To permit it, buxond runs a **transparent
+   to send it → **default deny**. To permit it, xbind runs a **transparent
    userspace egress relay** bound to the ns (a tap device terminated by an
    in-process Go TCP/IP stack — gvisor `tcpip`/`slirp4netns`-style). Every
    outbound connection the backend makes is caught by the relay, checked against
@@ -133,7 +133,7 @@ the host, LAN, or internet. Then egress resolves in three classes:
 
 ### Egress grant vocabulary
 
-New grant **targets**, requested in `buxon.json` `uses` and **approved by the
+New grant **targets**, requested in `xbin.json` `uses` and **approved by the
 owner** in the grants panel exactly like a resource grant — an element can
 **never** self-approve (AGENTS.md / auth.md §3):
 
@@ -150,7 +150,7 @@ allows it iff some granted rule matches; otherwise deny. Grants surface as
 pending on tile import / template instantiate, like every other cross-scope use.
 
 ```jsonc
-// buxon.json
+// xbin.json
 "uses": [
   { "target": "net:internet:443",        "role": "egress" },  // HTTPS out
   { "target": "net:192.168.1.10:5432",    "role": "egress" }   // one LAN db
@@ -159,7 +159,7 @@ pending on tile import / template instantiate, like every other cross-scope use.
 
 ### Interim mechanism (Tier 3a) — nftables per-uid
 
-If per-scope uids (tier 2) are on and buxond holds `CAP_NET_ADMIN`, egress can be
+If per-scope uids (tier 2) are on and xbind holds `CAP_NET_ADMIN`, egress can be
 enforced **without** a netns/relay using **`nftables meta skuid` owner rules**:
 default-drop for scope uids; generate allow rules from the `net:*` grants
 (`net:internet` = drop RFC1918 + allow the rest; `net:<cidr:port>` = allow that).
@@ -170,9 +170,9 @@ and is rootless-capable.
 
 ## 4. Deployment & capabilities
 
-Proper per-component isolation wants buxond to build namespaces, attach cgroups,
+Proper per-component isolation wants xbind to build namespaces, attach cgroups,
 and run an egress relay — which is exactly what an **unprivileged Docker
-container can't host well**. So the deployment model moves down a level: buxond
+container can't host well**. So the deployment model moves down a level: xbind
 runs on a **VM / host it controls** and *becomes* the sandbox runtime for its
 components. Full design in **`plans/runtime.md`**; in short:
 
@@ -184,7 +184,7 @@ components. Full design in **`plans/runtime.md`**; in short:
   on-ramp. The VM is the hard outer boundary; namespaces are the inner one.
 - Tier 3 then needs either **user namespaces (rootless)** — mount + net ns + tap
   without host caps, preferred — or **`CAP_NET_ADMIN` + `CAP_SYS_ADMIN`** on the
-  root path. On a VM buxond controls, both are available.
+  root path. On a VM xbind controls, both are available.
 
 Gate it with `--isolate` (+ `--rootfs`). It is **independent of `--dev`/
 `--no-auth`** — `make dev` runs isolated so development matches the sandbox
@@ -201,7 +201,7 @@ before choosing.
   the rw bind mount inside the ns. Cross-scope resources stay **brokered** over
   the gateway (unchanged, and now the *only* cross-scope path).
 - **Build vs runtime egress.** `go build` / `npm i` / `pip` run in the
-  **editing/build plane** (buxond + terminals), **not** in the sandboxed runtime.
+  **editing/build plane** (xbind + terminals), **not** in the sandboxed runtime.
   Module downloads are therefore governed by the container's network, not by a
   component's runtime egress grants — a component with no `net:*` grant still
   builds fine; it just can't phone home *at runtime*.

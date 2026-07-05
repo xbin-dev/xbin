@@ -1,10 +1,10 @@
-# The buxon component base rootfs (plans/runtime.md RT-2).
+# The xbin component base rootfs (plans/runtime.md RT-2).
 #
-# This is NOT a deployment image. buxond overlays it read-only under every
+# This is NOT a deployment image. xbind overlays it read-only under every
 # per-component sandbox and every terminal; a component is layered on top. It
 # carries the toolchains + agent CLIs so terminals are a first-class builder
 # shell and node/python backends have their runtimes. Go backends are built
-# static by buxond, so they need nothing from here.
+# static by xbind, so they need nothing from here.
 #
 # Build + unpack with hack/build-rootfs.sh (docker build → docker export → dir).
 # Customize by FROM-ing this image and adding layers, then point --rootfs at the
@@ -37,7 +37,7 @@ RUN mkdir -p /usr/local/node \
 # fails ("setgroups … Operation not permitted") and `apt update`/`install` break.
 # Tell apt to run as root instead — the standard fix for unprivileged containers.
 # (Terminal overlays are ephemeral, so installs last for the session.)
-RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00buxon-no-sandbox
+RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00xbin-no-sandbox
 
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -45,9 +45,9 @@ ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 # (Best-effort: keep the base building even if a registry hiccups.)
 RUN npm install -g @anthropic-ai/claude-code opencode-ai || true
 
-# The buxon CLI (built by hack/build-rootfs.sh into the build context).
+# The xbin CLI (built by hack/build-rootfs.sh into the build context).
 COPY bx /usr/local/bin/bx
 RUN chmod +x /usr/local/bin/bx
 
-# A neutral home for terminals (buxond mounts the real $HOME over it).
+# A neutral home for terminals (xbind mounts the real $HOME over it).
 RUN useradd -m -s /bin/bash builder || true

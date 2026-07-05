@@ -25,7 +25,7 @@ func cmdBuiltin(args []string) error {
 			Clean       int    `json:"clean"`
 			Conflicts   int    `json:"conflicts"`
 		}
-		if err := apiJSON("GET", "/api/buxon/builtins/updates", nil, &ups); err != nil {
+		if err := apiJSON("GET", "/api/xbin/builtins/updates", nil, &ups); err != nil {
 			return err
 		}
 		if len(ups) == 0 {
@@ -62,7 +62,7 @@ func cmdBuiltin(args []string) error {
 		var out struct {
 			Files []string `json:"files"`
 		}
-		if err := apiJSON("POST", "/api/buxon/builtins/update", map[string]string{"id": id, "mode": mode}, &out); err != nil {
+		if err := apiJSON("POST", "/api/xbin/builtins/update", map[string]string{"id": id, "mode": mode}, &out); err != nil {
 			return err
 		}
 		fmt.Printf("%sd %s (%d file(s))\n", mode, id, len(out.Files))
@@ -75,7 +75,7 @@ func cmdBuiltin(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: bx builtin %s <id>", args[0])
 		}
-		if err := apiJSON("POST", "/api/buxon/builtins/update", map[string]string{"id": args[1], "mode": args[0]}, nil); err != nil {
+		if err := apiJSON("POST", "/api/xbin/builtins/update", map[string]string{"id": args[1], "mode": args[0]}, nil); err != nil {
 			return err
 		}
 		fmt.Printf("%sned %s\n", args[0], args[1])

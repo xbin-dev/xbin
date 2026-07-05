@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- S3 Archiver settings. Endpoint/region/bucket/prefix save to this tile's
      /config; the access key + secret save straight into its vault (self is admin
-     of itself, docs/auth.md). buxond streams component backups to the /archive
+     of itself, docs/auth.md). xbind streams component backups to the /archive
      endpoints; this page is only the configuration surface. -->
 <html lang="en">
 <head>
@@ -43,7 +43,7 @@
     <div><label>Bucket</label><input id="bucket" placeholder="my-backups"></div>
   </div>
   <label>Prefix (optional)</label>
-  <input id="prefix" placeholder="buxon/">
+  <input id="prefix" placeholder="xbin/">
 
   <div class="creds">
     <label>Access key ID</label>
@@ -57,11 +57,11 @@
   <div class="msg" id="msg"></div>
 
   <script type="module">
-    const self = buxon.self;
-    const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
+    const self = xbin.self;
+    const api = (p, o) => xbin.fetch(`/api/${self}${p}`, o);
     const $ = (id) => document.getElementById(id);
     // Vault writes take {"value": …} JSON (docs/auth.md) — a raw body 400s.
-    const setSecret = (key, value) => buxon.fetch(`/api/buxon/vault/${self}/${encodeURIComponent(key)}`,
+    const setSecret = (key, value) => xbin.fetch(`/api/xbin/vault/${self}/${encodeURIComponent(key)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
 
     async function load() {

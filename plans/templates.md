@@ -2,7 +2,7 @@
 
 A **template component** is a component blueprint: it isn't a live tile until
 you **instantiate** it, at which point its files are copied into a new,
-independently-named component you can build on. Templates let buxon ship
+independently-named component you can build on. Templates let xbin ship
 opinionated starting points (the first is a builtin **AI agent**) and let
 users author their own reusable blueprints.
 
@@ -12,7 +12,7 @@ many times, and authorable inside a workspace — not only embedded).
 
 ## What makes a component a template
 
-A `buxon.json` `template` block:
+A `xbin.json` `template` block:
 
 ```jsonc
 {
@@ -32,7 +32,7 @@ The presence of `template` marks the component. Consequences (a template is
 - **No backend runs.** The runner/proxy refuse a template's `/api/…` with a
   clear "this is a template — instantiate it first" message.
 - **Not a live tile.** It's excluded from the shell's normal tile listing and
-  from `/api/buxon/components` default view; it appears in a **Templates**
+  from `/api/xbin/components` default view; it appears in a **Templates**
   section instead, with an *instantiate* action rather than *open*.
 - Its files are still watched/editable (you author a template like any
   component), and it's git-versioned like everything else.
@@ -40,7 +40,7 @@ The presence of `template` marks the component. Consequences (a template is
 ## Sources
 
 - **Builtin** — embedded under `builtin-templates/<name>/` (parallel to
-  `builtin-tiles/`), each a normal component tree whose `buxon.json` carries a
+  `builtin-tiles/`), each a normal component tree whose `xbin.json` carries a
   `template` block. Go backends ship as `go.mod.tile` (go:embed skips nested
   modules), restored on instantiate.
 - **Workspace** — any component in the workspace with a `template` block. So a
@@ -49,10 +49,10 @@ The presence of `template` marks the component. Consequences (a template is
 
 ## Instantiate
 
-`POST /api/buxon/templates/new {source, path}` — copy the template's files to
+`POST /api/xbin/templates/new {source, path}` — copy the template's files to
 `path` (a new component), then:
 
-- **Strip the `template` block** from the instance's `buxon.json` (the
+- **Strip the `template` block** from the instance's `xbin.json` (the
   instance is a normal, plugged-in component).
 - Rewrite the template's own default path → the instance path in text files
   (self-references: view `<script src>`, its scope's `res:` ids). Cross-tile
@@ -68,9 +68,9 @@ import — templates add only the marker-strip and the two source kinds.
 
 ## Surfaces
 
-- `GET /api/buxon/templates` → `[{id, source: "builtin"|"workspace", title,
+- `GET /api/xbin/templates` → `[{id, source: "builtin"|"workspace", title,
   description, defaultName}]` (builtin catalog ∪ workspace templates).
-- `POST /api/buxon/templates/new {source, path}` (gated by `buxon:writer`,
+- `POST /api/xbin/templates/new {source, path}` (gated by `xbin:writer`,
   like `/create` and tile import).
 - `bx template ls | new <source> [as <path>]`.
 - Tile Manager gains a **New from template** tab (name → instantiate);

@@ -1,7 +1,7 @@
-# ~/.bashrc — seeded by buxon init.
+# ~/.bashrc — seeded by xbin init.
 #
 # This HOME is <workspace>/home: it persists across container upgrades and
-# is shared by every buxon terminal in this workspace. It is NOT your host
+# is shared by every xbin terminal in this workspace. It is NOT your host
 # home — copy in whatever config you like (it's gitignored by default).
 
 [ -z "$PS1" ] && return
@@ -10,8 +10,8 @@ HISTSIZE=50000
 HISTFILESIZE=50000
 shopt -s histappend checkwinsize
 
-# Component-aware prompt: BUXON_COMPONENT is set per terminal session.
-PS1='\[\e[34m\]${BUXON_COMPONENT:-workspace}\[\e[0m\] \[\e[90m\]\W\[\e[0m\] \[\e[32m\]❯\[\e[0m\] '
+# Component-aware prompt: XBIN_COMPONENT is set per terminal session.
+PS1='\[\e[34m\]${XBIN_COMPONENT:-workspace}\[\e[0m\] \[\e[90m\]\W\[\e[0m\] \[\e[32m\]❯\[\e[0m\] '
 
 alias ls='ls --color=auto'
 alias ll='ls -la'

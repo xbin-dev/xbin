@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/users"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/users"
 )
 
-// User-management API (plans/multi-user.md). Gated by the buxon:users
-// capability (distinct from buxon:admin so a dedicated user-admin tile can be
+// User-management API (plans/multi-user.md). Gated by the xbin:users
+// capability (distinct from xbin:admin so a dedicated user-admin tile can be
 // granted only this) — admin implies it. Password hashes never leave here.
 
 func (b *Broker) registerUsers(srv *server.Server) {
@@ -21,7 +21,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
 }
 
-// canManageUsers: root/admin, or an element granted buxon:users (or buxon:admin).
+// canManageUsers: root/admin, or an element granted xbin:users (or xbin:admin).
 func (b *Broker) canManageUsers(p auth.Principal) bool {
 	if b.IsAdmin(p) {
 		return true
@@ -29,10 +29,10 @@ func (b *Broker) canManageUsers(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	if role, ok := b.grantedRole(p.Component, "buxon"); ok && roleSatisfies(role, "admin", nil) {
+	if role, ok := b.grantedRole(p.Component, "xbin"); ok && roleSatisfies(role, "admin", nil) {
 		return true
 	}
-	role, ok := b.grantedRole(p.Component, "buxon:users")
+	role, ok := b.grantedRole(p.Component, "xbin:users")
 	return ok && roleSatisfies(role, "writer", nil)
 }
 
@@ -41,7 +41,7 @@ func (b *Broker) requireUsersCap(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "user management needs admin or the buxon:users capability", "docs": "/docs/auth.md",
+		"error": "user management needs admin or the xbin:users capability", "docs": "/docs/auth.md",
 	})
 	return false
 }

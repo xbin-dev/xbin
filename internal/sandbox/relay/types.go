@@ -11,7 +11,7 @@ type Config struct {
 	Allow    Allow          // egress policy for IP destinations
 	Resolver string         // host DNS server for :53 (e.g. "1.1.1.1:53")
 	Gateway  netip.Addr     // virtual gateway IP (10.0.2.2); host-forwards apply here
-	HostFwd  map[int]string // gateway port → host address (e.g. buxond), policy-exempt
+	HostFwd  map[int]string // gateway port → host address (e.g. xbind), policy-exempt
 }
 
 // Flow is one observed egress connection (for network-activity visibility).

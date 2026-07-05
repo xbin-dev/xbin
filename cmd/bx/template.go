@@ -22,7 +22,7 @@ func cmdTemplate(args []string) error {
 			Description string `json:"description"`
 			DefaultName string `json:"defaultName"`
 		}
-		if err := apiJSON("GET", "/api/buxon/templates", nil, &tpls); err != nil {
+		if err := apiJSON("GET", "/api/xbin/templates", nil, &tpls); err != nil {
 			return err
 		}
 		if len(tpls) == 0 {
@@ -56,7 +56,7 @@ func cmdTemplate(args []string) error {
 		if path != "" {
 			body["path"] = path
 		}
-		if err := apiJSON("POST", "/api/buxon/templates/new", body, &out); err != nil {
+		if err := apiJSON("POST", "/api/xbin/templates/new", body, &out); err != nil {
 			return err
 		}
 		fmt.Printf("created %s\nframe it:  <bx-frame src=%q></bx-frame>\n", out.Path, out.Path)

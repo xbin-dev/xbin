@@ -29,7 +29,7 @@
     const el = document.getElementById('today');
     const load = async () => {
       // Server-side path: our backend calls calendar with our identity.
-      const r = await buxon.fetch(`/api/${buxon.self}/today`);
+      const r = await xbin.fetch(`/api/${xbin.self}/today`);
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
         el.innerHTML = `<li class="denied">${e.error ?? r.status} — approve the grant on the root page</li>`;
@@ -40,7 +40,7 @@
         : d.events.map((e) => `<li><b>${e.time || '--:--'}</b> ${e.title}</li>`).join('');
     };
     // Live badge update when calendar changes (needs the bus grant).
-    buxon.bus.on('res:apps/calendar/bus/events/', load);
+    xbin.bus.on('res:apps/calendar/bus/events/', load);
     await load();
   </script>
 </body>

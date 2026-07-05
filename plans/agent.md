@@ -2,7 +2,7 @@
 
 The first builtin **template component** (plans/templates.md): a blank-slate
 **agentic loop** you instantiate into a named copy (`apps/support-agent`, …)
-and build up into a practical agent that pulls and pushes data around buxon
+and build up into a practical agent that pulls and pushes data around xbin
 between components. Opinionated, debuggable, and durable — not a toy chat loop.
 
 Instantiate it (Tile Manager → "New from template", or `bx template new
@@ -18,7 +18,7 @@ execution engines (Temporal, DBOS, Restate, Inngest). The load-bearing ideas:
   state machine journaled to sqlite at every boundary. An LLM call or tool call
   is an *activity*: its result is written before we act on it, so a crash /
   backend unload / restart resumes without re-running completed side effects.
-  buxond unloads idle backends — durability is not optional here.
+  xbind unloads idle backends — durability is not optional here.
 - **Tiered memory + self-editing memory (MemGPT/Letta).** A small always-in-
   context set of **memory blocks** the agent edits with tools, plus the full
   transcript in sqlite (searchable "recall"), plus **compaction** into a
@@ -32,7 +32,7 @@ execution engines (Temporal, DBOS, Restate, Inngest). The load-bearing ideas:
   in `waiting_input`; the tile injects an answer and it resumes from the same
   point. Optional **tool approval** gate before side-effecting tools run.
 - **Self-scheduling / yielding.** `yield(seconds)` parks the run `sleeping`
-  with a `wake_at`; a cron **heartbeat** (`@every 1m`, buxon cron resource)
+  with a `wake_at`; a cron **heartbeat** (`@every 1m`, xbin cron resource)
   re-drives due runs — which doubles as crash recovery.
 
 ## Shape
@@ -42,12 +42,12 @@ nested modules) restored on instantiate; pure-Go `modernc.org/sqlite`, no cgo.
 
 ```
 apps/agent/
-  buxon.json         template marker + runtime + uses (llm-gw, db, beat, events)
+  xbin.json         template marker + runtime + uses (llm-gw, db, beat, events)
   scope.json         resources: db (sqlite), beat (cron), events (bus)
   go.mod.tile go.sum  module "agent" (rewritten to the instance path on copy)
-  _backend/          entry "./_backend" — the underscore keeps buxon's own
+  _backend/          entry "./_backend" — the underscore keeps xbin's own
                      `go build ./...` from sweeping this sqlite-dep payload into
-                     the buxon module; `all:`-embed still bundles it, instances
+                     the xbin module; `all:`-embed still bundles it, instances
                      still build it (explicit `go build ./_backend`).
     main.go          HTTP API for the tile + heartbeat entry (/tick)
     db.go            sqlite schema + data access
@@ -62,14 +62,14 @@ apps/agent/
 ### Connecting to the LLM
 
 Like chat: `uses: apps/llm-gw:writer`, and the backend calls
-`http://buxon/api/apps/llm-gw/v1/chat/completions` through `buxon.Client()`.
+`http://xbin/api/apps/llm-gw/v1/chat/completions` through `xbin.Client()`.
 Model + system prompt + knobs live in the agent's own config (kv-in-sqlite);
 the upstream key stays in llm-gw's vault. Function-calling tools go in the
 `tools` array; we drive the loop off `tool_calls`.
 
 ### Persistence (in-component sqlite)
 
-`BUXON_RES_DB` → a same-scope sqlite file path. Schema:
+`XBIN_RES_DB` → a same-scope sqlite file path. Schema:
 
 - `runs(id, title, status, cursor, wake_at, parent_id, config, created, updated)`
   — status ∈ idle | running | waiting_input | sleeping | done | error.
@@ -106,7 +106,7 @@ can't spin forever; the heartbeat picks the run back up.
 - `yield(seconds)` — durable sleep; heartbeat resumes.
 - `spawn_subagent(task, system?)` — fresh child run, returns its result
   (config flag `subagents: false` removes it).
-- **buxon-native** (the point of the thing): `buxon_call(method, path, body)`
+- **xbin-native** (the point of the thing): `xbin_call(method, path, body)`
   — call another component through the gateway (subject to grants you approve),
   so the agent moves data between tiles. Plus `note(text)` for a visible log
   line. These are the seams you extend per instance.
@@ -137,5 +137,5 @@ Opinionated single tile:
 The instance is an element like any other: its `uses` (llm-gw, its own
 resources, and whatever components you later let it call) are grants a human
 approves — the agent can't self-approve cross-scope access (docs/auth.md,
-AGENTS.md). `buxon_call` is bounded by exactly those grants. Nothing the agent
+AGENTS.md). `xbin_call` is bounded by exactly those grants. Nothing the agent
 does escapes the grant table.

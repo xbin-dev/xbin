@@ -17,7 +17,7 @@
 //   - Sealed: DEK is not in memory; Encrypt/Decrypt return ErrSealed.
 //   - Unseal(passphrase): derive KEK, unwrap DEK into memory.
 //   - Seal(): zero the DEK.
-//   - Auto-unseal: buxond unseals at boot from BUXON_VAULT_PASSPHRASE.
+//   - Auto-unseal: xbind unseals at boot from XBIN_VAULT_PASSPHRASE.
 //
 // Honest limits (documented for operators): Go's GC gives no guaranteed
 // zeroing, so the DEK/plaintext may be copied within the heap or appear in a
@@ -260,7 +260,7 @@ func (b *Barrier) DeriveKey(label string) ([]byte, error) {
 	if b.dek == nil {
 		return nil, ErrSealed
 	}
-	r := hkdf.New(sha256.New, b.dek, nil, []byte("buxon/"+label))
+	r := hkdf.New(sha256.New, b.dek, nil, []byte("xbin/"+label))
 	key := make([]byte, keyLen)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, err

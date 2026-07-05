@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// netMux is buxond's L3 backplane bookkeeping (plans/interfaces.md): it holds the
+// netMux is xbind's L3 backplane bookkeeping (plans/interfaces.md): it holds the
 // per-client TUN fds a running net-provider tile handed back, keyed by
 // provider→client, so a client spliced to that provider can find its link.
 type netMux struct {

@@ -19,11 +19,11 @@ func TestResourceBinds(t *testing.T) {
 	}
 
 	env := []string{
-		"BUXON_RES_DB=" + dbPath,                      // sqlite (file) → bind its parent dir
-		"BUXON_RES_DB2=" + scopeDir + "/other.sqlite", // another sqlite in the same dir → dedup
-		"BUXON_RES_STORE=" + fsDir,                    // filesystem (dir) → bind the dir itself
-		"BUXON_RES_KVX=res:apps/sql-ui/kvx",           // kv → not a path, skip
-		"BUXON_SOCKET=/tmp/x/g0.sock",                 // outside root → skip
+		"XBIN_RES_DB=" + dbPath,                      // sqlite (file) → bind its parent dir
+		"XBIN_RES_DB2=" + scopeDir + "/other.sqlite", // another sqlite in the same dir → dedup
+		"XBIN_RES_STORE=" + fsDir,                    // filesystem (dir) → bind the dir itself
+		"XBIN_RES_KVX=res:apps/sql-ui/kvx",           // kv → not a path, skip
+		"XBIN_SOCKET=/tmp/x/g0.sock",                 // outside root → skip
 		"PATH=/usr/bin",                               // not a resource
 	}
 

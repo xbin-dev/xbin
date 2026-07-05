@@ -1,4 +1,4 @@
-// Package builtins is buxon's curated, optional tile set: tiles that ship
+// Package builtins is xbin's curated, optional tile set: tiles that ship
 // embedded in the binary (this repo) but are NOT auto-installed — you import
 // them into a workspace on demand (`bx tile import`, or the Tile Manager's
 // Import tab). This is the first rung of the tile-sharing ladder; see
@@ -22,8 +22,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/jsonc"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/jsonc"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Meta is a tile.json catalog entry.
@@ -92,8 +92,8 @@ func (s *Set) Get(name string) (Meta, bool) {
 }
 
 // TemplateEntry is a builtin template's catalog entry, derived from its
-// buxon.json "template" block (plans/templates.md). Unlike tiles, templates
-// carry no separate tile.json — the marker in buxon.json is the catalog.
+// xbin.json "template" block (plans/templates.md). Unlike tiles, templates
+// carry no separate tile.json — the marker in xbin.json is the catalog.
 type TemplateEntry struct {
 	Name        string `json:"name"`        // embedded dir name = builtin id
 	Title       string `json:"title"`       //
@@ -108,7 +108,7 @@ type TemplateSet struct {
 	templates map[string]TemplateEntry
 }
 
-// LoadTemplates reads every builtin template's buxon.json "template" block from
+// LoadTemplates reads every builtin template's xbin.json "template" block from
 // the embedded FS (rooted at the builtin-templates directory).
 func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
 	s := &TemplateSet{fsys: fsys, templates: map[string]TemplateEntry{}}
@@ -120,7 +120,7 @@ func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
 		if !e.IsDir() {
 			continue
 		}
-		b, err := fs.ReadFile(fsys, path.Join(e.Name(), "buxon.json"))
+		b, err := fs.ReadFile(fsys, path.Join(e.Name(), "xbin.json"))
 		if err != nil {
 			continue
 		}
@@ -132,7 +132,7 @@ func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
 			} `json:"template"`
 		}
 		if err := jsonc.Unmarshal(b, &man); err != nil {
-			return nil, fmt.Errorf("builtin-template %s/buxon.json: %w", e.Name(), err)
+			return nil, fmt.Errorf("builtin-template %s/xbin.json: %w", e.Name(), err)
 		}
 		if man.Template == nil {
 			continue // a dir without a template block isn't a template
@@ -260,7 +260,7 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 // A Go backend's manifest, shipped as go.mod.tile so go:embed bundles it (or a
 // plain go.mod for a workspace source), is restored/rewritten with the unique
 // target module path so two instances coexist in go.work. When stripTemplate
-// is set, the buxon.json "template" block is removed so the copy is a normal,
+// is set, the xbin.json "template" block is removed so the copy is a normal,
 // plugged-in component. Never overwrites an existing component.
 func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, stripTemplate bool) ([]string, error) {
 	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
@@ -271,7 +271,7 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(dstRoot, "buxon.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(dstRoot, "xbin.json")); err == nil {
 		return nil, fmt.Errorf("%s already exists", targetPath)
 	}
 	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, stripTemplate)
@@ -309,7 +309,7 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, stripTempl
 			data = setModulePath(data, targetPath)
 		case rel == "go.mod":
 			data = setModulePath(data, targetPath)
-		case rel == "buxon.json":
+		case rel == "xbin.json":
 			if stripTemplate {
 				data = stripTemplateBlock(data)
 			}
@@ -353,7 +353,7 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 	return written, nil
 }
 
-// stripTemplateBlock removes the top-level "template" key from a buxon.json so
+// stripTemplateBlock removes the top-level "template" key from a xbin.json so
 // an instantiated copy is a normal, plugged-in component. Best-effort: on any
 // parse failure the original bytes are returned unchanged.
 func stripTemplateBlock(data []byte) []byte {

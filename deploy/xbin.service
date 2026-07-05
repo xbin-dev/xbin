@@ -1,0 +1,59 @@
+# xbin workspace daemon — systemd unit. See README → "Deployment on a VM".
+# Installed to /etc/systemd/system/xbin.service by deploy/install.sh (which
+# renders these /opt/xbin paths); edit there, then `systemctl daemon-reload`.
+#
+# IMPORTANT — do NOT add systemd's namespace/filesystem hardening here.
+# xbind is a *rootless sandbox runtime*: it builds user/mount/pid/net
+# namespaces for every component itself and calls the setuid newuidmap/newgidmap
+# helpers to map a uid range. Directives like PrivateUsers=, RestrictNamespaces=,
+# ProtectSystem=strict, ReadOnlyPaths=, ProtectHome=, or NoNewPrivileges=yes will
+# BREAK the sandbox (backends fail to start, apt/user-switching in terminals
+# stops working). The real boundary is the VM/host this runs on — keep this unit
+# minimal and keep the host bound to loopback behind Tailscale or a TLS proxy.
+
+[Unit]
+Description=xbin self-modifying workspace daemon
+Documentation=https://github.com/magik6k/xbin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xbin
+Group=xbin
+WorkingDirectory=/opt/xbin
+Environment=HOME=/opt/xbin
+# xbind compiles Go component backends with the host `go` on its PATH, so a Go
+# toolchain must be reachable. We list the host install first and the toolchain
+# shipped inside the base rootfs as a fallback (both build the static binaries
+# that then run in each sandbox). /opt/xbin/bin holds xbind, bx and the
+# bundled static fuse-overlayfs.
+Environment=PATH=/opt/xbin/bin:/usr/local/go/bin:/opt/xbin/rootfs/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=XBIN_ROOTFS=/opt/xbin/rootfs
+Environment=XBIN_FUSE_OVERLAYFS=/opt/xbin/bin/fuse-overlayfs
+Environment=XBIN_GOCRYPTFS=/opt/xbin/bin/gocryptfs
+# Optional hands-off vault: put XBIN_VAULT_PASSPHRASE=... in this file (mode
+# 0600) for auto-unseal. Leave the file absent to unseal manually after login —
+# the leading '-' makes it optional.
+EnvironmentFile=-/etc/xbin/xbin.env
+ExecStart=/opt/xbin/bin/xbind --isolate --rootfs /opt/xbin/rootfs --workspace /opt/xbin/workspace --listen 127.0.0.1:8642
+Restart=on-failure
+RestartSec=2
+
+# A tmpfs at /run/xbin for xbind's IPC sockets. The run dir is bind-mounted
+# RW into every component sandbox, so it must be tmpfs, never host disk
+# (plans/isolation.md). xbind picks it up via $RUNTIME_DIRECTORY.
+RuntimeDirectory=xbin
+RuntimeDirectoryMode=0700
+
+# Per-component cgroup v2 accounting: xbind manages its own delegated subtree.
+Delegate=yes
+# A busy workspace holds many inotify watches, gateway sockets, and component
+# processes; give it generous limits and don't let one component's OOM take the
+# whole daemon down.
+LimitNOFILE=1048576
+TasksMax=infinity
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target

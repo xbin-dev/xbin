@@ -1,6 +1,6 @@
-# AGENTS.md — building in this buxon workspace
+# AGENTS.md — building in this xbin workspace
 
-You are inside a **buxon workspace**: a self-modifying browser workspace
+You are inside a **xbin workspace**: a self-modifying browser workspace
 where every piece of UI is a directory ("component"/"element"), every
 directory can have a live backend, and everything you see — including the
 root page — is editable from shells like the one you're probably in.
@@ -8,16 +8,16 @@ This file is the complete builder reference. The long-form docs are served
 by the daemon; fetch any of them with:
 
 ```sh
-curl -s -H "Authorization: Bearer $BUXON_TOKEN" "$BUXON_URL/docs/index.md?raw=1"
+curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
 # also: getting-started.md elements.md auth.md resources.md sdk.md protocol.md bx.md
 ```
 
 ## The model in five lines
 
 ```
-Workspace = this directory tree, served by buxond, git-versioned
+Workspace = this directory tree, served by xbind, git-versioned
 Scope     = subtree with scope.json = an app; owns resources; a trust unit
-Component = dir with index.html and/or buxon.json; its PATH is its identity
+Component = dir with index.html and/or xbin.json; its PATH is its identity
 Frontend  = /c/<path>/ (iframe'd by <bx-frame>)   Backend = /api/<path>/…
 Terminals (you) are root; running components are least-privileged tenants
 ```
@@ -30,10 +30,10 @@ deploy step and **no JS build step — ever** (plain ES modules + import maps).
 
 | Env | Meaning |
 |-----|---------|
-| `BUXON_WORKSPACE` | workspace root (this file lives there) |
-| `BUXON_COMPONENT` | component this terminal was opened on ("" = root) |
-| `BUXON_URL` | buxond, e.g. `http://127.0.0.1:8642` |
-| `BUXON_TOKEN` | owner bearer token — full access; `bx` and curl use it |
+| `XBIN_WORKSPACE` | workspace root (this file lives there) |
+| `XBIN_COMPONENT` | component this terminal was opened on ("" = root) |
+| `XBIN_URL` | xbind, e.g. `http://127.0.0.1:8642` |
+| `XBIN_TOKEN` | owner bearer token — full access; `bx` and curl use it |
 | `HOME` | `<workspace>/home` — contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
 
 You are the **owner** principal: every API call you make passes every
@@ -41,7 +41,7 @@ permission check as role `admin`. Running components are not — see §Auth.
 
 **Terminal scope:** a terminal opened on a component can write **only that
 component's own directory and `$HOME`** — the **entire rest of the workspace is
-read-only** (other components, workspace files like `buxon.json`/`AGENTS.md`/
+read-only** (other components, workspace files like `xbin.json`/`AGENTS.md`/
 `go.work`, and `data/`). So you can read siblings for deps/patterns but can't
 touch anything outside your component; a rogue agent can't break the environment.
 **Each component is its own git repo**, so `cd` into it and `git commit` works
@@ -50,7 +50,7 @@ terminal on it; to work across the whole workspace or create components, use a
 **root terminal** (opened on the workspace root — full workspace rw). Writing
 outside your component fails with `Read-only file system`.
 
-**Multi-user:** buxon can have human users with per-tile permissions (admins:
+**Multi-user:** xbin can have human users with per-tile permissions (admins:
 all tiles + terminals + user mgmt; regular users: only allow-listed tiles, no
 terminal). Manage them with `bx user ls|add|set|rm` or the admin console's
 Users tab. Terminal access is a **root shell** — admin-only by default. Full
@@ -79,24 +79,24 @@ Import tab). Imported tiles bring their own `uses` — cross-scope grants land
 pending for the owner. Sharing model + roadmap: `plans/tile-sharing.md`.
 
 **Update copied builtins:** the scaffold (shell, manager/admin tiles) and
-imported tiles are copies you own; a newer buxond can carry newer versions.
+imported tiles are copies you own; a newer xbind can carry newer versions.
 `bx builtin updates` lists what changed; `bx builtin update <id> [--replace|
 --merge]` applies it (or the Tile Manager's Updates tab). Merge is a 3-way
 `git merge-file`, so your customizations survive; everything's in git either
 way. Template instances are forks and aren't tracked. Design:
 `plans/builtin-updates.md`.
 
-The same scaffolder is exposed as `POST /api/buxon/create`
+The same scaffolder is exposed as `POST /api/xbin/create`
 (`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**
 tile (`tiles/manager`, pinned on the root page) uses. Programmatic creation
 from an element requires the workspace-management capability: a grant on the
-reserved target `buxon` at role `writer` (the template pre-approves it for
+reserved target `xbin` at role `writer` (the template pre-approves it for
 tiles/manager; check `bx grants`).
 
-**Workspace-management capabilities** ride the reserved `buxon` target:
-`buxon:writer` = create components; `buxon:admin` = full administration
+**Workspace-management capabilities** ride the reserved `xbin` target:
+`xbin:writer` = create components; `xbin:admin` = full administration
 (read/write any vault, manage any grant/cron, read system state) — held by
-the **Admin console** tile (`tiles/admin`). `buxon:admin` is the heaviest
+the **Admin console** tile (`tiles/admin`). `xbin:admin` is the heaviest
 grant in the system; grant it only to tiles you trust as yourself, and
 revoke to disarm. Admin-capable endpoints: `/auth-overview`, `/vaults`,
 `/resources`, `/status`, `/backends`, and the grants/cron/any-vault
@@ -105,7 +105,7 @@ operations (docs/protocol.md, docs/auth.md).
 **See it work / debug it:**
 
 ```sh
-curl -s -H "Authorization: Bearer $BUXON_TOKEN" $BUXON_URL/api/apps/thing/hello
+curl -s -H "Authorization: Bearer $XBIN_TOKEN" $XBIN_URL/api/apps/thing/hello
 bx status                 # backend states: building | healthy | failed (+error)
 bx logs -f apps/thing     # backend stdout/stderr, per generation
 bx doctor                 # manifest errors, missing API.md, dangling deps, …
@@ -121,14 +121,14 @@ makes every edit reversible. Keep commits small with a short imperative message
 (`fix overflow`).
 
 ```sh
-cd $BUXON_WORKSPACE/apps/thing && git add -A && git commit -m "…"
+cd $XBIN_WORKSPACE/apps/thing && git add -A && git commit -m "…"
 ```
 
 This per-component repo is what makes components **installable/shareable** (push
 to GitHub, `git pull` to update — the Admin console shows a component's remote,
-the Tile Manager shows update tags). buxond creates the repo when a component is
-scaffolded/imported/instantiated; you just commit into it. Its `.buxon/`, `data/`
-(and `node_modules/`) are runtime, not source — leave those to buxond and the
+the Tile Manager shows update tags). xbind creates the repo when a component is
+scaffolded/imported/instantiated; you just commit into it. Its `.xbin/`, `data/`
+(and `node_modules/`) are runtime, not source — leave those to xbind and the
 backup system. History/diffs are in the Admin tile's component **code & history**
 drill-in (click a component in the overview).
 
@@ -136,7 +136,7 @@ drill-in (click a component in the overview).
 
 ```
 apps/thing/
-  buxon.json     # manifest (JSONC — comments allowed)
+  xbin.json     # manifest (JSONC — comments allowed)
   index.html     # view (optional)
   backend/       # backend entry (optional)
   API.md         # REQUIRED if you set "expose" (bx doctor enforces)
@@ -183,29 +183,29 @@ import-map overrides:
                  "cron": {"type":"cron"} } }
 ```
 
-Reserved names — do not create components named/under: `buxon`, `vendor`,
-`data`, `home`, `.buxon`. Dirs named `deps`, `node_modules`, `.git`, `.*`
+Reserved names — do not create components named/under: `xbin`, `vendor`,
+`data`, `home`, `.xbin`. Dirs named `deps`, `node_modules`, `.git`, `.*`
 are never scanned.
 
 ## Frontends
 
-Your HTML is served at `/c/<path>/` inside an iframe. buxond injects into
+Your HTML is served at `/c/<path>/` inside an iframe. xbind injects into
 `<head>`: the import map (`import {LitElement, html, css} from 'lit'` just
-works, vendored/offline), identity metas, and `buxon-client.js`, which gives
+works, vendored/offline), identity metas, and `xbin-client.js`, which gives
 every component document:
 
 ```js
-buxon.self                                  // "apps/thing"
-await buxon.fetch(`/api/${buxon.self}/x`)   // ALWAYS use buxon.fetch for /api/ —
+xbin.self                                  // "apps/thing"
+await xbin.fetch(`/api/${xbin.self}/x`)   // ALWAYS use xbin.fetch for /api/ —
                                             // raw fetch to other elements 403s
-buxon.bus.on('res:apps/thing/bus/', (topic, data) => {…})   // live events
-await buxon.bus.publish('res:apps/thing/bus', 'changed', {…})
-buxon.events.on(e => {…})                   // reload/build/bus/grants stream
+xbin.bus.on('res:apps/thing/bus/', (topic, data) => {…})   // live events
+await xbin.bus.publish('res:apps/thing/bus', 'changed', {…})
+xbin.events.on(e => {…})                   // reload/build/bus/grants stream
 
 // per-user UI state (server-side, follows the user across devices); each tile
 // gets its own bucket, isolated per user:
-await buxon.fetch(`/api/buxon/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
-const v = await (await buxon.fetch('/api/buxon/prefs/mykey')).json()
+await xbin.fetch(`/api/xbin/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
+const v = await (await xbin.fetch('/api/xbin/prefs/mykey')).json()
 ```
 
 Embedding other components:
@@ -242,40 +242,40 @@ sideways. Horizontal scroll on a tile is a bug; avoid it at all cost.
 
 ## Backends
 
-Contract: plain HTTP server on the unix socket `$BUXON_SOCKET`. buxond
+Contract: plain HTTP server on the unix socket `$XBIN_SOCKET`. xbind
 routes `ANY /api/<your-path>/<p>` to you with the prefix stripped. Backend
-process env: `BUXON_SOCKET`, `BUXON_COMPONENT`, `BUXON_GATEWAY` +
-`BUXON_TOKEN` (this generation's credential for outbound calls),
-`BUXON_RES_<NAME>` per granted resource.
+process env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY` +
+`XBIN_TOKEN` (this generation's credential for outbound calls),
+`XBIN_RES_<NAME>` per granted resource.
 
-Go (SDK `github.com/magik6k/buxon/sdk`, resolved by the generated
+Go (SDK `github.com/magik6k/xbin/sdk`, resolved by the generated
 `go.work` — just `require` it, no replace needed):
 
 ```go
-import buxon "github.com/magik6k/buxon/sdk"
+import xbin "github.com/magik6k/xbin/sdk"
 
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /items", list)                       // any granted role
-	mux.Handle("POST /items", buxon.RoleFunc("writer", add)) // role-guarded
-	buxon.Serve(mux)                                         // socket + SIGTERM drain
+	mux.Handle("POST /items", xbin.RoleFunc("writer", add)) // role-guarded
+	xbin.Serve(mux)                                         // socket + SIGTERM drain
 }
 
-c := buxon.Caller(r)              // verified {From, Role, Owner} — trustworthy
-resp, _ := buxon.Client().Get("http://buxon/api/apps/calendar/events") // outbound
-kv := buxon.KV(buxon.Resource("kvx"))   // Get/GetJSON/Put/PutJSON/Delete/List
-db, _ := sql.Open("sqlite", buxon.Resource("db")+"?_journal_mode=WAL") // sqlite: a
-    // FILE PATH from BUXON_RES_DB. Just open it — buxond binds the resource dir
+c := xbin.Caller(r)              // verified {From, Role, Owner} — trustworthy
+resp, _ := xbin.Client().Get("http://xbin/api/apps/calendar/events") // outbound
+kv := xbin.KV(xbin.Resource("kvx"))   // Get/GetJSON/Put/PutJSON/Delete/List
+db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_journal_mode=WAL") // sqlite: a
+    // FILE PATH from XBIN_RES_DB. Just open it — xbind binds the resource dir
     // rw, so a fresh db (and its -wal/-shm) persists. Never invent a path.
-secret, _ := buxon.Secret("api-key")    // own vault only
-_ = buxon.Publish(buxon.Resource("bus"), "changed", payload)
+secret, _ := xbin.Secret("api-key")    // own vault only
+_ = xbin.Publish(xbin.Resource("bus"), "changed", payload)
 ```
 
-node/python: no SDK needed — listen on `process.env.BUXON_SOCKET` /
-`os.environ["BUXON_SOCKET"]`, read `X-Buxon-From`/`X-Buxon-Role` headers,
-call outbound via the `BUXON_GATEWAY` unix socket with
-`Authorization: Bearer $BUXON_TOKEN`. `bx new` scaffolds working skeletons.
-cgi: any executable; CGI/1.1 env + `BUXON_FROM`/`BUXON_ROLE`; response on
+node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
+`os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` headers,
+call outbound via the `XBIN_GATEWAY` unix socket with
+`Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
+cgi: any executable; CGI/1.1 env + `XBIN_FROM`/`XBIN_ROLE`; response on
 stdout.
 
 Lifecycle facts you must design around:
@@ -300,7 +300,7 @@ and production isolate). **Design for this — it's default-deny:**
   state in resources, not scattered files.
 - **Network egress is an owner-bound interface (§Interfaces).** With no egress
   bound your backend has **zero IP egress** — outbound calls fail (`dial tcp:
-  lookup … connection refused`). Reaching **buxond and other components** through
+  lookup … connection refused`). Reaching **xbind and other components** through
   the SDK/gateway always works (that's not IP egress). To reach the outside,
   declare a `net` interface and let the owner pick what provides it:
   `"interfaces": { "net": { "kind": "net" } }` → owner binds it to `internet`
@@ -309,7 +309,7 @@ and production isolate). **Design for this — it's default-deny:**
   or the admin Interfaces tab; the binding is owner-authorized (don't self-bind)
   and **restarts your backend**. (There is no `net:*`-in-`uses` egress grant —
   egress is *only* this interface, so the owner can always reroute you without a
-  code change. `bx` and the SDK reach buxond over the gateway with or without it.)
+  code change. `bx` and the SDK reach xbind over the gateway with or without it.)
 - **GPUs are a grant too.** Request `gpu:all`, `gpu:<index>`, or `gpu:<uuid>` in
   `uses` (role `egress`); the granted GPU's device nodes + NVIDIA driver appear
   in your sandbox with `CUDA_VISIBLE_DEVICES` set. Pair with `setup` for the CUDA
@@ -324,7 +324,7 @@ and production isolate). **Design for this — it's default-deny:**
 
 The base rootfs has go/node/python + common tools. For **anything else your
 backend needs** (a Ruby runtime, imagemagick, a gem/pip package…), add a
-**`setup`** script to `buxon.json` — a freeform shell script run once at build
+**`setup`** script to `xbin.json` — a freeform shell script run once at build
 time into a cached environment layer the backend then gets read-only:
 
 ```jsonc
@@ -344,7 +344,7 @@ it a **safe, reproducible supply chain:**
   cached layer is stable and auditable.
 
 Your **terminal** is a separate **persistent, resettable dev sandbox per
-component** (`.buxon/term/<component>/`): `apt install`, dotfiles, and toolchains
+component** (`.xbin/term/<component>/`): `apt install`, dotfiles, and toolchains
 you set up in it survive across terminal sessions (your workspace files and
 `$HOME` persist independently). It does **not** auto-inherit a component's
 `setup` layer — install what you need for interactive work in the terminal
@@ -362,7 +362,7 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   interface instead of hard-coding a provider**:
   `"interfaces": { "llm": { "kind": "http", "service": "openai" } }`. The owner
   binds it to whatever tile provides that service; you discover the endpoint at
-  runtime — `buxon.iface('llm').url` in a frontend, `$BUXON_IFACE_LLM_URL` in a
+  runtime — `xbin.iface('llm').url` in a frontend, `$XBIN_IFACE_LLM_URL` in a
   backend — and the binding is also your call grant. This makes providers
   **swappable** (Ollama ↔ a cloud proxy) with no code change.
 - **Providing a standard API?** Declare it so others can bind you:
@@ -390,22 +390,22 @@ it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
   pending until the owner approves: `bx grant apps/me apps/other:reader`
   (role goes after the LAST colon; also the panel on the root page).
 - **Agents: do not approve cross-scope grants yourself.** Declaring `uses`
-  is your job; *approving* a cross-scope (or `buxon:*`) grant is the owner's
+  is your job; *approving* a cross-scope (or `xbin:*`) grant is the owner's
   call — it is the human-in-the-loop the whole permission model exists for,
   and your terminal runs as owner so `bx grant` would silently bypass it.
   Instead: add the `uses` entry, then tell the user it's pending and let
   them approve (grants panel, or by explicitly telling you to run
   `bx grant`). Same-scope grants need no approval — nothing to do. Only run
-  `bx grant` for a cross-scope/`buxon:*` grant when the user has very
+  `bx grant` for a cross-scope/`xbin:*` grant when the user has very
   explicitly asked you to.
-- buxond verifies identity on every call and injects `X-Buxon-From` /
-  `X-Buxon-Role` — never verify auth yourself; never trust a role you
+- xbind verifies identity on every call and injects `X-XBin-From` /
+  `X-XBin-Role` — never verify auth yourself; never trust a role you
   didn't receive in those headers.
 - Role convention: `reader` / `writer` / `admin`, implication downward.
   On bus resources, `subscriber`/`publisher` alias reader/writer.
 - **Vault** = per-element private secrets: `bx vault set apps/thing key`
   (value via stdin keeps it out of history); code reads its own via
-  `buxon.Secret`. No cross-element vault access exists — wrap shared
+  `xbin.Secret`. No cross-element vault access exists — wrap shared
   secrets behind a role-guarded API instead. Never put secrets in source,
   manifests, or env files. Encryption at rest is via a seal/unseal barrier
   (`bx vault status|unseal|seal`); when sealed, secret reads/writes 503
@@ -415,18 +415,18 @@ it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
 
 ## Resources (docs/resources.md)
 
-Declare in `scope.json` (or workspace `buxon.json` `resources` for
+Declare in `scope.json` (or workspace `xbin.json` `resources` for
 `res:workspace/<name>`), request in `uses`, address as
-`res:<scope-path>/<name>`. Granted ⇒ env `BUXON_RES_<NAME>`.
+`res:<scope-path>/<name>`. Granted ⇒ env `XBIN_RES_<NAME>`.
 
 | type | what | access |
 |------|------|--------|
-| `filesystem` | a **rw directory**, same-scope only | `BUXON_RES_<N>` (= `buxon.Resource("<name>")`) is a **DIRECTORY** path — put a db, files, a cache, anything, and it persists + is backed up. Don't write anywhere else — outside it is a throwaway overlay (lost on restart, not backed up). cross-scope: expose an API instead |
-| `sqlite` | a `filesystem` resource pre-pointed at a `.sqlite` **file** | `BUXON_RES_<N>` is the file path (open with WAL). Same rw-dir mechanism as `filesystem` — use `filesystem` if you need a general directory rather than one db |
-| `kv` | namespaced kv (≤1 MiB values) | SDK `buxon.KV` or `/api/buxon/kv/res:…/<key>` |
-| `blob` | file store (≤256 MiB/write) | `/api/buxon/blob/res:…/<path>` |
-| `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `buxon.bus.on` (backends: use cron to sweep, not subscriptions) |
-| `cron` | scheduled POSTs to your own endpoints | `PUT /api/buxon/cron/jobs {"name","resource","schedule","path","role"}`; wakes idle backends; make handlers idempotent |
+| `filesystem` | a **rw directory**, same-scope only | `XBIN_RES_<N>` (= `xbin.Resource("<name>")`) is a **DIRECTORY** path — put a db, files, a cache, anything, and it persists + is backed up. Don't write anywhere else — outside it is a throwaway overlay (lost on restart, not backed up). cross-scope: expose an API instead |
+| `sqlite` | a `filesystem` resource pre-pointed at a `.sqlite` **file** | `XBIN_RES_<N>` is the file path (open with WAL). Same rw-dir mechanism as `filesystem` — use `filesystem` if you need a general directory rather than one db |
+| `kv` | namespaced kv (≤1 MiB values) | SDK `xbin.KV` or `/api/xbin/kv/res:…/<key>` |
+| `blob` | file store (≤256 MiB/write) | `/api/xbin/blob/res:…/<path>` |
+| `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `xbin.bus.on` (backends: use cron to sweep, not subscriptions) |
+| `cron` | scheduled POSTs to your own endpoints | `PUT /api/xbin/cron/jobs {"name","resource","schedule","path","role"}`; wakes idle backends; make handlers idempotent |
 
 Bus is a change-notification, not a queue: truth lives in kv/sqlite,
 offline subscribers miss messages.
@@ -444,18 +444,18 @@ bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls
 ```
 
-Everything bx does is plain HTTP (`/api/buxon/…`, docs/protocol.md) — curl
-with `Authorization: Bearer $BUXON_TOKEN` works for all of it.
+Everything bx does is plain HTTP (`/api/xbin/…`, docs/protocol.md) — curl
+with `Authorization: Bearer $XBIN_TOKEN` works for all of it.
 
 ## Conventions & common mistakes
 
 - **Ship `API.md` when you expose roles.** It's the integration contract;
   `bx doctor` flags its absence. Keep it truthful.
-- **Use `buxon.fetch` in frontends** for any `/api/` call. Raw `fetch` to
+- **Use `xbin.fetch` in frontends** for any `/api/` call. Raw `fetch` to
   another element = 403 by design (identity attribution).
 - **Don't hand-edit**: `deps/` (symlinks are reconciled from the manifest),
   `go.work` (generated — has a marker line; removing the marker takes
-  ownership), the `grants` array in workspace `buxon.json` (use `bx grant`;
+  ownership), the `grants` array in workspace `xbin.json` (use `bx grant`;
   the file is machine-rewritten and comments there don't survive).
 - **Don't touch `data/` paths directly** except a sqlite path you were
   handed via env. Broker state layout is not API.

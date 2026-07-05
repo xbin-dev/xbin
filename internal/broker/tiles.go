@@ -4,14 +4,14 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/builtins"
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/builtins"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Builtin tile catalog endpoints (plans/tile-sharing.md). Listing is open to
 // any authenticated principal; importing creates components, so it needs the
-// same workspace-management capability as POST /create (owner or buxon:writer,
+// same workspace-management capability as POST /create (owner or xbin:writer,
 // which admin implies).
 
 func (b *Broker) registerTiles(srv *server.Server) {
@@ -42,10 +42,10 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 	// Importing a tile creates a component: same capability as /create.
 	p := auth.PrincipalOf(r)
 	if !b.IsAdmin(p) {
-		role, ok := b.grantedRole(p.Component, "buxon")
+		role, ok := b.grantedRole(p.Component, "xbin")
 		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "importing tiles needs the workspace-management grant (buxon:writer) — the same as creating components",
+				"error": "importing tiles needs the workspace-management grant (xbin:writer) — the same as creating components",
 				"docs":  "/docs/auth.md",
 			})
 			return
@@ -98,18 +98,18 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 }
 
 // requireWriter gates workspace-mutating builtin endpoints on the same
-// capability as POST /create (owner or buxon:writer, which admin implies).
+// capability as POST /create (owner or xbin:writer, which admin implies).
 func (b *Broker) requireWriter(w http.ResponseWriter, r *http.Request) bool {
 	p := auth.PrincipalOf(r)
 	if b.IsAdmin(p) {
 		return true
 	}
-	role, ok := b.grantedRole(p.Component, "buxon")
+	role, ok := b.grantedRole(p.Component, "xbin")
 	if p.Component != "" && ok && roleSatisfies(role, "writer", nil) {
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "this needs the workspace-management grant (buxon:writer) — the same as creating components",
+		"error": "this needs the workspace-management grant (xbin:writer) — the same as creating components",
 		"docs":  "/docs/auth.md",
 	})
 	return false

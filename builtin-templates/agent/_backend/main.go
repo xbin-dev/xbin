@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 type Agent struct {
@@ -59,7 +59,7 @@ func (ag *Agent) stopped(id int64) bool {
 var agent *Agent
 
 func main() {
-	dbPath := buxon.Resource("db")
+	dbPath := xbin.Resource("db")
 	if dbPath == "" {
 		log.Fatal("no db resource (grant res:<self>/db writer) — see scope.json")
 	}
@@ -82,29 +82,29 @@ func main() {
 	mux := http.NewServeMux()
 	// Everything is admin-only: the tile is self (always admin of itself) and
 	// the owner. The heartbeat arrives as self via cron. No public surface.
-	mux.Handle("GET /runs", buxon.RoleFunc("admin", handleListRuns))
-	mux.Handle("POST /runs", buxon.RoleFunc("admin", handleNewRun))
-	mux.Handle("GET /runs/{id}", buxon.RoleFunc("admin", handleGetRun))
-	mux.Handle("DELETE /runs/{id}", buxon.RoleFunc("admin", handleDeleteRun))
-	mux.Handle("POST /runs/{id}/message", buxon.RoleFunc("admin", handleMessage))
-	mux.Handle("POST /runs/{id}/answer", buxon.RoleFunc("admin", handleMessage))
-	mux.Handle("POST /runs/{id}/approve", buxon.RoleFunc("admin", handleApprove))
-	mux.Handle("POST /runs/{id}/interrupt", buxon.RoleFunc("admin", handleInterrupt))
-	mux.Handle("POST /runs/{id}/resume", buxon.RoleFunc("admin", handleResume))
-	mux.Handle("POST /runs/{id}/compact", buxon.RoleFunc("admin", handleCompact))
-	mux.Handle("PUT /runs/{id}/memory", buxon.RoleFunc("admin", handleMemoryPut))
-	mux.Handle("DELETE /runs/{id}/memory", buxon.RoleFunc("admin", handleMemoryDelete))
-	mux.Handle("GET /config", buxon.RoleFunc("admin", handleGetConfig))
-	mux.Handle("PUT /config", buxon.RoleFunc("admin", handlePutConfig))
-	mux.Handle("POST /tick", buxon.RoleFunc("admin", handleTick))
+	mux.Handle("GET /runs", xbin.RoleFunc("admin", handleListRuns))
+	mux.Handle("POST /runs", xbin.RoleFunc("admin", handleNewRun))
+	mux.Handle("GET /runs/{id}", xbin.RoleFunc("admin", handleGetRun))
+	mux.Handle("DELETE /runs/{id}", xbin.RoleFunc("admin", handleDeleteRun))
+	mux.Handle("POST /runs/{id}/message", xbin.RoleFunc("admin", handleMessage))
+	mux.Handle("POST /runs/{id}/answer", xbin.RoleFunc("admin", handleMessage))
+	mux.Handle("POST /runs/{id}/approve", xbin.RoleFunc("admin", handleApprove))
+	mux.Handle("POST /runs/{id}/interrupt", xbin.RoleFunc("admin", handleInterrupt))
+	mux.Handle("POST /runs/{id}/resume", xbin.RoleFunc("admin", handleResume))
+	mux.Handle("POST /runs/{id}/compact", xbin.RoleFunc("admin", handleCompact))
+	mux.Handle("PUT /runs/{id}/memory", xbin.RoleFunc("admin", handleMemoryPut))
+	mux.Handle("DELETE /runs/{id}/memory", xbin.RoleFunc("admin", handleMemoryDelete))
+	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
+	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
+	mux.Handle("POST /tick", xbin.RoleFunc("admin", handleTick))
 
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }
 
 func registerHeartbeat() {
 	job := map[string]any{
 		"name":     "heartbeat",
-		"resource": "res:" + buxon.Self() + "/beat",
+		"resource": "res:" + xbin.Self() + "/beat",
 		"schedule": "@every 1m",
 		"path":     "/tick",
 		"role":     "admin",
@@ -113,9 +113,9 @@ func registerHeartbeat() {
 	var last string
 	for i := 0; i < 5; i++ {
 		time.Sleep(time.Duration(i) * 2 * time.Second)
-		req, _ := http.NewRequest(http.MethodPut, "http://buxon/api/buxon/cron/jobs", bytes.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := buxon.Client().Do(req)
+		resp, err := xbin.Client().Do(req)
 		if err != nil {
 			last = err.Error()
 			continue
@@ -352,5 +352,5 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 // publishEvent emits a run lifecycle event on the bus (best-effort).
 func publishEvent(runID int64, kind string) error {
-	return buxon.Publish("res:"+buxon.Self()+"/events", kind, map[string]any{"runId": runID})
+	return xbin.Publish("res:"+xbin.Self()+"/events", kind, map[string]any{"runId": runID})
 }

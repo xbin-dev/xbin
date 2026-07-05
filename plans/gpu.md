@@ -7,10 +7,10 @@ terminal be granted specific GPUs through the same owner-approved grant model as
 
 ## Feasibility — proven (PoC)
 
-buxond runs rootless, and NVIDIA device nodes are world-accessible
-(`crw-rw-rw-`), so the buxond user can drive the GPU with no root and no NVIDIA
+xbind runs rootless, and NVIDIA device nodes are world-accessible
+(`crw-rw-rw-`), so the xbind user can drive the GPU with no root and no NVIDIA
 Container Toolkit. A PoC bound the device nodes + host driver libs + `nvidia-smi`
-into a normal buxon sandbox and ran it: it correctly reported the host GPU (RTX
+into a normal xbin sandbox and ran it: it correctly reported the host GPU (RTX
 5070 Ti, driver 595.71.05, CUDA 13.2). Omitting `/dev/nvidia0` → "No devices
 were found" — i.e. **device-node presence is the isolation boundary**.
 
@@ -31,12 +31,12 @@ name a device the host doesn't have resolve to nothing (logged), like a dangling
 ## Isolation model — selective device binding
 
 CUDA enumerates GPUs from the `/dev/nvidiaN` nodes present in its mount namespace.
-buxond binds **only the granted** per-GPU nodes, so a component granted `gpu:0`
+xbind binds **only the granted** per-GPU nodes, so a component granted `gpu:0`
 *physically* cannot see `gpu:1` — no cgroup device filter required (the PoC
 confirmed an absent node = invisible GPU). Multi-GPU isolation is just "bind the
 granted nodes."
 
-## Mechanics (what buxond binds per grant)
+## Mechanics (what xbind binds per grant)
 
 - **Control nodes** (always, when any GPU is granted): `/dev/nvidiactl`,
   `/dev/nvidia-uvm`, `/dev/nvidia-uvm-tools`, `/dev/nvidia-modeset`.
@@ -47,7 +47,7 @@ granted nodes."
 - **Env**: `NVIDIA_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES` (granted
   indices/UUIDs), `NVIDIA_DRIVER_CAPABILITIES=compute,utility`.
 
-All of this is computed by buxond (host-specific) and merged into the sandbox
+All of this is computed by xbind (host-specific) and merged into the sandbox
 `Binds`/env — the sandbox `init` stays GPU-agnostic (no new device logic there).
 
 ### Driver libs: curated list vs CDI (GPU-2)
@@ -63,10 +63,10 @@ Start curated; prefer CDI automatically when a spec is found.
 
 ## Multi-GPU awareness
 
-buxond builds a **GPU inventory** at startup via `nvidia-smi --query-gpu=index,
+xbind builds a **GPU inventory** at startup via `nvidia-smi --query-gpu=index,
 uuid,name --format=csv` (index → UUID → name → `/dev/nvidiaN`). Used to: resolve
 `gpu:all`/`gpu:<uuid>` to concrete nodes, validate grants, and populate the grant
-UI / terminal picker. Exposed read-only at `GET /api/buxon/gpus` (admin).
+UI / terminal picker. Exposed read-only at `GET /api/xbin/gpus` (admin).
 
 ## Terminals
 
@@ -84,8 +84,8 @@ so "GPU + PyTorch" is `"uses":[{"target":"gpu:0"}]` + `"setup":"pip install torc
 
 ## Requirements & limits
 
-- Host NVIDIA driver installed; `/dev/nvidia*` readable by the buxond user (0666
-  default). buxond logs the discovered GPU count at startup.
+- Host NVIDIA driver installed; `/dev/nvidia*` readable by the xbind user (0666
+  default). xbind logs the discovered GPU count at startup.
 - **MIG** is out of scope initially: `/dev/nvidia-caps/nvidia-cap1` is root-only
   (`0400`), so MIG instances aren't reachable rootless without extra privilege.
 - Only NVIDIA to start (AMD ROCm / Intel are analogous `/dev/dri` + libs, later).
@@ -97,7 +97,7 @@ so "GPU + PyTorch" is `"uses":[{"target":"gpu:0"}]` + `"setup":"pip install torc
 - **GPU-1 — `gpu:*` grants** (`all` / index / UUID), owner-approved like `net:*`;
   isolation by selective `/dev/nvidiaN` binding.
 - **GPU-2 — Driver libs: curated list now, CDI when a spec is present.**
-- **GPU-3 — buxond enumerates GPUs** (`nvidia-smi -L`), exposes `GET /api/buxon/gpus`.
+- **GPU-3 — xbind enumerates GPUs** (`nvidia-smi -L`), exposes `GET /api/xbin/gpus`.
 - **GPU-4 — Terminals pick a GPU per session** (`?gpu=`, owner plane, no grant).
 - **GPU-5 — MIG / non-NVIDIA are later**; NVIDIA full-GPU first.
 
@@ -108,6 +108,6 @@ so "GPU + PyTorch" is `"uses":[{"target":"gpu:0"}]` + `"setup":"pip install torc
   the spawn-restart grant classes.
 - `internal/runner` — `Runner.GPU` hook; merge binds/env in `sandboxCmd`.
 - `internal/term` — `?gpu=` → GPU binds in the terminal sandbox.
-- `internal/server` — `GET /api/buxon/gpus`.
+- `internal/server` — `GET /api/xbin/gpus`.
 - `web/` — GPU picker in the terminal window.
 - `docs/` + `AGENTS.md` + README — the `gpu:*` vocab, terminal picker, host reqs.

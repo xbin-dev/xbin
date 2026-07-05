@@ -14,19 +14,19 @@ cross-scope needs owner approval ([auth.md](/docs/auth.md)).
     "bus":    { "type": "bus" },
     "cron":   { "type": "cron" } } }
 
-// workspace-level (rare): declare in the workspace buxon.json "resources";
+// workspace-level (rare): declare in the workspace xbin.json "resources";
 // address as res:workspace/<name>.
 ```
 
 ```jsonc
-// a component's buxon.json
+// a component's xbin.json
 { "uses": [
     { "target": "res:apps/thing/events", "role": "writer" },
     { "target": "res:apps/thing/bus",    "role": "reader" } ] }
 ```
 
 Delivery: each granted resource appears in the backend env as
-`BUXON_RES_<NAME>` (name uppercased; e.g. `events` → `BUXON_RES_EVENTS`).
+`XBIN_RES_<NAME>` (name uppercased; e.g. `events` → `XBIN_RES_EVENTS`).
 For brokered types (kv/blob/bus/cron) the value is the canonical id you pass to
 the APIs; for **filesystem** it's a directory path, and for **sqlite** a file
 path (both a real rw path bound into your sandbox). State lives under
@@ -39,7 +39,7 @@ bus).
 
 **Resource state is always encrypted at rest under vault-derived keys** — there
 is no plaintext resource path. `filesystem`, `sqlite`, and `blob` are each a
-per-resource gocryptfs mount (buxond mounts the *decrypted* view into your
+per-resource gocryptfs mount (xbind mounts the *decrypted* view into your
 sandbox); `kv` values are envelope-encrypted per bucket. It's **transparent to
 your code** — you always read and write plaintext; only the on-disk bytes
 (`data/resources-enc/…`, `data/kv.db`) are ciphertext, so a stolen disk or backup
@@ -65,7 +65,7 @@ Values up to 1 MiB. Keys are strings; use `/`-separated prefixes and the
 prefix-list to model collections.
 
 ```go
-kv := buxon.KV(buxon.Resource("events"))
+kv := xbin.KV(xbin.Resource("events"))
 kv.PutJSON("2026-07-02/standup", ev)
 var ev Event; err := kv.GetJSON("2026-07-02/standup", &ev)
 keys, _ := kv.List("2026-07-02/")
@@ -75,10 +75,10 @@ kv.Delete("2026-07-02/standup")
 HTTP (any language, via the gateway with your instance token):
 
 ```
-GET    /api/buxon/kv/res:apps/thing/events/?prefix=2026-07-02/   → {"keys":[…]}
-GET    /api/buxon/kv/res:apps/thing/events/<key>                 → raw bytes
-PUT    /api/buxon/kv/res:apps/thing/events/<key>   (body = value)
-DELETE /api/buxon/kv/res:apps/thing/events/<key>
+GET    /api/xbin/kv/res:apps/thing/events/?prefix=2026-07-02/   → {"keys":[…]}
+GET    /api/xbin/kv/res:apps/thing/events/<key>                 → raw bytes
+PUT    /api/xbin/kv/res:apps/thing/events/<key>   (body = value)
+DELETE /api/xbin/kv/res:apps/thing/events/<key>
 ```
 
 ## blob — files with a home
@@ -87,10 +87,10 @@ A directory served/written through the broker. For attachments, uploads,
 generated artifacts. 256 MiB per write.
 
 ```
-GET    /api/buxon/blob/res:apps/thing/files/          → {"entries":[…]} (dirs end with /)
-GET    /api/buxon/blob/res:apps/thing/files/a/b.png   → bytes
-PUT    /api/buxon/blob/res:apps/thing/files/a/b.png   (body = content)
-DELETE /api/buxon/blob/res:apps/thing/files/a/b.png
+GET    /api/xbin/blob/res:apps/thing/files/          → {"entries":[…]} (dirs end with /)
+GET    /api/xbin/blob/res:apps/thing/files/a/b.png   → bytes
+PUT    /api/xbin/blob/res:apps/thing/files/a/b.png   (body = content)
+DELETE /api/xbin/blob/res:apps/thing/files/a/b.png
 ```
 
 ## bus — cross-app reactivity
@@ -103,20 +103,20 @@ invalidation.
 Publish (backend):
 
 ```go
-buxon.Publish(buxon.Resource("bus"), "events/created", ev)
+xbin.Publish(xbin.Resource("bus"), "events/created", ev)
 ```
 
 Subscribe (frontend — this is how an email widget updates live when the
 calendar changes):
 
 ```js
-buxon.bus.on('res:apps/thing/bus/events/', (topic, data) => refresh());
+xbin.bus.on('res:apps/thing/bus/events/', (topic, data) => refresh());
 ```
 
 Backends don't hold subscriptions (they'd die at idle-reap anyway): if a
 backend must *react* to bus traffic, schedule a cron sweep or let the
 frontend drive. Publishing over HTTP:
-`POST /api/buxon/bus/publish {"resource":"res:…","topic":"…","data":…}`.
+`POST /api/xbin/bus/publish {"resource":"res:…","topic":"…","data":…}`.
 
 Document your topics in your `API.md` — they're part of your contract.
 
@@ -124,27 +124,27 @@ Document your topics in your `API.md` — they're part of your contract.
 
 Elements register jobs that call **their own endpoints** on a schedule
 (cron can't be aimed at other elements; the owner can register anything).
-Invocations arrive as `POST <path>` with `X-Buxon-From: buxon/cron` and the
+Invocations arrive as `POST <path>` with `X-XBin-From: xbin/cron` and the
 role you chose (bounded by your own declared roles). Jobs persist across
 restarts; a tick on an idle backend wakes it (lazy start), so cron + idle
 reaping compose correctly.
 
 ```
-PUT /api/buxon/cron/jobs
+PUT /api/xbin/cron/jobs
 {"name":"sweep","resource":"res:apps/thing/cron",
  "schedule":"*/5 * * * *","path":"/sweep","role":"writer"}
 ```
 
 Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
-`bx cron ls` or `GET /api/buxon/cron/jobs`. Delete:
-`DELETE /api/buxon/cron/jobs/<name>`. Failures are logged (buxond log +
+`bx cron ls` or `GET /api/xbin/cron/jobs`. Delete:
+`DELETE /api/xbin/cron/jobs/<name>`. Failures are logged (xbind log +
 component log); there are no retries — make handlers idempotent and let the
 next tick catch up.
 
 ## filesystem — a persistent read-write directory
 
 The primitive for "my backend needs a real writable directory": a db, a cache,
-generated files, a git checkout, whatever. buxond binds it read-write into your
+generated files, a git checkout, whatever. xbind binds it read-write into your
 sandbox and backs it up.
 
 ```jsonc
@@ -152,12 +152,12 @@ sandbox and backs it up.
 // component: { "uses": [{ "target": "res:apps/thing/store", "role": "writer" }] }
 ```
 
-Same-scope components get `BUXON_RES_STORE` = a **directory** path under
+Same-scope components get `XBIN_RES_STORE` = a **directory** path under
 `data/resources/`. **Write only inside it** — anywhere else is the backend's
 throwaway overlay (lost on restart, not backed up).
 
 ```go
-dir := buxon.Resource("store")             // == $BUXON_RES_STORE, a directory
+dir := xbin.Resource("store")             // == $XBIN_RES_STORE, a directory
 os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
 db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_journal_mode=WAL")
 ```
@@ -170,13 +170,13 @@ A convenience over `filesystem` for the common "I just want one sqlite db" case:
 { "resources": { "db": { "type": "sqlite" } } }
 ```
 
-Same rw-directory mechanism, but `BUXON_RES_DB` is the `.sqlite` **file** path —
+Same rw-directory mechanism, but `XBIN_RES_DB` is the `.sqlite` **file** path —
 just open it (with `modernc.org/sqlite` for CGO-free builds). Use WAL if multiple
 same-scope components share it. Prefer `filesystem` when you need a general
 directory rather than a single db.
 
 ```go
-db, _ := sql.Open("sqlite", buxon.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
+db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
 ```
 
 **Cross-scope direct filesystem/sqlite is deliberately not a thing.** The path is

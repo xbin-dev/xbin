@@ -45,12 +45,12 @@ call.
 ## Use it
 
 ```jsonc
-// caller's buxon.json
+// caller's xbin.json
 { "uses": [{ "target": "apps/llm-gw", "role": "writer" }] }
 ```
 
 ```js
-const r = await buxon.fetch('/api/apps/llm-gw/v1/chat/completions', {
+const r = await xbin.fetch('/api/apps/llm-gw/v1/chat/completions', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ model: 'best-model', messages: [{ role: 'user', content: 'hi' }] }),
@@ -58,7 +58,7 @@ const r = await buxon.fetch('/api/apps/llm-gw/v1/chat/completions', {
 ```
 
 ```go
-resp, _ := buxon.Client().Post("http://buxon/api/apps/llm-gw/v1/chat/completions",
+resp, _ := xbin.Client().Post("http://xbin/api/apps/llm-gw/v1/chat/completions",
     "application/json", body)
 ```
 

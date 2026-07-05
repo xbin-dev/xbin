@@ -1,4 +1,4 @@
-// Package auth implements buxon's principals (plans/auth.md):
+// Package auth implements xbin's principals (plans/auth.md):
 //
 //   - Owner: the human. Authenticated by the owner token — via login cookie
 //     (browser) or Authorization: Bearer (bx, curl, terminals).
@@ -24,13 +24,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/magik6k/buxon/internal/users"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/users"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 const (
-	CookieName       = "buxon_session"
-	FrameTokenHeader = "X-Buxon-Frame-Token"
+	CookieName       = "xbin_session"
+	FrameTokenHeader = "X-XBin-Frame-Token"
 )
 
 // Principal identifies a verified caller (plans/multi-user.md).
@@ -99,9 +99,9 @@ type Auth struct {
 }
 
 // Load reads (or creates) the owner token and frame-token secret under
-// <workspace>/.buxon/.
+// <workspace>/.xbin/.
 func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
-	dir := filepath.Join(workspaceRoot, ".buxon")
+	dir := filepath.Join(workspaceRoot, ".xbin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (a *Auth) userSnapshot(uid string) (*users.User, bool) {
 //  1. Bearer owner token → owner.
 //  2. Bearer instance token → element backend.
 //  3. Owner cookie + frame token header → element frontend (attributed).
-//  4. Owner cookie alone → owner (non-element pages: buxond UI, direct nav).
+//  4. Owner cookie alone → owner (non-element pages: xbind UI, direct nav).
 func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 	// A frame token attributes the request to (component, user); it's honored
 	// in every mode. Present-but-invalid is rejected, never downgraded.

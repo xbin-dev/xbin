@@ -1,5 +1,5 @@
 /**
- * <bx-frame src="apps/calendar"> — the core buxon element: renders a
+ * <bx-frame src="apps/calendar"> — the core xbin element: renders a
  * component's index.html in a same-origin iframe, carries the always-visible
  * 7×7 edit button, live-reloads on source changes, shows build errors as an
  * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
@@ -8,7 +8,7 @@
  * Attributes:
  *   src     — component path (workspace-relative)
  *   height  — fixed CSS height; omit for auto-height (the framed document
- *             reports its size via buxon-client.js)
+ *             reports its size via xbin-client.js)
  *   no-edit — hide the edit button
  *
  * The edit button opens a floating terminal window: anchored at the frame's
@@ -29,7 +29,7 @@ let zTop = 2000;
 // Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
 let _gpuInv;
 function gpuInventory() {
-  _gpuInv ??= fetch('/api/buxon/gpus')
+  _gpuInv ??= fetch('/api/xbin/gpus')
     .then((r) => (r.ok ? r.json() : { gpus: [] }))
     .then((d) => d.gpus || [])
     .catch(() => []);
@@ -242,7 +242,7 @@ export class BxFrame extends LitElement {
   _message(e) {
     if (!this._autoHeight) return;
     const d = e.data;
-    if (d?.type !== 'buxon:resize') return;
+    if (d?.type !== 'xbin:resize') return;
     if (e.source !== this._iframe?.contentWindow) return;
     const h = Math.max(24, Math.min(d.height, 20000));
     this.style.setProperty('--bx-frame-height', h + 'px');

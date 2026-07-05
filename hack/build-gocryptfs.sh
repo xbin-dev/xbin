@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds a STATIC gocryptfs binary from source (pinned) and drops it where
-# buxond looks (next to its own binary). buxond mounts each *encrypted* resource
+# xbind looks (next to its own binary). xbind mounts each *encrypted* resource
 # (filesystem/sqlite) with it: ciphertext lives under data/resources-enc/, the
 # decrypted view is bind-mounted into the component sandbox, and the key is
 # derived from the vault barrier — so a stolen workspace/disk yields only
@@ -41,4 +41,4 @@ DOCKER_BUILDKIT=1 "$DOCKER" build -f "$ctx/Dockerfile" --target out \
     -o "type=local,dest=$DEST" "$ctx"
 chmod +x "$DEST/gocryptfs"
 "$DEST/gocryptfs" --version | head -1
-echo ">> built $DEST/gocryptfs (buxond next to it uses it automatically)"
+echo ">> built $DEST/gocryptfs (xbind next to it uses it automatically)"

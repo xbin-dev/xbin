@@ -1,10 +1,10 @@
 /**
  * <bx-admin> — the workspace admin console (tiles/admin). Full owner-view
- * into the running system, powered by buxond's admin-capable endpoints via
- * the buxon:admin capability (see buxon.json / API.md).
+ * into the running system, powered by xbind's admin-capable endpoints via
+ * the xbin:admin capability (see xbin.json / API.md).
  *
  * Tabs: overview · code & history · users · vault · roles & grants · cron.
- * All reads go through buxon.fetch (admin identity attributed by frame token)
+ * All reads go through xbin.fetch (admin identity attributed by frame token)
  * and refresh on the grants/reload event stream. The code & history tab browses
  * a component's files and git log/diffs (syntax-highlighted via vendored
  * highlight.js), scoped to its path in the single workspace repo.
@@ -14,7 +14,7 @@ import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 
 const api = async (path, opts) => {
-  const r = await buxon.fetch('/api/buxon' + path, opts);
+  const r = await xbin.fetch('/api/xbin' + path, opts);
   const text = await r.text();
   let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!r.ok) throw new Error(data?.error ?? r.status);
@@ -250,7 +250,7 @@ export class BxAdmin extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._off = window.buxon?.events.on((e) => {
+    this._off = window.xbin?.events.on((e) => {
       if (e.type === 'grants' || e.type === 'reload' || e.type === 'build-ok') this._refresh();
     });
     this._refresh();
@@ -358,7 +358,7 @@ export class BxAdmin extends LitElement {
     this._codeComp = comp; this._codeFile = null; this._codeDiff = null; this._codeMode = 'file';
     await this._loadCode();
     const files = this._codeTree?.files ?? [];
-    const def = files.find((f) => f.path === 'index.html') || files.find((f) => f.path === 'buxon.json') || files[0];
+    const def = files.find((f) => f.path === 'index.html') || files.find((f) => f.path === 'xbin.json') || files[0];
     if (def) this._loadFile(def.path);
   }
   async _loadCode() {
@@ -458,9 +458,9 @@ export class BxAdmin extends LitElement {
 
   render() {
     if (this._denied) return html`<div class="denied">
-      <b>No admin access.</b> This tile needs the <code>buxon:admin</code> grant.
-      Approve <span class="mono">tiles/admin → buxon : admin</span> in the grants
-      panel, or run <code>bx grant tiles/admin buxon:admin</code>.
+      <b>No admin access.</b> This tile needs the <code>xbin:admin</code> grant.
+      Approve <span class="mono">tiles/admin → xbin : admin</span> in the grants
+      panel, or run <code>bx grant tiles/admin xbin:admin</code>.
       See <a href="/docs/auth.md" target="_blank">docs/auth.md</a>.</div>`;
     const tab = this._tab;
     return html`
@@ -516,7 +516,7 @@ export class BxAdmin extends LitElement {
     const kv = (label, val) => html`<div class="kv"><span>${label}</span> <b>${val}</b></div>`;
     return html`
       <div class="hostcard">
-        ${kv('buxond', h.version)}
+        ${kv('xbind', h.version)}
         ${kv('kernel', h.kernel || '—')}
         ${kv('pid', h.pid)}
         ${kv('euid', h.uid)}
@@ -722,7 +722,7 @@ export class BxAdmin extends LitElement {
           f.reset(); }}>
         <select name="from">${comps.map((k) => html`<option>${k.path}</option>`)}</select>
         <span class="muted">→</span>
-        <input name="target" placeholder="apps/other or res:…/… or buxon" size="20">
+        <input name="target" placeholder="apps/other or res:…/… or xbin" size="20">
         <span class="muted">:</span>
         <input name="role" placeholder="reader" size="8" value="reader">
         <button class="act go">grant</button>
@@ -864,7 +864,7 @@ export class BxAdmin extends LitElement {
     const path = prompt('File path within the archive (e.g. source/index.html or data/kv.json):');
     if (!path) return;
     try {
-      const r = await buxon.fetch('/api/buxon/restore', {
+      const r = await xbin.fetch('/api/xbin/restore', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ component: comp, version, file: path }),
       });

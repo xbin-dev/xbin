@@ -5,10 +5,10 @@ import (
 	"os"
 	"sort"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/vault"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/vault"
 )
 
 // Admin-console aggregate endpoints (plans/admin-tile.md). All gated by
@@ -26,7 +26,7 @@ func (b *Broker) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "admin only — needs the buxon:admin capability", "docs": "/docs/auth.md",
+		"error": "admin only — needs the xbin:admin capability", "docs": "/docs/auth.md",
 	})
 	return false
 }

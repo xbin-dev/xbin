@@ -3,8 +3,8 @@ package broker
 import (
 	"strings"
 
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/sandbox"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/sandbox"
 )
 
 // EgressFor returns the network egress policy a component is granted via its

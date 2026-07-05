@@ -1,4 +1,4 @@
-package buxon
+package xbin
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 
 // KV opens a granted kv resource (declared in scope.json, requested in
 // "uses"). resource is the canonical target, most conveniently taken from
-// the env buxond injects: buxon.KV(buxon.Resource("events")).
+// the env xbind injects: xbin.KV(xbin.Resource("events")).
 //
-//	kv := buxon.KV(buxon.Resource("events"))
+//	kv := xbin.KV(xbin.Resource("events"))
 //	kv.PutJSON("2026-07-02/standup", ev)
 //	keys, _ := kv.List("2026-07-02/")
 func KV(resource string) *KVStore {
@@ -27,7 +27,7 @@ type KVStore struct {
 }
 
 func (k *KVStore) url(key string) string {
-	return "http://buxon/api/buxon/kv/" + k.res + "/" + url.PathEscape(key)
+	return "http://xbin/api/xbin/kv/" + k.res + "/" + url.PathEscape(key)
 }
 
 func (k *KVStore) Get(key string) ([]byte, error) {
@@ -98,7 +98,7 @@ func (k *KVStore) Delete(key string) error {
 
 // List returns keys with the given prefix ("" = all).
 func (k *KVStore) List(prefix string) ([]string, error) {
-	resp, err := k.c.Get("http://buxon/api/buxon/kv/" + k.res + "/?prefix=" + url.QueryEscape(prefix))
+	resp, err := k.c.Get("http://xbin/api/xbin/kv/" + k.res + "/?prefix=" + url.QueryEscape(prefix))
 	if err != nil {
 		return nil, err
 	}
@@ -117,4 +117,4 @@ func (k *KVStore) List(prefix string) ([]string, error) {
 }
 
 // ErrNotFound is returned by Get for missing keys.
-var ErrNotFound = fmt.Errorf("buxon: not found")
+var ErrNotFound = fmt.Errorf("xbin: not found")

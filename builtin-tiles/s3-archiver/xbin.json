@@ -1,7 +1,7 @@
 {
   // S3 archiver — an `archive` interface provider (plans/lifecycle.md). Bind a
   // component's `@archive` to this tile (or set it as the workspace default:
-  // `bx bind '*' @archive=apps/s3-archiver`) and buxond streams that component's
+  // `bx bind '*' @archive=apps/s3-archiver`) and xbind streams that component's
   // backups here to be stored in S3. Powers manual backup, scheduled backup, and
   // offload. Endpoint/region/bucket/prefix are configured on this tile's page;
   // the access key + secret live in its vault (never in a resource).
@@ -19,7 +19,7 @@
     "net": { "kind": "net" }
   },
   // Offer the archive interface. The owner binds components' @archive to it; only
-  // the owner (buxond) calls the /archive endpoints, so no exposed role is needed.
+  // the owner (xbind) calls the /archive endpoints, so no exposed role is needed.
   "provides": {
     "store": { "kind": "archive", "service": "s3" }
   }

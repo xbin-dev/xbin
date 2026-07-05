@@ -8,7 +8,7 @@ import (
 
 func TestLifecycleState(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "buxon.json"), []byte(`{"schema":1}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "xbin.json"), []byte(`{"schema":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Open(dir)

@@ -10,7 +10,7 @@ import (
 var ErrUnsupported = errors.New("sandbox: only supported on linux")
 
 // GatewayIP is the virtual gateway address inside a relay netns. A relay may
-// host-forward specific ports on this address to host services (e.g. buxond),
+// host-forward specific ports on this address to host services (e.g. xbind),
 // so a netns-isolated sandbox can reach the workspace controller without any
 // host interface being visible (see relay.Config.Gateway/HostFwd).
 const GatewayIP = "10.0.2.2"
@@ -70,7 +70,7 @@ func HostResolver() string {
 
 // NetClient is one per-client link a net-provider tile terminates.
 type NetClient struct {
-	Name string `json:"name"` // the client component (for buxond's bookkeeping)
+	Name string `json:"name"` // the client component (for xbind's bookkeeping)
 	Addr string `json:"addr"` // provider-side link address, e.g. "10.42.0.1/30"
 }
 
@@ -105,7 +105,7 @@ type Spec struct {
 	// Net selects the network namespace mode. "" / "none" → an empty netns
 	// (loopback only) = default-deny egress; the gateway socket is bind-mounted
 	// in regardless. "relay" → TUN + userspace egress relay under a policy.
-	// "splice" → a TUN whose fd buxond splices to a provider tile (plans/
+	// "splice" → a TUN whose fd xbind splices to a provider tile (plans/
 	// interfaces.md) instead of running the relay on it.
 	Net string `json:"net,omitempty"`
 
@@ -116,7 +116,7 @@ type Spec struct {
 	NetGw   string `json:"netGw,omitempty"`
 	// NetClients are a net-provider tile's per-client links: init creates one
 	// extra TUN per entry (its /30 provider-side address, no default route) and
-	// hands each fd to buxond, which splices it to that client's egress TUN. The
+	// hands each fd to xbind, which splices it to that client's egress TUN. The
 	// egress TUN fd is sent first, then these in order.
 	NetClients []NetClient `json:"netClients,omitempty"`
 

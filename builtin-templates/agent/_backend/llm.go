@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strings"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 // Config is an agent's knobs — a default lives in settings, and each run
@@ -31,7 +31,7 @@ type Config struct {
 func defaultConfig() Config {
 	return Config{
 		Model:       "gpt-4o-mini",
-		System:      "You are a helpful autonomous agent running inside buxon. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+		System:      "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
 		TokenBudget: 12000,
 		MaxIters:    12,
 		Subagents:   true,
@@ -113,13 +113,13 @@ func callLLM(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec
 	if err != nil {
 		return wireMsg{}, chatResp{}, err
 	}
-	url := "http://buxon/api/apps/" + gwPath() + "/v1/chat/completions"
+	url := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return wireMsg{}, chatResp{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := buxon.Client().Do(req)
+	resp, err := xbin.Client().Do(req)
 	if err != nil {
 		return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw call: %w", err)
 	}

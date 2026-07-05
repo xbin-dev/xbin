@@ -1,4 +1,4 @@
-module github.com/magik6k/buxon
+module github.com/magik6k/xbin
 
 go 1.26.3
 

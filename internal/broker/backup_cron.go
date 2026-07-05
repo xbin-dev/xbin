@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Scheduled component backups (plans/lifecycle.md LC-5). Owner-registered jobs on
-// the existing cron engine that fire a buxond backup (not an element endpoint)
+// the existing cron engine that fire a xbind backup (not an element endpoint)
 // and prune to a retention count. Persisted in data/backup-schedule.json.
 
 type backupSchedule struct {

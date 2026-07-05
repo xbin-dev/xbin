@@ -1,46 +1,46 @@
 # Auth: identities, roles, grants, vault
 
-buxon has two planes with different rules:
+xbin has two planes with different rules:
 
 - **Editing plane** — terminals, `bx`, git. Owner-privileged, unrestricted.
-  It's your workspace; buxon does not protect you from yourself.
+  It's your workspace; xbin does not protect you from yourself.
 - **Runtime plane** — running elements (backends and their frontends).
   Default-deny: an element can call exactly its own API plus whatever it was
   granted. This page is about that plane.
 
 ## Who is calling? (principals)
 
-| Principal | How it authenticates | Typical `X-Buxon-From` |
+| Principal | How it authenticates | Typical `X-XBin-From` |
 |---|---|---|
-| Owner (you) | login cookie, or `Authorization: Bearer $BUXON_TOKEN` | `owner` |
-| Element backend | per-generation instance token over the gateway socket (`BUXON_GATEWAY` + `BUXON_TOKEN` env — the SDK's `buxon.Client()` handles it) | `apps/email` |
-| Element frontend | owner cookie **+ frame token** (`buxon.fetch` attaches it) | `apps/email` |
-| Scheduler | internal | `buxon/cron` |
+| Owner (you) | login cookie, or `Authorization: Bearer $XBIN_TOKEN` | `owner` |
+| Element backend | per-generation instance token over the gateway socket (`XBIN_GATEWAY` + `XBIN_TOKEN` env — the SDK's `xbin.Client()` handles it) | `apps/email` |
+| Element frontend | owner cookie **+ frame token** (`xbin.fetch` attaches it) | `apps/email` |
+| Scheduler | internal | `xbin/cron` |
 
-Callees never verify any of this themselves: buxond strips inbound
-`X-Buxon-*` headers and injects the verified `X-Buxon-From` and
-`X-Buxon-Role`. If those headers are present, they're true.
+Callees never verify any of this themselves: xbind strips inbound
+`X-XBin-*` headers and injects the verified `X-XBin-From` and
+`X-XBin-Role`. If those headers are present, they're true.
 
 **Frame tokens** are why *which element's page* made a browser request
 matters and can't be forged by another element's JS: the cookie proves the
 human, the injected short-lived token attributes the request to the
 component whose document it is. Consequence for your frontend code: **use
-`buxon.fetch()` for anything beyond your own API.** A raw `fetch` to another
+`xbin.fetch()` for anything beyond your own API.** A raw `fetch` to another
 element 403s.
 
 ## Roles and grants
 
 The callee declares roles (manifest `expose.roles`, descriptions mandatory);
 the caller requests them (`uses`); the owner approves cross-scope requests
-once; buxond enforces at every call.
+once; xbind enforces at every call.
 
 ```jsonc
-// callee: apps/calendar/buxon.json
+// callee: apps/calendar/xbin.json
 { "expose": { "roles": {
     "reader": "Read events and calendars",
     "writer": "Create and modify events" } } }
 
-// caller: apps/email/buxon.json
+// caller: apps/email/xbin.json
 { "uses": [ { "target": "apps/calendar", "role": "reader" } ] }
 ```
 
@@ -48,7 +48,7 @@ once; buxond enforces at every call.
   other. The `uses` entry itself is the grant.
 - **Cross-scope → pending** until approved in the root page's grants panel
   or `bx grant apps/email apps/calendar:reader`. Grants live in the
-  workspace `buxon.json` — a visible, git-diffable capability table. Revoke:
+  workspace `xbin.json` — a visible, git-diffable capability table. Revoke:
   panel, or `bx grant --revoke …`. Approving a grant reloads the affected
   caller's frame automatically, so a frontend that was 403'ing retries
   against the new permission without a manual refresh.
@@ -56,7 +56,7 @@ once; buxond enforces at every call.
   is the owner's human-in-the-loop decision; an agent's terminal runs as
   owner, so running `bx grant` on the agent's own behalf bypasses exactly
   the review the model is for. Agents declare `uses` and leave cross-scope
-  (and `buxon:*`) grants pending for the owner — only approving when the
+  (and `xbin:*`) grants pending for the owner — only approving when the
   owner explicitly asks. (AGENTS.md restates this for in-workspace agents.)
 - **Role names**: `reader` / `writer` / `admin` are the convention and imply
   each other downward (`admin ⊃ writer ⊃ reader`). Custom names are
@@ -73,8 +73,8 @@ Enforcing in the callee is one middleware:
 
 ```go
 mux.HandleFunc("GET /events", list)                       // any granted role
-mux.Handle("POST /events", buxon.RoleFunc("writer", add)) // writer or better
-who := buxon.Caller(r)  // {From: "apps/email", Role: "reader", Owner: false}
+mux.Handle("POST /events", xbin.RoleFunc("writer", add)) // writer or better
+who := xbin.Caller(r)  // {From: "apps/email", Role: "reader", Owner: false}
 ```
 
 Design guidance: prefer **service APIs over shared state**. "Email reads the
@@ -92,7 +92,7 @@ bx vault ls  apps/email
 ```
 
 ```go
-pass, err := buxon.Secret("imap-pass")     // own vault only
+pass, err := xbin.Secret("imap-pass")     // own vault only
 ```
 
 Rules, all deliberate:
@@ -103,9 +103,9 @@ Rules, all deliberate:
   secret without revealing it.
 - Secrets are fetched at runtime, never injected into env (env leaks via
   `/proc`, logs, and child processes).
-- Storage: `data/vault/`, buxond-owned, mode 0600, gitignored always,
+- Storage: `data/vault/`, xbind-owned, mode 0600, gitignored always,
   excluded from `bx backup` unless `--with-vault`.
-- The owner (and `buxon:admin` tiles) can read/write any vault via
+- The owner (and `xbin:admin` tiles) can read/write any vault via
   `bx vault` / the admin console — the human is root.
 
 ### Encryption at rest (the barrier)
@@ -145,11 +145,11 @@ bx vault seal                   # drop the key from memory
 Boot modes (production never persists secrets in the clear — the broker
 refuses plaintext writes unless explicitly allowed):
 
-- `BUXON_VAULT_PASSPHRASE=…` → **auto-unseal** at startup (convenient; the
+- `XBIN_VAULT_PASSPHRASE=…` → **auto-unseal** at startup (convenient; the
   passphrase lives in the process env, readable by root — the weaker mode,
   same tradeoff as Vault's env unseal).
 - Unset, barrier already set up → boots **sealed**; an admin unseals after
-  login via `bx vault unseal` / `POST /api/buxon/vault-unseal` (**strongest**:
+  login via `bx vault unseal` / `POST /api/xbin/vault-unseal` (**strongest**:
   the passphrase never touches the process env or the data dir). Re-unseal
   after every restart, like Vault.
 - Unset, no barrier yet → boots **locked** (unconfigured): the daemon runs
@@ -175,41 +175,41 @@ not full Vault parity. Losing the passphrase means losing the secrets: the
 DEK is unrecoverable without it. `bx vault status` on a running workspace
 tells you which mode you're in.
 
-## Workspace-management capabilities (the `buxon` target)
+## Workspace-management capabilities (the `xbin` target)
 
 Some actions manage the workspace itself rather than another element. They're
-granted as roles on the reserved target `buxon`:
+granted as roles on the reserved target `xbin`:
 
 | grant | lets an element… |
 |-------|------------------|
-| `buxon:writer` | create components (`POST /api/buxon/create`) — held by `tiles/manager` |
-| `buxon:admin`  | administer everything: read/write **any** vault, view/approve/revoke **any** grant, manage all cron jobs, read system state — held by `tiles/admin` |
+| `xbin:writer` | create components (`POST /api/xbin/create`) — held by `tiles/manager` |
+| `xbin:admin`  | administer everything: read/write **any** vault, view/approve/revoke **any** grant, manage all cron jobs, read system state — held by `tiles/admin` |
 
 `admin ⊃ writer`. The owner always has both implicitly. These make
 otherwise owner-only endpoints reachable by a trusted tile.
 
-**`buxon:admin` is the heaviest grant in the system.** It can read every
+**`xbin:admin` is the heaviest grant in the system.** It can read every
 secret and rewrite the grant table — granting it to an element is trusting
 that element as yourself for administration. It ships pre-granted only to
 `tiles/admin`; treat any new grant of it like handing out a root shell.
-Revoke it (`bx grant --revoke tiles/admin buxon:admin`) and the admin tile
+Revoke it (`bx grant --revoke tiles/admin xbin:admin`) and the admin tile
 goes dark. Unprivileged elements gain nothing: every management endpoint
 still denies principals without the grant.
 
 ## Honesty: enforcement tiers
 
-The *model* above is always enforced by buxond. How hard it is to cheat
+The *model* above is always enforced by xbind. How hard it is to cheat
 depends on the tier:
 
 | Tier | When | What a hostile element could still do |
 |---|---|---|
 | 1 (no `--isolate`; dev/local) | all backends run as one uid | read a sibling's env via `/proc` (steal its instance token), open sibling sockets directly, write any workspace file |
-| 2 (`--scope-uids`, buxond runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
+| 2 (`--scope-uids`, xbind runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
 | 3 (`--isolate`, rootless — production) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **default-deny egress** via the `net:*` relay; cgroup accounting | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, and no network beyond its `net:*` grants |
 
 Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`) and the
 production model: rootless (unprivileged user namespaces), run on a VM/host
-buxond controls (README → Running it). Still roadmap: a default **seccomp**
+xbind controls (README → Running it). Still roadmap: a default **seccomp**
 profile, enforced **cgroup resource limits** (today it's accounting only),
 `wasm`/wazero backends, and per-scope **origin** isolation.
 
@@ -221,9 +221,9 @@ trail, not a jail.
 
 ## Multi-user (users, roles, tile access)
 
-buxon can have **human users** on top of the root token (plans/multi-user.md).
+xbin can have **human users** on top of the root token (plans/multi-user.md).
 
-- **Root token** (`BUXON_TOKEN`) — the admin/bootstrap service credential.
+- **Root token** (`XBIN_TOKEN`) — the admin/bootstrap service credential.
   Full admin; used by `bx`, terminals, automation. Always valid.
 - **Admin user** — logs in with username+password; full access (all tiles,
   terminals, user management).
@@ -240,23 +240,23 @@ door (view, frame-token mint) enforces it. A tile a user is allowed to use
 runs with its *own* grants — allowing a user a tile lets them use that tile's
 capabilities, like app permissions on a phone. A tile never inherits the
 driving user's admin: opening the admin tile only grants admin because the
-tile itself holds `buxon:admin` — so **don't add admin/privileged tiles to a
+tile itself holds `xbin:admin` — so **don't add admin/privileged tiles to a
 non-admin user's allow-list**.
 
 **Terminals are admin-only.** `/ws/term` is a **root shell** in a tile's
 directory, gated behind a per-user `terminal` permission (admins have it;
 grant it to others only if you mean root).
 
-**User management API** — gated by `buxon:users` (distinct from
-`buxon:admin`, so a dedicated user-admin tile can hold just this; admin
+**User management API** — gated by `xbin:users` (distinct from
+`xbin:admin`, so a dedicated user-admin tile can hold just this; admin
 implies it):
 
 ```
-GET    /api/buxon/whoami            caller identity + permissions (any principal)
-GET    /api/buxon/users             list (no hashes)
-POST   /api/buxon/users             create {id,name,role,tiles,terminal,password}
-PATCH  /api/buxon/users/<id>        update (role/tiles/terminal/password reset)
-DELETE /api/buxon/users/<id>        remove (revokes their sessions)
+GET    /api/xbin/whoami            caller identity + permissions (any principal)
+GET    /api/xbin/users             list (no hashes)
+POST   /api/xbin/users             create {id,name,role,tiles,terminal,password}
+PATCH  /api/xbin/users/<id>        update (role/tiles/terminal/password reset)
+DELETE /api/xbin/users/<id>        remove (revokes their sessions)
 ```
 
 The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
@@ -267,16 +267,16 @@ server-side (delete/edit revokes immediately) and drop on restart.
 unauthenticated; everything else needs a valid principal. Login uses a
 per-IP throttle and a generic "invalid credentials" (never reveals whether a
 user exists). Nothing sensitive (vault values, tokens, grants, backend
-status/logs) is reachable by a non-admin. Expose a buxon port only behind
+status/logs) is reachable by a non-admin. Expose a xbin port only behind
 Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
 
 ## Owner login mechanics
 
-- First boot generates a token (`.buxon/token`); buxond prints
+- First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
-- CLI/scripts use `Authorization: Bearer` (terminals have `$BUXON_TOKEN`).
+- CLI/scripts use `Authorization: Bearer` (terminals have `$XBIN_TOKEN`).
 - Behind an https proxy the cookie turns `Secure` automatically
-  (`X-Forwarded-Proto`). buxond itself never does TLS; put Tailscale or
+  (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or
   Caddy in front.
 - `--dev` / `--no-auth` disables owner auth (never expose such an instance),
   but element identity and grants still apply — dev and prod run the same

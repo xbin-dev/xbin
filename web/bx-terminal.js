@@ -1,5 +1,5 @@
 /**
- * <bx-terminal> — xterm.js wired to buxond's /ws/term PTY sessions.
+ * <bx-terminal> — xterm.js wired to xbind's /ws/term PTY sessions.
  *
  * Attributes/properties:
  *   cwd      — component path to open the shell in (new session)
@@ -67,7 +67,7 @@ export class BxTerminal extends HTMLElement {
 
   // Switching network scope can't hot-reload (the netns/relay is fixed at
   // spawn), so a live change to `net` restarts the session: drop the current
-  // session id and reconnect, which asks buxond for a fresh shell in the new
+  // session id and reconnect, which asks xbind for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
   static get observedAttributes() { return ['net', 'gpu']; }
   attributeChangedCallback(name, oldV, newV) {
@@ -167,14 +167,14 @@ export class BxTerminal extends HTMLElement {
       if (this.#closed) return;
       const reattaching = !!this.getAttribute('session');
       // A reattach whose handshake never succeeded almost always means the
-      // session is gone (buxond 404s an unknown id — e.g. a stale id restored
+      // session is gone (xbind 404s an unknown id — e.g. a stale id restored
       // from a previous page, or after a daemon restart). After a couple of
       // tries, start a fresh session instead of retrying a dead id forever.
       if (reattaching && !this.#opened && ++this.#reattachFails >= 2) {
         this.#restart('previous session gone — starting fresh…');
         return;
       }
-      // Otherwise reattach by session id with backoff (buxond keeps the PTY).
+      // Otherwise reattach by session id with backoff (xbind keeps the PTY).
       if (reattaching && this.#retries < 8) {
         const wait = Math.min(500 * 2 ** this.#retries++, 10000);
         this.#term.write(`\r\n\x1b[90m[reconnecting…]\x1b[0m\r\n`);

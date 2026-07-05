@@ -6,7 +6,7 @@ import "net"
 
 // The dataplane is Linux-only (AF_PACKET + policy routing in a network
 // namespace). On other platforms the control plane still builds and runs — the
-// UI shows state — but nothing is gated or metered. buxond only ever runs this
+// UI shows state — but nothing is gated or metered. xbind only ever runs this
 // under Linux isolation anyway; these stubs keep `go build` green on dev hosts.
 
 func discoverLinks() (egress string, clients int) { return "", 0 }

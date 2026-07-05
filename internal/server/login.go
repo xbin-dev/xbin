@@ -76,7 +76,7 @@ func clientIP(r *http.Request) string {
 
 const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>buxon — sign in</title>
+<title>xbin — sign in</title>
 <style>
 :root{color-scheme:light}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -97,7 +97,7 @@ button:hover{background:#1a76c9}
 .note{margin-top:14px;font-size:11.5px;color:#8794a1}
 </style></head><body>
 <form class="card" method="post" action="/login">
-  <div class="logo"><span class="d">b</span>buxon</div>
+  <div class="logo"><span class="d">b</span>xbin</div>
   <label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// InitArg is the hidden subcommand buxond (and the test binary) must dispatch
+// InitArg is the hidden subcommand xbind (and the test binary) must dispatch
 // to RunInit *before* flag parsing — it is the re-exec target that runs inside
 // the new namespaces.
 const InitArg = "__sandbox-init"
@@ -148,7 +148,7 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 }
 
 // idRanges is a container→host uid/gid mapping using a delegated sub-id range:
-// container 0 → the buxond user (root-in-container stays this user, as before),
+// container 0 → the xbind user (root-in-container stays this user, as before),
 // container 1..N → the sub-uid/gid range from /etc/subuid,/etc/subgid. This maps
 // a full uid space into the sandbox so apt/dpkg's user switches and non-root
 // in-container users work.
@@ -224,10 +224,10 @@ func runHelper(name string, args ...string) error {
 }
 
 // fuseOverlayfsPath finds a fuse-overlayfs binary to mount the sandbox root
-// with: $BUXON_FUSE_OVERLAYFS, a copy bundled next to the buxond executable
+// with: $XBIN_FUSE_OVERLAYFS, a copy bundled next to the xbind executable
 // (single-artifact distribution), then $PATH. "" ⇒ fall back to kernel overlay.
 func fuseOverlayfsPath() string {
-	if p := os.Getenv("BUXON_FUSE_OVERLAYFS"); p != "" {
+	if p := os.Getenv("XBIN_FUSE_OVERLAYFS"); p != "" {
 		if isExecutable(p) {
 			return p
 		}

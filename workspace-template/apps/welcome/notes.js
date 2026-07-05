@@ -27,17 +27,17 @@ const NOTES = [
   {
     id: 'building', title: 'Building & Terminal', color: 'sky',
     featured: true, badge: 'start here',
-    teaser: 'the 7×7 blue square opens a real terminal — this is how you build buxon',
+    teaser: 'the 7×7 blue square opens a real terminal — this is how you build xbin',
     intro: html`
       <p>Read this one first. Every component and tile has a tiny
       <strong>7×7&nbsp;px blue square</strong> in its corner — click it and a
       <strong>real terminal drops into that component's directory</strong>. That
-      terminal is where buxon gets built: you rarely hand-edit files yourself,
+      terminal is where xbin gets built: you rarely hand-edit files yourself,
       you run a <strong>coding agent</strong> in it (<code>claude</code> — Claude
       Code — or <code>opencode</code>) and describe what you want. Save a file
       and the frame reloads; save backend code and it recompiles and swaps in
       live.</p>
-      <p>The agent already knows how buxon works — every workspace ships an
+      <p>The agent already knows how xbin works — every workspace ships an
       <code>AGENTS.md</code> at its root that these agents read automatically. And
       one thing to keep straight from day one: the filesystem you <em>build</em>
       in is not the sandbox your component is <em>deployed</em> into. The three
@@ -74,7 +74,7 @@ const NOTES = [
 > add a "done" toggle to each item and persist it</pre>
           <p>It edits files in place; every save hot-reloads the component, so you
           watch it come together in the frame next door.</p>
-          <p>Why it gets buxon right without you explaining any of this: the
+          <p>Why it gets xbin right without you explaining any of this: the
           <strong>workspace root carries <code>AGENTS.md</code></strong> (symlinked
           as <code>CLAUDE.md</code>) — a self-contained builder reference (manifest
           schema, the SDK, resource APIs, the mistakes to avoid) that these agents
@@ -117,7 +117,7 @@ const NOTES = [
     id: 'glue', title: 'api glue', color: 'blue',
     teaser: 'how components call each other — one switchboard, no direct wires',
     intro: html`
-      <p>Everything is HTTP through buxond. A component at
+      <p>Everything is HTTP through xbind. A component at
       <code>apps/thing</code> serves its view at <code>/c/apps/thing/</code>
       and its backend at <code>/api/apps/thing/&hellip;</code>. Nothing talks
       to anything directly: every call goes through the daemon, which
@@ -131,20 +131,20 @@ const NOTES = [
     children: [
       {
         id: 'frontend', title: 'frontend → api', color: 'blue',
-        teaser: 'buxon.fetch, and why raw fetch 403s',
+        teaser: 'xbin.fetch, and why raw fetch 403s',
         body: html`
-          <p>Component pages get a <code>buxon</code> global injected. Use
-          <code>buxon.fetch</code> for <em>every</em> <code>/api/</code>
-          call — it attaches your frame token, so buxond knows which
+          <p>Component pages get a <code>xbin</code> global injected. Use
+          <code>xbin.fetch</code> for <em>every</em> <code>/api/</code>
+          call — it attaches your frame token, so xbind knows which
           component is calling:</p>
-          <pre>await buxon.fetch(\`/api/\${buxon.self}/items\`)   // your own backend
-await buxon.fetch('/api/apps/calendar/events')  // another app — needs a grant</pre>
+          <pre>await xbin.fetch(\`/api/\${xbin.self}/items\`)   // your own backend
+await xbin.fetch('/api/apps/calendar/events')  // another app — needs a grant</pre>
           <p>A raw <code>fetch()</code> to another element returns
           <strong>403 by design</strong>: without the frame token the call
           can't be attributed, and unattributed calls are denied. This is a
           feature, not a bug to work around.</p>
           <p>Live updates come over the bus, not polling:</p>
-          <pre>buxon.bus.on('res:apps/thing/bus/', (topic, data) => { /* re-render */ })</pre>`,
+          <pre>xbin.bus.on('res:apps/thing/bus/', (topic, data) => { /* re-render */ })</pre>`,
       },
       {
         id: 'backend', title: 'backend → backend', color: 'blue',
@@ -152,16 +152,16 @@ await buxon.fetch('/api/apps/calendar/events')  // another app — needs a grant
         body: html`
           <p>Backends call other components through the gateway. In Go the
           SDK client is pre-wired:</p>
-          <pre>resp, err := buxon.Client().Get("http://buxon/api/apps/calendar/events")</pre>
+          <pre>resp, err := xbin.Client().Get("http://xbin/api/apps/calendar/events")</pre>
           <p>node / python need no SDK: send the request over the
-          <code>BUXON_GATEWAY</code> unix socket with
-          <code>Authorization: Bearer $BUXON_TOKEN</code>. That token is
+          <code>XBIN_GATEWAY</code> unix socket with
+          <code>Authorization: Bearer $XBIN_TOKEN</code>. That token is
           <em>this generation's</em> credential — it identifies your
           component, is rotated on every rebuild, and only carries the roles
           you were actually granted.</p>
           <p>The callee never sees the token; it sees the verified
-          <code>X-Buxon-From</code> / <code>X-Buxon-Role</code> headers
-          buxond injects after checking the grant.</p>`,
+          <code>X-XBin-From</code> / <code>X-XBin-Role</code> headers
+          xbind injects after checking the grant.</p>`,
       },
       {
         id: 'discover', title: 'discovering an api', color: 'blue',
@@ -182,11 +182,11 @@ bx ls                   # what exists in this workspace</pre>
   },
   {
     id: 'auth', title: 'auth & identity', color: 'purple',
-    teaser: 'your path is your identity; buxond vouches for every call',
+    teaser: 'your path is your identity; xbind vouches for every call',
     intro: html`
       <p>A component's <strong>path is its identity</strong> —
       <code>apps/email</code> <em>is</em> the principal. There are no
-      accounts to create and no passwords between components: buxond
+      accounts to create and no passwords between components: xbind
       authenticates every request itself and tells the callee who called,
       via headers only it can set.</p>
       <p>The core rule: <strong>never verify auth yourself</strong>. Strip
@@ -201,11 +201,11 @@ bx ls                   # what exists in this workspace</pre>
           <p>Three kinds of caller, very different trust:</p>
           <ul>
             <li><strong>Owner (you)</strong> — login cookie or
-              <code>Bearer $BUXON_TOKEN</code>. Passes <em>every</em>
+              <code>Bearer $XBIN_TOKEN</code>. Passes <em>every</em>
               permission check as role <code>admin</code>. Terminals run as
               owner, which is why your <code>curl</code> always works.</li>
             <li><strong>Element frontend</strong> — owner cookie
-              <em>plus</em> a frame token that <code>buxon.fetch</code>
+              <em>plus</em> a frame token that <code>xbin.fetch</code>
               attaches, attributing the call to that component.</li>
             <li><strong>Element backend</strong> — its per-generation
               gateway token. <strong>Default-deny</strong>: no grant, no
@@ -217,19 +217,19 @@ bx ls                   # what exists in this workspace</pre>
       },
       {
         id: 'headers', title: 'verified headers', color: 'purple',
-        teaser: 'X-Buxon-From / X-Buxon-Role — the only truth',
+        teaser: 'X-XBin-From / X-XBin-Role — the only truth',
         body: html`
-          <p>buxond <strong>strips</strong> any inbound
-          <code>X-Buxon-*</code> headers, then injects verified values after
+          <p>xbind <strong>strips</strong> any inbound
+          <code>X-XBin-*</code> headers, then injects verified values after
           checking the grant. By the time a request reaches your backend,
-          <code>X-Buxon-From</code> and <code>X-Buxon-Role</code> are
+          <code>X-XBin-From</code> and <code>X-XBin-Role</code> are
           trustworthy — a caller cannot forge them.</p>
-          <pre>c := buxon.Caller(r)     // Go SDK: verified {From, Role, Owner}</pre>
+          <pre>c := xbin.Caller(r)     // Go SDK: verified {From, Role, Owner}</pre>
           <p>node / python read the headers directly; cgi gets
-          <code>BUXON_FROM</code> / <code>BUXON_ROLE</code> in env.</p>
+          <code>XBIN_FROM</code> / <code>XBIN_ROLE</code> in env.</p>
           <p>Corollaries: never trust a role from a request body, query
           param, or custom header — and never build your own token check on
-          top. If you received the request at all, buxond already
+          top. If you received the request at all, xbind already
           authenticated it.</p>`,
       },
     ],
@@ -253,7 +253,7 @@ bx ls                   # what exists in this workspace</pre>
         id: 'declare', title: 'declaring roles', color: 'green',
         teaser: 'expose.roles in the manifest, RoleFunc in code',
         body: html`
-          <p>In the callee's <code>buxon.json</code>:</p>
+          <p>In the callee's <code>xbin.json</code>:</p>
           <pre>"expose": {
   "roles": {
     "reader": "Read thing data",          // description is required
@@ -264,7 +264,7 @@ bx ls                   # what exists in this workspace</pre>
           <p>Then guard handlers by role — the check is one wrapper, because
           identity was already verified upstream:</p>
           <pre>mux.HandleFunc("GET /items", list)                        // any granted role
-mux.Handle("POST /items", buxon.RoleFunc("writer", add))  // writer and up</pre>
+mux.Handle("POST /items", xbin.RoleFunc("writer", add))  // writer and up</pre>
           <p>Exposing roles means shipping an <code>API.md</code> documenting
           what each role can do — it's the contract callers integrate
           against.</p>`,
@@ -286,7 +286,7 @@ bx grant --revoke apps/email apps/calendar:reader
 bx grants                                # list everything, incl. pending</pre>
           <p>The grants panel on the root page does the same with clicks.
           Don't hand-edit the <code>grants</code> array in the workspace
-          <code>buxon.json</code> — it's machine-rewritten.</p>`,
+          <code>xbin.json</code> — it's machine-rewritten.</p>`,
       },
       {
         id: 'convention', title: 'role conventions', color: 'green',
@@ -319,7 +319,7 @@ bx grants                                # list everything, incl. pending</pre>
     children: [
       {
         id: 'use', title: 'using it', color: 'pink',
-        teaser: 'bx vault set + buxon.Secret',
+        teaser: 'bx vault set + xbin.Secret',
         body: html`
           <p>You (the owner) write secrets in; the value is read from stdin
           so it never lands in shell history:</p>
@@ -328,9 +328,9 @@ bx vault ls apps/email
 bx vault get apps/email imap-pass
 bx vault rm  apps/email imap-pass</pre>
           <p>The element reads its own vault at runtime:</p>
-          <pre>pass, err := buxon.Secret("imap-pass")   // Go; own vault only</pre>
+          <pre>pass, err := xbin.Secret("imap-pass")   // Go; own vault only</pre>
           <p>node / python fetch the same thing over the gateway
-          (<code>/api/buxon/&hellip;</code> — see docs/protocol.md).</p>`,
+          (<code>/api/xbin/&hellip;</code> — see docs/protocol.md).</p>`,
       },
       {
         id: 'bounds', title: 'boundaries', color: 'pink',
@@ -343,7 +343,7 @@ bx vault rm  apps/email imap-pass</pre>
           grant.</p>
           <p>Secrets are fetched at runtime, never injected into env — env
           leaks via <code>/proc</code>, error reports, and logs. Storage is
-          <code>data/vault/</code>, buxond-owned, mode 0600, always
+          <code>data/vault/</code>, xbind-owned, mode 0600, always
           gitignored, and excluded from <code>bx backup</code> unless you
           pass <code>--with-vault</code>.</p>`,
       },
@@ -363,7 +363,7 @@ bx vault rm  apps/email imap-pass</pre>
                  "kvx":   {"type":"kv"},
                  "files": {"type":"blob"} } }</pre>
       <p>Each granted resource shows up in the backend's env as
-      <code>BUXON_RES_&lt;NAME&gt;</code>. Resources belong to the scope —
+      <code>XBIN_RES_&lt;NAME&gt;</code>. Resources belong to the scope —
       they survive rebuilds, renames of code, and crashes.</p>`,
     docs: 'resources.md',
     children: [
@@ -373,25 +373,25 @@ bx vault rm  apps/email imap-pass</pre>
         body: html`
           <p>The default choice for config, small documents, and anything
           JSON-shaped. Values up to 1 MiB.</p>
-          <pre>kv := buxon.KV(buxon.Resource("kvx"))
+          <pre>kv := xbin.KV(xbin.Resource("kvx"))
 kv.PutJSON("settings", s)
 var s Settings; kv.GetJSON("settings", &s)
 keys, _ := kv.List("item/")</pre>
           <p>No SDK? It's plain HTTP through the gateway:</p>
-          <pre>GET/PUT/DELETE /api/buxon/kv/res:apps/thing/kvx/&lt;key&gt;</pre>`,
+          <pre>GET/PUT/DELETE /api/xbin/kv/res:apps/thing/kvx/&lt;key&gt;</pre>`,
       },
       {
         id: 'filesystem', title: 'filesystem', color: 'yellow',
         teaser: 'a rw directory — same-scope only',
         body: html`
-          <p><code>BUXON_RES_STORE</code> is a <strong>directory</strong> path
+          <p><code>XBIN_RES_STORE</code> is a <strong>directory</strong> path
           your backend can write — a db, files, a cache, anything. It's bound
           read-write and backed up. Write only inside it; anywhere else is a
           throwaway overlay.</p>
-          <pre>dir := buxon.Resource("store")
+          <pre>dir := xbin.Resource("store")
 db, _ := sql.Open("sqlite", dir+"/app.db?_journal_mode=WAL")</pre>
           <p>(<code>type:"sqlite"</code> is a convenience — the same rw dir with
-          <code>BUXON_RES_&lt;N&gt;</code> pre-pointed at a <code>.sqlite</code>
+          <code>XBIN_RES_&lt;N&gt;</code> pre-pointed at a <code>.sqlite</code>
           file.) Same-scope only, deliberately: direct file access across trust
           boundaries corrupts data and blurs permissions. If another app needs
           your data, expose a role-guarded API — "email reads calendar" is a
@@ -403,9 +403,9 @@ db, _ := sql.Open("sqlite", dir+"/app.db?_journal_mode=WAL")</pre>
         body: html`
           <p>A path-addressed file store for things too big or too binary
           for kv — attachments, images, exports.</p>
-          <pre>GET/PUT/DELETE /api/buxon/blob/res:apps/thing/files/&lt;path&gt;</pre>
+          <pre>GET/PUT/DELETE /api/xbin/blob/res:apps/thing/files/&lt;path&gt;</pre>
           <p>Writes up to 256 MiB. Frontends can fetch blob URLs with
-          <code>buxon.fetch</code> like any other API path. Don't reach into
+          <code>xbin.fetch</code> like any other API path. Don't reach into
           <code>data/</code> on disk — the broker's layout is not API; the
           HTTP surface is.</p>`,
       },
@@ -427,10 +427,10 @@ db, _ := sql.Open("sqlite", dir+"/app.db?_journal_mode=WAL")</pre>
         body: html`
           <p>Publish from anywhere, subscribe in frontends:</p>
           <pre>// backend (Go)
-buxon.Publish(buxon.Resource("bus"), "changed", payload)
+xbin.Publish(xbin.Resource("bus"), "changed", payload)
 
 // frontend
-buxon.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
+xbin.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
           <p>Delivery is <strong>at-most-once</strong>: offline subscribers
           miss messages, and that's fine — the bus says <em>"something
           changed, go look"</em>, while truth lives in kv/sqlite. If you
@@ -445,7 +445,7 @@ buxon.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
         body: html`
           <p>Cron delivers scheduled POSTs to your own API — it wakes an
           idle backend, so periodic work costs nothing between runs:</p>
-          <pre>PUT /api/buxon/cron/jobs
+          <pre>PUT /api/xbin/cron/jobs
 { "name": "sweep", "resource": "res:apps/thing/cron",
   "schedule": "*/5 * * * *", "path": "/sweep", "role": "admin" }</pre>
           <p>Make handlers <strong>idempotent</strong> — a tick can arrive
@@ -470,13 +470,13 @@ buxon.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
         id: 'swap', title: 'the swap', color: 'cyan',
         teaser: 'blue/green on every save, 30 s drain',
         body: html`
-          <p>On save, buxond builds the new generation and swaps traffic to
+          <p>On save, xbind builds the new generation and swaps traffic to
           it. In-flight requests on the old process finish; long-lived
           WebSocket / SSE connections die at the <strong>30-second
           drain</strong> — so frontends must reconnect (the injected
-          <code>buxon.events</code> / <code>buxon.bus</code> clients already
+          <code>xbin.events</code> / <code>xbin.bus</code> clients already
           do).</p>
-          <p>Handle SIGTERM for a clean drain — <code>buxon.Serve</code> and
+          <p>Handle SIGTERM for a clean drain — <code>xbin.Serve</code> and
           the <code>bx new</code> skeletons do it for you. Each generation
           gets a fresh gateway token, so nothing from the old process stays
           usable.</p>`,
@@ -521,7 +521,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           <code>home/</code>, or the host — they aren't mounted.</p>
           <p>The network is <strong>default-deny</strong> too: outbound calls fail
           until the owner binds a <code>net</code> interface (see the interfaces
-          note). Reaching buxond and other components over the gateway always
+          note). Reaching xbind and other components over the gateway always
           works — that's not IP egress.</p>
           <p>So keep state in resources, never scattered files: anything outside a
           resource dir is a throwaway overlay, gone on the next save.</p>`,
@@ -533,7 +533,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           <p>Open a terminal on <code>apps/thing</code> and the whole workspace is
           mounted <strong>read-only except that component's dir and
           <code>$HOME</code></strong>. You can read siblings for patterns but can't
-          edit them — or workspace state (<code>buxon.json</code>,
+          edit them — or workspace state (<code>xbin.json</code>,
           <code>AGENTS.md</code>), or <code>data/</code>. A rogue agent can only
           break its own component.</p>
           <p>Commits still work because <strong>each component is its own git
@@ -548,7 +548,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           <p>A terminal's filesystem changes (an <code>apt install</code>, a
           tweaked <code>/etc</code>, a toolchain) land in a <strong>persistent
           per-component layer</strong>
-          (<code>.buxon/term/&lt;component&gt;/</code>) that survives across
+          (<code>.xbin/term/&lt;component&gt;/</code>) that survives across
           sessions and restarts — a real dev box per component. The ⟲ button
           resets it to clean.</p>
           <p>Two things to keep straight:</p>
@@ -613,8 +613,8 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           email), request an <code>http</code> interface by its <em>service
           contract</em> instead of hard-coding a tile, and discover the bound
           provider at runtime:</p>
-          <pre>const gw = buxon.iface('llm').url    // frontend
-$BUXON_IFACE_LLM_URL                 // backend env</pre>
+          <pre>const gw = xbin.iface('llm').url    // frontend
+$XBIN_IFACE_LLM_URL                 // backend env</pre>
           <p>The binding is also your <strong>call grant</strong>, so RBAC just
           passes. Swap Ollama ↔ a cloud proxy by rebinding — your code never
           changes.</p>`,
@@ -642,8 +642,8 @@ $BUXON_IFACE_LLM_URL                 // backend env</pre>
           <em>backup</em> tab or the API. Restore a whole version, or pull a
           <strong>single file</strong> out of a backup without touching the live
           component:</p>
-          <pre>POST /api/buxon/backup    { "component": "apps/thing" }
-POST /api/buxon/restore   { "component": "apps/thing", "file": "data/kv.json" }</pre>
+          <pre>POST /api/xbin/backup    { "component": "apps/thing" }
+POST /api/xbin/restore   { "component": "apps/thing", "file": "data/kv.json" }</pre>
           <p>Schedule it with a retention count and it prunes old versions
           itself.</p>`,
       },

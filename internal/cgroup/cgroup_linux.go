@@ -1,8 +1,8 @@
 //go:build linux
 
 // Package cgroup attaches component backends to per-component cgroup v2 groups
-// so buxond can report their memory/CPU/pids usage (plans/isolation.md). It is
-// best-effort: it works when buxond's cgroup is delegated and writable (a
+// so xbind can report their memory/CPU/pids usage (plans/isolation.md). It is
+// best-effort: it works when xbind's cgroup is delegated and writable (a
 // systemd user service with Delegate=yes, or a container's own cgroup) and
 // quietly disables itself otherwise.
 package cgroup
@@ -24,13 +24,13 @@ type Usage struct {
 	PidsCurrent int64 `json:"pidsCurrent"`
 }
 
-// Manager owns buxond's delegated cgroup subtree and per-component leaves.
+// Manager owns xbind's delegated cgroup subtree and per-component leaves.
 type Manager struct {
 	base    string // the delegated base cgroup dir
 	enabled bool
 }
 
-// New sets up (if possible) a delegated subtree: buxond moves itself into a
+// New sets up (if possible) a delegated subtree: xbind moves itself into a
 // leaf so controllers can be enabled for sibling per-component groups. Returns
 // a disabled Manager (safe no-op) when delegation isn't available.
 func New() *Manager {
@@ -47,7 +47,7 @@ func New() *Manager {
 	}
 	m.base = filepath.Join(mount, line[i+2:])
 
-	// Move buxond into an "init" leaf (cgroup v2 forbids enabling controllers on
+	// Move xbind into an "init" leaf (cgroup v2 forbids enabling controllers on
 	// a cgroup that has processes directly in it).
 	initLeaf := filepath.Join(m.base, "init")
 	if err := os.Mkdir(initLeaf, 0o755); err != nil && !os.IsExist(err) {

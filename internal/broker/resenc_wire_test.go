@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/magik6k/buxon/internal/vault"
+	"github.com/magik6k/xbin/internal/vault"
 )
 
 func TestKVCodecEncrypted(t *testing.T) {

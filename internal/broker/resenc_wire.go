@@ -4,10 +4,10 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/resenc"
-	"github.com/magik6k/buxon/internal/util"
-	"github.com/magik6k/buxon/internal/vault"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/resenc"
+	"github.com/magik6k/xbin/internal/util"
+	"github.com/magik6k/xbin/internal/vault"
 )
 
 // Encryption-at-rest for resource data (plans/vault-data.md). There is no
@@ -18,13 +18,13 @@ import (
 // unavailable — the component that uses it is held — never silently plaintext.
 
 // initResEnc builds the resource-encryption manager and clears any stale mounts
-// left by a previous buxond. Called from New (after the barrier is opened).
+// left by a previous xbind. Called from New (after the barrier is opened).
 func (b *Broker) initResEnc() {
 	bin := resenc.Resolve()
 	b.resenc = resenc.New(b.Reg.Root, bin, b.barrier.DeriveKey)
 	b.resenc.RecoverStale()
 	if bin == "" {
-		slog.Warn("resource encryption: gocryptfs not found — a component that uses a filesystem/sqlite/blob resource will be HELD until it's available (build it via `make build`, or set BUXON_GOCRYPTFS)")
+		slog.Warn("resource encryption: gocryptfs not found — a component that uses a filesystem/sqlite/blob resource will be HELD until it's available (build it via `make build`, or set XBIN_GOCRYPTFS)")
 	}
 }
 

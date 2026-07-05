@@ -5,9 +5,9 @@
   },
   "grants": [
     // Tile Manager may create components (workspace-management capability).
-    { "from": "tiles/manager", "target": "buxon", "role": "writer" },
+    { "from": "tiles/manager", "target": "xbin", "role": "writer" },
     // Admin console: full workspace administration (reads every vault,
     // manages grants/cron). Heavy — revoke to disarm the admin tile.
-    { "from": "tiles/admin", "target": "buxon", "role": "admin" }
+    { "from": "tiles/admin", "target": "xbin", "role": "admin" }
   ]
 }

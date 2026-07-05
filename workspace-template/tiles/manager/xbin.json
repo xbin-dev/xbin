@@ -1,0 +1,10 @@
+{
+  // Tile Manager: creates new tiles via POST /api/xbin/create. That is a
+  // workspace-management capability, requested here as a grant on the
+  // reserved target "xbin" (pre-approved in the workspace manifest —
+  // revoke it with `bx grant --revoke tiles/manager xbin:writer` and the
+  // request reappears in the grants panel).
+  "uses": [
+    { "target": "xbin", "role": "writer" }
+  ]
+}

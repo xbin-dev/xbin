@@ -1,4 +1,4 @@
-// Package backup defines buxon's self-describing component archive format
+// Package backup defines xbin's self-describing component archive format
 // (plans/lifecycle.md). A backup is a tar whose first entry, backup.json, fully
 // describes the component — so given *only* the archive (no live workspace, no
 // local metadata) restore can reconstruct the component's files and data. Vault
@@ -48,7 +48,7 @@ type Manifest struct {
 	Scope        string            `json:"scope"`     // scope path ("" = workspace scope)
 	ScopeRoot    bool              `json:"scopeRoot"` // component roots its scope → data included
 	Resources    map[string]string `json:"resources,omitempty"`
-	BuxonVersion string            `json:"buxonVersion"`
+	XBinVersion string            `json:"xbinVersion"`
 	Created      string            `json:"created"` // RFC3339
 	Includes     []string          `json:"includes"`
 	CronJobs     []json.RawMessage `json:"cronJobs,omitempty"`
@@ -162,7 +162,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 		return nil, err
 	}
 	if m.Schema > Schema {
-		return nil, errors.New("backup: archive schema newer than this buxon — upgrade to restore")
+		return nil, errors.New("backup: archive schema newer than this xbin — upgrade to restore")
 	}
 	return &Reader{tr: tr, M: m}, nil
 }

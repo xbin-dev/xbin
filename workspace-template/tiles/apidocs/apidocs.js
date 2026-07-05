@@ -1,7 +1,7 @@
 /**
- * <bx-apidocs> — renders buxond's built-in API from its OpenAPI 3.1 spec
- * (GET /api/buxon/openapi.json), grouped by tag, with the RBAC capability each
- * endpoint requires (the x-buxon-capability extension) shown as a badge. The
+ * <bx-apidocs> — renders xbind's built-in API from its OpenAPI 3.1 spec
+ * (GET /api/xbin/openapi.json), grouped by tag, with the RBAC capability each
+ * endpoint requires (the x-xbin-capability extension) shown as a badge. The
  * spec is standard OpenAPI, so the "spec" link also feeds Swagger UI / Postman.
  */
 import { LitElement, html, css, nothing } from 'lit';
@@ -74,7 +74,7 @@ export class BxApiDocs extends LitElement {
     super.connectedCallback();
     (async () => {
       try {
-        const r = await (window.buxon?.fetch ?? fetch)('/api/buxon/openapi.json');
+        const r = await (window.xbin?.fetch ?? fetch)('/api/xbin/openapi.json');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         this._spec = await r.json();
       } catch (e) { this._err = String(e.message ?? e); }
@@ -90,7 +90,7 @@ export class BxApiDocs extends LitElement {
     const groups = new Map();
     for (const [path, item] of Object.entries(spec.paths || {})) {
       for (const [method, op] of Object.entries(item)) {
-        const hay = (method + ' ' + path + ' ' + (op.summary || '') + ' ' + (op['x-buxon-capability'] || '')).toLowerCase();
+        const hay = (method + ' ' + path + ' ' + (op.summary || '') + ' ' + (op['x-xbin-capability'] || '')).toLowerCase();
         if (q && !hay.includes(q)) continue;
         const tag = (op.tags && op.tags[0]) || 'Other';
         if (!groups.has(tag)) groups.set(tag, []);
@@ -114,7 +114,7 @@ export class BxApiDocs extends LitElement {
         <span class="muted" style="font-size:11px">v${spec.info?.version} · base <span class="mono">${base}</span></span>
         <span class="spacer"></span>
         <input placeholder="filter…" .value=${this._q} @input=${(e) => { this._q = e.target.value; }}>
-        <a href="/api/buxon/openapi.json" target="_blank" title="raw OpenAPI 3.1 spec — import into Swagger UI / Postman">spec ↗</a>
+        <a href="/api/xbin/openapi.json" target="_blank" title="raw OpenAPI 3.1 spec — import into Swagger UI / Postman">spec ↗</a>
       </div>
       <div class="body">
         <div class="intro desc">${md(spec.info?.description)}</div>
@@ -128,7 +128,7 @@ export class BxApiDocs extends LitElement {
   _op(method, path, op, base) {
     const id = method + ' ' + path;
     const open = this._open.has(id);
-    const cap = op['x-buxon-capability'];
+    const cap = op['x-xbin-capability'];
     return html`
       <div class="op">
         <div class="row" @click=${() => this._toggle(id)}>

@@ -29,14 +29,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/cgroup"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/gpu"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/sandbox"
-	"github.com/magik6k/buxon/internal/sandbox/relay"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/cgroup"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/gpu"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/magik6k/xbin/internal/sandbox/relay"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 const (
@@ -81,7 +81,7 @@ type state struct {
 
 type Runner struct {
 	Root   string // workspace root
-	RunDir string // .buxon/run
+	RunDir string // .xbin/run
 	Auth   *auth.Auth
 	Hub    *events.Hub
 	Reg    *registry.Registry
@@ -127,8 +127,8 @@ type Runner struct {
 
 func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Runner {
 	runDir := runDirFor(root)
-	_ = os.MkdirAll(filepath.Join(root, ".buxon", "log"), 0o755)
-	_ = os.MkdirAll(filepath.Join(root, ".buxon", "cache"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, ".xbin", "log"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, ".xbin", "cache"), 0o755)
 	r := &Runner{
 		Root: root, RunDir: runDir, Auth: a, Hub: hub, Reg: reg,
 		states: map[string]*state{}, netmux: newNetMux(),
@@ -300,7 +300,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 			}
 		}
 		if recent >= crashLimit {
-			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); fix the code and save to retry — see .buxon/log/%s.log", recent, util.CompKey(c.Path))
+			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); fix the code and save to retry — see .xbin/log/%s.log", recent, util.CompKey(c.Path))
 			r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: s.lastErr.Error()})
 		} else {
 			s.dirty = true // transparent restart on next request
@@ -321,14 +321,14 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		if entry == "" {
 			entry = "./backend"
 		}
-		out := filepath.Join(r.Root, ".buxon", "build", util.CompKey(c.Path), "bin")
+		out := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path), "bin")
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return "", err
 		}
 		cmd := exec.Command("go", "build", "-o", out, entry)
 		cmd.Dir = c.Dir
 		cmd.Env = append(os.Environ(),
-			"GOCACHE="+filepath.Join(r.Root, ".buxon", "cache", "go-build"),
+			"GOCACHE="+filepath.Join(r.Root, ".xbin", "cache", "go-build"),
 		)
 		if r.Isolate {
 			// Build fully static so the backend runs on any sandbox rootfs,
@@ -350,7 +350,7 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		}
 		p := filepath.Join(c.Dir, filepath.FromSlash(entry))
 		if _, err := os.Stat(p); err != nil {
-			return "", &BuildError{Output: fmt.Sprintf("entry %s not found (set \"entry\" in buxon.json)", entry)}
+			return "", &BuildError{Output: fmt.Sprintf("entry %s not found (set \"entry\" in xbin.json)", entry)}
 		}
 		return p, nil
 	default:
@@ -369,10 +369,10 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	token := util.RandomToken(24)
 
 	env := append(os.Environ(),
-		"BUXON_SOCKET="+sock,
-		"BUXON_COMPONENT="+c.Path,
-		"BUXON_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
-		"BUXON_TOKEN="+token,
+		"XBIN_SOCKET="+sock,
+		"XBIN_COMPONENT="+c.Path,
+		"XBIN_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
+		"XBIN_TOKEN="+token,
 	)
 	if r.EnvForComponent != nil {
 		env = append(env, r.EnvForComponent(c)...)
@@ -415,7 +415,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	}
 
 	logf, err := os.OpenFile(
-		filepath.Join(r.Root, ".buxon", "log", util.CompKey(c.Path)+".log"),
+		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
@@ -528,7 +528,7 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		{Src: gw, Dst: gw},                 // the gateway socket (component↔component + RBAC)
 	}
 	// File-backed resources (sqlite) are handed to the backend as absolute
-	// BUXON_RES_* env paths; bind their dirs read-write so they persist.
+	// XBIN_RES_* env paths; bind their dirs read-write so they persist.
 	binds = append(binds, resourceBinds(env, r.Root)...)
 
 	var entry string
@@ -595,7 +595,7 @@ func pathExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // resourceBinds returns the read-write binds for a component's file-backed
 // resources (sqlite). EnvFor hands each granted same-scope sqlite resource to the
-// backend as an absolute BUXON_RES_* path. We bind that path's **directory** (the
+// backend as an absolute XBIN_RES_* path. We bind that path's **directory** (the
 // scope's resource dir), not the file, so that:
 //   - a *fresh* db works — the file doesn't exist yet (sqlite creates it on first
 //     open), so binding the file alone would drop it (pathExists was false) and
@@ -665,7 +665,7 @@ func (r *Runner) Stop(comp string) {
 	}
 }
 
-// StopAll terminates all backends (buxond shutdown).
+// StopAll terminates all backends (xbind shutdown).
 func (r *Runner) StopAll() {
 	r.mu.Lock()
 	states := make([]*state, 0, len(r.states))
@@ -687,7 +687,7 @@ func (r *Runner) StopAll() {
 	wg.Wait()
 }
 
-// Status reports per-component backend state for /api/buxon/status.
+// Status reports per-component backend state for /api/xbin/status.
 func (r *Runner) Status() map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -750,22 +750,22 @@ func waitHealthy(sock string, timeout time.Duration) error {
 	return errors.New("timeout dialing backend socket")
 }
 
-// runDirFor picks the socket directory. Preferred: <ws>/.buxon/run. Unix
+// runDirFor picks the socket directory. Preferred: <ws>/.xbin/run. Unix
 // socket paths are limited to ~108 bytes, so for deeply nested workspaces we
-// fall back to a short tmp dir and leave a symlink at .buxon/run so shells
+// fall back to a short tmp dir and leave a symlink at .xbin/run so shells
 // still find the sockets where the docs say they are.
-// runDirFor picks the directory holding buxond's IPC sockets (the gateway socket
+// runDirFor picks the directory holding xbind's IPC sockets (the gateway socket
 // + each backend's per-generation listen socket). It is bind-mounted **RW** into
 // every component sandbox, so it must live on a **tmpfs**, never the workspace
 // disk: a component sandbox must not get a RW mount backed by host disk
 // (plans/isolation.md — only tmpfs / gocryptfs / ro). We prefer systemd's
-// RuntimeDirectory (/run/buxon) or $XDG_RUNTIME_DIR (both tmpfs), then $TMPDIR;
-// a symlink under `.buxon/run` points at it for discoverability.
+// RuntimeDirectory (/run/xbin) or $XDG_RUNTIME_DIR (both tmpfs), then $TMPDIR;
+// a symlink under `.xbin/run` points at it for discoverability.
 func runDirFor(root string) string {
-	link := filepath.Join(root, ".buxon", "run")
-	_ = os.RemoveAll(link) // stale sockets/symlink from a previous buxond
+	link := filepath.Join(root, ".xbin", "run")
+	_ = os.RemoveAll(link) // stale sockets/symlink from a previous xbind
 	h := sha256.Sum256([]byte(root))
-	name := "buxon-" + hex.EncodeToString(h[:4])
+	name := "xbin-" + hex.EncodeToString(h[:4])
 	for _, base := range runtimeBases() {
 		dir := filepath.Join(base, name, "run")
 		_ = os.RemoveAll(dir)
@@ -781,8 +781,8 @@ func runDirFor(root string) string {
 		return dir
 	}
 	// No tmpfs available: fall back to the workspace and warn — a component
-	// sandbox will then bind a RW host-disk run dir (set RuntimeDirectory=buxon).
-	slog.Warn("run dir: no tmpfs runtime dir found (RuntimeDirectory/XDG_RUNTIME_DIR/TMPDIR); component sandboxes will get a RW host-disk run dir — set RuntimeDirectory=buxon in the unit")
+	// sandbox will then bind a RW host-disk run dir (set RuntimeDirectory=xbin).
+	slog.Warn("run dir: no tmpfs runtime dir found (RuntimeDirectory/XDG_RUNTIME_DIR/TMPDIR); component sandboxes will get a RW host-disk run dir — set RuntimeDirectory=xbin in the unit")
 	_ = os.MkdirAll(link, 0o755)
 	return link
 }

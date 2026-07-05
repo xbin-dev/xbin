@@ -2,7 +2,7 @@
 
 Calendar events for the workspace. The reference example of a scope exposing
 a service API + a bus other apps can tap into (the "email reads calendar"
-story from the buxon docs).
+story from the xbin docs).
 
 ## Roles
 
@@ -36,7 +36,7 @@ event. Publishes `events/created` on `res:apps/calendar/bus`.
 ## Use it
 
 ```jsonc
-// caller's buxon.json
+// caller's xbin.json
 {
   "uses": [
     { "target": "apps/calendar",         "role": "reader" },
@@ -46,10 +46,10 @@ event. Publishes `events/created` on `res:apps/calendar/bus`.
 ```
 
 ```go
-resp, _ := buxon.Client().Get("http://buxon/api/apps/calendar/events?day=2026-07-02")
+resp, _ := xbin.Client().Get("http://xbin/api/apps/calendar/events?day=2026-07-02")
 ```
 
 ```js
 // frontend
-buxon.bus.on('res:apps/calendar/bus/events/', (topic, ev) => refresh());
+xbin.bus.on('res:apps/calendar/bus/events/', (topic, ev) => refresh());
 ```

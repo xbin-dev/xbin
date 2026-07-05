@@ -1,9 +1,9 @@
-// buxond — the buxon workspace daemon. See plans/ for the design and /docs/
+// xbind — the xbin workspace daemon. See plans/ for the design and /docs/
 // (served by this binary) for the builder-facing documentation.
 //
-//	buxond init <dir>              scaffold a workspace
-//	buxond [flags]                 serve a workspace
-//	buxond version
+//	xbind init <dir>              scaffold a workspace
+//	xbind [flags]                 serve a workspace
+//	xbind version
 package main
 
 import (
@@ -22,22 +22,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/magik6k/buxon"
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/broker"
-	"github.com/magik6k/buxon/internal/builtins"
-	"github.com/magik6k/buxon/internal/cgroup"
-	"github.com/magik6k/buxon/internal/deps"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/gpu"
-	"github.com/magik6k/buxon/internal/proxy"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/runner"
-	"github.com/magik6k/buxon/internal/sandbox"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/term"
-	"github.com/magik6k/buxon/internal/users"
-	"github.com/magik6k/buxon/internal/watch"
+	"github.com/magik6k/xbin"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/broker"
+	"github.com/magik6k/xbin/internal/builtins"
+	"github.com/magik6k/xbin/internal/cgroup"
+	"github.com/magik6k/xbin/internal/deps"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/gpu"
+	"github.com/magik6k/xbin/internal/proxy"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/runner"
+	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/term"
+	"github.com/magik6k/xbin/internal/users"
+	"github.com/magik6k/xbin/internal/watch"
 )
 
 var version = "dev" // set via -ldflags at release
@@ -47,8 +47,8 @@ var startTime = time.Now()
 // encryption-at-rest is ON by default while dogfooding (a bare `make dev`
 // encrypts filesystem/sqlite/blob resources + kv). It is a FIXED key baked into
 // the source — INSECURE by construction — and is never used outside dev/no-auth;
-// real deployments supply BUXON_VAULT_PASSPHRASE or unseal manually.
-const devVaultPassphrase = "buxon-dev-insecure-vault"
+// real deployments supply XBIN_VAULT_PASSPHRASE or unseal manually.
+const devVaultPassphrase = "xbin-dev-insecure-vault"
 
 func kernelRelease() string {
 	if b, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
@@ -65,13 +65,13 @@ func main() {
 			// namespaces, assemble its rootfs, and exec the backend. Must be
 			// handled before any flag parsing (plans/isolation-impl.md).
 			if len(os.Args) < 3 {
-				fatal("usage: buxond __sandbox-init <spec>")
+				fatal("usage: xbind __sandbox-init <spec>")
 			}
 			sandbox.RunInit(os.Args[2]) // never returns on linux
 			return
 		case "init":
 			if len(os.Args) < 3 {
-				fatal("usage: buxond init <dir>")
+				fatal("usage: xbind init <dir>")
 			}
 			if err := initWorkspace(os.Args[2]); err != nil {
 				fatal("init: %v", err)
@@ -79,20 +79,20 @@ func main() {
 			fmt.Println("workspace initialized:", os.Args[2])
 			return
 		case "version":
-			fmt.Println("buxond", version)
+			fmt.Println("xbind", version)
 			return
 		}
 	}
 
 	var (
-		wsFlag        = flag.String("workspace", envOr("BUXON_WORKSPACE", "/workspace"), "workspace directory")
-		listen        = flag.String("listen", envOr("BUXON_LISTEN", "127.0.0.1:8642"), "listen address")
+		wsFlag        = flag.String("workspace", envOr("XBIN_WORKSPACE", "/workspace"), "workspace directory")
+		listen        = flag.String("listen", envOr("XBIN_LISTEN", "127.0.0.1:8642"), "listen address")
 		dev           = flag.Bool("dev", false, "dev mode: web/docs served from source tree, debug logs")
 		noAuth        = flag.Bool("no-auth", false, "disable auth (dev only; every request is admin)")
 		scopeUIDs     = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
 		insecureVault = flag.Bool("insecure-vault", false, "store secrets AND resource data as PLAINTEXT at rest (not recommended; --no-auth implies it; a bare --dev instead auto-encrypts with a dev key)")
 		isolate       = flag.Bool("isolate", false, "run each backend in a per-component sandbox (namespaces + overlay rootfs; auth tier 3, needs --rootfs)")
-		rootfs        = flag.String("rootfs", envOr("BUXON_ROOTFS", ""), "base rootfs dir (unpacked OCI image) for --isolate sandboxes")
+		rootfs        = flag.String("rootfs", envOr("XBIN_ROOTFS", ""), "base rootfs dir (unpacked OCI image) for --isolate sandboxes")
 	)
 	flag.Parse()
 
@@ -121,13 +121,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	}
 
 	// Auto-init an empty workspace mount (deployment.md §install).
-	if _, err := os.Stat(filepath.Join(ws, "buxon.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(ws, "xbin.json")); err != nil {
 		slog.Info("initializing workspace", "dir", ws)
 		if err := initWorkspace(ws); err != nil {
 			return fmt.Errorf("auto-init: %w", err)
 		}
 	}
-	// Backfill infrastructure files into workspaces created by older buxond.
+	// Backfill infrastructure files into workspaces created by older xbind.
 	// Only these: unlike app content, their absence is never deliberate —
 	// agents depend on AGENTS.md, and an empty $HOME drops zsh into the
 	// zsh-newuser-install wizard.
@@ -192,28 +192,28 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 
 	baseURL := "http://" + listen
 	// Make `bx` runnable in terminals. In the container it's already on PATH
-	// (/opt/buxon/bin, Dockerfile); in dev/host mode it usually isn't, so we
+	// (/opt/xbin/bin, Dockerfile); in dev/host mode it usually isn't, so we
 	// prepend the directory holding the bx binary.
 	bxDir := locateBx(dev)
 	if bxDir == "" {
-		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: go build -o bin/bx ./cmd/bx, or set BUXON_BIN)")
+		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	tm := term.NewManager(ws, func() []string {
 		env := []string{
-			"BUXON_URL=" + baseURL,
-			"BUXON_TOKEN=" + a.OwnerToken,
-			"BUXON_WORKSPACE=" + ws,
-			"HOME=" + home,                                      // D6: dotfiles live inside the workspace
-			"BUXON_DOCS=" + filepath.Join(ws, ".buxon", "docs"), // builder docs, on disk
+			"XBIN_URL=" + baseURL,
+			"XBIN_TOKEN=" + a.OwnerToken,
+			"XBIN_WORKSPACE=" + ws,
+			"HOME=" + home,                                    // D6: dotfiles live inside the workspace
+			"XBIN_DOCS=" + filepath.Join(ws, ".xbin", "docs"), // builder docs, on disk
 		}
 		if bxDir != "" {
 			env = append(env, "PATH="+bxDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 		}
 		return env
 	})
-	tm.Listen = listen // for the internet-scope relay host-forward to buxond
+	tm.Listen = listen // for the internet-scope relay host-forward to xbind
 
-	webFS, docsFS := buxon.WebFS(), buxon.DocsFS()
+	webFS, docsFS := xbin.WebFS(), xbin.DocsFS()
 	if dev {
 		if src := devSourceDir(); src != "" {
 			slog.Info("dev mode: serving web/ and docs/ from disk", "dir", src)
@@ -221,9 +221,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			docsFS = os.DirFS(filepath.Join(src, "docs"))
 		}
 	}
-	// Materialize the builder docs on disk (BUXON_DOCS) so a terminal — sandboxed
+	// Materialize the builder docs on disk (XBIN_DOCS) so a terminal — sandboxed
 	// or not — can read AGENTS.md's companions (elements.md, auth.md, …) as files.
-	if err := extractFS(docsFS, filepath.Join(ws, ".buxon", "docs")); err != nil {
+	if err := extractFS(docsFS, filepath.Join(ws, ".xbin", "docs")); err != nil {
 		slog.Warn("extract docs", "err", err)
 	}
 
@@ -233,13 +233,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		return err
 	}
 	// Embedded optional tile catalog (plans/tile-sharing.md).
-	if set, err := builtins.Load(buxon.BuiltinTilesFS()); err != nil {
+	if set, err := builtins.Load(xbin.BuiltinTilesFS()); err != nil {
 		slog.Warn("builtin tiles", "err", err)
 	} else {
 		brk.SetBuiltins(set)
 	}
 	// Embedded builtin template catalog (plans/templates.md).
-	if set, err := builtins.LoadTemplates(buxon.BuiltinTemplatesFS()); err != nil {
+	if set, err := builtins.LoadTemplates(xbin.BuiltinTemplatesFS()); err != nil {
 		slog.Warn("builtin templates", "err", err)
 	} else {
 		brk.SetBuiltinTemplates(set)
@@ -247,8 +247,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	// Builtin update tracking (plans/builtin-updates.md): offer newer embedded
 	// scaffold/tiles to existing workspaces without trampling customizations.
 	{
-		tileSet, _ := builtins.Load(buxon.BuiltinTilesFS())
-		brk.SetUpdater(builtins.NewUpdater(reg.Root, tileSet, buxon.TemplateFS()))
+		tileSet, _ := builtins.Load(xbin.BuiltinTilesFS())
+		brk.SetUpdater(builtins.NewUpdater(reg.Root, tileSet, xbin.TemplateFS()))
 	}
 	// After a broker-driven structure change (tile import), reconcile deps and
 	// regenerate go.work immediately so the new tile is usable at once.
@@ -266,7 +266,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	// protects both secrets and resource data (kv/filesystem/sqlite/blob) at
 	// rest. Secure by default in production; ON by default under a bare `make
 	// dev` too. Modes (first match wins):
-	//   - BUXON_VAULT_PASSPHRASE set → auto-init/unseal at boot (convenient).
+	//   - XBIN_VAULT_PASSPHRASE set → auto-init/unseal at boot (convenient).
 	//   - --insecure-vault or --no-auth → plaintext at rest (the opt-out; the
 	//     frictionless/harness path — barrier stays uninitialized).
 	//   - --dev (without the above) → auto-init with a built-in DEV key so
@@ -276,14 +276,14 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	//     (creates the barrier on first use; the passphrase never touches env —
 	//     the strongest mode).
 	brk.AllowInsecureVault = insecureVault || noAuth
-	switch pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); {
+	switch pass := os.Getenv("XBIN_VAULT_PASSPHRASE"); {
 	case pass != "":
 		if err := brk.UnsealOrInit(pass); err != nil {
 			return fmt.Errorf("vault unseal: %w", err)
 		}
 		slog.Info("vault: encryption at rest active (auto-unsealed from env)")
 	case insecureVault || noAuth:
-		slog.Warn("vault: NO encryption at rest — data is plaintext on disk (--insecure-vault/--no-auth). Set BUXON_VAULT_PASSPHRASE or drop the flag to encrypt")
+		slog.Warn("vault: NO encryption at rest — data is plaintext on disk (--insecure-vault/--no-auth). Set XBIN_VAULT_PASSPHRASE or drop the flag to encrypt")
 	case dev:
 		// Dev convenience: init on first run, unseal on later runs, with a fixed
 		// in-source key (INSECURE — dev only), so encryption-at-rest is exercised
@@ -291,7 +291,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		if err := brk.UnsealOrInit(devVaultPassphrase); err != nil {
 			return fmt.Errorf("vault dev-init: %w", err)
 		}
-		slog.Warn("vault: encryption at rest active with a built-in DEV key (INSECURE — dev only; use BUXON_VAULT_PASSPHRASE or manual unseal in production)")
+		slog.Warn("vault: encryption at rest active with a built-in DEV key (INSECURE — dev only; use XBIN_VAULT_PASSPHRASE or manual unseal in production)")
 	case brk.Barrier().Initialized():
 		slog.Warn("vault: encrypted and SEALED — an admin must unseal it after login (bx vault unseal, or the admin console); secret reads/writes fail until then")
 	default:
@@ -321,7 +321,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.SpawnUser = brk.SpawnUser
 	}
 	// Per-component cgroup v2 accounting (memory/CPU/pids), best-effort — active
-	// only when buxond's cgroup is delegated (systemd Delegate=yes / a container).
+	// only when xbind's cgroup is delegated (systemd Delegate=yes / a container).
 	if cg := cgroup.New(); cg.Enabled() {
 		run.Cgroup = cg
 		slog.Info("cgroup v2 accounting enabled")
@@ -354,7 +354,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		// (editing plane), plus the SDK source ro so `go build` resolves.
 		tm.Isolate = true
 		tm.Rootfs = abs
-		if sdk, err := filepath.Abs(envOr("BUXON_SDK_PATH", "")); err == nil && dirExists(sdk) {
+		if sdk, err := filepath.Abs(envOr("XBIN_SDK_PATH", "")); err == nil && dirExists(sdk) {
 			tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
 		}
 		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
@@ -403,7 +403,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 
 	handler := srv.Handler()
 
-	// Gateway socket: element backends call other elements / buxon APIs here
+	// Gateway socket: element backends call other elements / xbin APIs here
 	// with their instance tokens (plans/auth.md §3). Same handler, same auth.
 	gwSock := filepath.Join(run.RunDir, "gateway.sock")
 	_ = os.Remove(gwSock)
@@ -424,9 +424,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 
 	if noAuth {
 		slog.Warn("auth disabled")
-		fmt.Printf("\n  buxon (no auth): %s\n\n", baseURL)
+		fmt.Printf("\n  xbin (no auth): %s\n\n", baseURL)
 	} else {
-		fmt.Printf("\n  buxon login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerToken)
+		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerToken)
 	}
 
 	httpSrv := &http.Server{Handler: handler}
@@ -488,7 +488,7 @@ func seedTemplateFile(dir, name string) error {
 	if _, err := os.Stat(out); err == nil {
 		return nil // never overwrite
 	}
-	b, err := fs.ReadFile(buxon.TemplateFS(), name)
+	b, err := fs.ReadFile(xbin.TemplateFS(), name)
 	if err != nil {
 		return err
 	}
@@ -504,7 +504,7 @@ func initWorkspace(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tpl := buxon.TemplateFS()
+	tpl := xbin.TemplateFS()
 	err := fs.WalkDir(tpl, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -514,7 +514,7 @@ func initWorkspace(dir string) error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{".buxon", "data", "home", "apps", "lib"} {
+	for _, sub := range []string{".xbin", "data", "home", "apps", "lib"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			return err
 		}
@@ -532,15 +532,15 @@ func initWorkspace(dir string) error {
 			}
 		}
 	}
-	// Record scaffold provenance so a future buxond can offer updates to these
+	// Record scaffold provenance so a future xbind can offer updates to these
 	// components without clobbering the user's edits (plans/builtin-updates.md).
-	if err := builtins.NewUpdater(dir, nil, buxon.TemplateFS()).RecordScaffoldSeed(); err != nil {
+	if err := builtins.NewUpdater(dir, nil, xbin.TemplateFS()).RecordScaffoldSeed(); err != nil {
 		slog.Warn("record scaffold provenance", "err", err)
 	}
 	return nil
 }
 
-// dropToWorkspaceOwner implements decision D13(b): buxond started as root
+// dropToWorkspaceOwner implements decision D13(b): xbind started as root
 // becomes the workspace directory's owner so bind-mounted workspaces keep
 // sane file ownership.
 func dropToWorkspaceOwner(ws string) error {
@@ -582,11 +582,11 @@ func reapZombies() {
 }
 
 // locateBx returns the directory containing the `bx` CLI so it can be put on
-// terminals' PATH. Resolution order: BUXON_BIN override; next to the buxond
-// binary (container /opt/buxon/bin, `make build` bin/); dev repo bin/; then
-// whatever is already on buxond's PATH.
+// terminals' PATH. Resolution order: XBIN_BIN override; next to the xbind
+// binary (container /opt/xbin/bin, `make build` bin/); dev repo bin/; then
+// whatever is already on xbind's PATH.
 func locateBx(dev bool) string {
-	if p := os.Getenv("BUXON_BIN"); p != "" {
+	if p := os.Getenv("XBIN_BIN"); p != "" {
 		return p
 	}
 	if exe, err := os.Executable(); err == nil {
@@ -633,7 +633,7 @@ func isFile(p string) bool {
 	return err == nil && !fi.IsDir()
 }
 
-// devSourceDir finds the repo root when running via `go run ./cmd/buxond`.
+// devSourceDir finds the repo root when running via `go run ./cmd/xbind`.
 func devSourceDir() string {
 	if _, err := os.Stat("web/bx-frame.js"); err == nil {
 		wd, _ := os.Getwd()

@@ -1,21 +1,21 @@
-// Package buxon is the Go SDK for buxon component backends.
+// Package xbin is the Go SDK for xbin component backends.
 //
 // A minimal backend:
 //
 //	func main() {
 //		mux := http.NewServeMux()
 //		mux.HandleFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
-//			fmt.Fprintf(w, "hello, %s (role %s)\n", buxon.Caller(r).From, buxon.Caller(r).Role)
+//			fmt.Fprintf(w, "hello, %s (role %s)\n", xbin.Caller(r).From, xbin.Caller(r).Role)
 //		})
-//		mux.Handle("POST /things", buxon.Role("writer", createThing))
-//		buxon.Serve(mux)
+//		mux.Handle("POST /things", xbin.Role("writer", createThing))
+//		xbin.Serve(mux)
 //	}
 //
-// The runner injects everything via env: BUXON_SOCKET (where to listen),
-// BUXON_COMPONENT (own path), BUXON_GATEWAY + BUXON_TOKEN (how to call other
-// elements and buxon APIs), BUXON_RES_* (granted resources). Full builder
-// docs: /docs/sdk.md in any buxon workspace.
-package buxon
+// The runner injects everything via env: XBIN_SOCKET (where to listen),
+// XBIN_COMPONENT (own path), XBIN_GATEWAY + XBIN_TOKEN (how to call other
+// elements and xbin APIs), XBIN_RES_* (granted resources). Full builder
+// docs: /docs/sdk.md in any xbin workspace.
+package xbin
 
 import (
 	"bytes"
@@ -33,18 +33,18 @@ import (
 	"time"
 )
 
-// Serve listens on the buxon-provided unix socket and blocks until SIGTERM,
+// Serve listens on the xbin-provided unix socket and blocks until SIGTERM,
 // then drains gracefully (the runner allows 30 s; see docs/elements.md).
 func Serve(h http.Handler) {
-	sock := os.Getenv("BUXON_SOCKET")
+	sock := os.Getenv("XBIN_SOCKET")
 	if sock == "" {
-		fmt.Fprintln(os.Stderr, "buxon: BUXON_SOCKET not set (not running under buxond?)")
+		fmt.Fprintln(os.Stderr, "xbin: XBIN_SOCKET not set (not running under xbind?)")
 		os.Exit(1)
 	}
 	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "buxon: listen:", err)
+		fmt.Fprintln(os.Stderr, "xbin: listen:", err)
 		os.Exit(1)
 	}
 	srv := &http.Server{Handler: h}
@@ -57,26 +57,26 @@ func Serve(h http.Handler) {
 		_ = srv.Shutdown(ctx)
 	}()
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintln(os.Stderr, "buxon: serve:", err)
+		fmt.Fprintln(os.Stderr, "xbin: serve:", err)
 		os.Exit(1)
 	}
 }
 
 // Self returns this component's path (its identity).
-func Self() string { return os.Getenv("BUXON_COMPONENT") }
+func Self() string { return os.Getenv("XBIN_COMPONENT") }
 
-// CallerInfo is the verified identity buxond attached to an inbound request.
+// CallerInfo is the verified identity xbind attached to an inbound request.
 type CallerInfo struct {
-	From  string // "owner", a component path, or "buxon/cron"
+	From  string // "owner", a component path, or "xbin/cron"
 	Role  string // role the caller was granted on this component
 	Owner bool
 }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
-// because buxond strips inbound X-Buxon-* headers before injecting these.
+// because xbind strips inbound X-XBin-* headers before injecting these.
 func Caller(r *http.Request) CallerInfo {
-	from := r.Header.Get("X-Buxon-From")
-	return CallerInfo{From: from, Role: r.Header.Get("X-Buxon-Role"), Owner: from == "owner"}
+	from := r.Header.Get("X-XBin-From")
+	return CallerInfo{From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner"}
 }
 
 // roleRank orders the conventional role names. Custom roles are exact-match.
@@ -120,10 +120,10 @@ func Role(want string, h http.Handler) http.Handler {
 // RoleFunc is Role for plain handler funcs.
 func RoleFunc(want string, h http.HandlerFunc) http.Handler { return Role(want, h) }
 
-// Client returns an *http.Client that calls through the buxon gateway with
+// Client returns an *http.Client that calls through the xbin gateway with
 // this instance's identity. Use URLs like:
 //
-//	resp, err := buxon.Client().Get("http://buxon/api/apps/calendar/events")
+//	resp, err := xbin.Client().Get("http://xbin/api/apps/calendar/events")
 //
 // Cross-element calls require a grant (docs/auth.md).
 //
@@ -133,7 +133,7 @@ func RoleFunc(want string, h http.HandlerFunc) http.Handler { return Role(want, 
 //
 //	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 //	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-//	resp, err := buxon.Client().Do(req)
+//	resp, err := xbin.Client().Do(req)
 //
 // The returned client is shared (connection keep-alive across calls).
 func Client() *http.Client {
@@ -146,7 +146,7 @@ func Client() *http.Client {
 			IdleConnTimeout: 90 * time.Second,
 		}
 		sharedClient = &http.Client{
-			Transport: &gatewayTransport{base: tr, token: os.Getenv("BUXON_TOKEN")},
+			Transport: &gatewayTransport{base: tr, token: os.Getenv("XBIN_TOKEN")},
 		}
 	})
 	return sharedClient
@@ -157,18 +157,18 @@ var (
 	sharedClient *http.Client
 )
 
-// GatewayDial opens a raw connection to the buxon gateway socket. Use it to
+// GatewayDial opens a raw connection to the xbin gateway socket. Use it to
 // speak protocols http.Client can't — e.g. WebSocket to another element
 // with any WS library:
 //
 //	d := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-//		return buxon.GatewayDial(ctx)
+//		return xbin.GatewayDial(ctx)
 //	}}
-//	h := http.Header{"Authorization": {"Bearer " + os.Getenv("BUXON_TOKEN")}}
-//	conn, _, err := d.DialContext(ctx, "ws://buxon/api/apps/other/stream", h)
+//	h := http.Header{"Authorization": {"Bearer " + os.Getenv("XBIN_TOKEN")}}
+//	conn, _, err := d.DialContext(ctx, "ws://xbin/api/apps/other/stream", h)
 func GatewayDial(ctx context.Context) (net.Conn, error) {
 	d := net.Dialer{Timeout: 10 * time.Second}
-	return d.DialContext(ctx, "unix", os.Getenv("BUXON_GATEWAY"))
+	return d.DialContext(ctx, "unix", os.Getenv("XBIN_GATEWAY"))
 }
 
 type gatewayTransport struct {
@@ -183,9 +183,9 @@ func (t *gatewayTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // Resource returns the DSN/path of a granted resource by its short name
-// ("db" → env BUXON_RES_DB). Empty string when not granted.
+// ("db" → env XBIN_RES_DB). Empty string when not granted.
 func Resource(name string) string {
-	key := "BUXON_RES_" + strings.ToUpper(strings.Map(func(r rune) rune {
+	key := "XBIN_RES_" + strings.ToUpper(strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
 			return r
 		}
@@ -196,7 +196,7 @@ func Resource(name string) string {
 
 // Secret reads a key from this component's private vault (docs/auth.md §vault).
 func Secret(name string) (string, error) {
-	resp, err := Client().Get("http://buxon/api/buxon/vault/" + Self() + "/" + name)
+	resp, err := Client().Get("http://xbin/api/xbin/vault/" + Self() + "/" + name)
 	if err != nil {
 		return "", err
 	}
@@ -221,7 +221,7 @@ func Publish(resource, topic string, data any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := Client().Post("http://buxon/api/buxon/bus/publish", "application/json", bytes.NewReader(body))
+	resp, err := Client().Post("http://xbin/api/xbin/bus/publish", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

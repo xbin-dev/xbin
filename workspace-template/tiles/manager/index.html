@@ -1,8 +1,8 @@
 <!doctype html>
 <!-- Tile Manager — create tiles, stamp out templates, or import builtins
-     without touching a shell. Create → POST /api/buxon/create; Template →
-     GET/POST /api/buxon/templates; Import → GET/POST /api/buxon/builtins. All
-     need this element's buxon:writer grant (declared in buxon.json). -->
+     without touching a shell. Create → POST /api/xbin/create; Template →
+     GET/POST /api/xbin/templates; Import → GET/POST /api/xbin/builtins. All
+     need this element's xbin:writer grant (declared in xbin.json). -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -106,7 +106,7 @@
 
   <div class="body" id="import-tab" hidden>
     <p class="muted" style="font-size:12px;margin:0 0 8px">
-      Optional tiles bundled with buxon. Import copies one into this workspace;
+      Optional tiles bundled with xbin. Import copies one into this workspace;
       cross-scope tiles will need a grant you approve afterwards.</p>
     <div id="tiles"><span class="muted">loading…</span></div>
   </div>
@@ -129,7 +129,7 @@
   <div class="body" id="updates-tab" hidden>
     <p class="muted" style="font-size:12px;margin:0 0 8px">
       Newer versions of builtin components (the shell, manager/admin tiles,
-      imported tiles) that shipped with this buxond. <b>Replace</b> takes the new
+      imported tiles) that shipped with this xbind. <b>Replace</b> takes the new
       version; <b>Merge</b> 3-way-merges it with your edits (everything is in git,
       so it's recoverable). Template instances are yours and aren't tracked.</p>
     <div id="updates"><span class="muted">loading…</span></div>
@@ -164,7 +164,7 @@
       const path = 'apps/' + slug.value.replace(/^\/+|\/+$/g, '');
       btn.disabled = true; msg.className = 'msg'; msg.textContent = 'creating…';
       try {
-        const r = await buxon.fetch('/api/buxon/create', {
+        const r = await xbin.fetch('/api/xbin/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, title: pretty.value.trim() }),
         });
@@ -189,7 +189,7 @@
       if (!url) return;
       info.innerHTML = '<span class="muted">checking…</span>';
       try {
-        const r = await buxon.fetch('/api/buxon/git/remote-info?url=' + encodeURIComponent(url));
+        const r = await xbin.fetch('/api/xbin/git/remote-info?url=' + encodeURIComponent(url));
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error ?? r.status);
         const opts = [];
@@ -214,7 +214,7 @@
       const btn = document.getElementById('git-import');
       btn.disabled = true; imsg.className = 'msg'; imsg.textContent = 'cloning…';
       try {
-        const r = await buxon.fetch('/api/buxon/git/import', {
+        const r = await xbin.fetch('/api/xbin/git/import', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url, path, ref }),
         });
@@ -231,7 +231,7 @@
     async function loadTemplates() {
       const host = document.getElementById('templates');
       try {
-        const r = await buxon.fetch('/api/buxon/templates');
+        const r = await xbin.fetch('/api/xbin/templates');
         const tpls = await r.json();
         if (!Array.isArray(tpls) || tpls.length === 0) { host.innerHTML = '<span class="muted">no templates</span>'; return; }
         host.innerHTML = '';
@@ -255,7 +255,7 @@
       el.querySelector('.make').onclick = async (ev) => {
         const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'creating…';
         try {
-          const r = await buxon.fetch('/api/buxon/templates/new', {
+          const r = await xbin.fetch('/api/xbin/templates/new', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim() }),
           });
@@ -277,7 +277,7 @@
     async function loadUpdates() {
       const host = document.getElementById('updates');
       try {
-        const r = await buxon.fetch('/api/buxon/builtins/updates');
+        const r = await xbin.fetch('/api/xbin/builtins/updates');
         const ups = await r.json();
         if (!Array.isArray(ups) || ups.length === 0) { host.innerHTML = '<span class="muted">everything up to date</span>'; return; }
         host.innerHTML = '';
@@ -310,7 +310,7 @@
         if (mode === 'replace' && !confirm(`Replace ${u.id} with the new version? Local edits to its files are discarded (recoverable via git).`)) return;
         b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = mode + '…';
         try {
-          const r = await buxon.fetch('/api/buxon/builtins/update', {
+          const r = await xbin.fetch('/api/xbin/builtins/update', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: u.id, mode }),
           });
@@ -331,7 +331,7 @@
     async function loadBuiltins() {
       const host = document.getElementById('tiles');
       try {
-        const r = await buxon.fetch('/api/buxon/builtins');
+        const r = await xbin.fetch('/api/xbin/builtins');
         const tiles = await r.json();
         if (!Array.isArray(tiles) || tiles.length === 0) { host.innerHTML = '<span class="muted">no builtin tiles</span>'; return; }
         host.innerHTML = '';
@@ -357,7 +357,7 @@
       el.querySelector('.imp').onclick = async (ev) => {
         const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'importing…';
         try {
-          const r = await buxon.fetch('/api/buxon/builtins/import', {
+          const r = await xbin.fetch('/api/xbin/builtins/import', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: t.name, path: el.querySelector('.path').value.trim() }),
           });

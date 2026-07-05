@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Egress Approver UI. Talks only to its own backend (buxon.self is admin of
+<!-- Egress Approver UI. Talks only to its own backend (xbin.self is admin of
      itself, docs/auth.md): GET /state to render, POST /approve|/deny|/forget to
      decide, GET /detail?ip= for reverse-DNS + RDAP/whois. Polls /state so newly
      attempted destinations appear as the owner watches. -->
@@ -58,8 +58,8 @@
   </details>
 
   <script type="module">
-    const self = buxon.self;
-    const api = (p, o) => buxon.fetch(`/api/${self}${p}`, o);
+    const self = xbin.self;
+    const api = (p, o) => xbin.fetch(`/api/${self}${p}`, o);
     const open = new Set();          // IPs whose whois detail is expanded
     const detailCache = {};          // ip -> pre-rendered whois HTML (survives polls)
     let latest = { pending: [], approved: [], denied: [], clients: 0, egressReady: false };

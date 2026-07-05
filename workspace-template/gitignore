@@ -1,4 +1,4 @@
-# buxon workspace — derived/runtime state stays out of git (decision D2).
-.buxon/
+# xbin workspace — derived/runtime state stays out of git (decision D2).
+.xbin/
 data/
 home/

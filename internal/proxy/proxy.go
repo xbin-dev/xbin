@@ -1,7 +1,7 @@
 // Package proxy routes /api/<component-path>/… to component backends:
 // long-running runtimes over their unix sockets (blue/green targets from the
 // runner), cgi per-request. It enforces the gateway side of the RBAC model:
-// strips inbound X-Buxon-* headers, consults the policy, and injects the
+// strips inbound X-XBin-* headers, consults the policy, and injects the
 // verified caller identity (plans/auth.md §3).
 package proxy
 
@@ -19,15 +19,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/runner"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/runner"
 )
 
 const (
-	HeaderFrom = "X-Buxon-From"
-	HeaderRole = "X-Buxon-Role"
+	HeaderFrom = "X-XBin-From"
+	HeaderRole = "X-XBin-Role"
 )
 
 // Policy decides whether principal p may call target, and at which role.
@@ -73,7 +73,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// backend must not spawn. 409 with the state so callers/the frame can show a
 	// placeholder; offloaded also means its data isn't local until restored.
 	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled {
-		w.Header().Set("X-Buxon-Lifecycle", state)
+		w.Header().Set("X-XBin-Lifecycle", state)
 		msg := fmt.Sprintf("component %s is %s", comp.Path, state)
 		if registry.IsOffloaded(state) {
 			msg += " — restore it to use (admin)"
@@ -137,10 +137,10 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme = "http"
-			pr.Out.URL.Host = "buxon" // ignored by the unix transport
+			pr.Out.URL.Host = "xbin" // ignored by the unix transport
 			pr.Out.URL.Path = "/" + endpoint
 			pr.Out.URL.RawQuery = rawQuery
-			pr.Out.Host = "buxon"
+			pr.Out.Host = "xbin"
 			// Rewrite mode strips hop-by-hop headers before this runs;
 			// protocol upgrades (WebSocket) need them restored explicitly.
 			if u := pr.In.Header.Get("Upgrade"); u != "" {
@@ -179,9 +179,9 @@ func (px *Proxy) serveCGI(w http.ResponseWriter, r *http.Request, comp *registry
 		Dir:  comp.Dir,
 		Root: "/api/" + comp.Path,
 		Env: []string{
-			"BUXON_COMPONENT=" + comp.Path,
-			"BUXON_FROM=" + r.Header.Get(HeaderFrom),
-			"BUXON_ROLE=" + r.Header.Get(HeaderRole),
+			"XBIN_COMPONENT=" + comp.Path,
+			"XBIN_FROM=" + r.Header.Get(HeaderFrom),
+			"XBIN_ROLE=" + r.Header.Get(HeaderRole),
 		},
 		InheritEnv: []string{"PATH", "HOME"},
 	}

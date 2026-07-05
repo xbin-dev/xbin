@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/buxon/internal/cgroup"
-	"github.com/magik6k/buxon/internal/sandbox/relay"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/cgroup"
+	"github.com/magik6k/xbin/internal/sandbox/relay"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // nsKinds are the namespaces we report per backend.
 var nsKinds = []string{"net", "mnt", "pid", "user", "ipc", "uts", "cgroup"}
 
-// NS is one namespace's identity + whether it differs from buxond's (isolated).
+// NS is one namespace's identity + whether it differs from xbind's (isolated).
 type NS struct {
 	ID       string `json:"id"`
 	Isolated bool   `json:"isolated"`
@@ -116,7 +116,7 @@ func stateName(s *state) string {
 }
 
 // fillProc reads per-process stats from /proc (best-effort; the process may exit
-// under us). self is buxond's own namespace ids for the isolation comparison.
+// under us). self is xbind's own namespace ids for the isolation comparison.
 func fillProc(b *Backend, self map[string]string) {
 	proc := filepath.Join("/proc", strconv.Itoa(b.PID))
 

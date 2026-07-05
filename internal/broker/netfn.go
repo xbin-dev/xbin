@@ -5,17 +5,17 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/sandbox"
-	"github.com/magik6k/buxon/internal/server"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/magik6k/xbin/internal/server"
 )
 
 // Network-function interface wiring (plans/interfaces.md): a component's `net`
 // interface is bound either to a builtin (internet/host/lan:<cidr>, resolved in
 // egress.go / NetHostShare) or to a provider tile (one that `provides` a net
-// interface). For a provider tile buxond routes that client's egress through it
+// interface). For a provider tile xbind routes that client's egress through it
 // via a per-client point-to-point link (splice); this file resolves both cases
 // and serves the owner's bindings API.
 

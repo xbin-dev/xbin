@@ -1,7 +1,7 @@
 # bx — the workspace CLI
 
-`bx` is on PATH in every buxon terminal. It talks to buxond with the
-session's owner credentials (`BUXON_URL` + `BUXON_TOKEN`) and does local
+`bx` is on PATH in every xbin terminal. It talks to xbind with the
+session's owner credentials (`XBIN_URL` + `XBIN_TOKEN`) and does local
 scaffolding. Anything bx does, you can also do with curl
 ([protocol.md](/docs/protocol.md)) or plain file edits — bx is convenience,
 not magic.
@@ -15,7 +15,7 @@ bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
 bx user ls | add <id> [flags] | set <id> [flags] | rm <id>
-                                       manage users (admin/buxon:users)
+                                       manage users (admin/xbin:users)
 bx logs [-f] <component>               backend logs (tail -f style with -f)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests
@@ -38,7 +38,7 @@ scaffolding, frame it somewhere:
 
 **`bx grant`** — the role goes after the *last* colon, so resource targets
 read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
-Grants are rows in the workspace `buxon.json`; revoking is deleting the row.
+Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
 
 **`bx vault set`** — with no value argument, reads the secret from stdin
 (so it stays out of shell history):
@@ -52,21 +52,21 @@ admin unseals once after login. `bx vault status` reports the mode
 (unsealed / sealed / plaintext / unconfigured); the boot modes are in
 docs/auth.md §vault.
 
-**`bx doctor`** — checks: buxond reachable; manifest parse errors; dangling
+**`bx doctor`** — checks: xbind reachable; manifest parse errors; dangling
 `deps`; `expose` without `API.md`; roles without descriptions; go.work
 ownership; host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
 
-**`bx logs`** — reads `.buxon/log/<compkey>.log` directly; each backend
+**`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
 generation is delimited by a `--- gen N start …` line.
 
 ## Environment
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `BUXON_URL` | `http://127.0.0.1:8642` | buxond address |
-| `BUXON_TOKEN` | (set in terminals) | owner bearer token |
-| `BUXON_WORKSPACE` | walk up from cwd to a dir with `buxon.json` + `.buxon` | workspace root |
+| `XBIN_URL` | `http://127.0.0.1:8642` | xbind address |
+| `XBIN_TOKEN` | (set in terminals) | owner bearer token |
+| `XBIN_WORKSPACE` | walk up from cwd to a dir with `xbin.json` + `.xbin` | workspace root |
 
-Outside a buxon terminal (ssh into the container, host shell in dev), set
+Outside a xbin terminal (ssh into the container, host shell in dev), set
 these yourself or run from inside the workspace tree.

@@ -43,7 +43,7 @@ type Relay struct {
 	dial    net.Dialer
 	allow   Allow
 	gateway netip.Addr     // virtual gateway IP that host-forwards apply to
-	hostFwd map[int]string // gateway port → host dial addr (e.g. buxond)
+	hostFwd map[int]string // gateway port → host dial addr (e.g. xbind)
 	icmp    *icmpTap       // link-layer ICMP echo forwarder (nil if setup failed)
 
 	mu      sync.Mutex
@@ -162,7 +162,7 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	port := int(id.LocalPort)
 
 	// Gateway host-forward: flows to the virtual gateway IP on a mapped port go
-	// to a host service (e.g. buxond), policy-exempt — that's how a netns-isolated
+	// to a host service (e.g. xbind), policy-exempt — that's how a netns-isolated
 	// terminal reaches the workspace controller without seeing host interfaces.
 	if r.gateway.IsValid() && ip == r.gateway {
 		host, mapped := r.hostFwd[port]

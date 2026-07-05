@@ -15,13 +15,13 @@
   <span id="n">…</span>
   <button id="inc">+1</button>
   <script type="module">
-    // buxon.fetch attributes this call to examples/counter-go (its own API —
+    // xbin.fetch attributes this call to examples/counter-go (its own API —
     // always allowed). Other elements calling it need a grant. See /docs/auth.md.
     const n = document.getElementById('n');
     const load = async () =>
-      { n.textContent = (await (await buxon.fetch(`/api/${buxon.self}/count`)).json()).count; };
+      { n.textContent = (await (await xbin.fetch(`/api/${xbin.self}/count`)).json()).count; };
     document.getElementById('inc').onclick = async () => {
-      await buxon.fetch(`/api/${buxon.self}/count`, { method: 'POST' });
+      await xbin.fetch(`/api/${xbin.self}/count`, { method: 'POST' });
       await load();
     };
     await load();

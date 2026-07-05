@@ -3,7 +3,7 @@
   // (plans/interfaces.md) rather than hard-coding a provider; the owner binds
   // it to an OpenAI-compatible provider tile (e.g. apps/llm-gw). The binding is
   // also the call grant, so no separate `uses` is needed. Discover the bound
-  // endpoint in the frontend via buxon.iface('llm').url.
+  // endpoint in the frontend via xbin.iface('llm').url.
   "interfaces": {
     "llm": { "kind": "http", "service": "openai" }
   }

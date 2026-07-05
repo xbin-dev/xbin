@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds a STATIC fuse-overlayfs binary from source (pinned) and drops it where
-# buxond looks (next to its own binary). buxond mounts each sandbox root with it
+# xbind looks (next to its own binary). xbind mounts each sandbox root with it
 # so unprivileged directory renames work — i.e. so `apt install` etc. succeed in
-# a terminal (plans/isolation.md §1). Without it buxond falls back to kernel
+# a terminal (plans/isolation.md §1). Without it xbind falls back to kernel
 # overlayfs (which forbids redirect_dir unprivileged).
 #
 # From source + static so we vendor our own portable binary (works across host
@@ -40,4 +40,4 @@ DOCKER_BUILDKIT=1 "$DOCKER" build -f "$ctx/Dockerfile" --target out \
     -o "type=local,dest=$DEST" "$ctx"
 chmod +x "$DEST/fuse-overlayfs"
 "$DEST/fuse-overlayfs" --version | head -1
-echo ">> built $DEST/fuse-overlayfs (buxond next to it uses it automatically)"
+echo ">> built $DEST/fuse-overlayfs (xbind next to it uses it automatically)"

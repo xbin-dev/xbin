@@ -13,7 +13,7 @@ func TestRoundTrip(t *testing.T) {
 	// A source tree on disk, including a dir to exclude.
 	src := t.TempDir()
 	os.MkdirAll(filepath.Join(src, "backend"), 0o755)
-	os.WriteFile(filepath.Join(src, "buxon.json"), []byte(`{"runtime":"go"}`), 0o644)
+	os.WriteFile(filepath.Join(src, "xbin.json"), []byte(`{"runtime":"go"}`), 0o644)
 	os.WriteFile(filepath.Join(src, "backend", "main.go"), []byte("package main"), 0o644)
 	os.MkdirAll(filepath.Join(src, "node_modules"), 0o755)
 	os.WriteFile(filepath.Join(src, "node_modules", "junk"), []byte("x"), 0o644)
@@ -56,8 +56,8 @@ func TestRoundTrip(t *testing.T) {
 		b, _ := io.ReadAll(rd)
 		got[name] = string(b)
 	}
-	if got["source/buxon.json"] != `{"runtime":"go"}` {
-		t.Errorf("source/buxon.json = %q", got["source/buxon.json"])
+	if got["source/xbin.json"] != `{"runtime":"go"}` {
+		t.Errorf("source/xbin.json = %q", got["source/xbin.json"])
 	}
 	if got["source/backend/main.go"] != "package main" {
 		t.Errorf("nested source file lost: %q", got["source/backend/main.go"])

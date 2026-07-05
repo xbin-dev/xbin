@@ -1,7 +1,7 @@
 // Egress approver backend: a default-deny net provider (plans/interfaces.md)
 // with a human in the loop.
 //
-// Dataplane. buxond splices each bound client's egress into a point-to-point
+// Dataplane. xbind splices each bound client's egress into a point-to-point
 // link here (bxc0, bxc1, …); our own egress is bx0. We enable IP forwarding and
 // install a per-destination *forward* gate (gate_linux.go): client traffic is
 // dropped unless its remote IP has been approved. The gate is forward-only, so
@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 // resolveTimeout bounds a reverse-DNS lookup so a slow/no-PTR address never
@@ -41,7 +41,7 @@ func lookupPTR(ip string) string {
 	return ""
 }
 
-var kv = buxon.KV(buxon.Resource("approvals"))
+var kv = xbin.KV(xbin.Resource("approvals"))
 
 // stat accumulates what we know about one remote IP since the last restart.
 type stat struct {
@@ -284,7 +284,7 @@ func main() {
 	mux.HandleFunc("POST /forget", a.handleDecision("forget"))
 	mux.HandleFunc("GET /detail", a.handleDetail)
 	mux.HandleFunc("GET /status", a.handleStatus)
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

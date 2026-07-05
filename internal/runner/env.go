@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/sandbox"
-	"github.com/magik6k/buxon/internal/sandbox/relay"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/magik6k/xbin/internal/sandbox/relay"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // The component environment layer (plans/component-env.md): a component's
@@ -31,7 +31,7 @@ func (r *Runner) envLayerDir(c *registry.Component) string {
 	if strings.TrimSpace(c.Manifest.Setup) == "" || !r.Isolate || r.Rootfs == "" {
 		return ""
 	}
-	return filepath.Join(r.Root, ".buxon", "env", util.CompKey(c.Path), r.envHash(c))
+	return filepath.Join(r.Root, ".xbin", "env", util.CompKey(c.Path), r.envHash(c))
 }
 
 // envHash keys the layer on the setup script + a base-rootfs identity, so both a
@@ -78,7 +78,7 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 		Binds:   []sandbox.Bind{{Src: c.Dir, Dst: c.Dir, RO: true}}, // source available to setup
 		Entry:   "/bin/sh",
 		Argv:    []string{"sh", "-exc", c.Manifest.Setup},
-		Env:     []string{envSetupPATH, "HOME=/root", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "BUXON_COMPONENT=" + c.Path},
+		Env:     []string{envSetupPATH, "HOME=/root", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "XBIN_COMPONENT=" + c.Path},
 		Cwd:     c.Dir,
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
@@ -86,7 +86,7 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	}
 
 	logf, _ := os.OpenFile(
-		filepath.Join(r.Root, ".buxon", "log", util.CompKey(c.Path)+".log"),
+		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 
 	cmd, h, err := sandbox.Launch(spec)
@@ -132,7 +132,7 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 
 // gcEnvLayers removes stale env-layer hashes for a component, keeping only keep.
 func (r *Runner) gcEnvLayers(c *registry.Component, keep string) {
-	base := filepath.Join(r.Root, ".buxon", "env", util.CompKey(c.Path))
+	base := filepath.Join(r.Root, ".xbin", "env", util.CompKey(c.Path))
 	ents, err := os.ReadDir(base)
 	if err != nil {
 		return

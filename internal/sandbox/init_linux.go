@@ -19,7 +19,7 @@ import (
 // our uid/gid maps and we re-exec'd to regain capabilities).
 const mappedEnv = "BX_SANDBOX_MAPPED"
 
-// RunInit is the re-exec entrypoint (buxond … __sandbox-init <specfile>). It
+// RunInit is the re-exec entrypoint (xbind … __sandbox-init <specfile>). It
 // runs inside the fresh namespaces as container-root, assembles the mount
 // namespace, and execs the backend. It never returns on success.
 func RunInit(specPath string) {
@@ -53,7 +53,7 @@ func runInit(specPath string) error {
 			return must(err, "await uid maps")
 		}
 		env := append(os.Environ(), mappedEnv+"=1")
-		return must(unix.Exec("/proc/self/exe", []string{"buxond", InitArg, specPath}, env), "re-exec mapped")
+		return must(unix.Exec("/proc/self/exe", []string{"xbind", InitArg, specPath}, env), "re-exec mapped")
 	}
 	os.Remove(specPath) // consume the spec (final stage, or single-uid mode)
 
@@ -156,7 +156,7 @@ func runInit(specPath string) error {
 		}
 	}
 
-	// Egress relay: create the TUN in this netns and hand its fd to buxond,
+	// Egress relay: create the TUN in this netns and hand its fd to xbind,
 	// which runs the userspace stack + policy. Without this the netns stays
 	// empty = default-deny (plans/isolation.md §3).
 	if s.Net == "relay" || s.Net == "splice" {

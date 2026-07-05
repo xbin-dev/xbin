@@ -11,14 +11,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
-	"github.com/magik6k/buxon/internal/vault"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
+	"github.com/magik6k/xbin/internal/vault"
 )
 
 // Vault: per-element private secrets (plans/auth.md §4). One JSON file per
-// component under data/vault/, owned by buxond, mode 0600. Elements reach
+// component under data/vault/, owned by xbind, mode 0600. Elements reach
 // only their own vault; the owner reaches all (via API — that's the point:
 // raw file perms close it to everyone else at tier 2). No cross-element
 // sharing by design: wrap shared secrets behind a role-guarded API instead.
@@ -38,7 +38,7 @@ type vaultEnvelope struct {
 // errVaultUnconfigured is returned when a write is attempted with no
 // encryption barrier and plaintext is not allowed (production default).
 var errVaultUnconfigured = errors.New(
-	"vault encryption not configured — set BUXON_VAULT_PASSPHRASE (or unseal the barrier) before storing secrets")
+	"vault encryption not configured — set XBIN_VAULT_PASSPHRASE (or unseal the barrier) before storing secrets")
 
 func (b *Broker) vaultPath(comp string) string {
 	return filepath.Join(b.Reg.Root, "data", "vault", util.CompKey(comp)+".json")
@@ -161,11 +161,11 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 	}
 	p := auth.PrincipalOf(r)
 	// Own vault always; otherwise an admin-capable principal (owner or a
-	// buxon:admin tile) may manage any vault — that's the admin console's
+	// xbin:admin tile) may manage any vault — that's the admin console's
 	// password-manager function. No *unprivileged* cross-element access.
 	if p.Component != c.Path && !b.IsAdmin(p) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "vaults are private to their element; cross-vault access needs buxon:admin",
+			"error": "vaults are private to their element; cross-vault access needs xbin:admin",
 			"docs":  "/docs/auth.md",
 		})
 		return "", "", false
@@ -264,7 +264,7 @@ func (b *Broker) vaultError(w http.ResponseWriter, err error) {
 	server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 }
 
-// --- seal/unseal API (owner or buxon:admin) ---
+// --- seal/unseal API (owner or xbin:admin) ---
 
 func (b *Broker) apiVaultStatus(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {

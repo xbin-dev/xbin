@@ -1,9 +1,9 @@
 # Updating builtin components in existing workspaces — design
 
-Builtins ship *embedded in the buxond binary* and are copied into a workspace
+Builtins ship *embedded in the xbind binary* and are copied into a workspace
 once — the scaffold at `init`, tiles at `bx tile import`. After that the copy is
-the user's: they edit it (a buxon workspace is self-modifying by design). So
-today a newer buxond carries newer builtins (the 700px column fix, the drag
+the user's: they edit it (a xbin workspace is self-modifying by design). So
+today a newer xbind carries newer builtins (the 700px column fix, the drag
 fixes, the Tile Manager "New from template" tab, updated `AGENTS.md`, a better
 `llm-gw`…) but **existing workspaces never see them** — `init` and import both
 refuse to overwrite, and nothing records where a file came from.
@@ -14,11 +14,11 @@ the user **replace** or **merge** (3-way) rather than clobbering their edits.
 
 ## What is a "managed builtin"
 
-Update tracking covers the things buxon *authored and copied in*:
+Update tracking covers the things xbin *authored and copied in*:
 
 - **Scaffold** — everything seeded from `workspace-template/` at init:
   `shell/`, `root/`, `tiles/manager`, `tiles/admin`, `apps/welcome`,
-  `AGENTS.md`, workspace `buxon.json`, `gitignore`. This is where most UX
+  `AGENTS.md`, workspace `xbin.json`, `gitignore`. This is where most UX
   features land, and where customization is most common (people restyle the
   shell). Highest-value target.
 - **Imported builtin tiles** — `builtin-tiles/*` brought in via `bx tile import`
@@ -35,10 +35,10 @@ Explicitly **out of scope**:
 
 ## Provenance & versioning
 
-Two pieces of new state, both under the already-gitignored `.buxon/` (D2 —
+Two pieces of new state, both under the already-gitignored `.xbin/` (D2 —
 per-deployment runtime state, like the build cache and logs):
 
-1. **Origin manifest** — `.buxon/builtins.json`: for each managed builtin,
+1. **Origin manifest** — `.xbin/builtins.json`: for each managed builtin,
    what it is and the *base* (as-installed) content, so we can tell
    "customized locally" from "stale":
 
@@ -55,7 +55,7 @@ per-deployment runtime state, like the build cache and logs):
    }
    ```
 
-2. **Base snapshot** — `.buxon/builtins/<id>/…`: the exact bytes we last
+2. **Base snapshot** — `.xbin/builtins/<id>/…`: the exact bytes we last
    installed. Kept so a 3-way merge has a real *base* to diff against (the
    origin manifest's hashes only *detect* change; a merge needs the content).
    Cheap (a few KB per component) and disposable — regenerable from the marker
@@ -80,7 +80,7 @@ the version communicates *what*.
 
 ## Update detection
 
-buxond computes, per managed builtin, a **per-file 3-way status** from three
+xbind computes, per managed builtin, a **per-file 3-way status** from three
 hashes — `base` (origin manifest), `ours` (the workspace file now), `theirs`
 (the embedded file now):
 
@@ -105,7 +105,7 @@ Per builtin (or, for fine control, per file), the user picks:
 - **Replace** — overwrite with the embedded version, discarding local edits to
   the conflicting files. Clean files fast-forward regardless. Safe because the
   workspace is a git repo (D2): the pre-update state is one `git checkout` away,
-  and buxond can auto-`git add`/commit a "builtin update: <id> v2→v3" checkpoint
+  and xbind can auto-`git add`/commit a "builtin update: <id> v2→v3" checkpoint
   first (opt-in) so the diff is reviewable.
 - **Merge** — a real **3-way merge per conflicting file** via
   `git merge-file ours base theirs` (the workspace already depends on git;
@@ -118,7 +118,7 @@ Per builtin (or, for fine control, per file), the user picks:
 - **Pin** — stop offering updates for this builtin (records the pinned version
   in the marker). For deployments that have deliberately taken over a component.
 
-After a successful apply, buxond refreshes deps/go.work and reprovisions (same
+After a successful apply, xbind refreshes deps/go.work and reprovisions (same
 as import) so a backend change (e.g. a new `llm-gw`) is live at once.
 
 ### The rename wrinkle
@@ -132,8 +132,8 @@ deterministically. Same for the module-path rewrite on Go tiles.
 
 ## Bootstrapping existing workspaces (no marker yet)
 
-Deployments upgraded to the first buxond that has this feature have **no**
-`.buxon/builtins.json`. Adoption on first run:
+Deployments upgraded to the first xbind that has this feature have **no**
+`.xbin/builtins.json`. Adoption on first run:
 
 - For each managed builtin path present in the workspace, compare its files to
   the *current* embed. Files that match exactly → record base = current
@@ -148,11 +148,11 @@ Deployments upgraded to the first buxond that has this feature have **no**
 
 ## Surfaces
 
-- `GET /api/buxon/builtins/updates` → `[{id, source, installPath, fromVersion,
+- `GET /api/xbin/builtins/updates` → `[{id, source, installPath, fromVersion,
   toVersion, changelog, files:[{path, status}], conflicts, clean, adopted}]`.
-- `POST /api/buxon/builtins/update {id, mode:"replace"|"merge", files?}` and
-  `POST /api/buxon/builtins/update/resolve {id}` (after manual merge). Gated by
-  `buxon:writer` — the same capability as `create` / tile import.
+- `POST /api/xbin/builtins/update {id, mode:"replace"|"merge", files?}` and
+  `POST /api/xbin/builtins/update/resolve {id}` (after manual merge). Gated by
+  `xbin:writer` — the same capability as `create` / tile import.
 - `bx builtin updates` (list) · `bx builtin update <id> [--replace|--merge]` ·
   `bx builtin diff <id>` · `bx builtin pin <id>`. (New `bx builtin` verb; `bx
   tile` stays about the catalog.)
@@ -160,13 +160,13 @@ Deployments upgraded to the first buxond that has this feature have **no**
   with a version badge and a modified/conflict indicator per builtin, a diff
   preview, and Replace / Merge / Skip / Pin buttons. Mirrors the existing
   "installed" flag machinery.
-- On boot, buxond logs `N builtin updates available`; the shell shows a small,
+- On boot, xbind logs `N builtin updates available`; the shell shows a small,
   dismissable "updates available" chip (owner/admin only) linking to the tab.
 
 ## Security / RBAC
 
 - Applying an update creates/overwrites component files → same gate as `create`
-  and tile import: owner or `buxon:writer` (admin implies). Never self-approved
+  and tile import: owner or `xbin:writer` (admin implies). Never self-approved
   by an element (AGENTS.md/auth.md).
 - Updates only ever touch **managed** paths recorded in the origin marker,
   never user components — the marker is the whitelist.
@@ -178,9 +178,9 @@ Deployments upgraded to the first buxond that has this feature have **no**
 
 - **BU-1 — Version signal**: content-hash primary + human `version` sugar
   (recommended, zero-maintenance) vs hand-maintained semver only.
-- **BU-2 — Marker location**: `.buxon/builtins.json` (gitignored, per-deploy;
+- **BU-2 — Marker location**: `.xbin/builtins.json` (gitignored, per-deploy;
   lost on a bare clone → re-adopt) vs a tracked workspace-root lockfile (in git
-  history, but a file users can conflict on). Recommend `.buxon/`.
+  history, but a file users can conflict on). Recommend `.xbin/`.
 - **BU-3 — Merge engine**: `git merge-file` (recommended — mature, no custom
   code) vs a bespoke 3-way merge.
 - **BU-4 — Auto-checkpoint**: whether "Replace/Merge" makes a git commit first
@@ -188,7 +188,7 @@ Deployments upgraded to the first buxond that has this feature have **no**
 
 ## Phasing
 
-1. **Provenance**: write `.buxon/builtins.json` + base snapshots at init and on
+1. **Provenance**: write `.xbin/builtins.json` + base snapshots at init and on
    import/instantiate; content-hash + `version` in catalog metadata.
 2. **Detection + Replace**: `updates` API/CLI, Updates tab, fast-forward + whole
    -file replace, adoption path. Delivers the "existing workspaces get the drag

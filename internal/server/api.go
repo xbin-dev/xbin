@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/gpu"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/gpu"
 )
 
-// registerCoreAPI mounts the always-present /api/buxon/* endpoints. Broker,
+// registerCoreAPI mounts the always-present /api/xbin/* endpoints. Broker,
 // grants, and vault endpoints are added by their packages via RegisterAPI.
 func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /status", s.apiStatus)
@@ -41,7 +41,7 @@ func apiErr(w http.ResponseWriter, code int, msg string) {
 }
 
 // admin reports whether the request's principal may use admin-capable
-// endpoints (owner, or buxon:admin via the broker-installed hook).
+// endpoints (owner, or xbin:admin via the broker-installed hook).
 func (s *Server) admin(r *http.Request) bool {
 	p := auth.PrincipalOf(r)
 	if p.Owner {

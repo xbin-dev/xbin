@@ -1,4 +1,4 @@
-# Buxon — Implementation Plan
+# XBin — Implementation Plan
 
 Companion to `../ARCHITECTURE.md`. Phases are strictly incremental: each ends in a
 runnable, demoable state, and nothing in a later phase requires reworking an earlier
@@ -7,11 +7,11 @@ that).
 
 Decisions that need an opinion are marked `[D#]` and collected in `DECISIONS.md`.
 
-## Repo layout (the buxon project itself)
+## Repo layout (the xbin project itself)
 
 ```
-buxon/
-  cmd/buxond/            # main: flags, wiring, PID-1 duties (signal fwd, zombie reap)
+xbin/
+  cmd/xbind/            # main: flags, wiring, PID-1 duties (signal fwd, zombie reap)
   internal/
     server/              # mux, auth middleware, static /c/ serving, HTML injection
     registry/            # workspace scan, manifests, component model
@@ -22,10 +22,10 @@ buxon/
     events/              # /ws/events hub: live-reload, build errors, bus (phase 4)
     broker/              # resources (phase 4)
     deps/                # symlink materializer, go.work generator (phase 3)
-  sdk/go/                # module github.com/…/buxon/sdk/go: buxon.Serve() etc. [D10]
-  web/                   # bx-frame.js, bx-terminal.js, buxon-client.js, styles
+  sdk/go/                # module github.com/…/xbin/sdk/go: xbin.Serve() etc. [D10]
+  web/                   # bx-frame.js, bx-terminal.js, xbin-client.js, styles
   web/vendor/            # pinned, checked-in ESM builds: lit, @xterm/* [D-resolved: check in]
-  workspace-template/    # scaffold for `buxond init`: root/, buxon.json, .gitignore
+  workspace-template/    # scaffold for `xbind init`: root/, xbin.json, .gitignore
   examples/              # sample components used by integration tests and docs
   docker/Dockerfile
   hack/                  # dev scripts
@@ -34,7 +34,7 @@ buxon/
 
 - Single Go module. Web assets ship via `go:embed` (one static binary); `--dev` serves
   `web/` from disk instead.
-- No JS build step anywhere, including for buxon's own frontend. `web/vendor/` is
+- No JS build step anywhere, including for xbin's own frontend. `web/vendor/` is
   updated by `hack/vendor.sh` (fetches pinned ESM builds, commits them).
 
 ## Milestones
@@ -51,28 +51,28 @@ buxon/
 
 ## Phase 1 — Walking skeleton
 
-**Goal:** point buxond at a directory tree; every dir with an `index.html` renders in
+**Goal:** point xbind at a directory tree; every dir with an `index.html` renders in
 `<bx-frame>`; the 7×7 button opens a persistent shell in that dir; saving a file
 reloads the frame. No manifests, no backends.
 
 ### Tasks
 
-**buxond core**
-- `cmd/buxond`: flags `--workspace`, `--listen` (default `127.0.0.1:8642`), `--dev`,
+**xbind core**
+- `cmd/xbind`: flags `--workspace`, `--listen` (default `127.0.0.1:8642`), `--dev`,
   `--open-token`; `log/slog` logging; graceful shutdown.
-- `buxond init <dir>`: copies `workspace-template/` (root component, `buxon.json`,
+- `xbind init <dir>`: copies `workspace-template/` (root component, `xbin.json`,
   `.gitignore`), runs `git init` per policy `[D2]`.
-- Auth `[D3]`: on start, generate/load token from `.buxon/token`, print a one-time
+- Auth `[D3]`: on start, generate/load token from `.xbin/token`, print a one-time
   login URL (Jupyter-style); URL sets an HttpOnly cookie; middleware guards **every**
   route including `/c/` static and both WS endpoints. `--dev` implies `--no-auth`.
 
 **Static serving (`internal/server`)**
 - `GET /c/<component-path>/…` → files under `<workspace>/<component-path>/`.
-  - Path safety: clean + confine to workspace root; reject traversal, reject `.buxon/`.
+  - Path safety: clean + confine to workspace root; reject traversal, reject `.xbin/`.
   - Dir URL → `index.html`; correct MIME (explicit table for `.js`/`.mjs`/`.css`/
     `.wasm`); `Cache-Control: no-store` (always, not just dev — this is a live system).
   - Serve-time injection into HTML `<head>`: `<script type="importmap">` (workspace
-    map, later merged with scope map) + `<script type=module src=/vendor/buxon-client.js>`.
+    map, later merged with scope map) + `<script type=module src=/vendor/xbin-client.js>`.
     This is the **single sanctioned HTML transform** in the system `[D4]`. Byte-exact
     pass-through for non-HTML.
 - `GET /vendor/…` → embedded `web/vendor`.
@@ -86,13 +86,13 @@ reloads the frame. No manifests, no backends.
   replays a bounded scrollback ring (256 KiB per session, configurable); idle sessions
   (no client AND no fg process activity, 24 h) reaped.
 - Spawn: `$SHELL` (fallback `/bin/bash`), `cwd` validated against workspace,
-  env: `HOME` per `[D6]`, `BUXON_COMPONENT=<path>`, `BUXON_URL=http://127.0.0.1:8642`.
+  env: `HOME` per `[D6]`, `XBIN_COMPONENT=<path>`, `XBIN_URL=http://127.0.0.1:8642`.
 - Cap: max sessions (default 32), max scrollback memory global.
 
 **Watcher (`internal/watch`)**
 - fsnotify is non-recursive → maintain a watch per directory, add/remove on
   create/delete events.
-- Hard ignore list: `.git/`, `.buxon/`, `node_modules/`, `deps/` (symlinks would
+- Hard ignore list: `.git/`, `.xbin/`, `node_modules/`, `deps/` (symlinks would
   double-fire), editor droppings (`*.swp`, `~`, `.#*`, `4913`).
 - Debounce 300 ms per component; **coalesce editor atomic-save sequences**
   (write-tmp → rename) into one event.
@@ -108,12 +108,12 @@ reloads the frame. No manifests, no backends.
   7×7 px edit button (top-right, 35 % → 100 % opacity on hover); listens to
   `/ws/events` (one shared socket via module singleton) and reloads iframe on its
   component's `reload`. Height: fixed/CSS by default; auto-size only when the frame's
-  `buxon-client.js` posts `resize` (guard against resize loops with 1 px hysteresis).
+  `xbin-client.js` posts `resize` (guard against resize loops with 1 px hysteresis).
 - `bx-terminal.js`: xterm.js + fit addon; binary WS plumbing; reconnect-and-reattach
   with backoff; renders in a bottom drawer element `bx-editor-drawer` owned by
   bx-frame (drawer holds ≥1 terminals, tab bar, "new terminal" button).
-- `buxon-client.js` (runs *inside* frames): posts `resize` via ResizeObserver;
-  `navigate` interception left for later; exposes `window.buxon` stub.
+- `xbin-client.js` (runs *inside* frames): posts `resize` via ResizeObserver;
+  `navigate` interception left for later; exposes `window.xbin` stub.
 
 **Workspace template**
 - `root/index.html`: import-map-driven Lit page with a hardcoded couple of
@@ -122,7 +122,7 @@ reloads the frame. No manifests, no backends.
   test).
 
 ### Acceptance demo
-1. `buxond init ws && buxond --workspace ws` → browser shows root.
+1. `xbind init ws && xbind --workspace ws` → browser shows root.
 2. In root's terminal: `mkdir hello && vim hello/index.html` → add
    `<bx-frame src="hello">` to root → hello renders.
 3. Edit `hello/index.html` in vim, `:w` → frame reloads < 500 ms.
@@ -146,14 +146,14 @@ terminal. PHP feel, Go reality.
 ### Tasks
 
 **Manifest v0 (`internal/registry`)**
-- Parse `buxon.json` (JSONC `[D5]`): `runtime`, `entry` (default: `backend/` for go,
+- Parse `xbin.json` (JSONC `[D5]`): `runtime`, `entry` (default: `backend/` for go,
   `backend/server.js` node, `backend/handler.py` cgi-python…). No `deps`/`uses`
   yet. Absent manifest = `static`.
 
 **Identity plumbing (auth.md §2–3, minimum viable)**
-- Per-generation instance credential minted at spawn (`BUXON_GATEWAY` socket +
+- Per-generation instance credential minted at spawn (`XBIN_GATEWAY` socket +
   token); dies at blue/green swap.
-- Proxy strips inbound `X-Buxon-*`, injects verified `X-Buxon-From` (`owner` for
+- Proxy strips inbound `X-XBin-*`, injects verified `X-XBin-From` (`owner` for
   browser/CLI in this phase — element→element calls arrive in phase 4, but headers,
   stripping, and SDK `Caller()` land now so callee code written in phase 2 never
   changes shape).
@@ -162,11 +162,11 @@ terminal. PHP feel, Go reality.
 - `Ensure(ctx, comp) (Target, error)` / `Stop(comp)`; per-component serialized state
   machine: `idle → building → starting → healthy → draining → stopped | failed`.
 - **process runner**:
-  - Build step (go): `go build -o .buxon/build/<id>/next ./backend` with shared
-    `GOCACHE`/`GOMODCACHE` under `.buxon/cache/`; capture stderr for the overlay.
+  - Build step (go): `go build -o .xbin/build/<id>/next ./backend` with shared
+    `GOCACHE`/`GOMODCACHE` under `.xbin/cache/`; capture stderr for the overlay.
     Global build semaphore = `min(NumCPU, 4)`.
-  - Start: exec with `BUXON_SOCKET=.buxon/run/<id>/<gen>.sock`, `BUXON_COMPONENT`,
-    resource env (phase 4); stdout/stderr → `.buxon/log/<id>.log` (lumberjack-style
+  - Start: exec with `XBIN_SOCKET=.xbin/run/<id>/<gen>.sock`, `XBIN_COMPONENT`,
+    resource env (phase 4); stdout/stderr → `.xbin/log/<id>.log` (lumberjack-style
     rotation) and tee to events hub.
   - Health: wait for socket connect + optional `GET /healthz` (200 or 404 both OK),
     3 s timeout.
@@ -183,18 +183,18 @@ terminal. PHP feel, Go reality.
 **Proxy (`internal/proxy`)**
 - `httputil.ReverseProxy` over unix socket; must pass WebSockets (Go ≥1.21 RP handles
   Upgrade over unix transport) and streaming (flush interval 0 for SSE).
-- Injects `X-Buxon-From: browser` (phase 4 makes this meaningful for server-to-server).
+- Injects `X-XBin-From: browser` (phase 4 makes this meaningful for server-to-server).
 
 **SDK (`sdk/go`)**
-- `buxon.Serve(h http.Handler)`: listen on `BUXON_SOCKET`, SIGTERM → graceful
-  shutdown; `buxon.Caller(r)`, `buxon.Role(role, h)` (see auth.md §8). Zero deps.
+- `xbin.Serve(h http.Handler)`: listen on `XBIN_SOCKET`, SIGTERM → graceful
+  shutdown; `xbin.Caller(r)`, `xbin.Role(role, h)` (see auth.md §8). Zero deps.
   Equivalent snippets (not packages) documented for node/python.
 
 **Frontend**
 - Error overlay: `reload` event variant `{"type":"build-error","text":…}` →
   bx-frame renders overlay instead of reloading; next success clears it.
-- `bx logs`-in-browser deferred; logs reachable via terminal (`tail -f .buxon/log/…`)
-  — note `.buxon` is shell-visible on purpose.
+- `bx logs`-in-browser deferred; logs reachable via terminal (`tail -f .xbin/log/…`)
+  — note `.xbin` is shell-visible on purpose.
 
 **Examples + integration tests**
 - `examples/counter-go/` (Go backend + fetch from index.html),
@@ -213,7 +213,7 @@ the code → overlay with compiler output; fix → recovers.
 - Two rapid saves: state machine must cancel an in-flight build (`context` on the
   `go build` cmd) rather than queue-pile.
 - Unix socket path length limit (108 bytes): use short hashed run dir
-  (`.buxon/run/<8-char-hash>/s.sock`), map in registry.
+  (`.xbin/run/<8-char-hash>/s.sock`), map in registry.
 
 ---
 
@@ -235,15 +235,15 @@ symlinks, generated `go.work`, `bx` CLI, scope import maps.
   relative symlink targets (tree stays relocatable). Cycle detection = warn, allow
   (they're just links).
 - `go.work` generator: workspace root, one `use` per Go component; **generated with a
-  marker header**; if user edits remove the marker, buxond leaves the file alone and
+  marker header**; if user edits remove the marker, xbind leaves the file alone and
   warns (`bx doctor` reports drift) — resolves generated-vs-hand-edited ownership.
 - Import-map merge: workspace map ∪ scope map, scope wins; injected per §Phase 1.
-- `bx` CLI `[D7]` (thin HTTP client of buxond, ships in image, in PATH of every
+- `bx` CLI `[D7]` (thin HTTP client of xbind, ships in image, in PATH of every
   terminal): `bx new <path> [--runtime go]`, `bx logs [-f] <path>`, `bx ls`,
   `bx doctor` (checks: manifest parse errors, dangling deps, go.work drift, socket
-  leaks). Talks to `BUXON_URL` with the local token.
-- Registry: component metadata endpoint `GET /api/buxon/components` (buxond's own
-  API lives under the reserved id `buxon` — path `buxon/` is reserved in workspaces).
+  leaks). Talks to `XBIN_URL` with the local token.
+- Registry: component metadata endpoint `GET /api/xbin/components` (xbind's own
+  API lives under the reserved id `xbin` — path `xbin/` is reserved in workspaces).
 
 ### Acceptance demo
 `bx new apps/todo --runtime go` scaffolds; add `"deps":["lib/ui-kit"]` → `deps/ui-kit`
@@ -260,24 +260,24 @@ end-to-end with a real grant approval.
 ### Tasks
 
 **Gateway & grants (auth.md §3)**
-- Grant table in workspace `buxon.json`: `(caller, target, role)`; hot-reload on
+- Grant table in workspace `xbin.json`: `(caller, target, role)`; hot-reload on
   change; default-deny for element principals.
-- Element→element calls: `buxon.Client()` over the per-instance gateway socket →
+- Element→element calls: `xbin.Client()` over the per-instance gateway socket →
   authn (instance credential) → grant check → forward with verified
-  `X-Buxon-From`/`X-Buxon-Role`.
+  `X-XBin-From`/`X-XBin-Role`.
 - `uses` reconciliation: unsatisfied entries → pending grants; same-scope
-  auto-approve `[ND5]`; approval panel in buxond's own UI (rendered into root) +
+  auto-approve `[ND5]`; approval panel in xbind's own UI (rendered into root) +
   `bx grant <caller> <target>:<role>`; revocation = row delete.
 - Role implication (`admin ⊃ writer ⊃ reader`, manifest `implies` for custom names)
-  resolved in buxond, echoed by SDK middleware.
+  resolved in xbind, echoed by SDK middleware.
 - Frame tokens `[ND2]`: minted at HTML-serve (D4 injection), TTL + refresh endpoint,
-  `buxon.fetch()` attaches; `/api/` policy per auth.md §6; 403 body links `bx api`
+  `xbin.fetch()` attaches; `/api/` policy per auth.md §6; 403 body links `bx api`
   docs.
 
 **Vault (auth.md §4)**
-- Broker API `GET/PUT/DELETE /api/buxon/vault/<own>/<key>`; own-vault-only, no
-  cross-element grants; storage `data/vault/` buxond-uid 0600, gitignored,
-  backup-excluded by default; `bx vault set/get/ls`; SDK `buxon.Secret()`.
+- Broker API `GET/PUT/DELETE /api/xbin/vault/<own>/<key>`; own-vault-only, no
+  cross-element grants; storage `data/vault/` xbind-uid 0600, gitignored,
+  backup-excluded by default; `bx vault set/get/ls`; SDK `xbin.Secret()`.
   At-rest encryption deferred `[ND3]`.
 
 **Broker resources (auth.md §5)**
@@ -288,15 +288,15 @@ end-to-end with a real grant approval.
   only (no path disclosure).
 - `kv`: bbolt, namespaced buckets; `blob`: dir + quota, streamed via broker.
 - `bus`: topics; publish via broker API, subscribe via `/ws/events` (backend) and
-  `window.buxon.bus` (postMessage bridge). At-most-once, in-memory.
+  `window.xbin.bus` (postMessage bridge). At-most-once, in-memory.
 - `cron`: job registry (spec → own endpoint + role, bounded by own roles); invoked
-  as `X-Buxon-From: buxon/cron`; jobs persisted in `data/resources`, survive
+  as `X-XBin-From: xbin/cron`; jobs persisted in `data/resources`, survive
   restarts; `bx cron ls`.
 
 **Tier 2 — per-scope uids (if `[ND1]` approved)**
-- uid allocator (20000+, persisted mapping); spawn backends per-scope-uid (buxond is
+- uid allocator (20000+, persisted mapping); spawn backends per-scope-uid (xbind is
   root per D13b); source dirs stay owner-writable/world-readable → elements can't
-  write source; `.buxon/run` sockets, vault, data perms enforced; cross-scope
+  write source; `.xbin/run` sockets, vault, data perms enforced; cross-scope
   shared-rw sqlite → brokered (default) or per-resource setgid group.
 - Integration tests that *attack*: sibling env read, sibling socket connect, source
   write, vault read — all must fail at tier 2 (and are documented-known-pass at

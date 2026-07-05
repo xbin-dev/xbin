@@ -1,6 +1,6 @@
 //go:build integration
 
-// End-to-end test of the real buxond binary: static serving + injection,
+// End-to-end test of the real xbind binary: static serving + injection,
 // a real `go build` backend with hot swap, the grant flow, vault, kv, and
 // build-error surfacing. Slower than unit tests (compiles Go twice);
 // run with: make integration
@@ -25,7 +25,7 @@ var (
 	baseURL   string
 	repo      string
 	ws        string
-	buxondBin string // built daemon, reused by tests that need their own instance
+	xbindBin string // built daemon, reused by tests that need their own instance
 )
 
 func TestMain(m *testing.M) {
@@ -34,19 +34,19 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	tmp, err := os.MkdirTemp("", "buxon-itest-*")
+	tmp, err := os.MkdirTemp("", "xbin-itest-*")
 	if err != nil {
 		panic(err)
 	}
 	defer os.RemoveAll(tmp)
 	ws = filepath.Join(tmp, "ws")
 
-	bin := filepath.Join(tmp, "buxond")
-	buxondBin = bin
-	build := exec.Command("go", "build", "-o", bin, "./cmd/buxond")
+	bin := filepath.Join(tmp, "xbind")
+	xbindBin = bin
+	build := exec.Command("go", "build", "-o", bin, "./cmd/xbind")
 	build.Dir = repo
 	if out, err := build.CombinedOutput(); err != nil {
-		panic("build buxond: " + string(out))
+		panic("build xbind: " + string(out))
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 	baseURL = "http://" + addr
 
 	cmd := exec.Command(bin, "--workspace", ws, "--listen", addr, "--no-auth")
-	cmd.Env = append(os.Environ(), "BUXON_SDK_PATH="+filepath.Join(repo, "sdk"))
+	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Start(); err != nil {
 		panic(err)
@@ -73,7 +73,7 @@ func TestMain(m *testing.M) {
 		r.Body.Close()
 		return r.StatusCode == 200
 	}, 10*time.Second) {
-		panic("buxond did not become healthy")
+		panic("xbind did not become healthy")
 	}
 
 	code := m.Run()
@@ -139,19 +139,19 @@ func TestStaticServingAndInjection(t *testing.T) {
 		t.Fatal("component never served")
 	}
 	_, body := get(t, "/c/apps/hello/")
-	for _, want := range []string{"importmap", `name="buxon-component" content="apps/hello"`, "buxon-client.js", "buxon-frame-token"} {
+	for _, want := range []string{"importmap", `name="xbin-component" content="apps/hello"`, "xbin-client.js", "xbin-frame-token"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("injected HTML missing %q", want)
 		}
 	}
-	if c, _ := get(t, "/c/.buxon/token"); c != 400 && c != 404 {
-		t.Errorf(".buxon served through /c/ (code %d)", c)
+	if c, _ := get(t, "/c/.xbin/token"); c != 400 && c != 404 {
+		t.Errorf(".xbin served through /c/ (code %d)", c)
 	}
 }
 
 func TestGoBackendLifecycle(t *testing.T) {
 	// Copy the counter example (its go.mod resolves the sdk via the
-	// generated go.work + BUXON_SDK_PATH).
+	// generated go.work + XBIN_SDK_PATH).
 	cp := exec.Command("cp", "-r", filepath.Join(repo, "examples", "counter-go"), filepath.Join(ws, "apps", "counter"))
 	if out, err := cp.CombinedOutput(); err != nil {
 		t.Fatal(string(out))
@@ -185,7 +185,7 @@ func TestGoBackendLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !waitFor(func() bool {
-		_, body := get(t, "/api/buxon/backends")
+		_, body := get(t, "/api/xbin/backends")
 		return strings.Contains(body, "build failed")
 	}, 30*time.Second) {
 		t.Fatal("build error never surfaced in status")
@@ -198,7 +198,7 @@ func TestGoBackendLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !waitFor(func() bool {
-		_, body := get(t, "/api/buxon/backends")
+		_, body := get(t, "/api/xbin/backends")
 		return !strings.Contains(body, "build failed")
 	}, 60*time.Second) {
 		t.Fatal("never recovered from broken build")
@@ -233,13 +233,13 @@ func TestGrantFlowAndResources(t *testing.T) {
 	}
 
 	// Pending grant computed from uses.
-	_, grantsBody := get(t, "/api/buxon/grants")
+	_, grantsBody := get(t, "/api/xbin/grants")
 	if !strings.Contains(grantsBody, `"from":"apps/email"`) {
 		t.Fatalf("pending grant missing: %s", grantsBody)
 	}
 
 	// Approve and verify.
-	if c, b := req(t, "POST", "/api/buxon/grants",
+	if c, b := req(t, "POST", "/api/xbin/grants",
 		`{"from":"apps/email","target":"apps/calendar","role":"reader"}`); c != 200 {
 		t.Fatalf("grant approve: %d %s", c, b)
 	}
@@ -260,7 +260,7 @@ func TestGrantFlowAndResources(t *testing.T) {
 	}
 
 	// Vault: owner sets, element reads its own.
-	if c, b := req(t, "PUT", "/api/buxon/vault/apps/email/imap-pass", `{"value":"hunter2"}`); c != 200 {
+	if c, b := req(t, "PUT", "/api/xbin/vault/apps/email/imap-pass", `{"value":"hunter2"}`); c != 200 {
 		t.Fatalf("vault put: %d %s", c, b)
 	}
 	if !waitFor(func() bool {
@@ -272,7 +272,7 @@ func TestGrantFlowAndResources(t *testing.T) {
 }
 
 func TestComponentsAPI(t *testing.T) {
-	_, body := get(t, "/api/buxon/components")
+	_, body := get(t, "/api/xbin/components")
 	var comps []map[string]any
 	if err := json.Unmarshal([]byte(body), &comps); err != nil {
 		t.Fatalf("components not JSON: %v", err)
@@ -289,7 +289,7 @@ func TestComponentsAPI(t *testing.T) {
 	if !found {
 		t.Fatalf("apps/calendar missing from %s", body)
 	}
-	_, one := get(t, "/api/buxon/components/apps/calendar")
+	_, one := get(t, "/api/xbin/components/apps/calendar")
 	if !strings.Contains(one, "apiDoc") || !strings.Contains(one, "Roles") {
 		t.Errorf("component detail missing API.md: %s", firstN(one, 200))
 	}
@@ -308,16 +308,16 @@ func firstN(s string, n int) string {
 // restores them. Leaves the shared vault unsealed for other tests.
 func TestVaultBarrier(t *testing.T) {
 	write(t, "apps/vaulttest/index.html", `<!doctype html><html><head></head><body>v</body></html>`)
-	if !waitFor(func() bool { c, _ := get(t, "/api/buxon/components/apps/vaulttest"); return c == 200 }, 5*time.Second) {
+	if !waitFor(func() bool { c, _ := get(t, "/api/xbin/components/apps/vaulttest"); return c == 200 }, 5*time.Second) {
 		t.Fatal("component never registered")
 	}
 
-	if c, b := req(t, "PUT", "/api/buxon/vault/apps/vaulttest/k", `{"value":"TOPSECRET_XYZ"}`); c != 200 {
+	if c, b := req(t, "PUT", "/api/xbin/vault/apps/vaulttest/k", `{"value":"TOPSECRET_XYZ"}`); c != 200 {
 		t.Fatalf("vault put: %d %s", c, b)
 	}
 
 	// Initialize the barrier (first unseal) and migrate existing plaintext.
-	if c, b := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
 		t.Fatalf("unseal/init: %d %s", c, b)
 	}
 
@@ -342,37 +342,37 @@ func TestVaultBarrier(t *testing.T) {
 	}
 
 	// Read works while unsealed.
-	if c, b := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
+	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
 		t.Fatalf("read while unsealed: %d %s", c, b)
 	}
 	// Seal → 503.
-	if c, _ := req(t, "POST", "/api/buxon/vault-seal", ``); c != 200 {
+	if c, _ := req(t, "POST", "/api/xbin/vault-seal", ``); c != 200 {
 		t.Fatal("seal failed")
 	}
-	if c, _ := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 503 {
+	if c, _ := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 503 {
 		t.Errorf("read while sealed: got %d, want 503", c)
 	}
 	// Wrong passphrase → 403.
-	if c, _ := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"wrong"}`); c != 403 {
+	if c, _ := req(t, "POST", "/api/xbin/vault-unseal", `{"passphrase":"wrong"}`); c != 403 {
 		t.Errorf("wrong passphrase: got %d, want 403", c)
 	}
 	// Correct → unsealed, read restored. Leave it unsealed.
-	if c, _ := req(t, "POST", "/api/buxon/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
+	if c, _ := req(t, "POST", "/api/xbin/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
 		t.Fatal("re-unseal failed")
 	}
-	if c, b := get(t, "/api/buxon/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
+	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
 		t.Fatalf("read after re-unseal: %d %s", c, b)
 	}
 }
 
-// TestAdminCapability verifies the buxon:admin capability: a granted tile
+// TestAdminCapability verifies the xbin:admin capability: a granted tile
 // reaches admin endpoints, an ungranted one is denied, revoking disarms.
 func TestAdminCapability(t *testing.T) {
-	write(t, "tiles/admin/buxon.json", `{"uses":[{"target":"buxon","role":"admin"}]}`)
+	write(t, "tiles/admin/xbin.json", `{"uses":[{"target":"xbin","role":"admin"}]}`)
 	write(t, "tiles/admin/index.html", `<!doctype html><html><head></head><body>admin</body></html>`)
 	write(t, "apps/plain/index.html", `<!doctype html><html><head></head><body>plain</body></html>`)
-	if c, b := req(t, "POST", "/api/buxon/grants",
-		`{"from":"tiles/admin","target":"buxon","role":"admin"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/grants",
+		`{"from":"tiles/admin","target":"xbin","role":"admin"}`); c != 200 {
 		t.Fatalf("seed admin grant: %d %s", c, b)
 	}
 	if !waitFor(func() bool { _, ok := frameToken(t, "tiles/admin"); return ok }, 5*time.Second) {
@@ -382,8 +382,8 @@ func TestAdminCapability(t *testing.T) {
 	adminTok, _ := frameToken(t, "tiles/admin")
 	plainTok, _ := frameToken(t, "apps/plain")
 
-	for _, ep := range []string{"/api/buxon/auth-overview", "/api/buxon/vaults",
-		"/api/buxon/resources", "/api/buxon/grants", "/api/buxon/backends"} {
+	for _, ep := range []string{"/api/xbin/auth-overview", "/api/xbin/vaults",
+		"/api/xbin/resources", "/api/xbin/grants", "/api/xbin/backends"} {
 		if code := getFramed(t, ep, adminTok); code != 200 {
 			t.Errorf("admin tile %s: got %d, want 200", ep, code)
 		}
@@ -393,27 +393,27 @@ func TestAdminCapability(t *testing.T) {
 	}
 
 	// Own vault stays accessible to an unprivileged tile (not 403).
-	if code := getFramed(t, "/api/buxon/vault/apps/plain/nope", plainTok); code == 403 {
+	if code := getFramed(t, "/api/xbin/vault/apps/plain/nope", plainTok); code == 403 {
 		t.Error("unprivileged tile denied its OWN vault")
 	}
 	// ...but not another's.
-	if code := getFramed(t, "/api/buxon/vault/tiles/admin/x", plainTok); code != 403 {
+	if code := getFramed(t, "/api/xbin/vault/tiles/admin/x", plainTok); code != 403 {
 		t.Errorf("unprivileged cross-vault: got %d, want 403", code)
 	}
 
 	// Revoke disarms the admin tile.
-	if c, _ := req(t, "DELETE", "/api/buxon/grants",
-		`{"from":"tiles/admin","target":"buxon","role":"admin"}`); c != 200 {
+	if c, _ := req(t, "DELETE", "/api/xbin/grants",
+		`{"from":"tiles/admin","target":"xbin","role":"admin"}`); c != 200 {
 		t.Fatal("revoke failed")
 	}
-	if code := getFramed(t, "/api/buxon/auth-overview", adminTok); code != 403 {
+	if code := getFramed(t, "/api/xbin/auth-overview", adminTok); code != 403 {
 		t.Errorf("revoked admin tile still has access: %d", code)
 	}
 }
 
 func frameToken(t *testing.T, comp string) (string, bool) {
 	t.Helper()
-	c, body := get(t, "/api/buxon/frame-token?component="+comp)
+	c, body := get(t, "/api/xbin/frame-token?component="+comp)
 	if c != 200 {
 		return "", false
 	}
@@ -439,8 +439,8 @@ func TestMultiUser(t *testing.T) {
 
 	// auth ON, real (non-dev) start; --insecure-vault so it boots without a
 	// passphrase (this test isn't exercising the vault).
-	cmd := exec.Command(buxondBin, "--workspace", muWS, "--listen", addr, "--insecure-vault")
-	cmd.Env = append(os.Environ(), "BUXON_SDK_PATH="+filepath.Join(repo, "sdk"))
+	cmd := exec.Command(xbindBin, "--workspace", muWS, "--listen", addr, "--insecure-vault")
+	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
@@ -457,7 +457,7 @@ func TestMultiUser(t *testing.T) {
 	}, 10*time.Second) {
 		t.Fatalf("auth instance never healthy: %s", out.String())
 	}
-	rootTok := strings.TrimSpace(mustReadFile(t, filepath.Join(muWS, ".buxon", "token")))
+	rootTok := strings.TrimSpace(mustReadFile(t, filepath.Join(muWS, ".xbin", "token")))
 
 	root := func(method, path, body string) int {
 		var rd io.Reader
@@ -476,10 +476,10 @@ func TestMultiUser(t *testing.T) {
 		defer r.Body.Close()
 		return r.StatusCode
 	}
-	if c := root("POST", "/api/buxon/users", `{"id":"alice","role":"user","tiles":["apps/welcome"],"password":"pw1"}`); c != 200 {
+	if c := root("POST", "/api/xbin/users", `{"id":"alice","role":"user","tiles":["apps/welcome"],"password":"pw1"}`); c != 200 {
 		t.Fatalf("create alice: %d", c)
 	}
-	if c := root("POST", "/api/buxon/users", `{"id":"bob","role":"admin","password":"pw2"}`); c != 200 {
+	if c := root("POST", "/api/xbin/users", `{"id":"bob","role":"admin","password":"pw2"}`); c != 200 {
 		t.Fatalf("create bob: %d", c)
 	}
 
@@ -493,7 +493,7 @@ func TestMultiUser(t *testing.T) {
 		}
 		defer r.Body.Close()
 		for _, c := range r.Cookies() {
-			if c.Name == "buxon_session" && c.Value != "" {
+			if c.Name == "xbin_session" && c.Value != "" {
 				return c, true
 			}
 		}
@@ -525,23 +525,23 @@ func TestMultiUser(t *testing.T) {
 	if code := as(aliceC, "/c/apps/welcome/"); code != 200 {
 		t.Errorf("alice allowed tile: %d, want 200", code)
 	}
-	for _, p := range []string{"/c/tiles/admin/", "/api/buxon/backends", "/api/buxon/users",
+	for _, p := range []string{"/c/tiles/admin/", "/api/xbin/backends", "/api/xbin/users",
 		"/ws/term?cwd=apps/welcome"} {
 		if code := as(aliceC, p); code != 403 {
 			t.Errorf("alice %s: %d, want 403", p, code)
 		}
 	}
-	if code := as(bobC, "/api/buxon/backends"); code != 200 {
+	if code := as(bobC, "/api/xbin/backends"); code != 200 {
 		t.Errorf("bob backends: %d, want 200", code)
 	}
 	if code := as(bobC, "/c/tiles/admin/"); code != 200 {
 		t.Errorf("bob admin tile: %d, want 200", code)
 	}
 
-	if c := root("DELETE", "/api/buxon/users/alice", ""); c != 200 {
+	if c := root("DELETE", "/api/xbin/users/alice", ""); c != 200 {
 		t.Fatal("delete alice failed")
 	}
-	if code := as(aliceC, "/api/buxon/whoami"); code != 401 {
+	if code := as(aliceC, "/api/xbin/whoami"); code != 401 {
 		t.Errorf("deleted alice session still valid: %d, want 401", code)
 	}
 
@@ -558,7 +558,7 @@ func TestMultiUser(t *testing.T) {
 		defer r.Body.Close()
 		return r.StatusCode
 	}
-	if c := putBob("/api/buxon/prefs/layout", `{"screens":[{"id":"x","name":"Home","tiles":[]}]}`); c != 200 {
+	if c := putBob("/api/xbin/prefs/layout", `{"screens":[{"id":"x","name":"Home","tiles":[]}]}`); c != 200 {
 		t.Fatalf("bob prefs put: %d", c)
 	}
 	getBody := func(cookie *http.Cookie, tok, path string) (int, string) {
@@ -574,10 +574,10 @@ func TestMultiUser(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		return r.StatusCode, string(b)
 	}
-	if c, body := getBody(bobC, "", "/api/buxon/prefs/layout"); c != 200 || !strings.Contains(body, "Home") {
+	if c, body := getBody(bobC, "", "/api/xbin/prefs/layout"); c != 200 || !strings.Contains(body, "Home") {
 		t.Fatalf("bob prefs get: %d %s", c, body)
 	}
-	if c, _ := getBody(nil, rootTok, "/api/buxon/prefs/layout"); c == 200 {
+	if c, _ := getBody(nil, rootTok, "/api/xbin/prefs/layout"); c == 200 {
 		t.Error("root token saw bob's per-user prefs (isolation broken)")
 	}
 }
@@ -594,7 +594,7 @@ func mustReadFile(t *testing.T, p string) string {
 func getFramed(t *testing.T, path, tok string) int {
 	t.Helper()
 	rq, _ := http.NewRequest("GET", baseURL+path, nil)
-	rq.Header.Set("X-Buxon-Frame-Token", tok)
+	rq.Header.Set("X-XBin-Frame-Token", tok)
 	r, err := http.DefaultClient.Do(rq)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
@@ -610,12 +610,12 @@ func getFramed(t *testing.T, path, tok string) int {
 func TestTileImport(t *testing.T) {
 	// Catalog includes the Go-backed llm-gw (would be missing if go:embed
 	// had dropped its nested module).
-	_, body := get(t, "/api/buxon/builtins")
+	_, body := get(t, "/api/xbin/builtins")
 	if !strings.Contains(body, `"llm-gw"`) || !strings.Contains(body, `"chat"`) {
 		t.Fatalf("builtins catalog missing tiles: %s", firstN(body, 200))
 	}
 
-	if c, b := req(t, "POST", "/api/buxon/builtins/import", `{"name":"llm-gw"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/builtins/import", `{"name":"llm-gw"}`); c != 200 {
 		t.Fatalf("import llm-gw: %d %s", c, b)
 	}
 	// go.mod restored from go.mod.tile.
@@ -638,7 +638,7 @@ func TestTileImport(t *testing.T) {
 
 	// Re-import at a different path: files copied, self-refs rewritten,
 	// unique module path so both coexist.
-	if c, b := req(t, "POST", "/api/buxon/builtins/import", `{"name":"llm-gw","path":"apps/gw2"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/builtins/import", `{"name":"llm-gw","path":"apps/gw2"}`); c != 200 {
 		t.Fatalf("import as apps/gw2: %d %s", c, b)
 	}
 	mod, _ := os.ReadFile(filepath.Join(ws, "apps", "gw2", "go.mod"))
@@ -653,34 +653,34 @@ func TestTileImport(t *testing.T) {
 
 func TestTemplateInstantiate(t *testing.T) {
 	// Builtin template catalog lists the starter blueprint.
-	_, body := get(t, "/api/buxon/templates")
+	_, body := get(t, "/api/xbin/templates")
 	if !strings.Contains(body, `"starter"`) || !strings.Contains(body, `"builtin"`) {
 		t.Fatalf("templates catalog missing starter: %s", firstN(body, 200))
 	}
 
 	// Instantiate it: files copied, the template marker stripped so it's a
 	// normal, plugged-in component.
-	if c, b := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/templates/new", `{"source":"starter"}`); c != 200 {
 		t.Fatalf("instantiate starter: %d %s", c, b)
 	}
-	man, err := os.ReadFile(filepath.Join(ws, "apps", "starter", "buxon.json"))
+	man, err := os.ReadFile(filepath.Join(ws, "apps", "starter", "xbin.json"))
 	if err != nil {
-		t.Fatalf("instance buxon.json missing: %v", err)
+		t.Fatalf("instance xbin.json missing: %v", err)
 	}
 	if strings.Contains(string(man), "template") {
-		t.Errorf("instance buxon.json still carries the template marker: %s", man)
+		t.Errorf("instance xbin.json still carries the template marker: %s", man)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "apps", "starter", "index.html")); err != nil {
 		t.Fatalf("instance index.html missing: %v", err)
 	}
 
 	// It's not a template, so the shell lists it as a normal component.
-	if _, cb := get(t, "/api/buxon/components"); !strings.Contains(cb, `"apps/starter"`) {
+	if _, cb := get(t, "/api/xbin/components"); !strings.Contains(cb, `"apps/starter"`) {
 		t.Errorf("instance not listed as a component: %s", firstN(cb, 200))
 	}
 
 	// Instantiate again at a custom path — never overwrites, coexists.
-	if c, b := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter","path":"apps/starter2"}`); c != 200 {
+	if c, b := req(t, "POST", "/api/xbin/templates/new", `{"source":"starter","path":"apps/starter2"}`); c != 200 {
 		t.Fatalf("instantiate at apps/starter2: %d %s", c, b)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "apps", "starter2", "index.html")); err != nil {
@@ -688,7 +688,7 @@ func TestTemplateInstantiate(t *testing.T) {
 	}
 
 	// A second attempt at an occupied path fails cleanly, not a silent clobber.
-	if c, _ := req(t, "POST", "/api/buxon/templates/new", `{"source":"starter","path":"apps/starter"}`); c == 200 {
+	if c, _ := req(t, "POST", "/api/xbin/templates/new", `{"source":"starter","path":"apps/starter"}`); c == 200 {
 		t.Error("re-instantiating over an existing component should fail")
 	}
 }
@@ -696,7 +696,7 @@ func TestTemplateInstantiate(t *testing.T) {
 func TestBuiltinUpdates(t *testing.T) {
 	// The scaffold was recorded at init, so with a matching embed nothing is
 	// offered.
-	if c, b := get(t, "/api/buxon/builtins/updates"); c != 200 || strings.TrimSpace(b) != "[]" {
+	if c, b := get(t, "/api/xbin/builtins/updates"); c != 200 || strings.TrimSpace(b) != "[]" {
 		// Not fatal — other tests may have imported tiles; just require a 200 array.
 		if c != 200 || !strings.HasPrefix(strings.TrimSpace(b), "[") {
 			t.Fatalf("updates list: %d %s", c, firstN(b, 200))
@@ -706,7 +706,7 @@ func TestBuiltinUpdates(t *testing.T) {
 	// Simulate a pre-provenance ("adopted") workspace for one scaffold unit:
 	// drop its marker entry and diverge the local copy. It must then surface as
 	// an adopted conflict — never a silent fast-forward.
-	markerPath := filepath.Join(ws, ".buxon", "builtins.json")
+	markerPath := filepath.Join(ws, ".xbin", "builtins.json")
 	raw, err := os.ReadFile(markerPath)
 	if err != nil {
 		t.Fatalf("no origin marker (init should have written one): %v", err)
@@ -731,22 +731,22 @@ func TestBuiltinUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, b := get(t, "/api/buxon/builtins/updates")
+	_, b := get(t, "/api/xbin/builtins/updates")
 	if !strings.Contains(b, `"scaffold:apps/welcome"`) || !strings.Contains(b, `"adopted":true`) {
 		t.Fatalf("adopted unit not surfaced as an update: %s", firstN(b, 400))
 	}
 	// Merge is refused on an adopted unit (no trustworthy base).
-	if c, _ := req(t, "POST", "/api/buxon/builtins/update", `{"id":"scaffold:apps/welcome","mode":"merge"}`); c == 200 {
+	if c, _ := req(t, "POST", "/api/xbin/builtins/update", `{"id":"scaffold:apps/welcome","mode":"merge"}`); c == 200 {
 		t.Error("merge on an adopted unit should be refused")
 	}
 	// Replace fast-forwards to the embedded version and re-records provenance.
-	if c, mb := req(t, "POST", "/api/buxon/builtins/update", `{"id":"scaffold:apps/welcome","mode":"replace"}`); c != 200 {
+	if c, mb := req(t, "POST", "/api/xbin/builtins/update", `{"id":"scaffold:apps/welcome","mode":"replace"}`); c != 200 {
 		t.Fatalf("replace: %d %s", c, mb)
 	}
 	if got := mustReadFile(t, welcome); strings.Contains(got, "local edit") {
 		t.Error("replace did not discard the local edit")
 	}
-	if _, b := get(t, "/api/buxon/builtins/updates"); strings.Contains(b, `"scaffold:apps/welcome"`) {
+	if _, b := get(t, "/api/xbin/builtins/updates"); strings.Contains(b, `"scaffold:apps/welcome"`) {
 		t.Errorf("unit still offered after replace: %s", firstN(b, 300))
 	}
 }
@@ -772,15 +772,15 @@ func TestComponentCode(t *testing.T) {
 	}
 
 	// Files of a component.
-	if _, tb := get(t, "/api/buxon/code/tree?component=shell"); !strings.Contains(tb, "bx-shell.js") {
+	if _, tb := get(t, "/api/xbin/code/tree?component=shell"); !strings.Contains(tb, "bx-shell.js") {
 		t.Fatalf("code tree missing bx-shell.js: %s", firstN(tb, 200))
 	}
 	// One file's content.
-	if _, fb := get(t, "/api/buxon/code/file?component=shell&file=buxon.json"); !strings.Contains(fb, `"content"`) {
+	if _, fb := get(t, "/api/xbin/code/file?component=shell&file=xbin.json"); !strings.Contains(fb, `"content"`) {
 		t.Fatalf("code file: %s", firstN(fb, 200))
 	}
 	// History scoped to the component.
-	_, lb := get(t, "/api/buxon/git/log?component=shell")
+	_, lb := get(t, "/api/xbin/git/log?component=shell")
 	if !strings.Contains(lb, `"repo":true`) || !strings.Contains(lb, "test snapshot") {
 		t.Fatalf("git log: %s", firstN(lb, 300))
 	}
@@ -793,11 +793,11 @@ func TestComponentCode(t *testing.T) {
 	if len(log.Commits) == 0 {
 		t.Fatal("git log returned no commits")
 	}
-	if _, db := get(t, "/api/buxon/git/diff?component=shell&rev="+log.Commits[0].Hash); !strings.Contains(db, `"diff"`) {
+	if _, db := get(t, "/api/xbin/git/diff?component=shell&rev="+log.Commits[0].Hash); !strings.Contains(db, `"diff"`) {
 		t.Errorf("git diff: %s", firstN(db, 200))
 	}
 	// Path traversal is rejected.
-	if c, _ := get(t, "/api/buxon/code/file?component=shell&file=../../data/vault"); c != 400 {
+	if c, _ := get(t, "/api/xbin/code/file?component=shell&file=../../data/vault"); c != 400 {
 		t.Errorf("path traversal not rejected: %d", c)
 	}
 }

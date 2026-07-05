@@ -2,26 +2,26 @@
 
 Supersedes the flat capability-grant strings (`net:*`, `gpu:*`, `res:*`) with one
 uniform model. A component **requests** typed interface slots; a **provider**
-(a buxond builtin or a tile) satisfies them; the **owner binds** each request to
+(a xbind builtin or a tile) satisfies them; the **owner binds** each request to
 a provider. The binding *is* the authorization (owner-gated; agents can't
 self-bind), so default-deny is preserved. This unifies network egress, GPUs,
 resources, and service dependencies (LLM/HTTP), makes providers swappable, and —
 for networking — makes middlebox chaining *emergent from the binding graph*
 rather than a first-class "chain" object.
 
-Grounding: buxond is already the middlebox (the gVisor egress relay in
+Grounding: xbind is already the middlebox (the gVisor egress relay in
 `internal/sandbox/relay` terminates, decides, and meters every flow). This makes
 that middlebox pluggable and stackable, with the plugins being tiles.
 
 ## Model
 
-- **interface slot** = `{name, kind, …params}`. A component's `buxon.json`:
+- **interface slot** = `{name, kind, …params}`. A component's `xbin.json`:
   - `interfaces`: slots it **requests** (its dependencies).
   - `provides`: slots it **provides** to others.
 - **binding** = `(component, slot) → provider`. Provider is a builtin id
   (`internet`, `host`, `lan:<cidr>`, `gpu:0`, …) or a component path
   (`apps/firewall`). Stored in the workspace manifest; only the owner/admin edits.
-- **resolution**: at spawn buxond resolves each requested slot's binding and
+- **resolution**: at spawn xbind resolves each requested slot's binding and
   wires the mechanism *for that kind*. An **unbound** request = unsatisfied =
   default-deny (no egress / no GPU / no service).
 - **emergent chains**: a provider is itself a requester (of its own egress /
@@ -38,14 +38,14 @@ New families plug into the same model without changing it.
 The requester's netns gets a TUN + default route; who's on the other end depends
 on the binding:
 
-- **Builtin providers** (buxond, *implemented as bindable providers*): `internet`
+- **Builtin providers** (xbind, *implemented as bindable providers*): `internet`
   (gVisor relay, public-only), `host` (share host net = HostNet), `lan:<cidr>`
   (relay under a LAN policy). `bx bind <comp> net=internet` etc.; unbound =
   default-deny. Egress is *only* this binding — there is no `net:*`-in-`uses`
   grant (removed); the `internet`/`lan` builtins still resolve internally to the
   `net:internet` / `net:<cidr>` relay *policy* language (the mechanism).
 - **Tile providers** (`provides: {…: {kind:"net"}}`): a firewall / VPN / router /
-  DPI / meter tile. buxond gives the provider **one TUN per bound client** (a
+  DPI / meter tile. xbind gives the provider **one TUN per bound client** (a
   point-to-point `/30` link) plus the provider's *own* egress (its own `net`
   binding), and **dumb-splices raw IP packets** `client.TUN ↔ provider.clientTUN`.
   The provider is then a real **multi-homed Linux router**: `ip_forward` + gating
@@ -75,8 +75,8 @@ Builtin providers = host GPUs (index/uuid); binding = choose device(s); mechanis
 
 Requester declares `{kind:"http", service:"<contract>"}` (e.g. `openai`, `s3`,
 `smtp`). Providers are tiles that `provides {kind:"http", service:"openai",
-role:"writer"}`. Binding → the provider URL is injected as `$BUXON_IFACE_<slot>_URL`
-for a backend and `buxon.iface(slot).url` (a `buxon-interfaces` meta) for a
+role:"writer"}`. Binding → the provider URL is injected as `$XBIN_IFACE_<slot>_URL`
+for a backend and `xbin.iface(slot).url` (a `xbin-interfaces` meta) for a
 frontend, and the **binding is also the call grant** (it grants the requester the
 provider's declared `role`, so RBAC passes — no separate `uses`). Providers are
 **swappable behind a service contract** (DI: swap Ollama ↔ an OpenAI proxy with no
@@ -84,10 +84,10 @@ requester change). No TUN — it reuses the gateway/RBAC. The builtin `llm-gw` +
 `chat` tiles use this. HTTPS stays opaque to a proxy/DPI unless its CA is bound
 into the client's trust store (a separate explicit toggle, deferred).
 
-### `resource` — buxond builtins *(designed, not implemented)*
+### `resource` — xbind builtins *(designed, not implemented)*
 
 kv / blob / bus / cron / sqlite reframed as `resource` interfaces provided by
-buxond builtins; `res:*` grants become bindings. Migration, later.
+xbind builtins; `res:*` grants become bindings. Migration, later.
 
 ## Binding replaces grant-approval
 
@@ -134,8 +134,8 @@ gpu=0`, `bx net graph`, `bx net flows`.
    per-client TUN **splice** + builtin providers (`internet`/`host`/`lan`) + a
    `netfn` masquerade-router skeleton + `bx bind` + the net wiring UI. `gpu`/`net:*`
    grants keep working as builtins so nothing regresses.
-2. **`http`/service family** *(done)* — URL injection (`$BUXON_IFACE_*_URL` /
-   `buxon.iface`) + binding-as-grant; `llm-gw`/`chat` use it. Still to do: the
+2. **`http`/service family** *(done)* — URL injection (`$XBIN_IFACE_*_URL` /
+   `xbin.iface`) + binding-as-grant; `llm-gw`/`chat` use it. Still to do: the
    service-catalog UX and a TLS CA-trust binding.
 3. **`resource` family** — fold `res:*` into bindings.
 4. Perf (veth/kernel forwarding, eBPF metering), roster **hot-add**, recursive-
@@ -148,7 +148,7 @@ gpu=0`, `bx net graph`, `bx net flows`.
   authorization; unbound = default-deny.
 - **IFACE-2** — each `kind` is a family with its own wiring mechanism *and* its
   own admin UX; families register into a common shell.
-- **IFACE-3** — `net` tile-providers get **one TUN per client**; buxond does a
+- **IFACE-3** — `net` tile-providers get **one TUN per client**; xbind does a
   dumb L3 splice; the provider is a real router; chains are emergent (DAG).
 - **IFACE-4** — builtins (`internet`/`host`/`lan` for net; GPU devices) are
   bindable system providers (net builtins *implemented*). `net:*`-in-`uses`
@@ -163,7 +163,7 @@ gpu=0`, `bx net graph`, `bx net flows`.
 workspace) · `internal/broker` (binding resolution, provider rosters) ·
 `internal/sandbox` (multi-TUN provider + spliced client) · a splice pump ·
 `internal/runner` (orchestrate provider+client lifecycle + splice) ·
-`cmd/buxond` wiring · `cmd/bx` (`bind`/`iface`) · `internal/server` (bindings
+`cmd/xbind` wiring · `cmd/bx` (`bind`/`iface`) · `internal/server` (bindings
 API + `pending` bind-on-install list) · `web/bx-bindings.js` (the bind-on-install
 prompt) · `examples/netrouter` (a router skeleton) · `builtin-tiles/egress-approver`
 (the worked programmable-provider + admin-UX example).

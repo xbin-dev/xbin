@@ -1,13 +1,13 @@
 #!/bin/sh
-# Builds the buxon component base rootfs (plans/runtime.md) and unpacks it into
-# a directory for `buxond --isolate --rootfs <dir>`. Needs docker (or podman);
+# Builds the xbin component base rootfs (plans/runtime.md) and unpacks it into
+# a directory for `xbind --isolate --rootfs <dir>`. Needs docker (or podman);
 # in production this is a published OCI image the appliance ships unpacked.
 #
 #   hack/build-rootfs.sh [output-dir]        # default: ./.rootfs
 set -eu
 
 OUT="${1:-./.rootfs}"
-TAG="${BUXON_ROOTFS_TAG:-buxon-rootfs:dev}"
+TAG="${XBIN_ROOTFS_TAG:-xbin-rootfs:dev}"
 DOCKER="${DOCKER:-docker}"
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -28,4 +28,4 @@ cid=$("$DOCKER" create "$TAG")
 "$DOCKER" rm "$cid" >/dev/null
 
 echo ">> done. run:"
-echo "   buxond --workspace <ws> --isolate --rootfs $(cd "$OUT" && pwd)"
+echo "   xbind --workspace <ws> --isolate --rootfs $(cd "$OUT" && pwd)"

@@ -1,10 +1,10 @@
 # Multi-user auth & RBAC — design
 
-Today buxon is single-user: one root token = admin-of-everything. This adds
+Today xbin is single-user: one root token = admin-of-everything. This adds
 **human users** with tile-level permissions, keeps the token as a root/admin
 service credential, gates terminals (root access) behind an explicit
 permission, exposes user-management as capability-scoped APIs, and locks down
-every public surface so a buxon port exposed to a network reveals nothing
+every public surface so a xbin port exposed to a network reveals nothing
 without a credential.
 
 Non-goal for this pass (explicit follow-up): `X-Source-Tile` / `X-Source-User`
@@ -14,7 +14,7 @@ attribution headers on cross-tile and UI→tile calls (its own task).
 
 | Principal | Auth | Privilege |
 |---|---|---|
-| **root token** (`BUXON_TOKEN`) | `Authorization: Bearer` / bootstrap cookie | admin. The machine/bootstrap credential — bx, buxond-spawned terminals, automation. Always valid. |
+| **root token** (`XBIN_TOKEN`) | `Authorization: Bearer` / bootstrap cookie | admin. The machine/bootstrap credential — bx, xbind-spawned terminals, automation. Always valid. |
 | **admin user** | username + password → session cookie | admin (all tiles, terminals, user mgmt) |
 | **regular user** | username + password → session cookie | only permitted tiles; no terminal/admin unless granted |
 | **element backend** | per-generation instance token (gateway) | unchanged |
@@ -31,7 +31,7 @@ principal (admin tile → Users, or `bx user add`).
 
 ## The user model
 
-Stored in `data/users.json` (buxond-owned, mode 0600; passwords Argon2id —
+Stored in `data/users.json` (xbind-owned, mode 0600; passwords Argon2id —
 same primitive as the vault barrier):
 
 ```jsonc
@@ -62,10 +62,10 @@ Enforcement points (defense in depth — deny at every reachable door):
 
 1. `GET /c/<tile>/…` — serving the view. Not allowed ⇒ 403, and no frame
    token is minted, so the user can't obtain a credential for it.
-2. `GET /api/buxon/frame-token?component=X` — refuse X the user can't use.
+2. `GET /api/xbin/frame-token?component=X` — refuse X the user can't use.
 3. `ANY /api/<tile>/…` — the frontend's API calls; re-checked on the
    principal even though (1)+(2) already gate token issuance.
-4. `GET /api/buxon/components` — filtered to the caller's visible tiles
+4. `GET /api/xbin/components` — filtered to the caller's visible tiles
    (admins see all); the shell sidebar shows only what a user may use.
 
 Frame tokens now bind **(user, component)**. A tile's own cross-tile calls
@@ -81,20 +81,20 @@ directory; the UI labels it as such.
 
 ## User management — capability-scoped APIs
 
-User CRUD is exposed as buxond APIs so a dedicated user-management tile can be
-built, gated by a **distinct capability** `buxon:users` (separate from
-`buxon:admin`; admin implies both):
+User CRUD is exposed as xbind APIs so a dedicated user-management tile can be
+built, gated by a **distinct capability** `xbin:users` (separate from
+`xbin:admin`; admin implies both):
 
 ```
-GET    /api/buxon/users                list (no hashes)
-POST   /api/buxon/users                create {id,name,role,tiles,terminal,password}
-PATCH  /api/buxon/users/<id>           update fields (incl. password reset)
-DELETE /api/buxon/users/<id>           remove
-GET    /api/buxon/whoami               the caller's own identity/permissions
+GET    /api/xbin/users                list (no hashes)
+POST   /api/xbin/users                create {id,name,role,tiles,terminal,password}
+PATCH  /api/xbin/users/<id>           update fields (incl. password reset)
+DELETE /api/xbin/users/<id>           remove
+GET    /api/xbin/whoami               the caller's own identity/permissions
 ```
 
-Gate: root token, an admin user, or an element granted `buxon:users`. This
-lets the owner grant a purpose-built user-admin tile just `buxon:users`
+Gate: root token, an admin user, or an element granted `xbin:users`. This
+lets the owner grant a purpose-built user-admin tile just `xbin:users`
 without full system admin — the "separate scopes" the design calls for.
 
 The **admin tile** gains a **Users** tab that is a complete manager: list,
@@ -104,7 +104,7 @@ third-party user-admin tile could do.
 
 ## Public-surface lockdown
 
-Threat: a buxon instance reachable on a network must expose nothing sensitive
+Threat: a xbin instance reachable on a network must expose nothing sensitive
 without a credential. Audit of every route:
 
 | Route | Auth |
@@ -131,7 +131,7 @@ Hardening added here:
 ## Session mechanism
 
 In-memory session store: `sessionID (random 32B) → userID`. Cookie
-`buxon_session` holds either the **root token** (bootstrap admin, as today) or
+`xbin_session` holds either the **root token** (bootstrap admin, as today) or
 a **session id**. `FromRequest` resolves: bearer root/instance token →
 admin/element; cookie == root token → admin; cookie == known session →
 that user (+ frame token ⇒ user-attributed tile frontend). Sessions drop on
@@ -146,7 +146,7 @@ can come later.
    checks to `IsAdmin`; frame tokens bind user+component.
 4. Tile-access enforcement (`/c/`, `/api/<tile>`, `/frame-token`,
    `/components`) + terminal gating.
-5. `/api/buxon/users*` + `whoami`, gated by `buxon:users` capability;
+5. `/api/xbin/users*` + `whoami`, gated by `xbin:users` capability;
    `bx user` CLI.
 6. Admin tile **Users** tab.
 7. Lockdown audit + docs (docs/auth.md, protocol.md, AGENTS.md, deployment).
@@ -154,7 +154,7 @@ can come later.
 ## Deferred (next task): source attribution headers
 
 On cross-tile and UI→tile requests, inject verified `X-Source-Tile` and
-`X-Source-User` (the human driving the call, distinct from `X-Buxon-From`
+`X-Source-User` (the human driving the call, distinct from `X-XBin-From`
 which is the calling *tile*). Enables per-user auditing, user-scoped data in
 shared tiles, and "who asked" features. Designed to ride the same verified
 frame/instance-token machinery.

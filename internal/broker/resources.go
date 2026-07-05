@@ -11,11 +11,11 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/magik6k/buxon/internal/auth"
-	"github.com/magik6k/buxon/internal/events"
-	"github.com/magik6k/buxon/internal/registry"
-	"github.com/magik6k/buxon/internal/server"
-	"github.com/magik6k/buxon/internal/util"
+	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/events"
+	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/util"
 )
 
 // Resource provisioning + delivery (plans/auth.md §5, docs/resources.md).
@@ -23,9 +23,9 @@ import (
 //   sqlite — a file under data/resources/<scope-key>/<name>.sqlite; the path
 //            is handed via env to same-scope components only (cross-scope db
 //            sharing goes through service APIs, not shared files).
-//   kv     — bbolt buckets behind /api/buxon/kv/…
-//   blob   — a quota'd directory behind /api/buxon/blob/…
-//   bus    — pub/sub topics on the events hub, /api/buxon/bus/publish
+//   kv     — bbolt buckets behind /api/xbin/kv/…
+//   blob   — a quota'd directory behind /api/xbin/blob/…
+//   bus    — pub/sub topics on the events hub, /api/xbin/bus/publish
 //   cron   — scheduled calls to the owning element's endpoints (cron.go)
 
 // Provision creates on-disk state for declared resources. Called at start
@@ -63,7 +63,7 @@ func (b *Broker) Provision() {
 }
 
 // EnvFor is installed into the runner: resource env for a component instance.
-// Every granted resource yields BUXON_RES_<NAME>=<dsn>; sqlite additionally
+// Every granted resource yields XBIN_RES_<NAME>=<dsn>; sqlite additionally
 // resolves to a direct file path when caller and resource share a scope.
 func (b *Broker) EnvFor(c *registry.Component) []string {
 	var env []string
@@ -75,15 +75,15 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 		if _, granted := b.grantedRole(c.Path, rt.String()); !granted {
 			continue
 		}
-		key := "BUXON_RES_" + envName(rt.Name)
+		key := "XBIN_RES_" + envName(rt.Name)
 		switch {
 		case res.Type == "filesystem" && rt.Scope == c.Scope:
-			// A rw directory the backend owns — BUXON_RES_<N> is the DIR path
-			// (put a db, files, a cache… anything). buxond binds it rw. When
+			// A rw directory the backend owns — XBIN_RES_<N> is the DIR path
+			// (put a db, files, a cache… anything). xbind binds it rw. When
 			// encrypted this is the decrypted gocryptfs mount (resenc).
 			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, false))
 		case res.Type == "sqlite" && rt.Scope == c.Scope:
-			// Convenience over `filesystem`: BUXON_RES_<N> points at a .sqlite
+			// Convenience over `filesystem`: XBIN_RES_<N> points at a .sqlite
 			// FILE in that dir (the dir is still what's bound rw).
 			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, true))
 		case res.Type == "filesystem" || res.Type == "sqlite":
@@ -96,7 +96,7 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 	// http interface slots → a URL the backend calls the bound provider at
 	// (via the gateway); the binding also grants the call (plans/interfaces.md).
 	for slot, iface := range b.HTTPInterfaces(c.Path) {
-		env = append(env, "BUXON_IFACE_"+envName(slot)+"_URL=http://buxon"+iface["url"])
+		env = append(env, "XBIN_IFACE_"+envName(slot)+"_URL=http://xbin"+iface["url"])
 	}
 	return env
 }
@@ -127,11 +127,11 @@ func openKV(root string) (*kvStore, error) {
 }
 
 // kvAccess parses /kv/{res-target}/{key...} and authorizes.
-// URL form: /api/buxon/kv/res:<scope>/<name>/<key…>
+// URL form: /api/xbin/kv/res:<scope>/<name>/<key…>
 func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (bucket, key string, ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	if !strings.HasPrefix(rest, "res:") {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "kv paths are /api/buxon/kv/res:<scope>/<name>/<key>", "docs": "/docs/resources.md"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "docs": "/docs/resources.md"})
 		return "", "", false
 	}
 	// Find the declared resource by longest prefix.

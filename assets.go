@@ -1,7 +1,7 @@
-// Package buxon holds the embedded assets shipped inside the buxond binary:
+// Package xbin holds the embedded assets shipped inside the xbind binary:
 // the core web elements + vendored frontend deps, the builder docs served at
-// /docs/, and the workspace template used by `buxond init`.
-package buxon
+// /docs/, and the workspace template used by `xbind init`.
+package xbin
 
 import (
 	"embed"

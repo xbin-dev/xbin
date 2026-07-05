@@ -1,22 +1,22 @@
 /**
- * buxon-client.js — injected into every component document served via /c/
- * (decision D4). Provides the in-frame side of the buxon contract:
+ * xbin-client.js — injected into every component document served via /c/
+ * (decision D4). Provides the in-frame side of the xbin contract:
  *
- *   buxon.self              — this component's path
- *   buxon.iface(slot)       — a bound http interface: { url, service } (or null).
+ *   xbin.self              — this component's path
+ *   xbin.iface(slot)       — a bound http interface: { url, service } (or null).
  *                             Call a typed, swappable dependency instead of a
- *                             hard-coded path, e.g. buxon.iface('llm').url
- *   buxon.fetch(url, opts)  — fetch with frame-token attribution attached;
+ *                             hard-coded path, e.g. xbin.iface('llm').url
+ *   xbin.fetch(url, opts)  — fetch with frame-token attribution attached;
  *                             REQUIRED for calling other elements' APIs
  *                             (streams fine: SSE / chunked responses work)
- *   buxon.ws(path)          — attributed WebSocket to an element API, e.g.
- *                             buxon.ws(`/api/apps/other/stream`) — browsers
+ *   xbin.ws(path)          — attributed WebSocket to an element API, e.g.
+ *                             xbin.ws(`/api/apps/other/stream`) — browsers
  *                             can't set WS headers, so the frame token rides
- *                             a query param that buxond consumes (never
+ *                             a query param that xbind consumes (never
  *                             forwarded to the callee)
- *   buxon.bus.on(prefix,cb) — subscribe to bus topics (granted resources)
- *   buxon.bus.publish(resource, topic, data)
- *   buxon.events.on(cb)     — raw event stream (reload/build/bus)
+ *   xbin.bus.on(prefix,cb) — subscribe to bus topics (granted resources)
+ *   xbin.bus.publish(resource, topic, data)
+ *   xbin.events.on(cb)     — raw event stream (reload/build/bus)
  *
  * It also reports the document's height to the embedding <bx-frame> so
  * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
@@ -24,21 +24,21 @@
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
 
-const self = meta('buxon-component');
-let frameToken = meta('buxon-frame-token');
+const self = meta('xbin-component');
+let frameToken = meta('xbin-frame-token');
 
 // Resolved http interface slots this component is bound to (plans/interfaces.md):
-// { <slot>: { url, service } }. buxon.iface(slot) returns the bound provider so a
+// { <slot>: { url, service } }. xbin.iface(slot) returns the bound provider so a
 // component calls a *typed, swappable* dependency instead of a hard-coded path.
 let ifaces = {};
-try { ifaces = JSON.parse(meta('buxon-interfaces') || '{}'); } catch { ifaces = {}; }
+try { ifaces = JSON.parse(meta('xbin-interfaces') || '{}'); } catch { ifaces = {}; }
 const iface = (slot) => ifaces[slot] || null;
 
 // --- token refresh (tokens are short-lived; see docs/auth.md) ---
 async function refreshToken() {
   try {
-    const r = await fetch(`/api/buxon/frame-token?component=${encodeURIComponent(self)}`, {
-      headers: frameToken ? { 'X-Buxon-Frame-Token': frameToken } : {},
+    const r = await fetch(`/api/xbin/frame-token?component=${encodeURIComponent(self)}`, {
+      headers: frameToken ? { 'X-XBin-Frame-Token': frameToken } : {},
     });
     if (r.ok) frameToken = (await r.json()).token;
   } catch { /* transient; next interval retries */ }
@@ -48,7 +48,7 @@ if (frameToken) setInterval(refreshToken, 10 * 60 * 1000);
 // --- attributed fetch ---
 function bfetch(url, opts = {}) {
   const headers = new Headers(opts.headers || {});
-  if (frameToken) headers.set('X-Buxon-Frame-Token', frameToken);
+  if (frameToken) headers.set('X-XBin-Frame-Token', frameToken);
   return fetch(url, { ...opts, headers });
 }
 
@@ -90,7 +90,7 @@ const bus = {
   },
   /** Publish to a granted bus resource, e.g. publish('res:apps/calendar/events', 'created', {...}). */
   async publish(resource, topic, data) {
-    const r = await bfetch('/api/buxon/bus/publish', {
+    const r = await bfetch('/api/xbin/bus/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resource, topic, data }),
@@ -110,10 +110,10 @@ if (window.parent !== window) {
     const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
     if (Math.abs(h - last) <= 1) return; // hysteresis: avoid resize loops
     last = h;
-    window.parent.postMessage({ type: 'buxon:resize', component: self, height: h }, location.origin);
+    window.parent.postMessage({ type: 'xbin:resize', component: self, height: h }, location.origin);
   };
   new ResizeObserver(report).observe(document.documentElement);
   addEventListener('load', report);
 }
 
-window.buxon = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events });

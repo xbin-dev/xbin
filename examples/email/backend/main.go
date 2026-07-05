@@ -1,6 +1,6 @@
 // Email backend (demo): shows one app consuming another's API server-side.
 // GET /today proxies to apps/calendar with this element's verified identity;
-// the calendar sees X-Buxon-From: apps/email, X-Buxon-Role: reader.
+// the calendar sees X-XBin-From: apps/email, X-XBin-Role: reader.
 // The IMAP password lives in this element's private vault (never in source).
 package main
 
@@ -9,14 +9,14 @@ import (
 	"io"
 	"net/http"
 
-	buxon "github.com/magik6k/buxon/sdk"
+	xbin "github.com/magik6k/xbin/sdk"
 )
 
 func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /today", func(w http.ResponseWriter, r *http.Request) {
-		resp, err := buxon.Client().Get("http://buxon/api/apps/calendar/events")
+		resp, err := xbin.Client().Get("http://xbin/api/apps/calendar/events")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -30,10 +30,10 @@ func main() {
 	// Demo of vault-held secrets: reports whether the IMAP password is set
 	// (bx vault set apps/email imap-pass). Real code would open IMAP with it.
 	mux.HandleFunc("GET /imap-status", func(w http.ResponseWriter, r *http.Request) {
-		_, err := buxon.Secret("imap-pass")
+		_, err := xbin.Secret("imap-pass")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]bool{"configured": err == nil})
 	})
 
-	buxon.Serve(mux)
+	xbin.Serve(mux)
 }

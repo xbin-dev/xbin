@@ -1,5 +1,5 @@
 // Package jsonc parses JSON with comments and trailing commas (JSONC), the
-// manifest format used by buxon.json / scope.json (decision D5).
+// manifest format used by xbin.json / scope.json (decision D5).
 package jsonc
 
 import (
