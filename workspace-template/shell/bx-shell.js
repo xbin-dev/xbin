@@ -15,6 +15,9 @@
  * (the tabs at the top) — each screen holds its own set of tiles laid out in
  * vertical columns; drag a card by its title bar to reorder within a column
  * or move it between columns. Open tiles from the sidebar; close with ✕.
+ * Unpin a card (⧉) to pop it out as a floating, draggable + resizable window
+ * (pin back with ▣); its position/size is saved in the layout like everything
+ * else. Floating windows are per-screen.
  * The <bx-frame> children of <bx-shell> seed the first screen on first run;
  * after that your saved layout is the source of truth. Theme tokens come from
  * /vendor/theme.css and can be overridden here.
@@ -50,11 +53,15 @@ const RUNTIME_COLOR = {
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+// Shared z-order for floating (unpinned) tile windows. Kept below bx-frame's
+// terminal pop-ups (which start at 2000) so a terminal always sits on top.
+let zTop = 100;
+
 export class BxShell extends LitElement {
   static properties = {
     name: { type: String },
     _components: { state: true },
-    _screens: { state: true }, // [{id, name, tiles: [{path, col, height?, pinned?}]}]
+    _screens: { state: true }, // [{id, name, tiles: [{path, col, height?, float?:{x,y,w,h,z}}]}]
     _active: { state: true },  // active screen id
     _cols: { state: true },
     _drag: { state: true },    // {path} while dragging
@@ -181,6 +188,22 @@ export class BxShell extends LitElement {
       margin: -8px 0; /* fold into the column gap */
     }
     .empty { color: var(--bx-muted, #8794a1); font-size: 12.5px; padding: 24px; text-align: center; }
+
+    /* ---- floating (unpinned) tile windows ---- */
+    .float {
+      position: fixed; z-index: 100;
+      display: flex; flex-direction: column;
+      border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: var(--bx-radius, 6px);
+      background: var(--bx-panel, #fff);
+      box-shadow: 2px 6px 22px rgba(16, 24, 40, 0.22);
+      overflow: hidden; resize: both; min-width: 220px; min-height: 120px;
+    }
+    .float > .card {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      border: 0; border-radius: 0; box-shadow: none;
+    }
+    .float .fbody { flex: 1; min-height: 0; overflow: auto; }
   `;
 
   constructor() {
@@ -197,6 +220,7 @@ export class BxShell extends LitElement {
     this._saveTimer = null;
     this._onMove = (e) => this._dragMove(e);
     this._onUp = (e) => this._dragEnd(e);
+    this._onBlur = () => this._raiseFocusedFloat();
   }
 
   connectedCallback() {
@@ -206,6 +230,7 @@ export class BxShell extends LitElement {
     this._off = window.buxon?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
+    window.addEventListener('blur', this._onBlur);
   }
 
   disconnectedCallback() {
@@ -214,6 +239,7 @@ export class BxShell extends LitElement {
     this._ro?.disconnect();
     window.removeEventListener('pointermove', this._onMove);
     window.removeEventListener('pointerup', this._onUp);
+    window.removeEventListener('blur', this._onBlur);
   }
 
   firstUpdated() {
@@ -315,7 +341,7 @@ export class BxShell extends LitElement {
 
   _shortestCol() {
     const counts = Array(this._cols).fill(0);
-    for (const o of this._tiles) if (o.col < this._cols) counts[o.col]++;
+    for (const o of this._tiles) if (!o.float && o.col < this._cols) counts[o.col]++;
     return counts.indexOf(Math.min(...counts));
   }
 
@@ -413,22 +439,130 @@ export class BxShell extends LitElement {
     });
   }
 
-  _cardTemplate(o) {
+  _cardTemplate(o, floating = false) {
+    const frame = html`<bx-frame src=${o.path} height=${floating ? nothing : (o.height ?? nothing)}></bx-frame>`;
     return html`
       <div class="card ${this._drag?.path === o.path ? 'dragging' : ''}" data-path=${o.path}>
-        <div class="head" @pointerdown=${(e) => this._dragStart(e, o.path)}>
+        <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._dragStart(e, o.path))}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           <span class="spacer"></span>
+          <button title=${floating ? 'pin back into the column layout' : 'unpin into a floating window'}
+                  @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
           <button title="close" @click=${() => this._toggle(o.path)}>✕</button>
         </div>
-        <bx-frame src=${o.path} height=${o.height ?? nothing}></bx-frame>
+        ${floating ? html`<div class="fbody">${frame}</div>` : frame}
       </div>`;
   }
 
+  // ---- floating (unpinned) windows ----
+  // A tile with a `float:{x,y,w,h,z}` is rendered as a viewport-fixed window
+  // instead of in a column; the geometry is part of the tile, so it persists in
+  // the saved layout. Pinning/unpinning re-creates the tile's <bx-frame> (moving
+  // between two DOM containers) — a brief reload, but any open terminal on it
+  // reattaches via bx-frame's session persistence.
+  _floatTemplate(o) {
+    const f = o.float;
+    return html`
+      <div class="float" data-path=${o.path}
+           style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
+           @pointerdown=${() => this._floatFront(o.path)}
+           @pointerup=${(e) => this._floatCommit(e, o.path)}>
+        ${this._cardTemplate(o, true)}
+      </div>`;
+  }
+
+  _togglePin(path) {
+    // Read the current on-screen rect before the mutation re-renders.
+    const init = this._initialFloat(path);
+    this._mutateTiles((tiles) => tiles.map((o) => {
+      if (o.path !== path) return o;
+      if (o.float) { const { float, ...rest } = o; return rest; } // pin back to its column
+      return { ...o, float: init };                                // unpin → floating window
+    }));
+  }
+
+  _initialFloat(path) {
+    const el = this.renderRoot.querySelector(`.card[data-path="${path}"]`);
+    const r = el?.getBoundingClientRect();
+    const w = Math.round(Math.min(r?.width || 480, window.innerWidth - 16));
+    const h = Math.round(Math.min(r?.height || 340, 520, window.innerHeight - 16));
+    const x = Math.max(8, Math.min(Math.round((r?.left ?? 120) + 28), window.innerWidth - w - 8));
+    const y = Math.max(8, Math.min(Math.round((r?.top ?? 90) + 20), window.innerHeight - h - 8));
+    return { x, y, w, h, z: ++zTop };
+  }
+
+  _floatWin(path) { return this.renderRoot.querySelector(`.float[data-path="${path}"]`); }
+
+  // Raise a floating window to the top — but only if it isn't already there, so
+  // repeatedly clicking the front window doesn't churn the layout. z is part of
+  // the tile, so the stacking order persists.
+  _floatFront(path) {
+    const floats = this._tiles.filter((o) => o.float);
+    if (floats.length < 2) return;
+    const o = floats.find((t) => t.path === path);
+    if (!o) return;
+    const maxZ = Math.max(...floats.map((t) => t.float.z ?? 100));
+    if ((o.float.z ?? 100) >= maxZ) return; // already on top
+    zTop = maxZ + 1;
+    this._setFloat(path, { z: zTop });
+  }
+
+  // A click inside a tile's <iframe> focuses it and blurs the top window (the
+  // iframe swallows the pointerdown, so .float's own handler can't fire). Walk
+  // the shadow roots to the focused iframe and raise its floating window, so
+  // clicking anywhere in a window — not just its title bar — brings it forward.
+  _raiseFocusedFloat() {
+    setTimeout(() => {
+      let el = document.activeElement;
+      while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+      if (el?.tagName !== 'IFRAME') return;
+      const win = el.getRootNode()?.host?.closest?.('.float');
+      if (win) this._floatFront(win.dataset.path);
+    }, 0);
+  }
+
+  // Commit a resize (via the CSS resize handle) back into the tile; skip clicks
+  // that didn't change the size, so buttons don't churn the layout.
+  _floatCommit(e, path) {
+    const win = e.currentTarget;
+    const o = this._tiles.find((t) => t.path === path);
+    if (!o?.float) return;
+    if (win.offsetWidth === o.float.w && win.offsetHeight === o.float.h) return;
+    this._setFloat(path, { w: win.offsetWidth, h: win.offsetHeight });
+  }
+
+  _floatDragStart(ev, path) {
+    if (ev.button !== 0 || ev.target.closest('button, select')) return;
+    ev.preventDefault();
+    this._floatFront(path);
+    const win = this._floatWin(path);
+    if (!win) return;
+    const dx = ev.clientX - win.offsetLeft, dy = ev.clientY - win.offsetTop;
+    const shield = dragShield();
+    const move = (e) => {
+      const x = Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40));
+      const y = Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24));
+      win.style.left = x + 'px'; win.style.top = y + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      shield();
+      this._setFloat(path, { x: win.offsetLeft, y: win.offsetTop });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  _setFloat(path, patch) {
+    this._mutateTiles((tiles) => tiles.map((o) =>
+      o.path === path && o.float ? { ...o, float: { ...o.float, ...patch } } : o));
+  }
+
   _column(colIdx) {
-    const cards = this._tiles.filter((o) => o.col === colIdx);
+    const cards = this._tiles.filter((o) => o.col === colIdx && !o.float);
     const showDrop = this._drag && this._drop?.col === colIdx;
     // The dragged card stays MOUNTED (dimmed ghost in place) rather than being
     // filtered out — unmounting it destroys its <bx-frame>, which kills any
@@ -498,6 +632,8 @@ export class BxShell extends LitElement {
           <slot style="display:none"></slot>
         </main>
       </div>
+
+      ${repeat(this._tiles.filter((o) => o.float), (o) => o.path, (o) => this._floatTemplate(o))}
     `;
   }
 }
