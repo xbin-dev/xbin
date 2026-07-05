@@ -43,6 +43,13 @@ import (
 var version = "dev" // set via -ldflags at release
 var startTime = time.Now()
 
+// devVaultPassphrase brings the vault up automatically under --dev/--no-auth so
+// encryption-at-rest is ON by default while dogfooding (a bare `make dev`
+// encrypts filesystem/sqlite/blob resources + kv). It is a FIXED key baked into
+// the source — INSECURE by construction — and is never used outside dev/no-auth;
+// real deployments supply BUXON_VAULT_PASSPHRASE or unseal manually.
+const devVaultPassphrase = "buxon-dev-insecure-vault"
+
 func kernelRelease() string {
 	if b, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
 		return strings.TrimSpace(string(b))
@@ -83,7 +90,7 @@ func main() {
 		dev           = flag.Bool("dev", false, "dev mode: web/docs served from source tree, debug logs")
 		noAuth        = flag.Bool("no-auth", false, "disable auth (dev only; every request is admin)")
 		scopeUIDs     = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
-		insecureVault = flag.Bool("insecure-vault", false, "allow the vault to store secrets as PLAINTEXT at rest (not recommended; --dev implies it)")
+		insecureVault = flag.Bool("insecure-vault", false, "store secrets AND resource data as PLAINTEXT at rest (not recommended; --no-auth implies it; a bare --dev instead auto-encrypts with a dev key)")
 		isolate       = flag.Bool("isolate", false, "run each backend in a per-component sandbox (namespaces + overlay rootfs; auth tier 3, needs --rootfs)")
 		rootfs        = flag.String("rootfs", envOr("BUXON_ROOTFS", ""), "base rootfs dir (unpacked OCI image) for --isolate sandboxes")
 	)
@@ -255,28 +262,38 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
 
-	// Vault encryption barrier (docs/auth.md §vault). Secure by default: in
-	// production (no --dev/--no-auth/--insecure-vault) secrets are never
-	// written in the clear. Three ways in:
+	// Vault encryption barrier (docs/auth.md §vault, plans/vault-data.md). It
+	// protects both secrets and resource data (kv/filesystem/sqlite/blob) at
+	// rest. Secure by default in production; ON by default under a bare `make
+	// dev` too. Modes (first match wins):
 	//   - BUXON_VAULT_PASSPHRASE set → auto-init/unseal at boot (convenient).
-	//   - no env, barrier already set up → start SEALED; an admin unseals
-	//     after login (bx vault unseal / admin console).
-	//   - no env, no barrier → start LOCKED (writes refused) until an admin
-	//     unseals, which creates the barrier on first use. The passphrase
-	//     never touches the container env — the strongest mode.
-	// --dev/--no-auth/--insecure-vault instead permit plaintext at rest.
-	allowPlaintextVault := dev || noAuth || insecureVault
-	brk.AllowInsecureVault = allowPlaintextVault
+	//   - --insecure-vault or --no-auth → plaintext at rest (the opt-out; the
+	//     frictionless/harness path — barrier stays uninitialized).
+	//   - --dev (without the above) → auto-init with a built-in DEV key so
+	//     `make dev` encrypts by default (INSECURE; dev only).
+	//   - production, no env, barrier set up → start SEALED; an admin unseals.
+	//   - production, no env, no barrier → start LOCKED until an admin unseals
+	//     (creates the barrier on first use; the passphrase never touches env —
+	//     the strongest mode).
+	brk.AllowInsecureVault = insecureVault || noAuth
 	switch pass := os.Getenv("BUXON_VAULT_PASSPHRASE"); {
 	case pass != "":
 		if err := brk.UnsealOrInit(pass); err != nil {
 			return fmt.Errorf("vault unseal: %w", err)
 		}
 		slog.Info("vault: encryption at rest active (auto-unsealed from env)")
+	case insecureVault || noAuth:
+		slog.Warn("vault: NO encryption at rest — data is plaintext on disk (--insecure-vault/--no-auth). Set BUXON_VAULT_PASSPHRASE or drop the flag to encrypt")
+	case dev:
+		// Dev convenience: init on first run, unseal on later runs, with a fixed
+		// in-source key (INSECURE — dev only), so encryption-at-rest is exercised
+		// without extra setup.
+		if err := brk.UnsealOrInit(devVaultPassphrase); err != nil {
+			return fmt.Errorf("vault dev-init: %w", err)
+		}
+		slog.Warn("vault: encryption at rest active with a built-in DEV key (INSECURE — dev only; use BUXON_VAULT_PASSPHRASE or manual unseal in production)")
 	case brk.Barrier().Initialized():
 		slog.Warn("vault: encrypted and SEALED — an admin must unseal it after login (bx vault unseal, or the admin console); secret reads/writes fail until then")
-	case allowPlaintextVault:
-		slog.Warn("vault: NO encryption at rest — secrets are plaintext on disk (dev/--insecure-vault). Set BUXON_VAULT_PASSPHRASE or unseal to encrypt")
 	default:
 		slog.Warn("vault: LOCKED — no encryption configured. An admin sets it up after login (bx vault unseal, or the admin console); secret storage is refused until then")
 	}
@@ -292,7 +309,11 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
-	run.ShouldRun = func(comp string) bool { return reg.LifecycleState(comp) == registry.StateEnabled }
+	// A component may spawn only if enabled AND its encrypted tile state is
+	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
+	run.ShouldRun = func(comp string) bool {
+		return reg.LifecycleState(comp) == registry.StateEnabled && !brk.EncryptionHold(comp)
+	}
 	brk.Version = version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 

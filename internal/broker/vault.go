@@ -321,6 +321,7 @@ func (b *Broker) apiVaultSeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.barrier.Seal()
+	b.SealResources() // stop stateful components + unmount encrypted resources
 	server.WriteJSON(w, http.StatusOK, map[string]any{"sealed": true})
 }
 

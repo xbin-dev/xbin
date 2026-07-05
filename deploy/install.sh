@@ -252,7 +252,7 @@ install_files() {
   info "Installing to $PREFIX"
   systemctl is-active --quiet buxon 2>/dev/null && { info "stopping running buxon for upgrade"; systemctl stop buxon; }
   install -d -m 0755 "$PREFIX/bin"
-  local b; for b in buxond bx fuse-overlayfs; do
+  local b; for b in buxond bx fuse-overlayfs gocryptfs; do
     [ -f "$BUXON_PREBUILT_BIN/$b" ] || die "missing artifact: $BUXON_PREBUILT_BIN/$b"
     install -m 0755 "$BUXON_PREBUILT_BIN/$b" "$PREFIX/bin/$b"
   done
@@ -308,10 +308,15 @@ Environment=HOME=$PREFIX
 Environment=PATH=$PREFIX/bin:/usr/local/go/bin:$PREFIX/rootfs/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=BUXON_ROOTFS=$PREFIX/rootfs
 Environment=BUXON_FUSE_OVERLAYFS=$PREFIX/bin/fuse-overlayfs
+Environment=BUXON_GOCRYPTFS=$PREFIX/bin/gocryptfs
 EnvironmentFile=-/etc/buxon/buxon.env
 ExecStart=$PREFIX/bin/buxond --isolate --rootfs $PREFIX/rootfs --workspace $WORKSPACE --listen $LISTEN
 Restart=on-failure
 RestartSec=2
+# tmpfs run dir (/run/buxon) for IPC sockets — bind-mounted RW into sandboxes,
+# so it must be tmpfs not host disk (plans/isolation.md).
+RuntimeDirectory=buxon
+RuntimeDirectoryMode=0700
 Delegate=yes
 LimitNOFILE=1048576
 TasksMax=infinity

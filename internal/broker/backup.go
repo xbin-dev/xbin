@@ -113,22 +113,27 @@ func skipSource(rel string) bool {
 }
 
 func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *registry.ScopeManifest) error {
-	dir := b.resourcesRoot(scopePath)
+	// Backups are plaintext (encryption is the archiver's job — plans/vault-data.md),
+	// so we read through the decrypted view; that needs the vault unsealed.
+	if b.vaultSealed() {
+		return fmt.Errorf("vault sealed — unseal before backing up encrypted resources")
+	}
 	kv := map[string]map[string]string{} // resource -> {key: base64(value)}
 	for name, res := range scope.Resources {
 		switch res.Type {
 		case "sqlite":
-			for _, suffix := range []string{".sqlite", ".sqlite-wal", ".sqlite-shm"} {
-				if err := addFile(bw, backup.SQLitePrefix+name+suffix, filepath.Join(dir, name+suffix)); err != nil {
-					return err
-				}
+			// sqlite is a gocryptfs mount dir like filesystem (it holds the db,
+			// but a tile may keep other files there too — e.g. use it as $HOME),
+			// so back up the whole decrypted dir, not just <name>.sqlite*.
+			if err := bw.Tree(backup.SQLitePrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+				return err
 			}
 		case "filesystem":
-			if err := bw.Tree(backup.FSPrefix+name+"/", filepath.Join(dir, name), nil); err != nil {
+			if err := bw.Tree(backup.FSPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
 				return err
 			}
 		case "blob":
-			if err := bw.Tree(backup.BlobPrefix+name+"/", filepath.Join(dir, name), nil); err != nil {
+			if err := bw.Tree(backup.BlobPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
 				return err
 			}
 		case "kv":
@@ -171,7 +176,13 @@ func (b *Broker) dumpKV(bucket string) map[string]string {
 			return nil
 		}
 		return bk.ForEach(func(k, v []byte) error {
-			out[string(k)] = base64.StdEncoding.EncodeToString(v)
+			// Store decrypted values so the tar is plaintext (constraint: the
+			// archiver, not the tar, is responsible for encryption).
+			pv, err := b.decodeKV(bucket, append([]byte(nil), v...))
+			if err != nil {
+				return err // sealed / undecodable — abort the backup
+			}
+			out[string(k)] = base64.StdEncoding.EncodeToString(pv)
 			return nil
 		})
 	})
@@ -207,8 +218,12 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 	m := br.M
 	root := b.Reg.Root
 	srcRoot := filepath.Join(root, filepath.FromSlash(m.Component))
-	dataRoot := b.resourcesRoot(m.Scope)
 	termRoot := b.termDir(m.Component)
+	// Restored resource data is re-encrypted under the current vault, so this
+	// needs the vault unsealed (plans/vault-data.md).
+	if b.vaultSealed() {
+		return m, fmt.Errorf("vault sealed — unseal before restoring encrypted resources")
+	}
 
 	for {
 		name, rd, err := br.Next()
@@ -225,18 +240,27 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 				return m, err
 			}
 		case strings.HasPrefix(name, backup.SQLitePrefix):
-			if err := writeFileFrom(filepath.Join(dataRoot, strings.TrimPrefix(name, backup.SQLitePrefix)), rd); err != nil {
+			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.SQLitePrefix))
+			if err != nil {
+				return m, err
+			}
+			if err := writeFileFrom(dst, rd); err != nil {
 				return m, err
 			}
 		case strings.HasPrefix(name, backup.FSPrefix):
-			// filesystem resource → data/resources/<scopekey>/<name>/…
-			if err := writeFileFrom(backup.SafeJoin(dataRoot, strings.TrimPrefix(name, backup.FSPrefix)), rd); err != nil {
+			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.FSPrefix))
+			if err != nil {
+				return m, err
+			}
+			if err := writeFileFrom(dst, rd); err != nil {
 				return m, err
 			}
 		case strings.HasPrefix(name, backup.BlobPrefix):
-			// blob dir → data/resources/<scopekey>/<name>/… (trim BlobPrefix, not
-			// DataPrefix — otherwise it lands one level too deep under blob/).
-			if err := writeFileFrom(backup.SafeJoin(dataRoot, strings.TrimPrefix(name, backup.BlobPrefix)), rd); err != nil {
+			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.BlobPrefix))
+			if err != nil {
+				return m, err
+			}
+			if err := writeFileFrom(dst, rd); err != nil {
 				return m, err
 			}
 		case strings.HasPrefix(name, backup.SourcePrefix):
@@ -261,6 +285,20 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 	return m, nil
 }
 
+// restoreFileDest maps a backup tar entry (its name minus the buxon prefix) to
+// the on-disk destination, mounting the resource first so restored data is
+// re-encrypted under the current vault. filesystem/sqlite/blob are all mount
+// dirs, so rest is always "<name>/<rel>".
+func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
+	scopeKey := util.ScopeKey(scope)
+	name, rel, _ := strings.Cut(rest, "/")
+	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name)
+	if err != nil {
+		return "", err
+	}
+	return backup.SafeJoin(mdir, rel), nil
+}
+
 func (b *Broker) loadKV(scope string, body []byte) error {
 	if b.kv == nil {
 		return nil
@@ -271,7 +309,8 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 	}
 	return b.kv.db.Update(func(tx *bolt.Tx) error {
 		for name, kvs := range dump {
-			bk, err := tx.CreateBucketIfNotExists([]byte("res:" + scope + "/" + name))
+			bucket := "res:" + scope + "/" + name
+			bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
 			if err != nil {
 				return err
 			}
@@ -280,7 +319,12 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 				if err != nil {
 					return err
 				}
-				if err := bk.Put([]byte(k), v); err != nil {
+				// Re-encode under the current vault (the tar held plaintext).
+				stored, err := b.encodeKV(bucket, v)
+				if err != nil {
+					return err
+				}
+				if err := bk.Put([]byte(k), stored); err != nil {
 					return err
 				}
 			}

@@ -153,8 +153,12 @@ encryption barrier:
   admin runs `bx vault unseal` (or the admin console) once. The passphrase never
   touches env or disk; you re-unseal after each restart, like HashiCorp Vault.
 
-`--insecure-vault` (implied by `--dev`) is the only way to store plaintext, for
-throwaway setups. Lose the passphrase and encrypted secrets are unrecoverable.
+The barrier also encrypts **resource data** (kv/filesystem/sqlite/blob), not just
+secrets — see [docs/resources.md](docs/resources.md) and `plans/vault-data.md`.
+`--insecure-vault` (or `--no-auth`) stores everything plaintext for throwaway
+setups; a bare `--dev` instead auto-encrypts with a built-in, insecure dev key so
+`make dev` dogfoods encryption. Lose the passphrase and encrypted data is
+unrecoverable.
 
 **Exposure.** buxon runs arbitrary code by design and does no TLS itself — bind
 it to `127.0.0.1` and reach it over **Tailscale** (map the port on the tailnet)

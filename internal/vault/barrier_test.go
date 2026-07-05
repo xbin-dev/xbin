@@ -91,6 +91,44 @@ func TestUnsealPersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestDeriveKey(t *testing.T) {
+	dir := t.TempDir()
+	b, _ := Open(dir)
+	_ = b.Init("master")
+
+	a1, err := b.DeriveKey("fs:apps/thing/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a1) != keyLen {
+		t.Fatalf("derived key len = %d, want %d", len(a1), keyLen)
+	}
+	a2, _ := b.DeriveKey("fs:apps/thing/store")
+	if !bytes.Equal(a1, a2) {
+		t.Fatal("same label must derive the same key")
+	}
+	other, _ := b.DeriveKey("kv:apps/thing/store")
+	if bytes.Equal(a1, other) {
+		t.Fatal("different labels must derive different keys")
+	}
+
+	// Sealed → refused.
+	b.Seal()
+	if _, err := b.DeriveKey("fs:apps/thing/store"); err != ErrSealed {
+		t.Fatalf("DeriveKey while sealed: %v", err)
+	}
+
+	// Survives a restart: reopen, unseal with the same passphrase, same key.
+	b2, _ := Open(dir)
+	if err := b2.Unseal("master"); err != nil {
+		t.Fatal(err)
+	}
+	a3, _ := b2.DeriveKey("fs:apps/thing/store")
+	if !bytes.Equal(a1, a3) {
+		t.Fatal("derived key must be stable across unseal/restart")
+	}
+}
+
 func TestRekey(t *testing.T) {
 	dir := t.TempDir()
 	b, _ := Open(dir)

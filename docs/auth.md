@@ -129,6 +129,11 @@ or disk snapshot is just ciphertext.
 - Sealed → the DEK isn't in memory; vault reads/writes return `503 sealed`.
 - Unseal supplies the passphrase, which is never persisted; the DEK is held
   in memory (mlock'd best-effort) until seal or restart.
+- The barrier also encrypts **resource data** (kv/filesystem/sqlite/blob) at
+  rest, not just secrets ([resources.md](/docs/resources.md),
+  `plans/vault-data.md`). So while sealed, components that use those resources
+  are **held** (won't spawn) and come alive on unseal — sealing a configured
+  vault takes the stateful workspace offline until an admin unseals.
 
 ```sh
 bx vault status                 # insecure | sealed | unsealed

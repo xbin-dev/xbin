@@ -18,6 +18,7 @@ import (
 	"github.com/magik6k/buxon/internal/builtins"
 	"github.com/magik6k/buxon/internal/events"
 	"github.com/magik6k/buxon/internal/registry"
+	"github.com/magik6k/buxon/internal/resenc"
 	"github.com/magik6k/buxon/internal/server"
 	"github.com/magik6k/buxon/internal/users"
 	"github.com/magik6k/buxon/internal/vault"
@@ -35,6 +36,7 @@ type Broker struct {
 	cron      *cronRunner
 	uids      *uidAllocator         // nil = tier 1
 	barrier   *vault.Barrier        // vault encryption-at-rest barrier
+	resenc    *resenc.Manager       // per-resource gocryptfs mounts (filesystem/sqlite)
 	tiles     *builtins.Set         // embedded optional tile catalog (nil = none)
 	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
@@ -92,6 +94,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	if b.barrier, err = vault.Open(filepath.Join(reg.Root, "data", "vault")); err != nil {
 		return nil, err
 	}
+	b.initResEnc()
 	if scopeUIDs {
 		if b.uids, err = newUIDAllocator(reg.Root); err != nil {
 			return nil, err
@@ -107,12 +110,17 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 // one. Called at boot from BUXON_VAULT_PASSPHRASE, and by the unseal API.
 func (b *Broker) UnsealOrInit(passphrase string) error {
 	if b.barrier.Initialized() {
-		return b.barrier.Unseal(passphrase)
+		if err := b.barrier.Unseal(passphrase); err != nil {
+			return err
+		}
+		b.MountEncrypted()
+		return nil
 	}
 	if err := b.barrier.Init(passphrase); err != nil {
 		return err
 	}
 	b.migrateVaults()
+	b.MountEncrypted() // default-on: encrypt file-backed resources from now on
 	return nil
 }
 

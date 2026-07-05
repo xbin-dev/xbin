@@ -31,6 +31,7 @@ Environment=HOME=/opt/buxon
 Environment=PATH=/opt/buxon/bin:/usr/local/go/bin:/opt/buxon/rootfs/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=BUXON_ROOTFS=/opt/buxon/rootfs
 Environment=BUXON_FUSE_OVERLAYFS=/opt/buxon/bin/fuse-overlayfs
+Environment=BUXON_GOCRYPTFS=/opt/buxon/bin/gocryptfs
 # Optional hands-off vault: put BUXON_VAULT_PASSPHRASE=... in this file (mode
 # 0600) for auto-unseal. Leave the file absent to unseal manually after login —
 # the leading '-' makes it optional.
@@ -38,6 +39,12 @@ EnvironmentFile=-/etc/buxon/buxon.env
 ExecStart=/opt/buxon/bin/buxond --isolate --rootfs /opt/buxon/rootfs --workspace /opt/buxon/workspace --listen 127.0.0.1:8642
 Restart=on-failure
 RestartSec=2
+
+# A tmpfs at /run/buxon for buxond's IPC sockets. The run dir is bind-mounted
+# RW into every component sandbox, so it must be tmpfs, never host disk
+# (plans/isolation.md). buxond picks it up via $RUNTIME_DIRECTORY.
+RuntimeDirectory=buxon
+RuntimeDirectoryMode=0700
 
 # Per-component cgroup v2 accounting: buxond manages its own delegated subtree.
 Delegate=yes

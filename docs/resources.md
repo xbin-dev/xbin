@@ -35,6 +35,29 @@ path (both a real rw path bound into your sandbox). State lives under
 Roles: `reader` / `writer` as usual (`subscriber`/`publisher` accepted for
 bus).
 
+## Encryption at rest
+
+**Resource state is always encrypted at rest under vault-derived keys** — there
+is no plaintext resource path. `filesystem`, `sqlite`, and `blob` are each a
+per-resource gocryptfs mount (buxond mounts the *decrypted* view into your
+sandbox); `kv` values are envelope-encrypted per bucket. It's **transparent to
+your code** — you always read and write plaintext; only the on-disk bytes
+(`data/resources-enc/…`, `data/kv.db`) are ciphertext, so a stolen disk or backup
+snapshot yields nothing without the key. The key comes from the vault barrier —
+a passphrase / manual unseal in production, or a built-in dev key under a bare
+`make dev` ([auth.md](/docs/auth.md)). Consequences:
+
+- **If encryption can't run, the resource is unavailable — never plaintext.** A
+  component that uses a `filesystem`/`sqlite`/`blob`/`kv` resource is **held**
+  (won't spawn) while the vault is sealed or gocryptfs is missing, and
+  `kv`/`blob` API calls return `503`. Everything resumes on unseal.
+- **Backups are plaintext.** `bx backup` and the archive interface stream
+  *decrypted* data — encrypting the archive is the archiver tile's job
+  (`plans/vault-data.md`).
+
+Only an explicit `--insecure-vault` (or `--no-auth`) stores resource data
+plaintext, for throwaway/inspection setups.
+
 ## kv — small structured state
 
 Namespaced key-value store (single workspace bbolt db under the hood).

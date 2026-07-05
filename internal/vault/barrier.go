@@ -31,15 +31,18 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sys/unix"
 )
 
@@ -242,6 +245,49 @@ func (b *Barrier) Decrypt(blob []byte) ([]byte, error) {
 		return nil, ErrSealed
 	}
 	return gcmOpen(b.dek, blob)
+}
+
+// DeriveKey returns a deterministic 32-byte subkey for label, via
+// HKDF-SHA256 over the master DEK. Distinct labels yield independent keys, so
+// a leaked per-resource key never crosses resources, and the same label always
+// derives the same key while unsealed (so encrypted-at-rest data — e.g. a
+// resource's kv values or its gocryptfs master password — survives restarts).
+// The DEK itself never leaves the barrier. Returns ErrSealed when sealed. The
+// caller owns the returned slice and should zero it after use.
+func (b *Barrier) DeriveKey(label string) ([]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.dek == nil {
+		return nil, ErrSealed
+	}
+	r := hkdf.New(sha256.New, b.dek, nil, []byte("buxon/"+label))
+	key := make([]byte, keyLen)
+	if _, err := io.ReadFull(r, key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+// EncryptFor seals plaintext under a per-label subkey (DeriveKey → AES-256-GCM),
+// so data addressed by distinct labels (e.g. per kv bucket) is cryptographically
+// isolated. Output is nonce||ciphertext. Returns ErrSealed when sealed.
+func (b *Barrier) EncryptFor(label string, plaintext []byte) ([]byte, error) {
+	key, err := b.DeriveKey(label)
+	if err != nil {
+		return nil, err
+	}
+	defer zero(key)
+	return gcmSeal(key, plaintext)
+}
+
+// DecryptFor opens a blob sealed by EncryptFor with the same label.
+func (b *Barrier) DecryptFor(label string, blob []byte) ([]byte, error) {
+	key, err := b.DeriveKey(label)
+	if err != nil {
+		return nil, err
+	}
+	defer zero(key)
+	return gcmOpen(key, blob)
 }
 
 // --- internals ---

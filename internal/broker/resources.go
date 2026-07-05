@@ -32,19 +32,21 @@ import (
 // and after every rescan; idempotent.
 func (b *Broker) Provision() {
 	do := func(scope string, resources map[string]registry.Resource) {
+		scopeKey := util.ScopeKey(scope)
+		dir := filepath.Join(b.Reg.Root, "data", "resources", scopeKey)
 		for name, res := range resources {
-			dir := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(scope))
 			switch res.Type {
-			case "sqlite", "cron":
+			case "cron":
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					slog.Warn("provision", "err", err)
 				}
-			case "filesystem", "blob":
-				if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
-					slog.Warn("provision", "err", err)
-				}
+			case "filesystem", "sqlite", "blob":
+				// Always encrypted: a per-resource gocryptfs mount stood up by
+				// MountEncrypted (below) when the vault is unsealed. No plaintext
+				// dir is ever created.
 			case "kv", "bus":
-				// kv lives in the shared bbolt db; bus is in-memory.
+				// kv lives in the shared bbolt db (values encrypted per bucket);
+				// bus is in-memory.
 			default:
 				slog.Warn("unknown resource type", "scope", scope, "name", name, "type", res.Type)
 			}
@@ -57,6 +59,7 @@ func (b *Broker) Provision() {
 	for scope, sm := range b.Reg.Scopes() {
 		do(scope, sm.Resources)
 	}
+	b.MountEncrypted() // mount any (new) encrypted file resources when unsealed
 }
 
 // EnvFor is installed into the runner: resource env for a component instance.
@@ -76,14 +79,13 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 		switch {
 		case res.Type == "filesystem" && rt.Scope == c.Scope:
 			// A rw directory the backend owns — BUXON_RES_<N> is the DIR path
-			// (put a db, files, a cache… anything). buxond binds it rw.
-			p := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(rt.Scope), rt.Name)
-			env = append(env, key+"="+p)
+			// (put a db, files, a cache… anything). buxond binds it rw. When
+			// encrypted this is the decrypted gocryptfs mount (resenc).
+			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, false))
 		case res.Type == "sqlite" && rt.Scope == c.Scope:
 			// Convenience over `filesystem`: BUXON_RES_<N> points at a .sqlite
 			// FILE in that dir (the dir is still what's bound rw).
-			p := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(rt.Scope), rt.Name+".sqlite")
-			env = append(env, key+"="+p)
+			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, true))
 		case res.Type == "filesystem" || res.Type == "sqlite":
 			// Cross-scope direct filesystem is deliberately not shared; the
 			// owning scope should expose an API (docs/resources.md).
@@ -190,8 +192,13 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such key"})
 		return
 	}
+	plain, err := b.decodeKV(bucket, val)
+	if err != nil {
+		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vault sealed — unseal to read encrypted resource data", "docs": "/docs/auth.md"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write(val)
+	_, _ = w.Write(plain)
 }
 
 func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
@@ -208,12 +215,17 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	stored, err := b.encodeKV(bucket, val)
+	if err != nil {
+		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vault sealed — unseal to write encrypted resource data", "docs": "/docs/auth.md"})
+		return
+	}
 	err = b.kv.db.Update(func(tx *bolt.Tx) error {
 		bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
 		if err != nil {
 			return err
 		}
-		return bk.Put([]byte(key), val)
+		return bk.Put([]byte(key), stored)
 	})
 	if err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -252,7 +264,14 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
 				return "", "", false
 			}
-			base := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(rt.Scope), rt.Name)
+			// blob is always an encrypted gocryptfs mount; refuse until it's up
+			// (vault sealed / gocryptfs missing) so we never read or write plaintext
+			// into the bare mountpoint.
+			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
+				server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource unavailable — vault sealed or encryption not ready", "docs": "/docs/auth.md"})
+				return "", "", false
+			}
+			base := b.fsResPath(rt.Scope, rt.Name, false) // decrypted gocryptfs mount
 			full, _, err := util.SafeJoin(base, rel)
 			if err != nil {
 				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad path"})
