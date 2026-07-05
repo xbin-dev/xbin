@@ -32,6 +32,9 @@ Environment=PATH=/opt/xbin/bin:/usr/local/go/bin:/opt/xbin/rootfs/usr/local/go/b
 Environment=XBIN_ROOTFS=/opt/xbin/rootfs
 Environment=XBIN_FUSE_OVERLAYFS=/opt/xbin/bin/fuse-overlayfs
 Environment=XBIN_GOCRYPTFS=/opt/xbin/bin/gocryptfs
+# The SDK source shipped by the installer: go.work resolves the sdk module
+# here, and terminals get it as a read-only bind for offline `go build`.
+Environment=XBIN_SDK_PATH=/opt/xbin/sdk
 # Optional hands-off vault: put XBIN_VAULT_PASSPHRASE=... in this file (mode
 # 0600) for auto-unseal. Leave the file absent to unseal manually after login —
 # the leading '-' makes it optional.

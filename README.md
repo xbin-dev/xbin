@@ -112,8 +112,9 @@ It's interactive, idempotent (re-run to upgrade), and does the whole job:
 What it leaves on disk:
 
 ```
-/opt/xbin/bin/{xbind,bx,fuse-overlayfs}   # owned by the xbin user
+/opt/xbin/bin/{xbind,bx,fuse-overlayfs,gocryptfs}   # owned by the xbin user
 /opt/xbin/rootfs/                          # unpacked base rootfs
+/opt/xbin/sdk/                             # Go SDK source (go.work + terminal builds)
 /opt/xbin/workspace/                       # your data (auto-init on first boot)
 /etc/systemd/system/xbin.service           # rendered from deploy/xbin.service
 /etc/xbin/xbin.env                        # optional vault passphrase, mode 0600
@@ -123,7 +124,9 @@ From there it's plain systemd — `systemctl status xbin`, `journalctl -u xbin -
 (the login URL is in the log: `journalctl -u xbin | grep login`). The service
 binds **loopback only** by design; see **Operating → Exposure** to reach it over
 Tailscale or a TLS proxy, and **Vault** for the auto- vs manual-unseal choice the
-installer offers. Upgrade by re-running the script; uninstall with
+installer offers. Upgrade by re-running the script — it detects an existing
+install and takes a fast path (rebuild + swap binaries/rootfs/sdk + restart;
+user, vault, and workspace untouched). Uninstall with
 `systemctl disable --now xbin && rm /etc/systemd/system/xbin.service && userdel -r xbin`.
 
 ### First login → an account → lock the door
