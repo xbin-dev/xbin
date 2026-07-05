@@ -37,6 +37,16 @@ injected agent, a bug). After Tier 3 it can:
 
 Everything else fails closed. Terminals/owner are exempt (editing plane).
 
+**Mount invariant (ISO-RW).** Inside a backend sandbox, every **read-write**
+mount must be **tmpfs** (ephemeral) or a **gocryptfs** decrypted resource mount —
+**never a host-disk mount** (btrfs/ext4/…). Host disk is allowed only
+**read-only** (the component's own source, `deps/*`, the toolchain, its built
+binary). So a compromised backend can persist nothing to the host in the clear:
+resource writes go through per-resource encryption (plans/vault-data.md), and
+everything else is throwaway. This is why the IPC run dir (the gateway + listen
+sockets) lives on a **tmpfs** (`runner.runDirFor` → `$RUNTIME_DIRECTORY` /
+`$XDG_RUNTIME_DIR`), not `.buxon/run` on the workspace disk.
+
 ## 1. Filesystem isolation — mount namespace
 
 Each backend is spawned into its own **mount namespace** with a purpose-built
@@ -46,10 +56,10 @@ root (`pivot_root` over an overlay/tmpfs, assembled from bind mounts):
 |---|---|---|
 | the component dir | `apps/<scope>/<comp>` | **ro** (source is terminal-only from tier 2; here also invisible to others) |
 | `deps/<x>` | each granted dep component | **ro** |
-| granted resource files | `data/resources/<scope>/<name>.{sqlite,blob…}` | **rw**, only the granted names |
+| granted resource dir | decrypted gocryptfs mount `.buxon/resenc/<scope>/<name>/` | **rw** (encrypted at rest; only granted names) |
 | toolchain | `/opt/toolchains` | **ro** (node/python need interpreter+stdlib; Go backends are static → need ~nothing) |
-| `BUXON_GATEWAY` socket | `.buxon/run/gateway.sock` | bind (the one door to buxond) |
-| its own listen socket dir | `.buxon/run/<compkey>/` | rw |
+| `BUXON_GATEWAY` socket | tmpfs run dir (`$XDG_RUNTIME_DIR`/`/run/buxon`), symlinked from `.buxon/run` | bind (the one door to buxond) |
+| its own listen socket dir | tmpfs run dir `<run>/<compkey>/` | **rw (tmpfs, not host disk)** |
 | `/tmp`, `/dev` (null/zero/urandom), `/proc` | fresh tmpfs / minimal / private | — |
 
 **Hidden by construction:** other components' source, `home/`, `data/vault/`,
