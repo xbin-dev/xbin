@@ -162,9 +162,30 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Make it usable now (it already has .git + origin from the clone, so
-	// EnsureComponentRepos leaves it alone).
+	// Make it visible so we can validate it (it already has .git + origin from
+	// the clone, so EnsureComponentRepos leaves it alone).
 	_ = b.Reg.Rescan()
+
+	// Reject BEFORE provisioning/mounting: a `uses` that references a resource or
+	// component that doesn't exist is a hard error, not a warning — most often a
+	// tile hard-coding the scope it was authored under, which no longer matches
+	// after an import-rename. Never let such a component into the workspace.
+	warnings := b.unresolvedUses(path)
+	for _, c := range b.Reg.Components() {
+		if c.Path != path && hasPrefix(c.Path, path) {
+			warnings = append(warnings, b.unresolvedUses(c.Path)...)
+		}
+	}
+	if len(warnings) > 0 {
+		_ = os.RemoveAll(target)
+		_ = b.Reg.Rescan()
+		server.WriteJSON(w, http.StatusBadRequest, map[string]any{
+			"error":    "import rejected: the component references things that don't exist — fix its buxon.json and re-import",
+			"warnings": warnings,
+		})
+		return
+	}
+
 	if b.OnStructureChange != nil {
 		b.OnStructureChange()
 	}
@@ -179,6 +200,39 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending,
 	})
+}
+
+// unresolvedUses returns human-readable descriptions of a component's `uses`
+// targets that reference something that doesn't exist — a resource in no scope,
+// or a component that isn't installed. These are otherwise silent (the grant/env
+// is just skipped at spawn), which hides typos like a tile referencing the scope
+// it was authored under before an import-rename (plans/vault-data.md).
+func (b *Broker) unresolvedUses(comp string) []string {
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, u := range c.Manifest.Uses {
+		t := u.Target
+		switch {
+		case strings.HasPrefix(t, "res:"):
+			if _, res, ok := b.parseRes(t); !ok || res == nil {
+				out = append(out, comp+": uses "+t+" — no such resource (typo, or a stale pre-rename scope?)")
+			}
+		case strings.HasPrefix(t, "net:"), strings.HasPrefix(t, "gpu:"):
+			// capability targets — always resolvable
+		default:
+			name := t
+			if i := strings.IndexByte(name, ':'); i >= 0 {
+				name = name[:i]
+			}
+			if _, ok := b.Reg.Component(name); !ok {
+				out = append(out, comp+": uses "+t+" — no such component")
+			}
+		}
+	}
+	return out
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

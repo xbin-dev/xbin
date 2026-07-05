@@ -107,12 +107,13 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 		State    string            `json:"state,omitempty"`   // lifecycle; "" = enabled
 		StateAt  string            `json:"stateAt,omitempty"` // when state last changed (RFC3339)
 		Manifest string            `json:"manifestError,omitempty"`
+		Warnings []string          `json:"warnings,omitempty"` // unresolved uses, etc.
 	}
 	comps := []comp{}
 	exposed := 0
 	for _, c := range b.Reg.Components() {
 		ci := comp{Path: c.Path, Runtime: c.Manifest.Runtime, Scope: c.Scope,
-			Uses: c.Manifest.Uses, Manifest: c.ManifestErr}
+			Uses: c.Manifest.Uses, Manifest: c.ManifestErr, Warnings: b.unresolvedUses(c.Path)}
 		if s := b.Reg.LifecycleState(c.Path); s != registry.StateEnabled {
 			ci.State = s
 			ci.StateAt = ws.LifecycleAt[c.Path]
