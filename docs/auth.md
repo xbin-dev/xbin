@@ -136,11 +136,28 @@ or disk snapshot is just ciphertext.
   vault takes the stateful workspace offline until an admin unseals.
 
 ```sh
-bx vault status                 # insecure | sealed | unsealed
+bx vault status                 # unsealed | sealed | unconfigured | plaintext
 bx vault unseal                 # prompts (no echo); creates the barrier on
                                 # first use and encrypts existing plaintext
 bx vault seal                   # drop the key from memory
+bx vault rekey                  # change the passphrase (re-wraps the data
+                                # key; nothing is re-encrypted)
 ```
+
+The admin console's **vault tab** is the UI for the same lifecycle: it shows
+the seal state and has forms to set the first passphrase (unconfigured →
+creates the barrier), unseal after a restart, change the passphrase, and
+seal on demand.
+
+**First setup (manual mode).** A fresh install without
+`XBIN_VAULT_PASSPHRASE` boots **unconfigured**: the UI works but secret and
+resource storage is refused until a passphrase exists. Log in, open the admin
+tile → vault, and set the passphrase once (or run `bx vault unseal` in a
+terminal) — that creates the barrier and encrypts anything already written.
+Pick the passphrase carefully: **it cannot be recovered**, and after every
+daemon restart an admin must enter it again to unseal (that's the point of
+manual mode — it's never stored). For hands-off restarts instead, put
+`XBIN_VAULT_PASSPHRASE=…` in `/etc/xbin/xbin.env` (mode 600).
 
 Boot modes (production never persists secrets in the clear — the broker
 refuses plaintext writes unless explicitly allowed):

@@ -21,7 +21,7 @@ bx api <component>                     roles + API.md — how to integrate with 
 bx grants                              grant table + pending requests
 bx grant <caller> <target>:<role>      approve/add a grant
 bx grant --revoke <caller> <target>:<role>
-bx vault status|unseal|seal            encryption-at-rest barrier
+bx vault status|unseal|seal|rekey      encryption-at-rest barrier
 bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls                             scheduled jobs
 bx doctor                              workspace health checks
@@ -48,7 +48,9 @@ Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
 piped). First run **creates** the encryption barrier and encrypts existing
 plaintext; later runs unlock it after a restart. This is how you bring an
 env-less production instance online: boot leaves the vault locked, then an
-admin unseals once after login. `bx vault status` reports the mode
+admin unseals once after login (the admin tile's vault tab does the same
+in the UI). `bx vault rekey` changes the passphrase (re-wraps the data key —
+nothing re-encrypted). `bx vault status` reports the mode
 (unsealed / sealed / plaintext / unconfigured); the boot modes are in
 docs/auth.md §vault.
 

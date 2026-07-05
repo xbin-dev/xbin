@@ -149,3 +149,22 @@ func TestRekey(t *testing.T) {
 		t.Fatalf("new passphrase must unseal: %v", err)
 	}
 }
+
+func TestCheckPassphrase(t *testing.T) {
+	b, _ := Open(t.TempDir())
+	if err := b.CheckPassphrase("x"); err != ErrNotInited {
+		t.Fatalf("uninitialized: want ErrNotInited, got %v", err)
+	}
+	_ = b.Init("right")
+	// Works while unsealed (where Unseal would no-op without verifying) …
+	if err := b.CheckPassphrase("right"); err != nil {
+		t.Fatalf("correct passphrase rejected: %v", err)
+	}
+	if err := b.CheckPassphrase("wrong"); err != ErrBadPassphrase {
+		t.Fatalf("wrong passphrase: want ErrBadPassphrase, got %v", err)
+	}
+	// … and must not disturb the unsealed state.
+	if b.Sealed() {
+		t.Fatal("CheckPassphrase must not seal the barrier")
+	}
+}

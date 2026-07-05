@@ -112,6 +112,7 @@ func usage() {
                                         restore a version, or one file to stdout
   bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]
                                         list/set/remove scheduled backups
+  bx vault status|unseal|seal|rekey     encryption-at-rest barrier
   bx vault ls|get|set|rm <component> [key] [value]
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
@@ -648,7 +649,7 @@ func cmdGrant(args []string) error {
 
 func cmdVault(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx vault status|unseal|seal | ls|get|set|rm <component> [key] [value]")
+		return fmt.Errorf("usage: bx vault status|unseal|seal|rekey | ls|get|set|rm <component> [key] [value]")
 	}
 	// Barrier lifecycle ops take no component.
 	switch args[0] {
@@ -693,10 +694,24 @@ func cmdVault(args []string) error {
 		}
 		fmt.Println("vault sealed")
 		return nil
+	case "rekey":
+		cur, err := readPassphrase("current passphrase: ")
+		if err != nil {
+			return err
+		}
+		nw, err := readPassphrase("new passphrase: ")
+		if err != nil {
+			return err
+		}
+		if err := apiJSON("POST", "/api/xbin/vault-rekey", map[string]string{"current": cur, "new": nw}, nil); err != nil {
+			return err
+		}
+		fmt.Println("passphrase changed (data key unchanged — no re-encryption needed)")
+		return nil
 	}
 
 	if len(args) < 2 {
-		return fmt.Errorf("usage: bx vault status|unseal|seal | ls|get|set|rm <component> [key] [value]")
+		return fmt.Errorf("usage: bx vault status|unseal|seal|rekey | ls|get|set|rm <component> [key] [value]")
 	}
 	op, comp := args[0], args[1]
 	switch op {

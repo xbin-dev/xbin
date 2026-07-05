@@ -165,9 +165,10 @@ func endpoints() []ep {
 		{"DELETE", "/backup-schedule", "Backup", "Remove a component's backup schedule", "admin", "", []oapi{queryParam("component", "the component", true)}, nil, "ok"},
 
 		// --- vault ---
-		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "", nil, nil, "{initialized, sealed, insecure}"},
-		{"POST", "/vault-unseal", "Vault", "Unseal / initialize", "admin", "Unseals with a passphrase, or initializes the barrier on first use.", nil, jsonBody("passphrase", oapi{"passphrase": str("")}, "passphrase"), "{created}"},
+		{"GET", "/vault-status", "Vault", "Barrier status", "admin", "mode: unsealed | sealed | unconfigured | plaintext.", nil, nil, "{initialized, sealed, mode, insecure}"},
+		{"POST", "/vault-unseal", "Vault", "Unseal / initialize", "admin", "Unseals with a passphrase, or initializes the barrier on first use (created:true).", nil, jsonBody("passphrase", oapi{"passphrase": str("")}, "passphrase"), "{created}"},
 		{"POST", "/vault-seal", "Vault", "Seal", "admin", "Drops the key from memory; vault get/set then 503 until unsealed.", nil, nil, "ok"},
+		{"POST", "/vault-rekey", "Vault", "Change the passphrase", "admin", "Re-wraps the data key under a new passphrase (no data re-encryption). Requires the barrier unsealed and the current passphrase.", nil, jsonBody("passphrases", oapi{"current": str(""), "new": str("")}, "new"), "{rekeyed}"},
 		{"GET", "/vault/{component}", "Vault", "Vault key names", "self or admin", "", []oapi{pathParam("component", "component path")}, nil, "{keys:[…]}"},
 		{"GET", "/vault/{component}/{key}", "Vault", "Read a secret", "self or admin", "", []oapi{pathParam("component", "component path"), pathParam("key", "secret name")}, nil, "{value}"},
 		{"PUT", "/vault/{component}/{key}", "Vault", "Write a secret", "self or admin", "", []oapi{pathParam("component", "component path"), pathParam("key", "secret name")}, jsonBody("secret", oapi{"value": str("")}, "value"), "ok"},

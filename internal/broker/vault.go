@@ -325,6 +325,41 @@ func (b *Broker) apiVaultSeal(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{"sealed": true})
 }
 
+// apiVaultRekey changes the barrier passphrase (re-wraps the DEK; no data
+// re-encryption). Requires the barrier unsealed AND the current passphrase —
+// an admin session alone can't silently rotate the credential out from under
+// whoever holds it.
+func (b *Broker) apiVaultRekey(w http.ResponseWriter, r *http.Request) {
+	if !b.requireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		Current string `json:"current"`
+		New     string `json:"new"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.New == "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {\"current\": …, \"new\": …}"})
+		return
+	}
+	if !b.barrier.Initialized() {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "no barrier yet — set the first passphrase via unseal"})
+		return
+	}
+	if b.barrier.Sealed() {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "vault is sealed — unseal before changing the passphrase"})
+		return
+	}
+	if err := b.barrier.CheckPassphrase(body.Current); err != nil {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "current passphrase is wrong"})
+		return
+	}
+	if err := b.barrier.Rekey(body.New); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"rekeyed": true})
+}
+
 func decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)

@@ -208,7 +208,11 @@ POST   /backup-schedule            admin. body {component, schedule, retention} 
                                    retention prunes to N newest versions per run.
 DELETE /backup-schedule?component= admin. remove a component's schedule
 
-GET    /vault-status              admin. {initialized, sealed, insecure}
+GET    /vault-status              admin. {initialized, sealed, mode, insecure}
+                                   mode: unsealed|sealed|unconfigured|plaintext
+POST   /vault-rekey               admin. body {current, new} — change the
+                                   passphrase (re-wraps the data key; needs
+                                   unsealed + the current passphrase)
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init
                                    the barrier on first use). {created}
 POST   /vault-seal                admin. drop the key from memory

@@ -137,6 +137,10 @@ credential — the root key, not a per-user account. Move to real accounts and
 close the bootstrap door:
 
 1. **Open the token URL** — you're now the owner (full admin).
+   If you chose **manual unseal** at install time, the vault boots
+   *unconfigured*: open **admin tile → vault** and set the passphrase once
+   (creates the barrier; it cannot be recovered). After every daemon restart,
+   unseal there again — or via `bx vault unseal` ([docs/auth.md](docs/auth.md)).
 2. **Create an admin user** in the admin console (**admin tile → Users → add
    user**, role `admin`). The `admin` role has access to **every** tile (`*`);
    regular users get an explicit tile allow-list and no terminal by default.

@@ -227,6 +227,25 @@ func (b *Barrier) Rekey(newPassphrase string) error {
 	return nil
 }
 
+// CheckPassphrase verifies a passphrase against the keyfile without changing
+// barrier state — used to demand the current passphrase before a rekey (an
+// unsealed barrier can't verify via Unseal, which no-ops when already open).
+func (b *Barrier) CheckPassphrase(passphrase string) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.kf == nil {
+		return ErrNotInited
+	}
+	kek := deriveKEK(passphrase, b.kf)
+	defer zero(kek)
+	dek, err := gcmOpen(kek, b.kf.WrappedDEK)
+	if err != nil {
+		return ErrBadPassphrase
+	}
+	zero(dek)
+	return nil
+}
+
 // Encrypt seals plaintext with the DEK. Output is nonce||ciphertext.
 func (b *Barrier) Encrypt(plaintext []byte) ([]byte, error) {
 	b.mu.RLock()

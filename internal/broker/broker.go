@@ -150,6 +150,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
 	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
 	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)
+	srv.RegisterAPI("POST /vault-rekey", b.apiVaultRekey)
 	srv.RegisterAPI("GET /vault/{rest...}", b.apiVaultGet)
 	srv.RegisterAPI("PUT /vault/{rest...}", b.apiVaultPut)
 	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)

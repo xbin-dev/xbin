@@ -53,7 +53,8 @@ export class BxAdmin extends LitElement {
   static properties = {
     _tab: { state: true },
     _ov: { state: true },       // auth-overview
-    _vaults: { state: true },   // [{component, keys}]
+    _vaults: { state: true },      // [{component, keys}] (null while sealed)
+    _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
     _reveal: { state: true },   // "comp\0key" -> value (revealed secrets)
     _cron: { state: true },
     _users: { state: true },
@@ -299,14 +300,17 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings] = await Promise.all([
-        api('/auth-overview'), api('/vaults'), api('/cron/jobs'),
+      const [ov, vaults, cron, users, authSettings, vaultStatus] = await Promise.all([
+        api('/auth-overview'),
+        api('/vaults').catch(() => null), // 503 while the barrier is sealed
+        api('/cron/jobs'),
         api('/users').catch(() => ({ users: [] })),
         api('/auth-settings').catch(() => null),
+        api('/vault-status').catch(() => null),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._users = users.users ?? [];
-      this._authSettings = authSettings;
+      this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
     } catch (e) {
       if (String(e.message).includes('admin')) this._denied = true;
@@ -333,6 +337,88 @@ export class BxAdmin extends LitElement {
     if (!confirm(`Delete secret ${comp} / ${key}?`)) return;
     await api(`/vault/${comp}/${encodeURIComponent(key)}`, { method: 'DELETE' });
     this._refresh();
+  }
+
+  // ---- barrier (seal state / unseal / passphrase) ----
+  async _unseal(pass) {
+    try {
+      await api('/vault-unseal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase: pass }) });
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    await this._refresh();
+  }
+  async _sealVault() {
+    if (!confirm('Seal the vault? Encrypted resources unmount and stateful components stop until an admin unseals again.')) return;
+    try { await api('/vault-seal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); this._err = ''; }
+    catch (e) { this._err = String(e.message ?? e); }
+    await this._refresh();
+  }
+  async _rekeyVault(current, nw) {
+    try {
+      await api('/vault-rekey', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current, new: nw }) });
+      this._err = '';
+      alert('Passphrase changed (data key unchanged — nothing re-encrypted).');
+    } catch (e) { this._err = String(e.message ?? e); }
+    await this._refresh();
+  }
+
+  _barrierView() {
+    const st = this._vaultStatus;
+    if (!st) return nothing;
+    const badge = {
+      unsealed:     ['unsealed — encryption at rest active', 'var(--bx-green, #43a047)'],
+      sealed:       ['sealed — encrypted and locked', 'var(--bx-amber, #f2a71b)'],
+      unconfigured: ['unconfigured — no passphrase set, secret storage refused', 'var(--bx-red, #e5484d)'],
+      plaintext:    ['plaintext — NO encryption at rest (dev mode)', 'var(--bx-red, #e5484d)'],
+    }[st.mode] ?? [st.mode, 'var(--bx-muted, #8794a1)'];
+    const firstTime = st.mode === 'unconfigured' || st.mode === 'plaintext';
+    return html`
+      <h4>encryption barrier</h4>
+      <p style="margin:0 0 8px"><span class="dot" style="background:${badge[1]}"></span>${badge[0]}</p>
+
+      ${st.mode === 'sealed' ? html`
+        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
+            if (f.pass.value) this._unseal(f.pass.value); f.reset(); }}>
+          <input name="pass" type="password" placeholder="vault passphrase" size="24"
+            autocomplete="off" required>
+          <button class="act go">unseal</button>
+        </form>
+        <p class="muted" style="font-size:11px;margin-top:6px">Encrypted resources and secrets
+          come back once unsealed. Also works from a terminal: <span class="mono">bx vault unseal</span>.</p>` : nothing}
+
+      ${firstTime ? html`
+        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
+            if (f.pass.value !== f.confirm.value) { this._err = 'passphrases do not match'; return; }
+            this._unseal(f.pass.value); f.reset(); }}>
+          <input name="pass" type="password" placeholder="new vault passphrase" size="20"
+            autocomplete="new-password" required>
+          <input name="confirm" type="password" placeholder="repeat" size="12"
+            autocomplete="new-password" required>
+          <button class="act go">${st.mode === 'plaintext' ? 'encrypt now' : 'set passphrase & unseal'}</button>
+        </form>
+        <p class="muted" style="font-size:11px;margin-top:6px">Creates the barrier and encrypts
+          existing secrets. <b>The passphrase cannot be recovered</b> — losing it loses the data.
+          To have xbind unseal itself on boot, put <span class="mono">XBIN_VAULT_PASSPHRASE</span>
+          in <span class="mono">/etc/xbin/xbin.env</span> (mode 600).</p>` : nothing}
+
+      ${st.mode === 'unsealed' ? html`
+        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
+            if (f.nw.value !== f.confirm.value) { this._err = 'new passphrases do not match'; return; }
+            this._rekeyVault(f.cur.value, f.nw.value); f.reset(); }}>
+          <input name="cur" type="password" placeholder="current passphrase" size="17"
+            autocomplete="off" required>
+          <input name="nw" type="password" placeholder="new passphrase" size="15"
+            autocomplete="new-password" required>
+          <input name="confirm" type="password" placeholder="repeat" size="10"
+            autocomplete="new-password" required>
+          <button class="act">change passphrase</button>
+          <button class="act rm" type="button" @click=${() => this._sealVault()}>seal now</button>
+        </form>
+        <p class="muted" style="font-size:11px;margin-top:6px">Changing the passphrase re-wraps the
+          data key — nothing is re-encrypted. If auto-unseal is configured, update
+          <span class="mono">/etc/xbin/xbin.env</span> to match.</p>` : nothing}`;
   }
 
   // ---- grants ----
@@ -662,9 +748,12 @@ export class BxAdmin extends LitElement {
   }
 
   _vaultView() {
+    const sealedOff = this._vaults == null && !!this._vaultStatus?.sealed;
     const vs = this._vaults ?? [];
     return html`
-      ${vs.length === 0 ? html`<span class="muted">no vaults hold secrets yet — set one with
+      ${this._barrierView()}
+      ${sealedOff ? html`<h4>secrets</h4><span class="muted">unavailable while sealed — unseal above to browse and edit.</span>` : nothing}
+      ${!sealedOff && vs.length === 0 ? html`<h4>secrets</h4><span class="muted">no vaults hold secrets yet — set one with
         <span class="mono">bx vault set &lt;component&gt; &lt;key&gt;</span> or below.</span>` : nothing}
       ${vs.map((v) => html`
         <h4>${v.component}</h4>
@@ -684,7 +773,7 @@ export class BxAdmin extends LitElement {
               </td></tr>`;
           })}
         </table>`)}
-      <form class="inline" @submit=${(e) => { e.preventDefault();
+      ${sealedOff ? nothing : html`<form class="inline" @submit=${(e) => { e.preventDefault();
           const f = e.target;
           if (f.comp.value && f.key.value) this._setSecret(f.comp.value.trim(), f.key.value.trim(), f.val.value);
           f.reset(); }}>
@@ -692,7 +781,7 @@ export class BxAdmin extends LitElement {
         <input name="key" placeholder="key" size="12">
         <input name="val" placeholder="value" size="18" type="password">
         <button class="act go">set secret</button>
-      </form>
+      </form>`}
       <datalist id="admin-comps">
         ${(this._ov?.components ?? []).map((k) => html`<option value=${k.path}></option>`)}
       </datalist>`;
