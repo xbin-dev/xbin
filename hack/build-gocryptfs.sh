@@ -23,7 +23,7 @@ ctx=$(mktemp -d)
 trap 'rm -rf "$ctx"' EXIT
 
 cat > "$ctx/Dockerfile" <<EOF
-FROM golang:alpine AS build
+FROM docker.io/library/golang:alpine AS build
 RUN apk add --no-cache git
 RUN git clone --depth 1 --branch ${VERSION} \\
     https://github.com/rfjakob/gocryptfs /src

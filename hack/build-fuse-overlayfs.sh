@@ -23,7 +23,7 @@ trap 'rm -rf "$ctx"' EXIT
 # Alpine/musl gives a genuinely static libfuse3 (fuse3-static), so the result is
 # a single self-contained binary with no runtime library deps.
 cat > "$ctx/Dockerfile" <<EOF
-FROM alpine:3.20 AS build
+FROM docker.io/library/alpine:3.20 AS build
 RUN apk add --no-cache git autoconf automake libtool gcc make \\
     musl-dev fuse3-dev fuse3-static pkgconf linux-headers
 RUN git clone --depth 1 --branch ${VERSION} \\

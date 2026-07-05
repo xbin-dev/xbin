@@ -184,6 +184,8 @@ install_deps() {
     install_go
     ensure_engine
     have git || die "git is required to fetch the source"
+    have make || pkg_install make || warn "could not install make automatically"
+    have make || die "make is required to build from source (install it and re-run)"
   fi
 }
 
