@@ -181,8 +181,27 @@ func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
-// apiAuthSettingsGet reports the owner-token browser-login state and whether an
-// admin user exists (needed before it can be disabled).
+// attributedAdminUser reports whether the human behind a request is a
+// signed-in admin *user* — directly (session principal, User snapshot set) or
+// driving a tile (frame-token principal, where the user id rides along for
+// attribution but User is nil by design; resolve it here). The bootstrap owner
+// token carries no user id and reports false.
+func (b *Broker) attributedAdminUser(p auth.Principal) bool {
+	if p.User != nil {
+		return p.User.IsAdmin()
+	}
+	if p.UserID != "" && b.Users != nil {
+		if u, ok := b.Users.Get(p.UserID); ok {
+			return u.IsAdmin()
+		}
+	}
+	return false
+}
+
+// apiAuthSettingsGet reports the owner-token browser-login state, whether an
+// admin user exists, and whether THIS caller may disable token login (the
+// admin tile renders its toggle from canDisable — one predicate, shared with
+// the PATCH guard, so the UI can never disagree with the server).
 func (b *Broker) apiAuthSettingsGet(w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
@@ -194,6 +213,7 @@ func (b *Broker) apiAuthSettingsGet(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"tokenLoginDisabled": st.TokenLoginDisabled(),
 		"hasAdminUser":       st.HasAdmin(),
+		"canDisable":         st.HasAdmin() && b.attributedAdminUser(auth.PrincipalOf(r)),
 	})
 }
 
@@ -217,7 +237,10 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if *body.TokenLoginDisabled {
-		if p := auth.PrincipalOf(r); p.User == nil || !p.User.IsAdmin() {
+		// Accepts a direct admin-user session AND an admin user driving a tile
+		// (frame-token principal, user id attributed); rejects the bootstrap
+		// owner token, whose own browser session this would invalidate.
+		if !b.attributedAdminUser(auth.PrincipalOf(r)) {
 			server.WriteJSON(w, http.StatusConflict, map[string]string{
 				"error": "sign in as an admin user (not the bootstrap token) before disabling token login",
 			})

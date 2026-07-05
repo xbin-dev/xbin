@@ -98,6 +98,12 @@ GET    /users                     admin or xbin:users. [{id,name,role,tiles,term
 POST   /users                     admin/xbin:users. create {id,name,role,tiles,terminal,password}
 PATCH  /users/<id>                admin/xbin:users. update fields (+password reset)
 DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
+GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
+                                   hasAdminUser, canDisable} — owner-token
+                                   browser-login state (docs/auth.md)
+PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
+                                   disabling requires a signed-in admin user
+                                   (Bearer owner token unaffected)
 
 POST   /create                     owner, or an element granted target
                                    "xbin" at role writer (workspace

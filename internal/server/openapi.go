@@ -113,7 +113,7 @@ func endpoints() []ep {
 		{"PATCH", "/users/{id}", "Users", "Update a user", "xbin:users", "Update fields and/or reset the password.", []oapi{pathParam("id", "user id")}, freeBody("fields to update"), "updated user"},
 		{"DELETE", "/users/{id}", "Users", "Delete a user", "xbin:users", "Removes the user and revokes their sessions.", []oapi{pathParam("id", "user id")}, nil, "ok"},
 		{"GET", "/auth-settings", "Users", "Get auth settings", "xbin:users",
-			"Owner-token browser-login state ({tokenLoginDisabled, hasAdminUser}).", nil, nil, "{tokenLoginDisabled,hasAdminUser}"},
+			"Owner-token browser-login state. canDisable reports whether THIS caller may disable it (an admin user exists and the caller is a signed-in admin user, directly or driving a tile).", nil, nil, "{tokenLoginDisabled,hasAdminUser,canDisable}"},
 		{"PATCH", "/auth-settings", "Users", "Update auth settings", "xbin:users",
 			"Enable/disable owner-token browser login (/login?token= + owner cookie). Disabling needs an admin user and a signed-in admin-user caller; the Bearer owner token is unaffected.",
 			nil, jsonBody("settings", oapi{"tokenLoginDisabled": boolean()}, "tokenLoginDisabled"), "{tokenLoginDisabled}"},
