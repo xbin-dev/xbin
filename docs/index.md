@@ -17,6 +17,7 @@ granted, and share brokered resources (kv, blobs, bus, cron, sqlite).
 **Reference:**
 
 - [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
+- [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [bx.md](/docs/bx.md) — the `bx` CLI
 
 All of these are served by buxond at `/docs/` in every workspace and live in

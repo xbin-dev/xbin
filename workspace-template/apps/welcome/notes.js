@@ -17,9 +17,102 @@ const PAPER = {
   yellow: ['#fdf6cf', '#ecd98a'],
   orange: ['#fdecd8', '#f2cba0'],
   cyan:   ['#e0f4f6', '#aadde2'],
+  teal:   ['#daf2ec', '#a6ddce'],
+  slate:  ['#e9edf3', '#c3cedd'],
+  rose:   ['#fce6ea', '#f2b9c4'],
+  sky:    ['#dbeafe', '#93c5fd'], // the featured "start here" note
 };
 
 const NOTES = [
+  {
+    id: 'building', title: 'Building & Terminal', color: 'sky',
+    featured: true, badge: 'start here',
+    teaser: 'the 7×7 blue square opens a real terminal — this is how you build buxon',
+    intro: html`
+      <p>Read this one first. Every component and tile has a tiny
+      <strong>7×7&nbsp;px blue square</strong> in its corner — click it and a
+      <strong>real terminal drops into that component's directory</strong>. That
+      terminal is where buxon gets built: you rarely hand-edit files yourself,
+      you run a <strong>coding agent</strong> in it (<code>claude</code> — Claude
+      Code — or <code>opencode</code>) and describe what you want. Save a file
+      and the frame reloads; save backend code and it recompiles and swaps in
+      live.</p>
+      <p>The agent already knows how buxon works — every workspace ships an
+      <code>AGENTS.md</code> at its root that these agents read automatically. And
+      one thing to keep straight from day one: the filesystem you <em>build</em>
+      in is not the sandbox your component is <em>deployed</em> into. The three
+      notes below cover exactly that.</p>`,
+    docs: 'getting-started.md',
+    children: [
+      {
+        id: 'the-button', title: 'the 7×7 blue button', color: 'sky',
+        teaser: 'click the corner square → a shell in that component',
+        body: html`
+          <p>Look at the top-right corner of any component frame or tile: a
+          <strong>7×7&nbsp;px blue square</strong>. Clicking it opens a
+          <strong>persistent terminal cwd'd into that component's
+          directory</strong> — a real shell (the owner/editing plane), not a
+          sandboxed toy. Close the tab and reopen later: the session survives and
+          replays its scrollback.</p>
+          <p>Open a terminal on the <strong>workspace root</strong> instead (the
+          root page's button) when you need to work across components or create
+          new ones — that one can edit the whole workspace. A terminal on a single
+          component is scoped to just that component plus your shared
+          <code>$HOME</code>.</p>
+          <p>Each terminal picks a network scope when it opens — internet by
+          default, so <code>git clone</code> / <code>go get</code> just work. The
+          <strong>isolation</strong> note has the full scoping story.</p>`,
+      },
+      {
+        id: 'with-agent', title: 'build with an agent', color: 'sky',
+        teaser: 'run claude / opencode; AGENTS.md tells it the rules',
+        body: html`
+          <p>The intended workflow is agent-first. In the terminal, start
+          <code>claude</code> (Claude Code) or <code>opencode</code> and just say
+          what you want:</p>
+          <pre>$ claude            # or: opencode
+> add a "done" toggle to each item and persist it</pre>
+          <p>It edits files in place; every save hot-reloads the component, so you
+          watch it come together in the frame next door.</p>
+          <p>Why it gets buxon right without you explaining any of this: the
+          <strong>workspace root carries <code>AGENTS.md</code></strong> (symlinked
+          as <code>CLAUDE.md</code>) — a self-contained builder reference (manifest
+          schema, the SDK, resource APIs, the mistakes to avoid) that these agents
+          read on startup. A component terminal mounts the workspace root
+          read-only, so the agent can <em>read</em> those rules from one level up
+          even though it can't edit anything outside its own component. And because
+          <code>$HOME</code> is shared across every terminal, you log the agent in
+          once and it stays logged in.</p>`,
+      },
+      {
+        id: 'two-filesystems', title: 'terminal ≠ deployment', color: 'sky',
+        teaser: 'what you build in is not what the backend runs in',
+        body: html`
+          <p>The single most useful thing to internalize: <strong>the terminal's
+          filesystem and the deployed backend's filesystem are different
+          places.</strong></p>
+          <p>In the <strong>terminal</strong> (build time) you get your component's
+          dir read-write, your shared <code>$HOME</code>, and a <strong>persistent
+          dev layer</strong> — an <code>apt install</code> or a tweak under
+          <code>/etc</code> sticks around between sessions.</p>
+          <p>The <strong>deployed backend</strong> (run time) runs in its own
+          sandbox, and it's stricter: its <strong>own source is read-only</strong>,
+          the only writable places are the <strong>resource dirs</strong> it was
+          granted, and its system dependencies come from the manifest's
+          <code>setup</code> — <em>not</em> from whatever you apt-installed in the
+          terminal. So:</p>
+          <ul>
+            <li>Backend needs a package? Put it in <code>setup</code>, don't just
+            install it in the shell.</li>
+            <li>Backend writes files or a database? Write into a
+            <code>filesystem</code> resource — anything written next to your code
+            is a throwaway overlay, gone on the next restart.</li>
+          </ul>
+          <p>The <strong>isolation</strong> and <strong>storage</strong> notes go
+          deeper.</p>`,
+      },
+    ],
+  },
   {
     id: 'glue', title: 'api glue', color: 'blue',
     teaser: 'how components call each other — one switchboard, no direct wires',
@@ -405,6 +498,174 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
       },
     ],
   },
+  {
+    id: 'isolation', title: 'isolation', color: 'teal',
+    teaser: 'every backend and terminal is a sandbox — default-deny, per-component',
+    intro: html`
+      <p>Nothing runs in the open. Each component's <strong>backend</strong> runs
+      in its own sandbox (Linux namespaces over an overlay rootfs), and each
+      <strong>terminal</strong> is boxed to the component it was opened on. The
+      rule everywhere is <em>default-deny</em>: you get your own code, your granted
+      resources, and nothing else — not other components, not the host, not the
+      network — until something is explicitly wired.</p>`,
+    docs: 'isolation.md',
+    children: [
+      {
+        id: 'backend-box', title: 'the backend sandbox', color: 'teal',
+        teaser: 'your dir (read-only), your resources (rw), zero egress',
+        body: html`
+          <p>A running backend sees the base rootfs (Go/Node/Python + tools), its
+          <strong>own component dir read-only</strong> (editing is the terminal's
+          job), and its <strong>granted resource dirs read-write</strong>. It does
+          <em>not</em> see other components' source, other vaults,
+          <code>home/</code>, or the host — they aren't mounted.</p>
+          <p>The network is <strong>default-deny</strong> too: outbound calls fail
+          until the owner binds a <code>net</code> interface (see the interfaces
+          note). Reaching buxond and other components over the gateway always
+          works — that's not IP egress.</p>
+          <p>So keep state in resources, never scattered files: anything outside a
+          resource dir is a throwaway overlay, gone on the next save.</p>`,
+      },
+      {
+        id: 'terminal-box', title: 'terminal isolation', color: 'teal',
+        teaser: 'a component terminal can only touch its component + $HOME',
+        body: html`
+          <p>Open a terminal on <code>apps/thing</code> and the whole workspace is
+          mounted <strong>read-only except that component's dir and
+          <code>$HOME</code></strong>. You can read siblings for patterns but can't
+          edit them — or workspace state (<code>buxon.json</code>,
+          <code>AGENTS.md</code>), or <code>data/</code>. A rogue agent can only
+          break its own component.</p>
+          <p>Commits still work because <strong>each component is its own git
+          repo</strong> — <code>cd</code> into it and <code>git commit</code>. To
+          work across the workspace or create components, open a <strong>root
+          terminal</strong> (on the workspace root — full read-write).</p>`,
+      },
+      {
+        id: 'dev-layer', title: 'the dev sandbox', color: 'teal',
+        teaser: '$HOME shared; a persistent, resettable per-component rootfs',
+        body: html`
+          <p>A terminal's filesystem changes (an <code>apt install</code>, a
+          tweaked <code>/etc</code>, a toolchain) land in a <strong>persistent
+          per-component layer</strong>
+          (<code>.buxon/term/&lt;component&gt;/</code>) that survives across
+          sessions and restarts — a real dev box per component. The ⟲ button
+          resets it to clean.</p>
+          <p>Two things to keep straight:</p>
+          <ul>
+            <li><strong>$HOME</strong> (<code>&lt;workspace&gt;/home</code>) is
+            <em>shared</em> across all terminals — agent CLI config, auth, and
+            dotfiles follow you everywhere and survive upgrades.</li>
+            <li>That dev layer is <em>separate</em> from the component's own
+            <strong>env layer</strong> (built from <code>setup</code> in the
+            manifest, which the running backend gets read-only). Install for
+            interactive work in the terminal; declare backend deps in
+            <code>setup</code>.</li>
+          </ul>`,
+      },
+    ],
+  },
+  {
+    id: 'interfaces', title: 'interfaces', color: 'slate',
+    teaser: 'typed, swappable plumbing — request a capability, owner binds a provider',
+    intro: html`
+      <p>Grants wire component→component calls. <strong>Interfaces</strong> wire
+      the rest: a component <em>requests</em> a typed capability slot, a builtin or
+      tile <em>provides</em> it, and the <strong>owner binds</strong> the request
+      to a provider. The binding <em>is</em> the authorization (you can't
+      self-bind) — and providers are swappable behind the slot, so the owner can
+      reroute you with no code change.</p>`,
+    docs: 'protocol.md',
+    children: [
+      {
+        id: 'iface-model', title: 'request · provide · bind', color: 'slate',
+        teaser: 'declare the slot; leave binding to the owner',
+        body: html`
+          <p>Declare what you need and what you offer in the manifest:</p>
+          <pre>"interfaces": { "llm": { "kind":"http", "service":"openai" },
+                "net": { "kind":"net" } },
+"provides":   { "egress": { "kind":"net" } }</pre>
+          <p>The owner wires each request to a provider (<code>bx bind apps/you
+          llm=apps/llm-gw</code>, the admin <em>Interfaces</em> tab, or the prompt
+          shown when a tile is installed). Unbound means no capability — the same
+          human-in-the-loop as a grant.</p>`,
+      },
+      {
+        id: 'iface-net', title: 'network egress', color: 'slate',
+        teaser: 'no egress by default; bind internet / a VPN / a firewall tile',
+        body: html`
+          <p>A sandboxed backend has <strong>zero IP egress</strong> until its
+          <code>net</code> interface is bound. The owner picks what provides it:
+          the <code>internet</code> builtin (public only, via a userspace gVisor
+          relay that terminates and meters every flow), <code>host</code>,
+          <code>lan:&lt;cidr&gt;</code>, or a <strong>provider tile</strong> — a
+          VPN, firewall, or router your traffic routes through.</p>
+          <p>Providers are real Linux routers in their own sandbox and are
+          themselves clients of <em>their</em> egress, so binding one to another
+          <strong>chains</strong> them (client → firewall → VPN → internet) — all
+          from the binding graph, no code.</p>`,
+      },
+      {
+        id: 'iface-http', title: 'service dependencies', color: 'slate',
+        teaser: 'call a service contract, not a hard-coded provider',
+        body: html`
+          <p>When you need a service with a standard shape (an LLM, object store,
+          email), request an <code>http</code> interface by its <em>service
+          contract</em> instead of hard-coding a tile, and discover the bound
+          provider at runtime:</p>
+          <pre>const gw = buxon.iface('llm').url    // frontend
+$BUXON_IFACE_LLM_URL                 // backend env</pre>
+          <p>The binding is also your <strong>call grant</strong>, so RBAC just
+          passes. Swap Ollama ↔ a cloud proxy by rebinding — your code never
+          changes.</p>`,
+      },
+    ],
+  },
+  {
+    id: 'backups', title: 'backups', color: 'rose',
+    teaser: 'per-component archives to a pluggable store; free disk with offload',
+    intro: html`
+      <p>A component's state — its source (with git history + remote), its
+      resource data, and its terminal dev layer — can be archived to a
+      <strong>pluggable archiver</strong> (the builtin one targets S3), on demand
+      or on a schedule. The archive is <strong>self-describing</strong>: it alone
+      can rebuild the component, no local metadata needed. Vault secrets are
+      excluded by default.</p>`,
+    docs: 'protocol.md',
+    children: [
+      {
+        id: 'backup-restore', title: 'backup & restore', color: 'rose',
+        teaser: 'bind an archiver; back up now or on a schedule; restore a version or one file',
+        body: html`
+          <p>Bind a component's <code>@archive</code> interface to an archiver tile
+          (or set a workspace default), then back up from the admin
+          <em>backup</em> tab or the API. Restore a whole version, or pull a
+          <strong>single file</strong> out of a backup without touching the live
+          component:</p>
+          <pre>POST /api/buxon/backup    { "component": "apps/thing" }
+POST /api/buxon/restore   { "component": "apps/thing", "file": "data/kv.json" }</pre>
+          <p>Schedule it with a retention count and it prunes old versions
+          itself.</p>`,
+      },
+      {
+        id: 'offload', title: 'lifecycle & offload', color: 'rose',
+        teaser: 'disable frees compute; offload archives + frees disk',
+        body: html`
+          <p>Components have a lifecycle the owner controls:</p>
+          <ul>
+            <li><strong>disabled</strong> — the backend is stopped (frees compute);
+            data stays local. Nothing can spawn it until re-enabled.</li>
+            <li><strong>offloaded</strong> — archived, then its resource data is
+            removed to free disk; the tile stays listed and restores on demand.</li>
+            <li><strong>offloaded-full</strong> — also drops the source + dev
+            layer, leaving a stub.</li>
+          </ul>
+          <p>The admin backup tab gates <em>offload</em> behind a backup taken
+          <em>while disabled</em> — a consistent, stopped-state snapshot — so you
+          never free data you haven't safely archived.</p>`,
+      },
+    ],
+  },
 ];
 
 class WelcomeNotes extends LitElement {
@@ -496,6 +757,30 @@ class WelcomeNotes extends LitElement {
     }
     .board.sub { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 
+    /* ---- the featured "start here" note: a full-width pinned banner ---- */
+    .note.featured {
+      grid-column: 1 / -1;
+      transform: none;
+      padding: 24px 18px 15px;
+      min-height: 0;
+      border-width: 2px;
+      box-shadow: 2px 4px 14px rgba(16, 24, 40, 0.2);
+    }
+    .note.featured::before { display: none; }        /* badge instead of tape */
+    .note.featured:hover { transform: translateY(-2px); }
+    .note.featured h3 { font-size: 15px; }
+    .note.featured .teaser {
+      font-size: 12.5px; margin-top: 5px; font-style: normal;
+      color: color-mix(in srgb, var(--bx-text, #33414e) 80%, transparent);
+    }
+    .note .badge {
+      position: absolute; top: -9px; right: 14px;
+      background: var(--bx-accent, #1e88e5); color: #fff;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
+      text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+      box-shadow: 0 1px 3px rgba(16, 24, 40, 0.28);
+    }
+
     /* ---- opened topic / detail: one big sheet of the same paper ---- */
     .sheet {
       position: relative;
@@ -549,8 +834,12 @@ class WelcomeNotes extends LitElement {
 
   _sticky(note, path) {
     return html`
-      <button class="note" style=${this._paperVars(note.color)}
+      <button class="note ${note.featured ? 'featured' : ''}"
+              style=${this._paperVars(note.color)}
               @click=${() => this._go(path)}>
+        ${note.featured
+          ? html`<span class="badge">${note.badge ?? 'start here'}</span>`
+          : nothing}
         <h3>${note.title}</h3>
         <p class="teaser">${note.teaser}</p>
       </button>`;

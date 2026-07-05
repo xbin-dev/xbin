@@ -31,6 +31,19 @@ const apiInfo = `The **built-in buxond API** — the reserved ` + "`/api/buxon/*
 ` + "`bx`" + `, the SDKs, and tiles are built on (docs/protocol.md). Component
 backends live under ` + "`/api/<component-path>/…`" + ` and are not described here.
 
+## Surfaces
+
+Operations are grouped by tag; the main areas:
+
+- **Identity & components** — caller identity, visible components, component detail.
+- **Grants & interfaces** — the RBAC grant table plus typed interface bindings
+  (net / http / archive). Binding is owner-only and *is* the authorization.
+- **Resources** — filesystem / kv / blob / bus / cron state (docs/resources.md).
+- **Lifecycle & backup** — enable / disable / offload a component, and archive or
+  restore it through a bound archiver (backups are self-describing).
+- **Runtime** — admin visibility into backends, namespaces, and egress.
+- **Terminals & code** — terminal sessions and per-component git.
+
 ## Authentication (docs/auth.md)
 
 Every route needs a **principal**, established by one of:

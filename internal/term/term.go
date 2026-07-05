@@ -356,8 +356,8 @@ func scopedBinds(root, rel string, extra []sandbox.Bind) []sandbox.Bind {
 func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
-// workspace read-write with other components' source read-only (see scopedBinds)
-// — the editing plane scoped to this component (incl. $HOME and AGENTS.md) — and any
+// workspace read-only except $HOME and this component's own dir (see scopedBinds)
+// — the editing plane scoped to this component — and any
 // read-only ExtraBinds (the SDK for `go build`). The overlay upper is a
 // **persistent per-component layer** (`.buxon/term/<key>/`) so system-level
 // changes (apt installs, /etc configs) survive across sessions — a resettable
