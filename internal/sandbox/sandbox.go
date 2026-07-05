@@ -3,6 +3,8 @@ package sandbox
 import (
 	"errors"
 	"os"
+	"path"
+	"sort"
 	"strings"
 )
 
@@ -79,6 +81,24 @@ type Bind struct {
 	Src string `json:"src"` // host path (as seen before pivot_root)
 	Dst string `json:"dst"` // absolute path inside the new root
 	RO  bool   `json:"ro"`  // remount read-only after binding
+}
+
+// sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable
+// within a depth, so equal-path binds keep caller order and the later one still
+// shadows). This makes overlap nest correctly no matter how callers assemble
+// the list: a broad read-only bind (e.g. an install prefix) added late can
+// never mask an earlier read-write bind beneath it — the failure mode that made
+// terminals' rw $HOME unreachable under a later ro /opt/xbin bind.
+func sortBinds(binds []Bind) []Bind {
+	out := append([]Bind(nil), binds...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return bindDepth(out[i].Dst) < bindDepth(out[j].Dst)
+	})
+	return out
+}
+
+func bindDepth(dst string) int {
+	return strings.Count(path.Clean("/"+strings.ReplaceAll(dst, "\\", "/")), "/")
 }
 
 // Spec describes one component sandbox. The parent (runner) fills it; the

@@ -150,7 +150,9 @@ func runInit(specPath string) error {
 		_ = bindNode(newroot, "/dev/fuse")
 	}
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
-	for _, b := range s.Binds {
+	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
+	// a later broad mount shadowing an earlier deeper one.
+	for _, b := range sortBinds(s.Binds) {
 		if err := mountBind(newroot, b); err != nil {
 			return err
 		}

@@ -354,8 +354,14 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		// (editing plane), plus the SDK source ro so `go build` resolves.
 		tm.Isolate = true
 		tm.Rootfs = abs
-		if sdk, err := filepath.Abs(envOr("XBIN_SDK_PATH", "")); err == nil && dirExists(sdk) {
-			tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
+		// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
+		// Never fall back to "": filepath.Abs("") is the daemon's cwd (the
+		// install prefix in prod), and binding that read-only over the sandbox
+		// shadowed the rw $HOME/component mounts beneath it.
+		if p := deps.SDKPath(); p != "" {
+			if sdk, err := filepath.Abs(p); err == nil && dirExists(sdk) {
+				tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
+			}
 		}
 		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
 	}
