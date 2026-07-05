@@ -126,6 +126,28 @@ Tailscale or a TLS proxy, and **Vault** for the auto- vs manual-unseal choice th
 installer offers. Upgrade by re-running the script; uninstall with
 `systemctl disable --now xbin && rm /etc/systemd/system/xbin.service && userdel -r xbin`.
 
+### First login → an account → lock the door
+
+The installer prints a one-time login URL (also `journalctl -u xbin | grep login`):
+`http://127.0.0.1:8642/login?token=…`. That token is the **owner/bootstrap**
+credential — the root key, not a per-user account. Move to real accounts and
+close the bootstrap door:
+
+1. **Open the token URL** — you're now the owner (full admin).
+2. **Create an admin user** in the admin console (**admin tile → Users → add
+   user**, role `admin`). The `admin` role has access to **every** tile (`*`);
+   regular users get an explicit tile allow-list and no terminal by default.
+3. **Sign out, then sign back in** as that user — so your session is a real
+   account, not the owner-token cookie.
+4. **Disable token login** (**Users → sign-in security → Disable token-URL
+   login**). The `…/login?token=` URL and the owner-token cookie stop
+   authenticating; from then on everyone signs in with an account
+   ([docs/auth.md](docs/auth.md)). The `bx` CLI's `Bearer` token is deliberately
+   unaffected — to revoke that too, rotate `.xbin/token` and restart.
+
+Skipping steps 2–4 is fine for a solo box behind Tailscale, where the login
+token is the only lock; do them before you invite anyone else in.
+
 Wiring it up by hand instead? The unit is [`deploy/xbin.service`](deploy/xbin.service)
 and the installer is [`deploy/install.sh`](deploy/install.sh) — both short and
 commented. The one rule: **don't add systemd namespace/filesystem hardening**
