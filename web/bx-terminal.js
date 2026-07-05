@@ -40,7 +40,7 @@ function loadXterm() {
 const enc = new TextEncoder();
 
 export class BxTerminal extends HTMLElement {
-  #term; #fit; #ws; #ro; #closed = false; #retries = 0; #host;
+  #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
 
   connectedCallback() {
     this.style.display = 'block';
@@ -129,6 +129,7 @@ export class BxTerminal extends HTMLElement {
   }
 
   #connect() {
+    this.#opened = false;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
@@ -141,6 +142,8 @@ export class BxTerminal extends HTMLElement {
 
     ws.onopen = () => {
       this.#retries = 0;
+      this.#opened = true;
+      this.#reattachFails = 0;
       const { cols, rows } = this.#term;
       ws.send(JSON.stringify({ op: 'resize', cols, rows }));
       this.#term.focus();
@@ -162,8 +165,17 @@ export class BxTerminal extends HTMLElement {
     };
     ws.onclose = () => {
       if (this.#closed) return;
-      // Reattach by session id with backoff (buxond keeps the PTY alive).
-      if (this.getAttribute('session') && this.#retries < 8) {
+      const reattaching = !!this.getAttribute('session');
+      // A reattach whose handshake never succeeded almost always means the
+      // session is gone (buxond 404s an unknown id — e.g. a stale id restored
+      // from a previous page, or after a daemon restart). After a couple of
+      // tries, start a fresh session instead of retrying a dead id forever.
+      if (reattaching && !this.#opened && ++this.#reattachFails >= 2) {
+        this.#restart('previous session gone — starting fresh…');
+        return;
+      }
+      // Otherwise reattach by session id with backoff (buxond keeps the PTY).
+      if (reattaching && this.#retries < 8) {
         const wait = Math.min(500 * 2 ** this.#retries++, 10000);
         this.#term.write(`\r\n\x1b[90m[reconnecting…]\x1b[0m\r\n`);
         setTimeout(() => { if (!this.#closed) this.#connect(); }, wait);

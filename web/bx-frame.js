@@ -150,6 +150,55 @@ export class BxFrame extends LitElement {
     this._autoHeight = !this.height && !this.style.height;
     this._offEvents = onEvent((e) => this._event(e));
     window.addEventListener('message', this._onMsg);
+    this._restoreTerm();
+  }
+
+  // Persist terminal session ids + window state per component, and save whenever
+  // the reactive terminal state changes, so a page reload reattaches to the
+  // still-running server-side session(s) with scrollback instead of orphaning
+  // them and opening a fresh shell. (Pop geometry is imperative → saved in the
+  // drag/resize handlers.)
+  updated(changed) {
+    if (changed.has('_sessions') || changed.has('_active') || changed.has('_termOpen')) {
+      this._saveTerm();
+    }
+  }
+
+  _termKey() { return `bx-term:${this.src}`; }
+
+  _loadTerm() {
+    try { const r = localStorage.getItem(this._termKey()); return r ? JSON.parse(r) : null; }
+    catch { return null; }
+  }
+
+  _saveTerm() {
+    try {
+      const sessions = this._sessions
+        .filter((s) => s.id) // only server-assigned sessions can be reattached
+        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu }));
+      if (!sessions.length && !this._termOpen) { localStorage.removeItem(this._termKey()); return; }
+      localStorage.setItem(this._termKey(), JSON.stringify({
+        open: !!this._termOpen, active: this._active, pop: this._pop, sessions,
+      }));
+    } catch { /* storage disabled/full — non-fatal */ }
+  }
+
+  // Restore persisted sessions on mount; reopen the pop-up if it was open so the
+  // <bx-terminal>s reattach (a stale id falls back to a fresh session there).
+  _restoreTerm() {
+    const saved = this._loadTerm();
+    if (!saved?.sessions?.length) return;
+    this._sessions = saved.sessions.map((s) => ({
+      id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none',
+    }));
+    this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
+    if (saved.pop) this._pop = { ...saved.pop };
+    if (saved.open) {
+      this.updateComplete.then(() => {
+        this._termOpen = true;
+        this.updateComplete.then(() => this._front());
+      });
+    }
   }
 
   disconnectedCallback() {
@@ -248,6 +297,7 @@ export class BxFrame extends LitElement {
       window.removeEventListener('pointerup', up);
       shield();
       this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
+      this._saveTerm();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -256,7 +306,7 @@ export class BxFrame extends LitElement {
   _popDown() {
     this._front();
     const el = this._popEl; // capture size after native resizes too
-    if (el && this._pop) { this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; }
+    if (el && this._pop) { this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; this._saveTerm(); }
   }
 
   _newTerm() {
