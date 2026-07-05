@@ -113,12 +113,15 @@ preflight() {
   # Unprivileged user namespaces — the load-bearing one.
   local uc=/proc/sys/kernel/unprivileged_userns_clone
   local mn=/proc/sys/user/max_user_namespaces
+  local ar=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
   if [ -r "$uc" ] && [ "$(cat "$uc")" = 0 ]; then
     fail "kernel.unprivileged_userns_clone=0 — unprivileged user namespaces are DISABLED"
     warn "  enable: echo 'kernel.unprivileged_userns_clone=1' >/etc/sysctl.d/99-userns.conf && sysctl --system"
     PREFLIGHT_FATAL=1
   elif [ -r "$mn" ] && [ "$(cat "$mn")" = 0 ]; then
     fail "user.max_user_namespaces=0 — user namespaces are DISABLED"; PREFLIGHT_FATAL=1
+  elif [ -r "$ar" ] && [ "$(cat "$ar")" = 1 ]; then
+    warn "AppArmor restricts unprivileged user namespaces (Ubuntu 23.10+) — installer will lift kernel.apparmor_restrict_unprivileged_userns"
   else
     ok "unprivileged user namespaces appear enabled (functional test runs after user creation)"
   fi
@@ -239,15 +242,30 @@ setup_kernel() {
   printf 'fuse\ntun\n' >/etc/modules-load.d/xbin.conf
   # Big workspaces exhaust the default inotify budget; bx doctor checks this.
   printf 'fs.inotify.max_user_watches=524288\n' >/etc/sysctl.d/99-xbin.conf
+  # Ubuntu 23.10+/24.04 gate unprivileged user namespaces behind an AppArmor
+  # knob (kernel.apparmor_restrict_unprivileged_userns=1). With it on, even a
+  # correctly-subuid'd user can't create a userns and NO sandbox comes up. This
+  # host is dedicated to running sandboxed workspaces, so lift the restriction.
+  local userns_lifted=
+  if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+    printf 'kernel.apparmor_restrict_unprivileged_userns=0\n' >>/etc/sysctl.d/99-xbin.conf
+    userns_lifted=1
+  fi
   sysctl -q -p /etc/sysctl.d/99-xbin.conf 2>/dev/null || true
-  ok "fuse+tun autoload persisted; inotify watches raised"
+  if [ -n "$userns_lifted" ]; then
+    ok "fuse+tun autoload persisted; inotify raised; AppArmor userns restriction lifted"
+  else
+    ok "fuse+tun autoload persisted; inotify watches raised"
+  fi
 }
 test_userns() {
   if runuser -u "$XBIN_USER" -- unshare -Ur true 2>/dev/null; then
     ok "user namespaces work for $XBIN_USER"
   else
     fail "could not create a user namespace as $XBIN_USER"
-    warn "  sandboxing will not come up. Check unprivileged userns are enabled and not blocked by AppArmor/seccomp."
+    warn "  sandboxing will not come up. Common causes:"
+    warn "    kernel.apparmor_restrict_unprivileged_userns=1 (Ubuntu 23.10+; installer lifts this)"
+    warn "    kernel.unprivileged_userns_clone=0, or AppArmor/seccomp policy blocking unshare"
   fi
 }
 install_files() {
