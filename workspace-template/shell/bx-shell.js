@@ -45,7 +45,7 @@ function dragShield(cursor = 'grabbing') {
 const RUNTIME_COLOR = {
   '': 'var(--bx-muted, #8794a1)',
   static: 'var(--bx-muted, #8794a1)',
-  go: 'var(--bx-accent, #1e88e5)',
+  go: 'var(--bx-accent, #f5a623)',
   node: 'var(--bx-green, #43a047)',
   python: 'var(--bx-amber, #f2a71b)',
   cgi: 'var(--bx-red, #e5484d)',
@@ -85,11 +85,6 @@ export class BxShell extends LitElement {
     }
     .logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; letter-spacing: .04em; }
     .logo .mark { flex: none; }
-    .logo .dot {
-      width: 18px; height: 18px; border-radius: 6px; background: var(--bx-accent, #1e88e5);
-      display: inline-flex; align-items: center; justify-content: center;
-      color: #fff; font-size: 11px; font-weight: 800;
-    }
     .ws-chip {
       font-size: 11.5px; color: var(--bx-muted, #8794a1);
       background: var(--bx-panel-2, #f7f8fa); border: 1px solid var(--bx-border, #e4e8ed);
@@ -141,14 +136,14 @@ export class BxShell extends LitElement {
       font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
       text-transform: uppercase; color: var(--bx-muted, #8794a1);
     }
-    .group .n { font-weight: 500; color: var(--bx-accent, #1e88e5); }
+    .group .n { font-weight: 500; color: var(--bx-accent, #f5a623); }
     .item {
       display: flex; align-items: center; gap: 8px; padding: 3px 12px 3px 16px;
       cursor: pointer; font-size: 12.5px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
     }
     .item:hover { background: var(--bx-panel-2, #f7f8fa); }
-    .item.open { color: var(--bx-accent, #1e88e5); font-weight: 600; }
+    .item.open { color: var(--bx-accent, #f5a623); font-weight: 600; }
     .item .c { width: 7px; height: 7px; border-radius: 50%; flex: none; }
     .item .err { color: var(--bx-red, #e5484d); font-size: 10px; }
     .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #8794a1); }
@@ -185,7 +180,7 @@ export class BxShell extends LitElement {
     }
     .card .head button:hover { color: var(--bx-text, #33414e); }
     .drop {
-      height: 3px; border-radius: 2px; background: var(--bx-accent, #1e88e5);
+      height: 3px; border-radius: 2px; background: var(--bx-accent, #f5a623);
       margin: -8px 0; /* fold into the column gap */
     }
     .empty { color: var(--bx-muted, #8794a1); font-size: 12.5px; padding: 24px; text-align: center; }
@@ -590,10 +585,10 @@ export class BxShell extends LitElement {
       <div class="top">
         <span class="logo">
           <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
-            <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#1e88e5)"></path>
-            <path d="M21 21 43 43M43 21 21 43" stroke="#fff" stroke-width="9" stroke-linecap="butt"></path>
-            <circle cx="53" cy="11" r="2.6" fill="#fff" opacity=".7"></circle>
-            <circle cx="11" cy="53" r="2.6" fill="#fff" opacity=".7"></circle>
+            <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#f5a623)"></path>
+            <path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"></path>
+            <circle cx="53" cy="11" r="2.6" fill="#23272e" opacity=".4"></circle>
+            <circle cx="11" cy="53" r="2.6" fill="#23272e" opacity=".4"></circle>
           </svg>
           X/BIN</span>
         <span class="ws-chip">${this.name}</span>

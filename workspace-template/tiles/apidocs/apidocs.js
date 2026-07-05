@@ -20,7 +20,7 @@ const CAP_COLOR = (c) => {
 };
 const METHOD_COLOR = {
   get: 'var(--bx-green, #43a047)', post: 'var(--bx-amber, #f2a71b)',
-  put: 'var(--bx-accent, #1e88e5)', patch: '#8957e5', delete: 'var(--bx-red, #e5484d)',
+  put: 'var(--bx-accent, #f5a623)', patch: '#8957e5', delete: 'var(--bx-red, #e5484d)',
 };
 
 export class BxApiDocs extends LitElement {
@@ -35,7 +35,7 @@ export class BxApiDocs extends LitElement {
     .top .spacer { flex: 1; }
     .top input { flex: 0 1 240px; background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 6px; padding: 4px 9px; font: inherit; font-size: 12px; color: var(--bx-text); }
-    .top a { font-size: 12px; color: var(--bx-accent, #1e88e5); text-decoration: none; }
+    .top a { font-size: 12px; color: var(--bx-accent, #f5a623); text-decoration: none; }
     .top a:hover { text-decoration: underline; }
     .body { padding: 8px 14px 24px; }
     .intro { font-size: 13px; color: var(--bx-text); border: 1px solid var(--bx-border, #e4e8ed);

@@ -97,7 +97,7 @@ export class BxAdmin extends LitElement {
     .cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
     .stat { background: var(--bx-panel-2, #f7f8fa); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 6px; padding: 6px 12px; min-width: 74px; }
-    .stat .n { font: 700 18px var(--bx-mono, monospace); color: var(--bx-accent, #1e88e5); }
+    .stat .n { font: 700 18px var(--bx-mono, monospace); color: var(--bx-accent, #f5a623); }
     .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
                color: var(--bx-muted, #8794a1); }
     .stat.warn .n { color: var(--bx-amber, #f2a71b); }
@@ -128,7 +128,7 @@ export class BxAdmin extends LitElement {
     .secret { font-family: var(--bx-mono, monospace); }
     .muted { color: var(--bx-muted, #8794a1); }
     form.inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-    a.link { color: var(--bx-accent, #1e88e5); cursor: pointer; text-decoration: none; }
+    a.link { color: var(--bx-accent, #f5a623); cursor: pointer; text-decoration: none; }
     a.link:hover { text-decoration: underline; }
     a.link.gated { color: var(--bx-muted, #8794a1); cursor: not-allowed; opacity: .55; }
     a.link.gated:hover { text-decoration: none; }
@@ -155,22 +155,22 @@ export class BxAdmin extends LitElement {
     .code pre.diff > span { display: block; }
     .code pre.diff > .d { background: color-mix(in srgb, var(--bx-green, #43a047) 14%, transparent); }
     .code pre.diff > .a { background: color-mix(in srgb, var(--bx-red, #e5484d) 14%, transparent); }
-    .code pre.diff > .h { color: var(--bx-accent, #1e88e5);
-      background: color-mix(in srgb, var(--bx-accent, #1e88e5) 8%, transparent); }
+    .code pre.diff > .h { color: var(--bx-accent, #f5a623);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, transparent); }
     .code pre.diff > .fh { color: var(--bx-muted, #8794a1); }
     .grouphd { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
       color: var(--bx-muted, #8794a1); padding: 4px 8px; background: var(--bx-panel-2, #f7f8fa); }
 
-    /* highlight.js — light palette (Atom-One-Light-ish) scoped to this shadow */
-    .hljs-comment, .hljs-quote { color: #a0a1a7; font-style: italic; }
-    .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-formula { color: #a626a4; }
-    .hljs-name, .hljs-section, .hljs-tag, .hljs-deletion { color: #e45649; }
-    .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: #50a14f; }
+    /* highlight.js — dark palette (Atom-One-Dark-ish) scoped to this shadow */
+    .hljs-comment, .hljs-quote { color: #7f8896; font-style: italic; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-formula { color: #c678dd; }
+    .hljs-name, .hljs-section, .hljs-tag, .hljs-deletion { color: #e06c75; }
+    .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: #98c379; }
     .hljs-number, .hljs-literal, .hljs-type, .hljs-attr, .hljs-attribute,
     .hljs-variable, .hljs-template-variable, .hljs-selector-attr,
-    .hljs-selector-pseudo, .hljs-selector-class { color: #986801; }
-    .hljs-title, .hljs-title.function_, .hljs-built_in, .hljs-title.class_ { color: #4078f2; }
-    .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id { color: #0184bb; }
+    .hljs-selector-pseudo, .hljs-selector-class { color: #d19a66; }
+    .hljs-title, .hljs-title.function_, .hljs-built_in, .hljs-title.class_ { color: #61afef; }
+    .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id { color: #56b6c2; }
     .hljs-emphasis { font-style: italic; }
     .hljs-strong { font-weight: 600; }
 
@@ -178,7 +178,7 @@ export class BxAdmin extends LitElement {
     .hostcard { display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--bx-panel-2, #f7f8fa);
       border: 1px solid var(--bx-border, #e4e8ed); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
     .hostcard .kv { font-size: 12px; }
-    .hostcard .kv b { font-family: var(--bx-mono, monospace); color: var(--bx-accent, #1e88e5); }
+    .hostcard .kv b { font-family: var(--bx-mono, monospace); color: var(--bx-accent, #f5a623); }
     .hostcard .kv span { color: var(--bx-muted, #8794a1); }
     .bk { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 7px; margin-bottom: 7px; overflow: hidden; }
     .bk .row { display: grid; grid-template-columns: 16px minmax(110px,1.3fr) 70px repeat(5, minmax(44px, .7fr)) 84px 1.1fr;
@@ -194,7 +194,7 @@ export class BxAdmin extends LitElement {
     .bk .hdr:hover { background: var(--bx-panel-2, #f7f8fa); }
     .state { font-size: 10px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border); text-align: center; }
     .state.healthy { color: var(--bx-green, #43a047); border-color: color-mix(in srgb, var(--bx-green) 45%, var(--bx-border)); }
-    .state.building { color: var(--bx-accent, #1e88e5); }
+    .state.building { color: var(--bx-accent, #f5a623); }
     .state.failed  { color: var(--bx-red, #e5484d); }
     .state.idle    { color: var(--bx-muted, #8794a1); }
     .lock { font-size: 11px; }
@@ -293,7 +293,7 @@ export class BxAdmin extends LitElement {
     const pts = s.map((v, i) => `${(i * step).toFixed(1)},${(ht - (v / max) * (ht - 2) - 1).toFixed(1)}`).join(' ');
     const peak = this._fmtBytes(max) + '/s';
     return html`<svg width=${w} height=${ht} viewBox="0 0 ${w} ${ht}" title=${'peak ' + peak}>
-      <polyline points=${pts} fill="none" stroke="var(--bx-accent,#1e88e5)" stroke-width="1.2"></polyline></svg>`;
+      <polyline points=${pts} fill="none" stroke="var(--bx-accent,#f5a623)" stroke-width="1.2"></polyline></svg>`;
   }
 
   async _refresh() {

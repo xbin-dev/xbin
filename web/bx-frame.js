@@ -70,7 +70,7 @@ export class BxFrame extends LitElement {
     .edit {
       position: absolute; top: 2px; right: 2px;
       width: 7px; height: 7px; padding: 0; border: 0; border-radius: 2px;
-      background: var(--bx-accent, #1e88e5);
+      background: var(--bx-accent, #f5a623);
       opacity: 0.35; cursor: pointer; z-index: 10;
     }
     .edit:hover { opacity: 1; }

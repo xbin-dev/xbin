@@ -1,26 +1,27 @@
-/* xbin light theme tokens — dense, Sketch-like.
-   Loaded via <link href="/vendor/theme.css"> in main-document pages and
-   component views. Custom properties pierce shadow DOM, so core elements
-   (bx-frame, bx-grants, bx-shell) pick these up wherever the document sets
-   them; every element also carries the same values as var() fallbacks, so
-   bare documents still render correctly. */
+/* xbin dark-steel theme tokens — graphite panels, hazard-amber accent.
+   The workspace default: light-gray text on darkish steel, matching the
+   X/BIN mark's material. Loaded via <link href="/vendor/theme.css"> in
+   main-document pages and component views. Custom properties pierce shadow
+   DOM, so core elements (bx-frame, bx-grants, bx-shell) pick these up
+   wherever the document sets them; every element also carries values as
+   var() fallbacks, so bare documents still render. */
 :root {
-  --bx-bg: #f0f2f5;            /* canvas */
-  --bx-panel: #ffffff;         /* cards, bars, sidebars */
-  --bx-panel-2: #f7f8fa;       /* inset panels, hover rows */
-  --bx-border: #e4e8ed;
-  --bx-text: #33414e;
-  --bx-muted: #8794a1;
-  --bx-accent: #1e88e5;
-  --bx-green: #43a047;
+  --bx-bg: #1b1e24;            /* canvas — matches the terminal + logo steel */
+  --bx-panel: #23272e;         /* cards, bars, sidebars — the logo plate */
+  --bx-panel-2: #2b3038;       /* inset panels, hover rows */
+  --bx-border: #363c45;
+  --bx-text: #d4d9e0;          /* light gray */
+  --bx-muted: #868f9a;
+  --bx-accent: #f5a623;        /* hazard amber */
+  --bx-green: #4caf50;
   --bx-amber: #f2a71b;
-  --bx-red: #e5484d;
+  --bx-red: #ef5350;
   --bx-radius: 6px;
-  --bx-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --bx-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --bx-font: 13px/1.45 -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
   --bx-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 /* Base for component documents that opt in by linking this sheet. */
@@ -53,7 +54,7 @@ body.bx {
 }
 .bx button:hover, button.bx:hover { background: var(--bx-panel-2); }
 .bx input, input.bx, .bx select, select.bx {
-  background: var(--bx-panel);
+  background: var(--bx-panel-2);
   border: 1px solid var(--bx-border);
   border-radius: var(--bx-radius);
   color: var(--bx-text);
@@ -61,4 +62,4 @@ body.bx {
   font-size: 12px;
   padding: 3px 8px;
 }
-.bx input:focus, input.bx:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
+.bx input:focus, input.bx:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 45%, transparent); }

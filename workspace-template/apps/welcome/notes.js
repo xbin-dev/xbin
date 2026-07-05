@@ -700,7 +700,7 @@ class WelcomeNotes extends LitElement {
       font: 11.5px/1.5 var(--bx-mono, ui-monospace, monospace);
       overflow-x: auto; white-space: pre;
     }
-    a { color: var(--bx-accent, #1e88e5); text-decoration: none; }
+    a { color: var(--bx-accent, #f5a623); text-decoration: none; }
 
     /* ---- breadcrumbs ---- */
     .crumbs {
@@ -710,7 +710,7 @@ class WelcomeNotes extends LitElement {
     }
     .crumbs button {
       background: none; border: none; padding: 0; cursor: pointer;
-      font: inherit; color: var(--bx-accent, #1e88e5);
+      font: inherit; color: var(--bx-accent, #f5a623);
     }
     .crumbs button:hover { text-decoration: underline; }
     .crumbs .here { color: var(--bx-text, #33414e); font-weight: 600; }
@@ -775,7 +775,7 @@ class WelcomeNotes extends LitElement {
     }
     .note .badge {
       position: absolute; top: -9px; right: 14px;
-      background: var(--bx-accent, #1e88e5); color: #fff;
+      background: var(--bx-accent, #f5a623); color: #fff;
       font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
       text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
       box-shadow: 0 1px 3px rgba(16, 24, 40, 0.28);

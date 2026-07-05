@@ -230,7 +230,7 @@ const docViewerHTML = `<!doctype html><html><head><meta charset="utf-8">
 pre{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.55}
 code{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:0 .3em;border-radius:3px;font-size:12px}
 pre code{padding:0;border:0;background:none}table{border-collapse:collapse;font-size:13px}td,th{border:1px solid var(--bx-border,#e4e8ed);padding:.25em .6em}
-th{background:var(--bx-panel-2,#f7f8fa);text-align:left}a{color:var(--bx-accent,#1e88e5);text-decoration:none}a:hover{text-decoration:underline}
+th{background:var(--bx-panel-2,#f7f8fa);text-align:left}a{color:var(--bx-accent,#f5a623);text-decoration:none}a:hover{text-decoration:underline}
 h1,h2,h3{line-height:1.25}h1{font-size:1.5rem}h2{font-size:1.15rem;margin-top:2rem}h3{font-size:1rem}
 .crumb{font-size:12px;color:var(--bx-muted,#8794a1)}</style></head><body>
 <p class="crumb"><a href="/docs/index.md">← docs index</a></p><div id="doc">loading…</div>

@@ -36,7 +36,7 @@ export class BxGrants extends LitElement {
     }
     .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .who { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
-    .role { color: var(--bx-accent, #1e88e5); font-size: 12px; font-weight: 600; }
+    .role { color: var(--bx-accent, #f5a623); font-size: 12px; font-weight: 600; }
     .desc { color: var(--bx-muted, #8794a1); font-size: 12px; flex: 1;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     button {
@@ -50,7 +50,7 @@ export class BxGrants extends LitElement {
       font-weight: 500;
     }
     a { color: var(--bx-muted, #8794a1); font-size: 12px; cursor: pointer; }
-    a:hover { color: var(--bx-accent, #1e88e5); }
+    a:hover { color: var(--bx-accent, #f5a623); }
   `;
 
   constructor() {
