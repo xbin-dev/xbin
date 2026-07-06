@@ -89,6 +89,97 @@ into the client's trust store (a separate explicit toggle, deferred).
 kv / blob / bus / cron / sqlite reframed as `resource` interfaces provided by
 xbind builtins; `res:*` grants become bindings. Migration, later.
 
+## Multiplicity — multi-bind slots and provider instances *(designed, not implemented)*
+
+Two real cases the 1:1 slot→provider model can't express:
+
+- **Multiple inputs, dynamic N**: a communication-agent wants *all* the owner's
+  comm channels on one slot — 1 Slack + 2 email accounts *this* workspace,
+  different in the next. Distinct named slots (`slack:`, `email:` — which work
+  today) require knowing the shape at authoring time; "a set of things
+  satisfying one contract" doesn't.
+- **Multiple outputs (instances)**: one imap-connector tile serves several
+  accounts — `email:abc`, `email:def`. `provides` is static manifest data, but
+  accounts are runtime config; the provider must be able to expose N concrete
+  instances of one provided contract, and a binding must address a specific one.
+
+### Request side: `multi` slots
+
+```jsonc
+"interfaces": { "channels": { "kind": "http", "service": "comm", "multi": true } }
+```
+
+A `multi` slot holds an **ordered set of 0..N bindings**. Workspace storage
+widens `bindings[comp][slot]` from `string` to string-or-array (custom
+unmarshal keeps every existing manifest valid; single slots stay strings).
+Non-multi slots keep exactly today's semantics and injection. `multi` is
+**http-family only in v1** — a multi `net` slot would mean multiple default
+routes (meaningless); a `net` use case (bonding/failover) can become its own
+family mechanism later.
+
+### Provider side: instances
+
+```jsonc
+"provides": { "email": { "kind": "http", "service": "email", "role": "writer",
+                          "instances": true } }
+```
+
+`instances: true` marks the provide as a **template**; the provider registers
+concrete instances at runtime (they're config, not manifest):
+
+```
+PUT /api/xbin/iface-instances   (self-scoped — a provider manages only its own)
+{ "slot": "email", "instances": [
+    { "id": "abc", "label": "work <a@corp.com>", "path": "/accounts/abc" },
+    { "id": "def", "label": "personal",          "path": "/accounts/def" } ] }
+```
+
+xbind persists the instance table (broker state, like grants) so bindings
+survive provider restarts; re-registration replaces the set; removing an
+instance with live bindings marks those bindings **broken** (surfaced in the
+pending/bindings UI — never silently rewired). `path` is provider-defined:
+the instance's API prefix under the provider — xbind stays dumb about the
+provider's URL shape.
+
+### Binding grammar and resolution
+
+Binding target = `provider[#instance]`: `apps/imap#abc`, `apps/slack-conn`.
+`#instance` is only valid when the provide has `instances: true` (and vice
+versa: an instances-provide can only be bound with one). Binding-as-grant is
+unchanged — the role comes from the provide def; the instance selects the
+URL/identity, not the privilege (all instances of a provider grant the same
+role, since RBAC is per-component).
+
+Injection:
+
+- single slot (today, unchanged): `XBIN_IFACE_<slot>_URL`; plus
+  `XBIN_IFACE_<slot>_INSTANCE` when bound to an instance.
+- multi slot: `XBIN_IFACE_<slot>` = JSON array
+  `[{provider, instance?, url, service, label}]`, same payload via
+  `xbin.iface(slot)` for frontends. Order = binding order (owner-arranged),
+  ids stable so requesters can key per-channel state on `provider#instance`.
+
+DAG validation is unchanged (edges are component-level; instances don't
+change reachability).
+
+### UX / CLI
+
+- The pending-bind list shows per-instance options (`apps/imap — email
+  (work <a@corp.com>)`); `multi` slots stay listed after the first bind
+  ("bind another…"), rendered as a checklist rather than a dropdown.
+- `bx bind <comp> <slot>=<p>` (replace, today), `<slot>+=<p#i>` (add),
+  `<slot>-=<p#i>` (remove).
+
+### Decisions (proposed)
+
+- **IFACE-6** — request slots gain `multi: true` (http-only v1): an ordered
+  set of bindings on one slot; storage string→string-or-array,
+  backward-compatible; non-multi slots unchanged.
+- **IFACE-7** — provides gain `instances: true`: runtime-registered,
+  broker-persisted instances addressed as `provider#instance`; instance
+  selects URL/identity, the provide's role stays the grant; a vanished
+  instance breaks its bindings loudly instead of rewiring.
+
 ## Binding replaces grant-approval
 
 - `net:*` egress grants are **removed** — egress is a `net` interface binding,
