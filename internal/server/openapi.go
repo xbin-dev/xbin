@@ -85,7 +85,7 @@ func endpoints() []ep {
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
 			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
-		{"GET", "/status", "Runtime", "Terminals + component counts", "admin", "", nil, nil, "status summary"},
+		{"GET", "/status", "Runtime", "Terminals + component counts + host/traffic gauges", "admin", "host = cpu jiffies, memory, workspace disk; traffic = cumulative request/byte counters (clients delta two polls for rates). Powers the shell's status footer.", nil, nil, "{components, terminals, host, traffic}"},
 		{"GET", "/gpus", "Runtime", "Host NVIDIA GPUs (for gpu:* grants / terminal picker)", "admin", "", nil, nil, "{gpus:[{index,uuid,name,node}]}"},
 		{"GET", "/backends", "Runtime", "Per-component backend state", "admin",
 			"Compact backend states: idle | building | healthy | failed, with generation and last error.", nil, nil, "{path: {state, gen, error?}}"},

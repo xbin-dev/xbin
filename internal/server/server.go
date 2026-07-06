@@ -4,10 +4,13 @@
 package server
 
 import (
+	"bufio"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/magik6k/xbin/internal/auth"
@@ -239,10 +242,40 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 	serveEventsWS(w, r, s.Hub, filter)
 }
 
+// Cumulative HTTP traffic counters (all routes), exposed by /status for the
+// shell's status footer — the client deltas two polls into req/s + MB/s.
+var (
+	reqCount    atomic.Int64
+	respBytes   atomic.Int64
+	trafficBoot = time.Now()
+)
+
+// countingWriter tallies response bytes while passing streaming interfaces
+// through (Flush for SSE; Hijack for proxied WebSocket upgrades).
+type countingWriter struct{ http.ResponseWriter }
+
+func (c *countingWriter) Write(b []byte) (int, error) {
+	n, err := c.ResponseWriter.Write(b)
+	respBytes.Add(int64(n))
+	return n, err
+}
+func (c *countingWriter) Flush() {
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+func (c *countingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := c.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		reqCount.Add(1)
+		next.ServeHTTP(&countingWriter{w}, r)
 		if strings.HasPrefix(r.URL.Path, "/ws/") {
 			return // long-lived; logged at close by their handlers
 		}

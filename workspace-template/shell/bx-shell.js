@@ -72,6 +72,7 @@ export class BxShell extends LitElement {
     _drop: { state: true },    // {col, idx} target slot
     _side: { state: true },    // sidebar: {width, collapsed, folders:[{id,name,open,items}]}
     _dropFolder: { state: true }, // folder id highlighted as a drag target
+    _sys: { state: true },        // status footer data (admin-only; null = hidden)
   };
 
   static styles = css`
@@ -133,10 +134,25 @@ export class BxShell extends LitElement {
     /* ---- body ---- */
     .body { display: flex; flex: 1; min-height: 0; }
     aside {
-      width: 224px; flex: none; overflow-y: auto; overflow-x: hidden;
+      width: 224px; flex: none; display: flex; flex-direction: column;
       background: var(--bx-panel, #fff);
-      padding: 4px 0 16px;
+      padding: 4px 0 0; overflow: hidden;
     }
+    .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 12px; }
+    .sysfoot {
+      flex: none; border-top: 1px solid var(--bx-border, #e4e8ed);
+      padding: 8px 12px 10px; font-size: 10.5px;
+    }
+    .sysrow { display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px; }
+    .sysrow .l { text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
+      color: var(--bx-muted, #8794a1); font-size: 9.5px; }
+    .sysrow .v { font-family: var(--bx-mono, monospace); font-size: 10px; color: var(--bx-text, #33414e); }
+    .sysrow .v.ok { color: var(--bx-green, #43a047); }
+    .sysrow .v.bad { color: var(--bx-red, #e5484d); font-weight: 700; }
+    .sysbar { height: 4px; border-radius: 2px; background: var(--bx-panel-2, #f7f8fa);
+      overflow: hidden; margin-top: 2px; }
+    .sysbar .fill { height: 100%; border-radius: 2px;
+      background: var(--bx-accent, #f5a623); transition: width .6s ease; }
     aside.collapsed {
       width: 22px; padding: 4px 0;
       border-right: 1px solid var(--bx-border, #e4e8ed);
@@ -252,6 +268,8 @@ export class BxShell extends LitElement {
     this._drop = null;
     this._side = { width: 224, collapsed: false, folders: [] }; // persisted with the layout
     this._dropFolder = null;
+    this._sys = null;
+    this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -268,11 +286,14 @@ export class BxShell extends LitElement {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
     window.addEventListener('blur', this._onBlur);
+    this._loadSys();
+    this._sysTimer = setInterval(() => this._loadSys(), 5000);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     this._off?.();
+    clearInterval(this._sysTimer);
     this._ro?.disconnect();
     window.removeEventListener('pointermove', this._onMove);
     window.removeEventListener('pointerup', this._onUp);
@@ -415,6 +436,81 @@ export class BxShell extends LitElement {
     this._dropFolder = null;
     const path = e.dataTransfer.getData('text/plain');
     if (path) this._fileInto(f.id, path);
+  }
+
+  // ---- sidebar: system status footer (admin-only; polls /status every 5s) ----
+  async _loadSys() {
+    if (this._side.collapsed || document.hidden) return;
+    try {
+      const [st, be, vs] = await Promise.all([
+        window.xbin.fetch('/api/xbin/status'),
+        window.xbin.fetch('/api/xbin/backends'),
+        window.xbin.fetch('/api/xbin/vault-status'),
+      ]);
+      if (!st.ok) { this._sys = null; return; } // not admin — footer hidden
+      const status = await st.json();
+      const backends = be.ok ? await be.json() : {};
+      const vault = vs.ok ? await vs.json() : null;
+
+      // Rates from cumulative counters (delta between polls).
+      let reqRate = 0, mbRate = 0;
+      const t = status.traffic ?? {};
+      const now = performance.now();
+      if (this._sysPrev && now > this._sysPrev.at) {
+        const dt = (now - this._sysPrev.at) / 1000;
+        reqRate = Math.max(0, (t.reqs - this._sysPrev.reqs) / dt);
+        mbRate = Math.max(0, (t.bytesOut - this._sysPrev.bytes) / dt / 1048576);
+      }
+      // CPU% from jiffy deltas.
+      let cpu = null;
+      const h = status.host ?? {};
+      if (this._sysPrev && h.cpuTotal > this._sysPrev.cpuTotal) {
+        cpu = (h.cpuBusy - this._sysPrev.cpuBusy) / (h.cpuTotal - this._sysPrev.cpuTotal);
+      }
+      this._sysPrev = { at: now, reqs: t.reqs ?? 0, bytes: t.bytesOut ?? 0,
+                        cpuBusy: h.cpuBusy ?? 0, cpuTotal: h.cpuTotal ?? 0 };
+
+      const states = Object.values(backends ?? {});
+      this._sys = {
+        cpu,
+        mem: h.memTotal ? 1 - (h.memAvail ?? 0) / h.memTotal : null,
+        disk: h.diskTotal ? 1 - (h.diskFree ?? 0) / h.diskTotal : null,
+        diskFree: h.diskFree, diskTotal: h.diskTotal,
+        services: states.length,
+        running: states.filter((b) => b.state === 'healthy').length,
+        components: status.components ?? 0,
+        vault: vault?.mode ?? null,
+        reqRate, mbRate,
+      };
+    } catch { /* xbind restarting; next tick */ }
+  }
+
+  _bar(label, frac, detail) {
+    const pct = frac == null ? null : Math.max(0, Math.min(1, frac));
+    return html`
+      <div class="sysrow" title=${detail ?? ''}>
+        <span class="l">${label}</span>
+        <span class="v">${detail ?? (pct == null ? '—' : Math.round(pct * 100) + '%')}</span>
+      </div>
+      <div class="sysbar"><div class="fill" style="width:${(pct ?? 0) * 100}%"></div></div>`;
+  }
+
+  _statusFooter() {
+    const s = this._sys;
+    if (!s) return nothing;
+    const gb = (b) => (b / 1073741824).toFixed(b > 100 * 1073741824 ? 0 : 1);
+    const vaultCls = s.vault === 'unsealed' ? 'ok' : s.vault ? 'bad' : '';
+    return html`
+      <div class="sysfoot">
+        ${this._bar('cpu', s.cpu)}
+        ${this._bar('memory', s.mem)}
+        ${this._bar('disk', s.disk, s.diskTotal ? `${gb(s.diskTotal - s.diskFree)} / ${gb(s.diskTotal)} GB` : null)}
+        ${this._bar('services', s.services ? s.running / s.services : 0, `${s.running} / ${s.services} running`)}
+        <div class="sysrow"><span class="l">components</span><span class="v">${s.components}</span></div>
+        <div class="sysrow"><span class="l">vault</span><span class="v ${vaultCls}">${s.vault ?? '—'}</span></div>
+        <div class="sysrow"><span class="l">http</span>
+          <span class="v">${s.reqRate.toFixed(s.reqRate < 10 ? 1 : 0)} req/s · ${s.mbRate.toFixed(2)} MB/s</span></div>
+      </div>`;
   }
 
   _sideResizeStart(e) {
@@ -760,13 +856,16 @@ export class BxShell extends LitElement {
               <button class="mini" title="collapse sidebar"
                       @click=${() => this._saveSide({ collapsed: true })}>«</button>
             </div>
-            ${(this._side.folders ?? []).map((f) => this._folderTemplate(f))}
-            ${this._groups.map(([top, comps]) => html`
-              <div class="group">${top} <span class="n">${comps.length}</span></div>
-              ${comps.map((c) => this._itemTemplate(c))}
-            `)}
-            ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
-              ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
+            <div class="side-scroll">
+              ${(this._side.folders ?? []).map((f) => this._folderTemplate(f))}
+              ${this._groups.map(([top, comps]) => html`
+                <div class="group">${top} <span class="n">${comps.length}</span></div>
+                ${comps.map((c) => this._itemTemplate(c))}
+              `)}
+              ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
+                ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
+            </div>
+            ${this._statusFooter()}
           </aside>
           <div class="side-handle" title="drag to resize"
                @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}

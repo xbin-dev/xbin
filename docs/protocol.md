@@ -61,7 +61,11 @@ failures carry compiler output in `detail`).
 ### xbind API (`/api/xbin/…`)
 
 ```
-GET    /status                     admin. terminals, component count
+GET    /status                     admin. terminals, component count, host
+                                   {cpuBusy,cpuTotal,memTotal,memAvail,
+                                   diskTotal,diskFree} and traffic
+                                   {reqs,bytesOut,uptimeSec} (cumulative —
+                                   delta two polls for rates)
 GET    /backends                   admin. per-component backend state
 GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
