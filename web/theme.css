@@ -6,7 +6,10 @@
    wherever the document sets them; every element also carries values as
    var() fallbacks, so bare documents still render. */
 :root {
-  --bx-bg: #1b1e24;            /* canvas — matches the terminal + logo steel */
+  --bx-bg: #1b1e24;            /* canvas — the logo steel */
+  --bx-term-bg: #262c36;       /* terminal panes — a notch brighter than the
+                                  canvas/panels so they read as their own
+                                  surface, slightly blue like a classic term */
   --bx-panel: #23272e;         /* cards, bars, sidebars — the logo plate */
   --bx-panel-2: #2b3038;       /* inset panels, hover rows */
   --bx-border: #363c45;

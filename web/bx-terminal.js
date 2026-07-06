@@ -51,7 +51,7 @@ export class BxTerminal extends HTMLElement {
       const root = this.attachShadow({ mode: 'open' });
       root.innerHTML =
         `<link rel="stylesheet" href="/vendor/xterm.css">` +
-        `<style>:host{display:block} .host{height:100%;background:#1b1e24}</style>` +
+        `<style>:host{display:block} .host{height:100%;background:var(--bx-term-bg, #262c36)}</style>` +
         `<div class="host"></div>`;
     }
     this.#host = this.shadowRoot.querySelector('.host');
@@ -97,7 +97,9 @@ export class BxTerminal extends HTMLElement {
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       // The terminal stays dark inside the light chrome: ANSI palettes
       // assume it, and it reads better in a code context.
-      theme: { background: '#1b1e24' },
+      // Match the --bx-term-bg token (custom props pierce shadow DOM, but
+      // xterm needs a concrete value at construction).
+      theme: { background: getComputedStyle(this).getPropertyValue('--bx-term-bg').trim() || '#262c36' },
       scrollback: 4000,
     });
     this.#fit = new window.FitAddon.FitAddon();

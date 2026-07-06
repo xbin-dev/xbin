@@ -128,7 +128,7 @@ export class BxFrame extends LitElement {
       font: 11px var(--bx-mono, ui-monospace, monospace);
       padding: 1px 4px; border-radius: 4px; cursor: pointer;
     }
-    .term-host { flex: 1; min-height: 0; background: #1b1e24; }
+    .term-host { flex: 1; min-height: 0; background: var(--bx-term-bg, #262c36); }
   `;
 
   constructor() {
