@@ -140,6 +140,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /bindings", b.apiBindingsList)
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
+	srv.RegisterAPI("PUT /iface-instances", b.apiIfaceInstancesSet)
 	srv.RegisterAPI("POST /lifecycle", b.apiLifecycleSet)
 	srv.RegisterAPI("POST /backup", b.apiBackupNow)
 	srv.RegisterAPI("GET /backups", b.apiBackupList)

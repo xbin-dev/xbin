@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/events"
@@ -40,7 +41,7 @@ func (b *Broker) netBinding(comp string) string {
 	}
 	for slot, req := range c.Manifest.Interfaces {
 		if req.Kind == "net" {
-			return b.Reg.Workspace().Bindings[comp][slot]
+			return b.Reg.Workspace().Bindings[comp][slot].First()
 		}
 	}
 	return ""
@@ -134,42 +135,117 @@ func (b *Broker) httpBindingRole(from, target string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	for slot, prov := range b.Reg.Workspace().Bindings[from] {
-		if prov != target {
-			continue
-		}
-		if req, ok := c.Manifest.Interfaces[slot]; !ok || req.Kind != "http" {
-			continue
-		}
-		if p, ok := b.Reg.Component(target); ok {
-			if def, ok := httpProvide(p); ok {
-				return provideRole(def), true
+	for slot, refs := range b.Reg.Workspace().Bindings[from] {
+		for _, ref := range refs {
+			if prov, _ := splitRef(ref); prov != target {
+				continue
+			}
+			if req, ok := c.Manifest.Interfaces[slot]; !ok || req.Kind != "http" {
+				continue
+			}
+			if p, ok := b.Reg.Component(target); ok {
+				if def, ok := httpProvide(p); ok {
+					return provideRole(def), true
+				}
 			}
 		}
 	}
 	return "", false
 }
 
-// HTTPInterfaces resolves a component's requested http interface slots to their
-// bound provider URL + service (for the frame client + backend env).
-func (b *Broker) HTTPInterfaces(comp string) map[string]map[string]string {
+// splitRef splits a binding ref "<provider>[#<instance>]" (plans/interfaces.md
+// §Multiplicity — the # syntax is used consistently everywhere).
+func splitRef(ref string) (provider, instance string) {
+	if i := strings.IndexByte(ref, '#'); i >= 0 {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, ""
+}
+
+// IfaceEndpoint is one resolved http-interface binding: the provider (and
+// instance, when bound as provider#instance) plus the URL the requester calls.
+type IfaceEndpoint struct {
+	Provider string `json:"provider"`
+	Instance string `json:"instance,omitempty"`
+	URL      string `json:"url"`
+}
+
+// ResolvedIface is one requested http slot with its resolved endpoints.
+type ResolvedIface struct {
+	Def       registry.Iface
+	Endpoints []IfaceEndpoint
+}
+
+// HTTPSlots resolves a component's http interface slots: each binding ref to
+// an endpoint URL. Instance refs resolve through the provider's registered
+// instance table (the instance's API path prefix); refs that no longer
+// resolve (vanished provider / unregistered instance) are skipped here and
+// surface as broken in the bindings UI — never silently rewired.
+func (b *Broker) HTTPSlots(comp string) map[string]ResolvedIface {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
 		return nil
 	}
-	out := map[string]map[string]string{}
+	ws := b.Reg.Workspace()
+	out := map[string]ResolvedIface{}
 	for slot, req := range c.Manifest.Interfaces {
 		if req.Kind != "http" {
 			continue
 		}
-		prov := b.Reg.Workspace().Bindings[comp][slot]
-		if prov == "" {
+		ri := ResolvedIface{Def: req}
+		for _, ref := range ws.Bindings[comp][slot] {
+			prov, inst := splitRef(ref)
+			p, ok := b.Reg.Component(prov)
+			if !ok {
+				continue
+			}
+			def, ok := httpProvide(p)
+			if !ok {
+				continue
+			}
+			url := "/api/" + prov
+			switch {
+			case inst != "":
+				path, ok := ws.IfaceInstances[prov][inst]
+				if !ok || !def.Instances {
+					continue
+				}
+				url += path
+			case def.Instances:
+				continue // an instances-provide must be bound as provider#instance
+			}
+			ri.Endpoints = append(ri.Endpoints, IfaceEndpoint{Provider: prov, Instance: inst, URL: url})
+		}
+		if len(ri.Endpoints) > 0 || req.Multi {
+			out[slot] = ri
+		}
+	}
+	return out
+}
+
+// HTTPInterfaces renders a component's http slots for the xbin-interfaces
+// meta (frontends: xbin.iface(slot)). Single slots keep the original
+// {url, service} shape (+instance when bound to one) so existing tiles work
+// unchanged; multi slots carry {service, multi, endpoints}.
+func (b *Broker) HTTPInterfaces(comp string) map[string]any {
+	out := map[string]any{}
+	for slot, ri := range b.HTTPSlots(comp) {
+		if ri.Def.Multi {
+			eps := ri.Endpoints
+			if eps == nil {
+				eps = []IfaceEndpoint{}
+			}
+			out[slot] = map[string]any{"service": ri.Def.Service, "multi": true, "endpoints": eps}
 			continue
 		}
-		if _, ok := b.Reg.Component(prov); !ok {
+		if len(ri.Endpoints) == 0 {
 			continue
 		}
-		out[slot] = map[string]string{"url": "/api/" + prov, "service": req.Service}
+		m := map[string]string{"url": ri.Endpoints[0].URL, "service": ri.Def.Service}
+		if ri.Endpoints[0].Instance != "" {
+			m["instance"] = ri.Endpoints[0].Instance
+		}
+		out[slot] = m
 	}
 	return out
 }
@@ -197,6 +273,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"bindings":   b.Reg.Workspace().Bindings,
+		"instances":  b.Reg.Workspace().IfaceInstances,
 		"components": comps,
 		"pending":    b.pendingBindings(),
 	})
@@ -216,6 +293,7 @@ type pendingBind struct {
 	Slot      string       `json:"slot"`
 	Kind      string       `json:"kind"`
 	Service   string       `json:"service,omitempty"`
+	Multi     bool         `json:"multi,omitempty"`
 	Options   []bindOption `json:"options"`
 }
 
@@ -224,11 +302,12 @@ func (b *Broker) pendingBindings() []pendingBind {
 	var out []pendingBind
 	for _, c := range b.Reg.Components() {
 		for slot, req := range c.Manifest.Interfaces {
-			if b.Reg.Workspace().Bindings[c.Path][slot] != "" {
-				continue // already bound
+			if len(b.Reg.Workspace().Bindings[c.Path][slot]) > 0 {
+				continue // already bound (multi slots grow via the bindings UI)
 			}
 			out = append(out, pendingBind{
 				Component: c.Path, Slot: slot, Kind: req.Kind, Service: req.Service,
+				Multi:   req.Multi,
 				Options: b.bindOptions(c.Path, req),
 			})
 		}
@@ -263,9 +342,24 @@ func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
 			if p.Path == comp {
 				continue
 			}
-			if def, ok := httpProvide(p); ok && (req.Service == "" || def.Service == req.Service) {
-				tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — " + def.Service + " (grants " + provideRole(def) + ")"})
+			def, ok := httpProvide(p)
+			if !ok || (req.Service != "" && def.Service != req.Service) {
+				continue
 			}
+			if def.Instances {
+				// Each registered instance is a first-class bind option — a
+				// non-instance-aware requester connects to one like any provider.
+				ids := make([]string, 0)
+				for id := range b.Reg.Workspace().IfaceInstances[p.Path] {
+					ids = append(ids, id)
+				}
+				sort.Strings(ids)
+				for _, id := range ids {
+					tiles = append(tiles, bindOption{ID: p.Path + "#" + id, Label: p.Path + "#" + id + " — " + def.Service + " (grants " + provideRole(def) + ")"})
+				}
+				continue
+			}
+			tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — " + def.Service + " (grants " + provideRole(def) + ")"})
 		}
 	}
 	sort.Slice(tiles, func(i, j int) bool { return tiles[i].ID < tiles[j].ID })
@@ -288,26 +382,41 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — bindings are the owner's to wire"})
 		return
 	}
-	var body struct{ Component, Slot, Provider string }
+	var body struct {
+		Component string   `json:"component"`
+		Slot      string   `json:"slot"`
+		Provider  string   `json:"provider"`  // single ref (back-compat)
+		Providers []string `json:"providers"` // full set for multi slots (replaces)
+	}
 	if err := decodeJSON(r, &body); err != nil || body.Component == "" || body.Slot == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, slot, provider}"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, slot, provider|providers}"})
 		return
 	}
-	del := r.Method == http.MethodDelete
+	refs := body.Providers
+	if len(refs) == 0 && body.Provider != "" {
+		refs = []string{body.Provider}
+	}
+	del := r.Method == http.MethodDelete || len(refs) == 0
+	if !del {
+		if err := b.validateBinding(body.Component, body.Slot, refs); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	// Restart both the old and new provider (roster change) + the component.
 	oldProvider := b.netProvider(body.Component)
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
 		if ws.Bindings == nil {
-			ws.Bindings = map[string]map[string]string{}
+			ws.Bindings = map[string]map[string]registry.Binding{}
 		}
 		if del {
 			delete(ws.Bindings[body.Component], body.Slot)
 			return
 		}
 		if ws.Bindings[body.Component] == nil {
-			ws.Bindings[body.Component] = map[string]string{}
+			ws.Bindings[body.Component] = map[string]registry.Binding{}
 		}
-		ws.Bindings[body.Component][body.Slot] = body.Provider
+		ws.Bindings[body.Component][body.Slot] = registry.Binding(refs)
 	}); err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -315,11 +424,172 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	b.Hub.Publish(events.Event{Type: "grants", Component: body.Component})
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(body.Component)
-		for _, p := range []string{oldProvider, body.Provider} {
+		notify := []string{oldProvider}
+		for _, ref := range refs {
+			prov, _ := splitRef(ref)
+			notify = append(notify, prov)
+		}
+		for _, p := range notify {
 			if _, ok := b.Reg.Component(p); ok {
 				b.OnGrantChange(p)
 			}
 		}
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+// validateBinding checks a binding set before it lands: slot exists (except
+// "@" pseudo-slots like @archive), multi only on multi:true http slots,
+// instance refs only against instances-provides with that instance
+// registered, bare refs rejected where the provide exposes instances.
+func (b *Broker) validateBinding(comp, slot string, refs []string) error {
+	if len(refs) > 1 {
+		seen := map[string]bool{}
+		for _, ref := range refs {
+			if seen[ref] {
+				return fmt.Errorf("duplicate binding %q", ref)
+			}
+			seen[ref] = true
+		}
+	}
+	if strings.HasPrefix(slot, "@") { // pseudo-slots are single-valued
+		if len(refs) > 1 {
+			return fmt.Errorf("%s takes a single provider", slot)
+		}
+		return nil
+	}
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return fmt.Errorf("no such component: %s", comp)
+	}
+	def, ok := c.Manifest.Interfaces[slot]
+	if !ok {
+		return fmt.Errorf("%s does not request an interface slot %q", comp, slot)
+	}
+	if len(refs) > 1 && !(def.Kind == "http" && def.Multi) {
+		return fmt.Errorf("slot %q takes a single binding (multi-input needs {kind:http, multi:true})", slot)
+	}
+	for _, ref := range refs {
+		prov, inst := splitRef(ref)
+		if prov == comp {
+			return fmt.Errorf("a component can't be its own provider")
+		}
+		switch def.Kind {
+		case "net":
+			if inst != "" {
+				return fmt.Errorf("net bindings take no #instance")
+			}
+			if prov == "internet" || prov == "host" || strings.HasPrefix(prov, "lan:") {
+				continue
+			}
+			if p, ok := b.Reg.Component(prov); !ok || !providesNet(p) {
+				return fmt.Errorf("%s does not provide net", prov)
+			}
+		case "http":
+			p, ok := b.Reg.Component(prov)
+			if !ok {
+				return fmt.Errorf("no such provider: %s", prov)
+			}
+			pd, ok := httpProvide(p)
+			if !ok {
+				return fmt.Errorf("%s does not provide an http interface", prov)
+			}
+			if def.Service != "" && pd.Service != def.Service {
+				return fmt.Errorf("%s provides service %q, slot wants %q", prov, pd.Service, def.Service)
+			}
+			switch {
+			case pd.Instances && inst == "":
+				return fmt.Errorf("%s exposes instances — bind a specific one (%s#<instance>)", prov, prov)
+			case pd.Instances:
+				if _, ok := b.Reg.Workspace().IfaceInstances[prov][inst]; !ok {
+					return fmt.Errorf("unknown instance %s", ref)
+				}
+			case inst != "":
+				return fmt.Errorf("%s has no instances (bind it plain)", prov)
+			}
+		}
+	}
+	return nil
+}
+
+// apiIfaceInstancesSet — PUT /iface-instances {component?, instances:{id:path}}.
+// A provider whose provide declares {instances:true} registers its concrete
+// instances (they're runtime config — accounts, profiles — not manifest data).
+// Elements may only set their OWN instances; admin may set any component's.
+// Replaces the provider's whole map; requesters bound to it are re-wired.
+func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalOf(r)
+	var body struct {
+		Component string            `json:"component"`
+		Instances map[string]string `json:"instances"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Instances == nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {instances: {\"<id>\": \"/api/path/prefix\"}} (path may be \"\")"})
+		return
+	}
+	comp := body.Component
+	switch {
+	case p.Component != "":
+		if comp != "" && comp != p.Component {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "a provider registers only its own instances"})
+			return
+		}
+		comp = p.Component
+	case b.IsAdmin(p):
+		if comp == "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component} when called as admin"})
+			return
+		}
+	default:
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "providers or admin only"})
+		return
+	}
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + comp})
+		return
+	}
+	if def, ok := httpProvide(c); !ok || !def.Instances {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": comp + " does not declare provides {kind:http, instances:true}"})
+		return
+	}
+	for id, path := range body.Instances {
+		if id == "" || strings.ContainsAny(id, "#/ \t") {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad instance id " + id + " (no #, /, or whitespace)"})
+			return
+		}
+		if path != "" && !strings.HasPrefix(path, "/") {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "instance path for " + id + " must start with / (or be empty)"})
+			return
+		}
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		if len(body.Instances) == 0 {
+			delete(ws.IfaceInstances, comp)
+			return
+		}
+		if ws.IfaceInstances == nil {
+			ws.IfaceInstances = map[string]map[string]string{}
+		}
+		ws.IfaceInstances[comp] = body.Instances
+	}); err != nil {
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	// Requesters bound to this provider get their URLs re-injected.
+	b.Hub.Publish(events.Event{Type: "grants", Component: comp})
+	if b.OnGrantChange != nil {
+		for rc, slots := range b.Reg.Workspace().Bindings {
+			for _, refs := range slots {
+				for _, ref := range refs {
+					if prov, _ := splitRef(ref); prov == comp {
+						if _, ok := b.Reg.Component(rc); ok {
+							b.OnGrantChange(rc)
+						}
+					}
+				}
+			}
+		}
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"component": comp, "instances": len(body.Instances)})
 }

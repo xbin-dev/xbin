@@ -5,6 +5,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -74,6 +75,15 @@ type Iface struct {
 	// Role is which exposed role a kind=http PROVIDER grants bound requesters
 	// (so the binding is also the call grant). Defaults to "reader".
 	Role string `json:"role,omitempty"`
+	// Multi (REQUEST side, kind=http only) declares the slot accepts a SET of
+	// bindings — the requester explicitly supports multiple inputs and gets a
+	// JSON list injected instead of a single URL (plans/interfaces.md
+	// §Multiplicity).
+	Multi bool `json:"multi,omitempty"`
+	// Instances (PROVIDE side) marks the provide as a template: the provider
+	// registers concrete instances at runtime (PUT /api/xbin/iface-instances),
+	// each addressable as "<provider>#<instance>" in bindings.
+	Instances bool `json:"instances,omitempty"`
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.
@@ -102,9 +112,17 @@ type WorkspaceManifest struct {
 	Grants    []Grant           `json:"grants,omitempty"`
 	// Resources declared at workspace level ("res:workspace/<name>" targets).
 	Resources map[string]Resource `json:"resources,omitempty"`
-	// Bindings wire each component's requested interface slots to a provider
-	// (plans/interfaces.md): bindings[component][slot] = provider. Owner-managed.
-	Bindings map[string]map[string]string `json:"bindings,omitempty"`
+	// Bindings wire each component's requested interface slots to providers
+	// (plans/interfaces.md): bindings[component][slot] = provider ref(s).
+	// A ref is "<provider>[#<instance>]". Single bindings marshal as a plain
+	// string (the pre-multi format); multi-bind slots as an array. Owner-managed.
+	Bindings map[string]map[string]Binding `json:"bindings,omitempty"`
+	// IfaceInstances holds the runtime-registered instances of provides
+	// declared {instances:true}: ifaceInstances[provider][instance] = the
+	// provider's API path prefix for that instance ("" = the provider root).
+	// Registered by the provider itself (PUT /api/xbin/iface-instances);
+	// addressed in bindings as "<provider>#<instance>".
+	IfaceInstances map[string]map[string]string `json:"ifaceInstances,omitempty"`
 	// Lifecycle holds each component's non-default state (plans/lifecycle.md):
 	// "disabled" | "offloaded" | "offloaded-full". Absent = enabled. Owner-managed.
 	Lifecycle map[string]string `json:"lifecycle,omitempty"`
@@ -112,6 +130,45 @@ type WorkspaceManifest struct {
 	// the UI can tell a "post-disable" backup (a consistent, stopped-state
 	// snapshot) from a stale one when gating offload.
 	LifecycleAt map[string]string `json:"lifecycleAt,omitempty"`
+}
+
+// Binding is the ordered provider set bound to one interface slot. The
+// common single-provider case marshals as a plain string — every pre-multi
+// workspace manifest parses unchanged and stays in its original format.
+type Binding []string
+
+// First returns the sole/first provider ref ("" when unbound) — the accessor
+// for slots that are single-valued by construction (net, @archive, …).
+func (b Binding) First() string {
+	if len(b) == 0 {
+		return ""
+	}
+	return b[0]
+}
+
+func (b Binding) MarshalJSON() ([]byte, error) {
+	if len(b) == 1 {
+		return json.Marshal(b[0])
+	}
+	return json.Marshal([]string(b))
+}
+
+func (b *Binding) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*b = nil
+		} else {
+			*b = Binding{s}
+		}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(data, &list); err != nil {
+		return err
+	}
+	*b = Binding(list)
+	return nil
 }
 
 // Lifecycle states (plans/lifecycle.md). Enabled is the implicit default (a

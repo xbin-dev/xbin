@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -93,10 +94,30 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 			env = append(env, key+"="+rt.String())
 		}
 	}
-	// http interface slots → a URL the backend calls the bound provider at
+	// http interface slots → URLs the backend calls the bound provider(s) at
 	// (via the gateway); the binding also grants the call (plans/interfaces.md).
-	for slot, iface := range b.HTTPInterfaces(c.Path) {
-		env = append(env, "XBIN_IFACE_"+envName(slot)+"_URL=http://xbin"+iface["url"])
+	// Single slots: XBIN_IFACE_<slot>_URL (+_INSTANCE when bound to one).
+	// multi:true slots: XBIN_IFACE_<slot> = JSON [{provider,instance?,url,service}].
+	for slot, ri := range b.HTTPSlots(c.Path) {
+		if ri.Def.Multi {
+			list := make([]map[string]string, 0, len(ri.Endpoints))
+			for _, e := range ri.Endpoints {
+				m := map[string]string{"provider": e.Provider, "url": "http://xbin" + e.URL, "service": ri.Def.Service}
+				if e.Instance != "" {
+					m["instance"] = e.Instance
+				}
+				list = append(list, m)
+			}
+			j, _ := json.Marshal(list)
+			env = append(env, "XBIN_IFACE_"+envName(slot)+"="+string(j))
+			continue
+		}
+		if len(ri.Endpoints) > 0 {
+			env = append(env, "XBIN_IFACE_"+envName(slot)+"_URL=http://xbin"+ri.Endpoints[0].URL)
+			if inst := ri.Endpoints[0].Instance; inst != "" {
+				env = append(env, "XBIN_IFACE_"+envName(slot)+"_INSTANCE="+inst)
+			}
+		}
 	}
 	return env
 }

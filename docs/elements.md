@@ -64,8 +64,22 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // that other components route their egress through). Kinds: net (L3 egress;
   // bind to "internet"/"host"/"lan:<cidr>"/a provider tile), http (a service
   // endpoint, "service": "<contract>").
-  "interfaces": { "net": { "kind": "net" } },
-  "provides":   { "egress": { "kind": "net" } },
+  //
+  // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
+  // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON
+  // array [{provider, instance?, url, service}] and xbin.iface(slot) returns
+  // {service, multi, endpoints} instead of one url. A PROVIDE with
+  // "instances": true is a template: the provider registers its concrete
+  // instances at runtime (PUT /api/xbin/iface-instances {"instances":
+  // {"<id>": "/api/path/prefix"}}), and each binds as provider#id — to multi
+  // AND plain slots alike (an instance presents itself like any provider, so
+  // instance-unaware tiles connect to one unchanged; the injected URL routes
+  // through the instance's path prefix).
+  "interfaces": { "net": { "kind": "net" },
+                  "channels": { "kind": "http", "service": "comm", "multi": true } },
+  "provides":   { "egress": { "kind": "net" },
+                  "email":  { "kind": "http", "service": "comm", "role": "writer",
+                              "instances": true } },
 
   // The callable surface this component offers to others.
   "expose": {

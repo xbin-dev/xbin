@@ -845,15 +845,36 @@ export class BxAdmin extends LitElement {
       await this._loadIfaces();
     } catch (e) { this._err = String(e.message ?? e); }
   }
+  // Replace a multi slot's whole set (a <select multiple> submits its selection).
+  async _bindSetMulti(component, slot, providers) {
+    try {
+      await api('/bindings', {
+        method: providers.length ? 'POST' : 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(providers.length ? { component, slot, providers } : { component, slot }),
+      });
+      await this._loadIfaces();
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
   _ifacesView() {
     const d = this._ifaces;
     if (!d) return html`<div class="muted">loading…</div>`;
     const comps = d.components || [];
-    // providers of each kind, for the request dropdowns
+    const instances = d.instances || {};
+    // providers of each kind — an instances-provide expands to one option per
+    // registered instance (provider#instance; a subslot presents itself like
+    // any other provider, so non-subslot-aware tiles bind to it the same way).
     const providersByKind = {};
     for (const c of comps)
-      for (const def of Object.values(c.provides || {}))
-        (providersByKind[def.kind] ||= []).push(c.component);
+      for (const def of Object.values(c.provides || {})) {
+        const list = (providersByKind[def.kind] ||= []);
+        if (def.instances) {
+          for (const id of Object.keys(instances[c.component] || {}).sort())
+            list.push(`${c.component}#${id}`);
+        } else {
+          list.push(c.component);
+        }
+      }
     // builtin net providers
     const builtins = { net: ['internet', 'host'] };
     const requests = comps.flatMap((c) =>
@@ -864,22 +885,38 @@ export class BxAdmin extends LitElement {
         unbound means no capability. See <a href="/docs/protocol.md" target="_blank">plans/interfaces.md</a>.</p>
       <h3>Providers</h3>
       <table class="tbl">
-        <tr><th>tile</th><th>slot</th><th>kind</th></tr>
+        <tr><th>tile</th><th>slot</th><th>kind</th><th>instances</th></tr>
         ${comps.flatMap((c) => Object.entries(c.provides || {}).map(([slot, def]) => html`<tr>
-          <td class="mono">${c.component}</td><td>${slot}</td><td><span class="pill">${def.kind}</span></td></tr>`))}
-        ${Object.keys(providersByKind).length === 0 ? html`<tr><td class="muted" colspan="3">no provider tiles</td></tr>` : nothing}
+          <td class="mono">${c.component}</td><td>${slot}</td><td><span class="pill">${def.kind}</span></td>
+          <td class="mono">${def.instances
+            ? (Object.keys(instances[c.component] || {}).sort().map((id) => html`<span class="pill">#${id}</span>`) || nothing)
+            : html`<span class="muted">—</span>`}</td></tr>`))}
+        ${Object.keys(providersByKind).length === 0 ? html`<tr><td class="muted" colspan="4">no provider tiles</td></tr>` : nothing}
       </table>
       <h3>Requests → binding</h3>
       <table class="tbl">
         <tr><th>component</th><th>slot</th><th>kind</th><th>bound to</th></tr>
         ${requests.map((r) => {
-          const bound = d.bindings?.[r.comp]?.[r.slot] || '';
-          const opts = [...(builtins[r.def.kind] || []), ...(providersByKind[r.def.kind] || []).filter((p) => p !== r.comp)];
+          const raw = d.bindings?.[r.comp]?.[r.slot];
+          const bound = [].concat(raw ?? []);           // string | array → array
+          const own = (p) => p === r.comp || p.startsWith(r.comp + '#');
+          const opts = [...(builtins[r.def.kind] || []), ...(providersByKind[r.def.kind] || []).filter((p) => !own(p))];
+          const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
+          if (r.def.multi) {
+            // Multi-input slot: a plain multiselect over the same options.
+            return html`<tr>
+              <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
+              <td><select multiple size=${Math.min(Math.max(opts.length, 2), 6)}
+                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, [...e.target.selectedOptions].map((o) => o.value))}>
+                ${opts.map((p) => html`<option value=${p} ?selected=${bound.includes(p)}>${p}</option>`)}
+              </select>
+              ${bound.length === 0 ? html`<div class="muted" style="font-size:10.5px">unbound</div>` : nothing}</td></tr>`;
+          }
           return html`<tr>
-            <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}</span></td>
+            <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
             <td><select @change=${(e) => this._bindSet(r.comp, r.slot, e.target.value)}>
-              <option value="" ?selected=${!bound}>— unbound —</option>
-              ${opts.map((p) => html`<option value=${p} ?selected=${bound === p}>${p}</option>`)}
+              <option value="" ?selected=${bound.length === 0}>— unbound —</option>
+              ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
             </select></td></tr>`;
         })}
         ${requests.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces</td></tr>` : nothing}

@@ -174,13 +174,22 @@ GET    /bindings                   admin. Typed interface wiring (see
                                               options: [{id, label}]}]}. `pending`
                                    is the unbound slots + candidate providers —
                                    the bind-on-install prompt.
-POST   /bindings                   admin. body {component, slot, provider} — bind
+POST   /bindings                   admin. body {component, slot, provider} or
+                                   {component, slot, providers:[…]} (the full
+                                   set for a multi:true http slot). Refs are
+                                   provider[#instance]; an instances-provide
+                                   binds to a specific instance only. — bind
                                    a requested interface to a provider (a builtin
                                    id like internet/host/lan:<cidr>, or a tile
                                    path). Owner-only (agents can't self-bind).
                                    Restarts the component (+ a net provider whose
                                    roster changed) so wiring takes effect at once.
 DELETE /bindings                   admin. body {component, slot} — clear a binding
+PUT    /iface-instances            self or admin. body {component?, instances:
+                                   {"<id>": "/api/path/prefix"}} — a provider
+                                   with provides {instances:true} registers its
+                                   runtime instances (replaces the map; bound
+                                   requesters re-wire). Bind as provider#id.
 
 POST   /lifecycle                  admin. body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:

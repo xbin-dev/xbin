@@ -39,7 +39,7 @@ type Server struct {
 
 	// Interfaces resolves a component's http interface slots to {url, service}
 	// for injection into its frame (plans/interfaces.md). Installed by the broker.
-	Interfaces func(comp string) map[string]map[string]string
+	Interfaces func(comp string) map[string]any
 
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle

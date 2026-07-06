@@ -34,10 +34,10 @@ const archiveSlot = "@archive"
 // `@archive` override, else the workspace default (bindings["*"]["@archive"]).
 func (b *Broker) archiveProvider(comp string) string {
 	ws := b.Reg.Workspace()
-	if p := ws.Bindings[comp][archiveSlot]; p != "" {
+	if p := ws.Bindings[comp][archiveSlot].First(); p != "" {
 		return p
 	}
-	return ws.Bindings["*"][archiveSlot]
+	return ws.Bindings["*"][archiveSlot].First()
 }
 
 // backupKey is a component's stable archive key (also its restore identity is in

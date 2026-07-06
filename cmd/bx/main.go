@@ -103,6 +103,8 @@ func usage() {
   bx grant --revoke <caller> <target>:<role>
   bx iface                              interface requests, providers, bindings
   bx bind <component> <slot>=<provider> wire an interface to a provider
+  bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
+                                        add/remove on a multi slot (# = instance)
   bx bind --unset <component> <slot>
   bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
   bx offload <component> [--full]       archive + free local bytes
@@ -338,11 +340,12 @@ func cmdAPI(args []string) error {
 // cmdIface lists interface requests, providers, and current bindings.
 func cmdIface() error {
 	var out struct {
-		Bindings   map[string]map[string]string `json:"bindings"`
+		Bindings   map[string]map[string]any    `json:"bindings"` // ref string, or []refs (multi)
+		Instances  map[string]map[string]string `json:"instances"`
 		Components []struct {
-			Component  string                       `json:"component"`
-			Interfaces map[string]map[string]string `json:"interfaces"`
-			Provides   map[string]map[string]string `json:"provides"`
+			Component  string                    `json:"component"`
+			Interfaces map[string]map[string]any `json:"interfaces"`
+			Provides   map[string]map[string]any `json:"provides"`
 		} `json:"components"`
 	}
 	if err := apiJSON("GET", "/api/xbin/bindings", nil, &out); err != nil {
@@ -351,18 +354,52 @@ func cmdIface() error {
 	fmt.Println("providers:")
 	for _, c := range out.Components {
 		for slot, def := range c.Provides {
-			fmt.Printf("  %-30s provides %s (%s)\n", c.Component, slot, def["kind"])
+			extra := ""
+			if inst, _ := def["instances"].(bool); inst {
+				ids := make([]string, 0, len(out.Instances[c.Component]))
+				for id := range out.Instances[c.Component] {
+					ids = append(ids, c.Component+"#"+id)
+				}
+				sort.Strings(ids)
+				extra = " instances: " + strings.Join(ids, ", ")
+				if len(ids) == 0 {
+					extra = " (no instances registered yet)"
+				}
+			}
+			fmt.Printf("  %-30s provides %s (%v)%s\n", c.Component, slot, def["kind"], extra)
 		}
 	}
 	fmt.Println("requests → binding:")
 	for _, c := range out.Components {
 		for slot := range c.Interfaces {
-			bound := out.Bindings[c.Component][slot]
-			if bound == "" {
-				bound = "(unbound — no capability)"
+			bound := bindingRefs(out.Bindings[c.Component][slot])
+			display := strings.Join(bound, ", ")
+			if display == "" {
+				display = "(unbound — no capability)"
 			}
-			fmt.Printf("  %-30s %s → %s\n", c.Component, slot, bound)
+			fmt.Printf("  %-30s %s → %s\n", c.Component, slot, display)
 		}
+	}
+	return nil
+}
+
+// bindingRefs normalizes a binding value from the API — a plain ref string,
+// or an array of refs for a multi slot — into a list.
+func bindingRefs(v any) []string {
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+		return []string{t}
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
 	}
 	return nil
 }
@@ -579,16 +616,58 @@ func cmdBind(args []string) error {
 		return nil
 	}
 	if len(args) < 2 {
-		return fmt.Errorf("usage: bx bind <component> <slot>=<provider> …  |  bx bind --unset <component> <slot>")
+		return fmt.Errorf("usage: bx bind <component> <slot>=<provider> | <slot>+=<ref> | <slot>-=<ref> …  |  bx bind --unset <component> <slot>")
 	}
 	comp := args[0]
 	for _, pair := range args[1:] {
-		slot, provider, ok := strings.Cut(pair, "=")
+		// <slot>=<ref> replaces; <slot>+=<ref> adds to and <slot>-=<ref> removes
+		// from a multi slot's set. Refs are "<provider>[#<instance>]".
+		var op byte
+		slot, ref, ok := strings.Cut(pair, "=")
 		if !ok {
 			return fmt.Errorf("expected <slot>=<provider>, got %q", pair)
 		}
-		body := map[string]string{"component": comp, "slot": slot, "provider": provider}
-		if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
+		if n := len(slot); n > 0 && (slot[n-1] == '+' || slot[n-1] == '-') {
+			op, slot = slot[n-1], slot[:n-1]
+		}
+		if op == 0 {
+			body := map[string]string{"component": comp, "slot": slot, "provider": ref}
+			if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
+				return err
+			}
+			continue
+		}
+		// Read-modify-write the slot's current set.
+		var cur struct {
+			Bindings map[string]map[string]any `json:"bindings"`
+		}
+		if err := apiJSON("GET", "/api/xbin/bindings", nil, &cur); err != nil {
+			return err
+		}
+		set := bindingRefs(cur.Bindings[comp][slot])
+		switch op {
+		case '+':
+			dup := false
+			for _, r := range set {
+				dup = dup || r == ref
+			}
+			if !dup {
+				set = append(set, ref)
+			}
+		case '-':
+			out := set[:0]
+			for _, r := range set {
+				if r != ref {
+					out = append(out, r)
+				}
+			}
+			set = out
+		}
+		method, body := "POST", map[string]any{"component": comp, "slot": slot, "providers": set}
+		if len(set) == 0 {
+			method, body = "DELETE", map[string]any{"component": comp, "slot": slot}
+		}
+		if err := apiJSON(method, "/api/xbin/bindings", body, nil); err != nil {
 			return err
 		}
 	}

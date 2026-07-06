@@ -3,7 +3,8 @@
  * (decision D4). Provides the in-frame side of the xbin contract:
  *
  *   xbin.self              — this component's path
- *   xbin.iface(slot)       — a bound http interface: { url, service } (or null).
+ *   xbin.iface(slot)       — a bound http interface: { url, service } — or, for a
+ *                             multi:true slot, { service, multi, endpoints: [...] }.
  *                             Call a typed, swappable dependency instead of a
  *                             hard-coded path, e.g. xbin.iface('llm').url
  *   xbin.fetch(url, opts)  — fetch with frame-token attribution attached;
