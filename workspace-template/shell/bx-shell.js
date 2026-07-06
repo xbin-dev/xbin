@@ -15,6 +15,10 @@
  * (the tabs at the top) — each screen holds its own set of tiles laid out in
  * vertical columns; drag a card by its title bar to reorder within a column
  * or move it between columns. Open tiles from the sidebar; close with ✕.
+ * The sidebar is collapsible («/»), resizable (drag its right edge), and
+ * supports view-only **folders**: ＋ folder, then drag components in to
+ * organise them — purely visual grouping, nothing moves on disk; drop a
+ * component on empty sidebar space to unfile it. All persisted per user.
  * Unpin a card (⧉) to pop it out as a floating, draggable + resizable window
  * (pin back with ▣); its position/size is saved in the layout like everything
  * else. Floating windows are per-screen.
@@ -66,6 +70,8 @@ export class BxShell extends LitElement {
     _cols: { state: true },
     _drag: { state: true },    // {path} while dragging
     _drop: { state: true },    // {col, idx} target slot
+    _side: { state: true },    // sidebar: {width, collapsed, folders:[{id,name,open,items}]}
+    _dropFolder: { state: true }, // folder id highlighted as a drag target
   };
 
   static styles = css`
@@ -127,9 +133,42 @@ export class BxShell extends LitElement {
     /* ---- body ---- */
     .body { display: flex; flex: 1; min-height: 0; }
     aside {
-      width: 224px; flex: none; overflow-y: auto;
+      width: 224px; flex: none; overflow-y: auto; overflow-x: hidden;
       background: var(--bx-panel, #fff);
-      border-right: 1px solid var(--bx-border, #e4e8ed); padding: 8px 0 16px;
+      padding: 4px 0 16px;
+    }
+    aside.collapsed {
+      width: 22px; padding: 4px 0;
+      border-right: 1px solid var(--bx-border, #e4e8ed);
+    }
+    aside.collapsed .expand {
+      width: 100%; border: 0; background: none; cursor: pointer;
+      color: var(--bx-muted, #8794a1); font-size: 12px; padding: 6px 0;
+    }
+    aside.collapsed .expand:hover { color: var(--bx-accent, #f5a623); }
+    .side-handle {
+      flex: none; width: 5px; cursor: col-resize;
+      background: var(--bx-border, #e4e8ed); opacity: .55;
+    }
+    .side-handle:hover { opacity: 1; background: var(--bx-accent, #f5a623); }
+    .side-top { display: flex; align-items: center; padding: 2px 8px 4px; }
+    .mini {
+      border: 0; background: none; cursor: pointer; font: inherit;
+      font-size: 10.5px; color: var(--bx-muted, #8794a1); padding: 2px 4px;
+    }
+    .mini:hover { color: var(--bx-accent, #f5a623); }
+    .group.folder { cursor: pointer; user-select: none; align-items: center; }
+    .group.folder .tri { flex: none; font-size: 9px; width: 10px; }
+    .group.folder .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group.folder .fx {
+      margin-left: auto; border: 0; background: none; cursor: pointer;
+      color: var(--bx-muted, #8794a1); font-size: 10px; opacity: 0; padding: 0 2px;
+    }
+    .group.folder:hover .fx { opacity: .7; }
+    .group.folder .fx:hover { opacity: 1; color: var(--bx-red, #e5484d); }
+    .group.folder.dropping {
+      color: var(--bx-accent, #f5a623);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent);
     }
     .group {
       display: flex; align-items: baseline; gap: 6px; padding: 10px 12px 3px;
@@ -211,6 +250,8 @@ export class BxShell extends LitElement {
     this._cols = 2;
     this._drag = null;
     this._drop = null;
+    this._side = { width: 224, collapsed: false, folders: [] }; // persisted with the layout
+    this._dropFolder = null;
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -275,6 +316,9 @@ export class BxShell extends LitElement {
           this._screens = l.screens;
           this._active = l.screens.some((s) => s.id === l.active) ? l.active : l.screens[0].id;
         }
+        if (l?.side && typeof l.side === 'object') {
+          this._side = { width: 224, collapsed: false, folders: [], ...l.side };
+        }
       }
     } catch { /* offline / restarting — fall through to seed */ }
     this._layoutLoaded = true;
@@ -296,7 +340,7 @@ export class BxShell extends LitElement {
     this._saveTimer = setTimeout(() => {
       window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ screens: this._screens, active: this._active }),
+        body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side }),
       }).catch(() => { /* best-effort; retried on next change */ });
     }, 400);
   }
@@ -322,10 +366,12 @@ export class BxShell extends LitElement {
   }
 
   get _groups() {
+    const filed = new Set((this._side.folders ?? []).flatMap((f) => f.items));
     const g = new Map();
     for (const c of this._components) {
       if (c.path === 'root') continue; // framing root inside root recurses
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
+      if (filed.has(c.path)) continue; // shown under its folder instead
       const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
       if (!g.has(top)) g.set(top, []);
       g.get(top).push(c);
@@ -334,6 +380,91 @@ export class BxShell extends LitElement {
   }
 
   _isOpen(path) { return this._tiles.some((o) => o.path === path); }
+
+  // ---- sidebar: folders (view-only grouping), collapse, resize ----
+  _saveSide(patch) { this._side = { ...this._side, ...patch }; this._save(); }
+
+  _addFolder() {
+    const name = prompt('Folder name');
+    if (!name?.trim()) return;
+    this._saveSide({ folders: [...this._side.folders, { id: uid(), name: name.trim(), open: true, items: [] }] });
+  }
+  _renameFolder(f) {
+    const name = prompt('Rename folder', f.name);
+    if (!name?.trim()) return;
+    this._saveSide({ folders: this._side.folders.map((x) => x.id === f.id ? { ...x, name: name.trim() } : x) });
+  }
+  _deleteFolder(f) { // items just return to their prefix groups
+    this._saveSide({ folders: this._side.folders.filter((x) => x.id !== f.id) });
+  }
+  _toggleFolder(f) {
+    this._saveSide({ folders: this._side.folders.map((x) => x.id === f.id ? { ...x, open: !x.open } : x) });
+  }
+  // File path into folder id ('' = unfile). A component lives in one folder max.
+  _fileInto(folderId, path) {
+    this._saveSide({
+      folders: this._side.folders.map((f) => {
+        const items = f.items.filter((p) => p !== path);
+        if (f.id === folderId) items.push(path);
+        return { ...f, items };
+      }),
+    });
+  }
+  _dropOnFolder(e, f) {
+    e.preventDefault(); e.stopPropagation();
+    this._dropFolder = null;
+    const path = e.dataTransfer.getData('text/plain');
+    if (path) this._fileInto(f.id, path);
+  }
+
+  _sideResizeStart(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX, startW = this._side.width || 224;
+    const unshield = dragShield('col-resize');
+    const move = (ev) => {
+      this._side = { ...this._side, width: Math.min(480, Math.max(140, startW + ev.clientX - startX)) };
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      unshield(); this._save();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  // One sidebar row for a component — used by folders and prefix groups alike.
+  _itemTemplate(c) {
+    return html`
+      <div class="item ${this._isOpen(c.path) ? 'open' : ''}" draggable="true"
+           title=${c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path}
+           @dragstart=${(e) => { e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
+           @click=${() => this._toggle(c.path)}>
+        <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
+        <span>${c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path}</span>
+        ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
+        <span class="rt">${c.runtime || ''}</span>
+      </div>`;
+  }
+
+  _folderTemplate(f) {
+    const comps = f.items.map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
+    return html`
+      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''}"
+           title="click to fold; double-click to rename; drag components in"
+           @click=${() => this._toggleFolder(f)}
+           @dblclick=${() => this._renameFolder(f)}
+           @dragover=${(e) => { e.preventDefault(); this._dropFolder = f.id; }}
+           @dragleave=${() => { if (this._dropFolder === f.id) this._dropFolder = null; }}
+           @drop=${(e) => this._dropOnFolder(e, f)}>
+        <span class="tri">${f.open ? '▾' : '▸'}</span>
+        <span class="fname">${f.name}</span> <span class="n">${comps.length}</span>
+        <button class="fx" title="delete folder (components return to their groups)"
+                @click=${(e) => { e.stopPropagation(); this._deleteFolder(f); }}>✕</button>
+      </div>
+      ${f.open ? comps.map((c) => this._itemTemplate(c)) : nothing}`;
+  }
 
   _shortestCol() {
     const counts = Array(this._cols).fill(0);
@@ -611,21 +742,34 @@ export class BxShell extends LitElement {
       </div>
 
       <div class="body">
-        <aside>
-          ${this._groups.map(([top, comps]) => html`
-            <div class="group">${top} <span class="n">${comps.length}</span></div>
-            ${comps.map((c) => html`
-              <div class="item ${this._isOpen(c.path) ? 'open' : ''}"
-                   title=${c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path}
-                   @click=${() => this._toggle(c.path)}>
-                <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
-                <span>${c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path}</span>
-                ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
-                <span class="rt">${c.runtime || ''}</span>
-              </div>`)}
-          `)}
-          ${this._groups.length === 0 ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
-        </aside>
+        ${this._side.collapsed ? html`
+          <aside class="collapsed">
+            <button class="expand" title="expand sidebar"
+                    @click=${() => this._saveSide({ collapsed: false })}>»</button>
+          </aside>` : html`
+          <aside style="width:${this._side.width || 224}px"
+                 @dragover=${(e) => e.preventDefault()}
+                 @drop=${(e) => { // dropped outside any folder → unfile
+                   const path = e.dataTransfer.getData('text/plain');
+                   if (path) this._fileInto('', path);
+                 }}>
+            <div class="side-top">
+              <button class="mini" title="new folder (view-only grouping — nothing moves on disk)"
+                      @click=${() => this._addFolder()}>＋ folder</button>
+              <span style="flex:1"></span>
+              <button class="mini" title="collapse sidebar"
+                      @click=${() => this._saveSide({ collapsed: true })}>«</button>
+            </div>
+            ${(this._side.folders ?? []).map((f) => this._folderTemplate(f))}
+            ${this._groups.map(([top, comps]) => html`
+              <div class="group">${top} <span class="n">${comps.length}</span></div>
+              ${comps.map((c) => this._itemTemplate(c))}
+            `)}
+            ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
+              ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
+          </aside>
+          <div class="side-handle" title="drag to resize"
+               @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}
         <main>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <div class="canvas">
