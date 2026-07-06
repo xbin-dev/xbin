@@ -12,6 +12,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
+import '/vendor/bx-multiselect.js';
 
 const api = async (path, opts) => {
   const r = await xbin.fetch('/api/xbin' + path, opts);
@@ -954,14 +955,11 @@ export class BxAdmin extends LitElement {
               .map((e) => e.ref)];
           const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
           if (r.def.multi) {
-            // Multi-input slot: a plain multiselect over the same options.
+            // Multi-input slot: a dropdown checklist over the same options.
             return html`<tr>
               <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
-              <td><select multiple size=${Math.min(Math.max(opts.length, 2), 6)}
-                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, [...e.target.selectedOptions].map((o) => o.value))}>
-                ${opts.map((p) => html`<option value=${p} ?selected=${bound.includes(p)}>${p}</option>`)}
-              </select>
-              ${bound.length === 0 ? html`<div class="muted" style="font-size:10.5px">unbound</div>` : nothing}</td></tr>`;
+              <td><bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
+                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, e.detail.selected)}></bx-multiselect></td></tr>`;
           }
           return html`<tr>
             <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>

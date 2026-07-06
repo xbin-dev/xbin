@@ -11,6 +11,7 @@
  * /whoami), and every endpoint here 403s for them anyway.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import '/vendor/bx-multiselect.js';
 
 const api = async (path, opts) => {
   const r = await fetch(`/api/xbin${path}`, opts);
@@ -255,10 +256,8 @@ export class BxTileAdmin extends LitElement {
           return html`<tr>
             <td>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
             <td style="text-align:right">${def.multi
-              ? html`<select multiple size=${Math.min(Math.max(opts.length, 2), 5)}
-                  @change=${(e) => set(slot, [...e.target.selectedOptions].map((o) => o.value))}>
-                  ${opts.map((p) => html`<option value=${p} ?selected=${bound.includes(p)}>${p}</option>`)}
-                </select>`
+              ? html`<bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
+                  @change=${(e) => set(slot, e.detail.selected)}></bx-multiselect>`
               : html`<select @change=${(e) => set(slot, e.target.value ? [e.target.value] : [])}>
                   <option value="" ?selected=${!bound.length}>— unbound —</option>
                   ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
