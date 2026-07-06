@@ -190,10 +190,18 @@ POST   /bindings                   admin. body {component, slot, provider} or
                                    roster changed) so wiring takes effect at once.
 DELETE /bindings                   admin. body {component, slot} — clear a binding
 PUT    /iface-instances            self or admin. body {component?, instances:
-                                   {"<id>": "/api/path/prefix"}} — a provider
-                                   with provides {instances:true} registers its
-                                   runtime instances (replaces the map; bound
-                                   requesters re-wire). Bind as provider#id.
+                                   {"<id>": "/provider-relative/prefix"}} — a
+                                   provider with provides {instances:true}
+                                   registers its runtime instances (replaces
+                                   the map; bound requesters re-wire). Bind as
+                                   provider#id. Paths are PROVIDER-RELATIVE
+                                   ("/m/1"): xbind injects /api/<provider><path>
+                                   into consumers. Workspace-absolute paths
+                                   ("/api/<self>/…") are rejected 400 — they
+                                   would double the prefix, and they bake the
+                                   install path into persisted state (stale
+                                   after a rename/clone). Trailing "/" is
+                                   normalized away.
 
 POST   /lifecycle                  admin. body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:

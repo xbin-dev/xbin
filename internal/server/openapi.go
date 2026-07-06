@@ -154,7 +154,7 @@ func endpoints() []ep {
 		{"POST", "/bindings", "Grants", "Bind a component's interface slot to provider(s)", "admin", "provider = one ref; providers = the full ordered set for a multi:true http slot (replaces). Refs are provider[#instance]; an instances-provide must be bound to a specific instance.", nil,
 			jsonBody("binding", oapi{"component": str("apps/x"), "slot": str("net"), "provider": str("apps/firewall | internet | apps/imap#abc"), "providers": arr()}, "component", "slot"), "ok"},
 		{"PUT", "/iface-instances", "Grants", "Register a provider's interface instances", "self or admin",
-			"A provider whose provide declares {instances:true} registers its concrete instances (runtime config — accounts, profiles): {id: apiPathPrefix}. Replaces the whole map; elements may only set their own; bound requesters are re-wired. Instances bind as provider#id.", nil,
+			"A provider whose provide declares {instances:true} registers its concrete instances (runtime config — accounts, profiles): {id: pathPrefix}. Prefixes are PROVIDER-RELATIVE (\"/m/1\") — xbind composes /api/<provider>+path for consumers; workspace-absolute \"/api/…\" registrations are rejected 400. Replaces the whole map; elements may only set their own; bound requesters are re-wired. Instances bind as provider#id.", nil,
 			jsonBody("instances", oapi{"component": str("admin only; elements are self-scoped"), "instances": oapi{"type": "object"}}, "instances"), "{component, instances}"},
 		{"DELETE", "/bindings", "Grants", "Clear a binding", "admin", "", nil,
 			jsonBody("binding to clear", oapi{"component": str("apps/x"), "slot": str("net")}, "component", "slot"), "ok"},

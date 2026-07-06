@@ -139,7 +139,9 @@ PUT /api/xbin/iface-instances    (self-scoped; admin may pass {component})
 { "instances": { "abc": "/accounts/abc", "def": "/accounts/def" } }
 ```
 
-Instances are a plain `map[id]pathPrefix` — no labels, no metadata; the
+Instances are a plain `map[id]pathPrefix` with **provider-relative** prefixes
+(absolute `/api/…` registrations are rejected at PUT — they'd double the
+composed prefix, and persisted install paths go stale on rename/clone); the
 `provider#id` ref **is** the display form everywhere (bindings, bind options,
 `bx iface`, env). The path prefix is provider-defined: the injected URL is
 `/api/<provider><prefix>`, which is what lets a **non-instance-aware

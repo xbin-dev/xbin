@@ -73,6 +73,20 @@ func TestIfaceMultiplicity(t *testing.T) {
 		auth.Principal{Component: "apps/slack"}); w.Code != 403 {
 		t.Fatalf("cross-component instance set: want 403, got %d", w.Code)
 	}
+	// Workspace-absolute paths are the classic mistake (they'd double the
+	// /api/<provider> prefix at injection) — rejected at the provider.
+	if w := do("PUT", "/iface-instances", `{"instances":{"bad":"/api/apps/imap/m/1"}}`,
+		auth.Principal{Component: "apps/imap"}); w.Code != 400 {
+		t.Fatalf("absolute /api/ instance path: want 400, got %d %s", w.Code, w.Body.String())
+	}
+	// Trailing slashes are normalized away (consumers append "/sub").
+	if w := do("PUT", "/iface-instances", `{"instances":{"abc":"/accounts/abc/","def":"/accounts/def"}}`,
+		auth.Principal{Component: "apps/imap"}); w.Code != 200 {
+		t.Fatalf("trailing-slash registration: %d %s", w.Code, w.Body.String())
+	}
+	if got := b.Reg.Workspace().IfaceInstances["apps/imap"]["abc"]; got != "/accounts/abc" {
+		t.Fatalf("trailing slash not normalized: %q", got)
+	}
 
 	// Bare bind to an instances-provider is rejected; instance bind on the
 	// non-instances provider too; unknown instance rejected.

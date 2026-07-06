@@ -390,10 +390,13 @@ you can't self-bind, same rule as grants) — unbound means no capability.
 - **Many outputs (instances)**: a provider serving several accounts/profiles
   of one contract declares `"instances": true` on the provide and registers
   them at runtime — `PUT /api/xbin/iface-instances {"instances": {"<id>":
-  "/api/path/prefix"}}` (replaces the map; re-register when config changes).
+  "/m/1"}}` (replaces the map; re-register when config changes). Paths are
+  **provider-relative**: xbind injects `/api/<you><path>` into consumers, so
+  register `"/m/1"`, **never** `"/api/<self>/m/1"` (rejected 400 — it would
+  double the prefix, and persisted install paths go stale on rename/clone).
   Each instance binds as `provider#id` and presents itself like any provider
   — instance-unaware requesters connect to one unchanged (the injected URL
-  routes through your path prefix).
+  routes into your API at that sub-path; serve e.g. `GET /m/{acct}/…`).
 - **`net` — L3 egress through a provider tile.** `"interfaces": { "net": { "kind":
   "net" } }`, bound to a builtin (`internet`/`host`) or a provider tile
   (`"provides": { "egress": { "kind": "net" } }`) — a firewall/VPN/router your

@@ -524,7 +524,7 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		Instances map[string]string `json:"instances"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Instances == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {instances: {\"<id>\": \"/api/path/prefix\"}} (path may be \"\")"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {instances: {\"<id>\": \"/provider-relative/prefix\"}} (path may be \"\")"})
 		return
 	}
 	comp := body.Component
@@ -561,6 +561,20 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		if path != "" && !strings.HasPrefix(path, "/") {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "instance path for " + id + " must start with / (or be empty)"})
 			return
+		}
+		// Paths are PROVIDER-RELATIVE: xbind injects /api/<provider><path>.
+		// A workspace-absolute registration ("/api/<self>/…") would double the
+		// prefix and 404 in the *consumer's* logs — reject it here, at the
+		// provider, where the mistake is fixable (and don't let install paths
+		// leak into persisted state: they'd go stale on rename/clone).
+		if path == "/api" || strings.HasPrefix(path, "/api/") {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "instance path for " + id + " must be provider-relative (e.g. \"/m/1\") — xbind composes /api/<provider>+path; do not register \"/api/" + comp + "/…\"",
+			})
+			return
+		}
+		if trimmed := strings.TrimRight(path, "/"); trimmed != path {
+			body.Instances[id] = trimmed // consumers append "/sub" — avoid "//"
 		}
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
