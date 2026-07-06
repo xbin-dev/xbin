@@ -21,6 +21,7 @@ export class BxMultiselect extends LitElement {
     placeholder: { type: String },
     _open: { state: true },
     _up: { state: true },
+    _right: { state: true },
   };
 
   static styles = css`
@@ -36,13 +37,18 @@ export class BxMultiselect extends LitElement {
     .sum.ph { color: var(--bx-muted, #8794a1); }
     .caret { color: var(--bx-muted, #8794a1); font-size: 9px; flex: none; }
     .menu {
-      position: absolute; left: 0; right: 0; z-index: 50;
-      max-height: 220px; overflow-y: auto;
+      position: absolute; z-index: 50;
+      /* Size to the widest option (at least the control's width) — long
+         provider refs must not squeeze into the control column and scroll. */
+      min-width: 100%; width: max-content; max-width: min(480px, 92vw);
+      max-height: 300px; overflow: auto; overscroll-behavior: contain;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); padding: 3px;
     }
     .menu.down { top: calc(100% + 3px); }
     .menu.up { bottom: calc(100% + 3px); }
+    .menu.l { left: 0; }
+    .menu.r { right: 0; }
     .opt {
       display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 4px;
       font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap;
@@ -59,6 +65,7 @@ export class BxMultiselect extends LitElement {
     this.placeholder = '— none —';
     this._open = false;
     this._up = false;
+    this._right = false;
     this._onDocDown = (e) => { if (!e.composedPath().includes(this)) this._close(); };
     this._onKey = (e) => { if (e.key === 'Escape') this._close(); };
   }
@@ -86,9 +93,11 @@ export class BxMultiselect extends LitElement {
 
   _toggleOpen() {
     if (this._open) { this._close(); return; }
-    // Flip up when the control sits in the lower part of the viewport.
+    // Flip up / anchor right when the viewport leaves no room below / to the
+    // right (the menu grows to its content width).
     const r = this.getBoundingClientRect();
-    this._up = r.bottom > (window.innerHeight - 240) && r.top > 240;
+    this._up = r.bottom > (window.innerHeight - 320) && r.top > 320;
+    this._right = window.innerWidth - r.left < 490;
     this._open = true;
     this._attach();
   }
@@ -114,7 +123,7 @@ export class BxMultiselect extends LitElement {
         <span class="caret">▾</span>
       </button>
       ${this._open ? html`
-        <div class="menu ${this._up ? 'up' : 'down'}">
+        <div class="menu ${this._up ? 'up' : 'down'} ${this._right ? 'r' : 'l'}">
           ${opts.length ? opts.map((o) => html`
             <label class="opt">
               <input type="checkbox" .checked=${sel.has(o.value)} @change=${() => this._toggle(o.value)}>
