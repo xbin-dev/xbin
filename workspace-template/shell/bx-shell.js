@@ -30,6 +30,7 @@ import { LitElement, html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
+import './bx-tile-admin.js';
 
 const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
 // Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
@@ -73,6 +74,8 @@ export class BxShell extends LitElement {
     _side: { state: true },    // sidebar: {width, collapsed, folders:[{id,name,open,items}]}
     _dropFolder: { state: true }, // folder id highlighted as a drag target
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
+    _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
+    _adminFor: { state: true },   // tile path whose mini-admin popover is open
   };
 
   static styles = css`
@@ -153,6 +156,14 @@ export class BxShell extends LitElement {
       overflow: hidden; margin-top: 2px; }
     .sysbar .fill { height: 100%; border-radius: 2px;
       background: var(--bx-accent, #f5a623); transition: width .6s ease; }
+
+    /* ---- per-tile mini-admin popover ---- */
+    .admin-pop-backdrop { position: fixed; inset: 0; z-index: 2400; }
+    .admin-pop {
+      position: fixed; z-index: 2500; width: 340px; max-height: 72vh; overflow-y: auto;
+      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
+    }
     aside.collapsed {
       width: 22px; padding: 4px 0;
       border-right: 1px solid var(--bx-border, #e4e8ed);
@@ -270,6 +281,9 @@ export class BxShell extends LitElement {
     this._dropFolder = null;
     this._sys = null;
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
+    this._isAdmin = false;
+    this._adminFor = null;
+    this._adminPos = { x: 0, y: 0 };
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -286,6 +300,7 @@ export class BxShell extends LitElement {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
     window.addEventListener('blur', this._onBlur);
+    this._probeAdmin();
     this._loadSys();
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
   }
@@ -442,10 +457,13 @@ export class BxShell extends LitElement {
   async _loadSys() {
     if (this._side.collapsed || document.hidden) return;
     try {
+      // RAW fetch on purpose: the cookie principal is the signed-in admin;
+      // xbin.fetch would attach the chrome frame token and downgrade to a
+      // non-admin element principal (403 on these endpoints).
       const [st, be, vs] = await Promise.all([
-        window.xbin.fetch('/api/xbin/status'),
-        window.xbin.fetch('/api/xbin/backends'),
-        window.xbin.fetch('/api/xbin/vault-status'),
+        fetch('/api/xbin/status'),
+        fetch('/api/xbin/backends'),
+        fetch('/api/xbin/vault-status'),
       ]);
       if (!st.ok) { this._sys = null; return; } // not admin — footer hidden
       const status = await st.json();
@@ -483,6 +501,26 @@ export class BxShell extends LitElement {
         reqRate, mbRate,
       };
     } catch { /* xbind restarting; next tick */ }
+  }
+
+  // Probe once whether the signed-in human is an admin (raw fetch → cookie
+  // principal). Gates the per-tile ⚙ mini-admin; its APIs 403 otherwise anyway.
+  async _probeAdmin() {
+    try {
+      const r = await fetch('/api/xbin/whoami');
+      if (r.ok) this._isAdmin = !!(await r.json()).admin;
+    } catch { /* xbind restarting */ }
+  }
+
+  _openAdmin(e, path) {
+    e.stopPropagation();
+    if (this._adminFor === path) { this._adminFor = null; return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    this._adminPos = {
+      x: Math.max(8, Math.min(r.right - 340, window.innerWidth - 356)),
+      y: Math.max(8, Math.min(r.bottom + 6, window.innerHeight - 120)),
+    };
+    this._adminFor = path;
   }
 
   _bar(label, frac, detail) {
@@ -670,6 +708,9 @@ export class BxShell extends LitElement {
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           <span class="spacer"></span>
+          ${this._isAdmin ? html`<button title="tile admin (lifecycle · runtime · vault · grants · interfaces · backup · cron)"
+                  @pointerdown=${(e) => e.stopPropagation()}
+                  @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
           <button title=${floating ? 'pin back into the column layout' : 'unpin into a floating window'}
                   @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
@@ -880,6 +921,12 @@ export class BxShell extends LitElement {
       </div>
 
       ${repeat(this._tiles.filter((o) => o.float), (o) => o.path, (o) => this._floatTemplate(o))}
+
+      ${this._adminFor ? html`
+        <div class="admin-pop-backdrop" @click=${() => { this._adminFor = null; }}></div>
+        <div class="admin-pop" style="left:${this._adminPos.x}px; top:${this._adminPos.y}px">
+          <bx-tile-admin .path=${this._adminFor}></bx-tile-admin>
+        </div>` : nothing}
     `;
   }
 }
