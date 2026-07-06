@@ -888,7 +888,7 @@ export class BxAdmin extends LitElement {
       await this._loadIfaces();
     } catch (e) { this._err = String(e.message ?? e); }
   }
-  // Replace a multi slot's whole set (a <select multiple> submits its selection).
+  // Replace a multi slot's whole set (bx-multiselect emits the full selection).
   async _bindSetMulti(component, slot, providers) {
     try {
       await api('/bindings', {
