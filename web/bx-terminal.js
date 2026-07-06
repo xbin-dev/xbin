@@ -104,6 +104,19 @@ export class BxTerminal extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
+    // Ctrl+W is word-erase (WERASE, 0x17) in a shell, but the browser default
+    // closes the tab — pre-empt that so the keystroke reaches the pty. Same
+    // for Ctrl+Shift+W (close window). Returning true lets xterm still emit
+    // the control byte; we only cancel the browser's default. Best-effort:
+    // some browsers reserve these regardless, but Chromium/Firefox honor it
+    // while the terminal has focus.
+    this.#term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && e.ctrlKey && !e.altKey && !e.metaKey &&
+          (e.key === 'w' || e.key === 'W')) {
+        e.preventDefault();
+      }
+      return true;
+    });
     this.#term.open(this.#host);
     this.#fit.fit();
     this.#ro = new ResizeObserver(() => { try { this.#fit.fit(); } catch { } });

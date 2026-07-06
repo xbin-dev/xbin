@@ -45,6 +45,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   vault-sealed banner on the admin overview.
 - auth: `PATCH /api/xbin/auth-settings` can disable owner-token *browser*
   login once an admin user exists (`bx` Bearer token unaffected).
+- terminals: Ctrl+W now reaches the shell as word-erase instead of closing the
+  browser tab (best-effort — some browsers reserve it); overlapping floating
+  windows get a higher-contrast edge.
 
 ## 2026-07-05
 
