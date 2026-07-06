@@ -9,8 +9,13 @@ by the daemon; fetch any of them with:
 
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
-# also: getting-started.md elements.md auth.md resources.md sdk.md protocol.md bx.md
+# also: getting-started.md elements.md auth.md resources.md sdk.md protocol.md bx.md changelog.md
 ```
+
+**After an xbind upgrade** (or when a previously-working API starts failing),
+read [`/docs/changelog.md`](/docs/changelog.md): builder-visible changes land
+there, and **BREAKING** entries link a migration note under `/docs/changes/`
+that says exactly what to change in your tile.
 
 ## The model in five lines
 

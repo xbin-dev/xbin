@@ -19,6 +19,8 @@ granted, and share brokered resources (kv, blobs, bus, cron, sqlite).
 - [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [bx.md](/docs/bx.md) — the `bx` CLI
+- [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
+  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
 
 All of these are served by xbind at `/docs/` in every workspace and live in
 the xbin repo under `docs/`. They are plain markdown — readable with `less`

@@ -4,7 +4,8 @@ Self-modifying browser workspace. Design: `ARCHITECTURE.md` + `plans/`
 (implementation plan, auth design, `plans/DECISIONS.md` for every decision
 with rationale — check there before re-litigating a choice). Builder-facing
 docs: `docs/` (embedded into xbind, served at `/docs/`; keep them true —
-they are the contract `bx`, SDKs, and workspace builders rely on).
+they are the contract `bx`, SDKs, and workspace builders rely on). Dev
+practices in full: `AGENTS.md`.
 
 ## Commands
 
@@ -22,7 +23,10 @@ they are the contract `bx`, SDKs, and workspace builders rely on).
   `internal/server/static.go`). Do not add rewriting.
 - The `sdk/` module must stay **zero-dependency** — components inherit it.
 - New xbind HTTP/WS surface ⇒ document it in `docs/protocol.md` in the same
-  change; builder-visible behavior ⇒ the relevant `docs/*.md`.
+  change; builder-visible behavior ⇒ the relevant `docs/*.md` **and a
+  `docs/changelog.md` entry**; breaking ⇒ also a migration note at
+  `docs/changes/YYYY-MM-DD-<slug>.md` linked from the changelog (AGENTS.md
+  has the template).
 - Grants/identity changes must keep `plans/auth.md` semantics: xbind strips
   inbound `X-XBin-*`, default-deny for element principals, owner is admin.
 
