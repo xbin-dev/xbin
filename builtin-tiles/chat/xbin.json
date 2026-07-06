@@ -1,10 +1,11 @@
 {
   // LLM chat tile — pure frontend. It requests an "openai" http interface
   // (plans/interfaces.md) rather than hard-coding a provider; the owner binds
-  // it to an OpenAI-compatible provider tile (e.g. apps/llm-gw). The binding is
-  // also the call grant, so no separate `uses` is needed. Discover the bound
-  // endpoint in the frontend via xbin.iface('llm').url.
+  // it to one OR MORE OpenAI-compatible provider tiles ("multi": true — the
+  // admin Interfaces tab shows a multiselect). The binding is also the call
+  // grant, so no separate `uses` is needed. The frontend discovers every bound
+  // endpoint via xbin.iface('llm').endpoints and lists models from all of them.
   "interfaces": {
-    "llm": { "kind": "http", "service": "openai" }
+    "llm": { "kind": "http", "service": "openai", "multi": true }
   }
 }

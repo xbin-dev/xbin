@@ -1,8 +1,11 @@
 /**
- * <bx-llm-gw> — settings + model browser for the llm-gw tile. Talks to its
- * own backend (/config, /v1/models) via xbin.fetch, and to its own vault
- * key (api-token) directly via /api/xbin/vault/<self>/api-token — allowed
- * because an element always reaches its own vault (docs/auth.md).
+ * <bx-llm-gw> — settings + model browser for the llm-gw tile. Manages MULTIPLE
+ * named upstream backends (each a base URL + a vault token "api-token-<name>")
+ * with live per-backend usage (requests, tokens in/out, active) from /stats.
+ * Talks to its own backend (/config, /stats, /v1/models) via xbin.fetch and to
+ * its own vault keys directly — an element always reaches its own vault
+ * (docs/auth.md). Model ids are namespaced "<backend>/<model>" when more than
+ * one backend is configured.
  */
 import { LitElement, html, css, nothing } from 'lit';
 
@@ -26,8 +29,8 @@ const AUTO_REFRESH_MS = 60_000;
 
 export class BxLlmGw extends LitElement {
   static properties = {
-    _baseURL: { state: true },
-    _hasToken: { state: true },
+    _backends: { state: true },  // [{name, baseURL, hasToken}]
+    _stats: { state: true },     // name -> {reqs, tokIn, tokOut, active}
     _aliases: { state: true },
     _models: { state: true },
     _modelsLoading: { state: true },
@@ -87,8 +90,8 @@ export class BxLlmGw extends LitElement {
 
   constructor() {
     super();
-    this._baseURL = '';
-    this._hasToken = false;
+    this._backends = [];
+    this._stats = {};
     this._aliases = {};
     this._models = [];
     this._modelsLoading = false;
@@ -104,23 +107,30 @@ export class BxLlmGw extends LitElement {
       if (e.type === 'reload' || e.type === 'build-ok') this._refresh();
     });
     this._timer = setInterval(() => this._loadModels(), AUTO_REFRESH_MS);
+    this._statsTimer = setInterval(() => this._loadStats(), 3000);
     this._refresh();
   }
   disconnectedCallback() {
     super.disconnectedCallback();
     this._off?.();
     clearInterval(this._timer);
+    clearInterval(this._statsTimer);
   }
 
   async _refresh() {
     try {
       const cfg = await api('/config');
-      this._baseURL = cfg.baseURL;
-      this._hasToken = cfg.hasToken;
+      this._backends = cfg.backends ?? [];
       this._aliases = cfg.aliases ?? {};
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
+    this._loadStats();
     this._loadModels();
+  }
+
+  async _loadStats() {
+    try { this._stats = (await api('/stats')).backends ?? {}; }
+    catch { /* backend restarting; next tick */ }
   }
 
   async _loadModels() {
@@ -133,27 +143,42 @@ export class BxLlmGw extends LitElement {
     this._modelsLoading = false;
   }
 
-  async _saveBaseURL(url) {
+  // Add or update a backend: name+URL via /config/backend, token straight
+  // into this tile's own vault (never through kv).
+  async _saveBackend(name, baseURL, token) {
     this._busy = true;
-    try { await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL: url }) }); await this._refresh(); }
-    catch (e) { this._err = String(e.message ?? e); }
+    try {
+      await api('/config/backend', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, baseURL }) });
+      if (token) {
+        await vault(`api-token-${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: token }) });
+      }
+      await this._refresh();
+    } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;
   }
 
-  async _saveToken(value) {
+  async _removeBackend(name) {
+    if (!confirm(`Remove backend "${name}"? Its vault token is deleted too.`)) return;
     this._busy = true;
-    try { await vault('api-token', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value }) }); this._hasToken = true; await this._loadModels(); }
-    catch (e) { this._err = String(e.message ?? e); }
+    try {
+      await api(`/config/backend/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      await vault(`api-token-${name}`, { method: 'DELETE' }).catch(() => {});
+      await this._refresh();
+    } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;
   }
 
-  async _clearToken() {
-    if (!confirm('Clear the upstream API token?')) return;
+  async _setToken(name) {
+    const v = prompt(`API token for backend "${name}":`);
+    if (!v?.trim()) return;
     this._busy = true;
-    try { await vault('api-token', { method: 'DELETE' }); this._hasToken = false; }
-    catch (e) { this._err = String(e.message ?? e); }
+    try {
+      await vault(`api-token-${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: v.trim() }) });
+      await this._refresh();
+    } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;
   }
 
@@ -198,24 +223,48 @@ export class BxLlmGw extends LitElement {
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
 
-        <h4>connection</h4>
-        <form class="row" @submit=${(e) => { e.preventDefault();
-            this._saveBaseURL(e.target.baseURL.value); }}>
-          <label class="f">base URL
-            <input name="baseURL" .value=${this._baseURL} placeholder="https://api.openai.com" ?disabled=${this._busy}>
-          </label>
-          <button class="act go" ?disabled=${this._busy}>save</button>
+        <h4>backends</h4>
+        <table>
+          <tr><th>name</th><th>base URL</th><th>token</th><th style="text-align:right">reqs</th>
+              <th style="text-align:right">tok in</th><th style="text-align:right">tok out</th>
+              <th style="text-align:right">active</th><th></th></tr>
+          ${this._backends.map((b) => {
+            const st = this._stats[b.name] ?? {};
+            return html`<tr>
+              <td class="mono">${b.name}</td>
+              <td class="mono muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis">${b.baseURL}</td>
+              <td>${b.hasToken ? html`<span class="ok">✓</span>` : html`<span class="warn">none</span>`}</td>
+              <td class="mono" style="text-align:right">${st.reqs ?? 0}</td>
+              <td class="mono" style="text-align:right">${st.tokIn ?? 0}</td>
+              <td class="mono" style="text-align:right">${st.tokOut ?? 0}</td>
+              <td class="mono" style="text-align:right">${st.active
+                ? html`<span class="ok">${st.active}</span>` : '0'}</td>
+              <td style="text-align:right; white-space:nowrap">
+                <button class="act" ?disabled=${this._busy} @click=${() => this._setToken(b.name)}>token</button>
+                <button class="act" ?disabled=${this._busy} @click=${() => {
+                  const nv = prompt(`Base URL for "${b.name}":`, b.baseURL);
+                  if (nv?.trim()) this._saveBackend(b.name, nv.trim());
+                }}>url</button>
+                ${this._backends.length > 1 ? html`
+                  <button class="act rm" ?disabled=${this._busy} @click=${() => this._removeBackend(b.name)}>del</button>` : nothing}
+              </td></tr>`;
+          })}
+        </table>
+        <form class="row" style="margin-top:6px" @submit=${(e) => { e.preventDefault(); const f = e.target;
+            const name = f.name.value.trim(), url = f.url.value.trim();
+            if (!name || !url) return;
+            this._saveBackend(name, url, f.token.value.trim());
+            f.reset(); }}>
+          <input name="name" placeholder="name (ollama)" size="10" pattern="[a-z0-9][a-z0-9._-]*" ?disabled=${this._busy}>
+          <input name="url" placeholder="https://host/v1" size="22" ?disabled=${this._busy}>
+          <input name="token" type="password" placeholder="api token" size="14" autocomplete="off" ?disabled=${this._busy}>
+          <button class="act go" ?disabled=${this._busy}>add backend</button>
         </form>
-
-        <form class="row" @submit=${(e) => { e.preventDefault();
-            const v = e.target.token.value; if (v) this._saveToken(v); e.target.reset(); }}>
-          <label class="f">api token
-            <input name="token" type="password" placeholder=${this._hasToken ? '•••••••• (set — enter to replace)' : 'sk-…'} autocomplete="off" ?disabled=${this._busy}>
-          </label>
-          <button class="act go" ?disabled=${this._busy}>save</button>
-          ${this._hasToken ? html`<button class="act rm" type="button" ?disabled=${this._busy} @click=${() => this._clearToken()}>clear</button>` : nothing}
-          <span class=${this._hasToken ? 'ok' : 'warn'}>${this._hasToken ? 'token set' : 'no token — requests will fail'}</span>
-        </form>
+        ${this._backends.length > 1 ? html`
+          <div class="muted" style="font-size:11px; margin-top:4px">
+            With several backends, model ids are namespaced
+            <span class="mono">&lt;backend&gt;/&lt;model&gt;</span> — requests route by that prefix.
+          </div>` : nothing}
 
         <div class="models-head">
           <h4>models ${models.length ? html`<span class="count">(${models.length}${q ? ` of ${this._models.length}` : ''})</span>` : nothing}</h4>
@@ -233,7 +282,7 @@ export class BxLlmGw extends LitElement {
               <td class="mono">${m.id}</td>
               <td class="muted">${m.owned_by ?? ''}</td>
               <td style="text-align:right"><button class="act" @click=${() => this._addAlias(m.id)}>+ alias</button></td>
-            </tr>`) : html`<tr><td class="muted" colspan="3">${this._modelsLoading ? 'loading…' : this._hasToken ? 'no models found' : 'set an api token to list models'}</td></tr>`}
+            </tr>`) : html`<tr><td class="muted" colspan="3">${this._modelsLoading ? 'loading…' : this._backends.some((b) => b.hasToken) ? 'no models found' : 'set an api token to list models'}</td></tr>`}
           </table>
         </div>
 

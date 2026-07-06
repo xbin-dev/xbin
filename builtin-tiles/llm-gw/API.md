@@ -1,9 +1,13 @@
 # apps/llm-gw API
 
-An OpenAI-compatible LLM gateway. Configure a base URL and upstream API
-token on the tile itself; other tiles get a grant to call the proxied
-`/v1/*` surface exactly like the real OpenAI API (or any OpenAI-compatible
-provider — Ollama, OpenRouter, a local vLLM server, etc).
+An OpenAI-compatible LLM gateway multiplexing **multiple named backends**
+(OpenAI, OpenRouter, a LAN Ollama/vLLM, …). Add backends — a name, base URL
+and API token each — on the tile itself; other tiles get a grant to call the
+proxied `/v1/*` surface exactly like the real OpenAI API. With more than one
+backend, model ids are namespaced `<backend>/<model>` and requests route by
+that prefix (a single backend keeps bare ids, so nothing changes until you
+add a second). The tile shows per-backend usage: requests, tokens in/out,
+and in-flight calls.
 
 Model **aliases** let you rename upstream models for callers: set
 `best-model -> lab/strong-model-4.8` on the tile, and any caller that sends
@@ -32,15 +36,14 @@ can discover them.
 ### /v1/* — role: writer
 
 Anything else under `/v1/` (`/v1/chat/completions`, `/v1/completions`,
-`/v1/embeddings`, …) is proxied byte-for-byte to `<baseURL><path>` with the
-configured upstream token attached. Streaming (`"stream":true`, SSE)
-responses pass through as they arrive. If the request body is
-`application/json` and has a top-level `"model"` field that matches a
-configured alias, it's rewritten to the alias's target before forwarding —
-otherwise the model id is passed through untouched.
+`/v1/embeddings`, …) is proxied byte-for-byte to the routed backend's
+`<baseURL><path>` with that backend's token attached. Routing: the JSON
+`"model"` field is resolved alias → `<backend>/<model>` prefix → the
+default backend, and rewritten to the upstream's bare id on the way out.
+Streaming (`"stream":true`, SSE) responses pass through as they arrive.
 
-No token configured ⇒ `502` with an error body instead of a broken upstream
-call.
+No token configured for the routed backend ⇒ `502` with an error body
+instead of a broken upstream call.
 
 ## Use it
 
@@ -64,7 +67,8 @@ resp, _ := xbin.Client().Post("http://xbin/api/apps/llm-gw/v1/chat/completions",
 
 ## What's not proxied
 
-`/config` (`GET`/`PUT`) is the tile's own settings endpoint — gated to
-`admin`, i.e. only the tile's own frontend (self is always admin of itself)
-or the workspace owner. It is not part of the reader/writer surface and
-granting `writer` does not expose it.
+`/config` (`GET`/`PUT`, plus `/config/backend` add/remove) and `/stats`
+(per-backend usage counters) are the tile's own settings endpoints — gated
+to `admin`, i.e. only the tile's own frontend (self is always admin of
+itself) or the workspace owner. They are not part of the reader/writer
+surface and granting `writer` does not expose them.

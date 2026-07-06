@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- LLM chat tile. One-off chats: nothing persists — history lives in page
-     memory and dies on reload/new chat. Models and completions come from
-     apps/llm-gw (OpenAI-compatible proxy); streaming via SSE. -->
+     memory and dies on reload/new chat. Models and completions come from the
+     bound "llm" providers (multi-input: bind one or more OpenAI-compatible
+     tiles; the picker lists models from all of them); streaming via SSE. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -80,9 +81,13 @@
   <script type="module">
     import { marked } from '/vendor/marked.esm.js';
 
-    // The OpenAI-compatible endpoint comes from the "llm" interface binding
-    // (plans/interfaces.md) — bind it on the root page to any provider tile.
-    const GW = xbin.iface('llm')?.url;
+    // The OpenAI-compatible endpoints come from the "llm" interface binding
+    // (plans/interfaces.md, multi:true) — bind one or more providers in the
+    // admin Interfaces tab. Handles the multi shape ({endpoints}) and the
+    // legacy single shape ({url}) alike.
+    const iface = xbin.iface('llm');
+    const ENDPOINTS = iface?.endpoints ?? (iface?.url ? [{ url: iface.url, provider: 'llm' }] : []);
+    const epLabel = (e) => e.instance ? `${e.provider}#${e.instance}` : e.provider;
     const $ = (id) => document.getElementById(id);
     const log = $('log'), input = $('input'), sendBtn = $('send'), modelSel = $('model'), note = $('note');
 
@@ -98,37 +103,45 @@
       note.classList.toggle('err', !!isErr);
     }
 
-    // --- models ---
+    // --- models (aggregated across every bound endpoint) ---
     async function loadModels() {
-      if (!GW) {
-        setNote('No LLM bound yet — on the root page, bind this tile\'s "llm" ' +
-                'interface to an OpenAI-compatible provider (e.g. apps/llm-gw) ' +
-                'in the admin Interfaces tab.', true);
+      if (!ENDPOINTS.length) {
+        setNote('No LLM bound yet — bind this tile\'s "llm" interface to one or ' +
+                'more OpenAI-compatible providers (e.g. apps/llm-gw) in the ' +
+                'admin Interfaces tab on the root page.', true);
         return;
       }
-      try {
-        const r = await xbin.fetch(`${GW}/v1/models`);
-        if (r.status === 403) {
-          setNote('No access to the bound LLM provider yet — check the binding ' +
-                  'in the admin Interfaces tab on the root page.', true);
-          return;
-        }
-        if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-        const { data = [] } = await r.json();
-        if (!data.length) { setNote('llm-gw reports no models — configure it on its tile.', true); return; }
-        // Aliases (workspace-curated names) first, then everything alphabetically.
-        const isAlias = (m) => !!m.alias_of || m.owned_by === 'alias';
+      const lists = await Promise.all(ENDPOINTS.map(async (ep, i) => {
+        try {
+          const r = await xbin.fetch(`${ep.url}/v1/models`);
+          if (!r.ok) throw new Error(`${r.status}`);
+          const { data = [] } = await r.json();
+          return { i, ep, data };
+        } catch (e) { return { i, ep, data: [], err: String(e.message ?? e) }; }
+      }));
+      const failed = lists.filter((l) => l.err);
+      const opts = [];
+      const isAlias = (m) => !!m.alias_of || m.owned_by === 'alias';
+      for (const { i, ep, data } of lists) {
+        // Aliases (workspace-curated names) first, then alphabetically.
         data.sort((a, b) => (isAlias(b) - isAlias(a)) || a.id.localeCompare(b.id));
-        modelSel.replaceChildren(...data.map(m => {
+        for (const m of data) {
           const o = document.createElement('option');
-          o.value = m.id;
-          o.textContent = m.alias_of ? `${m.id} → ${m.alias_of}` : m.id;
-          return o;
-        }));
-        setNote('');
-      } catch (e) {
-        setNote(`Failed to list models: ${e.message}`, true);
+          o.value = `${i}\u0000${m.id}`;      // endpoint index + model id
+          const name = m.alias_of ? `${m.id} → ${m.alias_of}` : m.id;
+          o.textContent = ENDPOINTS.length > 1 ? `${name} — ${epLabel(ep)}` : name;
+          opts.push(o);
+        }
       }
+      if (!opts.length) {
+        setNote(failed.length
+          ? `No models — ${failed.map((l) => `${epLabel(l.ep)}: ${l.err}`).join(' · ')}`
+          : 'Bound providers report no models — configure them on their tiles.', true);
+        return;
+      }
+      modelSel.replaceChildren(...opts);
+      setNote(failed.length
+        ? `Some providers failed: ${failed.map((l) => epLabel(l.ep)).join(', ')}` : '');
     }
 
     // --- one assistant bubble with a foldable thinking section ---
@@ -227,10 +240,12 @@
       };
 
       try {
-        const r = await xbin.fetch(`${GW}/v1/chat/completions`, {
+        const [epIdx, model] = modelSel.value.split('\u0000');
+        const ep = ENDPOINTS[Number(epIdx)] ?? ENDPOINTS[0];
+        const r = await xbin.fetch(`${ep.url}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: modelSel.value, messages: history, stream: true }),
+          body: JSON.stringify({ model: model ?? modelSel.value, messages: history, stream: true }),
           signal: controller.signal,
         });
         if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 400)}`);
