@@ -255,10 +255,15 @@ export class BxShell extends LitElement {
     .float {
       position: fixed; z-index: 100;
       display: flex; flex-direction: column;
-      border: 1px solid var(--bx-border, #e4e8ed);
+      /* Dual edge so same-colored overlapping windows stay distinct: a border
+         brighter than panel seams, ringed by a tight dark outline, over a
+         deep ambient shadow. */
+      border: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 55%, var(--bx-muted, #8794a1));
       border-radius: var(--bx-radius, 6px);
       background: var(--bx-panel, #fff);
-      box-shadow: 2px 6px 22px rgba(16, 24, 40, 0.22);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5),
+                  3px 8px 18px rgba(0, 0, 0, 0.45),
+                  8px 18px 44px rgba(0, 0, 0, 0.3);
       overflow: hidden; resize: both; min-width: 220px; min-height: 120px;
     }
     .float > .card {
