@@ -22,9 +22,13 @@ Frontend  = /c/<path>/ (iframe'd by <bx-frame>)   Backend = /api/<path>/…
 Terminals (you) are root; running components are least-privileged tenants
 ```
 
-`mv` renames a component, `cp -r` forks it, `rm -r` deletes it. Saving any
-file live-reloads the frontend and rebuilds/swaps the backend. There is no
-deploy step and **no JS build step — ever** (plain ES modules + import maps).
+`mv` renames a component and `rm -r` deletes it. To fork one, prefer
+`POST /api/xbin/clone {"from","to"}` (or the Tile Manager's clone tab) over
+bare `cp -r`: clone also rewrites old-path references (manifest `res:` uses +
+hardcoded strings in code) and registers the copy as its own component.
+Saving any file live-reloads the frontend and rebuilds/swaps the backend.
+There is no deploy step and **no JS build step — ever** (plain ES modules +
+import maps).
 
 ## Terminal environment
 
@@ -198,8 +202,8 @@ every component document:
 xbin.self                                  // "apps/thing"
 await xbin.fetch(`/api/${xbin.self}/x`)   // ALWAYS use xbin.fetch for /api/ —
                                             // raw fetch to other elements 403s
-xbin.bus.on('res:apps/thing/bus/', (topic, data) => {…})   // live events
-await xbin.bus.publish('res:apps/thing/bus', 'changed', {…})
+xbin.bus.on(`res:${xbin.self}/bus/`, (topic, data) => {…})   // live events
+await xbin.bus.publish(`res:${xbin.self}/bus`, 'changed', {…})
 xbin.events.on(e => {…})                   // reload/build/bus/grants stream
 
 // per-user UI state (server-side, follows the user across devices); each tile
@@ -207,6 +211,14 @@ xbin.events.on(e => {…})                   // reload/build/bus/grants stream
 await xbin.fetch(`/api/xbin/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
 const v = await (await xbin.fetch('/api/xbin/prefs/mykey')).json()
 ```
+
+**Never hardcode your own install path in code.** Use `xbin.self` (and
+`` `res:${xbin.self}/…` `` for your own resources/bus topics) in the frontend,
+`XBIN_COMPONENT` / `xbin.Self()` / `XBIN_RES_*` in the backend. Your literal
+path belongs in exactly one place — `xbin.json` `uses` (plus genuine
+references to *other* tiles) — which clone/import rewrite. A tile that
+hardcodes itself elsewhere breaks the moment it's forked or installed under
+a different name.
 
 Embedding other components:
 

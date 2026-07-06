@@ -50,7 +50,9 @@
       ev.target.reset();
     };
     // Live updates from our own bus (also how other apps stay in sync).
-    xbin.bus.on('res:apps/calendar/bus/events/', load);
+    // Own resources go through xbin.self — never hardcode your install path,
+    // so a clone/fork of this tile keeps working (AGENTS.md).
+    xbin.bus.on(`res:${xbin.self}/bus/events/`, load);
     await load();
   </script>
 </body>

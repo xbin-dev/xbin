@@ -1,8 +1,9 @@
 <!doctype html>
-<!-- Tile Manager — create tiles, stamp out templates, or import builtins
-     without touching a shell. Create → POST /api/xbin/create; Template →
-     GET/POST /api/xbin/templates; Import → GET/POST /api/xbin/builtins. All
-     need this element's xbin:writer grant (declared in xbin.json). -->
+<!-- Tile Manager — create tiles, clone/fork existing ones, stamp out
+     templates, or import builtins without touching a shell. Create → POST
+     /api/xbin/create; Clone → POST /api/xbin/clone; Template → GET/POST
+     /api/xbin/templates; Import → GET/POST /api/xbin/builtins. All need this
+     element's xbin:writer grant (declared in xbin.json). -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -69,6 +70,7 @@
 <body class="bx">
   <div class="tabs">
     <button data-tab="create" class="on">create</button>
+    <button data-tab="clone">clone</button>
     <button data-tab="template">new from template</button>
     <button data-tab="import">import builtin</button>
     <button data-tab="git">from git</button>
@@ -94,6 +96,31 @@
         <span class="msg" id="msg"></span>
       </div>
     </form>
+  </div>
+
+  <div class="body" id="clone-tab" hidden>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">
+      Fork an existing tile: copies its code (git history included — the repos
+      stay related), rewrites references to the old path, and registers an
+      independent tile. Secrets and stored resource data don't come along;
+      cross-scope grants need your approval again.</p>
+    <div class="field">
+      <label for="clone-src">Source tile</label>
+      <select id="clone-src" style="width:100%; box-sizing:border-box; background:var(--bx-panel);
+        border:1px solid var(--bx-border); border-radius:5px; color:var(--bx-text);
+        font:11.5px var(--bx-mono); padding:4px 8px"></select>
+    </div>
+    <div class="field">
+      <label for="clone-path">Clone to</label>
+      <div class="slug-row">
+        <input id="clone-path" placeholder="apps/my-fork" autocomplete="off" spellcheck="false"
+               style="font-family:var(--bx-mono); font-size:11.5px; border-radius:5px">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="clone-btn">Clone</button>
+      <span class="msg" id="clone-msg"></span>
+    </div>
   </div>
 
   <div class="body" id="template-tab" hidden>
@@ -141,6 +168,7 @@
     tabs.forEach((b) => b.onclick = () => {
       tabs.forEach((x) => x.classList.toggle('on', x === b));
       document.getElementById('create-tab').hidden = b.dataset.tab !== 'create';
+      document.getElementById('clone-tab').hidden = b.dataset.tab !== 'clone';
       document.getElementById('template-tab').hidden = b.dataset.tab !== 'template';
       document.getElementById('import-tab').hidden = b.dataset.tab !== 'import';
       document.getElementById('git-tab').hidden = b.dataset.tab !== 'git';
@@ -148,6 +176,7 @@
       if (b.dataset.tab === 'import') loadBuiltins();
       if (b.dataset.tab === 'template') loadTemplates();
       if (b.dataset.tab === 'updates') loadUpdates();
+      if (b.dataset.tab === 'clone') loadCloneSources();
     });
 
     // --- create tab ---
@@ -177,6 +206,48 @@
     });
 
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // --- clone tab ---
+    const cloneSrc = document.getElementById('clone-src');
+    const clonePath = document.getElementById('clone-path');
+    let clonePathTouched = false;
+    clonePath.addEventListener('input', () => { clonePathTouched = clonePath.value !== ''; });
+    cloneSrc.addEventListener('change', () => {
+      if (!clonePathTouched) clonePath.value = cloneSrc.value ? cloneSrc.value + '-fork' : '';
+    });
+    async function loadCloneSources() {
+      try {
+        const r = await xbin.fetch('/api/xbin/components');
+        const comps = await r.json();
+        if (!r.ok) throw new Error(comps.error ?? r.status);
+        cloneSrc.innerHTML = '<option value="">— pick a tile —</option>' +
+          (Array.isArray(comps) ? comps : [])
+            .map((c) => `<option value="${esc(c.path)}">${esc(c.path)}</option>`).join('');
+      } catch (e) {
+        cloneSrc.innerHTML = `<option value="">failed to load: ${esc(e.message ?? e)}</option>`;
+      }
+    }
+    document.getElementById('clone-btn').onclick = async () => {
+      const from = cloneSrc.value, to = clonePath.value.trim().replace(/^\/+|\/+$/g, '');
+      const cmsg = document.getElementById('clone-msg');
+      const cbtn = document.getElementById('clone-btn');
+      if (!from || !to) { cmsg.className = 'msg err'; cmsg.textContent = 'pick a source and a destination path'; return; }
+      cbtn.disabled = true; cmsg.className = 'msg'; cmsg.textContent = 'cloning…';
+      try {
+        const r = await xbin.fetch('/api/xbin/clone', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, to }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((d.error ?? r.status) + (d.warnings ? ' — ' + d.warnings.join('; ') : ''));
+        let note = `cloned to ${d.path}`;
+        if (d.rewritten?.length) note += ` (${d.rewritten.length} file(s) re-pathed)`;
+        if (d.pendingGrants?.length) note += `. Approve ${d.pendingGrants.length} grant(s) in the admin grants panel.`;
+        cmsg.className = 'msg ok'; cmsg.textContent = note + " — it's in the sidebar";
+        clonePath.value = ''; clonePathTouched = false;
+      } catch (e) { cmsg.className = 'msg err'; cmsg.textContent = String(e.message ?? e); }
+      finally { cbtn.disabled = false; }
+    };
 
     // --- from git tab ---
     const gitSlug = (url) => (url.trim().replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || 'tile')

@@ -155,6 +155,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("PUT /vault/{rest...}", b.apiVaultPut)
 	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)
 	srv.RegisterAPI("POST /bus/publish", b.apiBusPublish)
+	srv.RegisterAPI("POST /clone", b.apiClone)
 	srv.RegisterAPI("GET /kv/{rest...}", b.apiKVGet)
 	srv.RegisterAPI("PUT /kv/{rest...}", b.apiKVPut)
 	srv.RegisterAPI("DELETE /kv/{rest...}", b.apiKVDelete)

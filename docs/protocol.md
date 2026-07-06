@@ -110,6 +110,13 @@ POST   /create                     owner, or an element granted target
                                    management). body {path, runtime?, title?,
                                    expose?} → {path, files}. Same scaffolder
                                    as `bx new`; never overwrites.
+POST   /clone                      xbin:writer (as /create). body {from, to}
+                                   → {path, from, rewritten, pendingGrants}.
+                                   Forks a component: copies it (git history
+                                   included), rewrites old-path references
+                                   across its files, registers it fresh.
+                                   Secrets/resource data are NOT copied;
+                                   unresolvable uses reject the clone.
 GET    /builtins                   any. optional tile catalog
                                    [{name,title,description,defaultPath,installed}]
 POST   /builtins/import            xbin:writer (as /create). body {name, path?}
