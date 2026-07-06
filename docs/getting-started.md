@@ -100,7 +100,7 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 | `XBIN_COMPONENT` | the component this terminal was opened on |
 | `XBIN_URL`, `XBIN_TOKEN` | how to call xbind as the owner (`bx` uses these) |
 | `HOME` | `<workspace>/home` — dotfiles persist across upgrades |
-| `IN_SANDBOX=1` | set when the terminal runs in the rootfs sandbox (isolated mode) |
+| `IN_SANDBOX=1`, `IS_SANDBOX=1` | set when the terminal runs in the rootfs sandbox (isolated mode) |
 
 `home/` is deliberately **not** your host home: it's a contained, persistent
 $HOME seeded with a minimal `.zshrc`/`.bashrc` (component-aware prompt,

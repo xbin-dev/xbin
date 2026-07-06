@@ -470,6 +470,7 @@ func (m *Manager) sandboxEnv(rel, netMode string) []string {
 		"TERM=xterm-256color", "COLORTERM=truecolor",
 		"XBIN_COMPONENT=" + rel,
 		"IN_SANDBOX=1", // scripts/agents can tell they're in the terminal sandbox
+		"IS_SANDBOX=1", // the spelling agent CLIs (Claude Code) actually check
 		"LANG=C.UTF-8",
 		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
