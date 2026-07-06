@@ -903,18 +903,19 @@ export class BxAdmin extends LitElement {
     if (!d) return html`<div class="muted">loading…</div>`;
     const comps = d.components || [];
     const instances = d.instances || {};
-    // providers of each kind — an instances-provide expands to one option per
-    // registered instance (provider#instance; a subslot presents itself like
-    // any other provider, so non-subslot-aware tiles bind to it the same way).
+    // providers of each kind, carrying their service contract — an
+    // instances-provide expands to one option per registered instance
+    // (provider#instance; a subslot presents itself like any other provider,
+    // so non-subslot-aware tiles bind to it the same way).
     const providersByKind = {};
     for (const c of comps)
       for (const def of Object.values(c.provides || {})) {
         const list = (providersByKind[def.kind] ||= []);
         if (def.instances) {
           for (const id of Object.keys(instances[c.component] || {}).sort())
-            list.push(`${c.component}#${id}`);
+            list.push({ ref: `${c.component}#${id}`, service: def.service });
         } else {
-          list.push(c.component);
+          list.push({ ref: c.component, service: def.service });
         }
       }
     // builtin net providers
@@ -929,7 +930,8 @@ export class BxAdmin extends LitElement {
       <table class="tbl">
         <tr><th>tile</th><th>slot</th><th>kind</th><th>instances</th></tr>
         ${comps.flatMap((c) => Object.entries(c.provides || {}).map(([slot, def]) => html`<tr>
-          <td class="mono">${c.component}</td><td>${slot}</td><td><span class="pill">${def.kind}</span></td>
+          <td class="mono">${c.component}</td><td>${slot}</td>
+          <td><span class="pill">${def.kind}${def.service ? ':' + def.service : ''}</span></td>
           <td class="mono">${def.instances
             ? (Object.keys(instances[c.component] || {}).sort().map((id) => html`<span class="pill">#${id}</span>`) || nothing)
             : html`<span class="muted">—</span>`}</td></tr>`))}
@@ -942,7 +944,14 @@ export class BxAdmin extends LitElement {
           const raw = d.bindings?.[r.comp]?.[r.slot];
           const bound = [].concat(raw ?? []);           // string | array → array
           const own = (p) => p === r.comp || p.startsWith(r.comp + '#');
-          const opts = [...(builtins[r.def.kind] || []), ...(providersByKind[r.def.kind] || []).filter((p) => !own(p))];
+          // http slots bind within their service contract (same filter the
+          // backend's bindOptions + bind validation apply) — an s3 slot must
+          // not offer an openai provider.
+          const opts = [...(builtins[r.def.kind] || []),
+            ...(providersByKind[r.def.kind] || [])
+              .filter((e) => !own(e.ref) &&
+                (r.def.kind !== 'http' || !r.def.service || e.service === r.def.service))
+              .map((e) => e.ref)];
           const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
           if (r.def.multi) {
             // Multi-input slot: a plain multiselect over the same options.
