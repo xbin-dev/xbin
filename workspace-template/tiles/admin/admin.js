@@ -103,6 +103,22 @@ export class BxAdmin extends LitElement {
     .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
                color: var(--bx-muted, #8794a1); }
     .stat.warn .n { color: var(--bx-amber, #f2a71b); }
+    .vault-banner { border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+      font-size: 12.5px; font-weight: 600; }
+    .vault-banner.sealed {
+      background: var(--bx-red, #e5484d); color: #fff; cursor: pointer;
+      font-size: 13.5px; letter-spacing: .02em;
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--bx-red, #e5484d) 60%, #000),
+                  0 2px 10px color-mix(in srgb, var(--bx-red, #e5484d) 50%, transparent);
+      animation: vault-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes vault-pulse { 50% { filter: brightness(1.18); } }
+    @media (prefers-reduced-motion: reduce) { .vault-banner.sealed { animation: none; } }
+    .vault-banner.warn { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 18%, transparent);
+      color: var(--bx-amber, #f2a71b); cursor: pointer;
+      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent); }
+    .vault-banner.ok { background: none; border: 0; padding: 0 2px;
+      color: var(--bx-green, #43a047); font-weight: 500; font-size: 11px; }
 
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
     th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
@@ -697,10 +713,36 @@ export class BxAdmin extends LitElement {
     </div>`;
   }
 
+  // Vault banner at the top of the overview: unmissable when the barrier is
+  // sealed/unconfigured (stateful components are held), quiet when healthy.
+  _vaultBanner() {
+    const st = this._vaultStatus;
+    if (!st) return nothing;
+    const goVault = () => this._setTab('vault');
+    if (st.mode === 'sealed') {
+      return html`<div class="vault-banner sealed" @click=${goVault}
+        title="open the vault tab to unseal">
+        🔒 VAULT SEALED — encrypted resources are unmounted and stateful components are HELD.
+        Click to unseal.</div>`;
+    }
+    if (st.mode === 'unconfigured') {
+      return html`<div class="vault-banner sealed" @click=${goVault}
+        title="open the vault tab to set a passphrase">
+        🔒 VAULT UNCONFIGURED — secret & resource storage is refused until a passphrase is set.
+        Click to set one.</div>`;
+    }
+    if (st.mode === 'plaintext') {
+      return html`<div class="vault-banner warn" @click=${goVault}>
+        ⚠ vault: plaintext at rest (dev mode) — click to encrypt.</div>`;
+    }
+    return html`<div class="vault-banner ok">vault unsealed — encryption at rest active</div>`;
+  }
+
   _overview() {
     const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
     const c = ov.counts;
     return html`
+      ${this._vaultBanner()}
       <div class="cards">
         <div class="stat"><div class="n">${c.components}</div><div class="l">components</div></div>
         <div class="stat"><div class="n">${c.exposed}</div><div class="l">expose APIs</div></div>
