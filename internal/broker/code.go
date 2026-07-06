@@ -12,12 +12,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/util"
 )
 
 // Component code & git endpoints for the Admin console: browse a component's
-// files and its git history/diffs. Admin-gated (xbin:admin, like the rest of
+// files and its git history/diffs. Admin-gated, OR readable by a component
+// granted "code:<target>" (requireCodeRead) — like the rest of
 // the console) — this exposes source and history across the whole workspace,
 // which is owner-level. History is scoped to a component's path within the
 // single workspace repo (decision D2); there are no per-component repos.
@@ -118,13 +120,34 @@ func componentRemote(dir string) string {
 	return strings.TrimSpace(out)
 }
 
+// requireCodeRead gates the read-only source endpoints: admin sees any
+// component, an element sees its own source, or another component's when
+// granted the "code:<component>" capability (plans/auth.md). This is the
+// runtime equivalent of what a workspace terminal already sees read-only.
+func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp string) bool {
+	p := auth.PrincipalOf(r)
+	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
+		return true
+	}
+	if p.Component != "" {
+		if role, ok := b.grantedRole(p.Component, "code:"+comp); ok && roleSatisfies(role, "reader", nil) {
+			return true
+		}
+	}
+	server.WriteJSON(w, http.StatusForbidden, map[string]string{
+		"error": "reading a component's source needs admin, or a code:" + comp + " grant — declare uses {target: \"code:" + comp + "\", role: \"reader\"}",
+		"docs":  "/docs/auth.md",
+	})
+	return false
+}
+
 // GET /code/tree?component=<path> — the component's files (flat, sorted).
 func (b *Broker) apiCodeTree(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
-		return
-	}
 	comp, dir, ok := b.component(w, r)
 	if !ok {
+		return
+	}
+	if !b.requireCodeRead(w, r, comp) {
 		return
 	}
 	type file struct {
@@ -161,11 +184,11 @@ func (b *Broker) apiCodeTree(w http.ResponseWriter, r *http.Request) {
 
 // GET /code/file?component=<path>&file=<rel> — one file's current content.
 func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	comp, dir, ok := b.component(w, r)
+	if !ok {
 		return
 	}
-	_, dir, ok := b.component(w, r)
-	if !ok {
+	if !b.requireCodeRead(w, r, comp) {
 		return
 	}
 	rel := r.URL.Query().Get("file")
@@ -197,11 +220,11 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 
 // GET /git/log?component=<path>&limit=N — commits touching the component.
 func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	comp, dir, ok := b.component(w, r)
+	if !ok {
 		return
 	}
-	_, dir, ok := b.component(w, r)
-	if !ok {
+	if !b.requireCodeRead(w, r, comp) {
 		return
 	}
 	if !isRepo(dir) {
@@ -238,11 +261,11 @@ func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
 // GET /git/diff?component=<path>&rev=<hash> — a commit's diff scoped to the
 // component, or (rev empty) the component's uncommitted changes vs HEAD.
 func (b *Broker) apiGitDiff(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	comp, dir, ok := b.component(w, r)
+	if !ok {
 		return
 	}
-	_, dir, ok := b.component(w, r)
-	if !ok {
+	if !b.requireCodeRead(w, r, comp) {
 		return
 	}
 	if !isRepo(dir) {

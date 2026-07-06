@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-06
 
+- interfaces/auth: new `code:<component>` capability — grant a component
+  read-only access to *another* component's source (files + git log/diff via
+  `/api/xbin/code/*`, `/git/{log,diff}`), owner-approved like any cross-scope
+  grant. A component always reads its own source; admin reads any.
+
 - **BREAKING** — interfaces: instance path prefixes registered via
   `PUT /api/xbin/iface-instances` are **provider-relative** and
   workspace-absolute (`/api/<self>/…`) registrations are now rejected with

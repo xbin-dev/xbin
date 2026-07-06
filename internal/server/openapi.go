@@ -66,6 +66,8 @@ xbind strips inbound ` + "`X-XBin-*`" + ` identity headers and re-injects verifi
 - **xbin:writer** — workspace-management grant (create components, import tiles).
 - **xbin:users** — user-management grant.
 - **self or admin** — the element itself, or admin (e.g. its own vault).
+- **admin or code:<component>** — admin, the component itself, or a caller
+  granted the ` + "`code:<component>`" + ` capability (read-only source access).
 - **reader / writer (resource grant)** — a role grant on the named ` + "`res:…`" + `
   resource (docs/resources.md).
 
@@ -136,13 +138,13 @@ func endpoints() []ep {
 			jsonBody("instantiation", oapi{"source": str("agent | apps/mytpl"), "path": str("optional target path")}, "source"), "{path, files, pendingGrants}"},
 
 		// --- code & git ---
-		{"GET", "/code/tree", "Code", "A component's files", "admin", "", []oapi{queryParam("component", "component path", true)}, nil, "{component, files:[{path,size}]}"},
-		{"GET", "/code/file", "Code", "One file's content", "admin", "Binary/oversized files are flagged, not dumped.", []oapi{queryParam("component", "component path", true), queryParam("file", "path within the component", true)}, nil, "{path, content|binary|truncated}"},
-		{"GET", "/git/log", "Code", "Component git history", "admin", "Commits from the component's OWN git repo (each component is its own repo); includes its origin `remote` if set.", []oapi{queryParam("component", "component path", true), queryParam("limit", "max commits", false)}, nil, "{repo, commits[], remote}"},
+		{"GET", "/code/tree", "Code", "A component's files", "admin or code:<component>", "Admin, the component itself, or a caller granted code:<component>.", []oapi{queryParam("component", "component path", true)}, nil, "{component, files:[{path,size}]}"},
+		{"GET", "/code/file", "Code", "One file's content", "admin or code:<component>", "Binary/oversized files are flagged, not dumped.", []oapi{queryParam("component", "component path", true), queryParam("file", "path within the component", true)}, nil, "{path, content|binary|truncated}"},
+		{"GET", "/git/log", "Code", "Component git history", "admin or code:<component>", "Commits from the component's OWN git repo (each component is its own repo); includes its origin `remote` if set.", []oapi{queryParam("component", "component path", true), queryParam("limit", "max commits", false)}, nil, "{repo, commits[], remote}"},
 		{"GET", "/git/remote-info", "Tiles", "Inspect a git remote before install", "xbin:writer", "git ls-remote on a URL: its default branch + tags (newest first), so the UI can offer versions.", []oapi{queryParam("url", "git URL (https/ssh/git)", true)}, nil, "{defaultBranch, tags[], remote}"},
 		{"POST", "/git/import", "Tiles", "Install a component from a git remote", "xbin:writer", "Clones a component in (each component is its own repo). Optional ref = tag/branch; path defaults to apps/<repo>. Rejects non-git/local URLs and non-xbin repos.", nil,
 			jsonBody("git install", oapi{"url": str("https://github.com/user/tile"), "path": str("optional; apps/<repo> by default"), "ref": str("optional tag/branch")}, "url"), "{path, remote, ref, pendingGrants}"},
-		{"GET", "/git/diff", "Code", "Commit diff / uncommitted changes", "admin", "rev empty = uncommitted changes vs HEAD; else that commit's diff, scoped to the component.", []oapi{queryParam("component", "component path", true), queryParam("rev", "commit hash (empty = working tree)", false)}, nil, "{repo, diff}"},
+		{"GET", "/git/diff", "Code", "Commit diff / uncommitted changes", "admin or code:<component>", "rev empty = uncommitted changes vs HEAD; else that commit's diff, scoped to the component.", []oapi{queryParam("component", "component path", true), queryParam("rev", "commit hash (empty = working tree)", false)}, nil, "{repo, diff}"},
 
 		// --- grants ---
 		{"GET", "/grants", "Grants", "Grant table + pending", "admin", "", nil, nil, "{grants:[{from,target,role}], pending:[…]}"},

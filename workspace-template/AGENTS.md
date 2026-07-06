@@ -423,6 +423,11 @@ it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
 - **Caller requests** in `uses`. Same scope → auto-granted. Cross-scope →
   pending until the owner approves: `bx grant apps/me apps/other:reader`
   (role goes after the LAST colon; also the panel on the root page).
+- **Read another component's source**: request `uses {target:"code:apps/x",
+  role:"reader"}` — once the owner approves, `GET /api/xbin/code/tree` /
+  `/code/file` / `/git/log` / `/git/diff` `?component=apps/x` return its files
+  and history (read-only; the same view a terminal has). You can always read
+  your own source; reading a sibling's is an owner-approved `code:` grant.
 - **Agents: do not approve cross-scope grants yourself.** Declaring `uses`
   is your job; *approving* a cross-scope (or `xbin:*`) grant is the owner's
   call — it is the human-in-the-loop the whole permission model exists for,

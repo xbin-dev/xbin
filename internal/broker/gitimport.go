@@ -222,6 +222,10 @@ func (b *Broker) unresolvedUses(comp string) []string {
 			}
 		case strings.HasPrefix(t, "net:"), strings.HasPrefix(t, "gpu:"):
 			// capability targets — always resolvable
+		case strings.HasPrefix(t, "code:"):
+			if _, ok := b.Reg.Component(strings.TrimPrefix(t, "code:")); !ok {
+				out = append(out, comp+": uses "+t+" — no such component to read source of")
+			}
 		default:
 			name := t
 			if i := strings.IndexByte(name, ':'); i >= 0 {
