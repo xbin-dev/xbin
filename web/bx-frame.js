@@ -20,11 +20,14 @@
  * See /docs/elements.md.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { repeat } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
+
+const uid = () => Math.random().toString(36).slice(2, 9);
 
 // Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
 let _gpuInv;
@@ -122,6 +125,7 @@ export class BxFrame extends LitElement {
       color: var(--bx-text, #33414e);
     }
     .titlebar button:hover { color: var(--bx-text, #33414e); }
+    .titlebar button.tab { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .titlebar select.scope {
       margin-left: 2px; border: 1px solid var(--bx-border, #e4e8ed);
       background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
@@ -175,7 +179,7 @@ export class BxFrame extends LitElement {
     try {
       const sessions = this._sessions
         .filter((s) => s.id) // only server-assigned sessions can be reattached
-        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu }));
+        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, name: s.name || '', key: s.key }));
       if (!sessions.length && !this._termOpen) { localStorage.removeItem(this._termKey()); return; }
       localStorage.setItem(this._termKey(), JSON.stringify({
         open: !!this._termOpen, active: this._active, pop: this._pop, sessions,
@@ -189,7 +193,7 @@ export class BxFrame extends LitElement {
     const saved = this._loadTerm();
     if (!saved?.sessions?.length) return;
     this._sessions = saved.sessions.map((s) => ({
-      id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none',
+      key: s.key || uid(), id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none', name: s.name || '',
     }));
     this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
     if (saved.pop) this._pop = { ...saved.pop };
@@ -310,13 +314,40 @@ export class BxFrame extends LitElement {
   }
 
   _newTerm() {
-    this._sessions = [...this._sessions, { id: null, net: 'internet', gpu: 'none' }];
+    this._sessions = [...this._sessions, { key: uid(), id: null, net: 'internet', gpu: 'none', name: '' }];
     this._active = this._sessions.length - 1;
+  }
+
+  // Rename the terminal on tab i (blank clears back to its number). Names are
+  // per-component and persist like the session list.
+  _renameTerm(i) {
+    const cur = this._sessions[i];
+    if (!cur) return;
+    const n = prompt('Terminal name (blank to number it):', cur.name || '');
+    if (n === null) return;
+    const s = [...this._sessions];
+    s[i] = { ...cur, name: n.trim() };
+    this._sessions = s;
+  }
+
+  // Close terminal i. ended=true means the shell already exited (no DELETE
+  // needed); otherwise this is a user close and we end the server session.
+  // Closing the last one closes the window.
+  _closeTerm(i, ended = false) {
+    const s = this._sessions[i];
+    if (!s) return;
+    if (!ended && s.id) fetch(`/ws/term?session=${encodeURIComponent(s.id)}`, { method: 'DELETE' }).catch(() => { });
+    const rest = this._sessions.filter((_, j) => j !== i);
+    if (!rest.length) { this._sessions = []; this._termOpen = false; return; }
+    this._sessions = rest;
+    if (this._active >= rest.length) this._active = rest.length - 1;
+    else if (this._active > i) this._active -= 1;
   }
 
   _gotSession(i, ev) {
     const s = [...this._sessions];
-    s[i] = { id: ev.detail.id, net: ev.detail.net || s[i]?.net || 'internet', gpu: s[i]?.gpu || 'none' };
+    const cur = s[i] || {};
+    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || 'internet' };
     this._sessions = s;
   }
 
@@ -329,7 +360,7 @@ export class BxFrame extends LitElement {
       fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' }).catch(() => { });
     }
     const s = [...this._sessions];
-    s[i] = { id: null, net: cur.net || 'internet', gpu };
+    s[i] = { ...cur, id: null, gpu };
     this._sessions = s;
   }
 
@@ -342,7 +373,7 @@ export class BxFrame extends LitElement {
       .catch(() => { })
       .finally(() => {
         const s = [...this._sessions];
-        if (s[this._active]) s[this._active] = { id: null, net: s[this._active].net || 'internet', gpu: s[this._active].gpu || 'none' };
+        if (s[this._active]) s[this._active] = { ...s[this._active], id: null };
         this._sessions = s;
         this.renderRoot?.querySelectorAll('bx-terminal')[this._active]?.restartFresh?.();
       });
@@ -359,7 +390,7 @@ export class BxFrame extends LitElement {
         .catch(() => { });
     }
     const s = [...this._sessions];
-    s[i] = { id: null, net, gpu: cur.gpu || 'none' };
+    s[i] = { ...cur, id: null, net };
     this._sessions = s;
   }
 
@@ -381,8 +412,10 @@ export class BxFrame extends LitElement {
           <div class="titlebar" @pointerdown=${this._dragStart}>
             <span class="path">${this.src}</span>
             ${this._sessions.map((s, i) => html`
-              <button class=${i === this._active ? 'on' : ''}
-                      @click=${() => { this._active = i; }}>${i + 1}</button>`)}
+              <button class="tab ${i === this._active ? 'on' : ''}"
+                      @click=${() => { this._active = i; }}
+                      @dblclick=${() => this._renameTerm(i)}
+                      title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>${s.name || (i + 1)}</button>`)}
             <button title="new terminal" @click=${this._newTerm}>+</button>
             <span class="spacer"></span>
             <select class="scope" title="network scope (switching restarts the terminal)"
@@ -406,10 +439,11 @@ export class BxFrame extends LitElement {
                     @click=${() => { this._termOpen = false; }}>✕</button>
           </div>
           <div class="term-host">
-            ${this._sessions.map((s, i) => html`
+            ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
                 cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'}
-                @bx-session=${(ev) => this._gotSession(i, ev)}></bx-terminal>`)}
+                @bx-session=${(ev) => this._gotSession(i, ev)}
+                @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
           </div>
         </div>` : nothing}
     `;

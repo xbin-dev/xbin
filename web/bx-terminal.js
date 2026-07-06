@@ -171,8 +171,10 @@ export class BxTerminal extends HTMLElement {
           if (ctl.net) this.setAttribute('net', ctl.net);
           this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id, net: ctl.net }, bubbles: true }));
         } else if (ctl.op === 'exit') {
+          // Shell exited — the session is gone server-side. Let the host close
+          // this terminal (its tab/window), like a real terminal emulator.
           this.#closed = true;
-          this.#term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
+          this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true }));
         }
         return;
       }

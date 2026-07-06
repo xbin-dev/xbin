@@ -48,6 +48,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - terminals: Ctrl+W now reaches the shell as word-erase instead of closing the
   browser tab (best-effort — some browsers reserve it); overlapping floating
   windows get a higher-contrast edge.
+- terminals: exiting the shell now closes that terminal (its tab, or the
+  window if it was the last one) instead of leaving a dead "[session ended]"
+  pane; terminal tabs can be renamed (double-click).
 
 ## 2026-07-05
 
