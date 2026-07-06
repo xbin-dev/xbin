@@ -620,6 +620,22 @@ $XBIN_IFACE_LLM_URL                 // backend env</pre>
           passes. Swap Ollama ↔ a cloud proxy by rebinding — your code never
           changes.</p>`,
       },
+      {
+        id: 'iface-multi', title: 'many inputs · many outputs', color: 'slate',
+        teaser: 'multi:true slots bind a set; providers expose #instances',
+        body: html`
+          <p>Need <em>all</em> the owner's channels on one slot? Opt in with
+          <code>"multi": true</code> (http only) — the owner multiselects
+          providers, and you get the set:</p>
+          <pre>xbin.iface('channels').endpoints   // [{provider, instance?, url}]
+$XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
+          <p>Serving several accounts of one contract? Declare
+          <code>"instances": true</code> on your provide and register them at
+          runtime — <code>PUT /api/xbin/iface-instances
+          {"instances":{"abc":"/accounts/abc"}}</code>. Each binds as
+          <code>provider#id</code> and looks like any other provider, so
+          instance-unaware tiles connect to one unchanged.</p>`,
+      },
     ],
   },
   {

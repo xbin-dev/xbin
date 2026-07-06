@@ -380,6 +380,20 @@ you can't self-bind, same rule as grants) — unbound means no capability.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).
+- **Many inputs on one slot** (http only): add `"multi": true` to a request
+  slot when you genuinely want a *set* of providers (a comm agent binding
+  Slack + N email accounts on one `channels` slot). You must opt in — you
+  then get `$XBIN_IFACE_<slot>` as a JSON array
+  `[{provider, instance?, url, service}]` (backend) / `xbin.iface(slot)` as
+  `{service, multi, endpoints}` (frontend), and `provider#instance` is the
+  stable per-channel key. Without `multi` a slot binds exactly one provider.
+- **Many outputs (instances)**: a provider serving several accounts/profiles
+  of one contract declares `"instances": true` on the provide and registers
+  them at runtime — `PUT /api/xbin/iface-instances {"instances": {"<id>":
+  "/api/path/prefix"}}` (replaces the map; re-register when config changes).
+  Each instance binds as `provider#id` and presents itself like any provider
+  — instance-unaware requesters connect to one unchanged (the injected URL
+  routes through your path prefix).
 - **`net` — L3 egress through a provider tile.** `"interfaces": { "net": { "kind":
   "net" } }`, bound to a builtin (`internet`/`host`) or a provider tile
   (`"provides": { "egress": { "kind": "net" } }`) — a firewall/VPN/router your

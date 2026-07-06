@@ -21,6 +21,9 @@ bx api <component>                     roles + API.md — how to integrate with 
 bx grants                              grant table + pending requests
 bx grant <caller> <target>:<role>      approve/add a grant
 bx grant --revoke <caller> <target>:<role>
+bx iface                               interface requests, providers, bindings
+bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>
+                                       wire interface slots (# = provider instance)
 bx vault status|unseal|seal|rekey      encryption-at-rest barrier
 bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls                             scheduled jobs
@@ -39,6 +42,11 @@ scaffolding, frame it somewhere:
 **`bx grant`** — the role goes after the *last* colon, so resource targets
 read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
 Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
+
+**`bx bind`** — wires a component's interface slots (plans/interfaces.md).
+`slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and
+`slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
+runtime-registered sub-slots of a provider (`bx iface` lists them).
 
 **`bx vault set`** — with no value argument, reads the secret from stdin
 (so it stays out of shell history):
