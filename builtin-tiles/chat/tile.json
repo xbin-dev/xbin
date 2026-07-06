@@ -1,10 +1,18 @@
 {
   "name": "chat",
-  "version": 1,
+  "version": 2,
   "title": "Chat",
-  "description": "A streaming LLM chat UI (with foldable reasoning). Pure frontend — talks to the LLM Gateway tile. Import llm-gw first, then approve the pending apps/chat → apps/llm-gw grant.",
+  "description": "A streaming LLM chat UI (foldable reasoning + MCP tool use). Pure frontend \u2014 bind one or more OpenAI-compatible LLM providers (e.g. llm-gw) and, optionally, Model Context Protocol servers whose tools the model can call.",
   "defaultPath": "apps/chat",
-  "tags": ["llm", "ai", "chat"],
+  "tags": [
+    "llm",
+    "ai",
+    "chat",
+    "mcp",
+    "tools"
+  ],
   "provides": [],
-  "requires": ["llm-gw"]
+  "requires": [
+    "llm-gw"
+  ]
 }

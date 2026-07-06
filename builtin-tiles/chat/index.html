@@ -1,8 +1,9 @@
 <!doctype html>
 <!-- LLM chat tile. One-off chats: nothing persists — history lives in page
-     memory and dies on reload/new chat. Models and completions come from the
-     bound "llm" providers (multi-input: bind one or more OpenAI-compatible
-     tiles; the picker lists models from all of them); streaming via SSE. -->
+     memory and dies on reload/new chat. Models come from the bound "llm"
+     providers (multi-input). If any "mcp" providers are bound, their tools are
+     offered to the model and tool calls are executed against them in an agent
+     loop; streaming via SSE. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -16,10 +17,14 @@
     body { padding: 10px 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; height: 560px; }
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
-              text-transform: uppercase; color: var(--bx-muted); flex: 1; }
+              text-transform: uppercase; color: var(--bx-muted); }
+    .top .sp { flex: 1; }
+    .tools-chip { font-size: 10.5px; color: var(--bx-muted); font-family: var(--bx-mono);
+                  white-space: nowrap; cursor: default; }
+    .tools-chip.err { color: var(--bx-red); cursor: help; }
     select {
       background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
-      color: var(--bx-text); font: 11.5px var(--bx-mono); padding: 3px 6px; max-width: 260px;
+      color: var(--bx-text); font: 11.5px var(--bx-mono); padding: 3px 6px; max-width: 240px;
     }
     button {
       background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
@@ -27,7 +32,7 @@
     }
     button:hover { background: var(--bx-panel-2); }
     button:disabled { opacity: .5; cursor: default; }
-    button.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; font-weight: 600; }
+    button.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: #23272e; font-weight: 600; }
     button.primary:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
 
     .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
@@ -42,6 +47,7 @@
                              border-radius: 5px; padding: 6px 8px; overflow-x: auto; }
     .msg.assistant .md code { font: 11.5px var(--bx-mono); }
     .msg .err { color: var(--bx-red); font-size: 11.5px; white-space: pre-wrap; }
+    .msg.assistant:empty { display: none; }
 
     details.think { margin: 0 0 6px; border: 1px dashed var(--bx-border); border-radius: 6px;
                     background: var(--bx-panel-2); }
@@ -53,6 +59,23 @@
                         max-height: 160px; overflow-y: auto; }
     summary .dots::after { content: '…'; animation: dots 1.2s steps(4) infinite; }
     @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+    /* tool call — an agent-loop step routed to a bound MCP server */
+    details.toolcall { align-self: flex-start; max-width: 92%; border: 1px solid var(--bx-border);
+                       border-left: 3px solid var(--bx-muted); border-radius: 6px; background: var(--bx-panel-2);
+                       font-size: 11.5px; }
+    details.toolcall.running { border-left-color: var(--bx-amber, #f2a71b); }
+    details.toolcall.ok { border-left-color: var(--bx-green, #43a047); }
+    details.toolcall.error { border-left-color: var(--bx-red, #e5484d); }
+    details.toolcall summary { cursor: pointer; padding: 4px 9px; user-select: none;
+                               list-style-position: inside; }
+    details.toolcall summary .tn { font-family: var(--bx-mono); font-weight: 600; }
+    details.toolcall summary .ts { color: var(--bx-muted); font-size: 10.5px; margin-left: 6px; }
+    details.toolcall pre { margin: 0; padding: 4px 10px 8px; font: 11px/1.5 var(--bx-mono);
+                           color: var(--bx-text); white-space: pre-wrap; word-break: break-word;
+                           max-height: 200px; overflow-y: auto; }
+    details.toolcall .lbl { color: var(--bx-muted); font-size: 9.5px; text-transform: uppercase;
+                            letter-spacing: .06em; padding: 4px 10px 0; }
 
     .composer { display: flex; gap: 6px; margin-top: 8px; align-items: flex-end; }
     textarea {
@@ -69,6 +92,8 @@
   <div class="top">
     <h3>Chat</h3>
     <select id="model" title="Model"><option>loading models…</option></select>
+    <span class="sp"></span>
+    <span class="tools-chip" id="tools" hidden></span>
     <button id="clear" title="Discard this chat">New chat</button>
   </div>
   <div class="log" id="log"></div>
@@ -81,29 +106,214 @@
   <script type="module">
     import { marked } from '/vendor/marked.esm.js';
 
-    // The OpenAI-compatible endpoints come from the "llm" interface binding
-    // (plans/interfaces.md, multi:true) — bind one or more providers in the
-    // admin Interfaces tab. Handles the multi shape ({endpoints}) and the
-    // legacy single shape ({url}) alike.
-    const iface = xbin.iface('llm');
-    const ENDPOINTS = iface?.endpoints ?? (iface?.url ? [{ url: iface.url, provider: 'llm' }] : []);
+    // ── interface bindings (plans/interfaces.md, both multi:true) ─────────────
+    // "llm": OpenAI-compatible providers — models + completions.
+    // "mcp": Model Context Protocol servers — tools the model may call. Each
+    //        provider serves the MCP Streamable-HTTP endpoint at "/mcp".
+    const asEndpoints = (iface) => iface?.endpoints ?? (iface?.url ? [{ url: iface.url, provider: iface.service }] : []);
+    const ENDPOINTS = asEndpoints(xbin.iface('llm'));
+    const MCP = asEndpoints(xbin.iface('mcp'));
     const epLabel = (e) => e.instance ? `${e.provider}#${e.instance}` : e.provider;
+
     const $ = (id) => document.getElementById(id);
-    const log = $('log'), input = $('input'), sendBtn = $('send'), modelSel = $('model'), note = $('note');
+    const log = $('log'), input = $('input'), sendBtn = $('send'), modelSel = $('model'),
+          note = $('note'), toolsChip = $('tools');
 
-    let history = [];          // [{role, content}] — memory only, gone on reload
-    let controller = null;     // AbortController while a reply streams
+    let history = [];          // OpenAI messages — memory only, gone on reload
+    let controller = null;     // AbortController while a turn runs
 
-    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const render = (s) => marked.parse(esc(s));
+    const setNote = (t, isErr) => { note.hidden = !t; note.textContent = t || ''; note.classList.toggle('err', !!isErr); };
 
-    function setNote(text, isErr) {
-      note.hidden = !text;
-      note.textContent = text || '';
-      note.classList.toggle('err', !!isErr);
+    // ════════════════════════ MCP client (Streamable HTTP) ═══════════════════
+    // JSON-RPC 2.0 over a single POST endpoint. Responses are application/json
+    // OR text/event-stream; a stateful server assigns Mcp-Session-Id on init and
+    // we echo it (plus the negotiated MCP-Protocol-Version) on later calls.
+    const MCP_PROTO = '2025-06-18';
+    const mcpUrl = (ep) => ep.url.replace(/\/+$/, '') + '/mcp';
+    const mcp = MCP.map(() => ({ sid: null, ver: MCP_PROTO, ready: false }));
+    let rpcId = 1;
+
+    async function readRpc(r, id) {
+      const ct = r.headers.get('Content-Type') || '';
+      if (!ct.includes('text/event-stream')) return r.json();
+      // SSE: find the message whose id matches our request.
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split(/\n\n/); buf = events.pop();
+        for (const ev of events)
+          for (const line of ev.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            try { const j = JSON.parse(line.slice(5).trim()); if (j.id === id) { reader.cancel(); return j; } } catch { /* keep reading */ }
+          }
+      }
+      throw new Error('no matching response on MCP stream');
     }
 
-    // --- models (aggregated across every bound endpoint) ---
+    async function rpc(i, method, params, { notify = false } = {}) {
+      const st = mcp[i];
+      const msg = { jsonrpc: '2.0', method };
+      if (params !== undefined) msg.params = params;
+      if (!notify) msg.id = rpcId++;
+      const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+      if (st.sid) headers['Mcp-Session-Id'] = st.sid;
+      if (st.ready) headers['MCP-Protocol-Version'] = st.ver;
+      const r = await xbin.fetch(mcpUrl(MCP[i]), { method: 'POST', headers, body: JSON.stringify(msg) });
+      const sid = r.headers.get('Mcp-Session-Id'); if (sid) st.sid = sid;
+      if (notify) return;                                  // 202 Accepted, no body
+      if (!r.ok) throw new Error(`${method} → ${r.status} ${(await r.text()).slice(0, 200)}`);
+      const resp = await readRpc(r, msg.id);
+      if (resp.error) throw new Error(resp.error.message || JSON.stringify(resp.error));
+      return resp.result;
+    }
+
+    async function mcpInit(i) {
+      if (mcp[i].ready) return;
+      const res = await rpc(i, 'initialize', {
+        protocolVersion: MCP_PROTO, capabilities: {},
+        clientInfo: { name: 'xbin-chat', version: '1' },
+      });
+      if (res?.protocolVersion) mcp[i].ver = res.protocolVersion;
+      mcp[i].ready = true;
+      await rpc(i, 'notifications/initialized', undefined, { notify: true });
+    }
+
+    async function mcpTools(i) {
+      await mcpInit(i);
+      const out = []; let cursor;
+      do {
+        const res = await rpc(i, 'tools/list', cursor ? { cursor } : undefined);
+        out.push(...(res.tools ?? []));
+        cursor = res.nextCursor;
+      } while (cursor);
+      return out;
+    }
+
+    // Tool aggregation: MCP tools → OpenAI function tools, with a route back to
+    // the owning server. Exposed name = "m<server>_<tool>", clamped to OpenAI's
+    // ^[A-Za-z0-9_-]{1,64}$ (the server index prefix keeps cross-server names
+    // distinct; per-server names are already unique).
+    let TOOLS = [];            // OpenAI tool defs sent to the model
+    let route = {};            // exposed name -> { i, name }
+    async function loadTools() {
+      TOOLS = []; route = {};
+      if (!MCP.length) { toolsChip.hidden = true; return; }
+      const errs = [];
+      await Promise.all(MCP.map(async (ep, i) => {
+        try {
+          for (const t of await mcpTools(i)) {
+            let name = `m${i}_${t.name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+            while (route[name]) name = (name.slice(0, 60) + '_' + rpcId++).slice(0, 64);
+            route[name] = { i, name: t.name };
+            TOOLS.push({ type: 'function', function: {
+              name,
+              description: (MCP.length > 1 ? `[${epLabel(ep)}] ` : '') + (t.description || t.name),
+              parameters: t.inputSchema || { type: 'object', properties: {} },
+            } });
+          }
+        } catch (e) { errs.push(`${epLabel(ep)}: ${String(e.message ?? e)}`); }
+      }));
+      toolsChip.hidden = false;
+      if (errs.length) {
+        toolsChip.className = 'tools-chip err';
+        toolsChip.textContent = `⚠ ${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'}`;
+        toolsChip.title = 'MCP errors —\n' + errs.join('\n');
+      } else {
+        toolsChip.className = 'tools-chip';
+        toolsChip.textContent = `🔧 ${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'} · ${MCP.length} server${MCP.length === 1 ? '' : 's'}`;
+        toolsChip.title = TOOLS.map((t) => t.function.name).join('\n');
+      }
+    }
+
+    // Execute one model-requested tool call against its MCP server; returns the
+    // string the model sees back (MCP content flattened to text).
+    async function callTool(exposed, argsJson) {
+      const r = route[exposed];
+      if (!r) return { text: `unknown tool: ${exposed}`, isError: true };
+      let args = {};
+      try { args = argsJson ? JSON.parse(argsJson) : {}; }
+      catch (e) { return { text: `invalid tool arguments: ${e.message}`, isError: true }; }
+      try {
+        const res = await rpc(r.i, 'tools/call', { name: r.name, arguments: args });
+        const text = (res.content ?? []).map((c) =>
+          c.type === 'text' ? c.text
+          : c.type === 'image' ? '[image]'
+          : c.type === 'audio' ? '[audio]'
+          : c.type === 'resource' ? `[resource ${c.resource?.uri ?? ''}]\n${c.resource?.text ?? ''}`
+          : JSON.stringify(c)).join('\n');
+        return { text: text || '(no output)', isError: !!res.isError };
+      } catch (e) { return { text: `tool call failed: ${String(e.message ?? e)}`, isError: true }; }
+    }
+
+    // ════════════════════════════ chat UI bits ══════════════════════════════
+    function assistantBubble() {
+      const el = document.createElement('div');
+      el.className = 'msg assistant';
+      el.innerHTML = `
+        <details class="think" open hidden>
+          <summary>Thinking<span class="dots"></span></summary>
+          <pre></pre>
+        </details>
+        <div class="md"></div>`;
+      log.append(el);
+      const details = el.querySelector('details'), thinkPre = el.querySelector('pre');
+      const summary = el.querySelector('summary'), md = el.querySelector('.md');
+      let folded = false;
+      return {
+        el,
+        update(thinking, content) {
+          if (thinking) { details.hidden = false; thinkPre.textContent = thinking; }
+          if (content) {
+            if (!folded) { folded = true; details.open = false; summary.textContent = 'Thinking'; }
+            md.innerHTML = render(content);
+          }
+        },
+        fail(text) {
+          const p = document.createElement('div'); p.className = 'err'; p.textContent = text; el.append(p);
+        },
+        done() { summary.textContent = 'Thinking'; },   // stop the animated dots
+      };
+    }
+
+    function toolBubble(label, argsText) {
+      const el = document.createElement('details');
+      el.className = 'toolcall running';
+      el.innerHTML = `<summary>🔧 <span class="tn"></span><span class="ts">running…</span></summary>
+        <div class="lbl">arguments</div><pre class="args"></pre>
+        <div class="lbl">result</div><pre class="res"></pre>`;
+      el.querySelector('.tn').textContent = label;
+      el.querySelector('.args').textContent = argsText || '{}';
+      log.append(el);
+      return (text, isError) => {
+        el.classList.remove('running');
+        el.classList.add(isError ? 'error' : 'ok');
+        el.querySelector('.ts').textContent = isError ? 'error' : 'done';
+        el.querySelector('.res').textContent = text;
+      };
+    }
+
+    const autoscroll = () => {
+      if (log.scrollHeight - log.scrollTop - log.clientHeight < 80) log.scrollTop = log.scrollHeight;
+    };
+
+    // reasoning that arrives as a leading <think>…</think> vs delta.reasoning_*
+    function splitThink(raw, apiThinking) {
+      let thinking = apiThinking, content = raw;
+      const lead = raw.trimStart();
+      if (lead.startsWith('<think>')) {
+        const end = lead.indexOf('</think>');
+        if (end === -1) { thinking += lead.slice(7); content = ''; }
+        else { thinking += lead.slice(7, end); content = lead.slice(end + 8).replace(/^\s+/, ''); }
+      } else if (lead && '<think>'.startsWith(lead)) { content = ''; }
+      return { thinking, content };
+    }
+
+    // ── models (aggregated across every bound llm endpoint) ──────────────────
     async function loadModels() {
       if (!ENDPOINTS.length) {
         setNote('No LLM bound yet — bind this tile\'s "llm" interface to one or ' +
@@ -123,11 +333,10 @@
       const opts = [];
       const isAlias = (m) => !!m.alias_of || m.owned_by === 'alias';
       for (const { i, ep, data } of lists) {
-        // Aliases (workspace-curated names) first, then alphabetically.
         data.sort((a, b) => (isAlias(b) - isAlias(a)) || a.id.localeCompare(b.id));
         for (const m of data) {
           const o = document.createElement('option');
-          o.value = `${i}\u0000${m.id}`;      // endpoint index + model id
+          o.value = `${i} ${m.id}`;
           const name = m.alias_of ? `${m.id} → ${m.alias_of}` : m.id;
           o.textContent = ENDPOINTS.length > 1 ? `${name} — ${epLabel(ep)}` : name;
           opts.push(o);
@@ -140,147 +349,112 @@
         return;
       }
       modelSel.replaceChildren(...opts);
-      setNote(failed.length
-        ? `Some providers failed: ${failed.map((l) => epLabel(l.ep)).join(', ')}` : '');
+      setNote(failed.length ? `Some providers failed: ${failed.map((l) => epLabel(l.ep)).join(', ')}` : '');
     }
 
-    // --- one assistant bubble with a foldable thinking section ---
-    function assistantBubble() {
-      const el = document.createElement('div');
-      el.className = 'msg assistant';
-      el.innerHTML = `
-        <details class="think" open hidden>
-          <summary>Thinking<span class="dots"></span></summary>
-          <pre></pre>
-        </details>
-        <div class="md"></div>`;
-      log.append(el);
-      const details = el.querySelector('details'), thinkPre = el.querySelector('pre');
-      const summary = el.querySelector('summary'), md = el.querySelector('.md');
-      let folded = false;
-      return {
-        el,
-        update(thinking, content) {
-          if (thinking) {
-            details.hidden = false;
-            thinkPre.textContent = thinking;
-          }
-          if (content) {
-            if (!folded) {              // first visible token: fold thinking away
-              folded = true;
-              details.open = false;
-              summary.textContent = 'Thinking';
-            }
-            md.innerHTML = render(content);
-          }
-        },
-        fail(text) {
-          const p = document.createElement('div');
-          p.className = 'err';
-          p.textContent = text;
-          el.append(p);
-        },
-        done() {
-          summary.textContent = 'Thinking';   // stop the animated dots
-        },
+    // ── one streamed completion round ────────────────────────────────────────
+    // Drives `bubble` live; returns {content, toolCalls, finish}. tool_calls are
+    // accumulated by index (OpenAI streams name once, arguments in fragments).
+    async function streamRound(ep, model, messages, bubble) {
+      const req = { model, messages, stream: true };
+      if (TOOLS.length) { req.tools = TOOLS; req.tool_choice = 'auto'; }
+      const r = await xbin.fetch(`${ep.url}/v1/chat/completions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req), signal: controller.signal,
+      });
+      if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 400)}`);
+
+      let raw = '', apiThinking = '', finish = null;
+      const toolCalls = [];
+      let pending = false;
+      const paint = () => {
+        if (pending) return; pending = true;
+        requestAnimationFrame(() => { pending = false;
+          const { thinking, content } = splitThink(raw, apiThinking);
+          bubble.update(thinking, content); autoscroll(); });
       };
-    }
 
-    function autoscroll() {
-      const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-      if (nearBottom) log.scrollTop = log.scrollHeight;
-    }
-
-    // Some models put reasoning in delta.reasoning_content / delta.reasoning,
-    // others inline it as a leading <think>…</think> block. Handle both;
-    // returns {thinking, content} views of the accumulated raw stream.
-    function splitThink(raw, apiThinking) {
-      let thinking = apiThinking, content = raw;
-      const lead = raw.trimStart();
-      if (lead.startsWith('<think>')) {
-        const end = lead.indexOf('</think>');
-        if (end === -1) { thinking += lead.slice(7); content = ''; }
-        else { thinking += lead.slice(7, end); content = lead.slice(end + 8).replace(/^\s+/, ''); }
-      } else if (lead && '<think>'.startsWith(lead)) {
-        content = '';                    // partial tag at stream start — wait
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          let j; try { j = JSON.parse(payload); } catch { continue; }
+          if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+          const choice = j.choices?.[0] || {};
+          const d = choice.delta || {};
+          apiThinking += d.reasoning_content ?? d.reasoning ?? '';
+          raw += d.content ?? '';
+          for (const tc of d.tool_calls ?? []) {
+            const k = tc.index ?? 0;
+            const slot = toolCalls[k] ?? (toolCalls[k] = { id: '', type: 'function', function: { name: '', arguments: '' } });
+            if (tc.id) slot.id = tc.id;
+            if (tc.function?.name) slot.function.name += tc.function.name;
+            if (tc.function?.arguments) slot.function.arguments += tc.function.arguments;
+          }
+          if (choice.finish_reason) finish = choice.finish_reason;
+          paint();
+        }
       }
-      return { thinking, content };
+      const { thinking, content } = splitThink(raw, apiThinking);
+      bubble.update(thinking, content); bubble.done();
+      return { content, toolCalls: toolCalls.filter(Boolean), finish };
     }
+
+    const MAX_ROUNDS = 8;   // cap the tool-use loop
 
     async function send() {
       const text = input.value.trim();
-      if (!text || controller) return;
+      if (!text || controller || !modelSel.value) return;
       input.value = '';
 
       history.push({ role: 'user', content: text });
-      const u = document.createElement('div');
-      u.className = 'msg user';
-      u.textContent = text;
-      log.append(u);
-
-      const bubble = assistantBubble();
+      const u = document.createElement('div'); u.className = 'msg user'; u.textContent = text; log.append(u);
       autoscroll();
 
       controller = new AbortController();
       sendBtn.textContent = 'Stop';
       sendBtn.onclick = () => controller.abort();
 
-      let raw = '', apiThinking = '', finalContent = '';
-      let pending = false;
-      const paint = () => {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(() => {
-          pending = false;
-          const { thinking, content } = splitThink(raw, apiThinking);
-          finalContent = content;
-          bubble.update(thinking, content);
-          autoscroll();
-        });
-      };
+      const [epIdx, model] = modelSel.value.split(' ');
+      const ep = ENDPOINTS[Number(epIdx)] ?? ENDPOINTS[0];
 
       try {
-        const [epIdx, model] = modelSel.value.split('\u0000');
-        const ep = ENDPOINTS[Number(epIdx)] ?? ENDPOINTS[0];
-        const r = await xbin.fetch(`${ep.url}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: model ?? modelSel.value, messages: history, stream: true }),
-          signal: controller.signal,
-        });
-        if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 400)}`);
+        for (let round = 0; round < MAX_ROUNDS; round++) {
+          const bubble = assistantBubble();
+          const { content, toolCalls, finish } = await streamRound(ep, model ?? modelSel.value, history, bubble);
 
-        const reader = r.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop();
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue;
-            const payload = line.slice(5).trim();
-            if (payload === '[DONE]') continue;
-            let j; try { j = JSON.parse(payload); } catch { continue; }
-            if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-            const d = j.choices?.[0]?.delta || {};
-            apiThinking += d.reasoning_content ?? d.reasoning ?? '';
-            raw += d.content ?? '';
-            paint();
+          if (toolCalls.length) {
+            // Record the assistant's tool request, run each call, feed results back.
+            history.push({ role: 'assistant', content: content || null, tool_calls: toolCalls });
+            for (const tc of toolCalls) {
+              const r = route[tc.function.name];
+              const label = r ? `${epLabel(MCP[r.i])} · ${r.name}` : tc.function.name;
+              const resolve = toolBubble(label, tc.function.arguments);
+              autoscroll();
+              const { text: out, isError } = await callTool(tc.function.name, tc.function.arguments);
+              resolve(out, isError);
+              history.push({ role: 'tool', tool_call_id: tc.id, content: out.slice(0, 100_000) });
+              autoscroll();
+              if (controller.signal.aborted) throw new DOMException('aborted', 'AbortError');
+            }
+            continue;               // loop for the model's next turn
           }
+
+          history.push({ role: 'assistant', content });
+          if (finish === 'length') bubble.fail('— response truncated (token limit) —');
+          break;                    // no tools requested → turn done
         }
       } catch (e) {
-        if (e.name === 'AbortError') bubble.fail('— stopped —');
-        else bubble.fail(`Error: ${e.message}`);
+        const b = assistantBubble();
+        b.fail(e.name === 'AbortError' ? '— stopped —' : `Error: ${e.message}`);
       } finally {
-        const { thinking, content } = splitThink(raw, apiThinking);
-        finalContent = content;
-        bubble.update(thinking, content);
-        bubble.done();
-        // Keep whatever we got so the conversation can continue after a stop.
-        history.push({ role: 'assistant', content: finalContent || raw });
         controller = null;
         sendBtn.textContent = 'Send';
         sendBtn.onclick = send;
@@ -301,6 +475,7 @@
     };
 
     loadModels();
+    loadTools();
   </script>
 </body>
 </html>

@@ -84,6 +84,13 @@ requester change). No TUN — it reuses the gateway/RBAC. The builtin `llm-gw` +
 `chat` tiles use this. HTTPS stays opaque to a proxy/DPI unless its CA is bound
 into the client's trust store (a separate explicit toggle, deferred).
 
+Recognised service contracts are just conventions on the `service` string.
+Besides `openai`, the builtins use **`mcp`** — a Model Context Protocol server
+(modelcontextprotocol.io): the provider serves the JSON-RPC Streamable-HTTP
+endpoint at `/mcp` under itself, and a bound requester (the `chat` tile, a
+`multi:true mcp` slot) offers its tools to the model. Same binding-as-grant,
+same swappability.
+
 ### `resource` — xbind builtins *(designed, not implemented)*
 
 kv / blob / bus / cron / sqlite reframed as `resource` interfaces provided by

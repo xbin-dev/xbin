@@ -1,11 +1,17 @@
 {
-  // LLM chat tile — pure frontend. It requests an "openai" http interface
-  // (plans/interfaces.md) rather than hard-coding a provider; the owner binds
-  // it to one OR MORE OpenAI-compatible provider tiles ("multi": true — the
-  // admin Interfaces tab shows a multiselect). The binding is also the call
-  // grant, so no separate `uses` is needed. The frontend discovers every bound
-  // endpoint via xbin.iface('llm').endpoints and lists models from all of them.
+  // LLM chat tile — pure frontend. Two multi:true http interfaces
+  // (plans/interfaces.md), each bound by the owner in the admin Interfaces tab:
+  //
+  //   "llm"  service "openai" — one or more OpenAI-compatible providers
+  //          (e.g. apps/llm-gw). The model picker lists models from all of them.
+  //   "mcp"  service "mcp"    — zero or more Model Context Protocol servers
+  //          (https://modelcontextprotocol.io). Their tools are offered to the
+  //          model; tool calls are routed back to the owning server. A provider
+  //          exposes the MCP Streamable-HTTP endpoint at "/mcp" under itself.
+  //
+  // Binding is also the call grant, so no separate `uses` is needed.
   "interfaces": {
-    "llm": { "kind": "http", "service": "openai", "multi": true }
+    "llm": { "kind": "http", "service": "openai", "multi": true },
+    "mcp": { "kind": "http", "service": "mcp", "multi": true }
   }
 }
