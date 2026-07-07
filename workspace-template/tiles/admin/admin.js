@@ -56,7 +56,6 @@ export class BxAdmin extends LitElement {
     _ov: { state: true },       // auth-overview
     _vaults: { state: true },      // [{component, keys}] (null while sealed)
     _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
-    _reveal: { state: true },   // "comp\0key" -> value (revealed secrets)
     _cron: { state: true },
     _users: { state: true },
     _authSettings: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
@@ -247,7 +246,6 @@ export class BxAdmin extends LitElement {
     super();
     const h = location.hash.replace(/^#/, '');
     this._tab = BxAdmin.TABS.some((t) => t.id === h) ? h : 'overview';
-    this._reveal = {};
     this._err = '';
     this._denied = false;
     this._rtOpen = new Set();
@@ -336,19 +334,12 @@ export class BxAdmin extends LitElement {
   }
 
   // ---- vault ----
-  async _revealKey(comp, key) {
-    try {
-      const d = await api(`/vault/${comp}/${encodeURIComponent(key)}`);
-      this._reveal = { ...this._reveal, [comp + '\0' + key]: d.value };
-    } catch (e) { this._err = String(e.message); }
-  }
-  _hideKey(comp, key) {
-    const r = { ...this._reveal }; delete r[comp + '\0' + key]; this._reveal = r;
-  }
+  // The admin console never reads secret values back — they're private to the
+  // owning element (the vault lockdown). It can only list keys and set/rotate.
   async _setSecret(comp, key, value) {
     await api(`/vault/${comp}/${encodeURIComponent(key)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
-    this._hideKey(comp, key); this._refresh();
+    this._refresh();
   }
   async _delSecret(comp, key) {
     if (!confirm(`Delete secret ${comp} / ${key}?`)) return;
@@ -798,23 +789,19 @@ export class BxAdmin extends LitElement {
       ${sealedOff ? html`<h4>secrets</h4><span class="muted">unavailable while sealed — unseal above to browse and edit.</span>` : nothing}
       ${!sealedOff && vs.length === 0 ? html`<h4>secrets</h4><span class="muted">no vaults hold secrets yet — set one with
         <span class="mono">bx vault set &lt;component&gt; &lt;key&gt;</span> or below.</span>` : nothing}
+      ${vs.length && !sealedOff ? html`<p class="muted" style="font-size:11px">
+        Secret <b>values are private to the element that owns them</b> — the admin
+        console can list and set/rotate secrets but can't read them back.</p>` : nothing}
       ${vs.map((v) => html`
         <h4>${v.component}</h4>
         <table>
-          ${v.keys.map((k) => {
-            const shown = this._reveal[v.component + '\0' + k];
-            return html`<tr>
+          ${v.keys.map((k) => html`<tr>
               <td class="mono" style="width:30%">${k}</td>
-              <td class="secret">${shown !== undefined ? shown : '••••••••'}</td>
+              <td class="secret">••••••••</td>
               <td style="text-align:right; white-space:nowrap">
-                ${shown !== undefined
-                  ? html`<button class="act" @click=${() => navigator.clipboard?.writeText(shown)}>copy</button>
-                         <button class="act" @click=${() => this._hideKey(v.component, k)}>hide</button>
-                         <button class="act" @click=${() => { const nv = prompt(`New value for ${k}`, shown); if (nv != null) this._setSecret(v.component, k, nv); }}>edit</button>`
-                  : html`<button class="act" @click=${() => this._revealKey(v.component, k)}>reveal</button>`}
+                <button class="act" @click=${() => { const nv = prompt(`Set a new value for ${v.component} / ${k} (can't read the current one)`); if (nv) this._setSecret(v.component, k, nv); }}>set</button>
                 <button class="act rm" @click=${() => this._delSecret(v.component, k)}>del</button>
-              </td></tr>`;
-          })}
+              </td></tr>`)}
         </table>`)}
       ${sealedOff ? nothing : html`<form class="inline" @submit=${(e) => { e.preventDefault();
           const f = e.target;

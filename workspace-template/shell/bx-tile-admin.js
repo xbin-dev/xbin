@@ -30,7 +30,6 @@ export class BxTileAdmin extends LitElement {
     _binds: { state: true },    // /bindings (full — options need all providers)
     _rt: { state: true },       // this tile's /runtime backend entry (lazy)
     _vault: { state: true },    // vault key names
-    _reveal: { state: true },   // key -> revealed value
     _backups: { state: true },  // versions
     _cron: { state: true },     // this tile's cron jobs
     _err: { state: true },
@@ -82,7 +81,6 @@ export class BxTileAdmin extends LitElement {
 
   constructor() {
     super();
-    this._reveal = {};
     this._err = '';
   }
 
@@ -169,22 +167,15 @@ export class BxTileAdmin extends LitElement {
     if (v?.err) return html`<div class="sec err">${v.err}</div>`;
     const keys = v?.keys ?? [];
     return html`<div class="sec">
-      <table>${keys.length ? keys.map((k) => {
-        const shown = this._reveal[k];
-        return html`<tr>
+      <table>${keys.length ? keys.map((k) => html`<tr>
           <td class="mono">${k}</td>
-          <td class="mono muted" style="max-width:120px; overflow:hidden; text-overflow:ellipsis">${shown ?? '••••••'}</td>
+          <td class="mono muted">••••••</td>
           <td style="text-align:right; white-space:nowrap">
-            ${shown !== undefined
-              ? html`<button class="act" @click=${() => { const r = { ...this._reveal }; delete r[k]; this._reveal = r; }}>hide</button>`
-              : html`<button class="act" @click=${() => this._do(async () => {
-                  const d = await api(`/vault/${this.path}/${encodeURIComponent(k)}`);
-                  this._reveal = { ...this._reveal, [k]: d.value };
-                })}>show</button>`}
+            <button class="act" @click=${() => { const nv = prompt(`Set a new value for ${k} (its value is private to the tile)`);
+              if (nv) this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'PUT', ...jbody({ value: nv }) })); }}>set</button>
             <button class="act rm" @click=${() => confirm(`Delete secret ${k}?`) &&
               this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'DELETE' }))}>✕</button>
-          </td></tr>`;
-      }) : html`<tr><td class="muted">no secrets</td></tr>`}</table>
+          </td></tr>`) : html`<tr><td class="muted">no secrets</td></tr>`}</table>
       <form class="row" @submit=${(e) => { e.preventDefault(); const f = e.target;
           if (!f.k.value.trim()) return;
           this._do(() => api(`/vault/${this.path}/${encodeURIComponent(f.k.value.trim())}`,

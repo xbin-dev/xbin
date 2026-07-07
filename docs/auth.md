@@ -116,8 +116,13 @@ Rules, all deliberate:
   `/proc`, logs, and child processes).
 - Storage: `data/vault/`, xbind-owned, mode 0600, gitignored always,
   excluded from `bx backup` unless `--with-vault`.
-- The owner (and `xbin:admin` tiles) can read/write any vault via
-  `bx vault` / the admin console — the human is root.
+- **A secret's value is readable only by the element it belongs to** — not even
+  the owner or an `xbin:admin` tile. Admins can **list keys** and **set / rotate
+  / delete** any vault via `bx vault` / the admin console (the password-manager
+  function), but the read (`GET …/vault/<comp>/<key>`) is self-only, so a
+  compromised admin tile can rotate secrets but can't exfiltrate them. (The
+  human with host access can still read `data/vault/` on disk with the
+  passphrase — this locks down the *API*, the exfiltration surface.)
 
 ### Encryption at rest (the barrier)
 

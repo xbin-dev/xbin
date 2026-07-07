@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-08
+
+- vault: **secret values are now readable only by the element they belong to** —
+  not even the owner or an `xbin:admin` tile. Admins can still list keys and
+  set/rotate/delete any vault (the admin console + per-tile mini-admin drop the
+  "reveal" button and show masked values), but `GET …/vault/<comp>/<key>` is
+  self-only, so a compromised admin tile can't exfiltrate secrets. **Breaking**
+  for any admin/owner flow that read another element's secret value via the API
+  (`bx vault get <other-component>` now 403s); the owning element's own
+  `xbin.Secret()` is unaffected. Migration:
+  `docs/changes/2026-07-08-vault-read-lockdown.md`; see `docs/auth.md` §Vault.
+- shell: a **core-workspace commit** control at the bottom of the sidebar —
+  shows the workspace repo's HEAD + uncommitted-path count and a commit button
+  (`GET /workspace/git`, `POST /workspace/commit`; admin only).
+
 ## 2026-07-07
 
 - Templates: a **template-instance update path**. Each builtin template is

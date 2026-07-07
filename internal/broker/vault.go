@@ -161,8 +161,10 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 	}
 	p := auth.PrincipalOf(r)
 	// Own vault always; otherwise an admin-capable principal (owner or a
-	// xbin:admin tile) may manage any vault — that's the admin console's
-	// password-manager function. No *unprivileged* cross-element access.
+	// xbin:admin tile) may MANAGE any vault — list keys, set/rotate, delete
+	// (the admin console's password-manager function), but NOT read a secret's
+	// value (that's self-only, enforced in apiVaultGet). No *unprivileged*
+	// cross-element access at all.
 	if p.Component != c.Path && !b.IsAdmin(p) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "vaults are private to their element; cross-vault access needs xbin:admin",
@@ -176,6 +178,17 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 	comp, key, ok := b.vaultAccess(w, r)
 	if !ok {
+		return
+	}
+	// A secret's VALUE is readable ONLY by the element it belongs to — not even
+	// admin/owner. The admin console can list keys and set/rotate secrets, but
+	// can't exfiltrate their values (docs/auth.md §vault). Listing keys (no
+	// key in the path) stays available to admins for management.
+	if key != "" && auth.PrincipalOf(r).Component != comp {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{
+			"error": "a secret's value is readable only by the element it belongs to; admin can list and set secrets, not read them",
+			"docs":  "/docs/auth.md",
+		})
 		return
 	}
 	m, err := b.vaultRead(comp)

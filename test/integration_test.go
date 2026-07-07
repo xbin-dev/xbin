@@ -304,8 +304,9 @@ func firstN(s string, n int) string {
 
 // TestVaultBarrier verifies encryption at rest: a secret written before the
 // barrier is plaintext on disk, `vault-unseal` initializes the barrier and
-// migrates it to ciphertext, sealing blocks reads (503), and unsealing
-// restores them. Leaves the shared vault unsealed for other tests.
+// migrates it to ciphertext, sealing blocks management reads (503), and
+// unsealing restores them. Also checks the vault lockdown — admin/owner can
+// list keys but not read a secret's value. Leaves the shared vault unsealed.
 func TestVaultBarrier(t *testing.T) {
 	write(t, "apps/vaulttest/index.html", `<!doctype html><html><head></head><body>v</body></html>`)
 	if !waitFor(func() bool { c, _ := get(t, "/api/xbin/components/apps/vaulttest"); return c == 200 }, 5*time.Second) {
@@ -341,27 +342,32 @@ func TestVaultBarrier(t *testing.T) {
 		t.Error("no encrypted envelope on disk")
 	}
 
-	// Read works while unsealed.
-	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
-		t.Fatalf("read while unsealed: %d %s", c, b)
+	// Vault lockdown: admin/owner may LIST keys (management) but NOT read a
+	// secret's value — values are readable only by the owning element. The key
+	// appearing in the list also proves decryption round-trips while unsealed.
+	if c, _ := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 403 {
+		t.Errorf("owner reading a secret value: got %d, want 403 (self-only)", c)
 	}
-	// Seal → 503.
+	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/"); c != 200 || !strings.Contains(b, `"k"`) {
+		t.Fatalf("owner list while unsealed: %d %s", c, b)
+	}
+	// Seal → management reads 503.
 	if c, _ := req(t, "POST", "/api/xbin/vault-seal", ``); c != 200 {
 		t.Fatal("seal failed")
 	}
-	if c, _ := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 503 {
-		t.Errorf("read while sealed: got %d, want 503", c)
+	if c, _ := get(t, "/api/xbin/vault/apps/vaulttest/"); c != 503 {
+		t.Errorf("list while sealed: got %d, want 503", c)
 	}
 	// Wrong passphrase → 403.
 	if c, _ := req(t, "POST", "/api/xbin/vault-unseal", `{"passphrase":"wrong"}`); c != 403 {
 		t.Errorf("wrong passphrase: got %d, want 403", c)
 	}
-	// Correct → unsealed, read restored. Leave it unsealed.
+	// Correct → unsealed, listing restored (decrypt round-trips). Leave unsealed.
 	if c, _ := req(t, "POST", "/api/xbin/vault-unseal", `{"passphrase":"pw-integration"}`); c != 200 {
 		t.Fatal("re-unseal failed")
 	}
-	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/k"); c != 200 || !strings.Contains(b, "TOPSECRET_XYZ") {
-		t.Fatalf("read after re-unseal: %d %s", c, b)
+	if c, b := get(t, "/api/xbin/vault/apps/vaulttest/"); c != 200 || !strings.Contains(b, `"k"`) {
+		t.Fatalf("list after re-unseal: %d %s", c, b)
 	}
 }
 

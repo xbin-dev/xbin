@@ -162,6 +162,12 @@ GET    /git/diff                   admin OR code[:<component>]. ?component=<path
 GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.
+GET    /workspace/git              admin. {repo, head:{short,subject,date}, dirty}
+                                   — the core workspace repo's HEAD + uncommitted
+                                   path count (the shell's commit control).
+POST   /workspace/commit           admin. body {message?} — snapshot the core
+                                   workspace repo (git add -A + commit; component
+                                   sub-repos ride along as gitlinks). {committed, head}
 POST   /git/import                 xbin:writer. body {url, path?, ref?} — clone a
                                    component in from a git remote (GitHub/GitLab/
                                    any git URL); path defaults to apps/<repo>, ref
@@ -252,8 +258,11 @@ POST   /vault-rekey               admin. body {current, new} — change the
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init
                                    the barrier on first use). {created}
 POST   /vault-seal                admin. drop the key from memory
-GET    /vault/<component>          self or admin. {keys: […]}
-GET    /vault/<component>/<key>    self or admin. {value}
+GET    /vault/<component>          self or admin. {keys: […]} — list keys (admin
+                                   may list any vault)
+GET    /vault/<component>/<key>    SELF ONLY. {value} — a secret's value is
+                                   readable only by the owning element; admin
+                                   gets 403 (it can list + set, not read)
 PUT    /vault/<component>/<key>    self or admin. body {value}
 DELETE /vault/<component>/<key>    self or admin.
                                    (all vault get/set → 503 when sealed)
