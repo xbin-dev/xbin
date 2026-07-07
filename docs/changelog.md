@@ -29,7 +29,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   system-prompt prefix so prompt caching keeps hitting. Tools in one turn now
   run **in parallel** (bounded, each under `toolTimeout`); several
   `spawn_subagent` calls in a turn run as **parallel subagents**. Control tools
-  (finish/ask_user/yield) stay sequential and stop the turn.
+  (finish/ask_user/yield) stay sequential and stop the turn. MCP servers are now
+  **bound** via an `mcp` interface (multi:true, service `mcp`, like the chat
+  tile) rather than a static config list — the owner binds MCP providers in the
+  Interfaces tab and their tools reach the model through the binding.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

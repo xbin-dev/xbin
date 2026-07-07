@@ -28,5 +28,15 @@
     { "target": "res:apps/agent/db", "role": "writer" },
     { "target": "res:apps/agent/beat", "role": "writer" },
     { "target": "res:apps/agent/events", "role": "writer" }
-  ]
+  ],
+
+  // MCP servers are bound like the chat tile: a multi:true `mcp` http slot
+  // (service "mcp"). The owner binds zero or more MCP-providing components in
+  // the Interfaces tab; their tools are offered to the model and calls route
+  // back through the binding (which is also the grant). A bound provider
+  // exposes the Streamable-HTTP endpoint at "/mcp" under itself. (Legacy: a
+  // static config.mcp list of external servers still works too.)
+  "interfaces": {
+    "mcp": { "kind": "http", "service": "mcp", "multi": true }
+  }
 }
