@@ -351,6 +351,14 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 			fmt.Fprintf(&sys, "- %s: %s\n", k, v)
 		}
 	}
+	if cfg.feature("skills") {
+		if skills, _ := ag.db.listSkills(); len(skills) > 0 {
+			sys.WriteString("\n\n# Skills (call skill_view to load one's full steps)\n")
+			for _, s := range skills {
+				fmt.Fprintf(&sys, "- %s: %s\n", s.Name, s.Description)
+			}
+		}
+	}
 	if run.Summary != "" {
 		sys.WriteString("\n\n# Summary of earlier conversation\n")
 		sys.WriteString(run.Summary)

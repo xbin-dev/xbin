@@ -58,6 +58,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tier when the task model isn't vision-capable (name heuristic; override by
   setting the vlm model). `wireMsg` content is now text or an OpenAI
   content-parts array.
+- agent template (v2): **skills** — a self-improving skill library (Hermes-
+  inspired). The agent authors reusable procedures with `skill_manage`, lists
+  them (`skills_list`), and loads one on demand (`skill_view`); the compact
+  name+description list is injected into context. **`POST /runs/{id}/learn`**
+  distills a run into a skill. `/skills` CRUD + storage in the agent's sqlite.
+  Gated by the `skills` feature. (Background auto-curator deferred.)
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

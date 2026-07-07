@@ -94,6 +94,26 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"summary"}, map[string]any{"summary": strProp("what changed")}),
 		}})
 	}
+	if cfg.feature("skills") {
+		specs = append(specs,
+			toolSpec{Type: "function", Function: funcDef{
+				Name: "skills_list", Description: "List your saved skills (reusable procedures you authored) — names + one-line descriptions.",
+				Parameters: obj(nil, map[string]any{}),
+			}},
+			toolSpec{Type: "function", Function: funcDef{
+				Name: "skill_view", Description: "Load a saved skill's full content by name.",
+				Parameters: obj([]string{"name"}, map[string]any{"name": strProp("skill name")}),
+			}},
+			toolSpec{Type: "function", Function: funcDef{
+				Name: "skill_manage", Description: "Save or remove a skill. action 'save' upserts {name, description, content}; action 'remove' deletes {name}.",
+				Parameters: obj([]string{"action", "name"}, map[string]any{
+					"action":      strProp("save | remove"),
+					"name":        strProp("skill name"),
+					"description": strProp("one-line description (for save)"),
+					"content":     strProp("the skill body — steps/knowledge (for save)"),
+				}),
+			}})
+	}
 	if cfg.Subagents {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
 			Name: "spawn_subagent", Description: "Delegate a focused task to a fresh subagent (its own context). Returns the subagent's final result. Emit several in one turn to run them in parallel.",
@@ -215,6 +235,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	case "xbin_call":
 		return ag.toolXBinCall(ctx, args)
+
+	case "skills_list", "skill_view", "skill_manage":
+		return ag.runSkillTool(name, args)
 	}
 
 	if strings.HasPrefix(name, "mcp:") {

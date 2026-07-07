@@ -118,12 +118,17 @@ func main() {
 	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 	mux.Handle("GET /features", xbin.RoleFunc("admin", handleFeatures))
+	mux.Handle("GET /models", xbin.RoleFunc("admin", handleModels))
 	mux.Handle("GET /schedules", xbin.RoleFunc("admin", handleListSchedules))
 	mux.Handle("POST /schedules", xbin.RoleFunc("admin", handleNewSchedule))
 	mux.Handle("PUT /schedules/{id}", xbin.RoleFunc("admin", handleUpdateSchedule))
 	mux.Handle("DELETE /schedules/{id}", xbin.RoleFunc("admin", handleDeleteSchedule))
 	mux.Handle("POST /schedules/{id}/fire", xbin.RoleFunc("admin", handleFireSchedule))
 	mux.Handle("POST /schedules/{id}/trigger", xbin.RoleFunc("admin", handleFireSchedule))
+	mux.Handle("GET /skills", xbin.RoleFunc("admin", handleListSkills))
+	mux.Handle("PUT /skills", xbin.RoleFunc("admin", handleSaveSkill))
+	mux.Handle("DELETE /skills/{name}", xbin.RoleFunc("admin", handleDeleteSkill))
+	mux.Handle("POST /runs/{id}/learn", xbin.RoleFunc("admin", handleLearn))
 	mux.Handle("POST /tick", xbin.RoleFunc("admin", handleTick))
 
 	xbin.Serve(mux)
@@ -138,6 +143,21 @@ func (ag *Agent) startupResume() {
 		ag.driveAsync(id)
 	}
 	ag.reconcileBeat()
+}
+
+// handleModels proxies llm-gw's aggregated model list so the tile can populate
+// the model-tier dropdowns (the agent holds the apps/llm-gw grant).
+func handleModels(w http.ResponseWriter, r *http.Request) {
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://xbin/api/apps/"+gwPath()+"/v1/models", nil)
+	resp, err := xbin.Client().Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // handleFeatures reports the toggleable capabilities and their current state
