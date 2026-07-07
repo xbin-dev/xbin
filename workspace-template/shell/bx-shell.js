@@ -79,6 +79,8 @@ export class BxShell extends LitElement {
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
+    _ctx: { state: true },        // {x,y} background context menu (null = closed)
+    _create: { state: true },     // new-tile dialog spec (null = closed)
   };
 
   static styles = css`
@@ -189,6 +191,20 @@ export class BxShell extends LitElement {
       cursor: pointer; font-size: 12px; padding: 0 2px; }
     .spawn .shead button:hover { color: var(--bx-red, #e5484d); }
     .spawn .sbody { flex: 1; min-height: 0; position: relative; }
+
+    /* ---- background context menu ---- */
+    .ctx-backdrop { position: fixed; inset: 0; z-index: 3000; }
+    .ctxmenu {
+      position: fixed; z-index: 3001; min-width: 190px; padding: 4px;
+      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+    }
+    .ctxmenu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      color: var(--bx-text, #33414e); font: inherit; font-size: 12.5px;
+      padding: 6px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+    }
+    .ctxmenu button:hover { background: var(--bx-panel-2, #f7f8fa); color: var(--bx-accent, #f5a623); }
     aside.collapsed {
       width: 22px; padding: 4px 0;
       border-right: 1px solid var(--bx-border, #e4e8ed);
@@ -316,6 +332,8 @@ export class BxShell extends LitElement {
     this._adminPos = { x: 0, y: 0 };
     this._dialogs = [];
     this._spawnWins = [];
+    this._ctx = null;
+    this._create = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
     // window; the detail carries the VERIFIED component + a reply closure.
     this._onSpawn = (e) => this._spawn(e.detail);
@@ -540,6 +558,49 @@ export class BxShell extends LitElement {
           <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
         </div>
       </div>`;
+  }
+
+  // ---- background context menu ----
+  _openCtx(e) {
+    // Only for the shell's own background — right-clicks inside a tile iframe
+    // never reach here, and we skip our own cards/controls so their native
+    // menu still works.
+    if (e.target.closest('.card, button, input, select, a, bx-frame')) return;
+    e.preventDefault();
+    this._ctx = { x: Math.min(e.clientX, window.innerWidth - 200), y: Math.min(e.clientY, window.innerHeight - 160) };
+  }
+  _ctxDo(fn) { this._ctx = null; fn(); }
+
+  // New-tile dialog: names a static tile under apps/, creates it, opens it on
+  // the current screen. Re-opens with an inline error on failure.
+  _newTileDialog(name = '', message = 'Creates a static tile under apps/ and opens it here.') {
+    this._create = {
+      title: 'Create a new tile', message,
+      fields: [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }],
+      buttons: [{ label: 'Cancel', value: null }, { label: 'Create', value: 'create', primary: true }],
+    };
+  }
+  async _onNewTile({ button, values }) {
+    this._create = null;
+    if (button !== 'create') return;
+    const name = (values.name || '').trim();
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.'); return; }
+    const path = 'apps/' + slug;
+    try {
+      // Chrome runs as the owner cookie — raw fetch (xbin.fetch would attach a
+      // frame token and downgrade). Needs owner/xbin:writer, which the owner is.
+      const r = await fetch('/api/xbin/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, title: name }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? r.status);
+      await this._load();                    // pick up the new component
+      if (!this._isOpen(path)) this._toggle(path); // place it on this screen
+    } catch (e) {
+      this._newTileDialog(name, String(e.message ?? e));
+    }
   }
 
   _isOpen(path) { return this._tiles.some((o) => o.path === path); }
@@ -1037,7 +1098,7 @@ export class BxShell extends LitElement {
           </aside>
           <div class="side-handle" title="drag to resize"
                @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}
-        <main>
+        <main @contextmenu=${(e) => this._openCtx(e)}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <div class="canvas">
             ${Array.from({ length: this._cols }, (_, i) => this._column(i))}
@@ -1059,6 +1120,19 @@ export class BxShell extends LitElement {
       ${repeat(this._dialogs, (d) => d.id, (d) => html`
         <bx-dialog open .spec=${d.spec} from=${d.from}
           @bx-dialog-resolve=${(e) => this._resolveDialog(d.id, e.detail)}></bx-dialog>`)}
+
+      ${this._ctx ? html`
+        <div class="ctx-backdrop" @pointerdown=${() => { this._ctx = null; }}
+             @contextmenu=${(e) => { e.preventDefault(); this._ctx = null; }}></div>
+        <div class="ctxmenu" style="left:${this._ctx.x}px; top:${this._ctx.y}px">
+          <button @click=${() => this._ctxDo(() => this._newTileDialog())}>✦ Create a new tile…</button>
+          <button @click=${() => this._ctxDo(() => this._addScreen())}>▦ New screen</button>
+          <button @click=${() => this._ctxDo(() => this._addFolder())}>▸ New sidebar folder…</button>
+        </div>` : nothing}
+
+      ${this._create ? html`
+        <bx-dialog open .spec=${this._create}
+          @bx-dialog-resolve=${(e) => this._onNewTile(e.detail)}></bx-dialog>` : nothing}
     `;
   }
 }
