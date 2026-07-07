@@ -26,6 +26,25 @@ type Agent struct {
 	stop          map[int64]bool          // interrupt requests
 	beatOn        bool                    // wake heartbeat currently registered
 	watcherRounds map[int64]*watcherRound // active watcher rounds (for rollback)
+	drafts        map[int64]string        // live streaming assistant text per run
+}
+
+func (ag *Agent) setDraft(id int64, text string) {
+	ag.mu.Lock()
+	ag.drafts[id] = text
+	ag.mu.Unlock()
+}
+
+func (ag *Agent) clearDraft(id int64) {
+	ag.mu.Lock()
+	delete(ag.drafts, id)
+	ag.mu.Unlock()
+}
+
+func (ag *Agent) getDraft(id int64) string {
+	ag.mu.Lock()
+	defer ag.mu.Unlock()
+	return ag.drafts[id]
 }
 
 func (ag *Agent) claim(id int64) bool {
@@ -68,7 +87,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}}
+	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{}}
 
 	// Seed the default config once.
 	if db.getSetting("config") == "" {
@@ -258,7 +277,7 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	if steps == nil {
 		steps = []*Step{}
 	}
-	writeJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg})
+	writeJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "draft": agent.getDraft(id)})
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {

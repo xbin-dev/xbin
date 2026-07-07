@@ -82,10 +82,18 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			return
 		}
 		specs := toolSpecs(cfg, mcp)
-		model := modelFor(ctx, cfg, "general")
+		model := visionModelFor(ctx, cfg, msgs) // general, or vlm for images on a non-vision model
 
 		t0 := time.Now()
-		asst, resp, err := callLLM(ctx, model, msgs, specs)
+		var asst wireMsg
+		var resp chatResp
+		if cfg.feature("streaming") {
+			// Stream tokens into a live draft the tile polls (GET /runs/{id}).
+			asst, resp, err = callLLMStream(ctx, model, msgs, specs, func(text string) { ag.setDraft(runID, text) })
+			ag.clearDraft(runID)
+		} else {
+			asst, resp, err = callLLM(ctx, model, msgs, specs)
+		}
 		if err != nil {
 			ag.fail(runID, err.Error())
 			return
@@ -105,7 +113,7 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			tcJSON = string(b)
 		}
 		_, _ = ag.db.addMessage(&Message{
-			RunID: runID, Role: "assistant", Content: asst.Content, ToolCalls: tcJSON,
+			RunID: runID, Role: "assistant", Content: asString(asst.Content), ToolCalls: tcJSON,
 		})
 
 		if len(asst.ToolCalls) == 0 {
@@ -357,7 +365,7 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 		if m.Role == "system" {
 			continue // the base/system prompt is rebuilt above
 		}
-		wm := wireMsg{Role: m.Role, Content: m.Content, Name: m.Name, ToolCallID: m.ToolCallID}
+		wm := wireMsg{Role: m.Role, Content: contentValue(m.Content), Name: m.Name, ToolCallID: m.ToolCallID}
 		if m.ToolCalls != "" {
 			_ = json.Unmarshal([]byte(m.ToolCalls), &wm.ToolCalls)
 		}
@@ -427,7 +435,7 @@ func (ag *Agent) summarize(ctx context.Context, cfg Config, prior, transcript st
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(msg.Content)
+	return strings.TrimSpace(asString(msg.Content))
 }
 
 // --- small helpers ------------------------------------------------------

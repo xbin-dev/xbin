@@ -51,6 +51,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   rounds are rolled back, so a long-running watch stays compact. A **Features**
   menu (`GET /features`, toggled in the config's `features` map) gates optional
   capabilities: recall, skills, streaming, vision, parallelTools, watcher.
+- agent template (v2): **streaming** — with the streaming feature on, LLM calls
+  stream tokens into a live per-run draft (`GET /runs/{id}` → `draft`) so the
+  tile shows progress as it generates; retries only before the first token.
+  **Multimodal tiers** — a message carrying image content routes to the `vlm`
+  tier when the task model isn't vision-capable (name heuristic; override by
+  setting the vlm model). `wireMsg` content is now text or an OpenAI
+  content-parts array.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

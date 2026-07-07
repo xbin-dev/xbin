@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,6 +20,22 @@ import (
 
 	xbin "github.com/magik6k/xbin/sdk"
 )
+
+// asString renders a wireMsg content value (string, raw JSON parts, or nil) as
+// text for storage/summarization.
+func asString(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case json.RawMessage:
+		return string(s)
+	case nil:
+		return ""
+	default:
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+}
 
 // ModelTiers is the per-job model set. Any empty tier is resolved at runtime
 // from llm-gw's workspace "preferred" model for the mapped use-type (general←
@@ -94,11 +111,57 @@ func parseConfig(raw string) Config {
 // --- OpenAI-compatible wire types ---------------------------------------
 
 type wireMsg struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Role string `json:"role"`
+	// Content is usually a string, but a multimodal user message carries the
+	// OpenAI content-parts array (text + image_url); contentValue keeps a stored
+	// JSON-array string as raw JSON so it marshals as an array, not a quoted
+	// string (plans/agent-v2.md §multimodal).
+	Content    any        `json:"content,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+}
+
+// contentValue passes a content-parts array through as raw JSON; plain text
+// stays a string.
+func contentValue(s string) any {
+	if strings.HasPrefix(strings.TrimSpace(s), "[") {
+		return json.RawMessage(s)
+	}
+	return s
+}
+
+// visionModelFor picks the main-loop model: the general tier, but the vlm tier
+// when a message carries image content and the general model isn't vision-
+// capable. Gated by the "vision" feature. Explicitly setting the vlm tier
+// overrides the name heuristic.
+func visionModelFor(ctx context.Context, cfg Config, msgs []wireMsg) string {
+	general := modelFor(ctx, cfg, "general")
+	if !cfg.feature("vision") || modelHasVision(general) || !hasVisionContent(msgs) {
+		return general
+	}
+	return modelFor(ctx, cfg, "vlm")
+}
+
+func hasVisionContent(msgs []wireMsg) bool {
+	for _, m := range msgs {
+		if raw, ok := m.Content.(json.RawMessage); ok && strings.Contains(string(raw), `"image_url"`) {
+			return true
+		}
+	}
+	return false
+}
+
+// modelHasVision is a name heuristic — the OpenAI-compatible models list doesn't
+// expose capability. When it guesses wrong, set the vlm tier explicitly.
+func modelHasVision(model string) bool {
+	m := strings.ToLower(model)
+	for _, s := range []string{"4o", "4.1", "4.5", "vision", "gpt-5", "claude-3", "claude-4", "sonnet", "opus", "gemini", "llama-3.2", "llama-4", "pixtral", "-vl"} {
+		if strings.Contains(m, s) {
+			return true
+		}
+	}
+	return false
 }
 
 type toolCall struct {
@@ -127,17 +190,31 @@ type chatReq struct {
 	Tools    []toolSpec `json:"tools,omitempty"`
 }
 
+type usageBlock struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type chatResp struct {
 	Choices []struct {
 		Message      wireMsg `json:"message"`
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage usageBlock      `json:"usage"`
 	Error json.RawMessage `json:"error"`
+}
+
+type streamOpts struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+type streamReq struct {
+	Model         string      `json:"model"`
+	Messages      []wireMsg   `json:"messages"`
+	Tools         []toolSpec  `json:"tools,omitempty"`
+	Stream        bool        `json:"stream"`
+	StreamOptions *streamOpts `json:"stream_options,omitempty"`
 }
 
 // --- model tier resolution (plans/agent-v2.md) --------------------------
@@ -296,6 +373,135 @@ func callLLM(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec
 		lastErr = ctx.Err()
 	}
 	return wireMsg{}, chatResp{}, lastErr
+}
+
+// callLLMStream is callLLM over SSE (stream:true + usage): it calls onDelta with
+// the accumulated assistant text as tokens arrive (for a live tile draft), and
+// returns the same final message + usage. Retries only before any token flows.
+func callLLMStream(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec, onDelta func(string)) (wireMsg, chatResp, error) {
+	body, err := json.Marshal(streamReq{Model: model, Messages: msgs, Tools: tools, Stream: true, StreamOptions: &streamOpts{IncludeUsage: true}})
+	if err != nil {
+		return wireMsg{}, chatResp{}, err
+	}
+	endpoint := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
+	var lastErr error
+	for attempt := 0; attempt <= llmRetries; attempt++ {
+		if attempt > 0 && !llmBackoff(ctx, attempt) {
+			break
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return wireMsg{}, chatResp{}, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		resp, err := xbin.Client().Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("llm-gw call: %w", err)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("llm-gw %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+			if retryableLLM(resp.StatusCode) {
+				continue
+			}
+			return wireMsg{}, chatResp{}, lastErr
+		}
+		msg, usage, perr := parseSSE(resp.Body, onDelta)
+		resp.Body.Close()
+		if perr != nil {
+			// Nothing produced yet ⇒ safe to retry; otherwise surface the partial.
+			if asString(msg.Content) == "" && len(msg.ToolCalls) == 0 && attempt < llmRetries {
+				lastErr = perr
+				continue
+			}
+			return msg, chatResp{Usage: usage}, perr
+		}
+		return msg, chatResp{Usage: usage}, nil
+	}
+	if lastErr == nil {
+		lastErr = ctx.Err()
+	}
+	return wireMsg{}, chatResp{}, lastErr
+}
+
+// parseSSE consumes an OpenAI streaming response, assembling the assistant
+// message (content + tool_calls by index) and the usage block.
+func parseSSE(r io.Reader, onDelta func(string)) (wireMsg, usageBlock, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	var content strings.Builder
+	tcs := map[int]*toolCall{}
+	var order []int
+	var usage usageBlock
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		data, ok := strings.CutPrefix(line, "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *usageBlock `json:"usage"`
+		}
+		if json.Unmarshal([]byte(data), &chunk) != nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			usage = *chunk.Usage
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		d := chunk.Choices[0].Delta
+		if d.Content != "" {
+			content.WriteString(d.Content)
+			if onDelta != nil {
+				onDelta(content.String())
+			}
+		}
+		for _, t := range d.ToolCalls {
+			tc := tcs[t.Index]
+			if tc == nil {
+				tc = &toolCall{Type: "function"}
+				tcs[t.Index] = tc
+				order = append(order, t.Index)
+			}
+			if t.ID != "" {
+				tc.ID = t.ID
+			}
+			if t.Function.Name != "" {
+				tc.Function.Name = t.Function.Name
+			}
+			tc.Function.Arguments += t.Function.Arguments
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return wireMsg{}, usage, err
+	}
+	msg := wireMsg{Role: "assistant", Content: content.String()}
+	for _, idx := range order {
+		msg.ToolCalls = append(msg.ToolCalls, *tcs[idx])
+	}
+	return msg, usage, nil
 }
 
 // gwPath is the llm-gw component path relative to apps/. The agent is authored
