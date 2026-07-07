@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/builtins"
@@ -20,6 +21,9 @@ import (
 func (b *Broker) registerTemplates(srv *server.Server) {
 	srv.RegisterAPI("GET /templates", b.apiTemplatesList)
 	srv.RegisterAPI("POST /templates/new", b.apiTemplatesNew)
+	// Read-only dumb-HTTP git server for template source repos; instances get
+	// this as their `template` remote (plans/agent-v2.md §template updates).
+	srv.RegisterAPI("GET /templates/{repo}/{rest...}", b.serveTemplateRepo)
 }
 
 type templateItem struct {
@@ -80,12 +84,14 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		installed string
-		files     []string
-		err       error
+		installed   string
+		files       []string
+		builtinName string // set for builtin templates → gets a `template` remote
+		err         error
 	)
 	switch {
 	case b.templates != nil && templateExists(b.templates, body.Source):
+		builtinName = body.Source
 		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, body.Path)
 	default:
 		// Workspace template: source is a component path carrying a marker.
@@ -106,9 +112,16 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	// don't wait for the debounced watcher tick.
 	_ = b.Reg.Rescan()
 	if b.OnStructureChange != nil {
-		b.OnStructureChange()
+		b.OnStructureChange() // EnsureComponentRepos gives the instance its git repo
 	}
 	b.Provision()
+
+	// A builtin-template instance gets the template's served repo as its
+	// `template` remote, so a builder can `git fetch template && git merge`
+	// upstream fixes (plans/agent-v2.md).
+	if builtinName != "" {
+		b.AddTemplateRemote(filepath.Join(b.Reg.Root, filepath.FromSlash(installed)), builtinName)
+	}
 
 	var pending []registryGrantLite
 	for _, g := range b.Pending() {

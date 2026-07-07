@@ -76,6 +76,20 @@ import — templates add only the marker-strip and the two source kinds.
 - Tile Manager gains a **New from template** tab (name → instantiate);
   surfaces the pending grants the new instance needs (as tile import does).
 
+## Updating instances (the `template` remote)
+
+Instances diverge freely after the copy, so the builtin-tile updater (3-way
+merge) deliberately skips them — a blind merge would clobber the builder's
+work. Instead, updates follow the **fork-upstream** model:
+
+- At start, each builtin template is materialized into a git repo under
+  `.xbin/template-repos/<name>/` (a snapshot committed per version) and served
+  read-only over dumb HTTP at `GET /api/xbin/templates/<name>.git/…` (admin).
+- On instantiate, that repo is added to the instance as the `template` remote.
+- The builder adopts upstream fixes on their terms, from the instance terminal:
+  `git fetch template && git log template/main` then `git merge template/main`
+  or `git cherry-pick <commit>` — never an automatic overwrite.
+
 ## Why not just "another builtin tile"?
 
 Builtin *tiles* (llm-gw, chat) are import-once infrastructure — you want one

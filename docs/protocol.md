@@ -139,7 +139,15 @@ GET    /templates                   any. template blueprints (builtin ∪ worksp
                                    [{id,source,title,description,defaultName}]
 POST   /templates/new               xbin:writer. body {source, path?} → {path,
                                    files, pendingGrants} — instantiates a template
-                                   into a named copy (plans/templates.md).
+                                   into a named copy (plans/templates.md). A
+                                   builtin-template instance also gets a read-only
+                                   `template` git remote (below).
+GET    /templates/{repo}/{rest...}  admin. Read-only dumb-HTTP git server for a
+                                   builtin template's source repo, e.g.
+                                   /templates/agent.git/info/refs. Each instance
+                                   has it as its `template` remote, so a builder
+                                   pulls upstream fixes: git fetch template &&
+                                   git merge template/main.
 
 GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.

@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-07
 
+- Templates: a **template-instance update path**. Each builtin template is
+  served read-only as a git repo (`GET /api/xbin/templates/<name>.git/…`, admin)
+  and added to every instance as a `template` remote, so a builder pulls
+  upstream fixes with `git fetch template && git merge template/main` (or
+  cherry-pick) — in control of what they adopt, no auto-merge clobber. The
+  builtin-tile updater still never touches template instances. Phase 7 of the
+  agent-v2 program.
 - New builtin tile **prometheus-viewer**: binds one or more components that
   expose Prometheus metrics (service `prometheus`, multi:true — e.g. llm-gw)
   and renders their `/metrics` as a live dashboard (per-source counters/gauges,

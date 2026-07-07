@@ -244,6 +244,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	} else {
 		brk.SetBuiltinTemplates(set)
 	}
+	// Materialize builtin templates as read-only git repos so instances can
+	// carry a `template` remote and pull upstream fixes (plans/agent-v2.md).
+	brk.MaterializeTemplateRepos(xbin.BuiltinTemplatesFS())
 	// Builtin update tracking (plans/builtin-updates.md): offer newer embedded
 	// scaffold/tiles to existing workspaces without trampling customizations.
 	{
