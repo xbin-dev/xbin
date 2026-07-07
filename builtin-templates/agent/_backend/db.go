@@ -32,8 +32,11 @@ type Run struct {
 	Summary  string `json:"summary"`  // running compaction summary
 	Result   string `json:"result"`   // final result (finish) or ask question
 	Pending  string `json:"pending"`  // json: a parked approval/ask, if any
-	Created  int64  `json:"created"`
-	Updated  int64  `json:"updated"`
+	// LastPromptTokens is the provider-reported prompt size of the most recent
+	// LLM call — the compaction trigger's ground truth (beats the estimate).
+	LastPromptTokens int   `json:"lastPromptTokens"`
+	Created          int64 `json:"created"`
+	Updated          int64 `json:"updated"`
 }
 
 type Message struct {
@@ -88,6 +91,7 @@ CREATE TABLE IF NOT EXISTS runs (
   summary TEXT NOT NULL DEFAULT '',
   result TEXT NOT NULL DEFAULT '',
   pending TEXT NOT NULL DEFAULT '',
+  last_prompt_tokens INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL,
   updated INTEGER NOT NULL
 );
@@ -125,7 +129,13 @@ CREATE TABLE IF NOT EXISTS settings (
   v TEXT NOT NULL DEFAULT ''
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// Best-effort migrations for instances created before a column existed
+	// (ALTER fails harmlessly when the column is already present).
+	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
+	return nil
 }
 
 func now() int64 { return time.Now().Unix() }
@@ -145,11 +155,9 @@ func (d *DB) createRun(title, config string, parentID int64) (int64, error) {
 
 func (d *DB) getRun(id int64) (*Run, error) {
 	r := &Run{}
-	var config string
 	err := d.sql.QueryRow(
-		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, created, updated FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.Created, &r.Updated)
-	_ = config
+		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs WHERE id=?`, id).
+		Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +174,7 @@ func (d *DB) runConfig(id int64) (Config, error) {
 
 func (d *DB) listRuns() ([]*Run, error) {
 	rows, err := d.sql.Query(
-		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, created, updated FROM runs ORDER BY id DESC`)
+		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +182,7 @@ func (d *DB) listRuns() ([]*Run, error) {
 	var out []*Run
 	for rows.Next() {
 		r := &Run{}
-		if err := rows.Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.Created, &r.Updated); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -197,6 +205,15 @@ func (d *DB) touchRun(id int64) {
 func (d *DB) setSummary(id int64, summary string) error {
 	_, err := d.sql.Exec(`UPDATE runs SET summary=?, updated=? WHERE id=?`, summary, now(), id)
 	return err
+}
+
+// setPromptTokens records the provider-reported prompt size of the latest LLM
+// call (compaction's ground-truth trigger). Best-effort; skips non-positive.
+func (d *DB) setPromptTokens(id int64, n int) {
+	if n <= 0 {
+		return
+	}
+	_, _ = d.sql.Exec(`UPDATE runs SET last_prompt_tokens=? WHERE id=?`, n, id)
 }
 
 func (d *DB) deleteRun(id int64) error {

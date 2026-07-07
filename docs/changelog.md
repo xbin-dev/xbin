@@ -19,6 +19,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the new `metrics`/`prometheus` provide interface), and transient-error
   **retry/backoff** on the proxy (429/5xx, pre-first-byte, honors `Retry-After`).
   First slice of the agent-v2 program (`plans/agent-v2.md`).
+- agent template (v2, backend): model **tiers** (`general`/`code`/`memory`/
+  `vlm`) — each empty tier resolved from llm-gw's preferred model for the mapped
+  use-type, so a workspace sets models once and agents inherit; compaction and
+  memory work run on the `memory` tier. Plus LLM-call **retry/backoff**
+  (transport + 429/5xx, so a gateway reload no longer fails a run), the
+  **provider-reported prompt tokens** as the compaction trigger (not a char/4
+  estimate), a per-tool `toolTimeout` config field, and a **date-only**
+  system-prompt prefix so prompt caching keeps hitting.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

@@ -10,30 +10,48 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	xbin "github.com/magik6k/xbin/sdk"
 )
 
+// ModelTiers is the per-job model set. Any empty tier is resolved at runtime
+// from llm-gw's workspace "preferred" model for the mapped use-type (general←
+// agent, code←coding, memory←summarizing, vlm←vlm), so a workspace sets its
+// models once in llm-gw and every agent inherits them. See plans/agent-v2.md.
+type ModelTiers struct {
+	General string `json:"general,omitempty"` // the main loop
+	Code    string `json:"code,omitempty"`    // code-heavy work / code subagents
+	Memory  string `json:"memory,omitempty"`  // compaction + memory management
+	VLM     string `json:"vlm,omitempty"`     // vision fallback when general lacks it
+}
+
 // Config is an agent's knobs — a default lives in settings, and each run
 // snapshots one at creation (so changing the default doesn't disturb live runs).
 type Config struct {
-	Model       string      `json:"model"`       // llm-gw model id or alias
+	Model       string      `json:"model"`       // legacy/general fallback (empty ⇒ llm-gw preferred)
+	Models      ModelTiers  `json:"models"`      // per-tier models
 	System      string      `json:"system"`      // base system prompt
-	TokenBudget int         `json:"tokenBudget"` // context assembly budget (rough)
-	MaxIters    int         `json:"maxIters"`    // steps per drive before yielding to heartbeat
+	TokenBudget int         `json:"tokenBudget"` // context assembly budget
+	MaxIters    int         `json:"maxIters"`    // steps per drive before yielding
+	ToolTimeout int         `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
 	Subagents   bool        `json:"subagents"`   // expose spawn_subagent
 	Approve     bool        `json:"approve"`     // require approval before side-effecting tools
-	MCP         []MCPServer `json:"mcp"`         // MCP servers whose tools are merged in
+	MCP         []MCPServer `json:"mcp"`         // legacy static MCP servers (now bound via the mcp interface)
 }
 
 func defaultConfig() Config {
 	return Config{
-		Model:       "gpt-4o-mini",
+		Model:       "", // resolved from llm-gw preferred (use-type "agent")
 		System:      "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
 		TokenBudget: 12000,
 		MaxIters:    12,
+		ToolTimeout: 120,
 		Subagents:   true,
 		Approve:     false,
 		MCP:         nil,
@@ -51,8 +69,8 @@ func parseConfig(raw string) Config {
 	if c.MaxIters <= 0 {
 		c.MaxIters = 12
 	}
-	if c.Model == "" {
-		c.Model = "gpt-4o-mini"
+	if c.ToolTimeout <= 0 {
+		c.ToolTimeout = 120
 	}
 	return c
 }
@@ -106,39 +124,162 @@ type chatResp struct {
 	Error json.RawMessage `json:"error"`
 }
 
-// callLLM runs one chat completion through llm-gw. Returns the assistant
-// message and the usage block.
+// --- model tier resolution (plans/agent-v2.md) --------------------------
+
+var (
+	prefMu    sync.Mutex
+	prefCache = map[string]prefEntry{}
+)
+
+type prefEntry struct {
+	model string
+	at    time.Time
+}
+
+// preferredModel asks llm-gw for the workspace's preferred model for a use-type
+// (agent/coding/summarizing/vlm/…). Cached briefly so it's not a round-trip per
+// step; a down gateway returns "" and the caller falls back.
+func preferredModel(ctx context.Context, use string) string {
+	prefMu.Lock()
+	if e, ok := prefCache[use]; ok && time.Since(e.at) < 60*time.Second {
+		m := e.model
+		prefMu.Unlock()
+		return m
+	}
+	prefMu.Unlock()
+	u := "http://xbin/api/apps/" + gwPath() + "/preferred?use=" + url.QueryEscape(use)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := xbin.Client().Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Model string `json:"model"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	prefMu.Lock()
+	prefCache[use] = prefEntry{model: out.Model, at: time.Now()}
+	prefMu.Unlock()
+	return out.Model
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// modelFor resolves the model for a tier: explicit config → the general model →
+// llm-gw's preferred model for the mapped use-type → a safe default so a fresh
+// workspace still runs.
+func modelFor(ctx context.Context, cfg Config, tier string) string {
+	var explicit, use string
+	switch tier {
+	case "code":
+		explicit, use = firstNonEmpty(cfg.Models.Code, cfg.Models.General, cfg.Model), "coding"
+	case "memory":
+		explicit, use = firstNonEmpty(cfg.Models.Memory, cfg.Models.General, cfg.Model), "summarizing"
+	case "vlm":
+		explicit, use = cfg.Models.VLM, "vlm"
+	default: // general
+		explicit, use = firstNonEmpty(cfg.Models.General, cfg.Model), "agent"
+	}
+	if explicit != "" {
+		return explicit
+	}
+	if m := preferredModel(ctx, use); m != "" {
+		return m
+	}
+	return firstNonEmpty(cfg.Model, "gpt-4o-mini")
+}
+
+// --- the LLM call -------------------------------------------------------
+
+const llmRetries = 3
+
+func retryableLLM(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// llmBackoff waits before a retry (exp + jitter, capped); false if ctx canceled.
+func llmBackoff(ctx context.Context, attempt int) bool {
+	base := 500 * time.Millisecond * time.Duration(int64(1)<<(attempt-1))
+	d := base + time.Duration(rand.Int63n(int64(base/2)+1))
+	if d > 20*time.Second {
+		d = 20 * time.Second
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// callLLM runs one chat completion through llm-gw, retrying transient failures
+// (transport errors — e.g. llm-gw reloading after an idle unload — and 429/5xx)
+// with backoff. Fatal statuses (400/401/404) return immediately. Returns the
+// assistant message and the usage block.
 func callLLM(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec) (wireMsg, chatResp, error) {
 	body, err := json.Marshal(chatReq{Model: model, Messages: msgs, Tools: tools})
 	if err != nil {
 		return wireMsg{}, chatResp{}, err
 	}
-	url := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return wireMsg{}, chatResp{}, err
+	endpoint := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
+	var lastErr error
+	for attempt := 0; attempt <= llmRetries; attempt++ {
+		if attempt > 0 && !llmBackoff(ctx, attempt) {
+			break // ctx canceled during backoff
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return wireMsg{}, chatResp{}, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := xbin.Client().Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("llm-gw call: %w", err)
+			continue // transport error ⇒ retry
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("llm-gw %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+			if retryableLLM(resp.StatusCode) {
+				continue
+			}
+			return wireMsg{}, chatResp{}, lastErr // fatal
+		}
+		var cr chatResp
+		if err := json.Unmarshal(raw, &cr); err != nil {
+			return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw bad response: %w", err)
+		}
+		if len(cr.Error) > 0 && string(cr.Error) != "null" {
+			return wireMsg{}, cr, fmt.Errorf("llm-gw upstream error: %s", string(cr.Error))
+		}
+		if len(cr.Choices) == 0 {
+			return wireMsg{}, cr, fmt.Errorf("llm-gw returned no choices")
+		}
+		return cr.Choices[0].Message, cr, nil
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := xbin.Client().Do(req)
-	if err != nil {
-		return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw call: %w", err)
+	if lastErr == nil {
+		lastErr = ctx.Err()
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode != http.StatusOK {
-		return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw %s: %s", resp.Status, strings.TrimSpace(string(raw)))
-	}
-	var cr chatResp
-	if err := json.Unmarshal(raw, &cr); err != nil {
-		return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw bad response: %w", err)
-	}
-	if len(cr.Error) > 0 && string(cr.Error) != "null" {
-		return wireMsg{}, cr, fmt.Errorf("llm-gw upstream error: %s", string(cr.Error))
-	}
-	if len(cr.Choices) == 0 {
-		return wireMsg{}, cr, fmt.Errorf("llm-gw returned no choices")
-	}
-	return cr.Choices[0].Message, cr, nil
+	return wireMsg{}, chatResp{}, lastErr
 }
 
 // gwPath is the llm-gw component path relative to apps/. The agent is authored

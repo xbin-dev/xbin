@@ -78,15 +78,19 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			return
 		}
 		specs := toolSpecs(cfg, mcp)
+		model := modelFor(ctx, cfg, "general")
 
 		t0 := time.Now()
-		asst, resp, err := callLLM(ctx, cfg.Model, msgs, specs)
+		asst, resp, err := callLLM(ctx, model, msgs, specs)
 		if err != nil {
 			ag.fail(runID, err.Error())
 			return
 		}
+		// Provider-reported prompt tokens are the compaction trigger's ground
+		// truth (beats the char/4 estimate); recorded for the next maybeCompact.
+		ag.db.setPromptTokens(runID, resp.Usage.PromptTokens)
 		ag.db.journal(runID, "llm_call", map[string]any{
-			"model": cfg.Model, "latencyMs": time.Since(t0).Milliseconds(),
+			"model": model, "latencyMs": time.Since(t0).Milliseconds(),
 			"promptTokens": resp.Usage.PromptTokens, "completionTokens": resp.Usage.CompletionTokens,
 			"toolCalls": len(asst.ToolCalls), "finishReason": firstFinish(resp),
 		})
@@ -262,6 +266,9 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 	}
 	var sys strings.Builder
 	sys.WriteString(cfg.System)
+	// Date only (not a full timestamp) keeps the system prefix stable within a
+	// day, so prompt caching keeps hitting (plans/agent-v2.md).
+	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	if len(mem) > 0 {
 		sys.WriteString("\n\n# Memory blocks\n")
 		for k, v := range mem {
@@ -302,6 +309,9 @@ func (ag *Agent) maybeCompact(ctx context.Context, run *Run, cfg Config) {
 	total := estimateTokens(cfg.System) + estimateTokens(run.Summary)
 	for _, m := range live {
 		total += m.Tokens
+	}
+	if run.LastPromptTokens > 0 {
+		total = run.LastPromptTokens // provider-reported truth beats the estimate
 	}
 	if total <= cfg.TokenBudget {
 		return
@@ -345,7 +355,7 @@ func (ag *Agent) maybeCompact(ctx context.Context, run *Run, cfg Config) {
 func (ag *Agent) summarize(ctx context.Context, cfg Config, prior, transcript string) string {
 	sys := "You compact a conversation for an AI agent. Merge the prior summary and the new transcript into a single concise summary that preserves facts, decisions, open threads, and anything needed to continue. Output only the summary."
 	user := "Prior summary:\n" + prior + "\n\nNew transcript to fold in:\n" + transcript
-	msg, _, err := callLLM(ctx, cfg.Model, []wireMsg{{Role: "system", Content: sys}, {Role: "user", Content: user}}, nil)
+	msg, _, err := callLLM(ctx, modelFor(ctx, cfg, "memory"), []wireMsg{{Role: "system", Content: sys}, {Role: "user", Content: user}}, nil)
 	if err != nil {
 		return ""
 	}
