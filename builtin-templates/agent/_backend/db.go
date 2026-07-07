@@ -247,6 +247,14 @@ func (d *DB) deleteRun(id int64) error {
 	return tx.Commit()
 }
 
+// hasPending reports whether any run still needs the wake heartbeat — sleeping
+// (a future/overdue wake) or left 'running' (a mid-drive/stalled run).
+func (d *DB) hasPending() bool {
+	var n int
+	_ = d.sql.QueryRow(`SELECT count(*) FROM runs WHERE status IN ('sleeping','running')`).Scan(&n)
+	return n > 0
+}
+
 // dueRuns returns runs the heartbeat should re-drive: sleeping ones whose
 // wake_at has passed, plus any left 'running' (a crash mid-drive).
 func (d *DB) dueRuns() ([]int64, error) {

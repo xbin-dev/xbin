@@ -24,6 +24,7 @@ func (ag *Agent) driveAsync(runID int64) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		ag.drive(ctx, runID)
+		ag.reconcileBeat() // turn the wake heartbeat on/off to match what's pending
 	}()
 }
 

@@ -35,7 +35,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Interfaces tab and their tools reach the model through the binding. New
   **`recall`** tool: FTS5 full-text search over the run's whole history
   (including turns compacted out of context), so detail folded into a summary
-  is still retrievable.
+  is still retrievable. The wake heartbeat is now **on-demand** — registered
+  only while runs are sleeping or mid-drive and removed when idle, so an agent
+  with nothing pending stops polling (cron is no longer always-on).
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

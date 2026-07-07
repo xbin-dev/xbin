@@ -12,7 +12,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +24,7 @@ type Agent struct {
 	mu      sync.Mutex
 	driving map[int64]bool // runs being driven right now (coalesce)
 	stop    map[int64]bool // interrupt requests
+	beatOn  bool           // wake heartbeat currently registered
 }
 
 func (ag *Agent) claim(id int64) bool {
@@ -75,9 +75,10 @@ func main() {
 		_ = db.putSetting("config", string(b))
 	}
 
-	// Register the heartbeat that re-drives sleeping/stalled runs. Best-effort
-	// and idempotent; retried since the gateway may not be up at the first tick.
-	go registerHeartbeat()
+	// Resume anything left sleeping/mid-drive by a restart, and turn the wake
+	// heartbeat on only if something needs it (it's not always-on — a workspace
+	// session or the agent itself schedules work; see plans/agent-v2.md).
+	go agent.startupResume()
 
 	mux := http.NewServeMux()
 	// Everything is admin-only: the tile is self (always admin of itself) and
@@ -101,33 +102,78 @@ func main() {
 	xbin.Serve(mux)
 }
 
-func registerHeartbeat() {
+// startupResume re-drives runs a restart left sleeping/stalled and syncs the
+// wake heartbeat to whatever is pending now.
+func (ag *Agent) startupResume() {
+	ids, _ := ag.db.dueRuns()
+	for _, id := range ids {
+		ag.driveAsync(id)
+	}
+	ag.reconcileBeat()
+}
+
+// reconcileBeat keeps the wake heartbeat registered ONLY while runs need waking
+// (sleeping, or mid-drive/stalled) — so cron isn't always-on. Cheap: it only
+// hits the gateway when the desired state actually flips.
+func (ag *Agent) reconcileBeat() {
+	want := ag.db.hasPending()
+	ag.mu.Lock()
+	have := ag.beatOn
+	ag.mu.Unlock()
+	if want == have {
+		return
+	}
+	ok := false
+	if want {
+		ok = ag.ensureBeat()
+	} else {
+		ok = ag.stopBeat()
+	}
+	if ok {
+		ag.mu.Lock()
+		ag.beatOn = want
+		ag.mu.Unlock()
+	}
+}
+
+// ensureBeat registers the @every 1m heartbeat that fires /tick to re-drive due
+// runs. Idempotent; a few retries since the gateway may lag a restart.
+func (ag *Agent) ensureBeat() bool {
 	job := map[string]any{
-		"name":     "heartbeat",
-		"resource": "res:" + xbin.Self() + "/beat",
-		"schedule": "@every 1m",
-		"path":     "/tick",
-		"role":     "admin",
+		"name": "heartbeat", "resource": "res:" + xbin.Self() + "/beat",
+		"schedule": "@every 1m", "path": "/tick", "role": "admin",
 	}
 	body, _ := json.Marshal(job)
-	var last string
-	for i := 0; i < 5; i++ {
-		time.Sleep(time.Duration(i) * 2 * time.Second)
+	for i := 0; i < 3; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(i) * time.Second)
+		}
 		req, _ := http.NewRequest(http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := xbin.Client().Do(req)
 		if err != nil {
-			last = err.Error()
 			continue
 		}
-		b, _ := io.ReadAll(resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			return
+			return true
 		}
-		last = resp.Status + ": " + strings.TrimSpace(string(b))
 	}
-	log.Printf("agent: could not register heartbeat cron job (self-scheduling degraded): %s", last)
+	log.Printf("agent: could not register wake heartbeat (self-scheduling degraded)")
+	return false
+}
+
+// stopBeat removes the wake heartbeat when nothing is pending.
+func (ag *Agent) stopBeat() bool {
+	req, _ := http.NewRequest(http.MethodDelete, "http://xbin/api/xbin/cron/jobs/heartbeat", nil)
+	resp, err := xbin.Client().Do(req)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound
 }
 
 // --- handlers -----------------------------------------------------------
