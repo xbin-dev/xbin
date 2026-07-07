@@ -105,7 +105,8 @@ const events = {
 };
 
 // --- height reporting to the embedding bx-frame ---
-if (window.parent !== window) {
+const embedded = window.parent !== window;
+if (embedded) {
   let last = 0;
   const report = () => {
     const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
@@ -117,4 +118,65 @@ if (window.parent !== window) {
   addEventListener('load', report);
 }
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events });
+// --- dialogs & pop-out windows (docs/elements.md §Dialogs & windows) ---
+// A tile is an iframe, so anything that must float over the workspace is
+// spawned by the SHELL: we postMessage a request up to our bx-frame, which
+// tags it with our verified component id and relays it to <bx-shell>. Replies
+// come back keyed by id.
+const pending = new Map();
+let reqSeq = 0;
+if (embedded) {
+  addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;               // only our own frame
+    const d = e.data;
+    if (d?.type === 'xbin:reply' && pending.has(d.id)) {
+      const resolve = pending.get(d.id);
+      pending.delete(d.id);
+      resolve(d.result);
+    }
+  });
+}
+const nextId = () => `${self}#${++reqSeq}.${Math.random().toString(36).slice(2, 7)}`;
+
+// xbin.dialog(spec) → Promise<{button, values}>. Shell-rendered trusted modal
+// (title/message/fields/buttons — plain data, no markup). Resolves with the
+// clicked button's value (null on dismiss) and the field values. Falls back to
+// an in-frame modal when not embedded in the shell.
+async function dialog(spec = {}) {
+  if (embedded) {
+    return new Promise((resolve) => {
+      const id = nextId();
+      pending.set(id, resolve);
+      window.parent.postMessage({ type: 'xbin:dialog', id, spec }, location.origin);
+    });
+  }
+  await import('/vendor/bx-dialog.js');
+  return new Promise((resolve) => {
+    const el = document.createElement('bx-dialog');
+    el.spec = spec; el.open = true;
+    el.addEventListener('bx-dialog-resolve', (e) => { el.remove(); resolve(e.detail); }, { once: true });
+    document.body.appendChild(el);
+  });
+}
+
+// xbin.window(spec) → handle. Opens a floating, top-level workspace window whose
+// body is a real tile frame — by default one of THIS component's own sub-paths
+// (spec.path, e.g. "editor" → /c/<self>/editor/), so it runs your own UI and
+// talks to your backend with the usual xbin.fetch; the window escapes the tile's
+// clipping. spec.src frames a full component path instead (subject to the same
+// tile-access RBAC as any <bx-frame>). Needs the shell — a no-op standalone.
+//   spec = { path? | src?, title?, width?, height?, x?, y? }
+//   handle = { id, close(), closed: Promise<void> }
+function openWindow(spec = {}) {
+  if (!embedded) { console.warn('xbin.window needs the workspace shell'); return { id: null, close() {}, closed: Promise.resolve() }; }
+  const id = nextId();
+  const closed = new Promise((resolve) => pending.set(id, resolve));
+  window.parent.postMessage({ type: 'xbin:window', id, spec }, location.origin);
+  return {
+    id,
+    close() { window.parent.postMessage({ type: 'xbin:window-close', id }, location.origin); },
+    closed,
+  };
+}
+
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events, dialog, window: openWindow });

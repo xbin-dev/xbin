@@ -150,7 +150,32 @@ await xbin.bus.publish('res:apps/thing/bus', 'events/created', ev); // writer
 
 // raw event stream: reload / build-start / build-error / build-ok / bus / grants
 const off2 = xbin.events.on((e) => {…});
+
+// ---- dialogs & pop-out windows (a tile is an iframe → the SHELL spawns these
+// over the whole workspace; see docs/elements.md §Dialogs & windows) ----
+
+// A trusted modal rendered by the shell from plain data (no markup — safe).
+// Resolves { button, values }: button = the clicked button's value (null if
+// dismissed via Esc / backdrop / Cancel), values = the field inputs.
+const res = await xbin.dialog({
+  title: 'Delete account?',
+  message: 'This removes apps/imap#aurora and its stored mail.',
+  fields: [{ name: 'confirm', label: 'Type the name to confirm', placeholder: 'aurora' }],
+  buttons: [{ label: 'Cancel', value: null }, { label: 'Delete', value: 'del', danger: true }],
+});
+if (res.button === 'del' && res.values.confirm === 'aurora') { … }
+
+// A floating window running YOUR OWN UI: it frames a sub-path of this component
+// (a normal tile document), so it has its own xbin client and talks to your
+// backend with the usual xbin.fetch. Escapes the tile's clipping.
+const win = xbin.window({ path: 'compose', title: 'New message', width: 620, height: 440 });
+win.closed.then(() => refresh());   // resolves when the window is closed
+// win.close() to close it yourself. spec.src frames a full component path
+// instead of a sub-path (subject to the same tile-access RBAC as <bx-frame>).
 ```
+
+`xbin.dialog` falls back to an in-frame modal when the tile isn't embedded in
+the shell; `xbin.window` needs the shell (no-op otherwise).
 
 Height reporting to the embedding `<bx-frame>` and frame-token refresh are
 automatic.
@@ -162,6 +187,7 @@ automatic.
   import '/vendor/bx-frame.js';     // <bx-frame src="…">
   import '/vendor/bx-terminal.js';  // <bx-terminal cwd="…"> (bx-frame uses it)
   import '/vendor/bx-grants.js';    // <bx-grants> owner approval panel
+  import '/vendor/bx-dialog.js';    // <bx-dialog> modal (xbin.dialog fallback)
 </script>
 ```
 

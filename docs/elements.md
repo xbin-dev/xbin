@@ -180,6 +180,39 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
 
+## Dialogs & windows
+
+A tile is an iframe, so any modal or window it renders itself is **clipped to
+its card**. To float over the whole workspace, a tile asks the **shell** to
+spawn it. Two APIs on the in-frame `xbin` global (see [sdk.md](/docs/sdk.md)):
+
+- **`xbin.dialog(spec) → Promise<{button, values}>`** — a modal the shell
+  renders from a plain-data `spec` (`title`, `message`, `fields`, `buttons`).
+  It is **data-only**: strings are shown as text, never HTML, so a tile can't
+  inject markup or script into workspace chrome. Resolves with the clicked
+  button's `value` (`null` when dismissed via Escape / backdrop / Cancel) and
+  the field `values`. Good for confirm / prompt / a few inputs. Falls back to
+  an in-frame `<bx-dialog>` when the tile isn't inside the shell.
+- **`xbin.window(spec) → { id, close(), closed }`** — a floating, draggable
+  window whose body is a real tile frame. By default it frames a **sub-path of
+  the calling component** (`spec.path`, e.g. `"compose"` → `/c/<self>/compose/`),
+  so the window runs *your own* UI and, being an ordinary tile document, has its
+  own `xbin` client and talks to your backend with the usual `xbin.fetch`
+  ([auth.md](/docs/auth.md) — it's the same component identity). `spec.src`
+  frames a full component path instead, subject to the same tile-access RBAC as
+  any `<bx-frame>`. The window and the card are separate documents (no shared JS
+  memory); coordinate through the shared backend / bus / kv. `closed` resolves
+  when the window closes.
+
+**Why not "render my HTML in a window"?** The shell holds the owner's cookie
+and admin chrome; running tile-provided markup there would be privilege
+escalation. So the safe shapes are exactly these two: *data* the shell renders
+(dialog), or your *own sandboxed sub-frame* in shell-owned window chrome. The
+shell tags every request with the **verified** component (the sender iframe is
+the identity — a tile can't spoof another's), and window sub-paths are
+traversal-stripped, so a tile can only pop out its own pages (or components the
+user may already use).
+
 ## Runtimes & backend lifecycle
 
 Backends serve plain HTTP on a unix socket xbind hands them

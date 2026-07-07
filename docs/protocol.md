@@ -330,6 +330,30 @@ Non-bus events go to every subscriber. `bus` events are delivered only to
 the owner and to elements holding a reader grant on the resource. Slow
 consumers are disconnected; reconnect with backoff (the bundled clients do).
 
+## Tile ↔ shell messaging (window.postMessage)
+
+Tiles are same-origin iframes; a small `postMessage` protocol between a tile's
+`xbin-client.js` and its embedding `<bx-frame>` (relayed to `<bx-shell>`) backs
+the height, dialog, and pop-out-window features. Every message is
+`{ type: "xbin:…", … }` and is only honored from the frame's *own* iframe
+(`event.source` match) — the sender window is the verified component identity.
+
+```
+tile → frame   xbin:resize   {component, height}     auto-height (informational)
+tile → frame   xbin:dialog   {id, spec}              request a shell modal
+tile → frame   xbin:window   {id, spec}              request a pop-out window
+tile → frame   xbin:window-close {id}                close a window it opened
+frame → tile   xbin:reply    {id, result}            dialog result / window closed
+```
+
+`<bx-frame>` re-dispatches dialog/window requests as a `bx-spawn` DOM event
+carrying the **verified** component (never a tile-supplied one) plus a `reply`
+closure; `<bx-shell>` renders the dialog (`<bx-dialog>`, from data) or window
+(a nested `<bx-frame>` on a sub-path) and calls `reply` on resolve/close.
+Window sub-paths are traversal-stripped; framing still runs the normal
+frame-token / tile-access checks. See docs/elements.md §Dialogs & windows and
+the `xbin.dialog` / `xbin.window` APIs in docs/sdk.md.
+
 ## Backend contract (what the runner promises your process)
 
 - Listen on `$XBIN_SOCKET` (unix, HTTP/1.1; WebSocket upgrades pass

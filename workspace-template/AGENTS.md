@@ -215,7 +215,29 @@ xbin.events.on(e => {…})                   // reload/build/bus/grants stream
 // gets its own bucket, isolated per user:
 await xbin.fetch(`/api/xbin/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
 const v = await (await xbin.fetch('/api/xbin/prefs/mykey')).json()
+
+// dialogs & pop-out windows — your tile is an IFRAME, so a modal or window you
+// render yourself is clipped to your card. For UI that must float over the
+// whole workspace, ask the shell to spawn it:
+const res = await xbin.dialog({            // trusted modal from plain DATA
+  title:'Rename', message:'New name?',     //   (no HTML — a tile can't inject
+  fields:[{name:'v', value:cur}],          //    markup into chrome), un-clipped
+  buttons:[{label:'Cancel',value:null},{label:'Save',value:'ok',primary:true}]})
+if (res.button === 'ok') save(res.values.v)  // {button, values}; button null = dismissed
+
+const win = xbin.window({ path:'compose', title:'Compose', width:620, height:440 })
+win.closed.then(refresh)   // win.close() to close; a floating window whose body
+                           // is /c/<self>/compose/ — YOUR OWN sub-page, a real
+                           // tile frame that talks to your backend with the
+                           // usual xbin.fetch. (spec.src frames another
+                           // component instead, same RBAC as a <bx-frame>.)
 ```
+
+`xbin.dialog` is for confirm/prompt/small forms (falls back to an in-frame
+modal when there's no shell); `xbin.window` is for rich pop-out UI. The window
+and the card are separate documents (no shared JS memory) — coordinate through
+your backend / bus / kv, which they share. Never try to render your own HTML
+in the shell: dialogs are data-only, windows are sandboxed sub-frames.
 
 **Never hardcode your own install path in code.** Use `xbin.self` (and
 `` `res:${xbin.self}/…` `` for your own resources/bus topics) in the frontend,

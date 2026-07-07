@@ -244,12 +244,36 @@ export class BxFrame extends LitElement {
   }
 
   _message(e) {
-    if (!this._autoHeight) return;
-    const d = e.data;
-    if (d?.type !== 'xbin:resize') return;
+    // Only trust messages from OUR iframe — the sender window IS the identity,
+    // so a tile can't spoof another component's requests.
     if (e.source !== this._iframe?.contentWindow) return;
-    const h = Math.max(24, Math.min(d.height, 20000));
-    this.style.setProperty('--bx-frame-height', h + 'px');
+    const d = e.data;
+    if (typeof d?.type !== 'string' || !d.type.startsWith('xbin:')) return;
+
+    if (d.type === 'xbin:resize') {
+      if (!this._autoHeight) return;
+      this.style.setProperty('--bx-frame-height', Math.max(24, Math.min(d.height, 20000)) + 'px');
+      return;
+    }
+
+    // Dialog / pop-out window requests — relayed to <bx-shell> with the VERIFIED
+    // component id (this.src, not anything the tile claimed). `reply` posts the
+    // result back to this exact iframe, keyed by the request id.
+    if (d.type === 'xbin:dialog' || d.type === 'xbin:window') {
+      this.dispatchEvent(new CustomEvent('bx-spawn', {
+        bubbles: true, composed: true,
+        detail: {
+          kind: d.type.slice('xbin:'.length), // 'dialog' | 'window'
+          id: d.id, from: this.src, spec: d.spec || {},
+          reply: (result) => this._iframe?.contentWindow?.postMessage(
+            { type: 'xbin:reply', id: d.id, result }, location.origin),
+        },
+      }));
+    } else if (d.type === 'xbin:window-close') {
+      this.dispatchEvent(new CustomEvent('bx-spawn-close', {
+        bubbles: true, composed: true, detail: { id: d.id },
+      }));
+    }
   }
 
   _url() { return `/c/${this.src}/`; }

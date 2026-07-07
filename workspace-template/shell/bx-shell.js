@@ -31,6 +31,7 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
+import '/vendor/bx-dialog.js';
 
 const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
 // Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
@@ -76,6 +77,8 @@ export class BxShell extends LitElement {
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
+    _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
+    _spawnWins: { state: true },  // pop-out windows a tile asked for
   };
 
   static styles = css`
@@ -164,6 +167,28 @@ export class BxShell extends LitElement {
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
     }
+
+    /* ---- tile-spawned pop-out windows ---- */
+    .spawn {
+      position: fixed; display: flex; flex-direction: column;
+      border: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 55%, var(--bx-muted, #8794a1));
+      border-radius: var(--bx-radius, 6px); background: var(--bx-panel, #fff);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 3px 8px 18px rgba(0, 0, 0, .45), 8px 18px 44px rgba(0, 0, 0, .3);
+      overflow: hidden; resize: both; min-width: 200px; min-height: 120px;
+    }
+    .spawn .shead {
+      display: flex; align-items: center; gap: 8px; flex: none;
+      padding: 5px 6px 5px 10px; cursor: grab; user-select: none; touch-action: none;
+      background: var(--bx-panel-2, #f7f8fa); border-bottom: 1px solid var(--bx-border, #e4e8ed);
+    }
+    .spawn .shead:active { cursor: grabbing; }
+    .spawn .stitle { font-size: 12px; font-weight: 600; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; }
+    .spawn .sfrom { margin-left: auto; font: 10px var(--bx-mono, monospace); color: var(--bx-muted, #8794a1); }
+    .spawn .shead button { border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+      cursor: pointer; font-size: 12px; padding: 0 2px; }
+    .spawn .shead button:hover { color: var(--bx-red, #e5484d); }
+    .spawn .sbody { flex: 1; min-height: 0; position: relative; }
     aside.collapsed {
       width: 22px; padding: 4px 0;
       border-right: 1px solid var(--bx-border, #e4e8ed);
@@ -289,6 +314,12 @@ export class BxShell extends LitElement {
     this._isAdmin = false;
     this._adminFor = null;
     this._adminPos = { x: 0, y: 0 };
+    this._dialogs = [];
+    this._spawnWins = [];
+    // Tile → shell requests (dialog / pop-out window). Composed events reach
+    // window; the detail carries the VERIFIED component + a reply closure.
+    this._onSpawn = (e) => this._spawn(e.detail);
+    this._onSpawnClose = (e) => this._closeSpawn(e.detail.id);
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -306,6 +337,8 @@ export class BxShell extends LitElement {
     });
     window.addEventListener('blur', this._onBlur);
     this._probeAdmin();
+    window.addEventListener('bx-spawn', this._onSpawn);
+    window.addEventListener('bx-spawn-close', this._onSpawnClose);
     this._loadSys();
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
   }
@@ -313,6 +346,8 @@ export class BxShell extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._off?.();
+    window.removeEventListener('bx-spawn', this._onSpawn);
+    window.removeEventListener('bx-spawn-close', this._onSpawnClose);
     clearInterval(this._sysTimer);
     this._ro?.disconnect();
     window.removeEventListener('pointermove', this._onMove);
@@ -418,6 +453,86 @@ export class BxShell extends LitElement {
       g.get(top).push(c);
     }
     return [...g.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  // ---- tile-spawned dialogs & pop-out windows (docs/elements.md) ----
+  _spawn(d) {
+    if (d.kind === 'dialog') {
+      this._dialogs = [...this._dialogs, { id: d.id, from: d.from, spec: d.spec, reply: d.reply }];
+      return;
+    }
+    // window: frame a sub-path of the caller (default) or an explicit component
+    // path. Both go through <bx-frame>, so RBAC (frame-token/CanUseTile) still
+    // applies; strip any traversal from a caller-supplied sub-path.
+    const safe = (p) => String(p || '').replace(/\.\.(\/|$)/g, '').replace(/^\/+|\/+$/g, '');
+    const src = d.spec.src ? safe(d.spec.src) : [d.from, safe(d.spec.path)].filter(Boolean).join('/');
+    const w = Math.max(200, Math.min(d.spec.width || 480, window.innerWidth - 40));
+    const h = Math.max(140, Math.min(d.spec.height || 360, window.innerHeight - 40));
+    const win = {
+      id: d.id, from: d.from, src, reply: d.reply,
+      title: d.spec.title || src,
+      x: d.spec.x ?? Math.round((window.innerWidth - w) / 2),
+      y: d.spec.y ?? Math.round((window.innerHeight - h) / 2.4),
+      w, h, z: ++zTop,
+    };
+    this._spawnWins = [...this._spawnWins, win];
+  }
+
+  _resolveDialog(id, detail) {
+    const d = this._dialogs.find((x) => x.id === id);
+    if (d) d.reply(detail);
+    this._dialogs = this._dialogs.filter((x) => x.id !== id);
+  }
+
+  // Close a spawned window (by the tile, its ✕, or the tile unmounting): tell
+  // the caller its window closed (resolves handle.closed) and drop it.
+  _closeSpawn(id) {
+    const w = this._spawnWins.find((x) => x.id === id);
+    if (!w) return;
+    w.reply();
+    this._spawnWins = this._spawnWins.filter((x) => x.id !== id);
+  }
+
+  _spawnFront(id) {
+    const w = this._spawnWins.find((x) => x.id === id);
+    if (w) { w.z = ++zTop; this.requestUpdate(); }
+  }
+
+  _spawnDragStart(e, id) {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    this._spawnFront(id);
+    const w = this._spawnWins.find((x) => x.id === id);
+    if (!w) return;
+    const ox = e.clientX - w.x, oy = e.clientY - w.y;
+    const unshield = dragShield();
+    const move = (ev) => {
+      w.x = Math.max(-w.w + 60, Math.min(ev.clientX - ox, window.innerWidth - 40));
+      w.y = Math.max(0, Math.min(ev.clientY - oy, window.innerHeight - 24));
+      this.requestUpdate();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      unshield();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  _spawnTemplate(w) {
+    return html`
+      <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
+           @pointerdown=${() => this._spawnFront(w.id)}>
+        <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
+          <span class="stitle">${w.title}</span>
+          <span class="sfrom">${w.from}</span>
+          <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
+        </div>
+        <div class="sbody">
+          <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
+        </div>
+      </div>`;
   }
 
   _isOpen(path) { return this._tiles.some((o) => o.path === path); }
@@ -932,6 +1047,11 @@ export class BxShell extends LitElement {
         <div class="admin-pop" style="left:${this._adminPos.x}px; top:${this._adminPos.y}px">
           <bx-tile-admin .path=${this._adminFor}></bx-tile-admin>
         </div>` : nothing}
+
+      ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
+      ${repeat(this._dialogs, (d) => d.id, (d) => html`
+        <bx-dialog open .spec=${d.spec}
+          @bx-dialog-resolve=${(e) => this._resolveDialog(d.id, e.detail)}></bx-dialog>`)}
     `;
   }
 }

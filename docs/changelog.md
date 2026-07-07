@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-06
 
+- frontend: tiles can spawn workspace-level UI via the shell — `xbin.dialog(spec)`
+  (a data-driven modal that escapes the iframe; resolves `{button, values}`) and
+  `xbin.window(spec)` (a floating window framing one of the tile's own sub-paths,
+  a real tile frame that uses `xbin.fetch` normally). New core element
+  `<bx-dialog>`. Docs: elements.md §Dialogs & windows, sdk.md, protocol.md.
+
 - interfaces/auth: new `code:<component>` capability — grant a component
   read-only access to *another* component's source (files + git log/diff via
   `/api/xbin/code/*`, `/git/{log,diff}`), owner-approved like any cross-scope
