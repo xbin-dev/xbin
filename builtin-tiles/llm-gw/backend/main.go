@@ -10,22 +10,37 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	xbin "github.com/magik6k/xbin/sdk"
 )
 
 const defaultBaseURL = "https://api.openai.com"
 
+// useTypes are the workspace-wide "preferred model" slots. Kept small and fixed
+// so the tile can present one dropdown per type and callers (the agent, chat,
+// pipelines…) resolve their default model from one place via GET /preferred.
+var useTypes = []string{"agent", "chat", "pipeline", "vlm", "coding", "summarizing"}
+
 type backend struct {
 	BaseURL string `json:"baseURL"`
+}
+
+// price is a model's cost in USD per 1,000,000 tokens (input / output).
+type price struct {
+	In  float64 `json:"in"`
+	Out float64 `json:"out"`
 }
 
 type gwConfig struct {
@@ -33,12 +48,18 @@ type gwConfig struct {
 	BaseURL  string             `json:"baseURL,omitempty"`
 	Backends map[string]backend `json:"backends"`
 	Aliases  map[string]string  `json:"aliases"` // alias -> "<backend>/<model>" (or bare model)
+	// Preferred maps a use-type (see useTypes) to a model id — the workspace's
+	// default model for that job, resolved by callers via GET /preferred.
+	Preferred map[string]string `json:"preferred"`
+	// Pricing maps an upstream model id to its cost, for the cost counters.
+	Pricing map[string]price `json:"pricing"`
 }
 
 type stats struct {
-	Reqs   int64 `json:"reqs"`
-	TokIn  int64 `json:"tokIn"`
-	TokOut int64 `json:"tokOut"`
+	Reqs   int64   `json:"reqs"`
+	TokIn  int64   `json:"tokIn"`
+	TokOut int64   `json:"tokOut"`
+	Cost   float64 `json:"cost"`
 }
 
 var (
@@ -72,7 +93,22 @@ func loadConfig() gwConfig {
 	if c.Aliases == nil {
 		c.Aliases = map[string]string{}
 	}
+	if c.Preferred == nil {
+		c.Preferred = map[string]string{}
+	}
+	if c.Pricing == nil {
+		c.Pricing = map[string]price{}
+	}
 	return c
+}
+
+// costOf returns the USD cost of a request from the configured per-model price.
+func costOf(c gwConfig, model string, tokIn, tokOut int64) float64 {
+	p, ok := c.Pricing[model]
+	if !ok {
+		return 0
+	}
+	return float64(tokIn)/1e6*p.In + float64(tokOut)/1e6*p.Out
 }
 
 func saveConfig(c gwConfig) error {
@@ -99,7 +135,7 @@ func loadStats() {
 	}
 }
 
-func bumpStats(name string, tokIn, tokOut int64) {
+func bumpStats(name string, tokIn, tokOut int64, cost float64) {
 	loadStats()
 	statsMu.Lock()
 	s := statsBy[name]
@@ -110,9 +146,48 @@ func bumpStats(name string, tokIn, tokOut int64) {
 	s.Reqs++
 	s.TokIn += tokIn
 	s.TokOut += tokOut
+	s.Cost += cost
 	snapshot := statsBy
 	statsMu.Unlock()
 	_ = kv.PutJSON("stats", snapshot)
+}
+
+const maxRetries = 3 // up to maxRetries+1 upstream attempts
+
+func retryableStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// sleepBackoff waits before a retry: honors a numeric Retry-After (seconds) if
+// present, else exponential backoff with jitter (capped). Returns false if the
+// request context is canceled while waiting.
+func sleepBackoff(ctx context.Context, attempt int, retryAfter string) bool {
+	var d time.Duration
+	if s := strings.TrimSpace(retryAfter); s != "" {
+		if secs, err := strconv.Atoi(s); err == nil && secs >= 0 {
+			d = time.Duration(secs) * time.Second
+		}
+	}
+	if d == 0 {
+		base := 400 * time.Millisecond * time.Duration(int64(1)<<attempt)
+		d = base + time.Duration(rand.Int63n(int64(base/2)+1))
+	}
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func setActive(name string, d int) {
@@ -184,10 +259,17 @@ func main() {
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 	mux.Handle("PUT /config/backend", xbin.RoleFunc("admin", handlePutBackend))
 	mux.Handle("DELETE /config/backend/{name}", xbin.RoleFunc("admin", handleDelBackend))
+	mux.Handle("PUT /config/preferred", xbin.RoleFunc("admin", handlePutPreferred))
 	mux.Handle("GET /stats", xbin.RoleFunc("admin", handleStats))
 
-	// OpenAI-compatible surface.
+	// Reader surface: the aggregated model list, the workspace's preferred
+	// models (callers resolve their default here), and Prometheus metrics
+	// (bound by a viewer tile via the "metrics"/prometheus interface).
 	mux.Handle("GET /v1/models", xbin.RoleFunc("reader", handleModels))
+	mux.Handle("GET /preferred", xbin.RoleFunc("reader", handlePreferred))
+	mux.Handle("GET /metrics", xbin.RoleFunc("reader", handleMetrics))
+
+	// OpenAI-compatible proxy.
 	mux.Handle("/v1/{rest...}", xbin.RoleFunc("writer", handleProxy))
 
 	xbin.Serve(mux)
@@ -216,7 +298,78 @@ func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	for _, n := range backendNames(c) {
 		out = append(out, beOut{Name: n, BaseURL: c.Backends[n].BaseURL, HasToken: tokenFor(n) != ""})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"backends": out, "aliases": c.Aliases})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"backends": out, "aliases": c.Aliases,
+		"preferred": c.Preferred, "pricing": c.Pricing, "useTypes": useTypes,
+	})
+}
+
+// handlePreferred returns the workspace's preferred model per use-type (or one
+// with ?use=). Callers (the agent, chat, pipelines) resolve their default model
+// here so the choice lives in one place. Reader — binding grants it.
+func handlePreferred(w http.ResponseWriter, r *http.Request) {
+	c := loadConfig()
+	if use := r.URL.Query().Get("use"); use != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"use": use, "model": c.Preferred[use]})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred, "useTypes": useTypes})
+}
+
+// handlePutPreferred sets (or clears, with an empty model) one use-type's
+// preferred model.
+func handlePutPreferred(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Use, Model string }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "need JSON body: {use, model}")
+		return
+	}
+	body.Use = strings.TrimSpace(body.Use)
+	if body.Use == "" {
+		writeErr(w, http.StatusBadRequest, "use required")
+		return
+	}
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	c := loadConfig()
+	if m := strings.TrimSpace(body.Model); m == "" {
+		delete(c.Preferred, body.Use)
+	} else {
+		c.Preferred[body.Use] = m
+	}
+	if err := saveConfig(c); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred})
+}
+
+// handleMetrics renders per-backend counters in Prometheus text format.
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	loadStats()
+	c := loadConfig()
+	names := backendNames(c)
+	statsMu.Lock()
+	defer statsMu.Unlock()
+	var b strings.Builder
+	series := func(name, help, typ string, val func(*stats, string) any) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ)
+		for _, n := range names {
+			s := statsBy[n]
+			if s == nil {
+				s = &stats{}
+			}
+			fmt.Fprintf(&b, "%s{backend=%q} %v\n", name, n, val(s, n))
+		}
+	}
+	series("llmgw_requests_total", "Requests proxied per backend.", "counter", func(s *stats, n string) any { return s.Reqs })
+	series("llmgw_tokens_in_total", "Prompt tokens per backend.", "counter", func(s *stats, n string) any { return s.TokIn })
+	series("llmgw_tokens_out_total", "Completion tokens per backend.", "counter", func(s *stats, n string) any { return s.TokOut })
+	series("llmgw_cost_usd_total", "Estimated USD cost per backend.", "counter", func(s *stats, n string) any { return strconv.FormatFloat(s.Cost, 'f', 6, 64) })
+	series("llmgw_active_requests", "In-flight requests per backend.", "gauge", func(s *stats, n string) any { return active[n] })
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, b.String())
 }
 
 var backendNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -304,15 +457,15 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	loadStats()
 	c := loadConfig()
 	statsMu.Lock()
-	out := map[string]map[string]int64{}
+	out := map[string]any{}
 	for _, n := range backendNames(c) {
 		s := statsBy[n]
 		if s == nil {
 			s = &stats{}
 		}
-		out[n] = map[string]int64{
+		out[n] = map[string]any{
 			"reqs": s.Reqs, "tokIn": s.TokIn, "tokOut": s.TokOut,
-			"active": int64(active[n]),
+			"active": int64(active[n]), "cost": s.Cost,
 		}
 	}
 	statsMu.Unlock()
@@ -430,6 +583,8 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	// (alias → "<backend>/<model>" prefix → default), rewriting it to the
 	// upstream's bare id on the way out.
 	beName := defaultBackend(c)
+	reqModel := "" // resolved upstream model id, for cost pricing
+	var rawBody []byte
 	if strings.Contains(ct, "application/json") {
 		raw, rerr := io.ReadAll(io.LimitReader(r.Body, 32<<20))
 		if rerr != nil {
@@ -441,7 +596,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(raw, &payload) == nil {
 				if model, _ := payload["model"].(string); model != "" {
 					b, real := resolveModel(c, model)
-					beName = b
+					beName, reqModel = b, real
 					if real != model {
 						payload["model"] = real
 						if remarshaled, merr := json.Marshal(payload); merr == nil {
@@ -451,6 +606,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		rawBody = raw // buffered ⇒ safe to replay on retry
 		body = bytes.NewReader(raw)
 	}
 
@@ -466,28 +622,54 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := upstreamURL(be.BaseURL, r.URL.Path, r.URL.RawQuery)
-
-	upReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, body)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if ct != "" {
-		upReq.Header.Set("Content-Type", ct)
-	}
-	if acc := r.Header.Get("Accept"); acc != "" {
-		upReq.Header.Set("Accept", acc)
-	}
-	upReq.Header.Set("Authorization", "Bearer "+tok)
+	replayable := rawBody != nil // only retry when we can rewind the body
 
 	setActive(beName, +1)
 	defer setActive(beName, -1)
 
-	resp, err := upstream.Do(upReq)
-	if err != nil {
-		bumpStats(beName, 0, 0)
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s %s: %s", r.Method, target, err.Error()))
-		return
+	// Attempt the upstream, retrying transient failures while nothing has been
+	// written to the client yet (streaming keeps working — Do returns at the
+	// response headers, before the body relay below).
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		reqBody := body
+		if replayable {
+			reqBody = bytes.NewReader(rawBody)
+		}
+		upReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, reqBody)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if ct != "" {
+			upReq.Header.Set("Content-Type", ct)
+		}
+		if acc := r.Header.Get("Accept"); acc != "" {
+			upReq.Header.Set("Accept", acc)
+		}
+		upReq.Header.Set("Authorization", "Bearer "+tok)
+
+		var derr error
+		resp, derr = upstream.Do(upReq)
+		if derr != nil {
+			if replayable && attempt < maxRetries && sleepBackoff(r.Context(), attempt, "") {
+				continue
+			}
+			bumpStats(beName, 0, 0, 0)
+			writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s %s: %s", r.Method, target, derr.Error()))
+			return
+		}
+		if replayable && attempt < maxRetries && retryableStatus(resp.StatusCode) {
+			ra := resp.Header.Get("Retry-After")
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+			resp.Body.Close()
+			if sleepBackoff(r.Context(), attempt, ra) {
+				continue
+			}
+			writeErr(w, http.StatusGatewayTimeout, "canceled during retry backoff")
+			return
+		}
+		break
 	}
 	defer resp.Body.Close()
 
@@ -530,5 +712,5 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		fmt.Sscan(string(m[1]), &tokIn)
 		fmt.Sscan(string(m[2]), &tokOut)
 	}
-	bumpStats(beName, tokIn, tokOut)
+	bumpStats(beName, tokIn, tokOut, costOf(c, reqModel, tokIn, tokOut))
 }

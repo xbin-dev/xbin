@@ -27,6 +27,10 @@
   // the binding grants the caller the "writer" role, so providers are swappable
   // without the caller hard-coding this path.
   "provides": {
-    "openai": { "kind": "http", "service": "openai", "role": "writer" }
+    "openai": { "kind": "http", "service": "openai", "role": "writer" },
+    // Prometheus metrics (per-backend reqs/tokens/cost/active) at GET /metrics.
+    // A prometheus-viewer tile binds this (service "prometheus") and scrapes
+    // <url>/metrics — the binding grants the reader role.
+    "metrics": { "kind": "http", "service": "prometheus", "role": "reader" }
   }
 }

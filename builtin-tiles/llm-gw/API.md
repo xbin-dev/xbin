@@ -15,11 +15,27 @@ Model **aliases** let you rename upstream models for callers: set
 `lab/strong-model-4.8`. Aliases also show up in `GET /v1/models` so callers
 can discover them.
 
+**Preferred models.** The tile has one dropdown per **use-type** — `agent`,
+`chat`, `pipeline`, `vlm`, `coding`, `summarizing` — naming the workspace's
+default model for that job. Callers resolve their default from `GET /preferred`
+so the choice lives in one place and swaps everywhere at once (the agent, for
+instance, fills any empty model tier from here).
+
+**Cost & metrics.** Set per-model prices (`$/1M` tokens, input/output) and the
+tile tracks `$` per backend alongside token counts. `GET /metrics` renders the
+same counters in Prometheus text format — bind it into a prometheus-viewer tile
+via the `metrics` interface (service `prometheus`).
+
+**Reliability.** Transient upstream failures (`429`, `5xx`) are retried with
+jittered backoff (honoring `Retry-After`) while nothing has been sent to the
+caller yet, so a rate-limit blip doesn't surface as an error. Streaming is
+unaffected (retries happen before the first byte).
+
 ## Roles
 
 | Role   | Grants |
 |--------|--------|
-| reader | `GET /v1/models` — list available models (real + aliases) |
+| reader | `GET /v1/models` (list models), `GET /preferred` (workspace default models), `GET /metrics` (Prometheus) |
 | writer | Everything under `/v1/` — chat/completions, completions, embeddings, etc. (implies reader) |
 
 ## Endpoints
@@ -32,6 +48,23 @@ can discover them.
   {"id":"lab/strong-model-4.8","object":"model","owned_by":"lab"}
 ]}
 ```
+
+### GET /preferred[?use=&lt;type&gt;] — role: reader
+
+The workspace's preferred model per use-type. Without `?use=`, returns the whole
+map; with it, just that one — a caller does `GET /preferred?use=agent` to learn
+which model to default to.
+
+```json
+{ "preferred": { "agent": "lab/strong-model-4.8", "summarizing": "gpt-4o-mini" },
+  "useTypes": ["agent","chat","pipeline","vlm","coding","summarizing"] }
+```
+
+### GET /metrics — role: reader
+
+Per-backend counters in Prometheus text format: `llmgw_requests_total`,
+`llmgw_tokens_in_total`, `llmgw_tokens_out_total`, `llmgw_cost_usd_total`
+(all `{backend="…"}`-labelled counters) and `llmgw_active_requests` (gauge).
 
 ### /v1/* — role: writer
 
@@ -67,8 +100,9 @@ resp, _ := xbin.Client().Post("http://xbin/api/apps/llm-gw/v1/chat/completions",
 
 ## What's not proxied
 
-`/config` (`GET`/`PUT`, plus `/config/backend` add/remove) and `/stats`
-(per-backend usage counters) are the tile's own settings endpoints — gated
-to `admin`, i.e. only the tile's own frontend (self is always admin of
-itself) or the workspace owner. They are not part of the reader/writer
-surface and granting `writer` does not expose them.
+`/config` (`GET`/`PUT`, plus `/config/backend` add/remove and
+`/config/preferred`) and `/stats` (per-backend usage + cost) are the tile's own
+settings endpoints — gated to `admin`, i.e. only the tile's own frontend (self
+is always admin of itself) or the workspace owner. They are not part of the
+reader/writer surface and granting `writer` does not expose them. (`GET
+/preferred` and `GET /metrics` above are the reader-visible slices.)

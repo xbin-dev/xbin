@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-07
 
+- llm-gw: **preferred models** — one workspace default per use-type (`agent`,
+  `chat`, `pipeline`, `vlm`, `coding`, `summarizing`), set on the tile and read
+  by callers via `GET /preferred`, so a model choice lives in one place. Plus
+  per-model **cost** tracking, a Prometheus `GET /metrics` endpoint (bindable via
+  the new `metrics`/`prometheus` provide interface), and transient-error
+  **retry/backoff** on the proxy (429/5xx, pre-first-byte, honors `Retry-After`).
+  First slice of the agent-v2 program (`plans/agent-v2.md`).
+
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component
   (for scanners/linters/stats), alongside `code:<component>` for one. Honored

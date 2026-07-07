@@ -34,8 +34,10 @@ const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!
 export class BxLlmGw extends LitElement {
   static properties = {
     _backends: { state: true },  // [{name, baseURL, hasToken}]
-    _stats: { state: true },     // name -> {reqs, tokIn, tokOut, active}
+    _stats: { state: true },     // name -> {reqs, tokIn, tokOut, active, cost}
     _aliases: { state: true },
+    _preferred: { state: true }, // use-type -> model id
+    _useTypes: { state: true },  // ordered list of use-types
     _models: { state: true },
     _modelsLoading: { state: true },
     _modelsErr: { state: true },
@@ -97,6 +99,8 @@ export class BxLlmGw extends LitElement {
     this._backends = [];
     this._stats = {};
     this._aliases = {};
+    this._preferred = {};
+    this._useTypes = [];
     this._models = [];
     this._modelsLoading = false;
     this._modelsErr = '';
@@ -126,6 +130,8 @@ export class BxLlmGw extends LitElement {
       const cfg = await api('/config');
       this._backends = cfg.backends ?? [];
       this._aliases = cfg.aliases ?? {};
+      this._preferred = cfg.preferred ?? {};
+      this._useTypes = cfg.useTypes ?? [];
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
     this._loadStats();
@@ -186,6 +192,18 @@ export class BxLlmGw extends LitElement {
     this._busy = false;
   }
 
+  // Set (or clear) the workspace's preferred model for a use-type. Callers
+  // (the agent, chat, pipelines) resolve their default model from here.
+  async _savePreferred(use, model) {
+    try {
+      const d = await api('/config/preferred', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ use, model }),
+      });
+      this._preferred = d.preferred ?? {};
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
   async _saveAliases(aliases) {
     try {
       const d = await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -231,7 +249,7 @@ export class BxLlmGw extends LitElement {
         <table>
           <tr><th>name</th><th>base URL</th><th>token</th><th style="text-align:right">reqs</th>
               <th style="text-align:right">tok in</th><th style="text-align:right">tok out</th>
-              <th style="text-align:right">active</th><th></th></tr>
+              <th style="text-align:right">cost</th><th style="text-align:right">active</th><th></th></tr>
           ${this._backends.map((b) => {
             const st = this._stats[b.name] ?? {};
             return html`<tr>
@@ -241,6 +259,7 @@ export class BxLlmGw extends LitElement {
               <td class="mono" style="text-align:right">${fmtN(st.reqs)}</td>
               <td class="mono" style="text-align:right">${fmtN(st.tokIn)}</td>
               <td class="mono" style="text-align:right">${fmtN(st.tokOut)}</td>
+              <td class="mono muted" style="text-align:right">${st.cost ? '$' + Number(st.cost).toFixed(2) : '—'}</td>
               <td class="mono" style="text-align:right">${st.active
                 ? html`<span class="ok">${fmtN(st.active)}</span>` : '0'}</td>
               <td style="text-align:right; white-space:nowrap">
@@ -269,6 +288,24 @@ export class BxLlmGw extends LitElement {
             With several backends, model ids are namespaced
             <span class="mono">&lt;backend&gt;/&lt;model&gt;</span> — requests route by that prefix.
           </div>` : nothing}
+
+        <h4>preferred models</h4>
+        <div class="muted" style="font-size:11px; margin-bottom:5px">
+          The workspace's default model per job. Tiles (the agent, chat,
+          pipelines) resolve their model from here — set once, swap anywhere.
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:6px 10px; margin-bottom:4px">
+          ${(this._useTypes ?? []).map((u) => html`
+            <label style="display:flex; flex-direction:column; gap:2px; font-size:11px">
+              <span class="muted" style="text-transform:capitalize">${u}</span>
+              <select ?disabled=${!this._models.length}
+                @change=${(e) => this._savePreferred(u, e.target.value)}>
+                <option value="" ?selected=${!this._preferred[u]}>— none —</option>
+                ${this._models.map((m) => html`
+                  <option value=${m.id} ?selected=${this._preferred[u] === m.id}>${m.id}</option>`)}
+              </select>
+            </label>`)}
+        </div>
 
         <div class="models-head">
           <h4>models ${models.length ? html`<span class="count">(${models.length}${q ? ` of ${this._models.length}` : ''})</span>` : nothing}</h4>
