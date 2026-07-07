@@ -132,6 +132,18 @@ CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  cron TEXT NOT NULL DEFAULT '',
+  goal TEXT NOT NULL DEFAULT '',
+  system TEXT NOT NULL DEFAULT '',
+  watcher INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  run_id INTEGER NOT NULL DEFAULT 0,
+  last_run INTEGER NOT NULL DEFAULT 0,
+  created INTEGER NOT NULL
+);
 `)
 	if err != nil {
 		return err
@@ -370,6 +382,23 @@ func ftsQuery(s string) string {
 		}
 	}
 	return strings.Join(toks, " ")
+}
+
+// maxMessageSeq returns the highest message seq for a run, or -1 if none.
+func (d *DB) maxMessageSeq(runID int64) int {
+	var n sql.NullInt64
+	_ = d.sql.QueryRow(`SELECT MAX(seq) FROM messages WHERE run_id=?`, runID).Scan(&n)
+	if n.Valid {
+		return int(n.Int64)
+	}
+	return -1
+}
+
+// deleteMessagesAfter removes a run's messages with seq > mark (and their FTS
+// rows) — a watcher round's rollback when nothing changed.
+func (d *DB) deleteMessagesAfter(runID int64, seq int) {
+	_, _ = d.sql.Exec(`DELETE FROM messages_fts WHERE msg_id IN (SELECT id FROM messages WHERE run_id=? AND seq>?)`, runID, seq)
+	_, _ = d.sql.Exec(`DELETE FROM messages WHERE run_id=? AND seq>?`, runID, seq)
 }
 
 func (d *DB) markCompacted(ids []int64) error {

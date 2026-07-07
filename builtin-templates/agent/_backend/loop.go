@@ -217,8 +217,10 @@ func isParkingTool(name string) bool {
 // and appends their results in call order. spawn_subagent runs under the parent
 // context (subagents can be long); every other tool gets cfg.ToolTimeout.
 func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls []toolCall) {
-	if len(calls) == 1 {
-		ag.addToolResult(run.ID, calls[0], ag.runOneTool(ctx, run, cfg, calls[0]))
+	if len(calls) == 1 || !cfg.feature("parallelTools") {
+		for _, tc := range calls {
+			ag.addToolResult(run.ID, tc, ag.runOneTool(ctx, run, cfg, tc))
+		}
 		return
 	}
 	results := make([]string, len(calls))

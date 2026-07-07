@@ -43,6 +43,22 @@ type Config struct {
 	Subagents   bool        `json:"subagents"`   // expose spawn_subagent
 	Approve     bool        `json:"approve"`     // require approval before side-effecting tools
 	MCP         []MCPServer `json:"mcp"`         // legacy static MCP servers (now bound via the mcp interface)
+	// Features toggles optional capabilities — a "Features" menu in the tile.
+	// Absent or true = on; set a key false to turn it off. Known keys are in
+	// featureKeys; unlisted keys default on so older configs get everything.
+	Features map[string]bool `json:"features"`
+}
+
+// featureKeys are the toggleable capabilities shown in the tile's Features menu.
+var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher"}
+
+// feature reports whether an optional capability is enabled (default on).
+func (c Config) feature(name string) bool {
+	if c.Features == nil {
+		return true
+	}
+	v, ok := c.Features[name]
+	return !ok || v
 }
 
 func defaultConfig() Config {

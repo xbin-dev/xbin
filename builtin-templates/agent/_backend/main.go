@@ -21,10 +21,11 @@ import (
 type Agent struct {
 	db *DB
 
-	mu      sync.Mutex
-	driving map[int64]bool // runs being driven right now (coalesce)
-	stop    map[int64]bool // interrupt requests
-	beatOn  bool           // wake heartbeat currently registered
+	mu            sync.Mutex
+	driving       map[int64]bool          // runs being driven right now (coalesce)
+	stop          map[int64]bool          // interrupt requests
+	beatOn        bool                    // wake heartbeat currently registered
+	watcherRounds map[int64]*watcherRound // active watcher rounds (for rollback)
 }
 
 func (ag *Agent) claim(id int64) bool {
@@ -67,7 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}}
+	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}}
 
 	// Seed the default config once.
 	if db.getSetting("config") == "" {
@@ -97,6 +98,13 @@ func main() {
 	mux.Handle("DELETE /runs/{id}/memory", xbin.RoleFunc("admin", handleMemoryDelete))
 	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
+	mux.Handle("GET /features", xbin.RoleFunc("admin", handleFeatures))
+	mux.Handle("GET /schedules", xbin.RoleFunc("admin", handleListSchedules))
+	mux.Handle("POST /schedules", xbin.RoleFunc("admin", handleNewSchedule))
+	mux.Handle("PUT /schedules/{id}", xbin.RoleFunc("admin", handleUpdateSchedule))
+	mux.Handle("DELETE /schedules/{id}", xbin.RoleFunc("admin", handleDeleteSchedule))
+	mux.Handle("POST /schedules/{id}/fire", xbin.RoleFunc("admin", handleFireSchedule))
+	mux.Handle("POST /schedules/{id}/trigger", xbin.RoleFunc("admin", handleFireSchedule))
 	mux.Handle("POST /tick", xbin.RoleFunc("admin", handleTick))
 
 	xbin.Serve(mux)
@@ -105,11 +113,23 @@ func main() {
 // startupResume re-drives runs a restart left sleeping/stalled and syncs the
 // wake heartbeat to whatever is pending now.
 func (ag *Agent) startupResume() {
+	ag.reRegisterSchedules() // re-assert cron-agents (idempotent)
 	ids, _ := ag.db.dueRuns()
 	for _, id := range ids {
 		ag.driveAsync(id)
 	}
 	ag.reconcileBeat()
+}
+
+// handleFeatures reports the toggleable capabilities and their current state
+// (for the tile's Features menu). Toggle by PUT /config with a features map.
+func handleFeatures(w http.ResponseWriter, r *http.Request) {
+	cfg := parseConfig(agent.db.getSetting("config"))
+	state := map[string]bool{}
+	for _, k := range featureKeys {
+		state[k] = cfg.feature(k)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": featureKeys, "features": state})
 }
 
 // reconcileBeat keeps the wake heartbeat registered ONLY while runs need waking

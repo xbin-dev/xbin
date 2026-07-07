@@ -47,10 +47,6 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"text"}, map[string]any{"text": strProp("the note")}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name: "recall", Description: "Full-text search THIS run's entire history, including older turns compacted out of context. Use it to retrieve details you can no longer see. Returns the matching messages.",
-			Parameters: obj([]string{"query"}, map[string]any{"query": strProp("search terms (plain words)")}),
-		}},
-		{Type: "function", Function: funcDef{
 			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
 			Parameters: obj([]string{"method", "path"}, map[string]any{
 				"method": strProp("HTTP method, e.g. GET or POST"),
@@ -71,6 +67,32 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Name: "yield", Description: "Sleep for a while, then resume automatically (durable). Use when you should wait before continuing.",
 			Parameters: obj([]string{"seconds"}, map[string]any{"seconds": map[string]any{"type": "integer", "description": "how long to sleep"}}),
 		}},
+	}
+	if cfg.feature("recall") {
+		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
+			Name: "recall", Description: "Full-text search THIS run's entire history, including older turns compacted out of context. Use it to retrieve details you can no longer see. Returns the matching messages.",
+			Parameters: obj([]string{"query"}, map[string]any{"query": strProp("search terms (plain words)")}),
+		}})
+	}
+	specs = append(specs,
+		toolSpec{Type: "function", Function: funcDef{
+			Name: "schedule", Description: "Schedule future work: create a cron-agent that starts a run on a cadence. cron is a 5-field expression or '@every 30m'. Set watcher:true for a run that re-checks something and keeps only rounds where it reports a change.",
+			Parameters: obj([]string{"cron", "goal"}, map[string]any{
+				"cron":    strProp("5-field cron or @every <dur>"),
+				"goal":    strProp("what each run should do"),
+				"name":    strProp("optional label"),
+				"watcher": map[string]any{"type": "boolean", "description": "watcher mode (discard no-change rounds)"},
+			}),
+		}},
+		toolSpec{Type: "function", Function: funcDef{
+			Name: "unschedule", Description: "Remove a cron-agent by its schedule id.",
+			Parameters: obj([]string{"id"}, map[string]any{"id": map[string]any{"type": "integer", "description": "schedule id"}}),
+		}})
+	if cfg.feature("watcher") {
+		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
+			Name: "state_changed", Description: "In a watcher run, report that the watched state changed since the last check, with a short summary. Calling this keeps the round in history; not calling it discards the round.",
+			Parameters: obj([]string{"summary"}, map[string]any{"summary": strProp("what changed")}),
+		}})
 	}
 	if cfg.Subagents {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
@@ -131,6 +153,47 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		text, _ := args["text"].(string)
 		ag.db.journal(run.ID, "note", map[string]string{"text": text})
 		return "noted", nil
+
+	case "state_changed":
+		summary, _ := args["summary"].(string)
+		ag.markWatcherChanged(run.ID)
+		ag.db.journal(run.ID, "state_changed", map[string]string{"summary": summary})
+		return "change recorded", nil
+
+	case "schedule":
+		s := &Schedule{
+			Name:    fmt.Sprint(args["name"]),
+			Cron:    strings.TrimSpace(fmt.Sprint(args["cron"])),
+			Goal:    strings.TrimSpace(fmt.Sprint(args["goal"])),
+			Watcher: args["watcher"] == true,
+		}
+		if s.Name == "<nil>" {
+			s.Name = ""
+		}
+		if s.Cron == "" || s.Goal == "" {
+			return "", fmt.Errorf("schedule needs cron and goal")
+		}
+		if s.Watcher && !cfg.feature("watcher") {
+			return "", fmt.Errorf("watcher mode is disabled in Features")
+		}
+		id, err := ag.db.createSchedule(s)
+		if err != nil {
+			return "", err
+		}
+		s.ID, s.Enabled = id, true
+		if err := ag.registerScheduleCron(s); err != nil {
+			_ = ag.db.deleteSchedule(id)
+			return "", fmt.Errorf("bad schedule: %w", err)
+		}
+		return fmt.Sprintf("scheduled #%d (%s)", id, s.Cron), nil
+
+	case "unschedule":
+		id := int64(toInt(args["id"]))
+		ag.unregisterScheduleCron(id)
+		if err := ag.db.deleteSchedule(id); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("removed schedule #%d", id), nil
 
 	case "recall":
 		q := strings.TrimSpace(fmt.Sprint(args["query"]))

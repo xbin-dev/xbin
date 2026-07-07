@@ -43,6 +43,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   is still retrievable. The wake heartbeat is now **on-demand** — registered
   only while runs are sleeping or mid-drive and removed when idle, so an agent
   with nothing pending stops polling (cron is no longer always-on).
+- agent template (v2, scheduling): **cron-agents** — a session or the agent
+  itself schedules recurring runs (`schedule`/`unschedule` tools, `/schedules`
+  CRUD), each registering its own cron job. **Watcher mode**: a watcher schedule
+  re-drives one persistent run with a "check now" nudge and, via a
+  `state_changed` tool, keeps only the rounds that reported a change — no-change
+  rounds are rolled back, so a long-running watch stays compact. A **Features**
+  menu (`GET /features`, toggled in the config's `features` map) gates optional
+  capabilities: recall, skills, streaming, vision, parallelTools, watcher.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component
