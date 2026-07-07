@@ -1,0 +1,14 @@
+{
+  // Prometheus viewer tile — pure frontend. One multi:true http interface
+  // (plans/interfaces.md), bound by the owner in the admin Interfaces tab:
+  //
+  //   "sources"  service "prometheus" — one or more components that export
+  //              Prometheus metrics at "/metrics" (e.g. apps/llm-gw and, soon,
+  //              the agent). The dashboard scrapes every bound provider's
+  //              /metrics endpoint and renders the parsed series live.
+  //
+  // Binding is also the call grant, so no separate `uses` is needed.
+  "interfaces": {
+    "sources": { "kind": "http", "service": "prometheus", "multi": true }
+  }
+}

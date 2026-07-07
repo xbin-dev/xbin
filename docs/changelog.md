@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-07
 
+- New builtin tile **prometheus-viewer**: binds one or more components that
+  expose Prometheus metrics (service `prometheus`, multi:true — e.g. llm-gw)
+  and renders their `/metrics` as a live dashboard (per-source counters/gauges,
+  current value + per-second rate + inline sparklines). Phase 6 of the agent-v2
+  program.
 - llm-gw: **preferred models** — one workspace default per use-type (`agent`,
   `chat`, `pipeline`, `vlm`, `coding`, `summarizing`), set on the tile and read
   by callers via `GET /preferred`, so a model choice lives in one place. Plus

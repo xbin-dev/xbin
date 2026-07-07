@@ -1,0 +1,338 @@
+<!doctype html>
+<!-- Prometheus viewer tile. Pure frontend: no backend of its own. It scrapes
+     the "/metrics" endpoint of every component bound to its "sources" interface
+     (service "prometheus", multi-input — e.g. apps/llm-gw and, soon, the agent),
+     parses the Prometheus text format client-side, and renders a live dashboard:
+     current values (counters get a per-second rate, gauges are instantaneous)
+     plus a small inline sparkline of recent samples. History lives in page
+     memory only — nothing persists; polling is every 3s. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Prometheus Viewer</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <!-- Natural html height: the frame auto-measures documentElement, so the body
+       must wrap content (no height:100% — that would collapse the tile). -->
+  <style>html, body { margin: 0; }</style>
+</head>
+<body class="bx">
+  <bx-prometheus-viewer></bx-prometheus-viewer>
+
+  <script type="module">
+    import { LitElement, html, css, nothing } from 'lit';
+
+    // ── interface binding (plans/interfaces.md, multi:true) ───────────────────
+    // "sources": components exporting a Prometheus "/metrics" endpoint. The owner
+    // binds one or more providers in the admin Interfaces tab; each resolves to
+    // { provider, instance?, url, service }. Binding is also the scrape grant.
+    const asEndpoints = (iface) =>
+      iface?.endpoints ?? (iface?.url ? [{ url: iface.url, provider: iface.service }] : []);
+    const ENDPOINTS = asEndpoints(window.xbin?.iface('sources'));
+    const epLabel = (e) => (e.instance ? `${e.provider}#${e.instance}` : e.provider);
+
+    const POLL_MS = 3000;   // scrape cadence
+    const HIST = 30;        // samples retained per series for the sparkline
+
+    // ── number formatting ─────────────────────────────────────────────────────
+    // Group digits with a narrow no-break space so long counts stay readable and
+    // don't wrap mid-number: 123123123 → "123 123 123" (fmtN, as in llm-gw).
+    const NNBSP = '\u202f';
+    const group = (intStr) => intStr.replace(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
+    function fmtN(v) {
+      if (!Number.isFinite(v)) return String(v);           // +Inf / -Inf / NaN
+      const neg = v < 0, a = Math.abs(v);
+      let out;
+      if (Number.isInteger(a)) out = group(String(a));
+      else if (a >= 100) out = group(a.toFixed(0));
+      else if (a >= 1) out = a.toFixed(2);
+      else out = a.toPrecision(3).replace(/\.?0+$/, '');
+      return (neg ? '-' : '') + out;
+    }
+    function fmtRate(r) {
+      if (!Number.isFinite(r)) return String(r);
+      if (r === 0) return '0';
+      if (r >= 100) return fmtN(Math.round(r));
+      if (r >= 1) return r.toFixed(1);
+      return r.toPrecision(2).replace(/\.?0+$/, '');
+    }
+
+    // ── Prometheus text-format parser ─────────────────────────────────────────
+    // Handles `# HELP <name> <text>`, `# TYPE <name> <type>`, and sample lines
+    // `<name>{label="v",…} <value> [timestamp]` (also bare `<name> <value>`).
+    // Returns Map<name, { name, type, help, samples: [{ labels, key, value }] }>.
+    const SAMPLE_RE = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{.*\})?[ \t]+(.+)$/;
+    const LABEL_RE = /([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"/g;
+
+    const unescape = (s) => s.replace(/\\(["\\n])/g, (_, c) => (c === 'n' ? '\n' : c));
+
+    function parseLabels(inner) {
+      const out = {};
+      let m;
+      LABEL_RE.lastIndex = 0;
+      while ((m = LABEL_RE.exec(inner))) out[m[1]] = unescape(m[2]);
+      return out;
+    }
+    function parseValue(s) {
+      if (s === '+Inf' || s === 'Inf') return Infinity;
+      if (s === '-Inf') return -Infinity;
+      if (s === 'NaN') return NaN;
+      return parseFloat(s);
+    }
+    // Stable identity for a series (metric + its label set), for history keying.
+    const seriesKey = (name, labels) =>
+      name + '{' + Object.keys(labels).sort().map((k) => `${k}=${labels[k]}`).join(',') + '}';
+
+    function parseProm(text) {
+      const metrics = new Map();
+      const get = (name) => {
+        let m = metrics.get(name);
+        if (!m) { m = { name, type: 'untyped', help: '', samples: [] }; metrics.set(name, m); }
+        return m;
+      };
+      for (const raw of text.split('\n')) {
+        const line = raw.trim();
+        if (!line) continue;
+        if (line[0] === '#') {
+          const mm = line.match(/^#\s+(HELP|TYPE)\s+(\S+)\s+(.*)$/);
+          if (!mm) continue;
+          const m = get(mm[2]);
+          if (mm[1] === 'HELP') m.help = unescape(mm[3].trim());
+          else m.type = mm[3].trim();
+          continue;
+        }
+        const sm = line.match(SAMPLE_RE);
+        if (!sm) continue;
+        const labels = sm[2] ? parseLabels(sm[2].slice(1, -1)) : {};
+        const value = parseValue(sm[3].trim().split(/\s+/)[0]);
+        get(sm[1]).samples.push({ labels, key: seriesKey(sm[1], labels), value });
+      }
+      return metrics;
+    }
+
+    // Average per-second rate across the retained window (smoother than the last
+    // two points). null when there is not enough history; 0 on a counter reset.
+    function rateOf(hist) {
+      if (hist.length < 2) return null;
+      const a = hist[0], b = hist[hist.length - 1];
+      const dt = (b.t - a.t) / 1000;
+      if (dt <= 0) return null;
+      const dv = b.v - a.v;
+      if (!Number.isFinite(dv) || dv < 0) return 0;
+      return dv / dt;
+    }
+
+    const labelStr = (labels) => {
+      const keys = Object.keys(labels);
+      return keys.length ? '{' + keys.map((k) => `${k}="${labels[k]}"`).join(', ') + '}' : '';
+    };
+
+    // Inline SVG sparkline from a series' recent values — self-contained, no
+    // external requests. Normalized to the window's own min/max.
+    function sparkline(hist) {
+      const vals = hist.map((h) => h.v).filter(Number.isFinite);
+      const W = 84, H = 20, pad = 2;
+      if (vals.length < 2) return html`<svg class="spark" width=${W} height=${H} aria-hidden="true"></svg>`;
+      let min = Math.min(...vals), max = Math.max(...vals);
+      if (max === min) max = min + 1;                         // flat line → centered
+      const n = vals.length;
+      const pts = vals.map((v, i) => {
+        const x = pad + (i / (n - 1)) * (W - 2 * pad);
+        const y = H - pad - ((v - min) / (max - min)) * (H - 2 * pad);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      return html`
+        <svg class="spark" width=${W} height=${H} viewBox="0 0 ${W} ${H}"
+             preserveAspectRatio="none" aria-hidden="true">
+          <polyline points=${pts} fill="none" stroke="var(--bx-accent, #f5a623)"
+                    stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" />
+        </svg>`;
+    }
+
+    // ══════════════════════════════ dashboard ════════════════════════════════
+    class BxPrometheusViewer extends LitElement {
+      static properties = {
+        _sources: { state: true },   // parallel to ENDPOINTS: { error, metrics }
+        _live: { state: true },      // any source scraped OK on the last tick
+      };
+
+      static styles = css`
+        :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
+                color: var(--bx-text, #d4d9e0); background: var(--bx-bg, #1b1e24); }
+        .wrap { padding: 12px 14px 14px; box-sizing: border-box; }
+        .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+                  text-transform: uppercase; color: var(--bx-muted, #868f9a); }
+        .top .sp { flex: 1; }
+        .live { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px;
+                color: var(--bx-muted, #868f9a); font-family: var(--bx-mono, monospace); }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bx-muted, #868f9a); }
+        .dot.on { background: var(--bx-green, #4caf50); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+        .source { background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
+                  border-radius: var(--bx-radius, 6px); padding: 9px 11px; margin-bottom: 10px; }
+        .shead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+                 padding-bottom: 7px; border-bottom: 1px solid var(--bx-border, #363c45); margin-bottom: 7px; }
+        .sname { font-weight: 600; font-size: 12.5px; }
+        .surl { font-size: 10.5px; color: var(--bx-muted, #868f9a); overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+        .serr { color: var(--bx-red, #ef5350); font-size: 11px; margin-left: auto; }
+        .mono { font-family: var(--bx-mono, monospace); }
+        .muted { color: var(--bx-muted, #868f9a); }
+
+        .metric { padding: 5px 0; }
+        .metric + .metric { border-top: 1px solid color-mix(in srgb, var(--bx-border) 55%, transparent); }
+        .mhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+        .mname { font-size: 12px; font-weight: 600; }
+        .mtype { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 5px;
+                 border-radius: 999px; border: 1px solid var(--bx-border, #363c45);
+                 color: var(--bx-muted, #868f9a); }
+        .mtype.counter { color: var(--bx-accent, #f5a623);
+                         border-color: color-mix(in srgb, var(--bx-accent) 45%, transparent); }
+        .mtype.gauge { color: var(--bx-green, #4caf50);
+                       border-color: color-mix(in srgb, var(--bx-green) 45%, transparent); }
+        .mhelp { font-size: 10.5px; color: var(--bx-muted, #868f9a); }
+
+        .srow { display: grid; grid-template-columns: 1fr auto auto 84px; align-items: center;
+                gap: 10px; padding: 2px 0 2px 10px; }
+        .srow:hover { background: var(--bx-panel-2, #2b3038); border-radius: 4px; }
+        .labels { font-size: 11px; color: var(--bx-muted, #868f9a); overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+        .val { font-size: 12.5px; font-weight: 600; text-align: right; white-space: nowrap; }
+        .rate { font-size: 10.5px; color: var(--bx-muted, #868f9a); text-align: right;
+                white-space: nowrap; min-width: 52px; }
+        .spark { display: block; }
+
+        .empty { max-width: 520px; padding: 4px 2px; }
+        .empty .etitle { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        .empty p { font-size: 12px; line-height: 1.5; color: var(--bx-muted, #868f9a); margin: 0; }
+        .empty .mono, .empty b { color: var(--bx-text, #d4d9e0); }
+      `;
+
+      constructor() {
+        super();
+        this._sources = ENDPOINTS.map(() => null);   // null → not scraped yet
+        this._live = false;
+        this._hist = new Map();                       // "<i>\0<seriesKey>" → [{t,v}]
+      }
+
+      connectedCallback() {
+        super.connectedCallback();
+        if (!ENDPOINTS.length) return;
+        this._poll();
+        this._timer = setInterval(() => this._poll(), POLL_MS);
+      }
+      disconnectedCallback() {
+        super.disconnectedCallback();
+        clearInterval(this._timer);
+      }
+
+      async _poll() {
+        const now = Date.now();
+        const results = await Promise.all(ENDPOINTS.map(async (ep, i) => {
+          try {
+            const url = ep.url.replace(/\/+$/, '') + '/metrics';
+            const r = await window.xbin.fetch(url);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const metrics = parseProm(await r.text());
+            for (const m of metrics.values())
+              for (const s of m.samples) {
+                const hk = i + '' + s.key;
+                let arr = this._hist.get(hk);
+                if (!arr) this._hist.set(hk, (arr = []));
+                arr.push({ t: now, v: s.value });
+                if (arr.length > HIST) arr.shift();
+              }
+            return { error: '', metrics };
+          } catch (e) {
+            return { error: String(e.message ?? e), metrics: null };
+          }
+        }));
+        if (!this.isConnected) return;
+        this._sources = results;
+        this._live = results.some((s) => s && !s.error);
+      }
+
+      render() {
+        if (!ENDPOINTS.length) return this._renderEmpty();
+        return html`
+          <div class="wrap">
+            <div class="top">
+              <h3>Prometheus Viewer</h3>
+              <span class="sp"></span>
+              <span class="live"><span class="dot ${this._live ? 'on' : ''}"></span>
+                live · every ${POLL_MS / 1000}s</span>
+            </div>
+            ${ENDPOINTS.map((ep, i) => this._renderSource(ep, i))}
+          </div>`;
+      }
+
+      _renderEmpty() {
+        return html`
+          <div class="wrap">
+            <div class="empty">
+              <div class="etitle">No Prometheus source bound</div>
+              <p>Bind this tile's <b>sources</b> interface to one or more components
+                 that export a <span class="mono">prometheus</span> metrics service
+                 (e.g. <span class="mono">apps/llm-gw</span>) in the workspace
+                 <b>Interfaces</b> tab on the root page. It will then scrape each
+                 provider's <span class="mono">/metrics</span> endpoint and chart
+                 the series live.</p>
+            </div>
+          </div>`;
+      }
+
+      _renderSource(ep, i) {
+        const src = this._sources[i];
+        return html`
+          <section class="source">
+            <div class="shead">
+              <span class="sname">${epLabel(ep)}</span>
+              <span class="surl mono">${ep.url}</span>
+              ${src?.error ? html`<span class="serr">⚠ ${src.error}</span>` : nothing}
+            </div>
+            ${src == null
+              ? html`<div class="muted" style="font-size:11.5px">scraping…</div>`
+              : src.metrics
+                ? this._renderMetrics(i, src.metrics)
+                : nothing}
+          </section>`;
+      }
+
+      _renderMetrics(i, metrics) {
+        const names = [...metrics.keys()].sort();
+        if (!names.length) return html`<div class="muted" style="font-size:11.5px">no metrics exported</div>`;
+        return html`${names.map((name) => {
+          const m = metrics.get(name);
+          return html`
+            <div class="metric">
+              <div class="mhead">
+                <span class="mname mono">${name}</span>
+                <span class="mtype ${m.type}">${m.type}</span>
+                ${m.help ? html`<span class="mhelp">${m.help}</span>` : nothing}
+              </div>
+              ${m.samples.map((s) => this._renderSeries(i, m, s))}
+            </div>`;
+        })}`;
+      }
+
+      _renderSeries(i, m, s) {
+        const hist = this._hist.get(i + '' + s.key) ?? [];
+        const rate = m.type === 'counter' ? rateOf(hist) : null;
+        const ls = labelStr(s.labels);
+        return html`
+          <div class="srow">
+            <span class="labels mono">${ls || html`<span class="muted">—</span>`}</span>
+            <span class="val mono">${fmtN(s.value)}</span>
+            <span class="rate mono">${rate != null
+              ? html`<span title="avg per-second rate">${fmtRate(rate)}/s</span>`
+              : nothing}</span>
+            ${sparkline(hist)}
+          </div>`;
+      }
+    }
+
+    customElements.define('bx-prometheus-viewer', BxPrometheusViewer);
+  </script>
+</body>
+</html>

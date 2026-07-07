@@ -1,0 +1,14 @@
+{
+  "name": "prometheus-viewer",
+  "version": 1,
+  "title": "Prometheus Viewer",
+  "description": "Live dashboard for Prometheus metrics. Pure frontend — bind one or more components that export a \"prometheus\" metrics service (e.g. llm-gw) and it scrapes their /metrics endpoints, showing current values (counters with a per-second rate, gauges instantaneous) plus a client-side sparkline of recent samples.",
+  "defaultPath": "apps/prometheus-viewer",
+  "tags": [
+    "observability",
+    "metrics",
+    "prometheus"
+  ],
+  "provides": [],
+  "requires": []
+}
