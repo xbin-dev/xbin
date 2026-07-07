@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go sqlite driver, no cgo
@@ -109,6 +110,9 @@ CREATE TABLE IF NOT EXISTS messages (
   created INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_run ON messages(run_id, seq);
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  content, run_id UNINDEXED, msg_id UNINDEXED, tokenize='porter'
+);
 CREATE TABLE IF NOT EXISTS steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id INTEGER NOT NULL,
@@ -135,6 +139,13 @@ CREATE TABLE IF NOT EXISTS settings (
 	// Best-effort migrations for instances created before a column existed
 	// (ALTER fails harmlessly when the column is already present).
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
+	// Backfill the FTS index from any messages that predate it (one-time).
+	var ftsN int
+	_ = d.sql.QueryRow(`SELECT count(*) FROM messages_fts`).Scan(&ftsN)
+	if ftsN == 0 {
+		_, _ = d.sql.Exec(`INSERT INTO messages_fts(content, run_id, msg_id)
+			SELECT content, run_id, id FROM messages WHERE content != ''`)
+	}
 	return nil
 }
 
@@ -223,6 +234,7 @@ func (d *DB) deleteRun(id int64) error {
 	}
 	for _, q := range []string{
 		`DELETE FROM messages WHERE run_id=?`,
+		`DELETE FROM messages_fts WHERE run_id=?`,
 		`DELETE FROM steps WHERE run_id=?`,
 		`DELETE FROM memory WHERE run_id=?`,
 		`DELETE FROM runs WHERE id=?`,
@@ -278,8 +290,12 @@ func (d *DB) addMessage(m *Message) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	id, _ := res.LastInsertId()
+	if m.Content != "" {
+		_, _ = d.sql.Exec(`INSERT INTO messages_fts(content, run_id, msg_id) VALUES (?, ?, ?)`, m.Content, m.RunID, id)
+	}
 	d.touchRun(m.RunID)
-	return res.LastInsertId()
+	return id, nil
 }
 
 func (d *DB) messages(runID int64, onlyLive bool) ([]*Message, error) {
@@ -304,6 +320,48 @@ func (d *DB) messages(runID int64, onlyLive bool) ([]*Message, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// searchMessages runs an FTS5 query over a run's WHOLE transcript — including
+// turns compacted out of the live window — newest first. This is the agent's
+// recall: detail folded into a summary is still retrievable.
+func (d *DB) searchMessages(runID int64, query string, limit int) ([]*Message, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 8
+	}
+	rows, err := d.sql.Query(
+		`SELECT m.id, m.run_id, m.seq, m.role, m.content
+		 FROM messages_fts
+		 JOIN messages m ON m.id = messages_fts.msg_id
+		 WHERE messages_fts.run_id = ? AND messages_fts MATCH ?
+		 ORDER BY m.seq DESC LIMIT ?`, runID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Message
+	for rows.Next() {
+		m := &Message{}
+		if err := rows.Scan(&m.ID, &m.RunID, &m.Seq, &m.Role, &m.Content); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ftsQuery turns free text into a safe FTS5 MATCH expression: each whitespace
+// token becomes a double-quoted literal (AND-ed), so arbitrary user input can't
+// trip FTS5 syntax (unbalanced quotes, bare operators).
+func ftsQuery(s string) string {
+	var toks []string
+	for _, f := range strings.Fields(s) {
+		f = strings.ReplaceAll(f, `"`, "")
+		if f != "" {
+			toks = append(toks, `"`+f+`"`)
+		}
+	}
+	return strings.Join(toks, " ")
 }
 
 func (d *DB) markCompacted(ids []int64) error {

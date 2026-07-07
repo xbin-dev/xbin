@@ -47,6 +47,10 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"text"}, map[string]any{"text": strProp("the note")}),
 		}},
 		{Type: "function", Function: funcDef{
+			Name: "recall", Description: "Full-text search THIS run's entire history, including older turns compacted out of context. Use it to retrieve details you can no longer see. Returns the matching messages.",
+			Parameters: obj([]string{"query"}, map[string]any{"query": strProp("search terms (plain words)")}),
+		}},
+		{Type: "function", Function: funcDef{
 			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
 			Parameters: obj([]string{"method", "path"}, map[string]any{
 				"method": strProp("HTTP method, e.g. GET or POST"),
@@ -127,6 +131,24 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		text, _ := args["text"].(string)
 		ag.db.journal(run.ID, "note", map[string]string{"text": text})
 		return "noted", nil
+
+	case "recall":
+		q := strings.TrimSpace(fmt.Sprint(args["query"]))
+		if q == "" {
+			return "", fmt.Errorf("recall needs a query")
+		}
+		msgs, err := ag.db.searchMessages(run.ID, ftsQuery(q), 8)
+		if err != nil {
+			return "", err
+		}
+		if len(msgs) == 0 {
+			return "(no matches)", nil
+		}
+		var b strings.Builder
+		for _, m := range msgs {
+			fmt.Fprintf(&b, "[#%d %s] %s\n", m.Seq, m.Role, clip(m.Content, 500))
+		}
+		return strings.TrimSpace(b.String()), nil
 
 	case "xbin_call":
 		return ag.toolXBinCall(ctx, args)
