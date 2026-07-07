@@ -70,7 +70,7 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 	}
 	if cfg.Subagents {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
-			Name: "spawn_subagent", Description: "Delegate a focused task to a fresh subagent (its own context). Returns the subagent's final result.",
+			Name: "spawn_subagent", Description: "Delegate a focused task to a fresh subagent (its own context). Returns the subagent's final result. Emit several in one turn to run them in parallel.",
 			Parameters: obj([]string{"task"}, map[string]any{
 				"task":   strProp("the task for the subagent"),
 				"system": strProp("optional system prompt override for the subagent"),

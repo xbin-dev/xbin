@@ -26,7 +26,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (transport + 429/5xx, so a gateway reload no longer fails a run), the
   **provider-reported prompt tokens** as the compaction trigger (not a char/4
   estimate), a per-tool `toolTimeout` config field, and a **date-only**
-  system-prompt prefix so prompt caching keeps hitting.
+  system-prompt prefix so prompt caching keeps hitting. Tools in one turn now
+  run **in parallel** (bounded, each under `toolTimeout`); several
+  `spawn_subagent` calls in a turn run as **parallel subagents**. Control tools
+  (finish/ask_user/yield) stay sequential and stop the turn.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component

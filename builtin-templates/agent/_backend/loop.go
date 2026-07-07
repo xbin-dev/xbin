@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+const maxParallelTools = 6 // bound on concurrent tool calls in one turn
 
 // driveAsync advances a run in the background (fire-and-forget from HTTP
 // handlers). Concurrent drives of the same run are coalesced via claim().
@@ -145,15 +148,26 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp
 		}
 	}
 
-	stopFrom := -1 // index from which remaining calls get a placeholder result
-	for idx, tc := range calls {
-		if stopFrom >= 0 {
-			ag.addToolResult(run.ID, tc, "(not executed: run paused/ended)")
+	for idx := 0; idx < len(calls); {
+		name := calls[idx].Function.Name
+		if !isParkingTool(name) {
+			// A run of consecutive non-parking tools executes in parallel
+			// (spawn_subagent among them ⇒ parallel subagents; a configurable
+			// per-tool timeout bounds the rest). Results append in call order so
+			// the transcript stays API-valid.
+			j := idx
+			for j < len(calls) && !isParkingTool(calls[j].Function.Name) {
+				j++
+			}
+			ag.runToolBatch(ctx, run, cfg, calls[idx:j])
+			idx = j
 			continue
 		}
-		name := tc.Function.Name
-		args := decodeArgs(tc.Function.Arguments)
 
+		// A parking control tool changes run status: handle it, then placeholder
+		// the remaining calls (a run ends/pauses at the first one) and return.
+		tc := calls[idx]
+		args := decodeArgs(tc.Function.Arguments)
 		switch name {
 		case "finish":
 			result, _ := args["result"].(string)
@@ -162,8 +176,6 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp
 			_ = ag.db.setStatus(run.ID, statusDone, 0, result, "")
 			_ = publishEvent(run.ID, "done")
 			terminal = true
-			stopFrom = idx + 1
-
 		case "ask_user":
 			q, _ := args["question"].(string)
 			ag.addToolResult(run.ID, tc, "(asked the user; awaiting their reply)")
@@ -171,8 +183,6 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp
 			_ = ag.db.setStatus(run.ID, statusWaiting, 0, q, "")
 			_ = publishEvent(run.ID, "waiting_input")
 			parked = true
-			stopFrom = idx + 1
-
 		case "yield":
 			secs := toInt(args["seconds"])
 			if secs < 0 {
@@ -182,25 +192,80 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp
 			ag.db.journal(run.ID, "yield", map[string]any{"seconds": secs})
 			_ = ag.db.setStatus(run.ID, statusSleep, now()+int64(secs), "", "")
 			parked = true
-			stopFrom = idx + 1
-
-		case "spawn_subagent":
-			task, _ := args["task"].(string)
-			sys, _ := args["system"].(string)
-			res := ag.spawnSubagent(ctx, run, cfg, task, sys)
-			ag.addToolResult(run.ID, tc, res)
-
-		default:
-			out, err := ag.runTool(ctx, run, cfg, name, args)
-			if err != nil {
-				out = "error: " + err.Error()
-			}
-			ag.db.journal(run.ID, "tool_call", map[string]any{"name": name, "args": args})
-			ag.db.journal(run.ID, "tool_result", map[string]any{"name": name, "result": clip(out, 2000)})
-			ag.addToolResult(run.ID, tc, out)
 		}
+		for _, rest := range calls[idx+1:] {
+			ag.addToolResult(run.ID, rest, "(not executed: run paused/ended)")
+		}
+		return parked, terminal
 	}
 	return parked, terminal
+}
+
+// isParkingTool reports control tools that change run status and stop the turn
+// (finish/ask_user/yield). spawn_subagent is NOT one — it returns a result and
+// the run continues — so it can join a parallel batch.
+func isParkingTool(name string) bool {
+	switch name {
+	case "finish", "ask_user", "yield":
+		return true
+	}
+	return false
+}
+
+// runToolBatch executes a group of non-parking tool calls concurrently (bounded)
+// and appends their results in call order. spawn_subagent runs under the parent
+// context (subagents can be long); every other tool gets cfg.ToolTimeout.
+func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls []toolCall) {
+	if len(calls) == 1 {
+		ag.addToolResult(run.ID, calls[0], ag.runOneTool(ctx, run, cfg, calls[0]))
+		return
+	}
+	results := make([]string, len(calls))
+	sem := make(chan struct{}, maxParallelTools)
+	var wg sync.WaitGroup
+	for i, tc := range calls {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, tc toolCall) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = ag.runOneTool(ctx, run, cfg, tc)
+		}(i, tc)
+	}
+	wg.Wait()
+	for i, tc := range calls {
+		ag.addToolResult(run.ID, tc, results[i])
+	}
+}
+
+// runOneTool executes a single non-parking tool and returns its textual result
+// (also journaling non-subagent tools). Never parks — spawn_subagent runs its
+// child to completion here.
+func (ag *Agent) runOneTool(ctx context.Context, run *Run, cfg Config, tc toolCall) string {
+	name := tc.Function.Name
+	args := decodeArgs(tc.Function.Arguments)
+	if name == "spawn_subagent" {
+		task, _ := args["task"].(string)
+		sys, _ := args["system"].(string)
+		return ag.spawnSubagent(ctx, run, cfg, task, sys)
+	}
+	tctx := ctx
+	if cfg.ToolTimeout > 0 {
+		var cancel context.CancelFunc
+		tctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.ToolTimeout)*time.Second)
+		defer cancel()
+	}
+	out, err := ag.runTool(tctx, run, cfg, name, args)
+	if err != nil {
+		if tctx.Err() == context.DeadlineExceeded {
+			out = fmt.Sprintf("error: tool timed out after %ds", cfg.ToolTimeout)
+		} else {
+			out = "error: " + err.Error()
+		}
+	}
+	ag.db.journal(run.ID, "tool_call", map[string]any{"name": name, "args": args})
+	ag.db.journal(run.ID, "tool_result", map[string]any{"name": name, "result": clip(out, 2000)})
+	return out
 }
 
 func (ag *Agent) addToolResult(runID int64, tc toolCall, content string) {
