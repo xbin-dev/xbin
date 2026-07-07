@@ -630,7 +630,7 @@ func TestTileImport(t *testing.T) {
 	// token, so it returns the "no token" body, not a build error.
 	if !waitFor(func() bool {
 		c, b := get(t, "/api/apps/llm-gw/v1/models")
-		return c == 200 && strings.Contains(b, "no upstream API token")
+		return c == 200 && strings.Contains(b, "no API token configured")
 	}, 120*time.Second) {
 		c, b := get(t, "/api/apps/llm-gw/v1/models")
 		t.Fatalf("llm-gw backend never built/ran: %d %s", c, b)
@@ -760,12 +760,18 @@ func keysOf(m map[string]json.RawMessage) []string {
 }
 
 func TestComponentCode(t *testing.T) {
-	// Make a commit so history exists.
+	// Commit inside the component's OWN repo — each component is its own repo
+	// (plans/lifecycle.md), so git/log?component=shell reads the shell repo, not
+	// the workspace root. Touch a file first so there's a change to commit.
+	shellDir := filepath.Join(ws, "shell")
+	if err := os.WriteFile(filepath.Join(shellDir, ".probe"), []byte("probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range [][]string{
 		{"add", "-A"},
 		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "test snapshot"},
 	} {
-		cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", shellDir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
