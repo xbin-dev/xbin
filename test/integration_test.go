@@ -22,9 +22,9 @@ import (
 )
 
 var (
-	baseURL   string
-	repo      string
-	ws        string
+	baseURL  string
+	repo     string
+	ws       string
 	xbindBin string // built daemon, reused by tests that need their own instance
 )
 
