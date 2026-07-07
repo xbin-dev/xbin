@@ -81,6 +81,8 @@ export class BxShell extends LitElement {
     _spawnWins: { state: true },  // pop-out windows a tile asked for
     _ctx: { state: true },        // {x,y} background context menu (null = closed)
     _create: { state: true },     // new-tile dialog spec (null = closed)
+    _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
+    _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
   static styles = css`
@@ -205,6 +207,10 @@ export class BxShell extends LitElement {
       padding: 6px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap;
     }
     .ctxmenu button:hover { background: var(--bx-panel-2, #f7f8fa); color: var(--bx-accent, #f5a623); }
+
+    .group.folder { cursor: grab; }
+    .group.folder .ficon { flex: none; font-size: 12px; line-height: 1; margin-right: 1px; }
+    .item.dropinto { box-shadow: inset 0 2px 0 var(--bx-accent, #f5a623); }
     aside.collapsed {
       width: 22px; padding: 4px 0;
       border-right: 1px solid var(--bx-border, #e4e8ed);
@@ -334,6 +340,8 @@ export class BxShell extends LitElement {
     this._spawnWins = [];
     this._ctx = null;
     this._create = null;
+    this._folderEdit = null;
+    this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
     // window; the detail carries the VERIFIED component + a reply closure.
     this._onSpawn = (e) => this._spawn(e.detail);
@@ -613,10 +621,57 @@ export class BxShell extends LitElement {
     if (!name?.trim()) return;
     this._saveSide({ folders: [...this._side.folders, { id: uid(), name: name.trim(), open: true, items: [] }] });
   }
-  _renameFolder(f) {
-    const name = prompt('Rename folder', f.name);
-    if (!name?.trim()) return;
-    this._saveSide({ folders: this._side.folders.map((x) => x.id === f.id ? { ...x, name: name.trim() } : x) });
+  _folderDialog(f) {
+    this._folderEdit = { id: f.id, spec: {
+      title: 'Folder', message: 'Name and an optional emoji icon.',
+      fields: [
+        { name: 'name', label: 'Name', value: f.name },
+        { name: 'icon', label: 'Icon (emoji)', value: f.icon || '', placeholder: '📁' },
+      ],
+      buttons: [{ label: 'Cancel', value: null }, { label: 'Save', value: 'save', primary: true }],
+    } };
+  }
+  _onFolderEdit({ button, values }) {
+    const edit = this._folderEdit;
+    this._folderEdit = null;
+    if (!edit || button !== 'save') return;
+    const name = (values.name || '').trim();
+    const icon = (values.icon || '').trim().slice(0, 4); // 1–2 emoji
+    this._saveSide({ folders: this._side.folders.map((f) =>
+      f.id === edit.id ? { ...f, name: name || f.name, icon } : f) });
+  }
+
+  // Move a folder before another (drag-reorder in the sidebar).
+  _moveFolder(dragId, beforeId) {
+    if (dragId === beforeId) return;
+    const drag = this._side.folders.find((f) => f.id === dragId);
+    if (!drag) return;
+    const rest = this._side.folders.filter((f) => f.id !== dragId);
+    const i = rest.findIndex((f) => f.id === beforeId);
+    const at = i < 0 ? rest.length : i;
+    this._saveSide({ folders: [...rest.slice(0, at), drag, ...rest.slice(at)] });
+  }
+
+  // Move a component into folderId, positioned before beforePath (or at the end).
+  _moveInto(folderId, path, beforePath) {
+    this._saveSide({ folders: this._side.folders.map((f) => {
+      let items = f.items.filter((p) => p !== path);
+      if (f.id === folderId) {
+        const i = beforePath ? items.indexOf(beforePath) : -1;
+        const at = i < 0 ? items.length : i;
+        items = [...items.slice(0, at), path, ...items.slice(at)];
+      }
+      return { ...f, items };
+    }) });
+  }
+
+  _dropOnItem(e, targetPath, folderId) {
+    e.preventDefault(); e.stopPropagation();
+    this._dropBefore = null;
+    const path = e.dataTransfer.getData('application/bx-comp');
+    if (!path || path === targetPath) return;
+    if (folderId) this._moveInto(folderId, path, targetPath);
+    else this._fileInto('', path); // dropped on an ungrouped item → unfile
   }
   _deleteFolder(f) { // items just return to their prefix groups
     this._saveSide({ folders: this._side.folders.filter((x) => x.id !== f.id) });
@@ -637,7 +692,9 @@ export class BxShell extends LitElement {
   _dropOnFolder(e, f) {
     e.preventDefault(); e.stopPropagation();
     this._dropFolder = null;
-    const path = e.dataTransfer.getData('text/plain');
+    const fid = e.dataTransfer.getData('application/bx-folder');
+    if (fid) { this._moveFolder(fid, f.id); return; }
+    const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
     if (path) this._fileInto(f.id, path);
   }
 
@@ -757,11 +814,17 @@ export class BxShell extends LitElement {
   }
 
   // One sidebar row for a component — used by folders and prefix groups alike.
-  _itemTemplate(c) {
+  _itemTemplate(c, folderId = null) {
     return html`
-      <div class="item ${this._isOpen(c.path) ? 'open' : ''}" draggable="true"
+      <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''}"
+           draggable="true"
            title=${c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path}
-           @dragstart=${(e) => { e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
+           @dragstart=${(e) => { e.dataTransfer.setData('application/bx-comp', c.path);
+             e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
+           @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-comp')) {
+             e.preventDefault(); e.stopPropagation(); this._dropBefore = c.path; } }}
+           @dragleave=${() => { if (this._dropBefore === c.path) this._dropBefore = null; }}
+           @drop=${(e) => this._dropOnItem(e, c.path, folderId)}
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
         <span>${c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path}</span>
@@ -773,19 +836,22 @@ export class BxShell extends LitElement {
   _folderTemplate(f) {
     const comps = f.items.map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
     return html`
-      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''}"
-           title="click to fold; double-click to rename; drag components in"
+      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''}" draggable="true"
+           title="click to fold · double-click to rename/icon · drag to reorder or drop components in"
            @click=${() => this._toggleFolder(f)}
-           @dblclick=${() => this._renameFolder(f)}
+           @dblclick=${() => this._folderDialog(f)}
+           @dragstart=${(e) => { e.dataTransfer.setData('application/bx-folder', f.id);
+             e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
            @dragover=${(e) => { e.preventDefault(); this._dropFolder = f.id; }}
            @dragleave=${() => { if (this._dropFolder === f.id) this._dropFolder = null; }}
            @drop=${(e) => this._dropOnFolder(e, f)}>
         <span class="tri">${f.open ? '▾' : '▸'}</span>
+        <span class="ficon">${f.icon || '📁'}</span>
         <span class="fname">${f.name}</span> <span class="n">${comps.length}</span>
         <button class="fx" title="delete folder (components return to their groups)"
                 @click=${(e) => { e.stopPropagation(); this._deleteFolder(f); }}>✕</button>
       </div>
-      ${f.open ? comps.map((c) => this._itemTemplate(c)) : nothing}`;
+      ${f.open ? comps.map((c) => this._itemTemplate(c, f.id)) : nothing}`;
   }
 
   _shortestCol() {
@@ -1133,6 +1199,10 @@ export class BxShell extends LitElement {
       ${this._create ? html`
         <bx-dialog open .spec=${this._create}
           @bx-dialog-resolve=${(e) => this._onNewTile(e.detail)}></bx-dialog>` : nothing}
+
+      ${this._folderEdit ? html`
+        <bx-dialog open .spec=${this._folderEdit.spec}
+          @bx-dialog-resolve=${(e) => this._onFolderEdit(e.detail)}></bx-dialog>` : nothing}
     `;
   }
 }
