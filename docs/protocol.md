@@ -351,8 +351,10 @@ carrying the **verified** component (never a tile-supplied one) plus a `reply`
 closure; `<bx-shell>` renders the dialog (`<bx-dialog>`, from data) or window
 (a nested `<bx-frame>` on a sub-path) and calls `reply` on resolve/close.
 Window sub-paths are traversal-stripped; framing still runs the normal
-frame-token / tile-access checks. See docs/elements.md §Dialogs & windows and
-the `xbin.dialog` / `xbin.window` APIs in docs/sdk.md.
+frame-token / tile-access checks; dialogs are rendered with the verified
+originating component shown, and each tile is capped to one dialog + a few
+windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
+`xbin.window` APIs in docs/sdk.md.
 
 ## Backend contract (what the runner promises your process)
 

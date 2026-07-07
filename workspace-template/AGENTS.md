@@ -237,7 +237,10 @@ win.closed.then(refresh)   // win.close() to close; a floating window whose body
 modal when there's no shell); `xbin.window` is for rich pop-out UI. The window
 and the card are separate documents (no shared JS memory) — coordinate through
 your backend / bus / kv, which they share. Never try to render your own HTML
-in the shell: dialogs are data-only, windows are sandboxed sub-frames.
+in the shell: dialogs are data-only, windows are sandboxed sub-frames. No grant
+is needed to spawn either, but every dialog is **labelled with your component**
+(you can't impersonate system chrome), and you're capped to one dialog + a few
+windows at a time — don't rely on stacking modals.
 
 **Never hardcode your own install path in code.** Use `xbin.self` (and
 `` `res:${xbin.self}/…` `` for your own resources/bus topics) in the frontend,

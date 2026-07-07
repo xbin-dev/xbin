@@ -458,9 +458,16 @@ export class BxShell extends LitElement {
   // ---- tile-spawned dialogs & pop-out windows (docs/elements.md) ----
   _spawn(d) {
     if (d.kind === 'dialog') {
+      // One dialog per tile at a time: a rogue tile can't carpet-bomb modals,
+      // and a stack of same-tile modals can't obscure the attribution. The
+      // dropped request resolves as a dismiss so the caller's await unblocks.
+      if (this._dialogs.some((x) => x.from === d.from)) { d.reply({ button: null, values: {} }); return; }
       this._dialogs = [...this._dialogs, { id: d.id, from: d.from, spec: d.spec, reply: d.reply }];
       return;
     }
+    // Cap pop-out windows per tile too (its `closed` resolves immediately if
+    // over the cap).
+    if (this._spawnWins.filter((x) => x.from === d.from).length >= 6) { d.reply(); return; }
     // window: frame a sub-path of the caller (default) or an explicit component
     // path. Both go through <bx-frame>, so RBAC (frame-token/CanUseTile) still
     // applies; strip any traversal from a caller-supplied sub-path.
@@ -1050,7 +1057,7 @@ export class BxShell extends LitElement {
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
       ${repeat(this._dialogs, (d) => d.id, (d) => html`
-        <bx-dialog open .spec=${d.spec}
+        <bx-dialog open .spec=${d.spec} from=${d.from}
           @bx-dialog-resolve=${(e) => this._resolveDialog(d.id, e.detail)}></bx-dialog>`)}
     `;
   }

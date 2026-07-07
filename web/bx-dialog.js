@@ -24,6 +24,8 @@ export class BxDialog extends LitElement {
   static properties = {
     spec: { attribute: false },
     open: { type: Boolean, reflect: true },
+    from: { type: String }, // originating component (verified, shell-set) — shown
+                            // so a tile can't pass its modal off as system chrome
   };
 
   static styles = css`
@@ -39,6 +41,8 @@ export class BxDialog extends LitElement {
       padding: 16px 18px;
       font: var(--bx-font, 13px/1.5 -apple-system, system-ui, sans-serif);
     }
+    .attrib { font: 10px var(--bx-mono, monospace); color: var(--bx-muted, #8794a1);
+      letter-spacing: .04em; margin: 0 0 6px; }
     h3 { margin: 0 0 8px; font-size: 14px; }
     .msg { white-space: pre-wrap; margin: 0 0 6px; font-size: 12.5px; color: var(--bx-text, #33414e); }
     label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
@@ -121,6 +125,7 @@ export class BxDialog extends LitElement {
     return html`
       <div class="backdrop" @click=${() => this.#resolve(null)}></div>
       <div class="box" role="dialog" aria-modal="true">
+        ${this.from ? html`<div class="attrib">▟ ${this.from}</div>` : nothing}
         ${s.title ? html`<h3>${s.title}</h3>` : nothing}
         ${s.message ? html`<p class="msg">${s.message}</p>` : nothing}
         <form @submit=${submit}>

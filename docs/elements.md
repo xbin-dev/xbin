@@ -204,14 +204,25 @@ spawn it. Two APIs on the in-frame `xbin` global (see [sdk.md](/docs/sdk.md)):
   memory); coordinate through the shared backend / bus / kv. `closed` resolves
   when the window closes.
 
-**Why not "render my HTML in a window"?** The shell holds the owner's cookie
-and admin chrome; running tile-provided markup there would be privilege
-escalation. So the safe shapes are exactly these two: *data* the shell renders
-(dialog), or your *own sandboxed sub-frame* in shell-owned window chrome. The
-shell tags every request with the **verified** component (the sender iframe is
-the identity — a tile can't spoof another's), and window sub-paths are
-traversal-stripped, so a tile can only pop out its own pages (or components the
-user may already use).
+**Permissions & trust.** Spawning UI is a tile affordance, not a privileged
+capability — no grant is required — but four things bound it:
+
+- **Verified origin**: the sender iframe *is* the identity, so a request is
+  always attributed to the calling component; a tile can't spawn on another's
+  behalf. Every **dialog shows its originating component**, so a tile can't
+  pass its modal off as system/owner chrome (anti-phishing).
+- **Data-only dialogs**: the shell renders from a plain spec (text, never
+  HTML) — no markup/script from a tile runs in workspace chrome.
+- **Windows are sandboxed sub-frames**, not tile markup in the top page. A
+  sub-path is traversal-stripped; `spec.src` to another component runs the
+  normal **frame-token / `CanUseTile`** check (§auth), so it grants nothing
+  beyond embedding a `<bx-frame>` the tile could already place itself.
+- **Rate-bounded**: one dialog and a handful of windows per tile at a time, so
+  a misbehaving tile can't carpet-bomb modals or windows.
+
+What is deliberately *impossible*: `xbin.window({html})` (tile HTML in the top
+page = privilege escalation), spoofing another component's identity, and
+framing a component the user may not use.
 
 ## Runtimes & backend lifecycle
 
