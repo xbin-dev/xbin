@@ -2,9 +2,12 @@
 <!--
   The agent control + observability tile. Opinionated on purpose: a run list,
   a live timeline of the selected run (messages + the journal of every LLM call,
-  tool call, compaction, yield…), and the controls to steer it (inject a
-  message, answer/approve, interrupt, resume, edit memory, tune config).
-  Pure frontend talking to this component's own backend via xbin.fetch.
+  tool call, compaction, yield…) with live-streaming partial output, plus the
+  controls to steer it (message, answer/approve, interrupt, resume, compact,
+  learn) and a tabbed settings area (config / features / memory / schedules /
+  skills / MCP). Pure frontend talking to this component's own backend via
+  xbin.fetch (raw fetch to /api/${xbin.self}<path>). No build step: plain ES
+  modules, no framework — exactly like the rest of this tile.
 -->
 <html lang="en">
 <head>
@@ -13,7 +16,8 @@
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
     body { margin: 0; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); }
-    .wrap { display: grid; grid-template-columns: 210px 1fr; height: 100vh; min-height: 320px; }
+    /* ~2× the old default height — this is a control panel, not a strip. */
+    .wrap { display: grid; grid-template-columns: 220px 1fr; height: 100vh; min-height: 640px; }
     .side { border-right: 1px solid var(--bx-border); display: flex; flex-direction: column; min-height: 0; background: var(--bx-panel-2); }
     .side .hd { padding: 8px 10px; display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--bx-border); }
     .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; }
@@ -22,9 +26,9 @@
     .run:hover { background: var(--bx-panel); }
     .run.on { background: var(--bx-panel); box-shadow: inset 3px 0 0 var(--bx-accent); }
     .run .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .run .m { font-size: 10.5px; color: var(--bx-muted); margin-top: 1px; }
-    .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-    .top { padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .run .m { font-size: 10.5px; color: var(--bx-muted); margin-top: 1px; display: flex; gap: 5px; align-items: center; }
+    .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+    .top { padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
     .composer { border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
@@ -33,16 +37,21 @@
       background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
       color: var(--bx-text); font: inherit; padding: 4px 8px; box-sizing: border-box;
     }
-    input:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
+    textarea { resize: vertical; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
     .btn { background: var(--bx-accent); color: #fff; border: 0; border-radius: 5px; padding: 4px 12px;
            cursor: pointer; font: inherit; font-weight: 600; }
     .btn:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
     .btn.ghost { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border); font-weight: 500; }
+    .btn.ghost:hover { background: var(--bx-panel-2); }
+    .btn.rm { background: var(--bx-panel); color: var(--bx-red); border: 1px solid color-mix(in srgb, var(--bx-red) 40%, var(--bx-border)); font-weight: 500; }
+    .btn.rm:hover { background: color-mix(in srgb, var(--bx-red) 14%, var(--bx-panel)); }
+    .btn.btnsm { padding: 2px 9px; font-size: 11.5px; font-weight: 500; }
     .btn:disabled { opacity: .5; cursor: default; }
     .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--bx-border);
-             text-transform: uppercase; letter-spacing: .04em; }
+             text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
     .badge.running, .badge.sleeping { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
-    .badge.waiting_input { color: var(--bx-yellow, #d9a441); }
+    .badge.waiting_input { color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 45%, var(--bx-border)); }
     .badge.done { color: var(--bx-green); }
     .badge.error { color: var(--bx-red); }
     .badge.idle { color: var(--bx-muted); }
@@ -51,15 +60,56 @@
     .ev.assistant { border-color: #6aa9ff; }
     .ev.tool { border-color: #b58900; }
     .ev.step { border-color: var(--bx-border); }
+    .ev.step.err { border-color: var(--bx-red); }
     .ev .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
     .ev .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
     .ev.step .body { color: var(--bx-muted); font-size: 12px; }
+    .ev.step.err .body { color: var(--bx-red); }
+    .step-k { display: inline-block; color: var(--bx-muted); font-size: 10.5px; text-transform: uppercase;
+              letter-spacing: .03em; margin-right: 5px; }
     .tc { font-family: var(--bx-mono); font-size: 11.5px; background: var(--bx-panel-2);
           border: 1px solid var(--bx-border); border-radius: 5px; padding: 4px 7px; margin-top: 3px; overflow-x: auto; }
     .muted { color: var(--bx-muted); }
+    .mono { font-family: var(--bx-mono); }
     .ask { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent);
            border: 1px solid color-mix(in srgb, var(--bx-yellow, #d9a441) 45%, var(--bx-border));
            border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+    /* Live streaming draft (partial assistant text while status=running). */
+    .draft { border-left: 2px solid #6aa9ff; padding: 4px 0 4px 10px; margin: 2px 0; }
+    .draft .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
+    .draft .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
+    .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent);
+           margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Settings panel — overlays the run view (timeline+composer) when open. */
+    .settings { position: absolute; inset: 0; background: var(--bx-panel); display: flex; flex-direction: column; z-index: 5; }
+    .settings[hidden] { display: none; }
+    .tabs { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--bx-border);
+            background: var(--bx-panel-2); align-items: center; flex-wrap: wrap; }
+    .tab { background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--bx-muted);
+           font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px; cursor: pointer; }
+    .tab:hover { color: var(--bx-text); background: var(--bx-panel); }
+    .tab.on { color: var(--bx-text); background: var(--bx-panel); border-color: var(--bx-border); }
+    .settings-bd { overflow: auto; flex: 1; padding: 12px 14px; }
+    .sec { margin-bottom: 16px; }
+    .sec > h4 { margin: 0 0 7px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+                text-transform: uppercase; color: var(--bx-muted); display: flex; align-items: center; gap: 8px; }
+    .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+    .chk { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 3px 0; }
+    .chk input[type=checkbox] { accent-color: var(--bx-accent); width: 15px; height: 15px; flex: none; }
+    .hint { color: var(--bx-muted); font-size: 11.5px; margin: 5px 0 0; }
+    .err { color: var(--bx-red); font-size: 12px; }
+    .card { border: 1px solid var(--bx-border); border-radius: 6px; padding: 8px 10px; margin-bottom: 7px; background: var(--bx-panel-2); }
+    .card .ch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .card .ch .nm { font-weight: 600; flex: 1; min-width: 80px; }
+    .kv { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; margin-bottom: 5px; }
+    .kv .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.tbl th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+                   color: var(--bx-muted); font-weight: 600; padding: 3px 8px 3px 0; }
+    table.tbl td { padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+
     dialog { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border);
              border-radius: 8px; padding: 0; width: min(520px, 92vw); }
     dialog::backdrop { background: rgba(0,0,0,.5); }
@@ -77,8 +127,8 @@
   <div class="wrap">
     <div class="side">
       <div class="hd"><b>Runs</b>
-        <button class="btn" id="new" title="New run">+</button>
-        <button class="btn ghost" id="gear" title="Config">⚙</button>
+        <button class="btn btnsm" id="new" title="New run">+ New</button>
+        <button class="btn ghost btnsm" id="gear" title="Settings">⚙</button>
       </div>
       <div class="runs" id="runs"><div class="empty">no runs yet</div></div>
     </div>
@@ -88,6 +138,21 @@
       <div class="composer">
         <input id="msg" placeholder="message the agent (or answer its question)…" autocomplete="off" disabled>
         <button class="btn" id="send" disabled>Send</button>
+      </div>
+
+      <!-- Tabbed settings, overlaying the run view. -->
+      <div class="settings" id="settings" hidden>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-tab="config">Config</button>
+          <button class="tab" data-tab="features">Features</button>
+          <button class="tab" data-tab="memory">Memory</button>
+          <button class="tab" data-tab="schedules">Schedules</button>
+          <button class="tab" data-tab="skills">Skills</button>
+          <button class="tab" data-tab="mcp">MCP</button>
+          <span style="flex:1"></span>
+          <button class="tab" id="settings-close" title="Close settings">✕</button>
+        </div>
+        <div class="settings-bd" id="sbd"></div>
       </div>
     </div>
   </div>
@@ -101,26 +166,6 @@
         <div class="field"><label>System prompt override (optional)</label><textarea id="n-system" rows="3"></textarea></div>
       </div>
       <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="n-create" value="ok">Create</button></div>
-    </form>
-  </dialog>
-
-  <dialog id="cfgdlg">
-    <form method="dialog">
-      <div class="dlg-hd">Default config</div>
-      <div class="dlg-bd">
-        <div class="field"><label>Model (llm-gw id or alias)</label><input id="c-model"></div>
-        <div class="field"><label>System prompt</label><textarea id="c-system" rows="4"></textarea></div>
-        <div class="row2">
-          <div class="field"><label>Token budget</label><input id="c-budget" type="number"></div>
-          <div class="field"><label>Max iterations / drive</label><input id="c-iters" type="number"></div>
-        </div>
-        <div class="row2">
-          <div class="field"><label>Subagents</label><select id="c-sub"><option value="true">enabled</option><option value="false">disabled</option></select></div>
-          <div class="field"><label>Tool approval</label><select id="c-appr"><option value="false">auto-run</option><option value="true">require approval</option></select></div>
-        </div>
-        <div class="field"><label>MCP servers (JSON: [{name,url,headers?}])</label><textarea id="c-mcp" rows="3" placeholder="[]"></textarea></div>
-      </div>
-      <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="c-save" value="ok">Save</button></div>
     </form>
   </dialog>
 

@@ -71,6 +71,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   name+description list is injected into context. **`POST /runs/{id}/learn`**
   distills a run into a skill. `/skills` CRUD + storage in the agent's sqlite.
   Gated by the `skills` feature. (Background auto-curator deferred.)
+- agent template (v2, tile): the control tile is rebuilt ~2× taller with a
+  settings overlay — **Config** (model tiers + budget/iters/timeout), a
+  **Features** menu (toggle recall/skills/streaming/vision/parallelTools/
+  watcher), **Memory** CRUD, **Schedules** (create/enable/run-now cron-agents),
+  **Skills** (view/edit), and **MCP** bind status — plus a **live streaming**
+  draft in the timeline and a "learn skill from this run" action.
 
 - auth: the `code` capability now also has a **blanket form** — `uses {target:
   "code", role:"reader"}` grants read-only source access to **every** component
