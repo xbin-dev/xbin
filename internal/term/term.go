@@ -480,19 +480,39 @@ func (m *Manager) sandboxEnv(rel, netMode string) []string {
 			xbinURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
 		}
 	}
+	var effURL, token string // the reachable xbind URL + owner token, for git/curl
 	if m.Env != nil {
 		for _, e := range m.Env() {
 			if strings.HasPrefix(e, "PATH=") {
 				continue // the rootfs PATH above wins
 			}
-			if xbinURL != "" && strings.HasPrefix(e, "XBIN_URL=") {
-				continue // rewritten below to the relay gateway
+			if v, ok := strings.CutPrefix(e, "XBIN_URL="); ok {
+				if xbinURL != "" {
+					continue // rewritten below to the relay gateway
+				}
+				effURL = v
+			}
+			if v, ok := strings.CutPrefix(e, "XBIN_TOKEN="); ok {
+				token = v
 			}
 			env = append(env, e)
 		}
 	}
 	if xbinURL != "" {
 		env = append(env, "XBIN_URL="+xbinURL)
+		effURL = xbinURL
+	}
+	// Make the SDK's gateway host `http://xbin/…` work for raw git/curl in the
+	// terminal too: git's env-config rewrites it to the reachable XBIN_URL and
+	// attaches the owner bearer token, scoped to that URL so the token never
+	// goes anywhere else. This is what lets a template instance's `template`
+	// remote fetch (plans/agent-v2.md); it also makes `curl http://xbin/…` work.
+	if effURL != "" && token != "" {
+		env = append(env,
+			"GIT_CONFIG_COUNT=2",
+			"GIT_CONFIG_KEY_0=url."+effURL+"/.insteadOf", "GIT_CONFIG_VALUE_0=http://xbin/",
+			"GIT_CONFIG_KEY_1=http."+effURL+"/.extraHeader", "GIT_CONFIG_VALUE_1=Authorization: Bearer "+token,
+		)
 	}
 	return env
 }

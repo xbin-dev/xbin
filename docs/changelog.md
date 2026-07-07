@@ -18,7 +18,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   upstream fixes with `git fetch template && git merge template/main` (or
   cherry-pick) — in control of what they adopt, no auto-merge clobber. The
   builtin-tile updater still never touches template instances. Phase 7 of the
-  agent-v2 program.
+  agent-v2 program. Terminals now resolve the SDK's `http://xbin/…` gateway host
+  for raw `git`/`curl` too (rewritten to `XBIN_URL` + owner bearer, scoped to
+  xbind), so the `template` remote fetches. Existing instances (pre-Phase-7) add
+  the remote once by hand — see `plans/templates.md`.
 - New builtin tile **prometheus-viewer**: binds one or more components that
   expose Prometheus metrics (service `prometheus`, multi:true — e.g. llm-gw)
   and renders their `/metrics` as a live dashboard (per-source counters/gauges,

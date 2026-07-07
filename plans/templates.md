@@ -85,10 +85,36 @@ work. Instead, updates follow the **fork-upstream** model:
 - At start, each builtin template is materialized into a git repo under
   `.xbin/template-repos/<name>/` (a snapshot committed per version) and served
   read-only over dumb HTTP at `GET /api/xbin/templates/<name>.git/…` (admin).
-- On instantiate, that repo is added to the instance as the `template` remote.
-- The builder adopts upstream fixes on their terms, from the instance terminal:
-  `git fetch template && git log template/main` then `git merge template/main`
-  or `git cherry-pick <commit>` — never an automatic overwrite.
+- On instantiate, that repo is added to the instance as the `template` remote
+  (URL `http://xbin/api/xbin/templates/<name>.git`).
+- The terminal's git is configured so `http://xbin/…` transparently rewrites to
+  the reachable `XBIN_URL` with the owner bearer token (term.sandboxEnv), so a
+  raw `git fetch` reaches the admin-gated endpoint.
+- The builder adopts upstream fixes on their terms, from the instance terminal.
+
+**Existing instances** (created before this shipped) have no `template` remote —
+add it once:
+
+```sh
+git remote add template http://xbin/api/xbin/templates/agent.git
+git fetch template
+git log --oneline template/main          # what's new upstream
+```
+
+The template repo and the instance have **unrelated histories** and differ in a
+few instantiation-specific files (`go.mod` vs `go.mod.tile`, the stripped
+`template` block in `xbin.json`), so don't blind-`merge`. Pull the changed code
+surgically and review:
+
+```sh
+git checkout template/main -- _backend index.html agent.js API.md
+# then hand-apply any xbin.json additions (e.g. a new interfaces block),
+# skipping the template marker; rebuild is automatic.
+git commit -am "adopt upstream agent update"
+```
+
+(Or `git merge --allow-unrelated-histories template/main` and resolve the few
+conflicts, keeping your `go.mod` and marker-free `xbin.json`.)
 
 ## Why not just "another builtin tile"?
 
