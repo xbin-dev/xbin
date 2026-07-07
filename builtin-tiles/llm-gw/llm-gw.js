@@ -27,6 +27,10 @@ const vault = async (key, opts) => {
 
 const AUTO_REFRESH_MS = 60_000;
 
+// Group digits for readability: 123123123 → "123 123 123" (narrow no-break
+// space so counts don't wrap mid-number in the table).
+const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
 export class BxLlmGw extends LitElement {
   static properties = {
     _backends: { state: true },  // [{name, baseURL, hasToken}]
@@ -234,11 +238,11 @@ export class BxLlmGw extends LitElement {
               <td class="mono">${b.name}</td>
               <td class="mono muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis">${b.baseURL}</td>
               <td>${b.hasToken ? html`<span class="ok">✓</span>` : html`<span class="warn">none</span>`}</td>
-              <td class="mono" style="text-align:right">${st.reqs ?? 0}</td>
-              <td class="mono" style="text-align:right">${st.tokIn ?? 0}</td>
-              <td class="mono" style="text-align:right">${st.tokOut ?? 0}</td>
+              <td class="mono" style="text-align:right">${fmtN(st.reqs)}</td>
+              <td class="mono" style="text-align:right">${fmtN(st.tokIn)}</td>
+              <td class="mono" style="text-align:right">${fmtN(st.tokOut)}</td>
               <td class="mono" style="text-align:right">${st.active
-                ? html`<span class="ok">${st.active}</span>` : '0'}</td>
+                ? html`<span class="ok">${fmtN(st.active)}</span>` : '0'}</td>
               <td style="text-align:right; white-space:nowrap">
                 <button class="act" ?disabled=${this._busy} @click=${() => this._setToken(b.name)}>token</button>
                 <button class="act" ?disabled=${this._busy} @click=${() => {
