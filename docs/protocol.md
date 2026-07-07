@@ -141,15 +141,15 @@ POST   /templates/new               xbin:writer. body {source, path?} → {path,
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md).
 
-GET    /code/tree                  admin OR code:<component>. ?component=<path> → {component, files:
+GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.
-GET    /code/file                  admin OR code:<component>. ?component=<path>&file=<rel> →
+GET    /code/file                  admin OR code[:<component>]. ?component=<path>&file=<rel> →
                                    {path, content|binary|truncated}.
-GET    /git/log                    admin OR code:<component>. ?component=<path>&limit=N → {repo,
+GET    /git/log                    admin OR code[:<component>]. ?component=<path>&limit=N → {repo,
                                    commits:[{hash,short,author,date,subject}],
                                    remote}. From the component's OWN repo (each
                                    component is its own git repo); remote = origin.
-GET    /git/diff                   admin OR code:<component>. ?component=<path>&rev=<hash> → {repo,
+GET    /git/diff                   admin OR code[:<component>]. ?component=<path>&rev=<hash> → {repo,
                                    diff}. rev empty = uncommitted changes vs HEAD.
 GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote

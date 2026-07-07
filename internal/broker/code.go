@@ -130,12 +130,16 @@ func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp st
 		return true
 	}
 	if p.Component != "" {
-		if role, ok := b.grantedRole(p.Component, "code:"+comp); ok && roleSatisfies(role, "reader", nil) {
-			return true
+		// "code" (bare) = read ANY component's source (tooling: linters, stats,
+		// search); "code:<comp>" = just that one.
+		for _, t := range []string{"code", "code:" + comp} {
+			if role, ok := b.grantedRole(p.Component, t); ok && roleSatisfies(role, "reader", nil) {
+				return true
+			}
 		}
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "reading a component's source needs admin, or a code:" + comp + " grant — declare uses {target: \"code:" + comp + "\", role: \"reader\"}",
+		"error": "reading a component's source needs admin, or a `code:" + comp + "` grant (one component) / `code` grant (all) — declare uses {target: \"code:" + comp + "\", role: \"reader\"}",
 		"docs":  "/docs/auth.md",
 	})
 	return false

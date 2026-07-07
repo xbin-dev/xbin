@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-07
+
+- auth: the `code` capability now also has a **blanket form** — `uses {target:
+  "code", role:"reader"}` grants read-only source access to **every** component
+  (for scanners/linters/stats), alongside `code:<component>` for one. Honored
+  on `/api/xbin/code/*` and `/git/{log,diff}`.
+- docs: corrected the workspace `AGENTS.md` §Sandbox — `deps/` symlinks are
+  editing-plane only; their targets are NOT mounted in the backend sandbox
+  (matches docs/isolation.md). Read a sibling's source via a `code:` grant, or
+  call it over HTTP.
+
 ## 2026-07-06
 
 - frontend: tiles can spawn workspace-level UI via the shell — `xbin.dialog(spec)`

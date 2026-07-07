@@ -220,8 +220,8 @@ func (b *Broker) unresolvedUses(comp string) []string {
 			if _, res, ok := b.parseRes(t); !ok || res == nil {
 				out = append(out, comp+": uses "+t+" — no such resource (typo, or a stale pre-rename scope?)")
 			}
-		case strings.HasPrefix(t, "net:"), strings.HasPrefix(t, "gpu:"):
-			// capability targets — always resolvable
+		case strings.HasPrefix(t, "net:"), strings.HasPrefix(t, "gpu:"), t == "code":
+			// capability targets — always resolvable ("code" = read-all-source)
 		case strings.HasPrefix(t, "code:"):
 			if _, ok := b.Reg.Component(strings.TrimPrefix(t, "code:")); !ok {
 				out = append(out, comp+": uses "+t+" — no such component to read source of")

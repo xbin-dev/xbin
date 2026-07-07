@@ -336,10 +336,14 @@ Each backend runs in its own sandbox (namespaces + an overlay rootfs; `make dev`
 and production isolate). **Design for this — it's default-deny:**
 
 - **Filesystem:** you see the base rootfs (toolchains), your own component dir
-  (read-only at runtime — editing is the terminal's job), your granted `deps/*`
-  (read-only), and your granted resource files (rw). **Not** other components'
-  source, other vaults, `home/`, or the host — they aren't mounted. Persist
-  state in resources, not scattered files.
+  (read-only at runtime — editing is the terminal's job), and your granted
+  resource files (rw). **Not** other components' source, other vaults,
+  `home/`, or the host — they aren't mounted. Persist state in resources, not
+  scattered files.
+  - `deps/` is **editing-plane only**: the symlinks let shells/gopls see your
+    dependency components, but their *targets are NOT mounted in the backend*.
+    At runtime, call another component over HTTP (§Auth), or read its source
+    with a `code:` grant (below) — don't expect `deps/x` to resolve.
 - **Network egress is an owner-bound interface (§Interfaces).** With no egress
   bound your backend has **zero IP egress** — outbound calls fail (`dial tcp:
   lookup … connection refused`). Reaching **xbind and other components** through
@@ -449,10 +453,12 @@ it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
   pending until the owner approves: `bx grant apps/me apps/other:reader`
   (role goes after the LAST colon; also the panel on the root page).
 - **Read another component's source**: request `uses {target:"code:apps/x",
-  role:"reader"}` — once the owner approves, `GET /api/xbin/code/tree` /
-  `/code/file` / `/git/log` / `/git/diff` `?component=apps/x` return its files
-  and history (read-only; the same view a terminal has). You can always read
-  your own source; reading a sibling's is an owner-approved `code:` grant.
+  role:"reader"}` (one component) or `{target:"code", role:"reader"}` (ALL
+  components — for scanners/linters/stats). Once approved,
+  `GET /api/xbin/code/tree` / `/code/file` / `/git/log` / `/git/diff`
+  `?component=<path>` return files + history (read-only; the same view a
+  terminal has). You always read your own source; a sibling's needs the grant.
+  There is no filesystem mount for this — use the API.
 - **Agents: do not approve cross-scope grants yourself.** Declaring `uses`
   is your job; *approving* a cross-scope (or `xbin:*`) grant is the owner's
   call — it is the human-in-the-loop the whole permission model exists for,

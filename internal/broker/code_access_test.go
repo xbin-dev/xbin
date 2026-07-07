@@ -38,6 +38,33 @@ func TestCodeReadGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := call(auth.Principal{Component: "apps/email"}); got != 200 {
-		t.Fatalf("granted element: want 200, got %d", got)
+		t.Fatalf("granted element (code:calendar): want 200, got %d", got)
+	}
+}
+
+// A bare "code" grant reads ANY component's source (tooling/scanners).
+func TestCodeReadBlanket(t *testing.T) {
+	b := testBroker(t)
+	tree := func(comp string, p auth.Principal) int {
+		r := httptest.NewRequest("GET", "/code/tree?component="+comp, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		b.apiCodeTree(w, r)
+		return w.Code
+	}
+	stats := auth.Principal{Component: "apps/email"}
+	if tree("apps/calendar", stats) != 403 {
+		t.Fatal("no grant: want 403")
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: "code", Role: "reader"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Now it reads every component, not just one.
+	for _, c := range []string{"apps/calendar", "apps/email"} {
+		if got := tree(c, stats); got != 200 {
+			t.Fatalf("blanket code grant reading %s: want 200, got %d", c, got)
+		}
 	}
 }

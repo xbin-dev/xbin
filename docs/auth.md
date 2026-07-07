@@ -68,13 +68,17 @@ once; xbind enforces at every call.
   `res:*`, `uses` can request `net:*` egress (`plans/isolation.md`) and `gpu:*`
   GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`plans/gpu.md`). Same
   owner-approval flow; ungranted means the sandbox gets no egress / no GPU.
-- **`code:<component>`** — read-only access to another component's **source**
-  (its files + git log/diff via `/api/xbin/code/*`, `/api/xbin/git/{log,diff}`),
-  the runtime equivalent of what a workspace terminal sees read-only. Request
-  `uses {target:"code:apps/x", role:"reader"}`; owner-approved like any
-  cross-scope grant (a component always reads its own source, and admin reads
-  any). Powerful — it exposes everything in the target's tree except `.git`
-  internals / `node_modules` / `data`; grant it deliberately.
+- **`code:<component>`** (one component) / **`code`** (all components) —
+  read-only access to another component's **source** (its files + git log/diff
+  via `/api/xbin/code/*`, `/api/xbin/git/{log,diff}`), the runtime equivalent
+  of what a workspace terminal sees read-only. Request
+  `uses {target:"code:apps/x", role:"reader"}` for one, or
+  `{target:"code", role:"reader"}` for **every** component (tooling — linters,
+  stats, search — that must scan the whole workspace without re-granting per
+  component). Owner-approved like any grant; a component always reads its own
+  source, and admin reads any. Powerful — it exposes everything in the
+  target's tree except `.git` internals / `node_modules` / `data`; `code`
+  (all) even more so. Grant deliberately.
 
 Enforcing in the callee is one middleware:
 
