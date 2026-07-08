@@ -27,9 +27,9 @@ const vault = async (key, opts) => {
 
 const AUTO_REFRESH_MS = 60_000;
 
-// Group digits for readability: 123123123 → "123 123 123" (narrow no-break
-// space so counts don't wrap mid-number in the table).
-const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+// Group digits with commas: 123123123 → "123,123,123". A plain space
+// reads the same as the inter-column gap, blurring which group is which.
+const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 export class BxLlmGw extends LitElement {
   static properties = {

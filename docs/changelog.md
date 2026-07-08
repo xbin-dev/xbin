@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-08
 
+- interfaces: **fixed a binding-role flap**. A provider with several http
+  provides (e.g. llm-gw: `openai`=writer + `metrics`=reader) resolved a
+  binding’s granted role from an *arbitrary* provide — provides live in a map
+  with no stable order — so a caller bound to `openai` (writer) intermittently
+  got `reader`, failing ~15–30% of calls with "role writer required". The
+  role/endpoint/validation now select the provide **by the requester slot’s
+  service**, deterministically. (Introduced when llm-gw gained its second
+  provide; single-provide tiles were never affected.)
+- llm-gw: the stats table groups digits with **commas** (`123,142`) instead of
+  a thin space, which was hard to read against the column gaps.
+
 - vault: **secret values are now readable only by the element they belong to** —
   not even the owner or an `xbin:admin` tile. Admins can still list keys and
   set/rotate/delete any vault (the admin console + per-tile mini-admin drop the

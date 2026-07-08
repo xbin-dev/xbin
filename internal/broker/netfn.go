@@ -117,10 +117,28 @@ func (b *Broker) NetClientTarget(c *registry.Component) (provider, addr, gw stri
 
 // --- http/service interfaces (plans/interfaces.md) ----------------------------
 
-// httpProvide returns provider p's first http interface definition, if any.
-func httpProvide(p *registry.Component) (registry.Iface, bool) {
-	for _, def := range p.Manifest.Provides {
-		if def.Kind == "http" {
+// httpProvideFor returns the http provide of p that a binding to `service`
+// grants — selected BY SERVICE, deterministically. A provider may declare
+// several http provides (e.g. llm-gw: openai=writer + metrics=reader); the map
+// they live in has no stable "first", so picking one arbitrarily made binding
+// roles/endpoints flap between provides. With an empty service (a slot that
+// names none) it returns the name-sorted-first http provide, still stable.
+func httpProvideFor(p *registry.Component, service string) (registry.Iface, bool) {
+	if service != "" {
+		for _, def := range p.Manifest.Provides {
+			if def.Kind == "http" && def.Service == service {
+				return def, true
+			}
+		}
+		return registry.Iface{}, false
+	}
+	names := make([]string, 0, len(p.Manifest.Provides))
+	for name := range p.Manifest.Provides {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if def := p.Manifest.Provides[name]; def.Kind == "http" {
 			return def, true
 		}
 	}
@@ -140,11 +158,15 @@ func (b *Broker) httpBindingRole(from, target string) (string, bool) {
 			if prov, _ := splitRef(ref); prov != target {
 				continue
 			}
-			if req, ok := c.Manifest.Interfaces[slot]; !ok || req.Kind != "http" {
+			req, ok := c.Manifest.Interfaces[slot]
+			if !ok || req.Kind != "http" {
 				continue
 			}
 			if p, ok := b.Reg.Component(target); ok {
-				if def, ok := httpProvide(p); ok {
+				// Role comes from the provide matching THIS slot's service, not
+				// an arbitrary one — otherwise a multi-provide target (openai +
+				// metrics) flaps the granted role between writer and reader.
+				if def, ok := httpProvideFor(p, req.Service); ok {
 					return provideRole(def), true
 				}
 			}
@@ -199,7 +221,7 @@ func (b *Broker) HTTPSlots(comp string) map[string]ResolvedIface {
 			if !ok {
 				continue
 			}
-			def, ok := httpProvide(p)
+			def, ok := httpProvideFor(p, req.Service)
 			if !ok {
 				continue
 			}
@@ -342,8 +364,8 @@ func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
 			if p.Path == comp {
 				continue
 			}
-			def, ok := httpProvide(p)
-			if !ok || (req.Service != "" && def.Service != req.Service) {
+			def, ok := httpProvideFor(p, req.Service)
+			if !ok {
 				continue
 			}
 			if def.Instances {
@@ -490,12 +512,12 @@ func (b *Broker) validateBinding(comp, slot string, refs []string) error {
 			if !ok {
 				return fmt.Errorf("no such provider: %s", prov)
 			}
-			pd, ok := httpProvide(p)
+			pd, ok := httpProvideFor(p, def.Service)
 			if !ok {
+				if def.Service != "" {
+					return fmt.Errorf("%s does not provide the %q service the slot wants", prov, def.Service)
+				}
 				return fmt.Errorf("%s does not provide an http interface", prov)
-			}
-			if def.Service != "" && pd.Service != def.Service {
-				return fmt.Errorf("%s provides service %q, slot wants %q", prov, pd.Service, def.Service)
 			}
 			switch {
 			case pd.Instances && inst == "":
@@ -549,7 +571,14 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + comp})
 		return
 	}
-	if def, ok := httpProvide(c); !ok || !def.Instances {
+	hasInstances := false
+	for _, def := range c.Manifest.Provides {
+		if def.Kind == "http" && def.Instances {
+			hasInstances = true
+			break
+		}
+	}
+	if !hasInstances {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": comp + " does not declare provides {kind:http, instances:true}"})
 		return
 	}

@@ -157,3 +157,62 @@ func TestIfaceMultiplicity(t *testing.T) {
 		t.Fatalf("bind options missing %v (got %v)", want, ids)
 	}
 }
+
+// TestMultiProvideRoleStable guards the binding-role flap fix: a provider with
+// several http provides (llm-gw: openai=writer + metrics=reader) must grant a
+// binding the role of the provide matching the requester slot's SERVICE,
+// deterministically — not whichever the provides map yields first (which flapped
+// ~15–30% of calls between writer and reader).
+func TestMultiProvideRoleStable(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("xbin.json", `{"schema":1}`)
+	write("apps/llm-gw/xbin.json", `{
+		"expose": {"roles":{"reader":"r","writer":"w"}},
+		"provides": {
+			"openai":  { "kind":"http", "service":"openai",     "role":"writer" },
+			"metrics": { "kind":"http", "service":"prometheus", "role":"reader" } }}`)
+	write("apps/caller/xbin.json", `{
+		"interfaces": { "llm": { "kind":"http", "service":"openai", "multi":true } }}`)
+	write("apps/viewer/xbin.json", `{
+		"interfaces": { "src": { "kind":"http", "service":"prometheus", "multi":true } }}`)
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(reg, events.NewHub(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bind := func(comp, slot, provider string) {
+		r := httptest.NewRequest("POST", "/bindings",
+			strings.NewReader(`{"component":"`+comp+`","slot":"`+slot+`","providers":["`+provider+`"]}`))
+		r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true}))
+		w := httptest.NewRecorder()
+		b.apiBindingSet(w, r)
+		if w.Code != 200 {
+			t.Fatalf("bind %s.%s: %d %s", comp, slot, w.Code, w.Body.String())
+		}
+	}
+	bind("apps/caller", "llm", "apps/llm-gw")
+	bind("apps/viewer", "src", "apps/llm-gw")
+
+	// Repeat to defeat map-order luck — the granted role must be stable.
+	for i := 0; i < 200; i++ {
+		if role, ok := b.httpBindingRole("apps/caller", "apps/llm-gw"); !ok || role != "writer" {
+			t.Fatalf("openai binding must grant writer every call; got %q ok=%v (iter %d)", role, ok, i)
+		}
+		if role, ok := b.httpBindingRole("apps/viewer", "apps/llm-gw"); !ok || role != "reader" {
+			t.Fatalf("prometheus binding must grant reader every call; got %q ok=%v (iter %d)", role, ok, i)
+		}
+	}
+}
