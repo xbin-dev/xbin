@@ -25,8 +25,9 @@ type Server struct {
 	Hub  *events.Hub
 	Term *term.Manager
 
-	WebFS  fs.FS // core elements + vendored deps, served at /vendor/
-	DocsFS fs.FS // builder docs, served at /docs/
+	WebFS   fs.FS  // core elements + vendored deps, served at /vendor/
+	DocsFS  fs.FS  // builder docs, served at /docs/
+	Version string // the running xbind build id (commit/describe), for /status
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

@@ -75,7 +75,6 @@ export class BxShell extends LitElement {
     _side: { state: true },    // sidebar: {width, collapsed, folders:[{id,name,open,items}]}
     _dropFolder: { state: true }, // folder id highlighted as a drag target
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
-    _ws: { state: true },         // core workspace git state {repo, head, dirty}
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
@@ -165,24 +164,17 @@ export class BxShell extends LitElement {
     .sysbar .fill { height: 100%; border-radius: 2px;
       background: var(--bx-accent, #f5a623); transition: width .6s ease; }
 
-    /* ---- core workspace commit (sidebar bottom) ---- */
-    .wsfoot {
+    /* ---- xbind build commit (sidebar bottom) ---- */
+    .buildfoot {
       flex: none; border-top: 1px solid var(--bx-border, #e4e8ed);
-      padding: 6px 10px 8px; display: flex; align-items: center; gap: 6px; font-size: 11px;
+      padding: 6px 12px 8px; display: flex; align-items: baseline; gap: 6px; font-size: 10px;
     }
-    .wsfoot .wshead { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; }
-    .wsfoot .glyph { color: var(--bx-muted, #8794a1); }
-    .wsfoot .hash { font-family: var(--bx-mono, monospace); font-size: 10px; color: var(--bx-muted, #8794a1); }
-    .wsfoot .subj { color: var(--bx-text, #33414e); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .wsfoot .wscommit {
-      flex: none; border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
-      color: var(--bx-text, #33414e); border-radius: 5px; font: inherit; font-size: 10.5px;
-      padding: 2px 8px; cursor: pointer; white-space: nowrap;
-    }
-    .wsfoot .wscommit:hover { background: var(--bx-panel-2, #f7f8fa); }
-    .wsfoot .wscommit.dirty { border-color: var(--bx-accent, #f5a623); color: var(--bx-accent, #f5a623); }
-    .wsfoot .wscommit .n { background: var(--bx-accent, #f5a623); color: #23272e;
-      border-radius: 999px; padding: 0 5px; font-weight: 600; margin-left: 2px; }
+    .buildfoot .glyph { color: var(--bx-muted, #8794a1); }
+    .buildfoot .label { text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
+      color: var(--bx-muted, #8794a1); font-size: 9.5px; }
+    .buildfoot .ver { margin-left: auto; font-family: var(--bx-mono, monospace);
+      color: var(--bx-text, #33414e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .buildfoot .ver.dirty { color: var(--bx-amber, #f2a71b); }
 
     /* ---- per-tile mini-admin popover ---- */
     .admin-pop-backdrop { position: fixed; inset: 0; z-index: 2400; }
@@ -352,7 +344,6 @@ export class BxShell extends LitElement {
     this._side = { width: 224, collapsed: false, folders: [] }; // persisted with the layout
     this._dropFolder = null;
     this._sys = null;
-    this._ws = null;
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._isAdmin = false;
     this._adminFor = null;
@@ -726,17 +717,15 @@ export class BxShell extends LitElement {
       // RAW fetch on purpose: the cookie principal is the signed-in admin;
       // xbin.fetch would attach the chrome frame token and downgrade to a
       // non-admin element principal (403 on these endpoints).
-      const [st, be, vs, wg] = await Promise.all([
+      const [st, be, vs] = await Promise.all([
         fetch('/api/xbin/status'),
         fetch('/api/xbin/backends'),
         fetch('/api/xbin/vault-status'),
-        fetch('/api/xbin/workspace/git'),
       ]);
-      if (!st.ok) { this._sys = null; this._ws = null; return; } // not admin — footer hidden
+      if (!st.ok) { this._sys = null; return; } // not admin — footer hidden
       const status = await st.json();
       const backends = be.ok ? await be.json() : {};
       const vault = vs.ok ? await vs.json() : null;
-      this._ws = wg.ok ? await wg.json() : null; // core workspace git state
 
       // Rates from cumulative counters (delta between polls).
       let reqRate = 0, mbRate = 0;
@@ -766,6 +755,7 @@ export class BxShell extends LitElement {
         running: states.filter((b) => b.state === 'healthy').length,
         components: status.components ?? 0,
         vault: vault?.mode ?? null,
+        version: status.version || null, // running xbind build commit
         reqRate, mbRate,
       };
     } catch { /* xbind restarting; next tick */ }
@@ -819,38 +809,17 @@ export class BxShell extends LitElement {
       </div>`;
   }
 
-  // ---- core workspace commit (bottom of the sidebar; admin-only) ----
-  _workspaceFoot() {
-    const ws = this._ws;
-    if (!ws || !ws.repo) return nothing;
-    const head = ws.head ?? {};
+  // ---- xbind build commit (bottom of the sidebar; admin-only) ----
+  _buildFoot() {
+    const v = this._sys?.version;
+    if (!v) return nothing;
+    const dirty = v.endsWith('-dirty');
     return html`
-      <div class="wsfoot">
-        <div class="wshead" title=${head.subject ? `${head.short} — ${head.subject}` : 'no commits yet'}>
-          <span class="glyph">⎇</span>
-          <span class="hash">${head.short || '—'}</span>
-          <span class="subj">${head.subject || 'workspace not yet committed'}</span>
-        </div>
-        <button class="wscommit ${ws.dirty ? 'dirty' : ''}"
-                title=${ws.dirty ? `${ws.dirty} uncommitted path(s) — commit the core workspace` : 'workspace is clean'}
-                @click=${() => this._commitWs()}>
-          commit${ws.dirty ? html` <span class="n">${ws.dirty}</span>` : nothing}
-        </button>
+      <div class="buildfoot" title="the running xbind daemon's build commit">
+        <span class="glyph">⬡</span>
+        <span class="label">xbind</span>
+        <span class="ver ${dirty ? 'dirty' : ''}">${v}</span>
       </div>`;
-  }
-
-  async _commitWs() {
-    const msg = prompt('Commit the core workspace — message:', 'workspace snapshot');
-    if (msg == null) return;
-    try {
-      const r = await fetch('/api/xbin/workspace/commit', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg.trim() }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error ?? r.status);
-      this._loadSys(); // refresh the panel (new HEAD, dirty=0)
-    } catch (e) { alert('workspace commit failed: ' + (e.message ?? e)); }
   }
 
   _sideResizeStart(e) {
@@ -1218,7 +1187,7 @@ export class BxShell extends LitElement {
                 ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
             </div>
             ${this._statusFooter()}
-            ${this._workspaceFoot()}
+            ${this._buildFoot()}
           </aside>
           <div class="side-handle" title="drag to resize"
                @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}

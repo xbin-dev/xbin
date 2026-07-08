@@ -63,9 +63,10 @@ failures carry compiler output in `detail`).
 ```
 GET    /status                     admin. terminals, component count, host
                                    {cpuBusy,cpuTotal,memTotal,memAvail,
-                                   diskTotal,diskFree} and traffic
+                                   diskTotal,diskFree}, traffic
                                    {reqs,bytesOut,uptimeSec} (cumulative —
-                                   delta two polls for rates)
+                                   delta two polls for rates), and version (the
+                                   running xbind build commit)
 GET    /backends                   admin. per-component backend state
 GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
@@ -162,12 +163,6 @@ GET    /git/diff                   admin OR code[:<component>]. ?component=<path
 GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.
-GET    /workspace/git              admin. {repo, head:{short,subject,date}, dirty}
-                                   — the core workspace repo's HEAD + uncommitted
-                                   path count (the shell's commit control).
-POST   /workspace/commit           admin. body {message?} — snapshot the core
-                                   workspace repo (git add -A + commit; component
-                                   sub-repos ride along as gitlinks). {committed, head}
 POST   /git/import                 xbin:writer. body {url, path?, ref?} — clone a
                                    component in from a git remote (GitHub/GitLab/
                                    any git URL); path defaults to apps/<repo>, ref

@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -40,8 +41,40 @@ import (
 	"github.com/magik6k/xbin/internal/watch"
 )
 
-var version = "dev" // set via -ldflags at release
+var version = "dev" // set via -ldflags at release (make build → `git describe`)
 var startTime = time.Now()
+
+// buildVersion resolves the running binary's build id: the -ldflags value if
+// one was baked in at build time, else the VCS revision Go stamps into the
+// binary automatically (works for `go build`/`go run` from the repo), else
+// "dev". This is what the UI shows as the xbind build commit.
+func buildVersion() string {
+	if version != "" && version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		var rev string
+		var dirty bool
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.modified":
+				dirty = s.Value == "true"
+			}
+		}
+		if rev != "" {
+			if len(rev) > 12 {
+				rev = rev[:12]
+			}
+			if dirty {
+				rev += "-dirty"
+			}
+			return rev
+		}
+	}
+	return version
+}
 
 // devVaultPassphrase brings the vault up automatically under --dev/--no-auth so
 // encryption-at-rest is ON by default while dogfooding (a bare `make dev`
@@ -79,7 +112,7 @@ func main() {
 			fmt.Println("workspace initialized:", os.Args[2])
 			return
 		case "version":
-			fmt.Println("xbind", version)
+			fmt.Println("xbind", buildVersion())
 			return
 		}
 	}
@@ -317,6 +350,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	run.ShouldRun = func(comp string) bool {
 		return reg.LifecycleState(comp) == registry.StateEnabled && !brk.EncryptionHold(comp)
 	}
+	version = buildVersion() // resolve once for the daemon (brk + server + gateway)
 	brk.Version = version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 
@@ -372,7 +406,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	srv := &server.Server{
 		Reg: reg, Auth: a, Hub: hub, Term: tm,
 		WebFS: webFS, DocsFS: docsFS,
-		ComponentAPI: px,
+		ComponentAPI: px, Version: version,
 	}
 	brk.Register(srv)
 	srv.RegisterAPI("GET /backends", func(w http.ResponseWriter, r *http.Request) {

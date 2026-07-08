@@ -21,9 +21,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`bx vault get <other-component>` now 403s); the owning element's own
   `xbin.Secret()` is unaffected. Migration:
   `docs/changes/2026-07-08-vault-read-lockdown.md`; see `docs/auth.md` §Vault.
-- shell: a **core-workspace commit** control at the bottom of the sidebar —
-  shows the workspace repo's HEAD + uncommitted-path count and a commit button
-  (`GET /workspace/git`, `POST /workspace/commit`; admin only).
+- shell: the sidebar bottom shows the **running xbind build commit** (`⬡ xbind
+  <commit>`). The commit is baked in at build time (`make build` ldflags →
+  `git describe`, falling back to the VCS revision Go stamps into the binary)
+  and surfaced on `GET /status` as `version`.
 
 ## 2026-07-07
 

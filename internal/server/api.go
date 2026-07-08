@@ -59,6 +59,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"components": len(s.Reg.Components()),
 		"terminals":  s.Term.List(),
+		"version":    s.Version, // running xbind build commit
 		"host":       hostStats(s.Reg.Root),
 		"traffic": map[string]any{
 			"reqs": reqCount.Load(), "bytesOut": respBytes.Load(),
