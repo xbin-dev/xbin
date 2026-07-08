@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-08
 
+- terminal: a **settings menu** (the ⚙ that appears top-right on hover),
+  starting with a **theme picker** — Default (dark-steel), Dracula, Nord,
+  Solarized Dark/Light, Monokai, Gruvbox Dark, One Dark, Tango Dark, GitHub
+  Light — plus a font-size stepper. Applied live, shared across open terminals
+  (same document + other tabs), and persisted in the browser.
+
 - lifecycle: **offloading a component now fully quiesces it.** Previously an
   offloaded tile kept firing cron, still surfaced pending access/binding
   requests, and stayed visible in the shell + the admin principals list.
