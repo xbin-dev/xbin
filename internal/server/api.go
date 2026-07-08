@@ -9,6 +9,7 @@ import (
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/gpu"
+	"github.com/magik6k/xbin/internal/registry"
 )
 
 // registerCoreAPI mounts the always-present /api/xbin/* endpoints. Broker,
@@ -74,6 +75,7 @@ type componentInfo struct {
 	Runtime     string   `json:"runtime,omitempty"`
 	HasIndex    bool     `json:"hasIndex"`
 	Template    bool     `json:"template,omitempty"` // a blueprint, not a live tile
+	State       string   `json:"state,omitempty"`    // lifecycle; "" = enabled (offloaded/disabled hidden by clients)
 	Roles       any      `json:"roles,omitempty"`
 	Uses        any      `json:"uses,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
@@ -92,6 +94,9 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+		}
+		if st := s.Reg.LifecycleState(c.Path); st != registry.StateEnabled {
+			ci.State = st
 		}
 		if c.Manifest.Expose != nil {
 			ci.Roles = c.Manifest.Expose.Roles

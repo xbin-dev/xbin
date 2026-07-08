@@ -16,6 +16,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/registry"
 	"github.com/magik6k/xbin/internal/server"
 )
 
@@ -142,6 +143,13 @@ func (cr *cronRunner) remove(component, name string) bool {
 }
 
 func (cr *cronRunner) fire(j cronJob) {
+	// A disabled/offloaded component's jobs don't fire — its backend won't spawn
+	// anyway, and offload/disable should pause its schedule without unregistering
+	// it (re-enable resumes; plans/lifecycle.md). Component jobs only (j.Component
+	// set); xbind-internal jobs are unaffected.
+	if j.Component != "" && cr.b.Reg.LifecycleState(j.Component) != registry.StateEnabled {
+		return
+	}
 	cr.mu.Lock()
 	dispatch := cr.dispatch
 	cr.mu.Unlock()

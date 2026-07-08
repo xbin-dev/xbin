@@ -744,13 +744,33 @@ export class BxAdmin extends LitElement {
       <h4>principals</h4>
       <table>
         <tr><th>component</th><th>runtime</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
-        ${ov.components.map((k) => html`<tr>
+        ${ov.components.filter((k) => !this._isOffloaded(k)).map((k) => html`<tr>
           <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
           <td class="muted">${k.runtime || 'static'}</td>
           <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
           <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
           <td>${k.hasVault ? '🔑' : ''}</td>
           <td>${this._lifecycleCell(k)}</td>
+        </tr>`)}
+      </table>
+      ${this._offloadedSection(ov)}`;
+  }
+
+  _isOffloaded(k) { return k.state === 'offloaded' || k.state === 'offloaded-full'; }
+
+  // Offloaded (archived) components live in their own section — they're not
+  // running, so they'd only clutter the principals table. Restore from Backup.
+  _offloadedSection(ov) {
+    const off = (ov.components ?? []).filter((k) => this._isOffloaded(k));
+    if (!off.length) return nothing;
+    return html`
+      <h4>offloaded <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— archived, not running</span></h4>
+      <table>
+        <tr><th>component</th><th>state</th><th></th></tr>
+        ${off.map((k) => html`<tr>
+          <td class="mono">${k.path}</td>
+          <td><span class="pill st-failed">${k.state}</span></td>
+          <td style="text-align:right"><a class="link" @click=${() => { this._tab = 'backup'; }}>restore in Backup →</a></td>
         </tr>`)}
       </table>`;
   }

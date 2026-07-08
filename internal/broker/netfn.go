@@ -323,6 +323,9 @@ type pendingBind struct {
 func (b *Broker) pendingBindings() []pendingBind {
 	var out []pendingBind
 	for _, c := range b.Reg.Components() {
+		if registry.IsOffloaded(b.Reg.LifecycleState(c.Path)) {
+			continue // offloaded components make no live bind requests
+		}
 		for slot, req := range c.Manifest.Interfaces {
 			if len(b.Reg.Workspace().Bindings[c.Path][slot]) > 0 {
 				continue // already bound (multi slots grow via the bindings UI)

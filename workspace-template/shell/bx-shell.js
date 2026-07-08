@@ -475,8 +475,27 @@ export class BxShell extends LitElement {
   async _load() {
     try {
       const r = await (window.xbin?.fetch ?? fetch)('/api/xbin/components');
-      if (r.ok) this._components = await r.json();
+      if (r.ok) {
+        this._components = await r.json();
+        this._pruneOffloaded(); // an offloaded tile disappears from open screens too
+      }
     } catch { /* xbind restarting; next event retries */ }
+  }
+
+  // Offloaded tiles are archived — not openable; hidden from the sidebar and
+  // closed if open. (offloaded / offloaded-full.)
+  _offloaded(c) { return c?.state === 'offloaded' || c?.state === 'offloaded-full'; }
+
+  _pruneOffloaded() {
+    const off = new Set(this._components.filter((c) => this._offloaded(c)).map((c) => c.path));
+    if (!off.size) return;
+    let changed = false;
+    const screens = this._screens.map((s) => {
+      const tiles = s.tiles.filter((t) => !off.has(t.path));
+      if (tiles.length !== s.tiles.length) changed = true;
+      return { ...s, tiles };
+    });
+    if (changed) { this._screens = screens; this._save(); }
   }
 
   get _groups() {
@@ -485,6 +504,7 @@ export class BxShell extends LitElement {
     for (const c of this._components) {
       if (c.path === 'root') continue; // framing root inside root recurses
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
+      if (this._offloaded(c)) continue; // archived — restore from the admin console
       if (filed.has(c.path)) continue; // shown under its folder instead
       const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
       if (!g.has(top)) g.set(top, []);
@@ -860,7 +880,8 @@ export class BxShell extends LitElement {
   }
 
   _folderTemplate(f) {
-    const comps = f.items.map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
+    const comps = f.items.map((p) => this._components.find((c) => c.path === p))
+      .filter((c) => c && !this._offloaded(c)); // hide archived tiles in folders too
     return html`
       <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''}" draggable="true"
            title="click to fold · double-click to rename/icon · drag to reorder or drop components in"

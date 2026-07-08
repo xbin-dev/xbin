@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-08
 
+- lifecycle: **offloading a component now fully quiesces it.** Previously an
+  offloaded tile kept firing cron, still surfaced pending access/binding
+  requests, and stayed visible in the shell + the admin principals list.
+  Now: the cron scheduler skips jobs for non-enabled components; `Pending()`
+  and pending-bindings omit offloaded components; the shell hides them (out of
+  the sidebar/folders, and any open card is closed on the reload); the admin
+  console lists offloaded tiles in a separate section, not the main table.
+  `GET /api/xbin/components` now carries each component’s lifecycle `state`.
+
 - interfaces: **fixed a binding-role flap**. A provider with several http
   provides (e.g. llm-gw: `openai`=writer + `metrics`=reader) resolved a
   binding’s granted role from an *arbitrary* provide — provides live in a map

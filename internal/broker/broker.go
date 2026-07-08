@@ -364,6 +364,11 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 func (b *Broker) Pending() []registry.Grant {
 	out := []registry.Grant{} // non-nil: JSON-encodes as [] not null (frontends do .length)
 	for _, c := range b.Reg.Components() {
+		// An offloaded component isn't running — its `uses` aren't live requests,
+		// so don't surface them as pending (plans/lifecycle.md).
+		if registry.IsOffloaded(b.Reg.LifecycleState(c.Path)) {
+			continue
+		}
 		for _, u := range c.Manifest.Uses {
 			if u.Target == "" || u.Role == "" {
 				continue
