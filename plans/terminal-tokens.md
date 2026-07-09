@@ -1,7 +1,12 @@
 # Terminal-scoped tokens — design
 
-Status: **researched, not yet implemented.** Scope terminals' `XBIN_TOKEN` to
-min(user, tile) instead of the owner token.
+Status: **implemented** (2026-07-09), with one change from the original
+sketch: the **root terminal is disabled entirely** (owner's call — it was
+reachable from no UI; whole-workspace editing and owner-token automation live
+on the host). So every terminal token is a tile element principal, and the
+live-user root-resolution branch below was dropped. `bx` in a tile terminal
+prints a scope hint on 403s. Kill/reset also gained creator-or-admin /
+tile-access gates.
 
 ## Problem
 

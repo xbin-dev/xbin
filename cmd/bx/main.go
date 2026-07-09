@@ -180,11 +180,18 @@ func apiJSON(method, path string, body, out any) error {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
+		// In a tile terminal XBIN_TOKEN is scoped to that tile
+		// (plans/terminal-tokens.md) — say so on permission errors instead of
+		// letting "admin only" read like a bug.
+		hint := ""
+		if c := os.Getenv("XBIN_COMPONENT"); resp.StatusCode == http.StatusForbidden && c != "" {
+			hint = fmt.Sprintf(" — this terminal is scoped to %s; admin/cross-tile ops need the admin tile or bx from the host", c)
+		}
 		var e struct{ Error string }
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return fmt.Errorf("%s (%s)", e.Error, resp.Status)
+			return fmt.Errorf("%s (%s)%s", e.Error, resp.Status, hint)
 		}
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return fmt.Errorf("%s: %s%s", resp.Status, strings.TrimSpace(string(b)), hint)
 	}
 	if out == nil {
 		return nil

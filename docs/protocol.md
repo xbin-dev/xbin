@@ -13,6 +13,7 @@ Every route except `/healthz` and `/login` requires a principal
 |---|---|---|
 | Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
 | Owner/instance bearer | `Authorization: Bearer <token>` | owner, or the element the instance token belongs to |
+| Terminal bearer | `Authorization: Bearer <token>` (`$XBIN_TOKEN` in a terminal) | the tile the terminal is opened on (element principal; per-session, revoked at session end) |
 | Frame token | `X-XBin-Frame-Token` header, or `?frame=` on WS URLs | element frontend (requires the owner cookie too) |
 
 The gateway unix socket (`$XBIN_GATEWAY`, `.xbin/run/gateway.sock`) serves
@@ -143,7 +144,7 @@ POST   /templates/new               xbin:writer. body {source, path?} → {path,
                                    into a named copy (plans/templates.md). A
                                    builtin-template instance also gets a read-only
                                    `template` git remote (below).
-GET    /templates/{repo}/{rest...}  admin. Read-only dumb-HTTP git server for a
+GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git server for a
                                    builtin template's source repo, e.g.
                                    /templates/agent.git/info/refs. Each instance
                                    has it as its `template` remote, so a builder
@@ -284,10 +285,14 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 
 ## WebSockets
 
-### `/ws/term` — terminals (owner only)
+### `/ws/term` — terminals (admins + terminal-flagged users)
 
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
-(reattach; scrollback replays first). A new session also takes an optional
+(reattach; scrollback replays first). A session may only be opened on a tile
+the caller can use, mounts its creator's `$HOME`, and carries a per-session
+`XBIN_TOKEN` scoped to that tile (plans/terminal-tokens.md). **The root
+terminal (no cwd) is disabled** — 403 for everyone. Reattach/kill of another
+user's session: admins only. A new session also takes an optional
 `?net=<scope>` (default `internet`):
 
 - `internet` — own network namespace with an **internet-only egress relay**
@@ -314,8 +319,8 @@ ends the old one and opens a new WS).
     current base), `{"op":"exit"}` (shell ended)
   - client → server: `{"op":"resize","cols":120,"rows":32}`
 
-`DELETE /ws/term?session=<id>` (owner only) ends a session immediately (used
-by the UI to restart under a new scope); `204` on success, `404` if unknown.
+`DELETE /ws/term?session=<id>` ends a session immediately (creator or admin;
+used by the UI to restart under a new scope); `204` on success, `404` unknown.
 
 `DELETE /ws/term/env?cwd=<component-path>` (owner only) wipes that component's
 **persistent terminal layer** (installed packages / system changes) back to the

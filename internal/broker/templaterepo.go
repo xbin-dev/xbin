@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/util"
 )
 
@@ -105,13 +103,11 @@ func (b *Broker) AddTemplateRemote(instanceDir, name string) {
 }
 
 // serveTemplateRepo serves a template repo's git dir read-only over dumb HTTP
-// (git falls back to it for fetch). Admin/owner only — template source is
-// owner-level, like the code endpoints.
+// (git falls back to it for fetch). Any authenticated principal: builtin
+// template sources are embedded in the binary — identical in every install,
+// no secrets — and tile terminals (tile-scoped tokens, not admin) fetch their
+// `template` remote from here.
 func (b *Broker) serveTemplateRepo(w http.ResponseWriter, r *http.Request) {
-	if p := auth.PrincipalOf(r); !b.IsAdmin(p) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "template source is admin-only"})
-		return
-	}
 	name := strings.TrimSuffix(r.PathValue("repo"), ".git")
 	if !templateNameOK(name) {
 		http.Error(w, "bad template", http.StatusBadRequest)

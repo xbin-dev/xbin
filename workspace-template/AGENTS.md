@@ -40,13 +40,18 @@ import maps).
 | Env | Meaning |
 |-----|---------|
 | `XBIN_WORKSPACE` | workspace root (this file lives there) |
-| `XBIN_COMPONENT` | component this terminal was opened on ("" = root) |
+| `XBIN_COMPONENT` | component this terminal was opened on |
 | `XBIN_URL` | xbind, e.g. `http://127.0.0.1:8642` |
-| `XBIN_TOKEN` | owner bearer token — full access; `bx` and curl use it |
+| `XBIN_TOKEN` | this terminal's **tile-scoped** token — acts as THIS component, never the owner; `bx` and curl use it |
 | `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
 
-You are the **owner** principal: every API call you make passes every
-permission check as role `admin`. Running components are not — see §Auth.
+Your API identity is **this component** (plans/terminal-tokens.md):
+`XBIN_TOKEN` is a per-session token resolving to this tile's element
+principal — admin of *this* component (its API, vault, resources) plus
+whatever `uses`/bindings the owner approved for it. It is **not** the owner:
+admin endpoints, other tiles' admin surfaces, and grant approval all 403.
+Approving grants is a human step in the browser. Same rules as the running
+component — see §Auth.
 
 **Terminal scope:** a terminal opened on a component can write **only that
 component's own directory and `$HOME`** — the **entire rest of the workspace is
@@ -55,17 +60,24 @@ read-only** (other components, workspace files like `xbin.json`/`AGENTS.md`/
 touch anything outside your component; a rogue agent can't break the environment.
 **Each component is its own git repo**, so `cd` into it and `git commit` works
 even though the root is read-only. To edit a *different* component, open a
-terminal on it; to work across the whole workspace or create components, use a
-**root terminal** (opened on the workspace root — full workspace rw). Writing
-outside your component fails with `Read-only file system`.
+terminal on it. There is **no root terminal** (disabled): workspace-wide work —
+creating components, workspace `xbin.json`, the workspace-root repo — happens
+in the browser (shell right-click → *Create a new tile*, Tile Manager, admin
+tile) or from the host shell. Writing outside your component fails with
+`Read-only file system`.
 
 **Multi-user:** xbin can have human users with per-tile permissions (admins:
 all tiles + terminals + user mgmt; regular users: only allow-listed tiles, no
 terminal). Manage them with `bx user ls|add|set|rm` or the admin console's
-Users tab. Terminal access is a **root shell** — admin-only by default. Full
-model: docs/auth.md §multi-user.
+Users tab. A terminal can only be opened on a tile the user may use, and its
+API token is scoped to that tile. Full model: docs/auth.md §multi-user.
 
 ## Recipes
+
+(Workspace-wide recipes — creating components, installing tiles, admin `bx` —
+need the **browser UI** (shell right-click → *Create a new tile*, Tile
+Manager, admin tile) or a **host shell**: a tile terminal's filesystem and
+token are scoped to its own component.)
 
 **Create a static component and show it:**
 
@@ -459,15 +471,13 @@ it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
   `?component=<path>` return files + history (read-only; the same view a
   terminal has). You always read your own source; a sibling's needs the grant.
   There is no filesystem mount for this — use the API.
-- **Agents: do not approve cross-scope grants yourself.** Declaring `uses`
-  is your job; *approving* a cross-scope (or `xbin:*`) grant is the owner's
-  call — it is the human-in-the-loop the whole permission model exists for,
-  and your terminal runs as owner so `bx grant` would silently bypass it.
-  Instead: add the `uses` entry, then tell the user it's pending and let
-  them approve (grants panel, or by explicitly telling you to run
-  `bx grant`). Same-scope grants need no approval — nothing to do. Only run
-  `bx grant` for a cross-scope/`xbin:*` grant when the user has very
-  explicitly asked you to.
+- **Agents cannot approve cross-scope grants — by construction.** Declaring
+  `uses` is your job; *approving* a cross-scope (or `xbin:*`) grant is the
+  owner's call — the human-in-the-loop the whole permission model exists
+  for. Your terminal token is scoped to this tile, so `bx grant` (and every
+  other admin endpoint) 403s here. Add the `uses` entry, then tell the user
+  it's pending and let them approve in the grants panel. Same-scope grants
+  need no approval — nothing to do.
 - xbind verifies identity on every call and injects `X-XBin-From` /
   `X-XBin-Role` — never verify auth yourself; never trust a role you
   didn't receive in those headers.
@@ -515,7 +525,9 @@ bx cron ls
 ```
 
 Everything bx does is plain HTTP (`/api/xbin/…`, docs/protocol.md) — curl
-with `Authorization: Bearer $XBIN_TOKEN` works for all of it.
+with `Authorization: Bearer $XBIN_TOKEN` works for all of it, at this
+terminal's scope (this component + its grants). Admin/cross-tile operations
+need an admin in the browser, or bx on the host.
 
 ## Conventions & common mistakes
 

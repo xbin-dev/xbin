@@ -12,9 +12,9 @@ skeleton-seeded (`.zshrc`/`.bashrc`/`.bash_profile`) on their first terminal.
 The root token principal uses `homes/owner`. A session mounts its creator's
 home; another (non-admin) user cannot attach to it.
 
-This is hygiene, not a security boundary: terminal shells still carry the
-owner token, and a root terminal binds the whole workspace, every home
-included.
+This is filesystem hygiene (terminals share one unix user); the API
+credential is separately scoped — see the same-day terminal-token change
+(`2026-07-09-terminal-scoped-tokens.md`).
 
 ## Migration (runs at xbind startup)
 

@@ -537,6 +537,11 @@ func TestMultiUser(t *testing.T) {
 			t.Errorf("alice %s: %d, want 403", p, code)
 		}
 	}
+	// The root terminal is disabled for everyone — even admins (terminal
+	// tokens; docs/changes/2026-07-09-terminal-scoped-tokens.md).
+	if code := as(bobC, "/ws/term?cwd="); code != 403 {
+		t.Errorf("root terminal for admin bob: %d, want 403", code)
+	}
 	if code := as(bobC, "/api/xbin/backends"); code != 200 {
 		t.Errorf("bob backends: %d, want 200", code)
 	}

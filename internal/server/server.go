@@ -123,6 +123,10 @@ func (s *Server) authedTerminal(next http.Handler) http.Handler {
 // restart a session under a new network scope (DELETE /ws/term).
 func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("session")
+	if !s.Term.CanTouch(id, auth.PrincipalOf(r)) {
+		http.Error(w, "session belongs to another user", http.StatusForbidden)
+		return
+	}
 	if id == "" || !s.Term.Kill(id) {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
@@ -134,7 +138,20 @@ func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 // back to the base rootfs, killing any live session on it first
 // (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
 func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
-	if err := s.Term.ResetEnv(r.URL.Query().Get("cwd")); err != nil {
+	cwd := r.URL.Query().Get("cwd")
+	// Resetting a tile's layer needs access to that tile (admins: any); the
+	// legacy root layer ("" — root terminals are disabled) is admin-only.
+	p := auth.PrincipalOf(r)
+	if cwd == "" {
+		if !p.IsAdmin() {
+			http.Error(w, "resetting the root layer is admin-only", http.StatusForbidden)
+			return
+		}
+	} else if !p.CanUseTile(strings.Trim(cwd, "/")) {
+		http.Error(w, "your account doesn't have access to this tile", http.StatusForbidden)
+		return
+	}
+	if err := s.Term.ResetEnv(cwd); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

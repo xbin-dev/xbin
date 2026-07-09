@@ -49,9 +49,10 @@ Operations are grouped by tag; the main areas:
 Every route needs a **principal**, established by one of:
 
 - **Owner cookie** ` + "`xbin_session`" + ` (browser login) → the *owner*.
-- **Bearer token** ` + "`Authorization: Bearer <token>`" + ` → the owner, or the
-  element an *instance token* belongs to (backends use this over the gateway
-  unix socket).
+- **Bearer token** ` + "`Authorization: Bearer <token>`" + ` → the owner, the
+  element an *instance token* belongs to (backends, over the gateway unix
+  socket), or the tile a *terminal token* belongs to (shells — per-session,
+  tile-scoped).
 - **Frame token** ` + "`X-XBin-Frame-Token`" + ` (with the owner cookie) → an
   element *frontend*.
 

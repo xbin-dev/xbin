@@ -1,7 +1,8 @@
 # bx — the workspace CLI
 
 `bx` is on PATH in every xbin terminal. It talks to xbind with the
-session's owner credentials (`XBIN_URL` + `XBIN_TOKEN`) and does local
+session's credentials (`XBIN_URL` + `XBIN_TOKEN` — in a terminal, a token
+scoped to that terminal's tile; on the host, the owner token) and does local
 scaffolding. Anything bx does, you can also do with curl
 ([protocol.md](/docs/protocol.md)) or plain file edits — bx is convenience,
 not magic.
@@ -75,7 +76,7 @@ generation is delimited by a `--- gen N start …` line.
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `XBIN_URL` | `http://127.0.0.1:8642` | xbind address |
-| `XBIN_TOKEN` | (set in terminals) | owner bearer token |
+| `XBIN_TOKEN` | (set in terminals) | bearer token — tile-scoped in terminals; the owner token on the host (`.xbin/token`) |
 | `XBIN_WORKSPACE` | walk up from cwd to a dir with `xbin.json` + `.xbin` | workspace root |
 
 Outside a xbin terminal (ssh into the container, host shell in dev), set

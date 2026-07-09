@@ -2,19 +2,23 @@
 
 xbin has two planes with different rules:
 
-- **Editing plane** — terminals, `bx`, git. Owner-privileged, unrestricted.
-  It's your workspace; xbin does not protect you from yourself.
+- **Editing plane** — terminals, `bx`, git. Full *filesystem* access to the
+  component being edited; the shell's API token, though, is **scoped to the
+  tile the terminal is opened on** (plans/terminal-tokens.md). Owner-
+  privileged automation lives on the host (`.xbin/token`).
 - **Runtime plane** — running elements (backends and their frontends).
   Default-deny: an element can call exactly its own API plus whatever it was
-  granted. This page is about that plane.
+  granted. Terminals follow the same identity model, so this page covers all
+  of it.
 
 ## Who is calling? (principals)
 
 | Principal | How it authenticates | Typical `X-XBin-From` |
 |---|---|---|
-| Owner (you) | login cookie, or `Authorization: Bearer $XBIN_TOKEN` | `owner` |
+| Owner (you) | login cookie, or `Authorization: Bearer` with the owner token | `owner` |
 | Element backend | per-generation instance token over the gateway socket (`XBIN_GATEWAY` + `XBIN_TOKEN` env — the SDK's `xbin.Client()` handles it) | `apps/email` |
 | Element frontend | owner cookie **+ frame token** (`xbin.fetch` attaches it) | `apps/email` |
+| Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
 | Scheduler | internal | `xbin/cron` |
 
 Callees never verify any of this themselves: xbind strips inbound
@@ -52,18 +56,19 @@ once; xbind enforces at every call.
   panel, or `bx grant --revoke …`. Approving a grant reloads the affected
   caller's frame automatically, so a frontend that was 403'ing retries
   against the new permission without a manual refresh.
-- **Automated agents should not self-approve cross-scope grants.** Approval
-  is the owner's human-in-the-loop decision; an agent's terminal runs as
-  owner, so running `bx grant` on the agent's own behalf bypasses exactly
-  the review the model is for. Agents declare `uses` and leave cross-scope
-  (and `xbin:*`) grants pending for the owner — only approving when the
-  owner explicitly asks. (AGENTS.md restates this for in-workspace agents.)
+- **Automated agents cannot self-approve cross-scope grants — enforced.**
+  Approval is the owner's human-in-the-loop decision. An agent's terminal
+  token is scoped to its tile, so `bx grant` (like every admin endpoint)
+  403s from inside a tile terminal. Agents declare `uses` and leave
+  cross-scope (and `xbin:*`) grants pending for the owner to approve in the
+  grants panel. (AGENTS.md restates this for in-workspace agents.)
 - **Role names**: `reader` / `writer` / `admin` are the convention and imply
   each other downward (`admin ⊃ writer ⊃ reader`). Custom names are
   exact-match unless the callee's manifest declares `implies`. On a `bus`
   resource, `subscriber`/`publisher` are aliases for reader/writer.
-- The **owner passes every check as `admin`** — your curl and the root UI
-  are never blocked.
+- The **owner passes every check as `admin`** — the root UI, and curl with
+  the host-side owner token, are never blocked. (A *terminal's* `$XBIN_TOKEN`
+  is not the owner — it's scoped to the terminal's tile.)
 - **Sandbox capability targets** (under `--isolate`): besides components and
   `res:*`, `uses` can request `net:*` egress (`plans/isolation.md`) and `gpu:*`
   GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`plans/gpu.md`). Same
@@ -307,7 +312,12 @@ Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
 
 - First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
-- CLI/scripts use `Authorization: Bearer` (terminals have `$XBIN_TOKEN`).
+- CLI/scripts use `Authorization: Bearer`. **Inside a terminal**, `$XBIN_TOKEN`
+  is a per-session token scoped to that tile (the tile's element principal —
+  self-admin + its approved grants, never the owner; plans/terminal-tokens.md);
+  it dies with the session, and deleting the user kills it immediately. The
+  root terminal is disabled. The *owner* token lives only on the host
+  (`.xbin/token`) for host-side `bx`/automation.
 - **Disabling token login.** Once you've created an admin *user*, an admin can
   turn off the bootstrap token's *browser* login from the admin console's
   **Users → sign-in security** toggle (`PATCH /api/xbin/auth-settings`

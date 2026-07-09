@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- terminals: **tile-scoped tokens — the owner token no longer enters any
+  terminal.** A terminal's `XBIN_TOKEN` is now a per-session token resolving to
+  the TILE the terminal is opened on (its element principal: admin of itself +
+  its approved grants/bindings — the frame-token model, for shells), never the
+  human's privilege. Agents in tile terminals can no longer read other tiles'
+  admin config, call `/api/xbin` admin endpoints, or **self-approve grants**
+  (now enforced, not just documented). Session-open gates: terminals only on
+  tiles the user may use; **the root terminal is disabled** (workspace-wide
+  work: the browser UI, or the host shell — the owner token lives only in
+  `.xbin/token`). Kill/reattach of another user's session: admins only.
+  Deleting a user kills their live shells' API access. **Breaking** for
+  workflows that ran admin `bx` from inside tile terminals — migration:
+  `docs/changes/2026-07-09-terminal-scoped-tokens.md`.
 - terminals: **$HOME is now per user** — `homes/<user>` instead of one shared
   `home/`, so each human's agent-CLI config (`~/.claude`, credentials), shell
   history, and dotfiles stay their own (the root token uses `homes/owner`;

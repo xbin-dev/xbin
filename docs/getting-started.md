@@ -98,7 +98,7 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 |-----|---------|
 | `XBIN_WORKSPACE` | workspace root path |
 | `XBIN_COMPONENT` | the component this terminal was opened on |
-| `XBIN_URL`, `XBIN_TOKEN` | how to call xbind as the owner (`bx` uses these) |
+| `XBIN_URL`, `XBIN_TOKEN` | how to call xbind **as this tile** — a per-session token scoped to the component (`bx` uses these) |
 | `HOME` | `<workspace>/homes/<you>` — your own home; dotfiles persist across upgrades |
 | `IN_SANDBOX=1`, `IS_SANDBOX=1` | set when the terminal runs in the rootfs sandbox (isolated mode) |
 
@@ -155,8 +155,8 @@ git add -A && git commit -m "counter app"   # in apps/counter — its own repo
 ```
 
 The workspace root is *also* a repo (`.xbin/`, `data/`, `homes/` ignored) for
-workspace-level files and layout — commit that from a **root terminal**, which
-has the whole tree writable. Per-component repos are what make components
+workspace-level files and layout — commit that from a **host shell** (terminals
+are scoped to their component; the root terminal is disabled). Per-component repos are what make components
 **installable**: the Tile Manager can import one straight from a git URL, and
 `cp -r apps/counter apps/counter2` (from a root terminal) forks an app locally.
 Paths are identities; there is no other registry.

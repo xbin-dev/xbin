@@ -13,8 +13,8 @@ import (
 // <ws>/home for every terminal; now each signed-in user gets
 // <ws>/homes/<user>, and the root token gets homes/owner — so agent-CLI config
 // (~/.claude, credentials), shell history, and dotfiles are scoped per human.
-// This is hygiene, not a security boundary: terminal shells carry the owner
-// token regardless, and the root terminal binds the whole workspace.
+// This is filesystem hygiene (terminals share one unix user); the API
+// credential is separately scoped per session (plans/terminal-tokens.md).
 
 const ownerHomeKey = "owner"
 

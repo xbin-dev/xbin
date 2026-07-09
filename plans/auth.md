@@ -16,16 +16,19 @@ New sub-decisions raised here are marked `[ND#]` and tracked in `DECISIONS.md`.
 | Principal | Identity | Trust |
 |---|---|---|
 | **Owner** (the human) | login cookie / bearer token | root of the workspace |
-| **Terminal session** | inherits owner | root — full fs, can edit grants, read anything via `bx`. Deliberately privileged: it's the editing plane. |
+| **Terminal session** | per-session terminal token bound to the tile it's opened on | acts *as the tile* (self-admin + its approved grants) — never the owner; the root terminal is disabled (plans/terminal-tokens.md) |
 | **Element instance** (running backend, generation N) | per-generation instance credential minted by xbind | least privilege: nothing beyond its own API/files unless granted |
 | **Element frontend** (its iframe in the browser) | owner cookie **+ frame token binding the request to the element** | acts *as the element*, not as the owner (§6) |
 | **xbind / broker / cron** | internal | trusted computing base |
 
 Two planes, different rules:
-- **Editing plane** (terminals, `bx`, git): owner-privileged, unrestricted. Securing
-  the owner against themselves is a non-goal.
+- **Editing plane** (terminals, `bx`, git): full *filesystem* access to the
+  component being edited, but the API credential is tile-scoped — a shell (or
+  the agent in it) holds min(user, tile), not the owner. Owner-privileged
+  automation lives on the host (`.xbin/token`).
 - **Runtime plane** (element backends and frontends): default-deny, grant-based,
-  role-scoped. This is where attack surface is reduced.
+  role-scoped. Terminals now follow the same identity model (terminal tokens),
+  so all three element surfaces — backend, frontend, shell — are scoped.
 
 ## 2. Element identity
 

@@ -258,11 +258,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	tm := term.NewManager(ws, func() []string {
-		// HOME is per-session (homes/<user>, D6 amended) — the term manager
-		// sets it; everything here is user-independent.
+		// HOME and XBIN_TOKEN are per-session (per-user home; tile-scoped
+		// terminal token, plans/terminal-tokens.md) — the term manager sets
+		// them; everything here is session-independent. The owner token never
+		// enters a terminal.
 		env := []string{
 			"XBIN_URL=" + baseURL,
-			"XBIN_TOKEN=" + a.OwnerToken,
 			"XBIN_WORKSPACE=" + ws,
 			"XBIN_DOCS=" + filepath.Join(ws, ".xbin", "docs"), // builder docs, on disk
 		}
@@ -273,6 +274,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	})
 	tm.Listen = listen             // for the internet-scope relay host-forward to xbind
 	tm.SeedHome = seedHomeSkeleton // .zshrc/.bashrc/… into a fresh per-user home
+	tm.Tokens = a                  // per-session tile-scoped terminal tokens (plans/terminal-tokens.md)
 
 	webFS, docsFS := xbin.WebFS(), xbin.DocsFS()
 	if dev {

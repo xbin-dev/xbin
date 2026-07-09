@@ -38,7 +38,7 @@ Two things always work regardless of the network:
 
 ## Terminal isolation (owner/editing plane)
 
-Terminals are the editing plane — a real shell, owner-privileged, in a
+Terminals are the editing plane — a real shell, scoped to its tile, in a
 component's directory. They come in two shapes:
 
 - **Root terminal** (opened on the workspace root) — the whole workspace is
@@ -55,7 +55,7 @@ So a rogue agent in a component terminal can only touch **its own component and
 Commits still work from a component terminal because **each component is its own
 git repo**: `cd` into the component and `git commit` writes to the component's
 `.git`, which lives inside the writable component dir. (Cross-component or
-workspace-wide git is a root-terminal job.) This is also what makes components
+workspace-wide git is a host-shell job — the root terminal is disabled.) This is also what makes components
 **installable** — importing one from a git URL is just a clone.
 
 ## `$HOME` — per user, shared across that user's terminals
@@ -67,8 +67,8 @@ component itself. Within a user it is shared: your agent-CLI config, auth/login
 state, and dotfiles live there once and follow you into every terminal you
 open, and they **survive xbind upgrades** (workspace data, not part of any
 rootfs). Other users get their own homes — configs don't mix. (Hygiene, not a
-security boundary: terminal shells carry the owner token, and a root terminal
-binds the whole workspace including every home.)
+security boundary — the filesystem user is the same; the API credential,
+though, is per-session and tile-scoped, see plans/terminal-tokens.md.)
 
 ## The dev layer — persistent, per-component, resettable
 

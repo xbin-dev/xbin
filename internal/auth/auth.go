@@ -6,6 +6,9 @@
 //     per-generation instance token minted by the runner.
 //   - Element frontend: owner cookie + frame token (minted into served HTML
 //     at the D4 injection point) attributing the request to a component.
+//   - Terminal: a per-session bearer scoping a tile terminal's shell to that
+//     tile's element principal (plans/terminal-tokens.md) — the shell acts as
+//     the tile, not as the human who opened it.
 //
 // The gateway/permission decisions live in internal/broker/policy; this
 // package only answers "who is calling".
@@ -94,8 +97,16 @@ type Auth struct {
 
 	mu        sync.RWMutex
 	instances map[string]string // instance token → component path
+	terminals map[string]termID // terminal token → (component, user)
 	sessions  map[string]string // session id → user id
 	noAuth    bool
+}
+
+// termID scopes a terminal-session token (plans/terminal-tokens.md): the tile
+// the terminal is opened on, plus the human who opened it (attribution).
+type termID struct {
+	component string
+	userID    string // "" for the bootstrap-token principal
 }
 
 // Load reads (or creates) the owner token and frame-token secret under
@@ -117,6 +128,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		OwnerToken: tok,
 		secret:     []byte(sec),
 		instances:  map[string]string{},
+		terminals:  map[string]termID{},
 		sessions:   map[string]string{},
 		noAuth:     noAuth,
 	}, nil
@@ -190,6 +202,47 @@ func (a *Auth) lookupInstance(token string) (string, bool) {
 	defer a.mu.RUnlock()
 	c, ok := a.instances[token]
 	return c, ok
+}
+
+// --- terminal tokens (minted per terminal session; plans/terminal-tokens.md) ---
+
+// MintTerminal registers a token scoping a terminal session to the tile it is
+// opened on. The returned bearer resolves to that tile's ELEMENT principal —
+// the tile acting as itself (self-admin + its approved grants/bindings), never
+// inheriting the driving user's privilege — exactly the frame-token model, for
+// shells. userID rides along for attribution and session binding.
+func (a *Auth) MintTerminal(component, userID string) string {
+	tok := util.RandomToken(24)
+	a.mu.Lock()
+	a.terminals[tok] = termID{component: component, userID: userID}
+	a.mu.Unlock()
+	return tok
+}
+
+// RevokeTerminal drops a terminal token (the session ended).
+func (a *Auth) RevokeTerminal(token string) {
+	a.mu.Lock()
+	delete(a.terminals, token)
+	a.mu.Unlock()
+}
+
+func (a *Auth) lookupTerminal(token string) (termID, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	id, ok := a.terminals[token]
+	return id, ok
+}
+
+// terminalPrincipal builds the element principal for a terminal token. Like a
+// frame token, one naming a user who no longer exists is rejected — deleting a
+// user kills their live shells' API access.
+func (a *Auth) terminalPrincipal(id termID) (Principal, bool) {
+	if id.userID != "" {
+		if _, found := a.userSnapshot(id.userID); !found {
+			return Principal{}, false
+		}
+	}
+	return Principal{Component: id.component, UserID: id.userID, Via: "terminal"}, true
 }
 
 // --- frame tokens ---
@@ -294,6 +347,9 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 			if comp, ok := a.lookupInstance(tok); ok {
 				return Principal{Component: comp, Via: "instance"}, true
 			}
+			if id, ok := a.lookupTerminal(tok); ok {
+				return a.terminalPrincipal(id)
+			}
 		}
 		if p, ok, present := frame(); present {
 			return p, ok
@@ -308,6 +364,9 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 		}
 		if comp, ok := a.lookupInstance(tok); ok {
 			return Principal{Component: comp, Via: "instance"}, true
+		}
+		if id, ok := a.lookupTerminal(tok); ok {
+			return a.terminalPrincipal(id)
 		}
 		return Principal{}, false
 	}

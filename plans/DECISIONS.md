@@ -171,6 +171,13 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **D8 — Blue/green drain: 30 s then kill.** (Instance credentials also die at swap —
   auth.md §2.)
 - **D14 — No TLS in xbind**; Tailscale or fronting proxy.
+- **Terminal tokens (min(user, tile))** — a terminal's `XBIN_TOKEN` is a
+  per-session token resolving to the TILE's element principal (self-admin +
+  its approved grants; the frame-token model for shells), never the owner —
+  so agents can't self-approve grants or read other tiles' admin surfaces.
+  Session-open gates: `CanUseTile(cwd)`; the **root terminal is disabled**
+  (whole-ws editing + owner automation live on the host). Deleting a user
+  kills their live shells' API access. `plans/terminal-tokens.md`.
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
 - **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,

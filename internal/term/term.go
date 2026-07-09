@@ -1,7 +1,10 @@
 // Package term implements persistent PTY terminal sessions behind /ws/term.
 //
-// Sessions are owner-privileged (the editing plane): shells run as the xbind
-// user with the owner token in env, cwd'd to a component's source directory.
+// Sessions are the editing plane, scoped to the tile they're opened on
+// (plans/terminal-tokens.md): shells run as the xbind unix user, cwd'd to the
+// component's source directory, with a per-session XBIN_TOKEN that resolves to
+// that TILE's element principal — self-admin plus the tile's approved grants,
+// never the driving user's privilege. The root terminal (no cwd) is disabled.
 // A session outlives its WebSocket — reattach by id replays bounded
 // scrollback. Wire protocol in docs/protocol.md: binary frames are raw PTY
 // bytes; text frames are JSON control messages.
@@ -78,6 +81,7 @@ type Session struct {
 	relay   *relay.Relay // egress relay (internet scope only; nil otherwise)
 	envKey  string       // persistent per-component layer this session holds ("" = none/ephemeral)
 	homeKey string       // whose $HOME this session mounts (user id, or "owner" for the token)
+	token   string       // per-session terminal token (revoked when the session dies)
 	baseOld bool         // the held layer's base is older than the current rootfs (offer upgrade)
 	born    time.Time
 
@@ -109,6 +113,14 @@ type Manager struct {
 	// skeleton dotfiles (.zshrc/.bashrc/…); wired by main (which holds the
 	// embedded template FS). Idempotent — only missing files are written.
 	SeedHome func(dir string) error
+
+	// Tokens mints/revokes the per-session terminal tokens that scope a
+	// shell's XBIN_TOKEN to its tile (wired to *auth.Auth by main). nil ⇒
+	// sessions get no XBIN_TOKEN at all — never the owner token.
+	Tokens interface {
+		MintTerminal(component, userID string) string
+		RevokeTerminal(token string)
+	}
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -159,7 +171,20 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		s, err = m.create(cwd, netMode, gpuMode, homeKey)
+		// Session-open gates — the "user" half of min(user, tile)
+		// (plans/terminal-tokens.md). The root terminal (no cwd) is disabled
+		// outright: it was the whole-workspace owner plane, is not reachable
+		// from any UI, and admin work belongs to the browser UI or host-side
+		// bx. A tile terminal needs tile access.
+		if cwd == "" {
+			http.Error(w, "the root terminal is disabled — open a terminal on a tile (admin ops: the admin tile, or bx from the host)", http.StatusForbidden)
+			return
+		}
+		if _, rel, err := util.SafeJoin(m.Root, cwd); err != nil || rel == "" || !p.CanUseTile(rel) {
+			http.Error(w, "your account doesn't have access to this tile's terminal", http.StatusForbidden)
+			return
+		}
+		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -203,7 +228,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error) {
+func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -236,11 +261,24 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error
 		}
 	}
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir)
+	// Per-session terminal token: the shell's XBIN_TOKEN resolves to THIS
+	// tile's element principal (plans/terminal-tokens.md), not the owner.
+	token := ""
+	if m.Tokens != nil {
+		token = m.Tokens.MintTerminal(rel, userID)
+	}
+	revokeTok := func() {
+		if token != "" {
+			m.Tokens.RevokeTerminal(token)
+		}
+	}
+
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir, token)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
 		cleanup()
+		revokeTok()
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -255,7 +293,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error
 
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
-		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: homeKey,
+		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: homeKey, token: token,
 		baseOld: m.layerOutdated(envKey),
 		born:    time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
@@ -265,6 +303,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error
 
 	go s.pump(func() {
 		m.remove(s.ID)
+		revokeTok() // the session's API credential dies with it
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -277,10 +316,11 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error
 // isolation is on, else a plain host shell. Returns a cleanup for sandbox state,
 // an optional postStart hook (run after the PTY starts) that wires the egress
 // relay, and the persistent env-layer key this session holds ("" = none).
-// homeDir is the session user's $HOME (homes/<user>).
-func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cmd, func(), func() *relay.Relay, string) {
+// homeDir is the session user's $HOME (homes/<user>); token the per-session
+// terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none).
+func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir, token string) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir); err == nil {
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir, token); err == nil {
 			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
@@ -293,10 +333,11 @@ func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cm
 	cmd := exec.Command(shell)
 	cmd.Dir = dir
 	// Host HOME is dropped: even the fallback shell keeps dotfiles/agent config
-	// in the per-user workspace home (getenv is first-match, so filter, don't
-	// just append).
+	// in the per-user workspace home. XBIN_TOKEN likewise: only the session's
+	// tile-scoped terminal token goes in, never an ambient owner token (getenv
+	// is first-match, so filter, don't just append).
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "HOME=") {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "XBIN_TOKEN=") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, e)
@@ -307,13 +348,16 @@ func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cm
 	}
 	if m.Env != nil {
 		for _, e := range m.Env() {
-			if strings.HasPrefix(e, "HOME=") {
+			if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "XBIN_TOKEN=") {
 				continue
 			}
 			cmd.Env = append(cmd.Env, e)
 		}
 	}
 	cmd.Env = append(cmd.Env, "HOME="+homeDir)
+	if token != "" {
+		cmd.Env = append(cmd.Env, "XBIN_TOKEN="+token)
+	}
 	return cmd, func() {}, nil, ""
 }
 
@@ -411,9 +455,9 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // — a resettable dev sandbox per component (plans/component-env.md). Only one
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
-func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
 	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds)
-	env := m.sandboxEnv(rel, netMode, homeDir)
+	env := m.sandboxEnv(rel, netMode, homeDir, token)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if gpuMode != "" && gpuMode != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + gpuMode})); len(gb) > 0 {
@@ -519,11 +563,12 @@ func (m *Manager) hostForward() map[int]string {
 }
 
 // sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
-// toolchains (not the host's), the session user's $HOME (homes/<user>), plus
-// XBIN_URL/TOKEN/WORKSPACE from m.Env(). In internet scope the netns can't
-// reach xbind's 127.0.0.1 listener, so XBIN_URL is rewritten to the relay
-// gateway host-forward.
-func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
+// toolchains (not the host's), the session user's $HOME (homes/<user>), the
+// session's tile-scoped XBIN_TOKEN (plans/terminal-tokens.md), plus
+// XBIN_URL/WORKSPACE from m.Env(). In internet scope the netns can't reach
+// xbind's 127.0.0.1 listener, so XBIN_URL is rewritten to the relay gateway
+// host-forward.
+func (m *Manager) sandboxEnv(rel, netMode, homeDir, termTok string) []string {
 	env := []string{
 		"TERM=xterm-256color", "COLORTERM=truecolor",
 		"XBIN_COMPONENT=" + rel,
@@ -539,7 +584,8 @@ func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
 			xbinURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
 		}
 	}
-	var effURL, token string // the reachable xbind URL + owner token, for git/curl
+	token := termTok // the session's tile-scoped credential, for env + git
+	var effURL string
 	if m.Env != nil {
 		for _, e := range m.Env() {
 			if strings.HasPrefix(e, "PATH=") {
@@ -548,17 +594,20 @@ func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
 			if strings.HasPrefix(e, "HOME=") {
 				continue // the per-user HOME above wins (getenv is first-match)
 			}
+			if strings.HasPrefix(e, "XBIN_TOKEN=") {
+				continue // only the per-session terminal token goes in
+			}
 			if v, ok := strings.CutPrefix(e, "XBIN_URL="); ok {
 				if xbinURL != "" {
 					continue // rewritten below to the relay gateway
 				}
 				effURL = v
 			}
-			if v, ok := strings.CutPrefix(e, "XBIN_TOKEN="); ok {
-				token = v
-			}
 			env = append(env, e)
 		}
+	}
+	if token != "" {
+		env = append(env, "XBIN_TOKEN="+token)
 	}
 	if xbinURL != "" {
 		env = append(env, "XBIN_URL="+xbinURL)
@@ -566,9 +615,9 @@ func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
 	}
 	// Make the SDK's gateway host `http://xbin/…` work for raw git/curl in the
 	// terminal too: git's env-config rewrites it to the reachable XBIN_URL and
-	// attaches the owner bearer token, scoped to that URL so the token never
-	// goes anywhere else. This is what lets a template instance's `template`
-	// remote fetch (plans/agent-v2.md); it also makes `curl http://xbin/…` work.
+	// attaches the session's tile-scoped bearer, pinned to that URL so the
+	// token never goes anywhere else. This is what lets a template instance's
+	// `template` remote fetch (plans/agent-v2.md); `curl http://xbin/…` works too.
 	if effURL != "" && token != "" {
 		env = append(env,
 			"GIT_CONFIG_COUNT=2",
@@ -577,6 +626,15 @@ func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
 		)
 	}
 	return env
+}
+
+// CanTouch reports whether p may operate on session id (kill/…): the session's
+// creator, or an admin. Unknown ids are "touchable" so handlers return 404.
+func (m *Manager) CanTouch(id string, p auth.Principal) bool {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	return s == nil || s.homeKey == HomeKey(p) || p.IsAdmin()
 }
 
 // Kill terminates a session by id: the shell is signalled, its PTY closes, and
