@@ -491,6 +491,10 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		Cwd:     dir,
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
+		// A component terminal carries the secret masks (scopedBinds); guard
+		// them against umount by the root-in-userns shell. The (disabled) root
+		// plane has no masks, so no guard.
+		MountGuard: rel != "",
 	}
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.

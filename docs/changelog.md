@@ -23,6 +23,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   toggle** (titlebar, default on): off mints no token — the shell sees code
   but every API call is unauthorized. Isolation property of `--isolate`;
   see docs/isolation.md for the honest bound.
+- terminals: **seccomp mount guard** makes those masks umount-proof. A tile
+  terminal shell keeps `CAP_SYS_ADMIN` (apt / nested namespaces / profiling
+  still work) but a seccomp filter — installed before the shell, inherited
+  across execve/unshare — denies `umount2`, `move_mount`, `open_tree`, and
+  `mount(MS_MOVE)`, the four ways to remove or relocate a mask. So a shell
+  that is root in its user namespace still can't peel a mask off to read the
+  owner token. Collateral: `fusermount` and nested container/browser
+  sandboxes that detach their old root get `EPERM` (run them on the host).
 
 ## 2026-07-09
 

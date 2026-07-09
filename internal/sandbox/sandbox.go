@@ -152,6 +152,14 @@ type Spec struct {
 	// network (unrestricted). For the owner plane (terminals), not components.
 	HostNet bool `json:"hostNet,omitempty"`
 
+	// MountGuard installs a seccomp filter (just before exec) that denies the
+	// mount-teardown/move syscalls — umount2, move_mount, open_tree, and
+	// mount(MS_MOVE) — so a process that is uid 0 in its user namespace can't
+	// unmount or move away the empty-tmpfs masks that hide workspace secrets
+	// (scope masks; docs/isolation.md). Keeps CAP_SYS_ADMIN otherwise. Set for
+	// terminal sandboxes, whose read-only workspace mount carries those masks.
+	MountGuard bool `json:"mountGuard,omitempty"`
+
 	// The following are filled by Launch (not the caller) to carry runtime wiring
 	// to the re-exec'd init:
 

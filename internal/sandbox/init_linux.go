@@ -197,6 +197,14 @@ func runInit(specPath string) error {
 
 	// Lock down and become the backend.
 	_ = unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+	// Terminal sandboxes: deny mount teardown/move so the shell (uid 0 in its
+	// userns, CAP_SYS_ADMIN) can't unmount the secret masks. After no_new_privs,
+	// after all of init's own mounts, and inherited across the exec below.
+	if s.MountGuard {
+		if err := installMountGuard(); err != nil {
+			return must(err, "install mount guard")
+		}
+	}
 	cwd := s.Cwd
 	if cwd == "" {
 		cwd = "/"

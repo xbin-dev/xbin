@@ -68,16 +68,28 @@ token** — the shell can read and edit source but every call to the tile's (or
 xbin's) API is unauthorized. Use it to run untrusted code or an agent that
 should see code but not act on the live workspace.
 
-**Honest bound.** The masks make the secrets *unreadable in normal operation* —
-the realistic hygiene threat (an agent reading `~/.claude` of others, `grep`-ing
-the tree, `cat`-ing the token). They are an isolation property of `--isolate`
-(tier 3); a non-isolated (tier-1) host-shell terminal still sees the host
-workspace. And because a single-uid sandbox shell is root in its own user
-namespace, a *deliberately adversarial* shell could `umount` a mask to reveal
-what's beneath — closing that fully needs per-tenant uids (the multi-tenant
-work). For today's single-owner workspace, where terminal users are the owner
-or delegated admins, the masks make the tile-scoped terminal token a real
-boundary against agent misbehavior and casual escalation.
+**Mount guard.** A sandbox shell is uid 0 in its own user namespace and keeps
+`CAP_SYS_ADMIN` (so `apt`, nested namespaces, and profiling still work), which
+would let it `umount` a mask and read what's beneath. A **seccomp filter**
+(installed just before the shell starts, inherited across `execve` and every
+later `unshare`) denies exactly the four ways to remove or relocate a mount —
+`umount2`, `move_mount`, `open_tree`, and `mount(MS_MOVE)` — so the masks can't
+be peeled off without dropping the cap. Everything else (plain `mount`, bind
+mounts, `unshare`, `pivot_root`, `clone`) stays allowed. *Collateral:* tools
+that unmount — `fusermount`, and container/browser sandboxes that detach their
+old root — get `EPERM`; run those on the host or in a backend, not a tile
+terminal.
+
+**Honest bound.** With the masks + guard, the secrets are unreadable from a
+tile terminal even against a deliberately adversarial shell — the bar rises
+from "one `umount`" to "a kernel bug or an unblocked reveal path." This is an
+isolation property of `--isolate` (tier 3); a non-isolated (tier-1) host-shell
+terminal still sees the host workspace. The *complete* boundary against a
+hostile co-tenant is still per-tenant uids (the multi-tenant work), where a
+`umount` would only ever expose your own data anyway; the guard is defense in
+depth on top of that. For today's single-owner workspace it makes the
+tile-scoped terminal token a real boundary against agent misbehavior and
+escalation.
 
 Commits still work from a component terminal because **each component is its own
 git repo**: `cd` into the component and `git commit` writes to the component's
