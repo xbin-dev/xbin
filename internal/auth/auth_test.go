@@ -48,7 +48,7 @@ func TestFromRequest(t *testing.T) {
 	}
 
 	r = httptest.NewRequest("GET", "/x", nil)
-	r.Header.Set("Authorization", "Bearer "+a.OwnerToken)
+	r.Header.Set("Authorization", "Bearer "+a.OwnerTokenValue())
 	if p, ok := a.FromRequest(r); !ok || !p.Owner {
 		t.Fatal("owner bearer rejected")
 	}
@@ -72,7 +72,7 @@ func TestFromRequest(t *testing.T) {
 
 	// Cookie alone = owner; cookie + frame token = element frontend.
 	r = httptest.NewRequest("GET", "/x", nil)
-	r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerToken})
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerTokenValue()})
 	if p, ok := a.FromRequest(r); !ok || !p.Owner {
 		t.Fatal("cookie owner rejected")
 	}
@@ -103,12 +103,12 @@ func TestTokenLoginDisabledGating(t *testing.T) {
 
 	cookieReq := func() *http.Request {
 		r := httptest.NewRequest("GET", "/x", nil)
-		r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerToken})
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerTokenValue()})
 		return r
 	}
 	bearerReq := func() *http.Request {
 		r := httptest.NewRequest("GET", "/x", nil)
-		r.Header.Set("Authorization", "Bearer "+a.OwnerToken)
+		r.Header.Set("Authorization", "Bearer "+a.OwnerTokenValue())
 		return r
 	}
 

@@ -514,7 +514,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		slog.Warn("auth disabled")
 		fmt.Printf("\n  xbin (no auth): %s\n\n", baseURL)
 	} else {
-		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerToken)
+		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerTokenValue())
 	}
 
 	httpSrv := &http.Server{

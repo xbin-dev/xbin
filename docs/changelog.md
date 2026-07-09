@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- auth: **owner-token rotation** — `POST /api/xbin/auth-rotate-token` (admin;
+  a button under the admin console's Users → sign-in security) rewrites
+  `.xbin/token` and swaps it live: the old token stops authenticating
+  immediately, bearer and cookie alike. **Rotate once after upgrading to
+  terminal-scoped tokens** — before 2026-07-09 every terminal carried the
+  owner token, so old agent transcripts/shell histories under `homes/` may
+  hold it. (Terminal tokens themselves already revoke automatically: each
+  dies with its session; deleting a user kills theirs instantly.)
+- shell: tiles' **title bars gain a `>_` terminal button** (replacing the
+  tiny 7×7 corner square on shell cards; standalone frames keep the corner
+  button), and a **workspace settings** menu (🔧 in the top bar) with a
+  per-user **global font size** (persisted via prefs, applied as a clean
+  zoom). The terminal settings icon is now a wrench (🔧) instead of a gear.
 - **connection-leak fix, both sides of the proxy.** xbind built a fresh HTTP
   transport per proxied request, stranding one keep-alive connection per RPC
   — on the backend that parked a goroutine + ~15 KB forever (the SDK server

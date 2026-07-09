@@ -33,10 +33,12 @@ sudo sysctl -w fs.inotify.max_user_watches=524288   # persist in /etc/sysctl.d/
 
 ## First component
 
-Every frame carries a **7×7 blue square** in its **top-right corner** — the
-**edit button**. Click the one on the welcome frame and a floating terminal
-window opens (drag it by the title bar, resize from the corner, ctrl+scroll for
-font size) with a shell *in that component's directory*.
+Every tile's **title bar carries a `>_` button** — the terminal. Click the one
+on the welcome tile and a floating terminal window opens (drag it by the title
+bar, resize from the corner, ctrl+scroll for font size; the 🔧 in its corner
+picks a color theme) with a shell *in that component's directory*. (Frames
+embedded outside the shell keep the small 7×7 corner square for the same
+thing.)
 
 That terminal is **scoped to its component**: it can write its own directory and
 `$HOME`, but the rest of the workspace is **read-only**. So you don't `mkdir` a

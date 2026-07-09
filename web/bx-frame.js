@@ -285,6 +285,11 @@ export class BxFrame extends LitElement {
 
   // ---- terminal window ----
 
+  // toggleTerminal opens/closes this frame's terminal — the public entry the
+  // shell's tile-header button uses (the 7x7 corner button stays for
+  // standalone embeds; the shell hides it via no-edit).
+  toggleTerminal() { this._toggleTerm(); }
+
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {

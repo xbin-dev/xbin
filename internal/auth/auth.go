@@ -91,7 +91,8 @@ func (p Principal) From() string {
 }
 
 type Auth struct {
-	OwnerToken string
+	ownerToken string       // guarded by mu — rotatable at runtime (RotateOwnerToken)
+	tokenPath  string       // .xbin/token, rewritten on rotation
 	secret     []byte       // HMAC key for frame tokens
 	Users      *users.Store // human users (nil-safe: no store ⇒ root-only)
 
@@ -125,7 +126,8 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		return nil, err
 	}
 	return &Auth{
-		OwnerToken: tok,
+		ownerToken: tok,
+		tokenPath:  filepath.Join(dir, "token"),
 		secret:     []byte(sec),
 		instances:  map[string]string{},
 		terminals:  map[string]termID{},
@@ -136,6 +138,42 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 
 // SetUsers installs the user store (from main, after Load).
 func (a *Auth) SetUsers(s *users.Store) { a.Users = s }
+
+// OwnerTokenValue returns the current owner token (startup login URL,
+// host-side automation). Guarded — the token can rotate at runtime.
+func (a *Auth) OwnerTokenValue() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.ownerToken
+}
+
+// IsOwnerToken reports whether tok is the current owner token (constant-time).
+func (a *Auth) IsOwnerToken(tok string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return subtleEqual(tok, a.ownerToken)
+}
+
+// RotateOwnerToken replaces the owner token: a fresh random token is written
+// to .xbin/token (0600, atomic) and swapped in memory. Everything the old
+// token authenticated — bearer calls, owner-token cookies, and any copy that
+// leaked historically (e.g. agent session transcripts recorded before
+// terminal tokens, 2026-07-09) — stops working the moment this returns.
+// Host-side bx/automation must re-read the file.
+func (a *Auth) RotateOwnerToken() (string, error) {
+	tok := util.RandomToken(32)
+	tmp := a.tokenPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(tok+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, a.tokenPath); err != nil {
+		return "", err
+	}
+	a.mu.Lock()
+	a.ownerToken = tok
+	a.mu.Unlock()
+	return tok, nil
+}
 
 // TokenLoginDisabled reports whether the bootstrap owner-token *browser* login
 // has been turned off in the user store (the /login?token= URL and the
@@ -359,7 +397,7 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		if subtleEqual(tok, a.OwnerToken) {
+		if a.IsOwnerToken(tok) {
 			return Principal{Owner: true, Via: "bearer"}, true
 		}
 		if comp, ok := a.lookupInstance(tok); ok {
@@ -378,7 +416,7 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 	}
 	var base Principal
 	switch {
-	case subtleEqual(cookie.Value, a.OwnerToken):
+	case a.IsOwnerToken(cookie.Value):
 		// Owner-token browser login can be turned off once real accounts exist;
 		// when disabled, an owner-token cookie no longer authenticates (so a
 		// leaked token can't be pasted into a cookie either). Bearer is separate.

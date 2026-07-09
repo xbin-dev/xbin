@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 // grants, and vault endpoints are added by their packages via RegisterAPI.
 func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /status", s.apiStatus)
+	s.RegisterAPI("POST /auth-rotate-token", s.apiRotateToken)
 	s.RegisterAPI("GET /components", s.apiComponents)
 	s.RegisterAPI("GET /components/{path...}", s.apiComponent)
 	s.RegisterAPI("GET /gpus", s.apiGPUs)
@@ -50,6 +52,24 @@ func (s *Server) admin(r *http.Request) bool {
 		return true
 	}
 	return s.IsAdmin != nil && s.IsAdmin(p)
+}
+
+// apiRotateToken swaps the owner token (admin). The new token is returned
+// exactly once to the caller; the old one — including any historically leaked
+// copy (pre-terminal-token agent transcripts) — stops authenticating
+// immediately, for bearer calls and owner-token cookies alike.
+func (s *Server) apiRotateToken(w http.ResponseWriter, r *http.Request) {
+	if !s.admin(r) {
+		apiErr(w, http.StatusForbidden, "admin only")
+		return
+	}
+	tok, err := s.Auth.RotateOwnerToken()
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	slog.Warn("owner token rotated", "by", auth.PrincipalOf(r).From())
+	WriteJSON(w, http.StatusOK, map[string]string{"token": tok})
 }
 
 func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {

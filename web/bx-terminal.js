@@ -106,7 +106,7 @@ export class BxTerminal extends HTMLElement {
           .tmenu .step:hover{background:var(--bx-panel-2,#2b313a);}
         </style>` +
         `<div class="host"></div>` +
-        `<button class="gear" title="terminal settings" aria-label="terminal settings">⚙</button>` +
+        `<button class="gear" title="terminal settings" aria-label="terminal settings">🔧</button>` +
         `<div class="tmenu" hidden>` +
           `<div class="hd">terminal</div>` +
           `<div class="row"><span>Theme</span><select class="theme"></select></div>` +

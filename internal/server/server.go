@@ -183,7 +183,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token login is disabled — sign in with your account", http.StatusForbidden)
 			return
 		}
-		if tok != s.Auth.OwnerToken {
+		if !s.Auth.IsOwnerToken(tok) {
 			http.Error(w, "bad token", http.StatusForbidden)
 			return
 		}

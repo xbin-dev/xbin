@@ -328,6 +328,15 @@ Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
   bootstrap token itself). The **Bearer** owner token is deliberately
   unaffected, so `bx`/terminals keep working; to revoke that too, rotate
   `.xbin/token`.
+- **Rotating the owner token.** `POST /api/xbin/auth-rotate-token` (admin; a
+  button in the admin console's Users tab) writes a fresh `.xbin/token` and
+  swaps it live — the old token stops authenticating *immediately*, for bearer
+  calls and owner-token cookies alike. Host-side `bx`/automation must re-read
+  the file. **Rotate once after upgrading to terminal-scoped tokens
+  (2026-07-09):** before that change every terminal carried the owner token,
+  so agent session transcripts under `homes/*/.claude` (and shell histories)
+  may hold the old one. (Terminal tokens themselves need no rotation — each
+  dies with its session, and deleting a user revokes theirs instantly.)
 - Behind an https proxy the cookie turns `Secure` automatically
   (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or
   Caddy in front.

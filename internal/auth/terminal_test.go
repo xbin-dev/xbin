@@ -2,6 +2,9 @@ package auth
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/magik6k/xbin/internal/users"
@@ -81,5 +84,54 @@ func TestTerminalTokensNoAuth(t *testing.T) {
 	p, ok := a.FromRequest(r)
 	if !ok || p.Component != "apps/foo" || p.Owner {
 		t.Fatalf("noauth terminal principal: %+v ok=%v", p, ok)
+	}
+}
+
+// Rotating the owner token invalidates the old one everywhere (bearer +
+// cookie) the moment it returns, and rewrites .xbin/token.
+func TestRotateOwnerToken(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Load(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := a.OwnerTokenValue()
+	asBearer := func(tok string) bool {
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		p, ok := a.FromRequest(r)
+		return ok && p.Owner
+	}
+	if !asBearer(old) {
+		t.Fatal("initial owner token must authenticate")
+	}
+	fresh, err := a.RotateOwnerToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh == old {
+		t.Fatal("rotation must change the token")
+	}
+	if asBearer(old) {
+		t.Fatal("OLD token still authenticates after rotation — the whole point is that leaked copies die")
+	}
+	if !asBearer(fresh) {
+		t.Fatal("new token must authenticate")
+	}
+	// The file is the source of truth for host-side bx — rewritten.
+	b, err := os.ReadFile(filepath.Join(dir, ".xbin", "token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(b)); got != fresh {
+		t.Fatalf(".xbin/token = %q, want the rotated token", got)
+	}
+	// A restart loads the rotated token.
+	a2, err := Load(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a2.OwnerTokenValue() != fresh {
+		t.Fatal("reload must pick up the rotated token")
 	}
 }

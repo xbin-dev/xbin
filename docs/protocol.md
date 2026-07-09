@@ -107,6 +107,9 @@ DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
                                    hasAdminUser, canDisable} — owner-token
                                    browser-login state (docs/auth.md)
+POST   /auth-rotate-token         admin. Rotate the owner token: rewrites
+                                   .xbin/token, old token dies immediately
+                                   (bearer + cookie). → {token} (shown once).
 PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
                                    disabling requires a signed-in admin user
                                    (Bearer owner token unaffected)

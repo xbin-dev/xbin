@@ -36,6 +36,7 @@ import '/vendor/bx-dialog.js';
 const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
 // Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
 const LAYOUT_PREF = 'layout';
+const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
 
 // dragShield lays a transparent full-viewport layer over the page for the
 // duration of a pointer drag, so tile <iframe>s can't swallow the pointer when
@@ -82,6 +83,8 @@ export class BxShell extends LitElement {
     _ctx: { state: true },        // {x,y} background context menu (null = closed)
     _create: { state: true },     // new-tile dialog spec (null = closed)
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
+    _settings: { state: true },     // per-user workspace settings {fontSize}
+    _settingsOpen: { state: true }, // the 🔧 settings dropdown
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
@@ -220,6 +223,21 @@ export class BxShell extends LitElement {
     }
     .ctxmenu button:hover { background: var(--bx-panel-2, #f7f8fa); color: var(--bx-accent, #f5a623); }
 
+    .wsmenu {
+      position: fixed; top: 42px; right: 12px; z-index: 3001; min-width: 220px; padding: 8px 10px;
+      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-size: 12px;
+    }
+    .wsmenu .hd { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--bx-muted, #8794a1); font-weight: 600; margin-bottom: 6px; }
+    .wsmenu .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .wsmenu .fs { display: flex; align-items: center; gap: 6px; }
+    .wsmenu .fs b { min-width: 24px; text-align: center; font-variant-numeric: tabular-nums; }
+    .wsmenu .step { width: 22px; height: 22px; border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 5px; background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
+      cursor: pointer; font: inherit; line-height: 1; }
+    .wsmenu .step:hover { background: var(--bx-panel-2, #f7f8fa); }
+
     .group.folder { cursor: grab; }
     .group.folder .ficon { flex: none; font-size: 12px; line-height: 1; margin-right: 1px; }
     .item.dropinto { box-shadow: inset 0 2px 0 var(--bx-accent, #f5a623); }
@@ -304,6 +322,8 @@ export class BxShell extends LitElement {
       cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1;
     }
     .card .head button:hover { color: var(--bx-text, #33414e); }
+    .card .head button.term { font-family: var(--bx-mono, monospace); font-size: 9.5px;
+      font-weight: 700; letter-spacing: -.5px; }
     .drop {
       height: 3px; border-radius: 2px; background: var(--bx-accent, #f5a623);
       margin: -8px 0; /* fold into the column gap */
@@ -353,6 +373,8 @@ export class BxShell extends LitElement {
     this._ctx = null;
     this._create = null;
     this._folderEdit = null;
+    this._settings = { fontSize: 13 };
+    this._settingsOpen = false;
     this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
     // window; the detail carries the VERIFIED component + a reply closure.
@@ -370,6 +392,7 @@ export class BxShell extends LitElement {
     super.connectedCallback();
     this._load();
     this._loadLayout();
+    this._loadSettings();
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
     });
@@ -647,6 +670,43 @@ export class BxShell extends LitElement {
 
   // ---- sidebar: folders (view-only grouping), collapse, resize ----
   _saveSide(patch) { this._side = { ...this._side, ...patch }; this._save(); }
+
+  // ---- per-user workspace settings (font size, …) ----
+  async _loadSettings() {
+    try {
+      const r = await window.xbin?.fetch(`/api/xbin/prefs/${SETTINGS_PREF}`);
+      if (r?.ok) {
+        const s = await r.json();
+        if (s && typeof s === 'object') this._settings = { fontSize: 13, ...s };
+      }
+    } catch { /* defaults */ }
+    this._applySettings();
+  }
+
+  _saveSettings(patch) {
+    this._settings = { ...this._settings, ...patch };
+    this._applySettings();
+    try {
+      window.xbin?.fetch(`/api/xbin/prefs/${SETTINGS_PREF}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this._settings),
+      });
+    } catch { /* transient */ }
+  }
+
+  // The whole workspace scales via zoom (13px = 100%). Height/width are
+  // compensated so the zoomed shell still fits the viewport exactly.
+  _applySettings() {
+    const fs = Math.max(9, Math.min(20, this._settings?.fontSize || 13));
+    const z = fs / 13;
+    if (Math.abs(z - 1) < 0.01) {
+      this.style.zoom = ''; this.style.height = ''; this.style.width = '';
+    } else {
+      this.style.zoom = String(z);
+      this.style.height = `calc(100vh / ${z})`;
+      this.style.width = `calc(100vw / ${z})`;
+    }
+  }
 
   _addFolder() {
     const name = prompt('Folder name');
@@ -1001,14 +1061,24 @@ export class BxShell extends LitElement {
     });
   }
 
+  // Open/close the terminal of the card's own frame (the header >_ button —
+  // integrated here so tiles don't need the tiny corner button).
+  _cardTerm(e) {
+    e.stopPropagation();
+    e.currentTarget.closest('.card')?.querySelector('bx-frame')?.toggleTerminal?.();
+  }
+
   _cardTemplate(o, floating = false) {
-    const frame = html`<bx-frame src=${o.path} height=${floating ? nothing : (o.height ?? nothing)}></bx-frame>`;
+    const frame = html`<bx-frame src=${o.path} no-edit height=${floating ? nothing : (o.height ?? nothing)}></bx-frame>`;
     return html`
       <div class="card ${this._drag?.path === o.path ? 'dragging' : ''}" data-path=${o.path}>
         <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._dragStart(e, o.path))}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           <span class="spacer"></span>
+          <button class="term" title="terminal on ${o.path}"
+                  @pointerdown=${(e) => e.stopPropagation()}
+                  @click=${(e) => this._cardTerm(e)}>&gt;_</button>
           ${this._isAdmin ? html`<button title="tile admin (lifecycle · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
@@ -1162,6 +1232,22 @@ export class BxShell extends LitElement {
           X/BIN</span>
         <span class="ws-chip">${this.name}</span>
         <span class="spacer"></span>
+        <button class="chip" style="cursor:pointer; font:inherit" title="workspace settings (per user)"
+                @click=${() => { this._settingsOpen = !this._settingsOpen; }}>🔧</button>
+        ${this._settingsOpen ? html`
+          <div class="ctx-backdrop" @pointerdown=${() => { this._settingsOpen = false; }}></div>
+          <div class="wsmenu">
+            <div class="hd">workspace settings</div>
+            <div class="row"><span>Font size</span>
+              <span class="fs">
+                <button class="step" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) - 1 })}>−</button>
+                <b>${this._settings.fontSize || 13}</b>
+                <button class="step" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) + 1 })}>+</button>
+                ${(this._settings.fontSize || 13) !== 13 ? html`
+                  <button class="step" title="reset" style="width:auto; padding:0 6px"
+                          @click=${() => this._saveSettings({ fontSize: 13 })}>reset</button>` : nothing}
+              </span></div>
+          </div>` : nothing}
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>
         <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red,#e5484d)"></span>sign out</a>
       </div>

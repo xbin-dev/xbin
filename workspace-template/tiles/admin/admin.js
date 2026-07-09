@@ -1269,7 +1269,22 @@ export class BxAdmin extends LitElement {
             : !canDisable ? html`<br><span class="muted">Sign in as an admin user (not the root token) to enable this.</span>`
             : nothing}
         </span>
-      </label>`;
+      </label>
+      <div style="margin-top:10px; font-size:12px; max-width:52ch">
+        <button class="act" @click=${() => this._rotateToken()}>rotate owner token</button>
+        <span class="muted"> Replaces <span class="mono">.xbin/token</span> — the old
+        token (and any leaked copy, e.g. in pre-2026-07-09 agent transcripts)
+        stops working immediately. Update host-side
+        <span class="mono">XBIN_TOKEN</span> afterwards.</span>
+      </div>`;
+  }
+
+  async _rotateToken() {
+    if (!confirm('Rotate the owner token? The current token stops working immediately (bearer + cookie). Host-side bx/automation must switch to the new one.')) return;
+    try {
+      const d = await api('/auth-rotate-token', { method: 'POST' });
+      prompt('New owner token — copy it now (also written to <workspace>/.xbin/token):', d.token);
+    } catch (e) { this._err = String(e.message ?? e); }
   }
 
   _usersView() {
