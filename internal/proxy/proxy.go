@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/magik6k/xbin/internal/auth"
@@ -50,6 +51,60 @@ type Proxy struct {
 	Runner *runner.Runner
 	Hub    *events.Hub
 	Policy Policy
+
+	trMu       sync.Mutex
+	transports map[string]*http.Transport // backend socket → pooled transport
+	trJanitor  sync.Once
+}
+
+// transportFor returns the pooled transport for a backend socket. One
+// Transport per socket, cached: previously a FRESH Transport was built per
+// proxied request, so every request stranded its keep-alive connection in a
+// garbage pool — the backend parked a goroutine + buffers per RPC, forever
+// (neither side closed it). Pooling reuses connections; IdleConnTimeout (90s,
+// under the SDK server's 120s IdleTimeout) reaps quiet ones. Sockets are
+// per-generation (g<N>.sock), so the janitor evicts entries — closing their
+// idle conns — once a generation's socket is gone.
+func (px *Proxy) transportFor(sock string) *http.Transport {
+	px.trMu.Lock()
+	defer px.trMu.Unlock()
+	if tr, ok := px.transports[sock]; ok {
+		return tr
+	}
+	if px.transports == nil {
+		px.transports = map[string]*http.Transport{}
+	}
+	px.trJanitor.Do(func() {
+		go func() {
+			for range time.Tick(2 * time.Minute) {
+				px.sweepTransports()
+			}
+		}()
+	})
+	tr := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", sock)
+		},
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 32, // every request targets the one "xbin" host
+		IdleConnTimeout:     90 * time.Second,
+	}
+	px.transports[sock] = tr
+	return tr
+}
+
+// sweepTransports drops transports whose backend socket no longer exists (the
+// generation was torn down), closing their idle connections.
+func (px *Proxy) sweepTransports() {
+	px.trMu.Lock()
+	defer px.trMu.Unlock()
+	for sock, tr := range px.transports {
+		if _, err := os.Stat(sock); err != nil {
+			tr.CloseIdleConnections()
+			delete(px.transports, sock)
+		}
+	}
 }
 
 func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -148,12 +203,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				pr.Out.Header.Set("Upgrade", u)
 			}
 		},
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", sock)
-			},
-		},
+		Transport:     px.transportFor(sock),
 		FlushInterval: -1, // stream (SSE etc.)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			jsonErr(w, http.StatusBadGateway, "backend error: "+err.Error(), "")

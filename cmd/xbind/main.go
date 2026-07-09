@@ -492,7 +492,15 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		return fmt.Errorf("gateway socket: %w", err)
 	}
 	go func() {
-		if err := http.Serve(gwLn, handler); err != nil {
+		gwSrv := &http.Server{
+			Handler: handler,
+			// Reap idle keep-alive conns from backends' pooled clients (the
+			// SDK's IdleConnTimeout is 90s — under this) without touching
+			// long-lived streams (WS is hijacked; SSE is never idle).
+			IdleTimeout:       120 * time.Second,
+			ReadHeaderTimeout: 30 * time.Second,
+		}
+		if err := gwSrv.Serve(gwLn); err != nil {
 			slog.Error("gateway serve", "err", err)
 		}
 	}()
@@ -509,7 +517,11 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerToken)
 	}
 
-	httpSrv := &http.Server{Handler: handler}
+	httpSrv := &http.Server{
+		Handler:           handler,
+		IdleTimeout:       120 * time.Second, // reap idle browser/CLI keep-alives
+		ReadHeaderTimeout: 30 * time.Second,
+	}
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

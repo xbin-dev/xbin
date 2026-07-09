@@ -47,7 +47,7 @@ func Serve(h http.Handler) {
 		fmt.Fprintln(os.Stderr, "xbin: listen:", err)
 		os.Exit(1)
 	}
-	srv := &http.Server{Handler: h}
+	srv := newServer(h)
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
@@ -59,6 +59,21 @@ func Serve(h http.Handler) {
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "xbin: serve:", err)
 		os.Exit(1)
+	}
+}
+
+// newServer builds the backend's HTTP server. IdleTimeout matters: xbind's
+// proxy pools keep-alive connections, and without it every parked idle conn
+// held a goroutine + buffers forever (one per RPC, permanently — measured in
+// the wild). 120s outlives the proxy's 90s IdleConnTimeout, so the client
+// side always closes first. Hijacked conns (WebSocket) are exempt from both
+// timeouts, and there is no overall read/write timeout — SSE/chunked streams
+// run as long as both sides want.
+func newServer(h http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 30 * time.Second,
 	}
 }
 

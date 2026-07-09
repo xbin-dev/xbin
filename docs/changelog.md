@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- **connection-leak fix, both sides of the proxy.** xbind built a fresh HTTP
+  transport per proxied request, stranding one keep-alive connection per RPC
+  — on the backend that parked a goroutine + ~15 KB forever (the SDK server
+  had no idle timeout), and xbind leaked the matching client conn. The proxy
+  now pools one transport per backend socket (reused across requests, idle
+  conns reaped at 90s, evicted when a generation's socket goes away), and
+  `xbin.Serve` sets `IdleTimeout: 120s` + `ReadHeaderTimeout: 30s` (hijacked
+  WebSocket conns exempt; no blanket read/write timeouts — SSE/streams still
+  run indefinitely). xbind's own TCP + gateway listeners got the same
+  timeouts. Backends pick up the SDK fix on their next rebuild — every spawn
+  rebuilds, so an xbind upgrade + restart covers the fleet.
 - terminals: **tile-scoped tokens — the owner token no longer enters any
   terminal.** A terminal's `XBIN_TOKEN` is now a per-session token resolving to
   the TILE the terminal is opened on (its element principal: admin of itself +
