@@ -22,24 +22,25 @@ func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {
 
 func TestScopedBinds(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "home"), 0o755); err != nil {
+	home := HomeDir(root, "alice")
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	extra := []sandbox.Bind{{Src: "/sdk", Dst: "/sdk", RO: true}}
 
 	// Root terminal (owner plane): the whole workspace rw, no ro root bind.
-	rw, ro := rwRO(scopedBinds(root, "", extra))
+	rw, ro := rwRO(scopedBinds(root, "", home, extra))
 	if !rw[root] || ro[root] {
 		t.Fatalf("root terminal must bind the workspace rw")
 	}
 
-	// Component terminal: workspace read-only, $HOME + the component read-write.
-	rw, ro = rwRO(scopedBinds(root, "apps/welcome", extra))
+	// Component terminal: workspace read-only, the user's $HOME + the component read-write.
+	rw, ro = rwRO(scopedBinds(root, "apps/welcome", home, extra))
 	if !ro[root] || rw[root] {
 		t.Errorf("component terminal: workspace root must be READ-ONLY")
 	}
-	if !rw[filepath.Join(root, "home")] {
-		t.Errorf("$HOME must be read-write")
+	if !rw[home] {
+		t.Errorf("the user's $HOME must be read-write")
 	}
 	if !rw[filepath.Join(root, "apps/welcome")] {
 		t.Errorf("the component's own dir must be read-write (code + its .git)")
@@ -56,8 +57,8 @@ func TestScopedBinds(t *testing.T) {
 // $HOME is only rw-bound if it exists (fresh/odd workspaces without one still work).
 func TestScopedBindsNoHome(t *testing.T) {
 	root := t.TempDir()
-	rw, _ := rwRO(scopedBinds(root, "apps/x", nil))
-	if rw[filepath.Join(root, "home")] {
+	rw, _ := rwRO(scopedBinds(root, "apps/x", HomeDir(root, "ghost"), nil))
+	if rw[HomeDir(root, "ghost")] {
 		t.Errorf("no home dir → no home bind")
 	}
 	if !rw[filepath.Join(root, "apps/x")] {

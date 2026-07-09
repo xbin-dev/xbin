@@ -99,14 +99,15 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 | `XBIN_WORKSPACE` | workspace root path |
 | `XBIN_COMPONENT` | the component this terminal was opened on |
 | `XBIN_URL`, `XBIN_TOKEN` | how to call xbind as the owner (`bx` uses these) |
-| `HOME` | `<workspace>/home` — dotfiles persist across upgrades |
+| `HOME` | `<workspace>/homes/<you>` — your own home; dotfiles persist across upgrades |
 | `IN_SANDBOX=1`, `IS_SANDBOX=1` | set when the terminal runs in the rootfs sandbox (isolated mode) |
 
-`home/` is deliberately **not** your host home: it's a contained, persistent
-$HOME seeded with a minimal `.zshrc`/`.bashrc` (component-aware prompt,
-history, aliases). Bring your own config by copying it in:
-`cp ~/.zshrc $XBIN_WORKSPACE/home/` from a host shell — it's gitignored,
-so it stays local to this workspace.
+`homes/<you>` is deliberately **not** your host home: it's a contained,
+persistent, **per-user** $HOME seeded with a minimal `.zshrc`/`.bashrc`
+(component-aware prompt, history, aliases). Each signed-in user gets their own
+(the root token uses `homes/owner`), so agent-CLI logins don't mix. Bring your
+own config by copying it in: `cp ~/.zshrc $XBIN_WORKSPACE/homes/<you>/` from a
+host shell — it's gitignored, so it stays local to this workspace.
 
 A terminal opened on a component is **scoped to it**: that component's dir and
 `$HOME` are writable, the rest of the workspace is read-only, and `git commit`
@@ -153,7 +154,7 @@ component's terminal you commit its own dir directly:
 git add -A && git commit -m "counter app"   # in apps/counter — its own repo
 ```
 
-The workspace root is *also* a repo (`.xbin/`, `data/`, `home/` ignored) for
+The workspace root is *also* a repo (`.xbin/`, `data/`, `homes/` ignored) for
 workspace-level files and layout — commit that from a **root terminal**, which
 has the whole tree writable. Per-component repos are what make components
 **installable**: the Tile Manager can import one straight from a git URL, and

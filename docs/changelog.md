@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- terminals: **$HOME is now per user** — `homes/<user>` instead of one shared
+  `home/`, so each human's agent-CLI config (`~/.claude`, credentials), shell
+  history, and dotfiles stay their own (the root token uses `homes/owner`;
+  seeded lazily on first terminal; a non-admin can't attach to another user's
+  session). A legacy shared `home/` **migrates automatically at startup** to
+  the workspace's sole user/admin (else `homes/owner`) — xbind refuses to
+  start only when both forms hold real data, so nothing is merged by guesswork.
+  Migration note: `docs/changes/2026-07-09-per-user-homes.md`.
 - terminals: **base-image versioning + safe upgrades.** A terminal's
   persistent sandbox layer (apt installs / system changes) is now stamped with
   the base image it was built on and **pinned** to it — xbind never stacks that

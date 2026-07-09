@@ -395,8 +395,9 @@ windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
     log/  build/  cache/  uids.json
   data/               resource state: resources/, vault/, kv.db, cron-jobs.json
                       (backup unit; gitignored)
-  home/               terminal $HOME (dotfiles, persists across upgrades)
-  vendor-, xbin-, …  reserved top-level names: vendor, data, home, .xbin
+  homes/<user>/       terminal $HOME per user (dotfiles, persists across
+                      upgrades; the root token uses homes/owner)
+  vendor-, xbin-, …  reserved top-level names: vendor, data, home, homes, .xbin
 ```
 
 Component keys in `.xbin` paths: `<path with / → ~, truncated>-<8-hex hash>`

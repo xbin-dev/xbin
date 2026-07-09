@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -161,10 +162,10 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 	}
 	// Backfill infrastructure files into workspaces created by older xbind.
-	// Only these: unlike app content, their absence is never deliberate —
-	// agents depend on AGENTS.md, and an empty $HOME drops zsh into the
-	// zsh-newuser-install wizard.
-	for _, f := range []string{"AGENTS.md", "home/zshrc", "home/bashrc", "home/bash_profile"} {
+	// Only this: unlike app content, its absence is never deliberate — agents
+	// depend on AGENTS.md. (Home dotfiles are no longer backfilled here: homes
+	// are per-user and seeded lazily on first terminal, tm.SeedHome below.)
+	for _, f := range []string{"AGENTS.md"} {
 		if err := seedTemplateFile(ws, f); err != nil {
 			slog.Warn("backfill", "file", f, "err", err)
 		}
@@ -205,6 +206,34 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			slog.Warn("dev: seeded admin user — login 'admin' / 'admin' — DEV ONLY, never expose")
 		}
 	}
+	// Per-user terminal homes (decision D6, amended): migrate a legacy shared
+	// home/ to homes/<user>. The target is the workspace's one human when that's
+	// unambiguous (the sole user, else the sole admin), otherwise the token
+	// principal's "owner" — reassign later with a plain `mv homes/owner
+	// homes/<user>`. Bails (refusing to start) only when BOTH forms hold real
+	// data, so nothing is ever merged by guesswork.
+	homeTarget := "owner"
+	if all := userStore.List(); len(all) == 1 {
+		homeTarget = all[0].ID
+	} else if len(all) > 1 {
+		var admins []string
+		for _, u := range all {
+			if u.IsAdmin() {
+				admins = append(admins, u.ID)
+			}
+		}
+		if len(admins) == 1 {
+			homeTarget = admins[0]
+		} else {
+			slog.Warn("home migration: several admin users — a legacy home/ (if any) becomes homes/owner; reassign with `mv homes/owner homes/<user>`")
+		}
+	}
+	if moved, err := term.MigrateHomes(ws, homeTarget, pristineHomeFile); err != nil {
+		return fmt.Errorf("per-user home migration: %w", err)
+	} else if moved != "" {
+		slog.Info("migrated legacy shared home/ to a per-user home", "to", moved)
+	}
+
 	reg, err := registry.Open(ws)
 	if err != nil {
 		return err
@@ -220,9 +249,6 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		slog.Warn("go.work", "err", err)
 	}
 
-	home := filepath.Join(ws, "home")
-	_ = os.MkdirAll(home, 0o755)
-
 	baseURL := "http://" + listen
 	// Make `bx` runnable in terminals. In the container it's already on PATH
 	// (/opt/xbin/bin, Dockerfile); in dev/host mode it usually isn't, so we
@@ -232,11 +258,12 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	tm := term.NewManager(ws, func() []string {
+		// HOME is per-session (homes/<user>, D6 amended) — the term manager
+		// sets it; everything here is user-independent.
 		env := []string{
 			"XBIN_URL=" + baseURL,
 			"XBIN_TOKEN=" + a.OwnerToken,
 			"XBIN_WORKSPACE=" + ws,
-			"HOME=" + home,                                    // D6: dotfiles live inside the workspace
 			"XBIN_DOCS=" + filepath.Join(ws, ".xbin", "docs"), // builder docs, on disk
 		}
 		if bxDir != "" {
@@ -244,7 +271,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 		return env
 	})
-	tm.Listen = listen // for the internet-scope relay host-forward to xbind
+	tm.Listen = listen             // for the internet-scope relay host-forward to xbind
+	tm.SeedHome = seedHomeSkeleton // .zshrc/.bashrc/… into a fresh per-user home
 
 	webFS, docsFS := xbin.WebFS(), xbin.DocsFS()
 	if dev {
@@ -520,6 +548,45 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 
 // templateRename maps template names to their real destinations (go:embed
 // skips dotfiles, so the template stores them undotted).
+// homeSkel maps per-user home dotfiles to their embedded template sources
+// (the on-disk names carry the dot; go:embed sources can't).
+var homeSkel = map[string]string{
+	".zshrc":        "home/zshrc",
+	".bashrc":       "home/bashrc",
+	".bash_profile": "home/bash_profile",
+}
+
+// seedHomeSkeleton writes any missing skeleton dotfiles into a per-user home
+// (term.Manager.SeedHome). Idempotent: user edits are never overwritten.
+func seedHomeSkeleton(dir string) error {
+	for dst, src := range homeSkel {
+		p := filepath.Join(dir, dst)
+		if _, err := os.Lstat(p); err == nil {
+			continue
+		}
+		b, err := fs.ReadFile(xbin.TemplateFS(), src)
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pristineHomeFile reports whether a legacy home/ file is byte-identical to the
+// template skeleton — the home migration's both-forms check (a home/ recreated
+// by an older xbind's backfill is safe to drop; anything else is not).
+func pristineHomeFile(rel string, data []byte) bool {
+	src, ok := homeSkel[rel]
+	if !ok {
+		return false
+	}
+	b, err := fs.ReadFile(xbin.TemplateFS(), src)
+	return err == nil && bytes.Equal(b, data)
+}
+
 var templateRename = map[string]string{
 	"gitignore":         ".gitignore",
 	"home/zshrc":        "home/.zshrc",

@@ -43,7 +43,7 @@ import maps).
 | `XBIN_COMPONENT` | component this terminal was opened on ("" = root) |
 | `XBIN_URL` | xbind, e.g. `http://127.0.0.1:8642` |
 | `XBIN_TOKEN` | owner bearer token — full access; `bx` and curl use it |
-| `HOME` | `<workspace>/home` — contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
+| `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
 
 You are the **owner** principal: every API call you make passes every
 permission check as role `admin`. Running components are not — see §Auth.
@@ -193,7 +193,7 @@ import-map overrides:
 ```
 
 Reserved names — do not create components named/under: `xbin`, `vendor`,
-`data`, `home`, `.xbin`. Dirs named `deps`, `node_modules`, `.git`, `.*`
+`data`, `home`, `homes`, `.xbin`. Dirs named `deps`, `node_modules`, `.git`, `.*`
 are never scanned.
 
 ## Frontends
@@ -338,7 +338,7 @@ and production isolate). **Design for this — it's default-deny:**
 - **Filesystem:** you see the base rootfs (toolchains), your own component dir
   (read-only at runtime — editing is the terminal's job), and your granted
   resource files (rw). **Not** other components' source, other vaults,
-  `home/`, or the host — they aren't mounted. Persist state in resources, not
+  `homes/`, or the host — they aren't mounted. Persist state in resources, not
   scattered files.
   - `deps/` is **editing-plane only**: the symlinks let shells/gopls see your
     dependency components, but their *targets are NOT mounted in the backend*.

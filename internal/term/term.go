@@ -25,6 +25,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/gpu"
 	"github.com/magik6k/xbin/internal/sandbox"
 	"github.com/magik6k/xbin/internal/sandbox/relay"
@@ -76,6 +77,7 @@ type Session struct {
 	cleanup func()       // sandbox spec temp cleanup (nil for a plain shell)
 	relay   *relay.Relay // egress relay (internet scope only; nil otherwise)
 	envKey  string       // persistent per-component layer this session holds ("" = none/ephemeral)
+	homeKey string       // whose $HOME this session mounts (user id, or "owner" for the token)
 	baseOld bool         // the held layer's base is older than the current rootfs (offer upgrade)
 	born    time.Time
 
@@ -94,13 +96,19 @@ type Manager struct {
 
 	// Isolate + Rootfs run terminals in a rootfs sandbox (plans/runtime.md RT-4):
 	// the base rootfs userland (toolchains + agent CLIs), the workspace mounted
-	// read-write (editing plane), a persistent $HOME (shared agent config), and a
+	// read-write (editing plane), a persistent per-user $HOME (homes/<user> —
+	// agent config and dotfiles scoped to the signed-in human), and a
 	// per-session network scope (default: own netns + internet-only egress relay,
 	// so host interfaces stay hidden). ExtraBinds add read-only mounts (e.g. the
 	// SDK source so `go build` resolves). Off ⇒ a plain host shell.
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
+
+	// SeedHome populates a freshly created per-user home with the template
+	// skeleton dotfiles (.zshrc/.bashrc/…); wired by main (which holds the
+	// embedded template FS). Idempotent — only missing files are written.
+	SeedHome func(dir string) error
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -129,6 +137,8 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	cwd := r.URL.Query().Get("cwd")
 	netMode := normalizeNet(r.URL.Query().Get("net"))
 	gpuMode := r.URL.Query().Get("gpu") // ""/none | all | <index> (owner plane)
+	p := auth.PrincipalOf(r)
+	homeKey := HomeKey(p)
 
 	var (
 		s   *Session
@@ -142,8 +152,14 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no such session", http.StatusNotFound)
 			return
 		}
+		// A session mounts its creator's $HOME — another user may not attach
+		// to it (admins may, for debugging; they own the workspace anyway).
+		if s.homeKey != homeKey && !p.IsAdmin() {
+			http.Error(w, "session belongs to another user", http.StatusForbidden)
+			return
+		}
 	} else {
-		s, err = m.create(cwd, netMode, gpuMode)
+		s, err = m.create(cwd, netMode, gpuMode, homeKey)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -179,6 +195,7 @@ func (m *Manager) List() []map[string]any {
 		s.mu.Lock()
 		out = append(out, map[string]any{
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
+			"user":    s.homeKey,
 			"created": s.born.UTC().Format(time.RFC3339),
 		})
 		s.mu.Unlock()
@@ -186,7 +203,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
+func (m *Manager) create(cwd, netMode, gpuMode, homeKey string) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -207,7 +224,19 @@ func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode)
+	// This user's $HOME, created + skeleton-seeded on first use (lazy: the user
+	// set is dynamic, so homes materialize per user, not at scaffold time).
+	homeDir := HomeDir(m.Root, homeKey)
+	if err := os.MkdirAll(homeDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create home %s: %w", homeDir, err)
+	}
+	if m.SeedHome != nil {
+		if err := m.SeedHome(homeDir); err != nil {
+			slog.Warn("seeding terminal home", "dir", homeDir, "err", err)
+		}
+	}
+
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -226,8 +255,9 @@ func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
 
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
-		cleanup: cleanup, relay: rl, envKey: envKey, baseOld: m.layerOutdated(envKey),
-		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
+		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: homeKey,
+		baseOld: m.layerOutdated(envKey),
+		born:    time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
@@ -247,9 +277,10 @@ func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
 // isolation is on, else a plain host shell. Returns a cleanup for sandbox state,
 // an optional postStart hook (run after the PTY starts) that wires the egress
 // relay, and the persistent env-layer key this session holds ("" = none).
-func (m *Manager) shellCmd(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string) {
+// homeDir is the session user's $HOME (homes/<user>).
+func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode); err == nil {
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir); err == nil {
 			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
@@ -261,13 +292,28 @@ func (m *Manager) shellCmd(dir, rel, netMode, gpuMode string) (*exec.Cmd, func()
 	}
 	cmd := exec.Command(shell)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
+	// Host HOME is dropped: even the fallback shell keeps dotfiles/agent config
+	// in the per-user workspace home (getenv is first-match, so filter, don't
+	// just append).
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "HOME=") {
+			continue
+		}
+		cmd.Env = append(cmd.Env, e)
+	}
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
 	if os.Getenv("LANG") == "" {
 		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
 	}
 	if m.Env != nil {
-		cmd.Env = append(cmd.Env, m.Env()...)
+		for _, e := range m.Env() {
+			if strings.HasPrefix(e, "HOME=") {
+				continue
+			}
+			cmd.Env = append(cmd.Env, e)
+		}
 	}
+	cmd.Env = append(cmd.Env, "HOME="+homeDir)
 	return cmd, func() {}, nil, ""
 }
 
@@ -341,13 +387,13 @@ func (m *Manager) ResetEnv(rel string) error {
 //
 // Read-only ExtraBinds (e.g. the SDK) are appended last. rw binds go AFTER the
 // ro root so they shadow it at their paths.
-func scopedBinds(root, rel string, extra []sandbox.Bind) []sandbox.Bind {
+func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind {
 	if rel == "" {
-		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw
+		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (incl. every home)
 	}
 	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}} // workspace: read-only
-	if home := filepath.Join(root, "home"); pathIsDir(home) {
-		binds = append(binds, sandbox.Bind{Src: home, Dst: home}) // $HOME: read-write
+	if pathIsDir(homeDir) {
+		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // this user's $HOME: read-write
 	}
 	comp := filepath.Join(root, filepath.FromSlash(rel))
 	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write
@@ -357,17 +403,17 @@ func scopedBinds(root, rel string, extra []sandbox.Bind) []sandbox.Bind {
 func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
-// workspace read-only except $HOME and this component's own dir (see scopedBinds)
-// — the editing plane scoped to this component — and any
-// read-only ExtraBinds (the SDK for `go build`). The overlay upper is a
-// **persistent per-component layer** (`.xbin/term/<key>/`) so system-level
-// changes (apt installs, /etc configs) survive across sessions — a resettable
-// dev sandbox per component (plans/component-env.md). Only one live session may
-// hold a component's layer; concurrent sessions on the same component fall back
-// to an ephemeral upper. netMode picks the network scope (internet/host/none).
-func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
-	binds := scopedBinds(m.Root, rel, m.ExtraBinds)
-	env := m.sandboxEnv(rel, netMode)
+// workspace read-only except the session user's $HOME (homes/<user>) and this
+// component's own dir (see scopedBinds) — the editing plane scoped to this
+// component — and any read-only ExtraBinds (the SDK for `go build`). The
+// overlay upper is a **persistent per-component layer** (`.xbin/term/<key>/`)
+// so system-level changes (apt installs, /etc configs) survive across sessions
+// — a resettable dev sandbox per component (plans/component-env.md). Only one
+// live session may hold a component's layer; concurrent sessions on the same
+// component fall back to an ephemeral upper. netMode picks the network scope.
+func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds)
+	env := m.sandboxEnv(rel, netMode, homeDir)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if gpuMode != "" && gpuMode != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + gpuMode})); len(gb) > 0 {
@@ -473,13 +519,15 @@ func (m *Manager) hostForward() map[int]string {
 }
 
 // sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
-// toolchains (not the host's), plus XBIN_URL/TOKEN/WORKSPACE/HOME from m.Env().
-// In internet scope the netns can't reach xbind's 127.0.0.1 listener, so
-// XBIN_URL is rewritten to the relay gateway host-forward.
-func (m *Manager) sandboxEnv(rel, netMode string) []string {
+// toolchains (not the host's), the session user's $HOME (homes/<user>), plus
+// XBIN_URL/TOKEN/WORKSPACE from m.Env(). In internet scope the netns can't
+// reach xbind's 127.0.0.1 listener, so XBIN_URL is rewritten to the relay
+// gateway host-forward.
+func (m *Manager) sandboxEnv(rel, netMode, homeDir string) []string {
 	env := []string{
 		"TERM=xterm-256color", "COLORTERM=truecolor",
 		"XBIN_COMPONENT=" + rel,
+		"HOME=" + homeDir,
 		"IN_SANDBOX=1", // scripts/agents can tell they're in the terminal sandbox
 		"IS_SANDBOX=1", // the spelling agent CLIs (Claude Code) actually check
 		"LANG=C.UTF-8",
@@ -496,6 +544,9 @@ func (m *Manager) sandboxEnv(rel, netMode string) []string {
 		for _, e := range m.Env() {
 			if strings.HasPrefix(e, "PATH=") {
 				continue // the rootfs PATH above wins
+			}
+			if strings.HasPrefix(e, "HOME=") {
+				continue // the per-user HOME above wins (getenv is first-match)
 			}
 			if v, ok := strings.CutPrefix(e, "XBIN_URL="); ok {
 				if xbinURL != "" {

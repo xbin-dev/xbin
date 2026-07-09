@@ -161,7 +161,11 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   (now also carries the frame token). Opt-out `"inject": false` (which also forfeits
   frame-token attribution — such an element's frontend can only be owner-called).
 - **D5 — Manifests are JSONC.**
-- **D6 — `$HOME` = `/workspace/home`.**
+- **D6 — `$HOME` = `/workspace/home`.** *Amended:* `$HOME` is per user —
+  `/workspace/homes/<user>` (root token → `homes/owner`), lazily seeded per
+  user; a legacy shared `home/` migrates at startup to the workspace's sole
+  user/admin (else `homes/owner`), bailing only when both forms hold real
+  data. Hygiene, not a security boundary (shells carry the owner token).
 - **D7 — `bx` CLI ships in phase 3, minimal** (`new/logs/ls/doctor/grant`, now +
   `api`, `vault`).
 - **D8 — Blue/green drain: 30 s then kill.** (Instance credentials also die at swap —

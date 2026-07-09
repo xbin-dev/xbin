@@ -58,13 +58,17 @@ git repo**: `cd` into the component and `git commit` writes to the component's
 workspace-wide git is a root-terminal job.) This is also what makes components
 **installable** — importing one from a git URL is just a clone.
 
-## `$HOME` — shared across terminals
+## `$HOME` — per user, shared across that user's terminals
 
-`$HOME` is `<workspace>/home`, and it is **read-write in every terminal** —
+`$HOME` is `<workspace>/homes/<user>` — one home per signed-in user (the root
+token gets `homes/owner`) — and it is **read-write in every terminal**,
 including component terminals, where it's the one writable thing outside the
-component itself. It is **shared**: your agent-CLI config, auth/login state, and
-dotfiles live there once and follow you into every terminal, and they **survive
-xbind upgrades** (they're workspace data, not part of any rootfs).
+component itself. Within a user it is shared: your agent-CLI config, auth/login
+state, and dotfiles live there once and follow you into every terminal you
+open, and they **survive xbind upgrades** (workspace data, not part of any
+rootfs). Other users get their own homes — configs don't mix. (Hygiene, not a
+security boundary: terminal shells carry the owner token, and a root terminal
+binds the whole workspace including every home.)
 
 ## The dev layer — persistent, per-component, resettable
 

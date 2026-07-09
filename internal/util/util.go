@@ -58,7 +58,7 @@ var ErrUnsafePath = errors.New("path escapes workspace")
 
 // ReservedTop are workspace top-level names that cannot be components.
 var ReservedTop = map[string]bool{
-	".xbin": true, "vendor": true, "data": true, "home": true, "xbin": true,
+	".xbin": true, "vendor": true, "data": true, "home": true, "homes": true, "xbin": true,
 }
 
 // IgnoredDirs are never watched, scanned, or served as component internals.
