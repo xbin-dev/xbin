@@ -171,6 +171,13 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **D8 — Blue/green drain: 30 s then kill.** (Instance credentials also die at swap —
   auth.md §2.)
 - **D14 — No TLS in xbind**; Tailscale or fronting proxy.
+- **D15 — User ids are immutable, validated keys.** A user id is the permanent
+  key for `homes/<user>`, the prefs bucket, and `user:<id>` attribution, so it
+  is validated at creation (`[a-z0-9][a-z0-9._-]{0,31}`, `owner` reserved) and
+  never renamed — locked before GA because the charset can't be tightened once
+  real ids exist on disk. Charset ⊆ what homes' sanitizeHomeKey preserves, so
+  id == home key (no two ids fold onto one home). Load bypasses validation, so
+  legacy/hand-edited ids keep working; only new users are gated.
 - **Terminal tokens (min(user, tile))** — a terminal's `XBIN_TOKEN` is a
   per-session token resolving to the TILE's element principal (self-admin +
   its approved grants; the frame-token model for shells), never the owner —

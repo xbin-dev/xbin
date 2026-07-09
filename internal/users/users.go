@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -200,6 +201,11 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.byID[u.ID]
+	if existing == nil { // new user: the id is a permanent key — validate it once, here
+		if err := validID(u.ID); err != nil {
+			return nil, err
+		}
+	}
 	if password != "" {
 		salt := make([]byte, 16)
 		if _, err := rand.Read(salt); err != nil {
@@ -252,6 +258,36 @@ func (s *Store) persistLocked() error {
 
 func normalizeID(id string) string {
 	return strings.ToLower(strings.TrimSpace(id))
+}
+
+// userIDRe / reservedUserIDs enforce the durable-key contract. A user id is
+// the PERMANENT key for three things that outlive any one session and can't be
+// renamed without orphaning data: the terminal home dir (homes/<user>), the
+// per-user prefs bucket, and the "user:<id>" attribution in X-XBin-From / logs
+// (plans/multi-user.md, DECISIONS). So an id must be a safe directory/label,
+// and once real users exist the rules can't be tightened retroactively — hence
+// they're set here, before general availability. Because the charset is a
+// subset of what homes' sanitizeHomeKey preserves, id == home key exactly (no
+// two ids can fold onto one home). Existing users loaded from disk are never
+// re-validated; this gates *creation* only.
+var (
+	userIDRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
+	reservedUserIDs = map[string]bool{
+		// "owner" is the bootstrap-token principal's home (homes/owner) and the
+		// dots-only/empty fallback in sanitizeHomeKey — a human "owner" would
+		// share the token principal's $HOME and agent config.
+		"owner": true,
+	}
+)
+
+func validID(id string) error {
+	if !userIDRe.MatchString(id) {
+		return fmt.Errorf("invalid user id %q: 1–32 chars of a–z, 0–9, dot, dash, underscore, starting with a letter or digit", id)
+	}
+	if reservedUserIDs[id] {
+		return fmt.Errorf("user id %q is reserved", id)
+	}
+	return nil
 }
 
 // --- password hashing (Argon2id, PHC-ish format) ---

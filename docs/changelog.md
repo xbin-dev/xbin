@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- users: **user ids are now validated at creation and immutable** (D15) —
+  `[a-z0-9][a-z0-9._-]{0,31}`, `owner` reserved. An id is the permanent key
+  for `homes/<user>`, the prefs bucket, and `user:<id>` attribution, so it
+  can't be renamed or contain path/attribution separators; the constraint is
+  set before GA because it can't be tightened once ids exist on disk.
+  Existing users (loaded from disk) are unaffected — only new creates are
+  gated.
 - auth: **owner-token rotation** — `POST /api/xbin/auth-rotate-token` (admin;
   a button under the admin console's Users → sign-in security) rewrites
   `.xbin/token` and swaps it live: the old token stops authenticating

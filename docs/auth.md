@@ -271,6 +271,13 @@ xbin can have **human users** on top of the root token (plans/multi-user.md).
 No users configured ⇒ single-user mode (the root token is the only
 principal), exactly as before. The first user is created by an admin.
 
+**User ids are permanent keys.** An id is the durable key for the terminal
+home (`homes/<user>`), the per-user prefs bucket, and `user:<id>` attribution
+in `X-XBin-From`/logs — so it is validated at creation and **never renamable**
+(to "rename", create a new user and delete the old; their `homes/<old>` stays
+on disk for you to move). Rules: 1–32 chars of `a–z 0–9 . _ -`, starting
+alphanumeric; `owner` is reserved (it is the root-token principal's home).
+
 **Tile-level RBAC.** A user's `tiles` is an allow-list of component paths or
 `prefix/*` (a scope/subtree; `*` = all). They can load `/c/<tile>/` and get a
 frame token only for allowed tiles; the shell sidebar shows only those; every

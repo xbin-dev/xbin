@@ -1,6 +1,9 @@
 package users
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPasswordHashing(t *testing.T) {
 	s, _ := Open(t.TempDir())
@@ -94,5 +97,43 @@ func TestTokenLoginDisabledGuardAndPersist(t *testing.T) {
 	}
 	if !s2.TokenLoginDisabled() {
 		t.Fatal("tokenLoginDisabled not persisted across Open")
+	}
+}
+
+// A user id is a permanent key (homes/<user>, prefs bucket, user:<id>
+// attribution) — validated at creation, never renamable. Locks the boundary
+// before GA (DECISIONS D15).
+func TestUserIDValidation(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := []string{
+		"owner",                 // collides with the token principal's homes/owner
+		"a/b",                   // path separator → homes/ + attribution ambiguity
+		"foo:bar",               // attribution separator
+		"Alice Doe",             // space (would normalize but still invalid charset)
+		"..",                    // dots-only
+		"-lead",                 // must start alphanumeric
+		"",                      // empty
+		strings.Repeat("x", 33), // too long
+	}
+	for _, id := range bad {
+		if _, err := s.Upsert(User{ID: id, Role: RoleUser}, "pw"); err == nil {
+			t.Errorf("id %q should be rejected", id)
+		}
+	}
+	good := []string{"alice", "bob.smith", "carol-99", "d_e_v", "admin"}
+	for _, id := range good {
+		if _, err := s.Upsert(User{ID: id, Role: RoleUser}, "pw"); err != nil {
+			t.Errorf("id %q should be accepted: %v", id, err)
+		}
+	}
+	// A legacy/odd id already on disk stays editable (load bypasses Upsert;
+	// only *new* ids are gated) — plant the realistic on-disk form (already
+	// lowercased by the old normalizeID) with a char new validID rejects.
+	s.byID["legacy/id"] = &User{ID: "legacy/id", Role: RoleUser, PassHash: "x"}
+	if _, err := s.Upsert(User{ID: "legacy/id", Role: RoleAdmin}, ""); err != nil {
+		t.Errorf("editing a pre-existing odd id must still work: %v", err)
 	}
 }
