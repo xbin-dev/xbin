@@ -16,3 +16,6 @@ func RunInit(string) { panic("sandbox: RunInit called on non-linux") }
 
 // Available reports whether OS sandboxing can be used here.
 func Available() bool { return false }
+
+// DetectProtections reports no terminal-hardening off Linux.
+func DetectProtections() Protections { return Protections{} }

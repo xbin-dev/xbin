@@ -492,9 +492,17 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 		// A component terminal carries the secret masks (scopedBinds); guard
-		// them against umount by the root-in-userns shell. The (disabled) root
-		// plane has no masks, so no guard.
+		// them against umount by the root-in-userns shell, and (Landlock) deny
+		// reading the secret files even if a mask is peeled. The (disabled) root
+		// plane has no masks, so no guards.
 		MountGuard: rel != "",
+	}
+	if rel != "" {
+		spec.ReadGuard = &sandbox.ReadGuardSpec{
+			Root:       m.Root,
+			SecretDirs: []string{".xbin", "data", "homes"},
+			AllowUnder: []string{homeDir}, // own $HOME stays readable under the masked homes/
+		}
 	}
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.

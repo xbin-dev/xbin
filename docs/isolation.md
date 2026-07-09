@@ -68,27 +68,40 @@ token** — the shell can read and edit source but every call to the tile's (or
 xbin's) API is unauthorized. Use it to run untrusted code or an agent that
 should see code but not act on the live workspace.
 
-**Mount guard.** A sandbox shell is uid 0 in its own user namespace and keeps
-`CAP_SYS_ADMIN` (so `apt`, nested namespaces, and profiling still work), which
-would let it `umount` a mask and read what's beneath. A **seccomp filter**
-(installed just before the shell starts, inherited across `execve` and every
-later `unshare`) denies exactly the four ways to remove or relocate a mount —
-`umount2`, `move_mount`, `open_tree`, and `mount(MS_MOVE)` — so the masks can't
-be peeled off without dropping the cap. Everything else (plain `mount`, bind
-mounts, `unshare`, `pivot_root`, `clone`) stays allowed. *Collateral:* tools
-that unmount — `fusermount`, and container/browser sandboxes that detach their
-old root — get `EPERM`; run those on the host or in a backend, not a tile
-terminal.
+A sandbox shell is uid 0 in its own user namespace and keeps `CAP_SYS_ADMIN`
+(so `apt`, nested namespaces, and profiling still work), which would let it
+`umount` a mask and read what's beneath. Two guards, installed just before the
+shell starts and inherited across `execve` and every later `unshare`, close
+that:
 
-**Honest bound.** With the masks + guard, the secrets are unreadable from a
-tile terminal even against a deliberately adversarial shell — the bar rises
-from "one `umount`" to "a kernel bug or an unblocked reveal path." This is an
-isolation property of `--isolate` (tier 3); a non-isolated (tier-1) host-shell
-terminal still sees the host workspace. The *complete* boundary against a
-hostile co-tenant is still per-tenant uids (the multi-tenant work), where a
-`umount` would only ever expose your own data anyway; the guard is defense in
-depth on top of that. For today's single-owner workspace it makes the
-tile-scoped terminal token a real boundary against agent misbehavior and
+- **Mount guard (seccomp).** A filter denies exactly the four ways to remove or
+  relocate a mount — `umount2`, `move_mount`, `open_tree`, and `mount(MS_MOVE)`
+  — so the masks can't be peeled off without dropping the cap. Everything else
+  (plain `mount`, bind mounts, `unshare`, `pivot_root`, `clone`) stays allowed.
+  *Collateral:* tools that unmount — `fusermount`, container/browser sandboxes
+  that detach their old root — get `EPERM`; run those on the host or a backend.
+- **Read guard (Landlock).** A second layer at the VFS level: even if a mask
+  *were* peeled (a kernel bug, or a reveal path the mount guard misses), the
+  secret files still can't be opened. It denies reading file *contents* under
+  `.xbin/`, `data/`, and other users' `homes/` — so the owner token, vault,
+  password hashes, and other agents' credentials are unreadable regardless of
+  the mount. (seccomp can't do this — it can't see an `open`'s path argument;
+  Landlock enforces on the resolved path.) Directory listing, execution, and
+  writes are untouched, so collateral is nil. Best-effort: a no-op on kernels
+  without Landlock (the masks + mount guard still apply).
+
+The admin console's **runtime** tab shows each guard's kernel support
+(*terminal guard: mount ✓ · read ✓ (ABI n)*).
+
+**Honest bound.** With the masks + both guards, the secrets are unreadable from
+a tile terminal even against a deliberately adversarial shell: peeling a mask
+is blocked (seccomp) *and* reading the files is blocked independently
+(Landlock), so a single-layer failure doesn't expose them. This is an isolation
+property of `--isolate` (tier 3); a non-isolated (tier-1) host-shell terminal
+still sees the host workspace. The *complete* boundary against a hostile
+co-tenant is still per-tenant uids (the multi-tenant work); the guards are
+defense in depth on top of that. For today's single-owner workspace they make
+the tile-scoped terminal token a real boundary against agent misbehavior and
 escalation.
 
 Commits still work from a component terminal because **each component is its own

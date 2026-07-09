@@ -14,11 +14,14 @@ terminal's read-only workspace mount now masks `.xbin/` (owner token +
 frame-token secret), `data/` (vault, resource state, password hashes), and
 other users' `homes/`, so `cat .xbin/token` no longer re-grants owner. A
 per-session **api=0** toggle withholds the token entirely (code-only shell).
-The masks are protected by a **seccomp mount guard** (2026-07-10): the shell
-keeps CAP_SYS_ADMIN but a filter denies umount2/move_mount/open_tree/
-mount(MS_MOVE), so it can't peel a mask off even as root-in-userns (collateral:
-fusermount / nested-sandbox unmount → EPERM). Residual is now a kernel bug or an
-unblocked reveal path; the complete co-tenant boundary is still per-tenant uids
+The masks are protected by two guards (2026-07-10): a **seccomp mount guard**
+(the shell keeps CAP_SYS_ADMIN but a filter denies umount2/move_mount/open_tree/
+mount(MS_MOVE), so a mask can't be peeled even by root-in-userns) and a
+**Landlock read guard** (denies reading .xbin/data/other-homes file contents at
+the VFS layer, so even a peeled mask doesn't expose the token — seccomp can't do
+this, it can't see the open path). Both are best-effort, inherited across
+execve; the admin runtime tab shows kernel support. Residual is a kernel bug on
+both layers; the complete co-tenant boundary is still per-tenant uids
 (multi-tenant work). Tier-1 (non-isolated host shell) terminals are unchanged.
 See docs/isolation.md.
 

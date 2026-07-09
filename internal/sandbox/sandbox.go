@@ -160,6 +160,12 @@ type Spec struct {
 	// terminal sandboxes, whose read-only workspace mount carries those masks.
 	MountGuard bool `json:"mountGuard,omitempty"`
 
+	// ReadGuard, if non-nil, applies a Landlock ruleset (before exec) denying
+	// reads of file *contents* under the workspace secret dirs even if their
+	// mount masks are peeled — defense in depth for the terminal masks. Silent
+	// no-op where Landlock is unavailable.
+	ReadGuard *ReadGuardSpec `json:"readGuard,omitempty"`
+
 	// The following are filled by Launch (not the caller) to carry runtime wiring
 	// to the re-exec'd init:
 
@@ -173,4 +179,21 @@ type Spec struct {
 	// init mounts the root with (supports redirect_dir/metacopy that unprivileged
 	// kernel overlayfs forbids, so `apt install` etc. work). "" = kernel overlay.
 	FuseOverlay string `json:"fuseOverlay,omitempty"`
+}
+
+// ReadGuardSpec parameterizes the terminal read guard (Landlock). All paths are
+// as seen inside the sandbox (== their host paths for the workspace).
+type ReadGuardSpec struct {
+	Root       string   `json:"root"`       // workspace root (e.g. /workspace)
+	SecretDirs []string `json:"secretDirs"` // basenames under Root to deny reading (.xbin, data, homes)
+	AllowUnder []string `json:"allowUnder"` // absolute paths kept readable (own $HOME under homes/)
+}
+
+// Protections reports which terminal-hardening mechanisms the running kernel
+// supports, so the admin console can show whether tile terminals are actually
+// guarded (docs/isolation.md). DetectProtections probes it.
+type Protections struct {
+	Seccomp     bool `json:"seccomp"`     // mount guard installable (seccomp filter mode)
+	Landlock    bool `json:"landlock"`    // read guard installable
+	LandlockABI int  `json:"landlockAbi"` // Landlock ABI version (0 = none)
 }

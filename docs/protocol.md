@@ -71,7 +71,8 @@ GET    /status                     admin. terminals, component count, host
 GET    /backends                   admin. per-component backend state
 GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
-                                   heapMB,uptimeSec,isolate,rootfs,scopeUids},
+                                   heapMB,uptimeSec,isolate,rootfs,scopeUids,
+                                   protections:{seccomp,landlock,landlockAbi}},
                                    backends:[{path,runtime,state,isolated,pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
                                    cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],

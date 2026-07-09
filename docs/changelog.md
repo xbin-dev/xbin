@@ -31,6 +31,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   that is root in its user namespace still can't peel a mask off to read the
   owner token. Collateral: `fusermount` and nested container/browser
   sandboxes that detach their old root get `EPERM` (run them on the host).
+- terminals: **Landlock read guard** — a second layer that denies reading
+  the secret *files* (`.xbin`/`data`/other `homes/`) at the VFS level, so even
+  if a mask were peeled the owner token / vault / password hashes / other
+  agents' credentials still can't be opened. seccomp can't filter by path
+  (it can't deref the `open` arg); Landlock can. Restricts only READ_FILE, so
+  exec/readdir/writes are untouched (collateral nil); best-effort where
+  Landlock is unavailable. The admin **runtime** tab now shows each guard's
+  kernel support (*terminal guard: mount ✓ · read ✓ (ABI n)*).
 
 ## 2026-07-09
 

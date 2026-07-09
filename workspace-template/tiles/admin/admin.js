@@ -607,6 +607,17 @@ export class BxAdmin extends LitElement {
     return age + (dur >= 0.05 ? ' · ' + dur.toFixed(1) + 's' : '');
   }
 
+  // Terminal secret-mask guards (docs/isolation.md): mount guard = seccomp
+  // (masks can't be umounted), read guard = Landlock (secret files can't be
+  // read even if a mask is peeled). Green when the kernel supports each.
+  _guardStatus(p) {
+    p = p || {};
+    const mark = (on) => (on ? '✓' : '✗');
+    const land = p.landlock ? `✓ (ABI ${p.landlockAbi})` : '✗';
+    return html`<span title="seccomp mount guard · Landlock read guard"
+      >mount ${mark(p.seccomp)} · read ${land}</span>`;
+  }
+
   _runtimeView() {
     const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
     const h = rt.host || {};
@@ -623,6 +634,7 @@ export class BxAdmin extends LitElement {
         ${kv('uptime', this._fmtDur(h.uptimeSec))}
         ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
         ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
+        ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
       </div>
       <div class="bk"><div class="row hdr">
         <span></span><span>component</span><span>state</span>

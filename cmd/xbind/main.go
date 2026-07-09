@@ -468,6 +468,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"goroutines": goruntime.NumGoroutine(), "heapMB": float64(ms.HeapAlloc) / 1e6,
 			"uptimeSec": int64(time.Since(startTime).Seconds()),
 			"isolate":   run.Isolate, "rootfs": run.Rootfs, "scopeUids": scopeUIDs && os.Geteuid() == 0,
+			"protections": sandbox.DetectProtections(), // terminal mount/read guard availability
 		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{
 			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
