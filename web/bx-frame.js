@@ -125,6 +125,11 @@ export class BxFrame extends LitElement {
       color: var(--bx-text, #33414e);
     }
     .titlebar button:hover { color: var(--bx-text, #33414e); }
+    .titlebar button.upgrade {
+      color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
+      border-radius: 5px; padding: 1px 8px; white-space: nowrap;
+    }
+    .titlebar button.upgrade:hover { color: #23272e; filter: brightness(1.06); }
     .titlebar button.tab { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .titlebar select.scope {
       margin-left: 2px; border: 1px solid var(--bx-border, #e4e8ed);
@@ -371,7 +376,8 @@ export class BxFrame extends LitElement {
   _gotSession(i, ev) {
     const s = [...this._sessions];
     const cur = s[i] || {};
-    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || 'internet' };
+    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || 'internet',
+             baseOutdated: !!ev.detail.baseOutdated };
     this._sessions = s;
   }
 
@@ -457,6 +463,9 @@ export class BxFrame extends LitElement {
                 ${this._gpus.map((g) => html`<option value=${g.index}>🎮 GPU ${g.index}</option>`)}
                 ${this._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
               </select>` : nothing}
+            ${this._sessions[this._active]?.baseOutdated ? html`
+              <button class="upgrade" title="a newer base image is installed — upgrade rebuilds this terminal on it (wipes installed packages; your files & $HOME are kept)"
+                      @click=${this._resetEnv}>⬆ base update</button>` : nothing}
             <button title="reset this component's sandbox (wipe installed packages)"
                     @click=${this._resetEnv}>⟲</button>
             <button title="close (session keeps running)"

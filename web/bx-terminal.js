@@ -325,7 +325,7 @@ export class BxTerminal extends HTMLElement {
         if (ctl.op === 'session') {
           this.setAttribute('session', ctl.id);
           if (ctl.net) this.setAttribute('net', ctl.net);
-          this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id, net: ctl.net }, bubbles: true }));
+          this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id, net: ctl.net, baseOutdated: !!ctl.baseOutdated }, bubbles: true }));
         } else if (ctl.op === 'exit') {
           // Shell exited — the session is gone server-side. Let the host close
           // this terminal (its tab/window), like a real terminal emulator.

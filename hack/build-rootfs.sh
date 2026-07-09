@@ -27,5 +27,13 @@ cid=$("$DOCKER" create "$TAG")
 "$DOCKER" export "$cid" | tar -C "$OUT" -xf -
 "$DOCKER" rm "$cid" >/dev/null
 
+# Stamp the base version — a content hash of the recipe (Dockerfile + this
+# script). xbind uses it to pin each terminal's persistent overlay to the base
+# it was built on and to offer an upgrade when the base changes; the install
+# upgrade preserves old bases as <rootfs>-<version> (plans/component-env.md).
+ver=$(cat "$repo/docker/rootfs.Dockerfile" "$0" | sha256sum | cut -c1-12)
+printf '%s\n' "$ver" > "$OUT/etc/xbin-base-version"
+echo ">> base version $ver"
+
 echo ">> done. run:"
 echo "   xbind --workspace <ws> --isolate --rootfs $(cd "$OUT" && pwd)"

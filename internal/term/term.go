@@ -76,6 +76,7 @@ type Session struct {
 	cleanup func()       // sandbox spec temp cleanup (nil for a plain shell)
 	relay   *relay.Relay // egress relay (internet scope only; nil otherwise)
 	envKey  string       // persistent per-component layer this session holds ("" = none/ephemeral)
+	baseOld bool         // the held layer's base is older than the current rootfs (offer upgrade)
 	born    time.Time
 
 	mu         sync.Mutex
@@ -225,7 +226,7 @@ func (m *Manager) create(cwd, netMode, gpuMode string) (*Session, error) {
 
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
-		cleanup: cleanup, relay: rl, envKey: envKey,
+		cleanup: cleanup, relay: rl, envKey: envKey, baseOld: m.layerOutdated(envKey),
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
@@ -389,8 +390,18 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode string) (*exec.Cmd, fu
 	envKey := termKey(rel)
 	if m.acquireEnv(envKey) {
 		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
+		ver := m.ensureLayerBase(layer)        // stamp on first use (new→current, legacy→v0)
+		base, ok := resolveBase(m.Rootfs, ver) // pin the upper to the base it was built on
 		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
+		if !ok {
+			// The base this layer was built on isn't installed — refuse rather
+			// than corrupt its apt/dpkg state on a different base (the startup
+			// gate normally prevents reaching here). Reset the terminal to upgrade.
+			m.releaseEnv(envKey)
+			return nil, nil, nil, "", fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
+		}
 		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
+			spec.Lower = []string{base}
 			spec.Upper, spec.Work = up, work
 		} else {
 			m.releaseEnv(envKey)
@@ -629,7 +640,7 @@ func (s *Session) attach(conn *websocket.Conn) {
 	// order), then live stream.
 	go func() {
 		_ = conn.WriteMessage(websocket.TextMessage,
-			[]byte(fmt.Sprintf(`{"op":"session","id":"%s","net":"%s"}`, s.ID, s.Net)))
+			[]byte(fmt.Sprintf(`{"op":"session","id":"%s","net":"%s","baseOutdated":%t}`, s.ID, s.Net, s.baseOld)))
 		if len(sb) > 0 {
 			if err := conn.WriteMessage(websocket.BinaryMessage, sb); err != nil {
 				return

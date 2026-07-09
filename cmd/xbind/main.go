@@ -391,6 +391,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		// (editing plane), plus the SDK source ro so `go build` resolves.
 		tm.Isolate = true
 		tm.Rootfs = abs
+		// Safety gate: never stack an existing terminal upper on a base image
+		// different from the one it was built on (corrupts apt/dpkg state). Abort
+		// if a pinned base is missing — the base upgrade must preserve old bases.
+		if err := tm.CheckBaseImages(); err != nil {
+			fatal("%v", err)
+		}
+		tm.GCBaseImages() // release preserved bases no terminal pins anymore
 		// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
 		// Never fall back to "": filepath.Abs("") is the daemon's cwd (the
 		// install prefix in prod), and binding that read-only over the sandbox

@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-09
+
+- terminals: **base-image versioning + safe upgrades.** A terminal's
+  persistent sandbox layer (apt installs / system changes) is now stamped with
+  the base image it was built on and **pinned** to it — xbind never stacks that
+  overlay on a different base (which corrupts apt/dpkg state). When a newer
+  base is installed the terminal tile shows a **base-update** banner; clicking
+  it (or the reset ⟲) rebuilds on the current base — installed packages are
+  wiped, your workspace files and `$HOME` are kept. The `/ws/term` `session`
+  message carries `baseOutdated`. Base images are stamped by `build-rootfs.sh`;
+  `install.sh` preserves the old base as `rootfs-<version>` on upgrade (legacy
+  unstamped bases become `rootfs-v0`); xbind aborts startup if a pinned base is
+  missing and GCs preserved bases once no terminal pins them. Design:
+  `plans/component-env.md`.
+
 ## 2026-07-08
 
 - terminal: a **settings menu** (the ⚙ that appears top-right on hover),

@@ -308,8 +308,10 @@ ends the old one and opens a new WS).
 
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.
-  - server → client: `{"op":"session","id":"…","net":"internet"}` (first
-    message), `{"op":"exit"}` (shell ended)
+  - server → client: `{"op":"session","id":"…","net":"internet","baseOutdated":false}`
+    (first message; `baseOutdated:true` ⇒ this terminal's persistent layer was
+    built on an older base image — reset it via `/ws/term/env` to rebuild on the
+    current base), `{"op":"exit"}` (shell ended)
   - client → server: `{"op":"resize","cols":120,"rows":32}`
 
 `DELETE /ws/term?session=<id>` (owner only) ends a session immediately (used

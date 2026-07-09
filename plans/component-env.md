@@ -153,3 +153,35 @@ tile-sharing hardens (`plans/tile-sharing.md`).
 - `internal/sandbox` — none (Lower/Upper already support it).
 - `docs/elements.md` + `AGENTS.md` (workspace-template) — document `setup` + the
   supply-chain guidance; `docs/getting-started.md` example.
+
+## Base image upgrades (terminal layers)
+
+A terminal's persistent upper (`.xbin/term/<key>/upper`) holds imperative system
+state — `apt install`s plus the dpkg/apt bookkeeping copied up from the base it
+was built on. Stacking that upper on a **different** base merges new-base
+packages under an old `dpkg/status`, so apt breaks. (Backends don't have this
+problem: their env layer keys on `hash(setup + base identity)` and rebuilds from
+the declarative `setup` on a base change. A terminal's state is ad-hoc, so it
+can't be replayed — the only safe migration is to discard it.)
+
+So each base rootfs is **stamped** (`etc/xbin-base-version`, a content hash of
+the recipe, written by `hack/build-rootfs.sh`), and each terminal layer records
+its base (`.xbin/term/<key>/base`) and is **pinned** to it — xbind stacks the
+upper on the base it was built on, resolving `<rootfs>` (current) or a preserved
+`<rootfs>-<version>` sibling. Nothing important is on the overlay (tile code and
+`$HOME` are bind mounts), so "upgrade" = discard the upper (the existing reset
+action, `/ws/term/env`), which rebuilds on the current base. The tile shows a
+`baseOutdated` banner when a newer base is installed.
+
+Lifecycle:
+
+- **build** — `build-rootfs.sh` stamps the version.
+- **install upgrade** — `deploy/install.sh` preserves the current base as
+  `rootfs-<oldversion>` before swapping in the new one, so pinned terminals keep
+  resolving; unstamped legacy bases are preserved as `rootfs-v0`.
+- **migration** — an existing (unstamped) terminal layer is treated as `v0` on
+  first sight and stamped; it keeps running on the preserved `rootfs-v0`.
+- **safety gate** — at startup xbind aborts (`CheckBaseImages`) if any layer
+  pins a base that isn't installed, rather than corrupt it on a different base.
+- **release** — `GCBaseImages` removes preserved `rootfs-<version>` siblings once
+  no terminal pins them (i.e. everyone has upgraded).

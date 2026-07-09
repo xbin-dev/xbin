@@ -280,7 +280,21 @@ install_files() {
   info "installing base rootfs (this copies a few GB)"
   rm -rf "$PREFIX/rootfs.new"
   cp -a "$XBIN_ROOTFS_DIR" "$PREFIX/rootfs.new"
-  rm -rf "$PREFIX/rootfs"; mv "$PREFIX/rootfs.new" "$PREFIX/rootfs"
+  # Preserve the current base as rootfs-<version> when the version changes, so
+  # terminals still pinned to it keep resolving — xbind refuses to stack a
+  # terminal's overlay on a different base (plans/component-env.md). Unreferenced
+  # preserved bases are GC'd by xbind once every terminal has upgraded.
+  if [ -d "$PREFIX/rootfs" ]; then
+    oldver=$(cat "$PREFIX/rootfs/etc/xbin-base-version" 2>/dev/null || echo v0)
+    newver=$(cat "$PREFIX/rootfs.new/etc/xbin-base-version" 2>/dev/null || echo v0)
+    if [ "$oldver" != "$newver" ] && [ ! -e "$PREFIX/rootfs-$oldver" ]; then
+      info "preserving old base image as rootfs-$oldver (for terminals not yet upgraded)"
+      mv "$PREFIX/rootfs" "$PREFIX/rootfs-$oldver"
+    else
+      rm -rf "$PREFIX/rootfs"
+    fi
+  fi
+  mv "$PREFIX/rootfs.new" "$PREFIX/rootfs"
   # The Go SDK source: xbind's generated go.work resolves
   # github.com/magik6k/xbin/sdk here (deps.SDKPath → $PREFIX/sdk), and
   # terminals get it as a read-only bind so `go build` works offline.
