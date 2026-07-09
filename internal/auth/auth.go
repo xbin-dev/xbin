@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,10 +97,13 @@ type Auth struct {
 	secret     []byte       // HMAC key for frame tokens
 	Users      *users.Store // human users (nil-safe: no store ⇒ root-only)
 
+	sessionIdleTTL time.Duration // sliding inactivity window before a session dies
+	sessionAbsTTL  time.Duration // hard cap since login regardless of activity
+
 	mu        sync.RWMutex
-	instances map[string]string // instance token → component path
-	terminals map[string]termID // terminal token → (component, user)
-	sessions  map[string]string // session id → user id
+	instances map[string]string   // instance token → component path
+	terminals map[string]termID   // terminal token → (component, user)
+	sessions  map[string]*session // session id → session
 	noAuth    bool
 }
 
@@ -109,6 +113,21 @@ type termID struct {
 	component string
 	userID    string // "" for the bootstrap-token principal
 }
+
+// session is a live browser login (server-side; the cookie holds only the id).
+type session struct {
+	userID     string
+	created    time.Time // login time — the absolute-TTL anchor
+	lastActive time.Time // last authenticated request — the idle-TTL anchor
+}
+
+// Session lifetime defaults (override with XBIN_SESSION_IDLE_TTL /
+// XBIN_SESSION_MAX_TTL as Go durations, e.g. "8h"). The server is
+// authoritative; the 30-day cookie MaxAge is only a browser-side hint.
+const (
+	defaultSessionIdleTTL = 12 * time.Hour
+	defaultSessionAbsTTL  = 30 * 24 * time.Hour
+)
 
 // Load reads (or creates) the owner token and frame-token secret under
 // <workspace>/.xbin/.
@@ -126,14 +145,31 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		return nil, err
 	}
 	return &Auth{
-		ownerToken: tok,
-		tokenPath:  filepath.Join(dir, "token"),
-		secret:     []byte(sec),
-		instances:  map[string]string{},
-		terminals:  map[string]termID{},
-		sessions:   map[string]string{},
-		noAuth:     noAuth,
+		ownerToken:     tok,
+		tokenPath:      filepath.Join(dir, "token"),
+		secret:         []byte(sec),
+		sessionIdleTTL: envDuration("XBIN_SESSION_IDLE_TTL", defaultSessionIdleTTL),
+		sessionAbsTTL:  envDuration("XBIN_SESSION_MAX_TTL", defaultSessionAbsTTL),
+		instances:      map[string]string{},
+		terminals:      map[string]termID{},
+		sessions:       map[string]*session{},
+		noAuth:         noAuth,
 	}, nil
+}
+
+// envDuration reads a Go duration from env, falling back to def (and warning on
+// a malformed value rather than silently ignoring it).
+func envDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		slog.Warn("ignoring malformed duration env var", "key", key, "value", v)
+		return def
+	}
+	return d
 }
 
 // SetUsers installs the user store (from main, after Load).
@@ -188,8 +224,10 @@ func (a *Auth) TokenLoginDisabled() bool {
 // NewSession creates a server-side session for a user, returning its id.
 func (a *Auth) NewSession(userID string) string {
 	id := util.RandomToken(32)
+	now := time.Now()
 	a.mu.Lock()
-	a.sessions[id] = userID
+	a.sweepSessionsLocked(now) // login is rare — opportunistic reap, no goroutine
+	a.sessions[id] = &session{userID: userID, created: now, lastActive: now}
 	a.mu.Unlock()
 	return id
 }
@@ -201,11 +239,34 @@ func (a *Auth) DropSession(id string) {
 	a.mu.Unlock()
 }
 
+// sessionUser resolves a session id to its user, enforcing expiry: a session
+// dies after sessionIdleTTL of inactivity (sliding) or sessionAbsTTL since
+// login (hard cap), whichever first — so a stolen cookie can't authenticate
+// forever. A live lookup slides the idle window.
 func (a *Auth) sessionUser(id string) (string, bool) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	uid, ok := a.sessions[id]
-	return uid, ok
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, ok := a.sessions[id]
+	if !ok {
+		return "", false
+	}
+	if now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL {
+		delete(a.sessions, id)
+		return "", false
+	}
+	s.lastActive = now
+	return s.userID, true
+}
+
+// sweepSessionsLocked drops expired sessions so abandoned logins don't grow the
+// map unbounded (caller holds a.mu).
+func (a *Auth) sweepSessionsLocked(now time.Time) {
+	for id, s := range a.sessions {
+		if now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL {
+			delete(a.sessions, id)
+		}
+	}
 }
 
 func loadOrCreate(path string) (string, error) {

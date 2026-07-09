@@ -482,10 +482,10 @@ func TestMultiUser(t *testing.T) {
 		defer r.Body.Close()
 		return r.StatusCode
 	}
-	if c := root("POST", "/api/xbin/users", `{"id":"alice","role":"user","tiles":["apps/welcome"],"password":"pw1"}`); c != 200 {
+	if c := root("POST", "/api/xbin/users", `{"id":"alice","role":"user","tiles":["apps/welcome"],"password":"alice-pw1"}`); c != 200 {
 		t.Fatalf("create alice: %d", c)
 	}
-	if c := root("POST", "/api/xbin/users", `{"id":"bob","role":"admin","password":"pw2"}`); c != 200 {
+	if c := root("POST", "/api/xbin/users", `{"id":"bob","role":"admin","password":"bob-pw22"}`); c != 200 {
 		t.Fatalf("create bob: %d", c)
 	}
 
@@ -519,11 +519,11 @@ func TestMultiUser(t *testing.T) {
 	if _, ok := login("alice", "nope"); ok {
 		t.Fatal("wrong password logged in")
 	}
-	aliceC, ok := login("alice", "pw1")
+	aliceC, ok := login("alice", "alice-pw1")
 	if !ok {
 		t.Fatal("alice login failed")
 	}
-	bobC, ok := login("bob", "pw2")
+	bobC, ok := login("bob", "bob-pw22")
 	if !ok {
 		t.Fatal("bob login failed")
 	}

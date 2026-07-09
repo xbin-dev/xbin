@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/magik6k/xbin/internal/users"
 )
@@ -133,5 +134,59 @@ func TestRotateOwnerToken(t *testing.T) {
 	}
 	if a2.OwnerTokenValue() != fresh {
 		t.Fatal("reload must pick up the rotated token")
+	}
+}
+
+// Sessions expire: after the idle window without activity, or the absolute cap
+// regardless of activity — so a stolen cookie can't authenticate forever
+// (a live lookup slides the idle window).
+func TestSessionExpiry(t *testing.T) {
+	a, err := Load(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.sessionIdleTTL = 30 * time.Minute
+	a.sessionAbsTTL = 2 * time.Hour
+
+	id := a.NewSession("alice")
+	if uid, ok := a.sessionUser(id); !ok || uid != "alice" {
+		t.Fatal("fresh session must resolve")
+	}
+
+	// Idle past the window → dead.
+	a.mu.Lock()
+	a.sessions[id].lastActive = time.Now().Add(-31 * time.Minute)
+	a.mu.Unlock()
+	if _, ok := a.sessionUser(id); ok {
+		t.Fatal("idle-expired session must not resolve")
+	}
+	if _, ok := a.sessions[id]; ok {
+		t.Fatal("idle-expired session must be evicted")
+	}
+
+	// Active but past the absolute cap → dead even though lastActive is recent.
+	id2 := a.NewSession("bob")
+	a.mu.Lock()
+	a.sessions[id2].created = time.Now().Add(-3 * time.Hour)
+	a.sessions[id2].lastActive = time.Now()
+	a.mu.Unlock()
+	if _, ok := a.sessionUser(id2); ok {
+		t.Fatal("absolute-expired session must not resolve")
+	}
+
+	// A lookup within the idle window slides it (stays alive across a gap that
+	// would have expired from the original login).
+	id3 := a.NewSession("carol")
+	a.mu.Lock()
+	a.sessions[id3].lastActive = time.Now().Add(-20 * time.Minute) // still inside 30m
+	a.mu.Unlock()
+	if _, ok := a.sessionUser(id3); !ok {
+		t.Fatal("session inside idle window must survive")
+	}
+	a.mu.Lock()
+	slid := time.Since(a.sessions[id3].lastActive) < time.Minute
+	a.mu.Unlock()
+	if !slid {
+		t.Fatal("a live lookup must slide lastActive")
 	}
 }

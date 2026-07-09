@@ -1208,10 +1208,12 @@ export class BxAdmin extends LitElement {
   // ---- users ----
   async _createUser(f) {
     const tiles = f.tiles.value.split(',').map((s) => s.trim()).filter(Boolean);
-    await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
-        tiles, terminal: f.terminal.checked, password: f.password.value }) });
-    f.reset(); this._refresh();
+    try {
+      await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
+          tiles, terminal: f.terminal.checked, password: f.password.value }) });
+      f.reset(); this._err = ''; this._refresh(); // only clear the form on success
+    } catch (e) { this._err = String(e.message ?? e); }
   }
   async _patchUser(id, patch) {
     await api(`/users/${encodeURIComponent(id)}`, { method: 'PATCH',
@@ -1219,10 +1221,13 @@ export class BxAdmin extends LitElement {
     this._refresh();
   }
   async _resetPw(id) {
-    const pw = prompt(`New password for ${id}:`);
+    const pw = prompt(`New password for ${id} (min 8 chars):`);
     if (!pw) return;
-    await this._patchUser(id, { password: pw });
-    this._err = `password reset for ${id}`;
+    if (pw.length < 8) { this._err = 'password too short (min 8 characters)'; return; }
+    try {
+      await this._patchUser(id, { password: pw });
+      this._err = `password reset for ${id}`;
+    } catch (e) { this._err = String(e.message ?? e); }
   }
   async _editTiles(u) {
     const v = prompt(`Allowed tiles for ${u.id} (comma-separated paths or prefix/*; * = all):`,
@@ -1318,7 +1323,7 @@ export class BxAdmin extends LitElement {
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
         <input name="tiles" placeholder="apps/chat, lib/*  (blank = none)" size="22">
         <label class="muted" style="font-size:11px"><input type="checkbox" name="terminal"> terminal</label>
-        <input name="password" type="password" placeholder="password" size="12" required>
+        <input name="password" type="password" placeholder="password (min 8)" size="12" minlength="8" required>
         <button class="act go">create</button>
       </form>
       <p class="muted" style="font-size:11px;margin-top:6px">

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -103,6 +104,19 @@ type userBody struct {
 	Password string   `json:"password"`
 }
 
+// minPasswordLen is the floor for account passwords set through the API. It's
+// enforced here (not in users.Store) so the dev-seeded admin and unit tests,
+// which set passwords through the store directly, aren't subject to UX policy.
+const minPasswordLen = 8
+
+// weakPassword returns a user-facing reason a password is rejected, or "".
+func weakPassword(pw string) string {
+	if len([]rune(pw)) < minPasswordLen {
+		return fmt.Sprintf("password too short (min %d characters)", minPasswordLen)
+	}
+	return ""
+}
+
 func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
@@ -118,6 +132,10 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Password == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "password required for a new user"})
+		return
+	}
+	if msg := weakPassword(body.Password); msg != "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return
 	}
 	if _, exists := st.Get(body.ID); exists {
@@ -155,7 +173,13 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
 		return
 	}
-	body.ID = cur.ID // id is immutable
+	body.ID = cur.ID         // id is immutable
+	if body.Password != "" { // only when actually changing it (empty keeps the old hash)
+		if msg := weakPassword(body.Password); msg != "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+	}
 	u, err := st.Upsert(users.User{
 		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: body.Tiles, Terminal: body.Terminal,
 	}, body.Password)

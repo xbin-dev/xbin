@@ -102,6 +102,7 @@ DELETE /prefs/<key>               remove it
                                    bucket; the shell stores layout here)
 GET    /users                     admin or xbin:users. [{id,name,role,tiles,terminal}]
 POST   /users                     admin/xbin:users. create {id,name,role,tiles,terminal,password}
+                                   (id: [a-z0-9._-], immutable; password ≥ 8)
 PATCH  /users/<id>                admin/xbin:users. update fields (+password reset)
 DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,

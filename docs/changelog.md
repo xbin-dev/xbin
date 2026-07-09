@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-09
 
+- auth: **server-side session expiry** — browser logins now die after 12 h
+  idle (sliding) or 30 days absolute, whichever first, so a stolen session
+  cookie can't authenticate indefinitely (previously: valid until logout or
+  restart). Tunable via `XBIN_SESSION_IDLE_TTL` / `XBIN_SESSION_MAX_TTL`.
+- auth: **audit log** — every mutating core-API call (`POST/PUT/PATCH/DELETE`
+  on `/api/xbin/…`, minus the `prefs`/`kv`/`blob`/`bus` data plane) logs an `audit` line
+  with actor + path + status; a who-changed-what trail for governance actions
+  (users, grants, lifecycle, vault, token rotation).
+- users: **password floor** — accounts created/updated through the API need
+  an 8-character minimum (enforced at the API so the dev admin/tests, which
+  write the store directly, are unaffected); the admin UI surfaces create/
+  reset errors instead of silently clearing the form.
 - users: **user ids are now validated at creation and immutable** (D15) —
   `[a-z0-9][a-z0-9._-]{0,31}`, `owner` reserved. An id is the permanent key
   for `homes/<user>`, the prefs bucket, and `user:<id>` attribution, so it

@@ -233,6 +233,15 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(rest, "xbin"), "/")
+		if auditable(r.Method, r2.URL.Path) {
+			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
+			s.apiMux.ServeHTTP(aw, r2)
+			// Who changed workspace governance, and did it take. Data-plane
+			// writes (prefs/kv) are excluded as noise; see auditable.
+			slog.Info("audit", "who", auth.PrincipalOf(r).From(),
+				"method", r.Method, "path", r2.URL.Path, "status", aw.status)
+			return
+		}
 		s.apiMux.ServeHTTP(w, r2)
 		return
 	}
@@ -287,6 +296,39 @@ func (c *countingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return h.Hijack()
 	}
 	return nil, nil, http.ErrNotSupported
+}
+
+// auditable reports whether a core-API call is a workspace-governance mutation
+// worth an audit line: any state-changing method, minus the high-frequency
+// data plane (prefs, kv) that would just be noise. So user/grant/lifecycle/
+// vault/create/token changes are logged with actor + outcome; per-tile state
+// writes are not.
+func auditable(method, path string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return false
+	}
+	// The element data plane (prefs/kv/blob/bus) is high-frequency and not
+	// governance — exclude it so the audit stream stays signal.
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/"} {
+		if strings.HasPrefix(path, dp) {
+			return false
+		}
+	}
+	return true
+}
+
+// auditWriter records the response status for an audit line (bytes/streaming
+// don't matter here — audited endpoints return small JSON).
+type auditWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (a *auditWriter) WriteHeader(code int) {
+	a.status = code
+	a.ResponseWriter.WriteHeader(code)
 }
 
 func logRequests(next http.Handler) http.Handler {

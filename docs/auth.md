@@ -257,6 +257,16 @@ origin). So the outer boundary is the VM/host; treat same-origin element
 *frontends* as one trust domain, and the grant system as seatbelts and audit
 trail, not a jail.
 
+## Audit log
+
+Every state-changing call to the core API (`POST`/`PUT`/`PATCH`/`DELETE` on
+`/api/xbin/…`) is logged at `INFO` as an `audit` line — actor (`X-XBin-From`:
+`owner`, `user:<id>`, or a component), method, path, and resulting status — so
+there's a who-changed-what trail for user/grant/lifecycle/vault/token changes.
+High-frequency data-plane writes (`prefs`, `kv`, `blob`, `bus`) are excluded as noise. This is
+a log stream, not a queryable store; ship xbind's stderr somewhere durable if
+you need retention.
+
 ## Multi-user (users, roles, tile access)
 
 xbin can have **human users** on top of the root token (plans/multi-user.md).
@@ -277,6 +287,9 @@ in `X-XBin-From`/logs — so it is validated at creation and **never renamable**
 (to "rename", create a new user and delete the old; their `homes/<old>` stays
 on disk for you to move). Rules: 1–32 chars of `a–z 0–9 . _ -`, starting
 alphanumeric; `owner` is reserved (it is the root-token principal's home).
+Passwords set through the API must be **at least 8 characters** (Argon2id
+hashed; the dev-seeded admin and tests bypass this by writing the store
+directly).
 
 **Tile-level RBAC.** A user's `tiles` is an allow-list of component paths or
 `prefix/*` (a scope/subtree; `*` = all). They can load `/c/<tile>/` and get a
@@ -344,6 +357,15 @@ Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
   so agent session transcripts under `homes/*/.claude` (and shell histories)
   may hold the old one. (Terminal tokens themselves need no rotation — each
   dies with its session, and deleting a user revokes theirs instantly.)
+- **Session lifetime.** A browser login is a server-side session (the cookie
+  holds only a random id). It expires after **12 h of inactivity** (sliding —
+  each request renews it) or **30 days** since login (a hard cap regardless of
+  activity), whichever comes first, so a stolen cookie can't authenticate
+  forever. The server is authoritative; override the windows with
+  `XBIN_SESSION_IDLE_TTL` / `XBIN_SESSION_MAX_TTL` (Go durations, e.g. `8h`).
+  Deleting a user, logout, and an xbind restart all end their sessions
+  immediately. (Bearer tokens have no session — the owner token is valid until
+  rotated; element/terminal tokens die with their generation/shell.)
 - Behind an https proxy the cookie turns `Secure` automatically
   (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or
   Caddy in front.
