@@ -232,6 +232,9 @@ func awaitMaps(fd int) error {
 // remounts read-only if requested.
 func mountBind(newroot string, b Bind) error {
 	dst := filepath.Join(newroot, b.Dst)
+	if b.Mask {
+		return mountMask(dst, b.RO)
+	}
 	fi, err := os.Lstat(b.Src)
 	if err != nil {
 		return must(err, "bind src "+b.Src)
@@ -255,6 +258,34 @@ func mountBind(newroot string, b Bind) error {
 		if err := remountRO(dst); err != nil {
 			return must(err, "remount ro "+b.Dst)
 		}
+	}
+	return nil
+}
+
+// mountMask shadows dst with an empty tmpfs, hiding whatever is beneath it
+// (workspace secrets, other users' homes) from the sandbox — the caller relies
+// on the emptiness, not on permissions (the process is uid 0 in its userns).
+// If dst doesn't exist there's nothing to hide. ro seals the cover; otherwise
+// it stays writable so a deeper bind (the own $HOME under a masked homes/) can
+// nest on top. Mounting over dst never needs the underlying (read-only) tree to
+// be writable — only the mountpoint to exist.
+func mountMask(dst string, ro bool) error {
+	if _, err := os.Lstat(dst); err != nil {
+		return nil // nothing beneath to hide
+	}
+	// A sealed cover (ro) is mode 0000 — nothing to traverse. A writable cover
+	// stays traversable (0755) so a deeper bind under it is reachable even when
+	// the shell isn't uid 0 in its userns (scope-uids): the own $HOME nests
+	// under the homes cover, and other homes are hidden by being shadowed, not
+	// by permissions.
+	flags := uintptr(unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC)
+	mode := "mode=0755"
+	if ro {
+		flags |= unix.MS_RDONLY
+		mode = "mode=0000"
+	}
+	if err := unix.Mount("tmpfs", dst, "tmpfs", flags, mode); err != nil {
+		return must(err, "mask "+dst)
 	}
 	return nil
 }

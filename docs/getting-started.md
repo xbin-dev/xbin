@@ -41,9 +41,11 @@ embedded outside the shell keep the small 7×7 corner square for the same
 thing.)
 
 That terminal is **scoped to its component**: it can write its own directory and
-`$HOME`, but the rest of the workspace is **read-only**. So you don't `mkdir` a
-new app here — you create components through xbind, which isn't bound by that
-scope: the **Tile Manager** on the root page, or `bx new` from a *root* terminal.
+`$HOME`, but the rest of the workspace is **read-only** (you can read other
+tiles' source, but the platform's secrets — `.xbin/`, `data/`, other users'
+`homes/` — are masked away entirely). So you don't `mkdir` a new app here — you
+create components through xbind, which isn't bound by that scope: the **Tile
+Manager** on the root page, or `bx new` from a host shell.
 
 In the **Tile Manager**'s *create* tab, name it (e.g. `hello`) and hit
 **Create** — it scaffolds a static `apps/hello` (equivalently:

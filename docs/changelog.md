@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-10
+
+- terminals: **workspace secrets are masked from tile terminals** (Gap 0).
+  The isolated terminal's read-only workspace mount now covers `.xbin/`
+  (owner token + frame secret), `data/` (vault, encrypted resource state,
+  password hashes), and other users' `homes/` with an empty overlay — so a
+  shell (or an agent in it) can read every tile's *source* for API work but
+  can no longer `cat .xbin/token` to re-grant owner, which had undercut the
+  tile-scoped terminal token. Applies to every terminal, including your own
+  tiles. Own tile dir + `$HOME` stay read-write. New per-terminal **tile-API
+  toggle** (titlebar, default on): off mints no token — the shell sees code
+  but every API call is unauthorized. Isolation property of `--isolate`;
+  see docs/isolation.md for the honest bound.
+
 ## 2026-07-09
 
 - auth: **server-side session expiry** — browser logins now die after 12 h

@@ -294,10 +294,16 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
 the caller can use, mounts its creator's `$HOME`, and carries a per-session
-`XBIN_TOKEN` scoped to that tile (plans/terminal-tokens.md). **The root
-terminal (no cwd) is disabled** — 403 for everyone. Reattach/kill of another
-user's session: admins only. A new session also takes an optional
-`?net=<scope>` (default `internet`):
+`XBIN_TOKEN` scoped to that tile (plans/terminal-tokens.md). Under `--isolate`
+the workspace mounts read-only (all tiles' source) with `.xbin/`, `data/`, and
+other users' `homes/` **masked out** (docs/isolation.md), so the terminal can't
+read the owner token or resource state. **The root terminal (no cwd) is
+disabled** — 403 for everyone. Reattach/kill of another user's session: admins
+only. New-session query params (all optional):
+
+- `?api=0` — mint **no** terminal token: the shell sees code but every tile/xbin
+  API call is unauthorized (default `1`).
+- `?net=<scope>` (default `internet`):
 
 - `internet` — own network namespace with an **internet-only egress relay**
   (`net:internet`: public addresses only, no host interfaces visible). TCP, UDP,

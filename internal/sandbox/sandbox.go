@@ -77,10 +77,18 @@ type NetClient struct {
 }
 
 // Bind is one mount into the sandbox root.
+//
+// When Mask is set, Src is ignored and Dst is instead covered with an empty
+// tmpfs, hiding whatever is beneath it (systemd's InaccessiblePaths): the
+// terminal masks the workspace's secrets (.xbin), resource/vault state (data),
+// and other users' homes this way, so the read-only workspace bind can't be
+// used to read them. RO seals the cover (nothing may nest); a read-write cover
+// lets a deeper bind nest on top (the own $HOME under a masked homes/).
 type Bind struct {
-	Src string `json:"src"` // host path (as seen before pivot_root)
-	Dst string `json:"dst"` // absolute path inside the new root
-	RO  bool   `json:"ro"`  // remount read-only after binding
+	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
+	Dst  string `json:"dst"`            // absolute path inside the new root
+	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
+	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable

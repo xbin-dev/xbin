@@ -337,7 +337,11 @@ Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
   self-admin + its approved grants, never the owner; plans/terminal-tokens.md);
   it dies with the session, and deleting the user kills it immediately. The
   root terminal is disabled. The *owner* token lives only on the host
-  (`.xbin/token`) for host-side `bx`/automation.
+  (`.xbin/token`) for host-side `bx`/automation — and under `--isolate` a
+  terminal can't read it, because `.xbin/`, `data/`, and other users' `homes/`
+  are masked out of the workspace mount (docs/isolation.md §terminal). A
+  terminal's titlebar can also set **no-API** mode: the session gets no token at
+  all, so the shell sees code but every API call is unauthorized.
 - **Disabling token login.** Once you've created an admin *user*, an admin can
   turn off the bootstrap token's *browser* login from the admin console's
   **Users → sign-in security** toggle (`PATCH /api/xbin/auth-settings`

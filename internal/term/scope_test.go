@@ -11,6 +11,9 @@ import (
 func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {
 	rw, ro = map[string]bool{}, map[string]bool{}
 	for _, b := range binds {
+		if b.Mask {
+			continue // masks carry no Src; checked separately via masked()
+		}
 		if b.RO {
 			ro[b.Src] = true
 		} else {
@@ -18,6 +21,17 @@ func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {
 		}
 	}
 	return
+}
+
+// masked collects the Dst of every mask bind.
+func masked(binds []sandbox.Bind) map[string]bool {
+	m := map[string]bool{}
+	for _, b := range binds {
+		if b.Mask {
+			m[b.Dst] = true
+		}
+	}
+	return m
 }
 
 func TestScopedBinds(t *testing.T) {
@@ -45,12 +59,28 @@ func TestScopedBinds(t *testing.T) {
 	if !rw[filepath.Join(root, "apps/welcome")] {
 		t.Errorf("the component's own dir must be read-write (code + its .git)")
 	}
-	// A sibling is not separately bound — it's covered by the read-only root.
+	// A sibling is not separately bound — it's covered by the read-only root
+	// (sibling CODE stays visible RO for API integration; only its dir isn't rw).
 	if rw[filepath.Join(root, "apps/other")] {
 		t.Errorf("a sibling component must not be writable")
 	}
 	if !ro["/sdk"] {
 		t.Errorf("SDK extra bind lost")
+	}
+
+	// The platform's secrets + other users' data are masked out of the tile
+	// terminal, even though the root is bound read-only (Gap 0): .xbin (owner
+	// token, frame secret), data (vault, resource state, password hashes), and
+	// homes (other users' $HOME).
+	mk := masked(scopedBinds(root, "apps/welcome", home, extra))
+	for _, secret := range []string{".xbin", "data", "homes"} {
+		if !mk[filepath.Join(root, secret)] {
+			t.Errorf("%s must be masked from a tile terminal", secret)
+		}
+	}
+	// The own $HOME (under homes/) is still read-write — it nests over the mask.
+	if !rw[home] {
+		t.Errorf("own $HOME must remain read-write under the homes mask")
 	}
 }
 

@@ -149,6 +149,9 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	cwd := r.URL.Query().Get("cwd")
 	netMode := normalizeNet(r.URL.Query().Get("net"))
 	gpuMode := r.URL.Query().Get("gpu") // ""/none | all | <index> (owner plane)
+	// api=0 opens a code-only terminal: no terminal token is minted, so it can
+	// read/edit source but can't call the live tile (or xbin) API. Default on.
+	apiAccess := r.URL.Query().Get("api") != "0"
 	p := auth.PrincipalOf(r)
 	homeKey := HomeKey(p)
 
@@ -184,7 +187,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "your account doesn't have access to this tile's terminal", http.StatusForbidden)
 			return
 		}
-		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID)
+		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID, apiAccess)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -228,7 +231,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string) (*Session, error) {
+func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAccess bool) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -263,8 +266,9 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string) (*Sessio
 
 	// Per-session terminal token: the shell's XBIN_TOKEN resolves to THIS
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
+	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
 	token := ""
-	if m.Tokens != nil {
+	if m.Tokens != nil && apiAccess {
 		token = m.Tokens.MintTerminal(rel, userID)
 	}
 	revokeTok := func() {
@@ -433,11 +437,24 @@ func (m *Manager) ResetEnv(rel string) error {
 // ro root so they shadow it at their paths.
 func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind {
 	if rel == "" {
-		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (incl. every home)
+		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (root terminals are disabled)
 	}
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}} // workspace: read-only
+	// Workspace read-only — so a tile terminal sees ALL tiles' source (needed to
+	// integrate against another tile's API), but writes only its own dir + $HOME.
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
+	// ...except the platform's secrets and other users' data, which are masked
+	// out entirely: .xbin (owner token + frame-token secret), data (vault, the
+	// encrypted resource state, and users.json password hashes), and every OTHER
+	// user's $HOME. Without these the read-only bind would re-grant owner
+	// (`cat .xbin/token`), defeating the tile-scoped terminal token. Applies to
+	// every terminal, including the owner's own tiles.
+	binds = append(binds,
+		sandbox.Bind{Dst: filepath.Join(root, ".xbin"), Mask: true, RO: true},
+		sandbox.Bind{Dst: filepath.Join(root, "data"), Mask: true, RO: true},
+		sandbox.Bind{Dst: filepath.Join(root, "homes"), Mask: true}, // rw: own $HOME nests below
+	)
 	if pathIsDir(homeDir) {
-		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // this user's $HOME: read-write
+		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // this user's $HOME: read-write (nests over the homes mask)
 	}
 	comp := filepath.Join(root, filepath.FromSlash(rel))
 	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write

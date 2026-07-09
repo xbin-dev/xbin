@@ -8,6 +8,17 @@ live-user root-resolution branch below was dropped. `bx` in a tile terminal
 prints a scope hint on 403s. Kill/reset also gained creator-or-admin /
 tile-access gates.
 
+**Filesystem bypass closed (2026-07-10, Gap 0).** The token scoping is only a
+boundary if the terminal can't *read the owner token off disk*. The isolated
+terminal's read-only workspace mount now masks `.xbin/` (owner token +
+frame-token secret), `data/` (vault, resource state, password hashes), and
+other users' `homes/`, so `cat .xbin/token` no longer re-grants owner. A
+per-session **api=0** toggle withholds the token entirely (code-only shell).
+Residual: a single-uid sandbox shell is root in its userns and could `umount`
+a mask; full robustness comes with per-tenant uids (multi-tenant work). Tier-1
+(non-isolated host shell) terminals are unchanged — the masks are an
+`--isolate` property. See docs/isolation.md.
+
 ## Problem
 
 Every terminal env carries `XBIN_TOKEN = a.OwnerToken` (main.go's term Env

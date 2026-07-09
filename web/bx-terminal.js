@@ -226,10 +226,13 @@ export class BxTerminal extends HTMLElement {
   // spawn), so a live change to `net` restarts the session: drop the current
   // session id and reconnect, which asks xbind for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
-  static get observedAttributes() { return ['net', 'gpu']; }
+  static get observedAttributes() { return ['net', 'gpu', 'api']; }
   attributeChangedCallback(name, oldV, newV) {
-    if ((name !== 'net' && name !== 'gpu') || oldV === null || oldV === newV || !this.#term) return;
-    this.#restart(name === 'gpu' ? `switching GPU → ${newV}…` : `switching network → ${newV}…`);
+    if ((name !== 'net' && name !== 'gpu' && name !== 'api') || oldV === null || oldV === newV || !this.#term) return;
+    const msg = name === 'gpu' ? `switching GPU → ${newV}…`
+      : name === 'api' ? `${newV === '0' ? 'disabling' : 'enabling'} tile API…`
+        : `switching network → ${newV}…`;
+    this.#restart(msg);
   }
 
   // restartFresh drops the current session and reconnects a brand-new one — used
@@ -306,7 +309,8 @@ export class BxTerminal extends HTMLElement {
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
       : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
         `&net=${encodeURIComponent(this.getAttribute('net') || 'internet')}` +
-        `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}`;
+        `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
+        `&api=${this.getAttribute('api') === '0' ? '0' : '1'}`;
     const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
     ws.binaryType = 'arraybuffer';
     this.#ws = ws;

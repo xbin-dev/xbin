@@ -39,18 +39,45 @@ Two things always work regardless of the network:
 ## Terminal isolation (owner/editing plane)
 
 Terminals are the editing plane — a real shell, scoped to its tile, in a
-component's directory. They come in two shapes:
+component's directory. (The **root terminal** — a shell on the workspace root —
+is **disabled**; workspace-wide work happens in the browser UI or a host shell.)
 
-- **Root terminal** (opened on the workspace root) — the whole workspace is
-  **read-write**. This is where you create components, run workspace-level git,
-  and edit shared state. Full power; use it deliberately.
-- **Component terminal** (opened on a component) — the workspace is mounted
-  **read-only except `$HOME` and that component's own directory**. You can read
-  siblings for patterns, but you cannot edit them, workspace state
-  (`xbin.json`, `AGENTS.md`, `go.work`), `data/`, or `.xbin/`.
+A **component terminal** mounts the workspace **read-only except `$HOME` and
+that component's own directory** — so you can read every other tile's *source*
+(needed to integrate against its API) but edit only your own tile and `$HOME`.
+On top of that, the platform's secrets and other users' data are **masked out
+entirely** (an empty overlay hides them, even though the root is bound
+read-only):
 
-So a rogue agent in a component terminal can only touch **its own component and
-`$HOME`** — it can't break the workspace or reach into another component.
+- **`.xbin/`** — the owner token and the frame-token secret. Without this mask
+  a shell could `cat .xbin/token` and become owner, defeating the tile-scoped
+  terminal token (below).
+- **`data/`** — the vault, the encrypted resource state, and `users.json`
+  (password hashes). Terminals reach resources through the API, never the raw
+  at-rest files.
+- **`homes/`** — every *other* user's `$HOME` (their agent credentials, shell
+  history). Your own `$HOME` remains read-write.
+
+This holds for **every** terminal, including one on a tile you own. So a rogue
+agent in a component terminal can touch **only its own component and `$HOME`**,
+and can read code but not secrets.
+
+**Live-API toggle.** A terminal's titlebar has a **tile-API / no-API** switch
+(alongside the network scope). With it off, the session is minted with **no
+token** — the shell can read and edit source but every call to the tile's (or
+xbin's) API is unauthorized. Use it to run untrusted code or an agent that
+should see code but not act on the live workspace.
+
+**Honest bound.** The masks make the secrets *unreadable in normal operation* —
+the realistic hygiene threat (an agent reading `~/.claude` of others, `grep`-ing
+the tree, `cat`-ing the token). They are an isolation property of `--isolate`
+(tier 3); a non-isolated (tier-1) host-shell terminal still sees the host
+workspace. And because a single-uid sandbox shell is root in its own user
+namespace, a *deliberately adversarial* shell could `umount` a mask to reveal
+what's beneath — closing that fully needs per-tenant uids (the multi-tenant
+work). For today's single-owner workspace, where terminal users are the owner
+or delegated admins, the masks make the tile-scoped terminal token a real
+boundary against agent misbehavior and casual escalation.
 
 Commits still work from a component terminal because **each component is its own
 git repo**: `cd` into the component and `git commit` writes to the component's

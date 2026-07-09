@@ -46,6 +46,12 @@ func TestSandboxIsolation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(comp, "marker"), []byte("hello-comp"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A secret beneath the ro bind that a mask must hide (mirrors .xbin/token
+	// under the workspace ro bind in a tile terminal — Gap 0).
+	mkdir(t, filepath.Join(comp, "hidden"))
+	if err := os.WriteFile(filepath.Join(comp, "hidden", "token"), []byte("OWNER-TOKEN"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	rw := filepath.Join(dir, "rw")
 	mkdir(t, rw)
 	sockPath := filepath.Join(dir, "gw.sock")
@@ -68,6 +74,7 @@ func TestSandboxIsolation(t *testing.T) {
 		Lower: []string{lower},
 		Binds: []Bind{
 			{Src: comp, Dst: "/component", RO: true},
+			{Dst: "/component/hidden", Mask: true, RO: true}, // cover the secret beneath the ro bind
 			{Src: rw, Dst: "/data"},
 			{Src: sockPath, Dst: "/run/gw.sock"},
 		},
@@ -96,6 +103,7 @@ func TestSandboxIsolation(t *testing.T) {
 		HomeAbsent   bool     `json:"homeAbsent"`
 		PasswdAbsent bool     `json:"passwdAbsent"`
 		Marker       string   `json:"marker"`
+		MaskedAbsent bool     `json:"maskedAbsent"`
 		RwOK         bool     `json:"rwOK"`
 		Ifaces       []string `json:"ifaces"`
 		GwOK         bool     `json:"gwOK"`
@@ -113,6 +121,9 @@ func TestSandboxIsolation(t *testing.T) {
 	}
 	if res.Marker != "hello-comp" {
 		t.Errorf("component ro bind not visible: marker=%q", res.Marker)
+	}
+	if !res.MaskedAbsent {
+		t.Error("masked path is still readable beneath the ro bind — mask ineffective (Gap 0)")
 	}
 	if !res.RwOK {
 		t.Error("rw resource bind not writable")
@@ -258,6 +269,8 @@ func main() {
 	r["passwdAbsent"] = os.IsNotExist(e)
 	b, _ := os.ReadFile("/component/marker")
 	r["marker"] = string(b)
+	_, me := os.ReadFile("/component/hidden/token")
+	r["maskedAbsent"] = os.IsNotExist(me)
 	r["rwOK"] = os.WriteFile("/data/x", []byte("y"), 0o644) == nil
 	ifs, _ := net.Interfaces()
 	names := []string{}

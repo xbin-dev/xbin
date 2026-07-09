@@ -184,7 +184,7 @@ export class BxFrame extends LitElement {
     try {
       const sessions = this._sessions
         .filter((s) => s.id) // only server-assigned sessions can be reattached
-        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, name: s.name || '', key: s.key }));
+        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, api: s.api, name: s.name || '', key: s.key }));
       if (!sessions.length && !this._termOpen) { localStorage.removeItem(this._termKey()); return; }
       localStorage.setItem(this._termKey(), JSON.stringify({
         open: !!this._termOpen, active: this._active, pop: this._pop, sessions,
@@ -198,7 +198,8 @@ export class BxFrame extends LitElement {
     const saved = this._loadTerm();
     if (!saved?.sessions?.length) return;
     this._sessions = saved.sessions.map((s) => ({
-      key: s.key || uid(), id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none', name: s.name || '',
+      key: s.key || uid(), id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none',
+      api: s.api !== false, name: s.name || '',
     }));
     this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
     if (saved.pop) this._pop = { ...saved.pop };
@@ -429,6 +430,21 @@ export class BxFrame extends LitElement {
     this._sessions = s;
   }
 
+  // Toggle whether this terminal can call the live tile (and xbin) API. The
+  // per-session token is minted at spawn, so like net/GPU this restarts the
+  // session: api=false → no token → the shell can read/edit code but every API
+  // call is unauthorized. Mirrors _setNet.
+  _setApi(i, on) {
+    const cur = this._sessions[i];
+    if (!cur || (cur.api !== false) === on) return;
+    if (cur.id) {
+      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' }).catch(() => { });
+    }
+    const s = [...this._sessions];
+    s[i] = { ...cur, id: null, api: on };
+    this._sessions = s;
+  }
+
   render() {
     const style = this._autoHeight ? nothing
       : `--bx-frame-height: ${this.height || this.style.height}`;
@@ -460,6 +476,12 @@ export class BxFrame extends LitElement {
               <option value="host">🖧 host net</option>
               <option value="none">⛔ offline</option>
             </select>
+            <select class="scope" title="live tile API access — off = the shell can read/edit code but every API call is unauthorized (switching restarts the terminal)"
+                    .value=${this._sessions[this._active]?.api === false ? 'off' : 'on'}
+                    @change=${(e) => this._setApi(this._active, e.target.value === 'on')}>
+              <option value="on">🔌 tile API</option>
+              <option value="off">⛔ no API</option>
+            </select>
             ${this._gpus.length ? html`
               <select class="scope" title="GPU (switching restarts the terminal)"
                       .value=${this._sessions[this._active]?.gpu || 'none'}
@@ -479,7 +501,7 @@ export class BxFrame extends LitElement {
           <div class="term-host">
             ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'}
+                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
                 @bx-session=${(ev) => this._gotSession(i, ev)}
                 @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
           </div>
