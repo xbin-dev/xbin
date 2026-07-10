@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"unsafe"
 
@@ -257,6 +258,10 @@ func awaitMaps(fd int) error {
 // remounts read-only if requested.
 func mountBind(newroot string, b Bind) error {
 	dst := filepath.Join(newroot, b.Dst)
+	if b.Detach {
+		detachUnder(dst)
+		return nil
+	}
 	if b.Mask {
 		return mountMask(dst, b.RO)
 	}
@@ -313,6 +318,37 @@ func mountMask(dst string, ro bool) error {
 		return must(err, "mask "+dst)
 	}
 	return nil
+}
+
+// detachUnder lazily unmounts every mount nested under dir, deepest first. It
+// runs (via Bind.Detach) right before dir is masked, to drop the submounts the
+// recursive workspace bind cloned in — the workspace's per-resource gocryptfs
+// (resenc) mounts under .xbin/resenc — so a tile terminal's `mount`/mountinfo
+// can't enumerate other tiles' resource names. The mask already hides their
+// contents; this hides their existence.
+//
+// Best-effort (a terminal is fully functional without it — the dir is masked
+// regardless) and safe: the sandbox root was made MS_REC|MS_PRIVATE at init, so
+// these detaches apply to the sandbox's private clones only and never unmount
+// the host's live resenc mounts (which serve every tile). Reading mountinfo
+// works here because init still holds the original /proc until pivot_root.
+func detachUnder(dir string) {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return
+	}
+	prefix := strings.TrimRight(dir, "/") + "/"
+	var mps []string
+	for _, line := range strings.Split(string(data), "\n") {
+		// mountinfo: "ID parent maj:min root <mountPoint> opts…" — field index 4.
+		if f := strings.Fields(line); len(f) >= 5 && strings.HasPrefix(f[4], prefix) {
+			mps = append(mps, f[4])
+		}
+	}
+	sort.Slice(mps, func(i, j int) bool { return len(mps[i]) > len(mps[j]) }) // children first
+	for _, mp := range mps {
+		_ = unix.Unmount(mp, unix.MNT_DETACH)
+	}
 }
 
 // remountRO makes an existing bind mount read-only. In a user namespace the

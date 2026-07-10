@@ -85,10 +85,19 @@ type NetClient struct {
 // used to read them. RO seals the cover (nothing may nest); a read-write cover
 // lets a deeper bind nest on top (the own $HOME under a masked homes/).
 type Bind struct {
-	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
+	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask/Detach
 	Dst  string `json:"dst"`            // absolute path inside the new root
 	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
 	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
+	// Detach lazily unmounts every mount nested under Dst (Src ignored). Used
+	// before a Mask to drop submounts the recursive workspace bind cloned in —
+	// the workspace's gocryptfs resource (resenc) mounts — so a terminal's
+	// `mount`/mountinfo can't enumerate other tiles' resource names even though
+	// their contents are already masked. Safe because the sandbox root is
+	// MS_REC|MS_PRIVATE: the detach applies to the sandbox clone only, never the
+	// host's live mounts. Order it ahead of the same-Dst Mask (sortBinds keeps
+	// caller order within a depth) so the submounts are still addressable.
+	Detach bool `json:"detach,omitempty"`
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable

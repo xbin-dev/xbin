@@ -459,6 +459,16 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind
 	// (`cat .xbin/token`), defeating the tile-scoped terminal token. Applies to
 	// every terminal, including the owner's own tiles.
 	binds = append(binds,
+		// First detach the resource submounts the recursive workspace bind cloned
+		// in (the per-resource gocryptfs "resenc" mounts under .xbin/resenc) so a
+		// tile terminal's `mount` can't enumerate other tiles' resource names. The
+		// masks below already hide their contents; this also hides their existence
+		// from the mount table. Ordered ahead of the same-path masks (sortBinds is
+		// stable) so the submounts are still addressable; safe because .xbin/data
+		// are fully masked (nothing under them is reachable) and the sandbox root
+		// is MS_REC|MS_PRIVATE (the detach can't reach the host's live mounts).
+		sandbox.Bind{Dst: filepath.Join(root, ".xbin"), Detach: true},
+		sandbox.Bind{Dst: filepath.Join(root, "data"), Detach: true},
 		sandbox.Bind{Dst: filepath.Join(root, ".xbin"), Mask: true, RO: true},
 		sandbox.Bind{Dst: filepath.Join(root, "data"), Mask: true, RO: true},
 		sandbox.Bind{Dst: filepath.Join(root, "homes"), Mask: true}, // rw: own $HOME nests below

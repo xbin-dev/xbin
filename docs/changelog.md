@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- terminal: **resource mounts no longer leak in `mount`.** A tile terminal
+  binds the workspace read-only+recursive, which cloned in every tile's
+  gocryptfs resource (resenc) mount; their contents were already masked, but
+  `mount`/mountinfo still listed other tiles by resource name. The terminal
+  now detaches those submounts before masking `.xbin`/`data`. Safe by
+  construction (both dirs are fully masked; the sandbox root is
+  MS_REC|MS_PRIVATE, so the host's live mounts are untouched). No rebuild —
+  ships with xbind.
 - terminal: **`apt install` fixed** (`rename … Invalid cross-device link`)
   via apt config only — `Dir::Cache::Archives` moves the download cache to
   `/var/cache/xbin-apt`, a path absent from the base image, so at runtime it
