@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- terminal: fixed **doubled keystroke echo after a base-image upgrade / sandbox
+  reset**. Resetting kills the session server-side then reconnects; the killed
+  socket's onclose could still schedule a reconnect that reattached to the new
+  session, leaving two sockets writing to one terminal (every byte, incl. the
+  echo of what you typed, twice). A connection epoch now ensures only the
+  latest socket drives the terminal or reconnects — also closing the same
+  latent race on network/GPU/API-scope switches.
 - base rootfs: added the tools agents reach for — full `vim`, OpenAI `codex`
   CLI, `chromium`+Playwright (system browser path), `gh`, `fd`/`bat`/`shellcheck`,
   Go `gopls`/`dlv`/`golangci-lint`, and `pnpm`/`yarn` — so a fresh

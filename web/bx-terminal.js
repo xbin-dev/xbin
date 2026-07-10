@@ -68,7 +68,7 @@ const enc = new TextEncoder();
 
 export class BxTerminal extends HTMLElement {
   #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
-  #onPref; #onStorage;
+  #onPref; #onStorage; #gen = 0; // connection epoch: only the latest socket drives the term
 
   connectedCallback() {
     this.style.display = 'block';
@@ -304,6 +304,12 @@ export class BxTerminal extends HTMLElement {
 
   #connect() {
     this.#opened = false;
+    // Claim a new epoch. Any earlier socket (e.g. one the server just killed on
+    // a base-image reset) is now stale: its onclose must not schedule a
+    // reconnect, and its late frames must not be written to the term — otherwise
+    // two sockets end up on one session and every byte (incl. keystroke echo)
+    // is doubled.
+    const gen = ++this.#gen;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
@@ -316,6 +322,7 @@ export class BxTerminal extends HTMLElement {
     this.#ws = ws;
 
     ws.onopen = () => {
+      if (gen !== this.#gen) { ws.close(); return; } // superseded before it opened
       this.#retries = 0;
       this.#opened = true;
       this.#reattachFails = 0;
@@ -324,6 +331,7 @@ export class BxTerminal extends HTMLElement {
       this.#term.focus();
     };
     ws.onmessage = (m) => {
+      if (gen !== this.#gen) { ws.close(); return; } // a stale socket must not drive the term
       if (typeof m.data === 'string') {
         let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
         if (ctl.op === 'session') {
@@ -341,7 +349,7 @@ export class BxTerminal extends HTMLElement {
       this.#term.write(new Uint8Array(m.data));
     };
     ws.onclose = () => {
-      if (this.#closed) return;
+      if (this.#closed || gen !== this.#gen) return; // stale socket (superseded) → don't reconnect
       const reattaching = !!this.getAttribute('session');
       // A reattach whose handshake never succeeded almost always means the
       // session is gone (xbind 404s an unknown id — e.g. a stale id restored
@@ -355,7 +363,7 @@ export class BxTerminal extends HTMLElement {
       if (reattaching && this.#retries < 8) {
         const wait = Math.min(500 * 2 ** this.#retries++, 10000);
         this.#term.write(`\r\n\x1b[90m[reconnecting…]\x1b[0m\r\n`);
-        setTimeout(() => { if (!this.#closed) this.#connect(); }, wait);
+        setTimeout(() => { if (!this.#closed && gen === this.#gen) this.#connect(); }, wait);
       } else {
         this.#term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
       }
