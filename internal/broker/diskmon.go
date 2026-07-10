@@ -53,6 +53,7 @@ type diskMon struct {
 
 	mu       sync.RWMutex
 	blocked  map[string]string // scopeKey → reason (over quota / low-disk offender)
+	usage    map[string]int64  // scopeKey → bytes (last scan)
 	alerts   []Alert
 	freeB    int64
 	totalB   int64
@@ -148,7 +149,8 @@ func (d *diskMon) scan() {
 	}
 
 	d.mu.Lock()
-	d.blocked, d.alerts, d.freeB, d.totalB, d.lastScan = blocked, alerts, free, total, time.Now()
+	d.blocked, d.usage, d.alerts = blocked, usage, alerts
+	d.freeB, d.totalB, d.lastScan = free, total, time.Now()
 	d.mu.Unlock()
 }
 
@@ -161,6 +163,18 @@ func (d *diskMon) Blocked(scopeKey string) (string, bool) {
 	defer d.mu.RUnlock()
 	r, ok := d.blocked[scopeKey]
 	return r, ok
+}
+
+// Status reports a scope's disk footprint, the quota, and whether writes are
+// currently blocked — for the per-tile status API.
+func (d *diskMon) Status(scopeKey string) (usage, quota int64, blocked bool) {
+	if d == nil {
+		return 0, 0, false
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	_, blocked = d.blocked[scopeKey]
+	return d.usage[scopeKey], d.quota, blocked
 }
 
 // Alerts returns the active alerts (a copy).

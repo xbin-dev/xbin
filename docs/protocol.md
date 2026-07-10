@@ -81,6 +81,12 @@ GET    /runtime                    admin. full runtime visibility →
                                    recent:[{proto,dst,port,allowed,txBytes,rxBytes,
                                    start,end}]}}], resources:[{id,type,size,detail}]}
                                    {state: idle|building|healthy|failed, gen, error?}
+GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
+                                   backend {state,gen,cpuSec,cgroup:{mem,pids},
+                                   rssKb,fds,activeConns,egress}, disk {usage,
+                                   quota,blocked}, alerts[]. Readable from that
+                                   tile's terminal (tile-scoped token). `bx
+                                   status` renders it.
 GET    /auth-overview              admin. components(+roles/uses/vault), grants,
                                    pending, counts — powers the admin console
 GET    /vaults                     admin. [{component, keys}] across all vaults

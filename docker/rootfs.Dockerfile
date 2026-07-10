@@ -13,13 +13,14 @@ FROM docker.io/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl wget git ripgrep less vim-tiny nano tmux \
+      ca-certificates curl wget git ripgrep less vim nano tmux \
       python3 python3-pip python3-venv python-is-python3 \
       build-essential pkg-config passwd sudo \
       iproute2 iputils-ping traceroute dnsutils net-tools \
       procps psmisc lsof \
       jq unzip zip xz-utils file tree \
       htop netcat-openbsd socat rsync openssh-client gnupg \
+      fd-find bat shellcheck zsh \
     && rm -rf /var/lib/apt/lists/*
 
 # Go (full toolchain — components build against it).
@@ -41,9 +42,35 @@ RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00xbin-no-sandbo
 
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
+# JS package managers every frontend agent reaches for (pnpm/yarn via corepack,
+# which ships with node).
+RUN corepack enable && corepack prepare pnpm@latest yarn@stable --activate || true
+
 # Agent CLIs — so an opened terminal is AI-assisted with zero setup (RT-4).
+# claude-code, opencode, and OpenAI's codex (learn.chatgpt.com/docs/codex/cli).
 # (Best-effort: keep the base building even if a registry hiccups.)
-RUN npm install -g @anthropic-ai/claude-code opencode-ai || true
+RUN npm install -g @anthropic-ai/claude-code opencode-ai @openai/codex || true
+
+# Go dev tools every Go agent installs, into a system GOBIN on PATH (each
+# terminal has its own GOPATH, so a plain `go install` wouldn't be shared).
+RUN GOBIN=/usr/local/bin GOFLAGS=-mod=mod go install golang.org/x/tools/gopls@latest || true \
+    && GOBIN=/usr/local/bin go install github.com/go-delve/delve/cmd/dlv@latest || true \
+    && curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+       | sh -s -- -b /usr/local/bin || true
+
+# GitHub CLI (official apt repo).
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg > /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/* || true
+
+# Chromium + Playwright for frontend / e2e agents. Browsers land in a system
+# path (terminals run under a different $HOME, so the default ~/.cache wouldn't
+# be found), and --with-deps pulls chromium's system libraries.
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright
+RUN npm install -g playwright @playwright/test || true \
+    && (playwright install --with-deps chromium || true)
 
 # The xbin CLI (built by hack/build-rootfs.sh into the build context).
 COPY bx /usr/local/bin/bx

@@ -509,6 +509,40 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
 		})
 	})
+	// Per-tile runtime status — readable from a tile terminal (self) or by an
+	// admin for any tile. Read-only. Runtime metrics we already collect, scoped
+	// to one component: backend process/cgroup/egress + disk usage/quota + its
+	// alerts. `bx status` renders it.
+	srv.RegisterAPI("GET /tile-status", func(w http.ResponseWriter, r *http.Request) {
+		p := auth.PrincipalOf(r)
+		comp := strings.Trim(r.URL.Query().Get("component"), "/")
+		if comp == "" {
+			comp = p.Component // default: the caller's own tile (terminal / element principal)
+		}
+		if comp == "" {
+			http.Error(w, "specify ?component= (or call from a tile terminal)", http.StatusBadRequest)
+			return
+		}
+		if !brk.IsAdmin(p) && p.Component != comp {
+			http.Error(w, "you can only read your own tile's status", http.StatusForbidden)
+			return
+		}
+		var be *runner.Backend
+		for _, b := range run.Inspect() {
+			if b.Path == comp {
+				bb := b
+				be = &bb
+				break
+			}
+		}
+		usage, quota, blocked := brk.TileDiskStatus(comp)
+		server.WriteJSON(w, http.StatusOK, map[string]any{
+			"component": comp,
+			"backend":   be, // nil when no backend is running
+			"disk":      map[string]any{"usageBytes": usage, "quotaBytes": quota, "blocked": blocked},
+			"alerts":    brk.TileAlerts(comp),
+		})
+	})
 
 	// Watch → rescan, live reload, rebuilds.
 	w, err := watch.New(ws, watchDebounce)

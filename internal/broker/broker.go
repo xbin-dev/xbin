@@ -497,3 +497,25 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 	return g, true
 }
+
+// TileDiskStatus resolves a component to its scope's disk footprint/quota/block
+// state (for the tile status API).
+func (b *Broker) TileDiskStatus(component string) (usage, quota int64, blocked bool) {
+	scope := ""
+	if c, ok := b.Reg.Component(component); ok {
+		scope = c.Scope
+	}
+	return b.disk.Status(util.ScopeKey(scope))
+}
+
+// TileAlerts returns the alerts relevant to one component (its own tile-scoped
+// alerts plus any workspace-wide/system alerts).
+func (b *Broker) TileAlerts(component string) []Alert {
+	var out []Alert
+	for _, a := range b.DiskAlerts() {
+		if a.System || a.Tile == component {
+			out = append(out, a)
+		}
+	}
+	return out
+}

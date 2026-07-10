@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- base rootfs: added the tools agents reach for — full `vim`, OpenAI `codex`
+  CLI, `chromium`+Playwright (system browser path), `gh`, `fd`/`bat`/`shellcheck`,
+  Go `gopls`/`dlv`/`golangci-lint`, and `pnpm`/`yarn` via corepack — so a fresh
+  terminal doesn't re-install them. (docker/rootfs.Dockerfile; `make rootfs`.)
+- terminal: **`bx status`** now shows the current tile's runtime metrics
+  (backend state/cpu/mem/pids/fds/conns/egress, disk usage vs quota, alerts)
+  via the new read-only `GET /api/xbin/tile-status?component=` — readable with
+  the tile-scoped terminal token (self), or any tile for admins. `--all` keeps
+  the admin global view.
 - terminal pop-up: a **code browser / git-review panel** (`bx-code`) beside
   the terminal. A collapsible file tree + syntax-highlighted viewer (vendored
   highlight.js, no build step) and a **Changes** tab showing the working-tree
