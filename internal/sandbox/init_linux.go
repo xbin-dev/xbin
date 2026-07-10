@@ -93,14 +93,12 @@ func runInit(specPath string) error {
 	}
 	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
 	if s.FuseOverlay != "" {
-		// redirect_dir=on makes cross-layer renames work (which unprivileged
-		// kernel overlayfs forbids — hence fuse-overlayfs). Without it, moving a
-		// file into a lower-only directory fails with EXDEV ("Invalid
-		// cross-device link"), which breaks `apt install` (its partial/ → cache
-		// rename). It backgrounds itself once mounted; Run returns when the mount
-		// is ready. CombinedOutput so its harmless mount-flag warnings (e.g.
-		// "lazytime") don't print into every terminal; surface only on failure.
-		fo := exec.Command(s.FuseOverlay, "-o", opt+",redirect_dir=on", newroot)
+		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
+		// overlayfs forbids), so directory renames work → `apt install` etc. It
+		// backgrounds itself once mounted; Run returns when the mount is ready.
+		// CombinedOutput so its harmless mount-flag warnings (e.g. "lazytime")
+		// don't print into every terminal; surface output only on failure.
+		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
 		if out, err := fo.CombinedOutput(); err != nil {
 			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
 		}
@@ -278,11 +276,7 @@ func mountBind(newroot string, b Bind) error {
 			f.Close()
 		}
 	}
-	flags := uintptr(unix.MS_BIND)
-	if !b.NoRec {
-		flags |= unix.MS_REC // clone nested submounts (default)
-	}
-	if err := unix.Mount(b.Src, dst, "", flags, ""); err != nil {
+	if err := unix.Mount(b.Src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return must(err, "bind "+b.Src+" -> "+b.Dst)
 	}
 	if b.RO {

@@ -451,13 +451,7 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind
 	}
 	// Workspace read-only — so a tile terminal sees ALL tiles' source (needed to
 	// integrate against another tile's API), but writes only its own dir + $HOME.
-	// Non-recursive: the host has a per-resource gocryptfs mount for every tile
-	// under data/.xbin; without NoRec those would all be cloned into this
-	// terminal's mount table (visible in `mount`, leaking every tile's resource
-	// names) even though the paths themselves are masked below. The own
-	// component + $HOME are re-bound (recursively) on top, so their submounts
-	// still come along.
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true, NoRec: true}}
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
 	// ...except the platform's secrets and other users' data, which are masked
 	// out entirely: .xbin (owner token + frame-token secret), data (vault, the
 	// encrypted resource state, and users.json password hashes), and every OTHER

@@ -82,18 +82,6 @@ func TestScopedBinds(t *testing.T) {
 	if !rw[home] {
 		t.Errorf("own $HOME must remain read-write under the homes mask")
 	}
-
-	// The workspace root bind is non-recursive so the host's per-tile resource
-	// (gocryptfs) submounts don't get cloned into the terminal's mount table.
-	var rootBind *sandbox.Bind
-	for i, b := range scopedBinds(root, "apps/welcome", home, extra) {
-		if b.Dst == root && !b.Mask {
-			rootBind = &scopedBinds(root, "apps/welcome", home, extra)[i]
-		}
-	}
-	if rootBind == nil || !rootBind.NoRec {
-		t.Errorf("the workspace root bind must be non-recursive (NoRec)")
-	}
 }
 
 // $HOME is only rw-bound if it exists (fresh/odd workspaces without one still work).

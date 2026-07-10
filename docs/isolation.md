@@ -60,9 +60,7 @@ read-only):
 
 This holds for **every** terminal, including one on a tile you own. So a rogue
 agent in a component terminal can touch **only its own component and `$HOME`**,
-and can read code but not secrets. The workspace is bound **non-recursively**,
-so the host's per-tile encrypted-resource (gocryptfs) mounts don't appear in
-the terminal's `mount` table either — only its own component and `$HOME` show.
+and can read code but not secrets.
 
 **Live-API toggle.** A terminal's titlebar has a **tile-API / no-API** switch
 (alongside the network scope). With it off, the session is minted with **no
