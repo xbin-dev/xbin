@@ -40,6 +40,13 @@ picks a color theme) with a shell *in that component's directory*. (Frames
 embedded outside the shell keep the small 7×7 corner square for the same
 thing.)
 
+The pop-up's title bar also has a **layout switch** — `>_` terminal · `{ }`
+code · `⇋` split. The **code panel** is a buildless VS-Code-ish browser: a
+collapsible file tree + syntax-highlighted viewer, and a **Changes** tab that
+shows the working-tree diff (what you're about to commit) and any commit's diff
+for review — right beside the terminal in split mode. It's read-only; editing
+is the terminal's job.
+
 That terminal is **scoped to its component**: it can write its own directory and
 `$HOME`, but the rest of the workspace is **read-only** (you can read other
 tiles' source, but the platform's secrets — `.xbin/`, `data/`, other users'
@@ -86,8 +93,8 @@ terminal) and save — xbind recompiles and swaps the running backend in about a
 second (typically ~200 ms warm). Compile errors appear as an overlay on the frame
 and clear on the next good save. Backend logs: `bx logs -f apps/counter`.
 
-Try it from the shell too — your terminal has an owner token in the
-environment:
+Try it from the counter's own terminal — `$XBIN_TOKEN` there is scoped to that
+tile, so it can call its own backend:
 
 ```sh
 curl -H "Authorization: Bearer $XBIN_TOKEN" $XBIN_URL/api/apps/counter/hello
@@ -115,9 +122,9 @@ host shell — it's gitignored, so it stays local to this workspace.
 
 A terminal opened on a component is **scoped to it**: that component's dir and
 `$HOME` are writable, the rest of the workspace is read-only, and `git commit`
-still works because each component is its own repo. A **root terminal** (on the
-workspace root) is the owner plane — the whole tree writable — for cross-component
-work and creating components. Full model: [isolation.md](/docs/isolation.md).
+still works because each component is its own repo. There is **no root
+terminal** — cross-component work and creating components happen in the browser
+(Tile Manager) or from a host shell. Full model: [isolation.md](/docs/isolation.md).
 
 Sessions survive browser disconnects (reattach happens automatically) but
 not xbind restarts — run `tmux` inside if that matters to you.

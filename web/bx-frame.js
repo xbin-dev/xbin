@@ -3,7 +3,9 @@
  * component's index.html in a same-origin iframe, carries the always-visible
  * 7×7 edit button, live-reloads on source changes, shows build errors as an
  * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
- * the component's source directory).
+ * the component's source directory) plus a code browser / git-review panel
+ * (bx-code) that can share the window with the terminal (layout: terminal /
+ * code / split).
  *
  * Attributes:
  *   src     — component path (workspace-relative)
@@ -23,6 +25,7 @@ import { LitElement, html, css, nothing } from 'lit';
 import { repeat } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
+import '/vendor/bx-code.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -60,6 +63,8 @@ export class BxFrame extends LitElement {
     _gpus: { state: true },
     _buildError: { state: true },
     _autoHeight: { state: true },
+    _layout: { state: true },  // 'term' | 'code' | 'split'
+    _codeW: { state: true },   // code panel width % in split
   };
 
   static styles = css`
@@ -137,12 +142,21 @@ export class BxFrame extends LitElement {
       font: 11px var(--bx-mono, ui-monospace, monospace);
       padding: 1px 4px; border-radius: 4px; cursor: pointer;
     }
-    .term-host { flex: 1; min-height: 0; background: var(--bx-term-bg, #262c36); }
+    .panels { display: flex; flex: 1; min-height: 0; }
+    bx-code { min-width: 0; overflow: hidden; border-right: 1px solid var(--bx-border, #e4e8ed); }
+    .vsplit { flex: none; width: 5px; cursor: col-resize; background: var(--bx-border, #e4e8ed); }
+    .vsplit:hover { background: var(--bx-accent, #f2a71b); }
+    .term-host { flex: 1; min-height: 0; min-width: 0; background: var(--bx-term-bg, #262c36); }
+    .lyt { display: inline-flex; margin-left: 2px; }
+    .lyt button { padding: 1px 6px; }
+    .lyt button.on { background: var(--bx-panel, #fff); border-color: var(--bx-border, #e4e8ed); color: var(--bx-text, #33414e); }
   `;
 
   constructor() {
     super();
     this._termOpen = false;
+    this._layout = 'term';
+    this._codeW = 55;
     this._sessions = []; // [{id: string|null, net, gpu}] — id null until server assigns
     this._active = 0;
     this._gpus = []; // host GPU inventory (empty unless a GPU host)
@@ -430,6 +444,36 @@ export class BxFrame extends LitElement {
     this._sessions = s;
   }
 
+  // Switch the pop-up layout: terminal only, code browser/review only, or a
+  // resizable split of the two. The terminal stays mounted (hidden in 'code')
+  // so its session survives; bx-code mounts lazily on first non-'term' view.
+  _setLayout(l) {
+    this._layout = l;
+    if (l !== 'term' && this._pop && this._pop.w < 760) {
+      this._pop = { ...this._pop, w: 960 }; // widen for the code panel
+      this._saveTerm?.();
+    }
+  }
+
+  // Drag the split divider (a shield keeps the frame iframe from stealing the
+  // pointer when the cursor races ahead).
+  _splitStart(e) {
+    e.preventDefault();
+    const panels = e.currentTarget.parentElement;
+    const rect = panels.getBoundingClientRect();
+    const un = dragShield('col-resize');
+    const move = (ev) => {
+      this._codeW = Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      un();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
   // Toggle whether this terminal can call the live tile (and xbin) API. The
   // per-session token is minted at spawn, so like net/GPU this restarts the
   // session: api=false → no token → the shell can read/edit code but every API
@@ -468,6 +512,14 @@ export class BxFrame extends LitElement {
                       @dblclick=${() => this._renameTerm(i)}
                       title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>${s.name || (i + 1)}</button>`)}
             <button title="new terminal" @click=${this._newTerm}>+</button>
+            <span class="lyt">
+              <button class=${this._layout === 'term' ? 'on' : ''} title="terminal only"
+                      @click=${() => this._setLayout('term')}>&gt;_</button>
+              <button class=${this._layout === 'code' ? 'on' : ''} title="code browser + review"
+                      @click=${() => this._setLayout('code')}>{ }</button>
+              <button class=${this._layout === 'split' ? 'on' : ''} title="code + terminal side by side"
+                      @click=${() => this._setLayout('split')}>⇋</button>
+            </span>
             <span class="spacer"></span>
             <select class="scope" title="network scope (switching restarts the terminal)"
                     .value=${this._sessions[this._active]?.net || 'internet'}
@@ -498,12 +550,17 @@ export class BxFrame extends LitElement {
             <button title="close (session keeps running)"
                     @click=${() => { this._termOpen = false; }}>✕</button>
           </div>
-          <div class="term-host">
+          <div class="panels">
+            ${this._layout !== 'term' ? html`<bx-code src=${this.src}
+                style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
+            ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
+            <div class="term-host" style="display:${this._layout === 'code' ? 'none' : 'flex'}; flex-direction:column">
             ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
                 cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
                 @bx-session=${(ev) => this._gotSession(i, ev)}
                 @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
+            </div>
           </div>
         </div>` : nothing}
     `;

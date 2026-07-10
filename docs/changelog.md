@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- terminal pop-up: a **code browser / git-review panel** (`bx-code`) beside
+  the terminal. A collapsible file tree + syntax-highlighted viewer (vendored
+  highlight.js, no build step) and a **Changes** tab showing the working-tree
+  diff and per-commit diffs for review. Title-bar layout switch: terminal /
+  code / resizable split. Read-only (editing stays the terminal's job);
+  backed by the existing grant-gated /api/xbin/code/* + /git/* endpoints.
 - **resource limits (blast-radius containment for shared/mixed-team
   workspaces).** Per-tile cgroup caps are now *enforced*, not just measured:
   memory.max 2 GiB (+ memory.high), pids.max max(512, ncpu×8), cpu.weight
