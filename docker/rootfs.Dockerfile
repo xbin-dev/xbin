@@ -42,9 +42,11 @@ RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00xbin-no-sandbo
 
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
-# JS package managers every frontend agent reaches for (pnpm/yarn via corepack,
-# which ships with node).
-RUN corepack enable && corepack prepare pnpm@latest yarn@stable --activate || true
+# JS package managers every frontend agent reaches for. Installed via npm
+# directly, NOT corepack: this node's bundled corepack has stale signing keys
+# and rejects current pnpm/yarn releases ("Cannot find matching keyid") — and
+# its shims would hit the same failure on first use in a terminal.
+RUN npm install -g pnpm yarn || true
 
 # Agent CLIs — so an opened terminal is AI-assisted with zero setup (RT-4).
 # claude-code, opencode, and OpenAI's codex (learn.chatgpt.com/docs/codex/cli).
