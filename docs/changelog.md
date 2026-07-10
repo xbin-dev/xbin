@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- terminal: **`apt install` fixed** (`rename … Invalid cross-device link`) —
+  the fuse-overlayfs mount now sets `redirect_dir=on`, so cross-layer renames
+  (apt's partial/ → cache move) work. The code intended this but never passed
+  the option.
+- terminal: the workspace is bound **non-recursively**, so the host's per-tile
+  gocryptfs resource mounts no longer clone into a terminal's mount namespace
+  — `mount` / `/proc/mounts` no longer lists every other tile's resource
+  names (they were already content-masked, but the mount-table entries leaked
+  the names). The own component + `$HOME` are re-bound, so their submounts
+  still appear.
 - terminal: fixed **doubled keystroke echo after a base-image upgrade / sandbox
   reset**. Resetting kills the session server-side then reconnects; the killed
   socket's onclose could still schedule a reconnect that reattached to the new
