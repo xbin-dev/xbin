@@ -21,6 +21,7 @@ import (
 	"github.com/magik6k/xbin/internal/resenc"
 	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/users"
+	"github.com/magik6k/xbin/internal/util"
 	"github.com/magik6k/xbin/internal/vault"
 )
 
@@ -41,6 +42,7 @@ type Broker struct {
 	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
+	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -101,8 +103,38 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 		}
 	}
 	b.cron = newCronRunner(b)
+	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
+	go b.disk.run()
 	b.Provision()
 	return b, nil
+}
+
+// scopeDiskUsage measures each scope's resource footprint (its
+// data/resources/<scope> tree — blob/sqlite/filesystem storage), keyed by
+// scope key, for the disk monitor.
+func (b *Broker) scopeDiskUsage() map[string]int64 {
+	out := map[string]int64{}
+	measure := func(scope string) {
+		key := util.ScopeKey(scope)
+		size, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources", key))
+		out[key] = size
+	}
+	measure("")
+	for scope := range b.Reg.Scopes() {
+		measure(scope)
+	}
+	return out
+}
+
+// DiskAlerts returns the current workspace disk/limit alerts.
+func (b *Broker) DiskAlerts() []Alert { return b.disk.Alerts() }
+
+// SetLimitAlerts injects extra alert sources (e.g. cgroup at-limit events)
+// that the monitor folds into DiskAlerts. Called from main after wiring.
+func (b *Broker) SetLimitAlerts(fn func() []Alert) {
+	if b.disk != nil {
+		b.disk.extra = fn
+	}
 }
 
 // UnsealOrInit brings the vault barrier online with a passphrase: initializes
@@ -155,6 +187,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /vault/{rest...}", b.apiVaultGet)
 	srv.RegisterAPI("PUT /vault/{rest...}", b.apiVaultPut)
 	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)
+	srv.RegisterAPI("GET /alerts", b.apiAlerts)
 	srv.RegisterAPI("POST /bus/publish", b.apiBusPublish)
 	srv.RegisterAPI("POST /clone", b.apiClone)
 	srv.RegisterAPI("GET /kv/{rest...}", b.apiKVGet)

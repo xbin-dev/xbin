@@ -85,6 +85,7 @@ export class BxShell extends LitElement {
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
     _settings: { state: true },     // per-user workspace settings {fontSize}
     _settingsOpen: { state: true }, // the 🔧 settings dropdown
+    _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
@@ -223,6 +224,12 @@ export class BxShell extends LitElement {
     }
     .ctxmenu button:hover { background: var(--bx-panel-2, #f7f8fa); color: var(--bx-accent, #f5a623); }
 
+    .alerts { position: sticky; top: 0; z-index: 3500; display: flex; flex-direction: column; }
+    .alert { display: flex; align-items: center; gap: 8px; padding: 6px 14px; font-size: 12.5px;
+      font-weight: 500; color: #fff; }
+    .alert .ico { font-size: 14px; }
+    .alert.warn { background: #b7791f; }
+    .alert.crit { background: #c53030; }
     .wsmenu {
       position: fixed; top: 42px; right: 12px; z-index: 3001; min-width: 220px; padding: 8px 10px;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
@@ -374,6 +381,7 @@ export class BxShell extends LitElement {
     this._create = null;
     this._folderEdit = null;
     this._settings = { fontSize: 13 };
+    this._alerts = [];
     this._settingsOpen = false;
     this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
@@ -402,6 +410,8 @@ export class BxShell extends LitElement {
     window.addEventListener('bx-spawn-close', this._onSpawnClose);
     this._loadSys();
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
+    this._loadAlerts();
+    this._alertTimer = setInterval(() => this._loadAlerts(), 20000);
   }
 
   disconnectedCallback() {
@@ -410,6 +420,7 @@ export class BxShell extends LitElement {
     window.removeEventListener('bx-spawn', this._onSpawn);
     window.removeEventListener('bx-spawn-close', this._onSpawnClose);
     clearInterval(this._sysTimer);
+    clearInterval(this._alertTimer);
     this._ro?.disconnect();
     window.removeEventListener('pointermove', this._onMove);
     window.removeEventListener('pointerup', this._onUp);
@@ -791,6 +802,14 @@ export class BxShell extends LitElement {
   }
 
   // ---- sidebar: system status footer (admin-only; polls /status every 5s) ----
+  async _loadAlerts() {
+    if (document.hidden) return;
+    try {
+      const r = await window.xbin?.fetch('/api/xbin/alerts');
+      if (r?.ok) this._alerts = (await r.json()).alerts || [];
+    } catch { /* transient */ }
+  }
+
   async _loadSys() {
     if (this._side.collapsed || document.hidden) return;
     try {
@@ -1221,6 +1240,10 @@ export class BxShell extends LitElement {
 
   render() {
     return html`
+      ${this._alerts.length ? html`<div class="alerts">
+        ${this._alerts.map((a) => html`<div class="alert ${a.level}">
+          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}</div>`)}
+      </div>` : nothing}
       <div class="top">
         <span class="logo">
           <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">

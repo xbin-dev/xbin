@@ -189,3 +189,43 @@ contracts and the `@archive` slot used by backups) lives in
 **See also:** [resources.md](/docs/resources.md) (what persists and where),
 [auth.md](/docs/auth.md) (grants, principals, the vault),
 [protocol.md](/docs/protocol.md) (interfaces, bindings, the full API).
+
+## Resource limits (blast-radius containment)
+
+The workspace is shared, so one clumsy or runaway tile must not be able to take
+it down. Under `--isolate` (and wherever xbind's cgroup is delegated) each tile
+backend is capped so it degrades *itself*, not the box:
+
+- **Memory** — `memory.max` 2 GiB (a soft `memory.high` 1/8 under it throttles a
+  gradual leak before the hard OOM). Over-budget → the tile's own process is
+  OOM-killed and crash-loop backoff kicks in; nothing else is touched.
+- **Processes** — `pids.max` `max(512, ncpu×8)`: a fork bomb hits its own
+  ceiling. This is also the practical cap on **namespace/mount exhaustion** —
+  every user/mount/pid namespace needs a process, so `pids.max` bounds how many
+  a tile can create. (Linux's own `user.max_*_namespaces` / `fs.mount-max`
+  sysctls are the coarse, hierarchical backstop if you want a hard ceiling; we
+  don't touch them by default.)
+- **CPU** — `cpu.weight` (fair share): under contention every tile gets an equal
+  slice, but an idle box lets any tile burst to all cores (no hard `cpu.max`).
+- **Disk** — each scope's resource storage is capped at **50 GiB**; over it, its
+  API resource writes (kv/blob) get `507`. When the data partition drops below
+  **10 % free**, the biggest users are write-blocked too, to hold the reserve.
+  Directly-mounted resources (sqlite/filesystem) can't be write-blocked at the
+  API — they count toward the quota and raise an alert, but stopping them is the
+  admin's call.
+- **Terminals** — 32 per user (64 global), so one person can't exhaust the pool.
+
+Limits are tunable via `XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK`.
+
+**Backend hardening.** A tile backend needs no privilege, so it runs with **all
+capabilities dropped** and a **seccomp block-list** of system-damaging syscalls
+(mount family, module load, kexec, reboot, ptrace, bpf, keyrings, device nodes,
+clock/quota). A wedged or buggy tile can't reach past its own process. Terminals
+are different — they keep capabilities (for `apt`, nested namespaces) and rely on
+the narrower mount/read guards above.
+
+**Alerts.** At-limit and blocking events (a tile over disk quota, low workspace
+disk, a tile hitting its memory/pids cap) surface as `GET /api/xbin/alerts` and
+show as a banner in the **workspace shell** (system-wide notices to everyone)
+and the **admin console** (all of them). So an operator sees a degrading
+workspace immediately, not after it breaks.

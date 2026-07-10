@@ -165,6 +165,9 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
 				return "", "", false
 			}
+			if !b.quotaOK(w, rt.Scope, want) {
+				return "", "", false
+			}
 			return rt.String(), key, true
 		}
 		i := strings.LastIndex(probe, "/")
@@ -283,6 +286,9 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 			rel = strings.TrimPrefix(strings.TrimPrefix(rest, probe), "/")
 			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
 				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+				return "", "", false
+			}
+			if !b.quotaOK(w, rt.Scope, want) {
 				return "", "", false
 			}
 			// blob is always an encrypted gocryptfs mount; refuse until it's up

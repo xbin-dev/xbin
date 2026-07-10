@@ -58,7 +58,8 @@ export class BxAdmin extends LitElement {
     _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
     _cron: { state: true },
     _users: { state: true },
-    _authSettings: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
+    _authSettings: { state: true },
+    _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
     _schedules: { state: true }, // [{component, schedule, retention}]
     _versions: { state: true },  // comp -> [{version,time,size}] (lazy)
@@ -89,6 +90,11 @@ export class BxAdmin extends LitElement {
       border-color: var(--bx-border, #e4e8ed); margin-bottom: -1px; }
     .body { padding: 12px 14px; }
     .err { color: var(--bx-red, #e5484d); font-size: 12px; margin: 4px 0; }
+    .alertbar { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
+    .al { padding: 6px 10px; border-radius: 6px; font-size: 12px; color: #fff; }
+    .al b { margin-right: 4px; }
+    .al.warn { background: #b7791f; }
+    .al.crit { background: #c53030; }
     .denied { padding: 20px 14px; }
     .denied code { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
       border-radius: 4px; padding: 0 4px; font: 11.5px var(--bx-mono); }
@@ -247,6 +253,7 @@ export class BxAdmin extends LitElement {
     const h = location.hash.replace(/^#/, '');
     this._tab = BxAdmin.TABS.some((t) => t.id === h) ? h : 'overview';
     this._err = '';
+    this._alerts = [];
     this._denied = false;
     this._rtOpen = new Set();
     this._versions = {};
@@ -315,15 +322,17 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings, vaultStatus] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts] = await Promise.all([
         api('/auth-overview'),
         api('/vaults').catch(() => null), // 503 while the barrier is sealed
         api('/cron/jobs'),
         api('/users').catch(() => ({ users: [] })),
         api('/auth-settings').catch(() => null),
         api('/vault-status').catch(() => null),
+        api('/alerts').catch(() => ({ alerts: [] })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
+      this._alerts = alerts.alerts ?? [];
       this._users = users.users ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
@@ -561,6 +570,10 @@ export class BxAdmin extends LitElement {
       See <a href="/docs/auth.md" target="_blank">docs/auth.md</a>.</div>`;
     const tab = this._tab;
     return html`
+      ${(this._alerts || []).length ? html`<div class="alertbar">
+        ${this._alerts.map((a) => html`<div class="al ${a.level}">
+          <b>${a.level === 'crit' ? '\u26A0' : '\u26A1'}</b> ${a.message}</div>`)}
+      </div>` : nothing}
       <div class="tabs">
         ${BxAdmin.TABS.map((t) => html`
           <button class=${t.id === tab ? 'on' : ''} @click=${() => this._setTab(t.id)}>${t.label}</button>`)}

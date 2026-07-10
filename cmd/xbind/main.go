@@ -40,6 +40,7 @@ import (
 	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/term"
 	"github.com/magik6k/xbin/internal/users"
+	"github.com/magik6k/xbin/internal/util"
 	"github.com/magik6k/xbin/internal/watch"
 )
 
@@ -328,6 +329,33 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	}
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
+
+	// Fold cgroup at-limit events into the workspace alerts: a tile that keeps
+	// hitting its memory or pids cap surfaces in the admin console / shell.
+	// Delta-tracked so a one-off blip clears once the tile settles.
+	if run.Cgroup != nil && run.Cgroup.Enabled() {
+		lastMem, lastPids := map[string]int64{}, map[string]int64{}
+		brk.SetLimitAlerts(func() []broker.Alert {
+			var out []broker.Alert
+			for _, c := range reg.Components() {
+				key := util.CompKey(c.Path)
+				mem, pids, ok := run.Cgroup.AtLimit(key)
+				if !ok {
+					continue
+				}
+				if mem > lastMem[key] {
+					out = append(out, broker.Alert{Level: "warn", Kind: "oom", Tile: c.Path,
+						Message: c.Path + " hit its memory limit (was OOM-killed) — it may be leaking or under-provisioned"})
+				}
+				if pids > lastPids[key] {
+					out = append(out, broker.Alert{Level: "warn", Kind: "pids", Tile: c.Path,
+						Message: c.Path + " hit its process (pids) limit — a runaway fork/spawn?"})
+				}
+				lastMem[key], lastPids[key] = mem, pids
+			}
+			return out
+		})
+	}
 
 	// Vault encryption barrier (docs/auth.md §vault, plans/vault-data.md). It
 	// protects both secrets and resource data (kv/filesystem/sqlite/blob) at

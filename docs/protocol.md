@@ -89,6 +89,10 @@ GET    /components                 any. [{path, scope, runtime, hasIndex, roles,
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile. {token}
 
+GET    /alerts                    any. workspace health {alerts:[{level,kind,
+                                   tile?,message,system}]} — disk quota / low
+                                   disk / cgroup at-limit; system alerts to all,
+                                   tile alerts to admins + that tile's users
 GET    /whoami                    any. caller identity + permissions
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
@@ -270,7 +274,8 @@ DELETE /vault/<component>/<key>    self or admin.
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes
-PUT    /kv/res:<scope>/<name>/<key>      writer. body = value (≤1 MiB)
+PUT    /kv/res:<scope>/<name>/<key>      writer. body = value (≤1 MiB). 507 if
+                                         the scope is over its disk quota
 DELETE /kv/res:<scope>/<name>/<key>      writer.
 
 GET    /blob/res:<scope>/<name>/[path]   reader. file bytes | {entries} for dirs
