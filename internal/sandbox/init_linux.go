@@ -97,15 +97,8 @@ func runInit(specPath string) error {
 		// kernel overlayfs forbids — hence fuse-overlayfs). Without it, moving a
 		// file into a lower-only directory fails with EXDEV ("Invalid
 		// cross-device link"), which breaks `apt install` (its partial/ → cache
-		// rename). Only on the fuse path, never the kernel-overlay fallback below
-		// (unprivileged kernel overlay rejects redirect_dir and would fail to
-		// mount). Caveat: a cross-layer dir rename writes a redirect xattr into
-		// the persistent upper (.xbin/term/<key>), so that layer then depends on
-		// redirect_dir staying on — a rollback to a build without it could make a
-		// renamed dir look empty. Recoverable with the terminal's ⟲ reset (wipes
-		// the upper); existing layers with no redirects are unaffected.
-		// It backgrounds itself once mounted; Run returns when the mount is
-		// ready. CombinedOutput so its harmless mount-flag warnings (e.g.
+		// rename). It backgrounds itself once mounted; Run returns when the mount
+		// is ready. CombinedOutput so its harmless mount-flag warnings (e.g.
 		// "lazytime") don't print into every terminal; surface only on failure.
 		fo := exec.Command(s.FuseOverlay, "-o", opt+",redirect_dir=on", newroot)
 		if out, err := fo.CombinedOutput(); err != nil {
