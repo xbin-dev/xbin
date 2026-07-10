@@ -38,7 +38,17 @@ RUN mkdir -p /usr/local/node \
 # fails ("setgroups … Operation not permitted") and `apt update`/`install` break.
 # Tell apt to run as root instead — the standard fix for unprivileged containers.
 # (Terminal overlays are ephemeral, so installs last for the session.)
-RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00xbin-no-sandbox
+#
+# Also move apt's download cache off the default /var/cache/apt/archives. That
+# path ships in this base image (the overlay lower), so at runtime it's a
+# "merged" dir and apt's partial/ → archives/ rename crosses overlay layers,
+# failing with EXDEV ("Invalid cross-device link"). /var/cache/xbin-apt does
+# NOT exist in the base (we delete it at build end), so at runtime apt creates
+# it fresh in the writable upper and the rename stays within one layer. This
+# fixes `apt install` without any overlay-mount options (redirect_dir on the
+# shared overlay is unsafe — it broke component backends' state).
+RUN printf 'APT::Sandbox::User "root";\nDir::Cache::Archives "/var/cache/xbin-apt";\n' \
+      > /etc/apt/apt.conf.d/00xbin-no-sandbox
 
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -73,6 +83,11 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright
 RUN npm install -g playwright @playwright/test || true \
     && (playwright install --with-deps chromium || true)
+
+# Drop every apt download cache so /var/cache/xbin-apt is ABSENT from the base
+# (the reason the runtime rename fix above works — it must be upper-only) and
+# the image doesn't ship build-time .debs.
+RUN apt-get clean && rm -rf /var/cache/xbin-apt /var/cache/apt/archives/*
 
 # The xbin CLI (built by hack/build-rootfs.sh into the build context).
 COPY bx /usr/local/bin/bx

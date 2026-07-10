@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-10
 
+- terminal: **`apt install` fixed** (`rename … Invalid cross-device link`)
+  via apt config only — `Dir::Cache::Archives` moves the download cache to
+  `/var/cache/xbin-apt`, a path absent from the base image, so at runtime it
+  lives entirely in the writable overlay upper and apt's partial/ → archives/
+  rename never crosses layers. No overlay-mount option (an earlier
+  `redirect_dir=on` attempt on the shared overlay broke component backends'
+  state and was reverted). Needs a `make rootfs` rebuild.
 - terminal: fixed **doubled keystroke echo after a base-image upgrade / sandbox
   reset**. Resetting kills the session server-side then reconnects; the killed
   socket's onclose could still schedule a reconnect that reattached to the new
