@@ -36,9 +36,10 @@ import (
 )
 
 const (
-	maxScrollback = 256 << 10 // per session
-	maxSessions   = 64
-	idleTimeout   = 24 * time.Hour
+	maxScrollback      = 256 << 10 // per session
+	maxSessions        = 64
+	maxSessionsPerUser = 32 // so one user can't starve the global pool
+	idleTimeout        = 24 * time.Hour
 )
 
 // Network scope for a terminal session (query ?net=). The netns/relay is fixed
@@ -250,7 +251,16 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 		m.mu.Unlock()
 		return nil, fmt.Errorf("session limit (%d) reached", maxSessions)
 	}
+	perUser := 0 // one user can't exhaust the global pool
+	for _, s := range m.sessions {
+		if s.homeKey == homeKey {
+			perUser++
+		}
+	}
 	m.mu.Unlock()
+	if perUser >= maxSessionsPerUser {
+		return nil, fmt.Errorf("per-user terminal limit (%d) reached — close some terminals", maxSessionsPerUser)
+	}
 
 	// This user's $HOME, created + skeleton-seeded on first use (lazy: the user
 	// set is dynamic, so homes materialize per user, not at scaffold time).

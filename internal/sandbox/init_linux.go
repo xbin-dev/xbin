@@ -207,6 +207,16 @@ func runInit(specPath string) error {
 	if s.ReadGuard != nil {
 		_ = installReadGuard(s.ReadGuard) // best effort; the mount guard still applies
 	}
+	// Tile backends: drop caps + seccomp block-list (they need neither). Order:
+	// bounding-set drop needs CAP_SETPCAP, so caps go before the filter.
+	if s.Unprivileged {
+		if err := dropAllCaps(); err != nil {
+			return must(err, "drop caps")
+		}
+		if err := installBackendSeccomp(); err != nil {
+			return must(err, "install backend seccomp")
+		}
+	}
 	if s.MountGuard {
 		if err := installMountGuard(); err != nil {
 			return must(err, "install mount guard")

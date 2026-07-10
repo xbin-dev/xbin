@@ -24,10 +24,28 @@ type Usage struct {
 	PidsCurrent int64 `json:"pidsCurrent"`
 }
 
+// Limits are the per-component resource caps written to each leaf. A runaway
+// tile then OOMs / is throttled / can't fork *alone* instead of taking the box
+// down (plans/isolation.md). Zero fields are left at the cgroup default.
+type Limits struct {
+	MemMax    int64 // memory.max, bytes (0 = unlimited)
+	PidsMax   int64 // pids.max (0 = unlimited)
+	CPUWeight int64 // cpu.weight 1..10000 (0 = default 100). Fair share under
+	//                  contention, full burst when idle — no hard cpu.max.
+}
+
 // Manager owns xbind's delegated cgroup subtree and per-component leaves.
 type Manager struct {
 	base    string // the delegated base cgroup dir
 	enabled bool
+	limits  Limits
+}
+
+// SetLimits installs the per-component caps applied to every leaf in Add.
+func (m *Manager) SetLimits(l Limits) {
+	if m != nil {
+		m.limits = l
+	}
 }
 
 // New sets up (if possible) a delegated subtree: xbind moves itself into a
@@ -70,8 +88,9 @@ func (m *Manager) Enabled() bool { return m != nil && m.enabled }
 
 func (m *Manager) leaf(name string) string { return filepath.Join(m.base, "comp-"+name) }
 
-// Add creates a per-component leaf and moves pid into it (no limits — pure
-// accounting). Safe no-op when disabled.
+// Add creates a per-component leaf, applies the caps, and moves pid into it.
+// Limits are written before the pid joins so they bind the process's whole
+// lifetime. Safe no-op when disabled.
 func (m *Manager) Add(name string, pid int) {
 	if !m.Enabled() {
 		return
@@ -80,7 +99,54 @@ func (m *Manager) Add(name string, pid int) {
 	if err := os.Mkdir(leaf, 0o755); err != nil && !os.IsExist(err) {
 		return
 	}
+	writeLimits(leaf, m.limits)
 	_ = os.WriteFile(filepath.Join(leaf, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
+}
+
+// writeLimits applies l to a leaf (best-effort per file — a missing controller
+// just leaves that cap at the default).
+func writeLimits(leaf string, l Limits) {
+	set := func(file, val string) { _ = os.WriteFile(filepath.Join(leaf, file), []byte(val), 0o644) }
+	if l.MemMax > 0 {
+		set("memory.max", strconv.FormatInt(l.MemMax, 10))
+		// A soft ceiling a little under the hard one: reclaim pressure kicks in
+		// before the OOM kill, so a gradual leak is throttled first.
+		set("memory.high", strconv.FormatInt(l.MemMax-l.MemMax/8, 10))
+	}
+	if l.PidsMax > 0 {
+		set("pids.max", strconv.FormatInt(l.PidsMax, 10))
+	}
+	if l.CPUWeight > 0 {
+		set("cpu.weight", strconv.FormatInt(l.CPUWeight, 10)) // fair share; no cpu.max = burst when idle
+	}
+}
+
+// AtLimit reads a leaf's memory/pids limit-hit counters (memory.events "max"
+// + "oom", pids.events "max") — nonzero means the component has bumped a cap,
+// which the alert monitor surfaces. ok=false if disabled/absent.
+func (m *Manager) AtLimit(name string) (mem, pids int64, ok bool) {
+	if !m.Enabled() {
+		return 0, 0, false
+	}
+	leaf := m.leaf(name)
+	if _, err := os.Stat(leaf); err != nil {
+		return 0, 0, false
+	}
+	mem = eventCount(filepath.Join(leaf, "memory.events"), "max") + eventCount(filepath.Join(leaf, "memory.events"), "oom")
+	pids = eventCount(filepath.Join(leaf, "pids.events"), "max")
+	return mem, pids, true
+}
+
+// eventCount reads "<key> <n>" from a cgroup .events file.
+func eventCount(path, key string) int64 {
+	for _, ln := range strings.Split(readStr(path), "\n") {
+		f := strings.Fields(ln)
+		if len(f) == 2 && f[0] == key {
+			n, _ := strconv.ParseInt(f[1], 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // Usage reads a component leaf's accounting; ok=false if disabled/absent.

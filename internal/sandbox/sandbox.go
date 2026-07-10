@@ -166,6 +166,14 @@ type Spec struct {
 	// no-op where Landlock is unavailable.
 	ReadGuard *ReadGuardSpec `json:"readGuard,omitempty"`
 
+	// Unprivileged (set for tile backends, not terminals) drops all capabilities
+	// and installs a seccomp block-list of privileged/system-damaging syscalls
+	// (mount, module load, kexec, reboot, ptrace, bpf, …) before exec — so a
+	// buggy or wedged tile can't reach past its own process. Terminals need the
+	// caps (apt, nested namespaces) so they keep them and rely on the narrower
+	// mount/read guards instead.
+	Unprivileged bool `json:"unprivileged,omitempty"`
+
 	// The following are filled by Launch (not the caller) to carry runtime wiring
 	// to the re-exec'd init:
 

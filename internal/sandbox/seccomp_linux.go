@@ -56,55 +56,100 @@ func nativeAuditArch() (uint32, bool) {
 	}
 }
 
-// mountGuardProgram builds the classic-BPF seccomp program for the given audit
-// arch. Kept separate from installation so it can be exercised in a userspace
-// BPF VM (seccomp_test.go) without a real sandbox. A syscall on any *other*
-// arch (e.g. the i386 compat ABI on amd64, whose numbers differ) is killed, so
-// the block can't be bypassed through a different ABI.
+// denyProgram builds a classic-BPF seccomp program: EPERM every syscall in
+// deny, and (when mountMove) additionally EPERM mount(2) only if its flags carry
+// MS_MOVE — everything else allowed. A syscall on any *other* arch (e.g. the
+// i386 compat ABI on amd64, whose numbers differ) is killed, so the block can't
+// be bypassed through a different ABI. Kept separate from installation so it can
+// be exercised in a userspace BPF VM (seccomp_test.go) without a real sandbox.
+func denyProgram(arch uint32, deny []uint32, mountMove bool) []bpf.Instruction {
+	// Fixed head: [0]load arch [1]arch==native?skip kill [2]RET kill [3]load nr.
+	// Then one JumpIf per denied nr, then the optional mount-MS_MOVE block, then
+	// BLOCK (RET EPERM) and ALLOW (RET allow). Compute the two tail indices so
+	// every jump lands correctly regardless of len(deny).
+	// Tail indices differ between the two shapes so the fall-through after the
+	// deny checks lands on the right verdict: a plain deny-list must fall
+	// through to ALLOW (deny only on an explicit match), while the mount guard
+	// falls through the deny checks into its mount special, which ends at BLOCK.
+	base := 4 + len(deny) // first index after the deny checks
+	var idxBlock, idxAllow int
+	if mountMove {
+		idxBlock, idxAllow = base+4, base+5 // …special(4), BLOCK, ALLOW
+	} else {
+		idxAllow, idxBlock = base, base+1 // …ALLOW (fall-through), BLOCK
+	}
+	jmp := func(from, to int) uint8 { return uint8(to - from - 1) }
+
+	prog := []bpf.Instruction{
+		bpf.LoadAbsolute{Off: scOffArch, Size: 4},
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: arch, SkipTrue: 1},
+		bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_KILL_PROCESS)},
+		bpf.LoadAbsolute{Off: scOffNR, Size: 4},
+	}
+	for i, nr := range deny {
+		prog = append(prog, bpf.JumpIf{Cond: bpf.JumpEqual, Val: nr, SkipTrue: jmp(4+i, idxBlock)})
+	}
+	if mountMove {
+		m := base // index of the mount check
+		prog = append(prog,
+			bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_MOUNT), SkipFalse: jmp(m, idxAllow)}, // not mount → allow
+			bpf.LoadAbsolute{Off: scOffMountFlags, Size: 4},
+			bpf.ALUOpConstant{Op: bpf.ALUOpAnd, Val: uint32(unix.MS_MOVE)},
+			bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0, SkipTrue: jmp(m+3, idxAllow)}, // no MS_MOVE → allow; else fall to BLOCK
+			bpf.RetConstant{Val: retErrnoEPERM},                                   // idxBlock
+			bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_ALLOW)},                  // idxAllow
+		)
+		return prog
+	}
+	return append(prog,
+		bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_ALLOW)}, // idxAllow (deny-check fall-through)
+		bpf.RetConstant{Val: retErrnoEPERM},                  // idxBlock
+	)
+}
+
+// mountGuardProgram (terminals): deny the mount teardown/move syscalls and
+// mount(MS_MOVE) so the shell can't peel a secret mask; plain mount stays.
 func mountGuardProgram(arch uint32) []bpf.Instruction {
-	// Layout (indices matter for the jump offsets):
-	//  0 load arch
-	//  1 arch==native ? skip the kill : fall through
-	//  2 RET kill (foreign arch)
-	//  3 load nr
-	//  4 nr==umount2    ? -> BLOCK
-	//  5 nr==move_mount ? -> BLOCK
-	//  6 nr==open_tree  ? -> BLOCK
-	//  7 nr==mount      ? fall through : -> ALLOW
-	//  8 load mount flags
-	//  9 A &= MS_MOVE
-	// 10 (flags&MS_MOVE)==0 ? -> ALLOW : fall through
-	// 11 BLOCK: RET errno(EPERM)
-	// 12 ALLOW: RET allow
-	const idxBlock, idxAllow = 11, 12
-	jmpTo := func(from, to int) uint8 { return uint8(to - from - 1) }
-	return []bpf.Instruction{
-		/* 0 */ bpf.LoadAbsolute{Off: scOffArch, Size: 4},
-		/* 1 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: arch, SkipTrue: 1},
-		/* 2 */ bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_KILL_PROCESS)},
-		/* 3 */ bpf.LoadAbsolute{Off: scOffNR, Size: 4},
-		/* 4 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_UMOUNT2), SkipTrue: jmpTo(4, idxBlock)},
-		/* 5 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_MOVE_MOUNT), SkipTrue: jmpTo(5, idxBlock)},
-		/* 6 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_OPEN_TREE), SkipTrue: jmpTo(6, idxBlock)},
-		/* 7 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_MOUNT), SkipFalse: jmpTo(7, idxAllow)},
-		/* 8 */ bpf.LoadAbsolute{Off: scOffMountFlags, Size: 4},
-		/* 9 */ bpf.ALUOpConstant{Op: bpf.ALUOpAnd, Val: uint32(unix.MS_MOVE)},
-		/* 10 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0, SkipTrue: jmpTo(10, idxAllow)},
-		/* 11 */ bpf.RetConstant{Val: retErrnoEPERM},
-		/* 12 */ bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_ALLOW)},
+	return denyProgram(arch, []uint32{
+		uint32(unix.SYS_UMOUNT2), uint32(unix.SYS_MOVE_MOUNT), uint32(unix.SYS_OPEN_TREE),
+	}, true)
+}
+
+// backendDeny is the block-list for tile backends: privileged / system-damaging
+// syscalls no element server needs (mount family, module/kexec/reboot, device
+// nodes, ptrace, bpf, keyrings, time/quota/accounting). Defense in depth on top
+// of the dropped capabilities — a buggy or wedged tile can't reach past its own
+// process. All present on the arches nativeAuditArch supports.
+func backendDeny() []uint32 {
+	return []uint32{
+		uint32(unix.SYS_MOUNT), uint32(unix.SYS_UMOUNT2), uint32(unix.SYS_MOVE_MOUNT),
+		uint32(unix.SYS_OPEN_TREE), uint32(unix.SYS_FSOPEN), uint32(unix.SYS_FSMOUNT),
+		uint32(unix.SYS_FSCONFIG), uint32(unix.SYS_FSPICK), uint32(unix.SYS_PIVOT_ROOT),
+		uint32(unix.SYS_CHROOT), uint32(unix.SYS_SETNS),
+		uint32(unix.SYS_INIT_MODULE), uint32(unix.SYS_FINIT_MODULE), uint32(unix.SYS_DELETE_MODULE),
+		uint32(unix.SYS_KEXEC_LOAD), uint32(unix.SYS_KEXEC_FILE_LOAD), uint32(unix.SYS_REBOOT),
+		uint32(unix.SYS_SWAPON), uint32(unix.SYS_SWAPOFF), uint32(unix.SYS_MKNODAT),
+		uint32(unix.SYS_PTRACE), uint32(unix.SYS_BPF), uint32(unix.SYS_PERF_EVENT_OPEN),
+		uint32(unix.SYS_KEYCTL), uint32(unix.SYS_ADD_KEY), uint32(unix.SYS_REQUEST_KEY),
+		uint32(unix.SYS_ACCT), uint32(unix.SYS_QUOTACTL),
+		uint32(unix.SYS_SETTIMEOFDAY), uint32(unix.SYS_ADJTIMEX), uint32(unix.SYS_CLOCK_SETTIME),
 	}
 }
 
-// installMountGuard assembles and installs the filter on the calling thread
-// (and, by inheritance, everything it execs). Requires no_new_privs, which the
-// init sets before calling this. A no-op on architectures we don't have a
-// syscall table for.
-func installMountGuard() error {
+// installMountGuard / installBackendSeccomp install the respective filter on the
+// calling thread (inherited across execve). Require no_new_privs (init sets it).
+// No-op on architectures without a known syscall table.
+func installMountGuard() error { return installFilter(mountGuardProgram) }
+func installBackendSeccomp() error {
+	return installFilter(func(arch uint32) []bpf.Instruction { return denyProgram(arch, backendDeny(), false) })
+}
+
+func installFilter(build func(arch uint32) []bpf.Instruction) error {
 	arch, ok := nativeAuditArch()
 	if !ok {
 		return nil
 	}
-	raw, err := bpf.Assemble(mountGuardProgram(arch))
+	raw, err := bpf.Assemble(build(arch))
 	if err != nil {
 		return fmt.Errorf("assemble seccomp: %w", err)
 	}
@@ -115,6 +160,23 @@ func installMountGuard() error {
 	prog := &unix.SockFprog{Len: uint16(len(filter)), Filter: &filter[0]}
 	if err := unix.Prctl(unix.PR_SET_SECCOMP, unix.SECCOMP_MODE_FILTER, uintptr(unsafe.Pointer(prog)), 0, 0); err != nil {
 		return fmt.Errorf("PR_SET_SECCOMP: %w", err)
+	}
+	return nil
+}
+
+// dropAllCaps makes a backend truly unprivileged: it drops every capability
+// from the bounding set (so none can be regained across execve) and clears the
+// effective/permitted/inheritable sets. A tile backend needs no capabilities
+// (it serves on a socket as its own uid), so this is pure hardening. The
+// bounding drops run first, while CAP_SETPCAP is still held.
+func dropAllCaps() error {
+	for c := 0; c <= unix.CAP_LAST_CAP; c++ {
+		_ = unix.Prctl(unix.PR_CAPBSET_DROP, uintptr(c), 0, 0, 0)
+	}
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3, Pid: 0}
+	var data [2]unix.CapUserData // all zero: no eff/perm/inh
+	if err := unix.Capset(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("capset(clear): %w", err)
 	}
 	return nil
 }

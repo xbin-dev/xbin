@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -387,11 +388,17 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
 	}
-	// Per-component cgroup v2 accounting (memory/CPU/pids), best-effort — active
-	// only when xbind's cgroup is delegated (systemd Delegate=yes / a container).
+	// Per-component cgroup v2 limits + accounting (memory/CPU/pids), best-effort
+	// — active only when xbind's cgroup is delegated (systemd Delegate=yes / a
+	// container). A runaway tile then OOMs / throttles / can't fork *alone*.
 	if cg := cgroup.New(); cg.Enabled() {
+		cg.SetLimits(cgroup.Limits{
+			MemMax:    envBytes("XBIN_LIMIT_MEM", 2<<30),     // 2 GiB
+			PidsMax:   int64(max(512, goruntime.NumCPU()*8)), // fork-bomb ceiling
+			CPUWeight: 100,                                   // fair share; burst when idle
+		})
 		run.Cgroup = cg
-		slog.Info("cgroup v2 accounting enabled")
+		slog.Info("cgroup v2 limits enabled", "memMax", 2<<30, "pidsMax", max(512, goruntime.NumCPU()*8))
 	}
 	// Isolation is orthogonal to --dev/--no-auth (which only change asset serving
 	// and logging): the sandbox network/fs model is different enough that dev
@@ -779,6 +786,32 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBytes reads a byte count from env — a plain integer or a K/M/G/T suffix
+// (e.g. "2G", "512M") — falling back to def.
+func envBytes(k string, def int64) int64 {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	mult := int64(1)
+	switch v[len(v)-1] {
+	case 'k', 'K':
+		mult, v = 1<<10, v[:len(v)-1]
+	case 'm', 'M':
+		mult, v = 1<<20, v[:len(v)-1]
+	case 'g', 'G':
+		mult, v = 1<<30, v[:len(v)-1]
+	case 't', 'T':
+		mult, v = 1<<40, v[:len(v)-1]
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n <= 0 {
+		slog.Warn("ignoring malformed byte-size env var", "key", k, "value", os.Getenv(k))
+		return def
+	}
+	return n * mult
 }
 
 func fatal(f string, args ...any) {

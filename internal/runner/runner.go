@@ -559,14 +559,15 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		lower = []string{envLower, r.Rootfs}
 	}
 	spec := &sandbox.Spec{
-		Lower:   lower,
-		Binds:   binds,
-		Entry:   entry,
-		Argv:    argv,
-		Env:     env,
-		Cwd:     c.Dir,
-		HostUID: os.Getuid(),
-		HostGID: os.Getgid(),
+		Lower:        lower,
+		Binds:        binds,
+		Entry:        entry,
+		Argv:         argv,
+		Env:          env,
+		Cwd:          c.Dir,
+		HostUID:      os.Getuid(),
+		HostGID:      os.Getgid(),
+		Unprivileged: true, // tile backends need no caps: drop them + seccomp block-list
 	}
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
 	// bound client; a component's `net` interface resolves to host-share, a splice

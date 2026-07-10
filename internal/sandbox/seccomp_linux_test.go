@@ -84,6 +84,40 @@ func TestMountGuardProgram(t *testing.T) {
 	}
 }
 
+// TestBackendSeccompProgram pins the backend block-list: every listed syscall
+// is EPERM'd, ordinary server syscalls are allowed, foreign arch is killed.
+func TestBackendSeccompProgram(t *testing.T) {
+	arch, ok := nativeAuditArch()
+	if !ok {
+		t.Skipf("no audit arch for GOARCH=%s", runtime.GOARCH)
+	}
+	vm, err := bpf.NewVM(denyProgram(arch, backendDeny(), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(nr int, a uint32) uint32 {
+		v, err := vm.Run(seccompData(nr, a, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return uint32(v)
+	}
+	deny, allow := retErrnoEPERM, uint32(unix.SECCOMP_RET_ALLOW)
+	for _, nr := range backendDeny() {
+		if got := run(int(nr), arch); got != deny {
+			t.Errorf("backend syscall %d: got %#x, want EPERM", nr, got)
+		}
+	}
+	for _, nr := range []int{unix.SYS_READ, unix.SYS_WRITE, unix.SYS_OPENAT, unix.SYS_CONNECT, unix.SYS_CLONE} {
+		if got := run(nr, arch); got != allow {
+			t.Errorf("ordinary syscall %d must be allowed, got %#x", nr, got)
+		}
+	}
+	if got := run(unix.SYS_READ, arch^0xFF); got != uint32(unix.SECCOMP_RET_KILL_PROCESS) {
+		t.Errorf("foreign arch not killed: %#x", got)
+	}
+}
+
 // TestMountGuardKernelInstall installs the real filter in a child process and
 // checks the kernel actually denies umount2 — no namespaces or privileges
 // needed (no_new_privs lets any process install a seccomp filter), so this
