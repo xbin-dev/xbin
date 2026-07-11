@@ -39,6 +39,9 @@ export class BxTileAdmin extends LitElement {
     _backups: { state: true },  // versions
     _cron: { state: true },     // this tile's cron jobs
     _access: { state: true },   // the tile's ACL view (/access — users/teams/base)
+    _dir: { state: true },      // /users-directory for the add-entry picker
+    _orgTeams: { state: true }, // the tile's org's team ids (add-entry picker)
+    _accKind: { state: true },  // add-entry kind: user | team
     _err: { state: true },
     _busy: { state: true },
   };
@@ -114,6 +117,13 @@ export class BxTileAdmin extends LitElement {
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
         api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
       ]);
+      // Pickers for the access section (best-effort; org admins may fetch both).
+      api('/users-directory').then((d) => { this._dir = d.users ?? []; }).catch(() => {});
+      api('/orgs').then((d) => {
+        const org = (this._access && this._access.org) || null;
+        const o = (d.orgs ?? []).find((x) => x.id === org);
+        this._orgTeams = o ? (o.teams ?? []).map((t) => `${org}/${t.id}`) : [];
+      }).catch(() => {});
       this._ov = ov.forbidden ? { forbidden: true }
         : ((ov.components ?? []).find((c) => c.path === this.path) ?? {});
       const mine = (g) => g.from === this.path || g.target === this.path ||
@@ -241,13 +251,21 @@ export class BxTileAdmin extends LitElement {
       <form class="row" @submit=${(e) => {
         e.preventDefault(); const f = e.target;
         const id = f.who.value.trim(); if (!id) return;
-        setEntry(f.kind.value, id, f.level.value); f.who.value = '';
+        setEntry(this._accKind === 'team' ? 'team' : 'user', id, f.level.value); f.who.value = '';
       }}>
-        <select name="kind">
-          <option value="user">user</option>
-          ${a.org ? html`<option value="team">team</option>` : nothing}
+        <select @change=${(e) => { this._accKind = e.target.value; }}>
+          <option value="user" ?selected=${this._accKind !== 'team'}>user</option>
+          ${a.org ? html`<option value="team" ?selected=${this._accKind === 'team'}>team</option>` : nothing}
         </select>
-        <input name="who" placeholder=${a.org ? `user id / ${a.org}/<team>` : 'user id'} size="14">
+        ${this._accKind === 'team'
+          ? html`<select name="who">
+              ${(this._orgTeams ?? []).map((t) => html`<option value=${t}>${t}</option>`)}
+              ${!(this._orgTeams ?? []).length ? html`<option value="">no teams in ${a.org}</option>` : nothing}
+            </select>`
+          : html`<input name="who" list="acc-people" placeholder="user id" size="14">
+            <datalist id="acc-people">
+              ${(this._dir ?? []).map((u) => html`<option value=${u.id}>${u.name && u.name !== u.id ? u.name : ''}</option>`)}
+            </datalist>`}
         <select name="level"><option>read</option><option selected>write</option><option>terminal</option></select>
         <button class="act go" ?disabled=${this._busy}>add</button>
       </form>

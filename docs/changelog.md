@@ -46,6 +46,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   [changes/2026-07-11-orgs-and-teams.md](changes/2026-07-11-orgs-and-teams.md),
   which also covers updating the workspace chrome (`bx builtin update`) to
   get the new shell/admin/manager UI on existing workspaces.
+- Admin UI: **permissions are fully click-through** — people are picked from
+  chip dropdowns (small workspaces: everything enumerable), tile grants from
+  row editors with a datalist of real paths/patterns (inert org patterns get
+  a live ⚠), replacing every free-text spec/prompt in the users, orgs, shell
+  org popover and ⚙ access surfaces. New **access map** tab in the admin
+  tile: a visual org/teams/people structure (policy ceilings marked ⛔) and
+  the resolved users × tiles **effective-access matrix** — click any cell
+  for the full derivation (which entry/team/base/adminship contributes and
+  which wins). Backed by `GET /api/xbin/access-matrix` (resolved server-side
+  with provenance) and `GET /api/xbin/users-directory` (identity-only people
+  list, reachable by org admins for their pickers) — both in protocol.md.
 - terminal: **fixed multi-tab terminals rendering stacked in the first tab after
   a reload**, and **added per-tab close buttons**. On restore, every saved
   terminal reattached at once and each forced itself visible (`bx-terminal`'s

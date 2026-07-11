@@ -62,6 +62,9 @@ export class BxAdmin extends LitElement {
     _orgs: { state: true },     // orgs & teams (docs/auth.md)
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
+    _drafts: { state: true },   // click-through editor drafts, keyed by context
+    _matrix: { state: true },   // /access-matrix payload (access-map tab)
+    _mapSel: { state: true },   // selected matrix cell {user, tile} → derivation panel
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
@@ -235,6 +238,46 @@ export class BxAdmin extends LitElement {
     .nsrow .shared { color: var(--bx-muted, #8794a1); }
     .flowtab { width: 100%; font-size: 11px; }
     .flowtab td { padding: 1px 6px 1px 0; }
+
+    /* ---- access map (structure + effective-access matrix) ---- */
+    .lv { display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 4px; font-size: 10px; font-weight: 700;
+      font-family: var(--bx-mono, monospace); border: 1px solid transparent; }
+    .lv-read { color: #3577c8; background: color-mix(in srgb, #3577c8 14%, transparent);
+      border-color: color-mix(in srgb, #3577c8 40%, transparent); }
+    .lv-write { color: var(--bx-green, #43a047);
+      background: color-mix(in srgb, var(--bx-green, #43a047) 14%, transparent);
+      border-color: color-mix(in srgb, var(--bx-green, #43a047) 40%, transparent); }
+    .lv-terminal { color: var(--bx-accent, #f5a623);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 16%, transparent);
+      border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent); }
+    .lv-none { color: var(--bx-muted, #8794a1); opacity: .5; }
+    .pill.crown { border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
+      color: var(--bx-accent, #f5a623); }
+    .pill.pol { border-color: color-mix(in srgb, var(--bx-red, #e5484d) 45%, transparent);
+      color: var(--bx-red, #e5484d); cursor: help; }
+    .pill.lv-read, .pill.lv-write, .pill.lv-terminal { width: auto; height: auto; }
+    .snode { border: 1px solid var(--bx-border, #e4e8ed); border-left: 3px solid var(--bx-border, #e4e8ed);
+      border-radius: 6px; padding: 6px 10px; margin: 6px 0; }
+    .snode .shead { font-weight: 600; font-size: 12px; margin-bottom: 3px;
+      display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .snode.ws { border-left-color: var(--bx-muted, #8794a1); }
+    .snode.org { border-left-color: var(--bx-accent, #f5a623); }
+    .snode.team { border-left-color: var(--bx-green, #43a047); margin-left: 18px; position: relative; }
+    .snode.team::before { content: ''; position: absolute; left: -12px; top: 14px;
+      width: 9px; border-top: 1px solid var(--bx-border, #e4e8ed); }
+    .matrix { border-collapse: collapse; font-size: 11px; }
+    .matrix th { padding: 3px 6px; font-size: 10.5px; color: var(--bx-muted, #8794a1);
+      font-weight: 600; text-align: center; }
+    .matrix .mgrp { padding: 6px 4px 2px; font-size: 10px; font-weight: 700;
+      letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted, #8794a1);
+      border-bottom: 1px solid var(--bx-border, #e4e8ed); }
+    .matrix .mtile { padding: 2px 10px 2px 4px; font-size: 11px; white-space: nowrap; }
+    .matrix .mcell { text-align: center; padding: 2px 5px; border-radius: 4px; }
+    .matrix .mcell.has { cursor: pointer; }
+    .matrix .mcell.has:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .matrix .mcell.msel { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
+      outline-offset: -2px; }
     .flow-deny { color: var(--bx-red, #e5484d); }
     .flow-allow { color: var(--bx-green, #43a047); }
     .err-pill { color: var(--bx-red, #e5484d); font-size: 11px; }
@@ -246,6 +289,7 @@ export class BxAdmin extends LitElement {
     { id: 'runtime', label: 'runtime' },
     { id: 'users', label: 'users' },
     { id: 'orgs', label: 'orgs & teams' },
+    { id: 'map', label: 'access map' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
     { id: 'interfaces', label: 'interfaces' },
@@ -273,6 +317,7 @@ export class BxAdmin extends LitElement {
     // _openCode re-sets _codeComp right after calling this to drill in.
     this._codeComp = null;
     if (t === 'runtime') this._loadRuntime();
+    if (t === 'map') this._loadMap();
     if (t === 'interfaces') this._loadIfaces();
     if (t === 'backup') this._loadBackup();
   }
@@ -345,6 +390,7 @@ export class BxAdmin extends LitElement {
       this._wsPolicy = wsPolicy.policy ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
+      if (this._tab === 'map') this._loadMap(true); // keep the matrix current
     } catch (e) {
       if (String(e.message).includes('admin')) this._denied = true;
       else this._err = String(e.message ?? e);
@@ -591,6 +637,7 @@ export class BxAdmin extends LitElement {
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
           : tab === 'orgs' ? this._orgsView()
+          : tab === 'map' ? this._mapView()
           : tab === 'overview' ? (this._codeComp ? this._codeView() : this._overview())
           : tab === 'runtime' ? this._runtimeView()
           : tab === 'vault' ? this._vaultView()
@@ -1241,26 +1288,12 @@ export class BxAdmin extends LitElement {
   }
 
   // ---- users ----
-  // Tiles are per-path access levels (read < write < terminal, D16), written
-  // "apps/chat=terminal, lib/*=read"; a bare path means write.
-  _parseTilesSpec(s) {
-    const tiles = {};
-    for (const part of (s || '').split(',')) {
-      const t = part.trim(); if (!t) continue;
-      const [path, level] = t.split('=').map((x) => x.trim());
-      if (path) tiles[path] = level || 'write';
-    }
-    return tiles;
-  }
-  _tilesSpec(tiles) {
-    return Object.entries(tiles || {}).map(([p, l]) => `${p}=${l}`).join(', ');
-  }
+  // Tile access is per-path levels (read < write < terminal, D16), edited
+  // with the click-through row editors (_tilesEditor/_patternsEditor).
   async _createUser(f) {
     try {
       await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
-          tiles: this._parseTilesSpec(f.tiles.value),
-          canCreate: f.create.value.split(',').map((s) => s.trim()).filter(Boolean),
           termApi: f.termApi.checked, termNet: f.termNet.checked,
           password: f.password.value }) });
       f.reset(); this._err = ''; this._refresh(); // only clear the form on success
@@ -1279,23 +1312,6 @@ export class BxAdmin extends LitElement {
       await this._patchUser(id, { password: pw });
       this._err = `password reset for ${id}`;
     } catch (e) { this._err = String(e.message ?? e); }
-  }
-  async _editTiles(u) {
-    const v = prompt(
-      `Tile access for ${u.id} — "path=level" per entry, levels read|write|terminal; `
-      + `a bare path = write; prefix/* and * work (e.g. "apps/chat=terminal, lib/*=read"):`,
-      this._tilesSpec(u.tiles));
-    if (v == null) return;
-    try { await this._patchUser(u.id, { tiles: this._parseTilesSpec(v) }); this._err = ''; }
-    catch (e) { this._err = String(e.message ?? e); }
-  }
-  async _editCreate(u) {
-    const v = prompt(
-      `Create permission for ${u.id} — path patterns they may create tiles under `
-      + `(e.g. "sales/*"; creating auto-grants them terminal on the new tile):`,
-      (u.canCreate || []).join(', '));
-    if (v == null) return;
-    this._patchUser(u.id, { canCreate: v.split(',').map((s) => s.trim()).filter(Boolean) });
   }
   async _delUser(id) {
     if (!confirm(`Delete user ${id}? Their sessions are revoked immediately.`)) return;
@@ -1370,15 +1386,19 @@ export class BxAdmin extends LitElement {
   _usersView() {
     const users = this._users ?? [];
     return html`
+      ${this._targetDatalist()}
       <h4>users</h4>
       <table>
         <tr><th>id</th><th>name</th><th>role</th><th>access</th><th></th></tr>
-        ${users.length ? users.map((u) => html`<tr>
+        ${users.length ? users.map((u) => {
+          const tilesKey = `user:${u.id}:tiles`;
+          const createKey = `user:${u.id}:create`;
+          return html`<tr>
           <td class="mono">${u.id}</td>
           <td>${u.name}</td>
           <td><span class="pill">${u.role}</span></td>
           <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
-            : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill">${p}·${l}</span>`)}
+            : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
               ${(u.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
               ${u.termApi ? html`<span class="pill">term-api</span>` : nothing}
               ${u.termNet ? html`<span class="pill">term-net</span>` : nothing}
@@ -1387,14 +1407,23 @@ export class BxAdmin extends LitElement {
             ${this._userOrgPills(u.id).map((p) => html`<span class="pill" style="opacity:.75">${p}</span>`)}</td>
           <td style="text-align:right; white-space:nowrap">
             <button class="act" @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote' : 'make admin'}</button>
-            ${u.role === 'admin' ? nothing : html`<button class="act" @click=${() => this._editTiles(u)}>tiles</button>
-              <button class="act" @click=${() => this._editCreate(u)}>create</button>
+            ${u.role === 'admin' ? nothing : html`
+              <button class="act" @click=${() => this._toggleDraft(tilesKey,
+                () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
+              <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(u.canCreate ?? [])])}>create…</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? '− api' : '+ api'}</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? '− net' : '+ net'}</button>`}
             <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
             <button class="act rm" @click=${() => this._delUser(u.id)}>del</button>
           </td>
-        </tr>`) : html`<tr><td class="muted" colspan="5">no users — the root token is the only admin. Add one below.</td></tr>`}
+        </tr>
+        ${this._draft(tilesKey) ? html`<tr><td colspan="5">
+          ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { tiles }))}
+        </td></tr>` : nothing}
+        ${this._draft(createKey) ? html`<tr><td colspan="5">
+          ${this._patternsEditor(createKey, (canCreate) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { canCreate }))}
+        </td></tr>` : nothing}`;
+        }) : html`<tr><td class="muted" colspan="5">no users — the root token is the only admin. Add one below.</td></tr>`}
       </table>
 
       <h4>add user</h4>
@@ -1402,21 +1431,278 @@ export class BxAdmin extends LitElement {
         <input name="id" placeholder="username" size="12" required>
         <input name="name" placeholder="display name" size="14">
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
-        <input name="tiles" placeholder="apps/chat=terminal, lib/*=read" size="24">
-        <input name="create" placeholder="create: sales/*" size="14">
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termNet"> term-net</label>
         <input name="password" type="password" placeholder="password (min 8)" size="12" minlength="8" required>
         <button class="act go">create</button>
       </form>
       <p class="muted" style="font-size:11px;margin-top:6px">
-        Tile access levels: <b>read</b> = see the tile + its source · <b>write</b> = edit/drive it ·
-        <b>terminal</b> = a root shell in its directory (grant to trusted users only).
-        <b>create</b> lets the user scaffold tiles under a path (they get terminal on what they create).
-        A non-admin's terminals run restricted: no live tile-API token without <b>term-api</b>,
-        no internet egress without <b>term-net</b>.</p>
+        Grant tile access with the <b>tiles…</b> editor after creating (levels:
+        <b>read</b> = see the tile + its source · <b>write</b> = edit/drive it ·
+        <b>terminal</b> = a root shell in its directory — trusted users only).
+        <b>create…</b> sets namespaces the user may scaffold tiles under (they get
+        terminal on what they create). A non-admin's terminals run restricted:
+        no live tile-API token without <b>term-api</b>, no internet egress
+        without <b>term-net</b>.</p>
 
       ${this._signInSecurityView()}`;
+  }
+
+  // ---- click-through editors (shared by the users + orgs tabs) ----
+  // Workspaces are small, so everything about permissions is enumerable and
+  // clickable: people are picked from chip dropdowns, tile targets from a
+  // datalist of real paths + patterns — no free-text specs to mistype.
+
+  // _peoplePicker: chip dropdown over the workspace's users. onChange fires
+  // with the full selection on every toggle (immediate save — click-through).
+  _peoplePicker(selected, onChange, only = null) {
+    const ids = only ?? (this._users ?? []).map((u) => u.id);
+    const opts = ids.map((id) => {
+      const u = (this._users ?? []).find((x) => x.id === id);
+      return { value: id, label: u?.name && u.name !== id ? `${id} — ${u.name}` : id };
+    });
+    return html`<bx-multiselect style="min-width:120px" .options=${opts} .selected=${selected ?? []}
+      placeholder="— nobody —" @change=${(e) => onChange(e.detail.selected)}></bx-multiselect>`;
+  }
+
+  // Draft plumbing for the row editors, keyed by a context id
+  // ("user:bob:tiles", "team:sales/backend:create", …).
+  _draft(k) { return this._drafts?.[k]; }
+  _setDraft(k, v) { this._drafts = { ...(this._drafts ?? {}), [k]: v }; }
+  _dropDraft(k) { const d = { ...(this._drafts ?? {}) }; delete d[k]; this._drafts = d; }
+  _toggleDraft(k, seed) { this._draft(k) ? this._dropDraft(k) : this._setDraft(k, seed()); }
+
+  // Target suggestions: every real component path, a pattern per group
+  // (top dirs + org namespaces), and * — rendered once per view as a
+  // <datalist> the row editors' inputs attach to.
+  _targetOptions() {
+    const comps = (this._ov?.components ?? []).map((c) => c.path)
+      .filter((p) => p !== 'root' && p !== 'shell');
+    const pats = new Set(['*']);
+    for (const p of comps) {
+      const s = p.split('/');
+      if (s[0] === 'o' && s[1]) pats.add(`o/${s[1]}/*`);
+      else if (s.length > 2 && s[1] === 'o' && s[2]) pats.add(`${s[0]}/o/${s[2]}/*`);
+      else if (s.length > 1) pats.add(`${s[0]}/*`);
+    }
+    for (const o of (this._orgs ?? [])) { pats.add(`apps/o/${o.id}/*`); pats.add(`o/${o.id}/*`); }
+    return [...comps.sort(), ...[...pats].sort()];
+  }
+  _targetDatalist() {
+    return html`<datalist id="tile-targets">
+      ${this._targetOptions().map((t) => html`<option value=${t}></option>`)}
+    </datalist>`;
+  }
+
+  // _orgOfJS mirrors the server's positional org binding (o/<org>/… or
+  // <dir>/o/<org>/…) for display grouping and inert-pattern warnings.
+  _orgOfJS(path) {
+    const s = String(path).split('/');
+    if (s.length >= 2 && s[0] === 'o' && s[1]) return s[1];
+    if (s.length >= 3 && s[1] === 'o' && s[2]) return s[2];
+    return null;
+  }
+
+  // A team pattern that can never match its own org's paths is inert (the
+  // evaluation clamp) — warn while editing, same rule as bx doctor.
+  _teamPatInert(org, pat) {
+    if (!pat || pat === '*') return false;
+    const p = pat.endsWith('/*') ? pat.slice(0, -2) : pat;
+    const pOrg = this._orgOfJS(p);
+    if (pOrg) return pOrg !== org;
+    if (p === pat) return true; // exact non-org path
+    const segs = p.split('/');
+    return !(segs.length === 1 || (segs.length === 2 && segs[1] === 'o'));
+  }
+
+  // _tilesEditor: rows of [target (datalist)] [level] [×] editing a
+  // pattern→level map; save calls onSave(map). orgID adds the inert warning.
+  _tilesEditor(ctx, onSave, orgID = null) {
+    const d = this._draft(ctx) ?? [];
+    const upd = (i, patch) => this._setDraft(ctx, d.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    return html`
+      <div style="padding:6px 8px; background:var(--bx-panel-2,#f7f8fa); border-radius:6px">
+        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
+          <input list="tile-targets" size="26" placeholder="path, prefix/* or *" .value=${r.target}
+            @input=${(e) => upd(i, { target: e.target.value })}>
+          <select @change=${(e) => upd(i, { level: e.target.value })}>
+            ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${r.level === l}>${l}</option>`)}
+          </select>
+          ${orgID && this._teamPatInert(orgID, r.target)
+            ? html`<span style="color:var(--bx-red,#e5484d); font-size:10.5px"
+                title="team grants only apply inside org ${orgID} — this entry can never match one of its paths">⚠ inert</span>` : nothing}
+          <button class="act rm" title="remove entry" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
+        </div>`)}
+        <div style="display:flex; gap:5px; align-items:center">
+          <button class="act" @click=${() => this._setDraft(ctx, [...d, { target: '', level: 'write' }])}>+ entry</button>
+          <button class="act go" @click=${async () => {
+            const tiles = {};
+            for (const r of d) if (r.target.trim()) tiles[r.target.trim()] = r.level;
+            await onSave(tiles);
+            if (!this._err) this._dropDraft(ctx);
+          }}>save</button>
+          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
+          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it</span>
+        </div>
+      </div>`;
+  }
+
+  // _patternsEditor: same, for plain pattern lists (canCreate).
+  _patternsEditor(ctx, onSave, orgID = null) {
+    const d = this._draft(ctx) ?? [];
+    const upd = (i, v) => this._setDraft(ctx, d.map((r, j) => (j === i ? v : r)));
+    return html`
+      <div style="padding:6px 8px; background:var(--bx-panel-2,#f7f8fa); border-radius:6px">
+        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
+          <input list="tile-targets" size="26" placeholder="prefix/* (create namespace)" .value=${r}
+            @input=${(e) => upd(i, e.target.value)}>
+          ${orgID && this._teamPatInert(orgID, r)
+            ? html`<span style="color:var(--bx-red,#e5484d); font-size:10.5px"
+                title="create grants only apply inside org ${orgID}">⚠ inert</span>` : nothing}
+          <button class="act rm" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
+        </div>`)}
+        <div style="display:flex; gap:5px; align-items:center">
+          <button class="act" @click=${() => this._setDraft(ctx, [...d, ''])}>+ pattern</button>
+          <button class="act go" @click=${async () => {
+            await onSave(d.map((s) => s.trim()).filter(Boolean));
+            if (!this._err) this._dropDraft(ctx);
+          }}>save</button>
+          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
+          <span class="muted" style="font-size:10.5px">creating a tile auto-grants the creator terminal on it</span>
+        </div>
+      </div>`;
+  }
+
+  // ---- access map: how permissions actually apply (visual) ----
+  async _loadMap(force = false) {
+    if (this._matrix && !force) return;
+    try { this._matrix = await api('/access-matrix'); } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  _lvChip(level) {
+    const s = { read: 'r', write: 'w', terminal: 't' }[level] ?? '·';
+    return html`<span class="lv lv-${level || 'none'}" title=${level || 'no access'}>${s}</span>`;
+  }
+
+  _srcLabel(src) {
+    const [kind, ...rest] = String(src).split(':');
+    switch (kind) {
+      case 'admin': return 'workspace admin';
+      case 'org-admin': return `org admin of ${rest[0]}`;
+      case 'direct': return html`own entry <span class="mono">${rest.join(':')}</span>`;
+      case 'team': return html`team <span class="mono">${rest[0]}</span> · <span class="mono">${rest.slice(1).join(':')}</span>`;
+      case 'base': return html`org <span class="mono">${rest[0]}</span> base permission`;
+      default: return src;
+    }
+  }
+
+  _structureView() {
+    const users = this._users ?? [];
+    const orgs = this._orgs ?? [];
+    const inOrg = new Set(orgs.flatMap((o) => [...(o.admins ?? []), ...(o.members ?? [])]));
+    const wsAdmins = users.filter((u) => u.role === 'admin').map((u) => u.id);
+    const outside = users.filter((u) => u.role !== 'admin' && !inOrg.has(u.id)).map((u) => u.id);
+    const person = (id, crown) => html`<span class="pill ${crown ? 'crown' : ''}">${crown ? '★ ' : ''}${id}</span>`;
+    return html`
+      <div class="snode ws">
+        <div class="shead">workspace</div>
+        <div>admins: ${wsAdmins.length ? wsAdmins.map((a) => person(a, true)) : html`<span class="muted">root token only</span>`}
+          ${this._wsPolicy?.length ? html`<span class="pill pol" title=${this._wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${this._wsPolicy.length} policy row(s)</span>` : nothing}
+        </div>
+        ${outside.length ? html`<div style="margin-top:3px"><span class="muted" style="font-size:11px">in no org:</span> ${outside.map((u) => person(u, false))}</div>` : nothing}
+      </div>
+      ${orgs.map((o) => html`
+        <div class="snode org">
+          <div class="shead"><span class="mono">o/${o.id}</span>${o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}
+            ${o.basePermission ? html`<span class="pill lv-${o.basePermission}" title="every member's floor on org tiles">base: ${o.basePermission}</span>` : nothing}
+            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${o.policy.length} policy row(s)</span>` : nothing}
+          </div>
+          <div>${(o.admins ?? []).map((a) => person(a, true))}
+               ${(o.members ?? []).filter((m) => !(o.admins ?? []).includes(m)).map((m) => person(m, false))}
+               ${!(o.admins ?? []).length && !(o.members ?? []).length ? html`<span class="muted">no people</span>` : nothing}</div>
+          ${(o.teams ?? []).map((t) => html`
+            <div class="snode team">
+              <div class="shead">${t.id}
+                <span class="muted" style="font-weight:400">· created tiles → ${t.newTiles}</span>
+                ${t.termApi ? html`<span class="pill">term-api</span>` : nothing}
+                ${t.termNet ? html`<span class="pill">term-net</span>` : nothing}</div>
+              <div>${(t.members ?? []).length ? (t.members ?? []).map((m) => person(m, false)) : html`<span class="muted">no members</span>`}</div>
+              <div>${Object.entries(t.tiles ?? {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
+                   ${(t.canCreate ?? []).map((c) => html`<span class="pill">create ${c}</span>`)}</div>
+            </div>`)}
+        </div>`)}`;
+  }
+
+  _mapDetail() {
+    const s = this._mapSel;
+    const c = s && this._matrix?.cells?.[s.user]?.[s.tile];
+    if (!c) return nothing;
+    return html`
+      <div style="margin-top:8px; padding:8px 10px; border:1px solid var(--bx-border,#e4e8ed); border-radius:6px">
+        <span class="mono">${s.user}</span> on <span class="mono">${s.tile}</span> →
+        ${this._lvChip(c.level)} <b>${c.level}</b>
+        <table style="margin-top:5px">
+          ${c.via.map((v, i) => html`<tr style=${i === 0 ? '' : 'opacity:.65'}>
+            <td style="white-space:nowrap">${this._lvChip(v.level)} ${v.level}</td>
+            <td>${this._srcLabel(v.source)}</td>
+            <td class="muted" style="font-size:10.5px">${i === 0 ? '← effective (highest wins)' : 'unioned'}</td>
+          </tr>`)}
+        </table>
+      </div>`;
+  }
+
+  _mapView() {
+    const m = this._matrix;
+    const cols = (m?.users ?? []).filter((u) => u.role !== 'admin');
+    const admins = (m?.users ?? []).filter((u) => u.role === 'admin').map((u) => u.id);
+    // Tiles grouped like the shell sidebar: per-org, then top-level dirs.
+    const groups = new Map();
+    for (const tile of (m?.tiles ?? [])) {
+      const org = this._orgOfJS(tile);
+      const key = org ? `o/${org}` : (tile.includes('/') ? tile.split('/')[0] : 'workspace');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(tile);
+    }
+    const grouped = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return html`
+      <h4>structure</h4>
+      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
+        Who is where: ★ = admin of that box. Level pills on teams are their
+        grants (union — the highest matching source wins per tile); ⛔ marks a
+        policy ceiling on what those tiles may be granted (hover for rows).</p>
+      ${this._structureView()}
+
+      <h4 style="margin-top:14px">effective access</h4>
+      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
+        The resolved model, straight from the server: what each user can do on
+        each tile. <span class="lv lv-read">r</span> read ·
+        <span class="lv lv-write">w</span> write ·
+        <span class="lv lv-terminal">t</span> terminal (root shell) ·
+        <span class="lv lv-none">·</span> none. Click a cell to see WHY.
+        Workspace admins (${admins.length ? admins.join(', ') : 'root token only'})
+        hold terminal everywhere and are omitted; chrome (root/shell) is always
+        viewable and outside the model.</p>
+      ${!m ? html`<p class="muted">loading…</p>` : !cols.length
+        ? html`<p class="muted">No regular users yet — add some in the users tab.</p>`
+        : html`
+        <div style="overflow-x:auto">
+          <table class="matrix">
+            <tr><th style="text-align:left"></th>${cols.map((u) => html`<th class="mono" title=${u.name}>${u.id}</th>`)}</tr>
+            ${grouped.map(([grp, tiles]) => html`
+              <tr><td class="mgrp" colspan=${cols.length + 1}>${grp}</td></tr>
+              ${tiles.map((tile) => html`<tr>
+                <td class="mono mtile">${tile}</td>
+                ${cols.map((u) => {
+                  const c = m.cells?.[u.id]?.[tile];
+                  const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
+                  return html`<td class="mcell ${sel ? 'msel' : ''} ${c ? 'has' : ''}"
+                    @click=${() => { this._mapSel = c ? { user: u.id, tile } : null; }}>${this._lvChip(c?.level)}</td>`;
+                })}
+              </tr>`)}`)}
+          </table>
+        </div>
+        ${this._mapDetail()}`}
+    `;
   }
 
   // ---- orgs & teams (docs/auth.md; plans/orgs.md) ----
@@ -1431,11 +1717,6 @@ export class BxAdmin extends LitElement {
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
     await this._refresh();
-  }
-
-  _promptList(title, cur) { // csv prompt → array, or null on cancel
-    const v = prompt(title, (cur || []).join(', '));
-    return v == null ? null : v.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   // ---- policy-row editor (workspace + per-org ceilings, D20) ----
@@ -1505,19 +1786,19 @@ export class BxAdmin extends LitElement {
   }
 
   async _createTeam(orgID, f) {
-    await this._orgAPI('POST', `/orgs/${encodeURIComponent(orgID)}/teams`, {
-      id: f.id.value.trim(),
-      members: f.members.value.split(',').map((s) => s.trim()).filter(Boolean),
-    });
+    await this._orgAPI('POST', `/orgs/${encodeURIComponent(orgID)}/teams`, { id: f.id.value.trim() });
     if (!this._err) f.reset();
   }
 
   _teamRow(o, t) {
     const tpath = `/orgs/${encodeURIComponent(o.id)}/teams/${encodeURIComponent(t.id)}`;
+    const orgPeople = [...new Set([...(o.admins ?? []), ...(o.members ?? [])])];
+    const tilesKey = `team:${o.id}/${t.id}:tiles`;
+    const createKey = `team:${o.id}/${t.id}:create`;
     return html`<tr>
       <td class="mono">${t.id}</td>
-      <td>${(t.members || []).map((m) => html`<span class="pill">${m}</span>`)}
-          ${Object.entries(t.tiles || {}).map(([p, l]) => html`<span class="pill">${p}·${l}</span>`)}
+      <td>${this._peoplePicker(t.members, (m) => this._orgAPI('PATCH', tpath, { members: m }), orgPeople)}</td>
+      <td>${Object.entries(t.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
           ${(t.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
           ${t.termApi ? html`<span class="pill">term-api</span>` : nothing}
           ${t.termNet ? html`<span class="pill">term-net</span>` : nothing}</td>
@@ -1526,21 +1807,21 @@ export class BxAdmin extends LitElement {
           ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${t.newTiles === l}>new: ${l}</option>`)}
         </select></td>
       <td style="text-align:right; white-space:nowrap">
-        <button class="act" @click=${() => { const m = this._promptList(`Members of ${o.id}/${t.id} (must be org members):`, t.members);
-          if (m) this._orgAPI('PATCH', tpath, { members: m }); }}>members</button>
-        <button class="act" @click=${() => { const v = prompt(
-            `Tile access for ${o.id}/${t.id} — "pattern=level" entries (read|write|terminal); only paths in org ${o.id} apply (apps/o/${o.id}/*):`,
-            this._tilesSpec(t.tiles));
-          if (v != null) this._orgAPI('PATCH', tpath, { tiles: this._parseTilesSpec(v) }); }}>tiles</button>
-        <button class="act" @click=${() => { const c = this._promptList(
-            `Create patterns for ${o.id}/${t.id} (e.g. apps/o/${o.id}/*):`, t.canCreate);
-          if (c) this._orgAPI('PATCH', tpath, { canCreate: c }); }}>create</button>
+        <button class="act" @click=${() => this._toggleDraft(tilesKey,
+          () => Object.entries(t.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
+        <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(t.canCreate ?? [])])}>create…</button>
         <button class="act" @click=${() => this._orgAPI('PATCH', tpath, { termApi: !t.termApi })}>${t.termApi ? '− api' : '+ api'}</button>
         <button class="act" @click=${() => this._orgAPI('PATCH', tpath, { termNet: !t.termNet })}>${t.termNet ? '− net' : '+ net'}</button>
         <button class="act rm" @click=${() => confirm(`Delete team ${o.id}/${t.id}? Its access grants vanish.`) &&
           this._orgAPI('DELETE', tpath)}>del</button>
       </td>
-    </tr>`;
+    </tr>
+    ${this._draft(tilesKey) ? html`<tr><td colspan="5">
+      ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', tpath, { tiles }), o.id)}
+    </td></tr>` : nothing}
+    ${this._draft(createKey) ? html`<tr><td colspan="5">
+      ${this._patternsEditor(createKey, (canCreate) => this._orgAPI('PATCH', tpath, { canCreate }), o.id)}
+    </td></tr>` : nothing}`;
   }
 
   _orgCard(o) {
@@ -1558,25 +1839,23 @@ export class BxAdmin extends LitElement {
               ${[['', 'none'], ['read', 'read'], ['write', 'write']].map(([v, l]) =>
                 html`<option value=${v} ?selected=${(o.basePermission ?? '') === v}>${l}</option>`)}
             </select></label>
-          <button class="act" @click=${() => { const a = this._promptList(`Org admins of ${o.id} (delegated management; security knobs stay workspace-admin):`, o.admins);
-            if (a) this._orgAPI('PATCH', opath, { admins: a }); }}>admins</button>
-          <button class="act" @click=${() => { const m = this._promptList(`Members of ${o.id}:`, o.members);
-            if (m) this._orgAPI('PATCH', opath, { members: m }); }}>members</button>
           <button class="act rm" @click=${() => confirm(`Delete org ${o.id}? Team grants and its policy vanish; tiles stay on disk.`) &&
             this._orgAPI('DELETE', opath)}>del</button>
         </div>
-        <div style="margin-top:4px; font-size:12px">
-          admins: ${(o.admins || []).length ? (o.admins || []).map((a) => html`<span class="pill">${a}</span>`) : html`<span class="muted">none</span>`}
-          · members: ${(o.members || []).length ? (o.members || []).map((m) => html`<span class="pill">${m}</span>`) : html`<span class="muted">none</span>`}
+        <div style="margin-top:5px; font-size:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+          <label class="muted" style="font-size:11px">admins
+            ${this._peoplePicker(o.admins, (a) => this._orgAPI('PATCH', opath, { admins: a }))}</label>
+          <label class="muted" style="font-size:11px" title="team members must be org members; admins count">members
+            ${this._peoplePicker(o.members, (m) => this._orgAPI('PATCH', opath, { members: m }))}</label>
         </div>
         <table style="margin-top:6px">
-          ${(o.teams || []).length ? html`<tr><th>team</th><th>members · grants</th><th></th><th></th></tr>` : nothing}
+          ${(o.teams || []).length ? html`<tr><th>team</th><th>members</th><th>grants</th><th></th><th></th></tr>` : nothing}
           ${(o.teams || []).map((t) => this._teamRow(o, t))}
         </table>
         <form class="inline" style="margin-top:6px" @submit=${(e) => { e.preventDefault(); this._createTeam(o.id, e.target); }}>
           <input name="id" placeholder="new team id" size="12" required>
-          <input name="members" placeholder="members: a, b" size="16">
           <button class="act go">add team</button>
+          <span class="muted" style="font-size:10.5px">then pick members / grant tiles on its row</span>
         </form>
         <div style="margin-top:8px">
           <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">org policy ceiling</span>
@@ -1588,6 +1867,7 @@ export class BxAdmin extends LitElement {
   _orgsView() {
     const orgs = this._orgs ?? [];
     return html`
+      ${this._targetDatalist()}
       <h4>organizations</h4>
       ${orgs.length ? orgs.map((o) => this._orgCard(o))
         : html`<p class="muted">No orgs. An org owns the <span class="mono">o/&lt;org&gt;</span> path

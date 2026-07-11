@@ -33,6 +33,8 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("DELETE /orgs/{org}/teams/{team}", b.apiTeamDelete)
 	srv.RegisterAPI("GET /access", b.apiAccessGet)
 	srv.RegisterAPI("PUT /access", b.apiAccessPut)
+	srv.RegisterAPI("GET /access-matrix", b.apiAccessMatrix)
+	srv.RegisterAPI("GET /users-directory", b.apiUsersDirectory)
 	srv.RegisterAPI("GET /policy", b.apiPolicyGet)
 	srv.RegisterAPI("PUT /policy", b.apiPolicyPut)
 	srv.RegisterAPI("GET /orgs/{org}/policy", b.apiPolicyGet)
@@ -417,6 +419,83 @@ var errBadKind = jsonError("kind must be user or team")
 type jsonError string
 
 func (e jsonError) Error() string { return string(e) }
+
+// apiAccessMatrix resolves the whole users × tiles effective-access matrix
+// with full provenance (users.Access.Explain) — the admin tile's access-map
+// view. Small workspaces make this cheap (users × tiles evaluations); cells
+// exist only where the effective level is non-empty. Chrome (root/shell —
+// always viewable, outside the level model) and template blueprints are
+// skipped.
+func (b *Broker) apiAccessMatrix(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	var tiles []string
+	for _, c := range b.Reg.Components() {
+		if c.Path == "root" || c.Path == "shell" || c.IsTemplate() {
+			continue
+		}
+		tiles = append(tiles, c.Path)
+	}
+	sort.Strings(tiles)
+	type cell struct {
+		Level string               `json:"level"`
+		Via   []users.Contribution `json:"via"`
+	}
+	type userRow struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Role string `json:"role"`
+	}
+	rows := []userRow{}
+	cells := map[string]map[string]cell{}
+	for _, u := range st.List() {
+		rows = append(rows, userRow{ID: u.ID, Name: u.Name, Role: u.Role})
+		acc, ok := st.Access(u.ID)
+		if !ok {
+			continue
+		}
+		uc := map[string]cell{}
+		for _, tile := range tiles {
+			if via := acc.Explain(tile); len(via) > 0 {
+				uc[tile] = cell{Level: via[0].Level, Via: via}
+			}
+		}
+		if len(uc) > 0 {
+			cells[u.ID] = uc
+		}
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"users": rows, "tiles": tiles, "cells": cells})
+}
+
+// apiUsersDirectory is the minimal people list ({id, name} — no roles, no
+// grants, no hashes) that click-through pickers run on. Gated wider than
+// /users on purpose: org admins add existing accounts to their org/teams, so
+// they may enumerate ids — but nothing else about them.
+func (b *Broker) apiUsersDirectory(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalOf(r)
+	if !b.canManageUsers(p) && !(p.Component == "" && len(p.Access.AdminOrgs()) > 0) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "the user directory needs admin, an org admin, or the xbin:users capability"})
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	type entry struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	out := []entry{}
+	for _, u := range st.List() {
+		out = append(out, entry{ID: u.ID, Name: u.Name})
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"users": out})
+}
 
 // --- policy rows (workspace-admin only, D21) ---------------------------------
 

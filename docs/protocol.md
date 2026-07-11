@@ -175,6 +175,19 @@ PUT    /access                    same gate. set/clear one EXACT entry:
                                    {tile, kind:user|team, id, level:
                                    read|write|terminal|""} — team entries
                                    only on the team's own org's tiles
+GET    /access-matrix             admin/xbin:users. the resolved users×tiles
+                                   effective-access matrix with provenance:
+                                   {users:[{id,name,role}], tiles:[…],
+                                   cells:{user:{tile:{level, via:[{level,
+                                   source}]}}}} — sources: admin |
+                                   org-admin:<org> | direct:<pat> |
+                                   team:<org>/<team>:<pat> | base:<org>;
+                                   cells only where a level resolves; chrome
+                                   (root/shell) and templates excluded
+GET    /users-directory           admin/xbin:users, or any org admin. the
+                                   minimal people list for pickers:
+                                   {users:[{id,name}]} — identity only, no
+                                   roles/grants
 GET    /policy                    admin/xbin:users. workspace policy-ceiling
                                    rows {policy:[{tiles,deny?,mayCall?}]}
                                    (deny kinds net|gpu|xbin-caps; docs/auth.md)

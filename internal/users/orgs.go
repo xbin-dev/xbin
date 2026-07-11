@@ -425,7 +425,7 @@ func (s *Store) SetOrgPolicy(orgID string, rows []PolicyRow) error {
 // accessTeam is the slice of a team one user gets: the team's grants plus the
 // org clamp they evaluate under.
 type accessTeam struct {
-	org              string
+	org, id          string
 	tiles            map[string]string
 	canCreate        []string
 	termAPI, termNet bool
@@ -463,7 +463,7 @@ func (s *Store) Access(id string) (*Access, bool) {
 		for _, t := range o.Teams {
 			if contains(t.Members, uc.ID) {
 				a.teams = append(a.teams, accessTeam{
-					org: o.ID, tiles: t.Tiles, canCreate: t.CanCreate,
+					org: o.ID, id: t.ID, tiles: t.Tiles, canCreate: t.CanCreate,
 					termAPI: t.TermAPI, termNet: t.TermNet,
 				})
 			}
@@ -850,5 +850,63 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// --- Explain: the "why does X have Y on Z" resolver ---------------------------
+
+// Contribution is one source feeding a user's effective level on a path —
+// the raw material for access-map views. Source forms:
+//
+//	admin                        workspace admin (terminal everywhere)
+//	org-admin:<org>              implicit terminal on the org's tiles (D21)
+//	direct:<pattern>             the user's own tiles entry
+//	team:<org>/<team>:<pattern>  a team entry (org-clamped)
+//	base:<org>                   the org basePermission floor
+type Contribution struct {
+	Level  string `json:"level"`
+	Source string `json:"source"`
+}
+
+// Explain lists every contribution to the user's level on path, highest
+// first. The effective level is the first entry's (TileLevel agrees by
+// construction; TestExplainMatchesTileLevel pins that).
+func (a *Access) Explain(path string) []Contribution {
+	if a == nil {
+		return nil
+	}
+	if a.user.IsAdmin() {
+		return []Contribution{{Level: LevelTerminal, Source: "admin"}}
+	}
+	var out []Contribution
+	for pat, l := range a.user.Tiles {
+		if matchTile(pat, path) {
+			out = append(out, Contribution{Level: l, Source: "direct:" + pat})
+		}
+	}
+	if org, ok := OrgOf(path); ok {
+		if a.adminOrgs[org] {
+			out = append(out, Contribution{Level: LevelTerminal, Source: "org-admin:" + org})
+		}
+		if base, member := a.memberOrgs[org]; member && base != "" {
+			out = append(out, Contribution{Level: base, Source: "base:" + org})
+		}
+		for _, t := range a.teams {
+			if t.org != org {
+				continue
+			}
+			for pat, l := range t.tiles {
+				if matchTile(pat, path) {
+					out = append(out, Contribution{Level: l, Source: "team:" + org + "/" + t.id + ":" + pat})
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if levelRank(out[i].Level) != levelRank(out[j].Level) {
+			return levelRank(out[i].Level) > levelRank(out[j].Level)
+		}
+		return out[i].Source < out[j].Source
+	})
 	return out
 }

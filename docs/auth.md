@@ -461,6 +461,13 @@ GET/PUT        /api/xbin/policy                   workspace ceiling rows
 GET/PUT        /api/xbin/orgs/<org>/policy        org ceiling rows
 ```
 
+**Seeing how it all resolves.** The admin tile's **access map** tab renders
+the org/permission structure visually and the resolved users × tiles matrix
+(`GET /api/xbin/access-matrix`) — every cell click shows the full
+derivation: which direct entry, team pattern, base permission, or
+org-adminship contributes, and which one wins. Per-tile provenance is the
+⚙ → access panel (`GET /access`); per-user raw grants are the users tab.
+
 `whoami` reports a user's memberships (`orgs: [{id,name,admin,teams}]`). On
 element principals it also reports the attributed driving human — **scoped
 by the tile's trust**, so a low-trust or compromised tile can't harvest

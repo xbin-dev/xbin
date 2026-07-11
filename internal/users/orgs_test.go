@@ -395,3 +395,55 @@ func TestOrgCreateMembershipAndContainer(t *testing.T) {
 		t.Errorf("below the container must stay valid: %v", err)
 	}
 }
+
+// Explain must list every contribution and agree with TileLevel.
+func TestExplainMatchesTileLevel(t *testing.T) {
+	s := fixture(t)
+	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}, BasePermission: LevelRead}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTile("bob", "apps/o/sales/crm", LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"apps/o/sales/crm", "apps/o/sales/other", "apps/chat", "lib/ui", "o/sales/x"}
+	for _, id := range []string{"alice", "bob", "carol", "dave"} {
+		a, _ := s.Access(id)
+		for _, p := range paths {
+			cs := a.Explain(p)
+			eff := ""
+			if len(cs) > 0 {
+				eff = cs[0].Level
+			}
+			if got := a.TileLevel(p); got != eff {
+				t.Errorf("%s on %s: TileLevel=%q but Explain leads with %q (%v)", id, p, got, eff, cs)
+			}
+		}
+	}
+	// Provenance shapes: bob on the org tile has team pattern + base + direct.
+	bob, _ := s.Access("bob")
+	cs := bob.Explain("apps/o/sales/crm")
+	want := map[string]bool{"team:sales/backend:apps/o/sales/*": false, "base:sales": false, "direct:apps/o/sales/crm": false}
+	for _, c := range cs {
+		if _, ok := want[c.Source]; ok {
+			want[c.Source] = true
+		}
+	}
+	for src, seen := range want {
+		if !seen {
+			t.Errorf("missing contribution %q in %v", src, cs)
+		}
+	}
+	// Workspace admin: a single "admin" row.
+	if _, err := s.Upsert(User{ID: "root2", Role: RoleAdmin}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	ra, _ := s.Access("root2")
+	if cs := ra.Explain("anything"); len(cs) != 1 || cs[0].Source != "admin" {
+		t.Errorf("admin explain = %v", cs)
+	}
+	// Org admin: the implicit terminal row leads.
+	carol, _ := s.Access("carol")
+	if cs := carol.Explain("apps/o/sales/crm"); len(cs) == 0 || cs[0].Source != "org-admin:sales" {
+		t.Errorf("org-admin explain = %v", cs)
+	}
+}

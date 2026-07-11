@@ -287,3 +287,60 @@ func TestWhoamiDriverViewScoping(t *testing.T) {
 		t.Fatalf("xbin-caps-denied tile must lose the full view, got %v", u)
 	}
 }
+
+// The access matrix resolves every user × tile with provenance; the
+// directory is reachable by org admins but carries identity only.
+func TestAccessMatrixAndDirectory(t *testing.T) {
+	b, st := orgFixture(t)
+	if err := st.GrantTile("dave", "apps/calendar", users.LevelRead); err != nil {
+		t.Fatal(err)
+	}
+
+	w := call(t, b.apiAccessMatrix, auth.Principal{Owner: true}, "GET", "/x", ``, nil)
+	if w.Code != 200 {
+		t.Fatalf("matrix: %d %s", w.Code, w.Body.String())
+	}
+	var m struct {
+		Users []struct{ ID, Role string }
+		Tiles []string
+		Cells map[string]map[string]struct {
+			Level string
+			Via   []struct{ Level, Source string }
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Users) != 5 || len(m.Tiles) == 0 {
+		t.Fatalf("matrix shape: %d users, %d tiles", len(m.Users), len(m.Tiles))
+	}
+	for _, tile := range m.Tiles {
+		if tile == "root" || tile == "shell" {
+			t.Fatal("chrome must be excluded from the matrix")
+		}
+	}
+	dc, ok := m.Cells["dave"]["apps/calendar"]
+	if !ok || dc.Level != "read" || len(dc.Via) == 0 || dc.Via[0].Source != "direct:apps/calendar" {
+		t.Fatalf("dave cell: %+v", dc)
+	}
+	if rc, ok := m.Cells["root2"]["apps/calendar"]; !ok || rc.Level != "terminal" || rc.Via[0].Source != "admin" {
+		t.Fatalf("admin cell: %+v", rc)
+	}
+	if _, ok := m.Cells["alice"]["apps/calendar"]; ok {
+		t.Fatal("no-access cells must be absent")
+	}
+
+	// Directory: org admin carol may enumerate; plain alice may not; the
+	// payload is identity-only.
+	w = call(t, b.apiUsersDirectory, sessionPrincipal(t, st, "carol"), "GET", "/x", ``, nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"dave"`) || strings.Contains(w.Body.String(), "role") {
+		t.Fatalf("directory for org admin: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiUsersDirectory, sessionPrincipal(t, st, "alice"), "GET", "/x", ``, nil); w.Code != 403 {
+		t.Fatalf("directory for plain member must 403, got %d", w.Code)
+	}
+	// Frame principals never inherit the driving human's org-adminship here either.
+	if w := call(t, b.apiUsersDirectory, auth.Principal{Component: "apps/email", UserID: "carol", Via: "frame"}, "GET", "/x", ``, nil); w.Code != 403 {
+		t.Fatalf("frame principal directory must 403, got %d", w.Code)
+	}
+}
