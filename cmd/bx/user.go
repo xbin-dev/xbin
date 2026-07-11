@@ -38,6 +38,23 @@ func cmdUser(args []string) error {
 		if err := apiJSON("GET", "/api/xbin/users", nil, &out); err != nil {
 			return err
 		}
+		// Org/team memberships per user (best-effort; older daemons lack /orgs).
+		memberships := map[string][]string{}
+		if orgs, err := fetchOrgs(); err == nil {
+			for _, o := range orgs {
+				for _, a := range o.Admins {
+					memberships[a] = append(memberships[a], o.ID+"(admin)")
+				}
+				for _, m := range o.Members {
+					memberships[m] = append(memberships[m], o.ID)
+				}
+				for _, t := range o.Teams {
+					for _, m := range t.Members {
+						memberships[m] = append(memberships[m], o.ID+"/"+t.ID)
+					}
+				}
+			}
+		}
 		for _, u := range out.Users {
 			access := "all"
 			if u.Role != "admin" {
@@ -63,6 +80,9 @@ func cmdUser(args []string) error {
 				if access == "" {
 					access = "-"
 				}
+			}
+			if ms := memberships[u.ID]; len(ms) > 0 {
+				access += " [" + strings.Join(ms, ",") + "]"
 			}
 			fmt.Printf("%-14s %-8s %-40s %s\n", u.ID, u.Role, access, u.Name)
 		}
