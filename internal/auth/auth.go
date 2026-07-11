@@ -39,11 +39,16 @@ const (
 
 // Principal identifies a verified caller (plans/multi-user.md).
 type Principal struct {
-	Owner     bool        // the root token (bootstrap/admin service credential)
-	UserID    string      // human user id when authenticated via a session
-	User      *users.User // that user's snapshot (nil for token/element callers)
-	Component string      // element path when the caller is an element
-	Via       string      // "cookie" | "bearer" | "instance" | "frame" | "cron" | "session"
+	Owner  bool        // the root token (bootstrap/admin service credential)
+	UserID string      // human user id when authenticated via a session
+	User   *users.User // that user's snapshot (nil for token/element callers)
+	// Access is the user's org/team-aware resolution (plans/orgs.md), set
+	// alongside User for session principals. The Can* gates prefer it; the
+	// User-only fallback keeps synthetic principals built without a store
+	// (tests, older call sites) behaving as before.
+	Access    *users.Access
+	Component string // element path when the caller is an element
+	Via       string // "cookie" | "bearer" | "instance" | "frame" | "cron" | "session"
 	// Role is set only for synthetic principals whose role is bound at
 	// creation (cron ticks carry the role chosen at job registration).
 	Role string
@@ -67,12 +72,23 @@ func (p Principal) CanTerminalTile(path string) bool {
 	if p.IsAdmin() {
 		return true
 	}
+	if p.Access != nil {
+		return p.Access.CanTerminalTile(path)
+	}
 	return p.User != nil && p.User.CanTerminalTile(path)
 }
 
 func (p Principal) tileLevel(path, want string) bool {
 	if p.IsAdmin() {
 		return true
+	}
+	if p.Access != nil {
+		switch want {
+		case users.LevelWrite:
+			return p.Access.CanWriteTile(path)
+		default:
+			return p.Access.CanReadTile(path)
+		}
 	}
 	if p.User != nil {
 		switch want {
@@ -87,11 +103,15 @@ func (p Principal) tileLevel(path, want string) bool {
 }
 
 // CanCreateTile reports whether this principal may create a component at
-// `path` (D16): admins anywhere; users within their CanCreate patterns.
-// Element principals are handled by the xbin:writer grant at the call site.
+// `path` (D16): admins anywhere; users within their (org/team-unioned)
+// CanCreate patterns. Element principals are handled by the xbin:writer
+// grant at the call site.
 func (p Principal) CanCreateTile(path string) bool {
 	if p.IsAdmin() {
 		return true
+	}
+	if p.Access != nil {
+		return p.Access.CanCreateTile(path)
 	}
 	return p.User != nil && p.User.CanCreateTile(path)
 }
@@ -102,17 +122,32 @@ func (p Principal) CanTerminal() bool {
 	if p.Owner {
 		return true
 	}
+	if p.Access != nil {
+		return p.Access.CanTerminal()
+	}
 	return p.User != nil && p.User.CanTerminal()
 }
 
 // CanTermAPI / CanTermNet report the terminal-plane grants (D17): whether this
 // principal's terminals may carry a live tile-API token / internet egress.
-// Admins have both implicitly.
+// Admins have both implicitly; teams confer them by union (plans/orgs.md).
 func (p Principal) CanTermAPI() bool {
-	return p.IsAdmin() || (p.User != nil && p.User.TermAPI)
+	if p.IsAdmin() {
+		return true
+	}
+	if p.Access != nil {
+		return p.Access.TermAPI()
+	}
+	return p.User != nil && p.User.TermAPI
 }
 func (p Principal) CanTermNet() bool {
-	return p.IsAdmin() || (p.User != nil && p.User.TermNet)
+	if p.IsAdmin() {
+		return true
+	}
+	if p.Access != nil {
+		return p.Access.TermNet()
+	}
+	return p.User != nil && p.User.TermNet
 }
 
 func (p Principal) From() string {
@@ -453,6 +488,16 @@ func (a *Auth) userSnapshot(uid string) (*users.User, bool) {
 	return a.Users.Get(uid)
 }
 
+// accessSnapshot resolves the org/team-aware access for a user (nil when no
+// store or unknown user — the Principal gates then fall back to User).
+func (a *Auth) accessSnapshot(uid string) *users.Access {
+	if a.Users == nil {
+		return nil
+	}
+	acc, _ := a.Users.Access(uid)
+	return acc
+}
+
 // --- request authentication ---
 
 // FromRequest identifies the caller. Order:
@@ -531,7 +576,7 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 		if !found { // user deleted → session invalid
 			return Principal{}, false
 		}
-		base = Principal{UserID: uid, User: u, Via: "session"}
+		base = Principal{UserID: uid, User: u, Access: a.accessSnapshot(uid), Via: "session"}
 	}
 
 	// A frame token on top narrows to that tile frontend (carrying the same

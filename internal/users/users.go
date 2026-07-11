@@ -230,6 +230,11 @@ type Store struct {
 	mu   sync.RWMutex
 	byID map[string]*User
 
+	// orgs and policy are the org/team layer and the workspace-level policy
+	// ceiling rows (orgs.go; plans/orgs.md).
+	orgs   map[string]*Org
+	policy []PolicyRow
+
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
 	// exist. The Bearer owner token still works for tooling (bx). Enforced in
@@ -239,7 +244,7 @@ type Store struct {
 
 // Open loads (or starts empty) the user store under dataDir.
 func Open(dataDir string) (*Store, error) {
-	s := &Store{path: filepath.Join(dataDir, "users.json"), byID: map[string]*User{}}
+	s := &Store{path: filepath.Join(dataDir, "users.json"), byID: map[string]*User{}, orgs: map[string]*Org{}}
 	b, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
 		return s, nil
@@ -248,8 +253,10 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	var doc struct {
-		Users              []*User `json:"users"`
-		TokenLoginDisabled bool    `json:"tokenLoginDisabled"`
+		Users              []*User     `json:"users"`
+		Orgs               []*Org      `json:"orgs"`
+		Policy             []PolicyRow `json:"policy"`
+		TokenLoginDisabled bool        `json:"tokenLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -257,6 +264,10 @@ func Open(dataDir string) (*Store, error) {
 	for _, u := range doc.Users {
 		s.byID[u.ID] = u
 	}
+	for _, o := range doc.Orgs {
+		s.orgs[o.ID] = o
+	}
+	s.policy = doc.Policy
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	return s, nil
 }
@@ -416,10 +427,29 @@ func (s *Store) GrantTile(id, path, level string) error {
 	return s.persistLocked()
 }
 
+// Delete removes a user and strips them from every org (admins, members) and
+// team — the same cleanup GitHub does when an account leaves.
 func (s *Store) Delete(id string) error {
+	id = normalizeID(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.byID, normalizeID(id))
+	delete(s.byID, id)
+	other := func(m string) bool { return m != id }
+	for oid, o := range s.orgs {
+		if !o.effMember(id) {
+			continue
+		}
+		no := *o
+		no.Admins = filter(o.Admins, other)
+		no.Members = filter(o.Members, other)
+		no.Teams = make([]*Team, 0, len(o.Teams))
+		for _, t := range o.Teams {
+			nt := *t
+			nt.Members = filter(t.Members, other)
+			no.Teams = append(no.Teams, &nt)
+		}
+		s.orgs[oid] = &no
+	}
 	return s.persistLocked()
 }
 
@@ -429,7 +459,19 @@ func (s *Store) persistLocked() error {
 		users = append(users, u)
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
-	b, err := json.MarshalIndent(map[string]any{"users": users, "tokenLoginDisabled": s.tokenLoginDisabled}, "", "  ")
+	doc := map[string]any{"users": users, "tokenLoginDisabled": s.tokenLoginDisabled}
+	if len(s.orgs) > 0 {
+		orgs := make([]*Org, 0, len(s.orgs))
+		for _, o := range s.orgs {
+			orgs = append(orgs, o)
+		}
+		sort.Slice(orgs, func(i, j int) bool { return orgs[i].ID < orgs[j].ID })
+		doc["orgs"] = orgs
+	}
+	if len(s.policy) > 0 {
+		doc["policy"] = s.policy
+	}
+	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
