@@ -17,5 +17,8 @@ func RunInit(string) { panic("sandbox: RunInit called on non-linux") }
 // Available reports whether OS sandboxing can be used here.
 func Available() bool { return false }
 
+// IDMapStatus is unsupported off Linux (no user namespaces).
+func IDMapStatus(int, int) (bool, string) { return false, "user namespaces are Linux-only" }
+
 // DetectProtections reports no terminal-hardening off Linux.
 func DetectProtections() Protections { return Protections{} }

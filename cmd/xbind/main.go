@@ -487,6 +487,18 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			}
 		}
 		slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
+		// Sandboxes need a delegated sub-uid/gid RANGE for apt/dpkg to chown
+		// files to the system users their post-install scripts create. Without
+		// it the sandbox falls back to single-uid mode (only container-root
+		// mapped), where those chowns fail with EINVAL and heavier package
+		// installs break midway (systemd, dbus, …) while simple ones still work.
+		// Warn loudly — the failure is otherwise a cryptic dpkg error.
+		if rangeOK, reason := sandbox.IDMapStatus(os.Getuid(), os.Getgid()); rangeOK {
+			slog.Info("sandbox uid mapping: full sub-id range (apt/dpkg system-user installs work)")
+		} else {
+			slog.Warn("sandbox uid mapping: SINGLE-UID fallback — apt/dpkg installs that create system users (systemd, dbus, …) will fail with chown \"Invalid argument\"; delegate a sub-id range to this user and install the uidmap package (deploy/install.sh does both), then restart xbind",
+				"reason", reason)
+		}
 	}
 
 	srv := &server.Server{

@@ -169,6 +169,29 @@ type idRanges struct {
 	gidStart, gidCount int
 }
 
+// IDMapStatus reports whether full sub-uid/gid RANGE mapping is available for
+// this host uid/gid — the mode that lets apt/dpkg chown files to the system
+// users their post-install scripts create (systemd, dbus, messagebus, …).
+// When false the sandbox falls back to SINGLE-UID mode: only container-root is
+// mapped, so those chowns fail with EINVAL ("Invalid argument") and such
+// package installs break midway, while simple packages still install. reason
+// names what's missing (for a startup warning). Mirrors detectIDRanges' checks.
+func IDMapStatus(hostUID, hostGID int) (rangeOK bool, reason string) {
+	if _, err := exec.LookPath("newuidmap"); err != nil {
+		return false, "newuidmap not on PATH (install the 'uidmap' package)"
+	}
+	if _, err := exec.LookPath("newgidmap"); err != nil {
+		return false, "newgidmap not on PATH (install the 'uidmap' package)"
+	}
+	if _, _, ok := subIDRange("/etc/subuid", hostUID); !ok {
+		return false, fmt.Sprintf("no /etc/subuid range delegated for uid %d", hostUID)
+	}
+	if _, _, ok := subIDRange("/etc/subgid", hostGID); !ok {
+		return false, fmt.Sprintf("no /etc/subgid range delegated for gid %d", hostGID)
+	}
+	return true, ""
+}
+
 // detectIDRanges returns a range mapping if sub-ids are delegated for this user
 // and newuidmap/newgidmap are available; otherwise nil (→ single-uid mode).
 func detectIDRanges(hostUID, hostGID int) *idRanges {

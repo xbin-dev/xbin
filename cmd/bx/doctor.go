@@ -67,6 +67,20 @@ func cmdDoctor() error {
 		}
 	}
 
+	// Sandbox uid mapping: a terminal reads its own /proc/self/uid_map. A single
+	// mapped range of size 1 (e.g. "0 999 1") is single-uid mode, where apt/dpkg
+	// can't chown to the system users their post-install scripts create (chown →
+	// "Invalid argument"), so packages like systemd/dbus fail to configure. A
+	// delegated sub-id range maps a second, wide row and fixes it. Only meaningful
+	// inside a sandboxed terminal (the file is absent/other otherwise).
+	if b, err := os.ReadFile("/proc/self/uid_map"); err == nil {
+		if singleUIDMap(string(b)) {
+			warn("sandbox uid mapping is SINGLE-UID: apt/dpkg installs that create system users (systemd, dbus, …) will fail with chown \"Invalid argument\". Delegate a sub-id range to the xbind user (/etc/subuid + /etc/subgid) and install the uidmap package on the host, then restart xbind (deploy/install.sh does this).")
+		} else {
+			ok("sandbox uid mapping: full sub-id range")
+		}
+	}
+
 	// inotify budget (the #1 support issue per plans/deployment.md).
 	if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_watches"); err == nil {
 		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
@@ -100,6 +114,25 @@ func cmdDoctor() error {
 		return nil
 	}
 	return fmt.Errorf("%d problem(s)", problems)
+}
+
+// singleUIDMap reports whether a /proc/self/uid_map maps only container-root
+// (one non-empty row of "<inside> <outside> <count>" with count 1, and no wider
+// row). Range mode adds a second row mapping a large count. Empty/odd → not
+// flagged (only the clear single-uid case warns).
+func singleUIDMap(s string) bool {
+	rows := 0
+	for _, line := range strings.Split(s, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			continue
+		}
+		rows++
+		if n, err := strconv.Atoi(f[2]); err == nil && n > 1 {
+			return false // a wide mapping exists → range mode
+		}
+	}
+	return rows == 1
 }
 
 func lookPath(bin string) (string, error) {

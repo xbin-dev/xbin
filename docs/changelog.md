@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- terminal: **`apt install` of packages that create system users now diagnosed
+  when it can't work.** In a sandbox without a delegated sub-uid/gid *range*
+  (single-uid mode), only container-root is mapped, so dpkg post-install
+  scripts that `chown` to a system user (systemd, dbus, messagebus, …) fail
+  with `chown … Invalid argument` and the install breaks midway — while simple
+  packages install fine. xbind now logs the uid-mapping mode at startup and
+  **warns loudly on the single-uid fallback**, and `bx doctor` flags it from
+  inside a terminal (reading `/proc/self/uid_map`). Fix: delegate a sub-id
+  range to the xbind user (`/etc/subuid` + `/etc/subgid`) and install the
+  `uidmap` package on the host, then restart — `deploy/install.sh` does both.
 - terminal: **mouse/selection no longer drifts when the workspace font size is
   changed.** The workspace scales via CSS `zoom`, but xterm measures its cell
   size on a canvas (which ignores an ancestor's zoom) while reading pointer
