@@ -77,6 +77,7 @@ export class BxShell extends LitElement {
     _dropFolder: { state: true }, // folder id highlighted as a drag target
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
+    _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -373,6 +374,7 @@ export class BxShell extends LitElement {
     this._sys = null;
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._isAdmin = false;
+    this._adminOrgs = new Set();
     this._adminFor = null;
     this._adminPos = { x: 0, y: 0 };
     this._dialogs = [];
@@ -871,11 +873,33 @@ export class BxShell extends LitElement {
 
   // Probe once whether the signed-in human is an admin (raw fetch → cookie
   // principal). Gates the per-tile ⚙ mini-admin; its APIs 403 otherwise anyway.
+  // Org admins (docs/auth.md, orgs & teams) get the ⚙ on THEIR org's tiles:
+  // the access + lifecycle sections work for them, admin-only sections just
+  // show their 403s.
   async _probeAdmin() {
     try {
       const r = await fetch('/api/xbin/whoami');
-      if (r.ok) this._isAdmin = !!(await r.json()).admin;
+      if (r.ok) {
+        const d = await r.json();
+        this._isAdmin = !!d.admin;
+        this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
+      }
     } catch { /* xbind restarting */ }
+  }
+
+  // _orgOf mirrors the server's positional org binding (plans/orgs.md):
+  // o/<org>/… or <seg>/o/<org>/….
+  _orgOf(path) {
+    const s = String(path).split('/');
+    if (s.length >= 2 && s[0] === 'o' && s[1]) return s[1];
+    if (s.length >= 3 && s[1] === 'o' && s[2]) return s[2];
+    return null;
+  }
+
+  _canAdminTile(path) {
+    if (this._isAdmin) return true;
+    const org = this._orgOf(path);
+    return !!(org && this._adminOrgs?.has(org));
   }
 
   _openAdmin(e, path) {
@@ -1107,7 +1131,7 @@ export class BxShell extends LitElement {
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._cardTerm(e)}>&gt;_</button>
-          ${this._isAdmin ? html`<button title="tile admin (lifecycle · runtime · vault · grants · interfaces · backup · cron)"
+          ${this._canAdminTile(o.path) ? html`<button title="tile admin (access · lifecycle · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
           <button title=${floating ? 'pin back into the column layout' : 'unpin into a floating window'}

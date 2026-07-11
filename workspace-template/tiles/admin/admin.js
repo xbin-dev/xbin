@@ -3,7 +3,8 @@
  * into the running system, powered by xbind's admin-capable endpoints via
  * the xbin:admin capability (see xbin.json / API.md).
  *
- * Tabs: overview · code & history · users · vault · roles & grants · cron.
+ * Tabs: overview · code & history · users · orgs & teams · vault ·
+ * roles & grants · cron.
  * All reads go through xbin.fetch (admin identity attributed by frame token)
  * and refresh on the grants/reload event stream. The code & history tab browses
  * a component's files and git log/diffs (syntax-highlighted via vendored
@@ -58,6 +59,8 @@ export class BxAdmin extends LitElement {
     _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
     _cron: { state: true },
     _users: { state: true },
+    _orgs: { state: true },     // orgs & teams (docs/auth.md)
+    _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
@@ -241,6 +244,7 @@ export class BxAdmin extends LitElement {
     { id: 'overview', label: 'overview' },
     { id: 'runtime', label: 'runtime' },
     { id: 'users', label: 'users' },
+    { id: 'orgs', label: 'orgs & teams' },
     { id: 'vault', label: 'vault' },
     { id: 'grants', label: 'roles & grants' },
     { id: 'interfaces', label: 'interfaces' },
@@ -322,7 +326,7 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy] = await Promise.all([
         api('/auth-overview'),
         api('/vaults').catch(() => null), // 503 while the barrier is sealed
         api('/cron/jobs'),
@@ -330,10 +334,14 @@ export class BxAdmin extends LitElement {
         api('/auth-settings').catch(() => null),
         api('/vault-status').catch(() => null),
         api('/alerts').catch(() => ({ alerts: [] })),
+        api('/orgs').catch(() => ({ orgs: [] })),
+        api('/policy').catch(() => ({ policy: [] })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._alerts = alerts.alerts ?? [];
       this._users = users.users ?? [];
+      this._orgs = orgs.orgs ?? [];
+      this._wsPolicy = wsPolicy.policy ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
     } catch (e) {
@@ -581,6 +589,7 @@ export class BxAdmin extends LitElement {
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
+          : tab === 'orgs' ? this._orgsView()
           : tab === 'overview' ? (this._codeComp ? this._codeView() : this._overview())
           : tab === 'runtime' ? this._runtimeView()
           : tab === 'vault' ? this._vaultView()
@@ -1344,6 +1353,19 @@ export class BxAdmin extends LitElement {
     } catch (e) { this._err = String(e.message ?? e); }
   }
 
+  // _userOrgPills summarizes a user's org/team memberships for the users table.
+  _userOrgPills(uid) {
+    const out = [];
+    for (const o of (this._orgs ?? [])) {
+      if ((o.admins ?? []).includes(uid)) out.push(`${o.id}·admin`);
+      else if ((o.members ?? []).includes(uid)) out.push(o.id);
+      for (const t of (o.teams ?? [])) {
+        if ((t.members ?? []).includes(uid)) out.push(`${o.id}/${t.id}`);
+      }
+    }
+    return out;
+  }
+
   _usersView() {
     const users = this._users ?? [];
     return html`
@@ -1360,7 +1382,8 @@ export class BxAdmin extends LitElement {
               ${u.termApi ? html`<span class="pill">term-api</span>` : nothing}
               ${u.termNet ? html`<span class="pill">term-net</span>` : nothing}
               ${!Object.keys(u.tiles || {}).length && !(u.canCreate || []).length
-                ? html`<span class="muted">none</span>` : nothing}`}</td>
+                ? html`<span class="muted">none</span>` : nothing}`}
+            ${this._userOrgPills(u.id).map((p) => html`<span class="pill" style="opacity:.75">${p}</span>`)}</td>
           <td style="text-align:right; white-space:nowrap">
             <button class="act" @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote' : 'make admin'}</button>
             ${u.role === 'admin' ? nothing : html`<button class="act" @click=${() => this._editTiles(u)}>tiles</button>
@@ -1393,6 +1416,159 @@ export class BxAdmin extends LitElement {
         no internet egress without <b>term-net</b>.</p>
 
       ${this._signInSecurityView()}`;
+  }
+
+  // ---- orgs & teams (docs/auth.md; plans/orgs.md) ----
+  // Orgs own the o/<org> path namespace (apps/o/<org>/…); teams grant access
+  // to org members by union; policy rows are the runtime ceiling on what the
+  // org's tiles may be granted. This tab is the workspace-admin console —
+  // org admins manage their org from the shell's per-tile ⚙ access panel.
+  async _orgAPI(method, path, body) {
+    try {
+      await api(path, body === undefined ? { method }
+        : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    await this._refresh();
+  }
+
+  _promptList(title, cur) { // csv prompt → array, or null on cancel
+    const v = prompt(title, (cur || []).join(', '));
+    return v == null ? null : v.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  _editPolicy(orgID, rows) {
+    const v = prompt(
+      `Policy ceiling rows${orgID ? ` for org ${orgID}` : ' (workspace-wide)'} — JSON array of `
+      + `{"tiles":"<pattern>","deny":["net"|"gpu"|"xbin-caps"],"mayCall":["<pattern>", …]}. `
+      + `Deny strips the capability from matching tiles; mayCall allow-lists their call targets. [] = no ceiling:`,
+      JSON.stringify(rows ?? []));
+    if (v == null) return;
+    let parsed;
+    try { parsed = JSON.parse(v); } catch (e) { this._err = 'bad JSON: ' + String(e.message ?? e); return; }
+    this._orgAPI('PUT', orgID ? `/orgs/${encodeURIComponent(orgID)}/policy` : '/policy', { policy: parsed });
+  }
+
+  async _createOrg(f) {
+    await this._orgAPI('POST', '/orgs', {
+      id: f.id.value.trim(), name: f.orgname.value.trim(),
+      admins: f.admins.value.split(',').map((s) => s.trim()).filter(Boolean),
+      members: f.members.value.split(',').map((s) => s.trim()).filter(Boolean),
+    });
+    if (!this._err) f.reset();
+  }
+
+  async _createTeam(orgID, f) {
+    await this._orgAPI('POST', `/orgs/${encodeURIComponent(orgID)}/teams`, {
+      id: f.id.value.trim(),
+      members: f.members.value.split(',').map((s) => s.trim()).filter(Boolean),
+    });
+    if (!this._err) f.reset();
+  }
+
+  _teamRow(o, t) {
+    const tpath = `/orgs/${encodeURIComponent(o.id)}/teams/${encodeURIComponent(t.id)}`;
+    return html`<tr>
+      <td class="mono">${t.id}</td>
+      <td>${(t.members || []).map((m) => html`<span class="pill">${m}</span>`)}
+          ${Object.entries(t.tiles || {}).map(([p, l]) => html`<span class="pill">${p}·${l}</span>`)}
+          ${(t.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
+          ${t.termApi ? html`<span class="pill">term-api</span>` : nothing}
+          ${t.termNet ? html`<span class="pill">term-net</span>` : nothing}</td>
+      <td><select title="level the team gets on tiles created in it"
+            @change=${(e) => this._orgAPI('PATCH', tpath, { newTiles: e.target.value })}>
+          ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${t.newTiles === l}>new: ${l}</option>`)}
+        </select></td>
+      <td style="text-align:right; white-space:nowrap">
+        <button class="act" @click=${() => { const m = this._promptList(`Members of ${o.id}/${t.id} (must be org members):`, t.members);
+          if (m) this._orgAPI('PATCH', tpath, { members: m }); }}>members</button>
+        <button class="act" @click=${() => { const v = prompt(
+            `Tile access for ${o.id}/${t.id} — "pattern=level" entries (read|write|terminal); only paths in org ${o.id} apply (apps/o/${o.id}/*):`,
+            this._tilesSpec(t.tiles));
+          if (v != null) this._orgAPI('PATCH', tpath, { tiles: this._parseTilesSpec(v) }); }}>tiles</button>
+        <button class="act" @click=${() => { const c = this._promptList(
+            `Create patterns for ${o.id}/${t.id} (e.g. apps/o/${o.id}/*):`, t.canCreate);
+          if (c) this._orgAPI('PATCH', tpath, { canCreate: c }); }}>create</button>
+        <button class="act" @click=${() => this._orgAPI('PATCH', tpath, { termApi: !t.termApi })}>${t.termApi ? '− api' : '+ api'}</button>
+        <button class="act" @click=${() => this._orgAPI('PATCH', tpath, { termNet: !t.termNet })}>${t.termNet ? '− net' : '+ net'}</button>
+        <button class="act rm" @click=${() => confirm(`Delete team ${o.id}/${t.id}? Its access grants vanish.`) &&
+          this._orgAPI('DELETE', tpath)}>del</button>
+      </td>
+    </tr>`;
+  }
+
+  _orgCard(o) {
+    const opath = `/orgs/${encodeURIComponent(o.id)}`;
+    return html`
+      <div style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
+        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
+          <b class="mono">${o.id}</b>
+          <span class="muted">${o.name !== o.id ? o.name : ''}</span>
+          <span class="pill" title="tiles live at apps/o/${o.id}/… (and o/${o.id}/…)">o/${o.id}</span>
+          <span style="flex:1"></span>
+          <label class="muted" style="font-size:11px">base
+            <select title="floor every member gets on org tiles (terminal is never implicit)"
+              @change=${(e) => this._orgAPI('PATCH', opath, { basePermission: e.target.value })}>
+              ${[['', 'none'], ['read', 'read'], ['write', 'write']].map(([v, l]) =>
+                html`<option value=${v} ?selected=${(o.basePermission ?? '') === v}>${l}</option>`)}
+            </select></label>
+          <button class="act" @click=${() => { const a = this._promptList(`Org admins of ${o.id} (delegated management; security knobs stay workspace-admin):`, o.admins);
+            if (a) this._orgAPI('PATCH', opath, { admins: a }); }}>admins</button>
+          <button class="act" @click=${() => { const m = this._promptList(`Members of ${o.id}:`, o.members);
+            if (m) this._orgAPI('PATCH', opath, { members: m }); }}>members</button>
+          <button class="act" @click=${() => this._editPolicy(o.id, o.policy)}>policy${o.policy?.length ? ` (${o.policy.length})` : ''}</button>
+          <button class="act rm" @click=${() => confirm(`Delete org ${o.id}? Team grants and its policy vanish; tiles stay on disk.`) &&
+            this._orgAPI('DELETE', opath)}>del</button>
+        </div>
+        <div style="margin-top:4px; font-size:12px">
+          admins: ${(o.admins || []).length ? (o.admins || []).map((a) => html`<span class="pill">${a}</span>`) : html`<span class="muted">none</span>`}
+          · members: ${(o.members || []).length ? (o.members || []).map((m) => html`<span class="pill">${m}</span>`) : html`<span class="muted">none</span>`}
+        </div>
+        <table style="margin-top:6px">
+          ${(o.teams || []).length ? html`<tr><th>team</th><th>members · grants</th><th></th><th></th></tr>` : nothing}
+          ${(o.teams || []).map((t) => this._teamRow(o, t))}
+        </table>
+        <form class="inline" style="margin-top:6px" @submit=${(e) => { e.preventDefault(); this._createTeam(o.id, e.target); }}>
+          <input name="id" placeholder="new team id" size="12" required>
+          <input name="members" placeholder="members: a, b" size="16">
+          <button class="act go">add team</button>
+        </form>
+      </div>`;
+  }
+
+  _orgsView() {
+    const orgs = this._orgs ?? [];
+    return html`
+      <h4>organizations</h4>
+      ${orgs.length ? orgs.map((o) => this._orgCard(o))
+        : html`<p class="muted">No orgs. An org owns the <span class="mono">o/&lt;org&gt;</span> path
+          namespace (tiles at <span class="mono">apps/o/&lt;org&gt;/…</span>), groups users into teams
+          with shared access, and can carry a policy ceiling on what its tiles may reach.</p>`}
+
+      <h4>add org</h4>
+      <form class="inline" @submit=${(e) => { e.preventDefault(); this._createOrg(e.target); }}>
+        <input name="id" placeholder="org id (path-safe)" size="14" required>
+        <input name="orgname" placeholder="display name" size="14">
+        <input name="admins" placeholder="admins: alice" size="14">
+        <input name="members" placeholder="members: bob, carol" size="18">
+        <button class="act go">create</button>
+      </form>
+
+      <h4>workspace policy</h4>
+      <p class="muted" style="font-size:11px; max-width:60ch">
+        Pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (org rows add on top;
+        any deny wins, mayCall allow-lists intersect). Enforced at approval and at every evaluation —
+        a hand-edited xbin.json can't bypass it.</p>
+      ${(this._wsPolicy ?? []).map((r) => html`<div class="mono" style="font-size:11px">
+        tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}</div>`)}
+      <button class="act" style="margin-top:4px" @click=${() => this._editPolicy('', this._wsPolicy)}>edit workspace policy</button>
+
+      <p class="muted" style="font-size:11px; margin-top:10px; max-width:60ch">
+        Teams grant by union: a member's level is the highest of their own entries, their teams'
+        entries (inside the team's org only), and the org base permission. Creating a tile in a team
+        (manager → create) grants the team its "new" level; the creator gets terminal. Org admins
+        manage members/teams/access from the shell's per-tile ⚙ panel — term-api/term-net, policy,
+        and org create/delete stay here.</p>`;
   }
 }
 

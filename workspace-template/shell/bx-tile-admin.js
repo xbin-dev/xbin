@@ -1,14 +1,20 @@
 /**
  * <bx-tile-admin> — the tile-scoped mini admin panel the shell pops from a
- * card's title bar (admins only). One tile's slice of the admin console:
- * lifecycle, runtime info, vault keys, roles/grants, interface bindings,
- * backups, and cron registrations — each a fold-out section, loaded lazily.
+ * card's title bar (admins + the tile's ORG admins). One tile's slice of the
+ * admin console: access (people/teams), lifecycle, runtime info, vault keys,
+ * roles/grants, interface bindings, backups, and cron registrations — each a
+ * fold-out section, loaded lazily and degrading independently (an org admin
+ * gets the access section; workspace-admin-only sections say so).
  *
  * Runs in the ROOT page (workspace chrome), so it uses RAW fetch on purpose:
- * the cookie principal is the signed-in admin user, whereas xbin.fetch would
+ * the cookie principal is the signed-in human, whereas xbin.fetch would
  * attach the chrome frame token and downgrade to a non-admin element
- * principal (docs/auth.md). Non-admins never see it (the shell probes
- * /whoami), and every endpoint here 403s for them anyway.
+ * principal (docs/auth.md). This is exactly why org-admin delegation lives
+ * HERE and not in the admin tile: granting a non-workspace-admin the admin
+ * TILE would hand them its frame token and thereby the tile's own xbin
+ * capabilities — chrome surfaces act as the signed-in human instead. The
+ * shell gates visibility via /whoami; every endpoint 403s the unauthorized
+ * anyway.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import '/vendor/bx-multiselect.js';
@@ -32,6 +38,7 @@ export class BxTileAdmin extends LitElement {
     _vault: { state: true },    // vault key names
     _backups: { state: true },  // versions
     _cron: { state: true },     // this tile's cron jobs
+    _access: { state: true },   // the tile's ACL view (/access — users/teams/base)
     _err: { state: true },
     _busy: { state: true },
   };
@@ -92,17 +99,25 @@ export class BxTileAdmin extends LitElement {
   // The light aggregate everything except /runtime needs (that one walks
   // every backend's /proc + cgroup, so it loads only when its section opens).
   async _loadCore() {
+    // Sections degrade independently: an ORG admin (docs/auth.md) may open
+    // this panel on their org's tiles — /access works for them while the
+    // workspace-admin-only aggregates 403 and render as "workspace-admin
+    // only" rows instead of blanking the whole panel.
     try {
-      const [ov, grants, binds, cron, backups, vault] = await Promise.all([
-        api('/auth-overview'), api('/grants'), api('/bindings'),
+      const forbidden = () => ({ forbidden: true });
+      const [ov, grants, binds, cron, backups, vault, access] = await Promise.all([
+        api('/auth-overview').catch(forbidden),
+        api('/grants').catch(forbidden),
+        api('/bindings').catch(forbidden),
         api('/cron/jobs').catch(() => ({ jobs: [] })),
         api(`/backups?component=${encodeURIComponent(this.path)}`).catch(() => null),
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
+        api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
       ]);
       this._ov = (ov.components ?? []).find((c) => c.path === this.path) ?? {};
       const mine = (g) => g.from === this.path || g.target === this.path ||
         g.target.startsWith(this.path + ':') || g.target.startsWith('res:' + this.path + '/');
-      this._grants = {
+      this._grants = grants.forbidden ? grants : {
         grants: (grants.grants ?? []).filter(mine),
         pending: (grants.pending ?? []).filter(mine),
       };
@@ -110,6 +125,7 @@ export class BxTileAdmin extends LitElement {
       this._cron = (cron.jobs ?? []).filter((j) => j.component === this.path);
       this._backups = backups?.versions ?? [];
       this._vault = vault;
+      this._access = access;
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
   }
@@ -187,8 +203,62 @@ export class BxTileAdmin extends LitElement {
       </form></div>`;
   }
 
+  // ---- access: the tile's people/teams ACL (docs/auth.md, orgs & teams) ----
+  // Exact entries are editable; pattern/base rows are provenance-only (they
+  // live on the user/team/org object). Org admins can use this section on
+  // their org's tiles even when the workspace-admin sections 403.
+  _accessSec() {
+    const a = this._access;
+    if (!a) return html`<div class="sec muted">…</div>`;
+    if (a.err) return html`<div class="sec err">${a.err}</div>`;
+    const entries = a.entries ?? [];
+    const setEntry = (kind, id, level) => this._do(() =>
+      api('/access', { method: 'PUT', ...jbody({ tile: this.path, kind, id, level }) }));
+    return html`<div class="sec">
+      <div style="margin-bottom:4px" class="muted">
+        ${a.org ? html`org <span class="mono">${a.org}</span>${a.orgAdmins?.length
+            ? html` · org admins: <span class="mono">${a.orgAdmins.join(', ')}</span>` : nothing}`
+          : 'workspace-plane tile (no org)'}
+      </div>
+      <table>
+        ${entries.map((e) => html`<tr>
+          <td><span class="pill">${e.kind}</span> <span class="mono">${e.id}</span></td>
+          <td>${e.source === 'exact'
+            ? html`<select ?disabled=${this._busy} @change=${(ev) => setEntry(e.kind, e.id, ev.target.value)}>
+                ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${e.level === l}>${l}</option>`)}
+              </select>`
+            : html`<span class="pill">${e.level}</span>`}</td>
+          <td class="muted" style="font-size:10px">${e.source}</td>
+          <td style="text-align:right">${e.source === 'exact'
+            ? html`<button class="act rm" title="remove this entry" ?disabled=${this._busy}
+                @click=${() => setEntry(e.kind, e.id, '')}>✕</button>`
+            : nothing}</td>
+        </tr>`)}
+        ${!entries.length ? html`<tr><td class="muted" colspan="4">no entries — admins only</td></tr>` : nothing}
+      </table>
+      <form class="row" @submit=${(e) => {
+        e.preventDefault(); const f = e.target;
+        const id = f.who.value.trim(); if (!id) return;
+        setEntry(f.kind.value, id, f.level.value); f.who.value = '';
+      }}>
+        <select name="kind">
+          <option value="user">user</option>
+          ${a.org ? html`<option value="team">team</option>` : nothing}
+        </select>
+        <input name="who" placeholder=${a.org ? `user id / ${a.org}/<team>` : 'user id'} size="14">
+        <select name="level"><option>read</option><option selected>write</option><option>terminal</option></select>
+        <button class="act go" ?disabled=${this._busy}>add</button>
+      </form>
+      <div class="muted" style="font-size:10px; margin-top:4px">
+        read = see the tile · write = use/edit it · terminal = a root shell on it.
+        Pattern/base rows are edited on the user/team/org (admin tile or bx).
+      </div>
+    </div>`;
+  }
+
   _grantsSec() {
     const g = this._grants ?? { grants: [], pending: [] };
+    if (g.forbidden) return html`<div class="sec muted">workspace-admin only</div>`;
     const roles = this._ov?.roles ? Object.keys(this._ov.roles) : [];
     return html`<div class="sec">
       ${roles.length ? html`<div style="margin-bottom:4px">exposes:
@@ -213,6 +283,7 @@ export class BxTileAdmin extends LitElement {
   _bindsSec() {
     const d = this._binds;
     if (!d) return html`<div class="sec muted">…</div>`;
+    if (d.forbidden) return html`<div class="sec muted">workspace-admin only</div>`;
     const me = (d.components ?? []).find((c) => c.component === this.path);
     const slots = Object.entries(me?.interfaces ?? {});
     const provides = Object.entries(me?.provides ?? {});
@@ -310,6 +381,7 @@ export class BxTileAdmin extends LitElement {
       </div>
       ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
       <details open><summary>lifecycle</summary>${this._lifecycle()}</details>
+      <details><summary>access</summary>${this._accessSec()}</details>
       <details @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>
       <details><summary>vault</summary>${this._vaultSec()}</details>
       <details><summary>roles & grants</summary>${this._grantsSec()}</details>

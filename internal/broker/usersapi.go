@@ -69,10 +69,8 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["canCreate"] = p.User.CanCreate
 		out["termApi"] = p.CanTermAPI()
 		out["termNet"] = p.CanTermNet()
-		if b.Users != nil { // org/team memberships (plans/orgs.md)
-			if orgs := b.Users.UserOrgs(p.User.ID); len(orgs) > 0 {
-				out["orgs"] = orgs
-			}
+		if orgs := b.userOrgsView(p.User); len(orgs) > 0 { // plans/orgs.md
+			out["orgs"] = orgs
 		}
 	case p.Owner:
 		out["kind"] = "root"
@@ -82,8 +80,42 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 	case p.Component != "":
 		out["kind"] = "element"
 		out["id"] = p.Component
+		// The human driving the tile (frame-token attribution): identity +
+		// org/team memberships, so chrome tiles (manager's create-in-team
+		// picker) can adapt to the user without raw-fetch tricks. This is
+		// attribution data only — the tile's own privilege is unchanged.
+		if p.UserID != "" && b.Users != nil {
+			if u, ok := b.Users.Get(p.UserID); ok {
+				du := map[string]any{"id": u.ID, "name": u.Name, "admin": u.IsAdmin()}
+				if orgs := b.userOrgsView(u); len(orgs) > 0 {
+					du["orgs"] = orgs
+				}
+				out["user"] = du
+			}
+		}
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// userOrgsView is whoami's orgs field: memberships for a regular user; for a
+// workspace admin every org with every team (their effective reality — they
+// may act in all of them, e.g. create-in-team).
+func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
+	if b.Users == nil {
+		return nil
+	}
+	if !u.IsAdmin() {
+		return b.Users.UserOrgs(u.ID)
+	}
+	var out []users.OrgMembership
+	for _, o := range b.Users.Orgs() {
+		m := users.OrgMembership{ID: o.ID, Name: o.Name, Admin: true}
+		for _, t := range o.Teams {
+			m.Teams = append(m.Teams, users.TeamInfo{ID: t.ID, Name: t.Name})
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 func (b *Broker) usersStore(w http.ResponseWriter) *users.Store {

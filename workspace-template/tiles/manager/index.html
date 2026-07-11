@@ -86,10 +86,16 @@
       <div class="field">
         <label for="slug">URL-safe name</label>
         <div class="slug-row">
-          <span class="prefix">apps/</span>
+          <span class="prefix" id="path-prefix">apps/</span>
           <input id="slug" placeholder="my-new-tile" autocomplete="off"
                  pattern="[a-z0-9][a-z0-9\-/]*" required>
         </div>
+      </div>
+      <div class="field" id="team-field" hidden>
+        <label for="team">Create in team</label>
+        <select id="team">
+          <option value="">— none (personal) —</option>
+        </select>
       </div>
       <div class="actions">
         <button class="btn" id="create">Create</button>
@@ -184,18 +190,46 @@
     const slug = document.getElementById('slug');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('create');
+    const teamField = document.getElementById('team-field');
+    const teamSel = document.getElementById('team');
+    const pathPrefix = document.getElementById('path-prefix');
     let slugTouched = false;
     const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     pretty.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(pretty.value); });
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
+    // Create-in-team (docs/auth.md, orgs & teams): whoami carries the driving
+    // human's org/team memberships (`user.orgs`); picking a team pins the
+    // path under the org's namespace, apps/o/<org>/…, and the team gets its
+    // configured level on the result.
+    (async () => {
+      try {
+        const who = await (await xbin.fetch('/api/xbin/whoami')).json();
+        const orgs = who.user?.orgs ?? who.orgs ?? [];
+        for (const o of orgs) {
+          for (const t of (o.teams ?? [])) {
+            const opt = document.createElement('option');
+            opt.value = `${o.id}/${t.id}`;
+            opt.textContent = `${o.id}/${t.id}${t.name && t.name !== t.id ? ` — ${t.name}` : ''}`;
+            teamSel.appendChild(opt);
+          }
+        }
+        if (teamSel.options.length > 1) teamField.hidden = false;
+      } catch { /* no teams; field stays hidden */ }
+    })();
+    teamSel.addEventListener('change', () => {
+      const org = teamSel.value.split('/')[0] || '';
+      pathPrefix.textContent = org ? `apps/o/${org}/` : 'apps/';
+    });
     document.getElementById('f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const path = 'apps/' + slug.value.replace(/^\/+|\/+$/g, '');
+      const path = pathPrefix.textContent + slug.value.replace(/^\/+|\/+$/g, '');
       btn.disabled = true; msg.className = 'msg'; msg.textContent = 'creating…';
       try {
+        const body = { path, title: pretty.value.trim() };
+        if (teamSel.value) body.team = teamSel.value;
         const r = await xbin.fetch('/api/xbin/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path, title: pretty.value.trim() }),
+          body: JSON.stringify(body),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error ?? r.status);
