@@ -101,7 +101,11 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile alerts to admins + that tile's users
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,admin,teams}]
-                                   (the self-service membership view)
+                                   (the self-service membership view); for
+                                   element principals driven by a signed-in
+                                   human also user:{id,name,admin,orgs} —
+                                   attribution so chrome tiles can adapt
+                                   (the element's own privilege is unchanged)
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs

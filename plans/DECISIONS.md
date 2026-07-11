@@ -244,6 +244,56 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   (`--no-sandbox`) — acceptable for the untrusted tier; dev/admin keep full caps.
   Researched in depth (three agents; man pages + kernel `ucount.c`/`user_
   namespace.c` + moby/systemd sources). `internal/sandbox` + `docs/isolation.md`.
+- **D19 — Orgs & teams: positional `/o/` path binding, union-only grants**
+  (plans/orgs.md; user decisions 2026-07-11). Multiple orgs per workspace; an
+  org OWNS a namespace **positionally** — the reserved `o` segment
+  (`o/<org>/…` or `<dir>/o/<org>/…`, e.g. `apps/o/sales/crm`), reddit-style,
+  with `u/` reserved now for future per-user tiles — so a tile's org is
+  readable off its path, collisions are impossible, and there is no ownership
+  table to drift. Non-marker paths stay workspace-plane (the existing
+  deployment keeps working untouched). `o`/`u` are rejected in NEW tile paths
+  everywhere else (create/clone/imports; existing dirs grandfathered, doctor
+  warns) — squatting `apps/o/x` before org x exists is impossible. Teams are
+  GitHub-semantics **union-only** (rejected: caps/maxLevel — GitHub doesn't,
+  and min-over-caps × max-over-grants is unreasonable-about): effective level
+  = max(own entries, teams' entries clamped to OrgOf(path)==team's org, org
+  basePermission (""|read|write — never terminal), org-admin implicit
+  terminal). The org clamp is EVALUATION-time, so hand-edited escaping
+  patterns are inert (write-time pattern validation deliberately skipped —
+  the clamp is the guarantee; doctor flags inert patterns). Create-in-team:
+  per-team `newTiles` level (default write) auto-granted to the team, chosen
+  over per-creation choice (a low-trust member could hand the team terminal)
+  and over namespace-only (no per-tile row to show/revoke); creator keeps the
+  D16 terminal auto-grant. All identity data in `data/users.json` — outside
+  the workspace, terminals/tiles can't edit ACLs. `internal/users/orgs.go` is
+  the whole semantic core; auth/broker/API/UI only ask it questions.
+- **D20 — Org policy = pattern-keyed ceiling rows, enforced at evaluation.**
+  `{tiles, deny[net|gpu|xbin-caps], mayCall[]}` at workspace + org level;
+  matching rows compose restrictively (any deny wins; every mayCall-bearing
+  row must cover the target — intersection). Enforced at approval (friendly
+  400 naming the row) AND at every evaluation: `grantedRole` applies the
+  ceiling before all three grant sources (explicit rows, interface bindings,
+  same-scope auto-grants) so a hand-edited xbin.json can't bypass it — grants
+  live in the git-tracked workspace manifest, but the CEILING lives in
+  xbind-owned users.json; `netBinding` (the one net resolution point) goes
+  inert under a deny; gpu rides grantedRole. `xbin-caps` also kills a covered
+  element's xbin/xbin:users roles → its broker-adminship. Humans are never
+  subject to policy (it constrains the runtime plane). Chosen over global
+  toggles (no per-namespace differentiation) and over per-team constraint
+  sets (would need tile→team ownership; rows reuse the pattern idiom).
+- **D21 — Org admins are security-capped, and live in chrome, not the admin
+  tile.** Org admins manage their org (name, members, co-admins, base
+  permission, teams, per-tile access entries — org-clamped) but NOT the
+  workspace-security knobs: org create/delete, policy rows, team
+  termApi/termNet. They act as signed-in humans (cookie principal); a frame
+  principal never inherits the driving user's org-adminship. Their UI surface
+  is the SHELL's per-tile ⚙ access panel (workspace chrome, raw fetch = the
+  human) — deliberately NOT the admin tile, because granting a non-ws-admin
+  read on tiles/admin would mint them its frame token and thereby the tile's
+  own xbin capabilities (the same reason bx-tile-admin uses raw fetch). Org
+  admins get implicit terminal+create on org tiles (equivalent power to their
+  ACL-editing rights, with less friction; explicit rows still show in
+  /access provenance).
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
 - **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,

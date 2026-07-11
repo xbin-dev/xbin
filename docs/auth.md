@@ -343,6 +343,95 @@ The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
 Passwords are Argon2id-hashed in `data/users.json` (0600); sessions are
 server-side (delete/edit revokes immediately) and drop on restart.
 
+## Organizations & teams
+
+GitHub-shaped grouping on top of the flat user model (plans/orgs.md,
+DECISIONS D19–D21). Everything lives in the identity store
+(`data/users.json`) — outside the workspace, so no terminal or tile can edit
+it.
+
+**An org owns a path namespace, positionally.** The reserved `o` segment
+binds a tile to its org: `o/<org>/…` or `<dir>/o/<org>/…` — so
+`apps/o/sales/crm` belongs to org `sales`, readable straight off the path
+(reddit-style; `u/` is reserved the same way for future per-user tiles).
+Tiles outside any org marker are **workspace-plane** and behave exactly as
+before. Creating a path with `o`/`u` anywhere else — or naming an org that
+doesn't exist — is rejected on create/clone/import; pre-existing dirs keep
+working (`bx doctor` warns).
+
+**Teams grant by union (GitHub semantics).** A team is a named group of org
+members carrying its own `tiles` pattern→level map, `canCreate` patterns, and
+term-api/term-net flags. A member's effective level on a path is the
+**highest** of:
+
+1. their own `tiles` entries (any path, as before),
+2. each of their teams' entries — evaluated **only on paths inside the
+   team's org** (an entry escaping the org is inert; the pattern and the org
+   clamp intersect),
+3. the org's `basePermission` (`""|read|write`) — the floor every org member
+   gets on every org tile; terminal is never implicit,
+4. org-adminship: org admins hold implicit `terminal` + create on their
+   org's tiles.
+
+Membership only ever widens access; there are no caps. Deleting a user
+strips them from every org and team; removing an org member removes them
+from that org's teams.
+
+**Create-in-team.** `POST /api/xbin/create` (and `bx new --team`, and the
+manager tile's picker) takes `team: "<org>/<team>"`: the path must be inside
+the org, the caller must be a team member (or an org/workspace admin), and
+the team is auto-granted its configured `newTiles` level (default `write`)
+on the result — the creator still personally gets `terminal` (D16). The
+per-tile view/editor of who has what is `GET/PUT /api/xbin/access`
+(`bx access <tile>`, or the shell's per-tile ⚙ → access).
+
+**Org policy — the runtime ceiling.** Pattern-keyed rows at workspace and
+org level constrain what the covered **tiles** (elements — never humans) may
+be granted:
+
+```jsonc
+{ "tiles": "apps/o/sales/*",          // which tiles the row covers
+  "deny":    ["net", "gpu", "xbin-caps"], // strip capability classes outright
+  "mayCall": ["apps/o/sales/*", "res:apps/o/sales/*"] } // allow-list call targets
+```
+
+Rows compose restrictively (any deny wins; every `mayCall`-bearing matching
+row must cover the target). They are enforced at **approval** (the grant/
+binding APIs refuse, naming the row) *and* at **every evaluation** — across
+all three grant sources (explicit rows, interface bindings, same-scope
+auto-grants) — so a hand-edited `xbin.json` cannot bypass a ceiling, and a
+pre-existing net binding goes inert the moment a deny row covers its tile.
+`xbin-caps` also neuters a covered element's `xbin`/`xbin:users` capability
+grants (including tile adminship).
+
+**Org admins are security-capped delegation (D21).** Org admins manage their
+org's name, members, co-admins, base permission, teams, and per-tile access
+entries — clamped to the org. Workspace-admin-only: creating/deleting orgs,
+policy rows, team `termApi`/`termNet` (terminal-plane security), and
+anything outside the org's tree. Org admins act **as signed-in humans**:
+their surface is workspace chrome (the shell's per-tile ⚙ access panel) and
+the HTTP API — deliberately *not* the admin tile, because granting a
+non-admin that tile would hand them its frame token and thereby the tile's
+own `xbin` capabilities. A frame principal never inherits the driving user's
+org-adminship.
+
+**API** (documented in protocol.md; management gate = admin/`xbin:users`, or
+the org's admin where noted):
+
+```
+GET/POST       /api/xbin/orgs                     list (management view) / create
+PATCH/DELETE   /api/xbin/orgs/<org>               update (org admin ok) / delete
+POST/PATCH/DEL /api/xbin/orgs/<org>/teams[/<team>] team CRUD (org admin ok)
+GET/PUT        /api/xbin/access                   a tile's ACL view / set exact entry
+GET/PUT        /api/xbin/policy                   workspace ceiling rows
+GET/PUT        /api/xbin/orgs/<org>/policy        org ceiling rows
+```
+
+`whoami` reports a user's memberships (`orgs: [{id,name,admin,teams}]`), and
+for element principals the attributed driving human (`user: {id,name,admin,
+orgs}`) so chrome tiles can adapt. CLI: `bx org`, `bx team`, `bx access`,
+`bx org policy`, `bx new --team`.
+
 **Public-surface lockdown.** Only `/healthz` and `/login`/`/logout` are
 unauthenticated; everything else needs a valid principal. Login uses a
 per-IP throttle and a generic "invalid credentials" (never reveals whether a

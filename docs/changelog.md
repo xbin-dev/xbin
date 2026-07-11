@@ -12,6 +12,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- **Organizations & teams** (docs/auth.md → "Organizations & teams"): GitHub-
+  style grouping on top of users. Orgs own the `o/<org>` path namespace
+  (tiles at `apps/o/<org>/…`); teams grant tile access to members by union
+  (effective level = max of own entries, team entries inside the org, org
+  base permission); tiles can be created *in a team* (`POST /create
+  {team:"<org>/<team>"}`, `bx new --team`, the manager tile's picker — the
+  team is auto-granted its `newTiles` level); per-tile access is viewable/
+  editable at `GET/PUT /api/xbin/access` (`bx access`, or the shell's
+  per-tile ⚙ → access, which now also opens for org admins). **Org policy
+  ceilings** (`/api/xbin/policy`, `/orgs/<org>/policy`, `bx org policy`):
+  pattern-keyed rows `{tiles, deny[net|gpu|xbin-caps], mayCall[]}` capping
+  what the covered tiles may be granted — enforced at approval *and* at
+  every evaluation, so hand-edited grants/bindings under a ceiling are
+  inert. Delegated **org admins** manage their org's teams/members/access
+  (workspace-security knobs — policy, term flags, org create/delete — stay
+  workspace-admin). New API: `/api/xbin/orgs*`, `/access`, `/policy`;
+  `whoami` gains `orgs` (and, on element principals, the attributed driving
+  `user`) — all in protocol.md. New CLI: `bx org|team|access`. **BREAKING
+  (edge case):** the path segments `o` and `u` are now reserved in NEW tile
+  paths — see [changes/2026-07-11-orgs-and-teams.md](changes/2026-07-11-orgs-and-teams.md).
 - terminal: **fixed multi-tab terminals rendering stacked in the first tab after
   a reload**, and **added per-tab close buttons**. On restore, every saved
   terminal reattached at once and each forced itself visible (`bx-terminal`'s

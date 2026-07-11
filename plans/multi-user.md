@@ -7,6 +7,9 @@ permission, exposes user-management as capability-scoped APIs, and locks down
 every public surface so a xbin port exposed to a network reveals nothing
 without a credential.
 
+Extended by `plans/orgs.md` (organizations & teams: grouping, per-tile team
+access, policy ceilings, delegated org admins — D19–D21).
+
 Non-goal for this pass (explicit follow-up): `X-Source-Tile` / `X-Source-User`
 attribution headers on cross-tile and UI→tile calls (its own task).
 
