@@ -352,3 +352,28 @@ func TestGuardNewComponentTree(t *testing.T) {
 		t.Fatalf("above components: %v", err)
 	}
 }
+
+// Pending annotates ceiling-blocked requests so UIs can grey them out
+// instead of offering an approve that would 400.
+func TestPendingBlockedAnnotation(t *testing.T) {
+	b := testBroker(t)
+	st := testUsers(t, b)
+	found := func() (PendingGrant, bool) {
+		for _, p := range b.Pending() {
+			if p.From == "apps/email" && p.Target == "res:apps/calendar/bus" {
+				return p, true
+			}
+		}
+		return PendingGrant{}, false
+	}
+	p, ok := found()
+	if !ok || p.Blocked != "" {
+		t.Fatalf("baseline pending should be approvable: %+v %v", p, ok)
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "apps/email", MayCall: []string{"nothing/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok = found(); !ok || p.Blocked == "" {
+		t.Fatalf("ceiling-blocked pending must carry the reason: %+v %v", p, ok)
+	}
+}

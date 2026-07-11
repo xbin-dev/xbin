@@ -405,6 +405,7 @@ export class BxShell extends LitElement {
     this._loadSettings();
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
+      if (e.type === 'users') { this._load(); this._probeAdmin(); } // org/team/access changes
     });
     window.addEventListener('blur', this._onBlur);
     this._probeAdmin();

@@ -820,7 +820,11 @@ func cmdGrants() error {
 	if len(out.Pending) > 0 {
 		fmt.Println("pending (approve with bx grant <caller> <target>:<role>):")
 		for _, g := range out.Pending {
-			fmt.Printf("  %-30s → %s : %s\n", g["from"], g["target"], g["role"])
+			fmt.Printf("  %-30s → %s : %s", g["from"], g["target"], g["role"])
+			if g["blocked"] != "" {
+				fmt.Printf("   ⛔ %s", g["blocked"])
+			}
+			fmt.Println()
 		}
 	}
 	return nil

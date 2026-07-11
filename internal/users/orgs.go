@@ -812,10 +812,13 @@ func withEntry(m map[string]string, path, level string) map[string]string {
 	return out
 }
 
-// TeamInfo / OrgMembership are the whoami-facing membership views.
+// TeamInfo / OrgMembership are the whoami-facing membership views. CanCreate
+// rides along in the SELF view only, so create-in-team pickers can pin the
+// right path prefix.
 type TeamInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	CanCreate []string `json:"canCreate,omitempty"`
 }
 type OrgMembership struct {
 	ID    string     `json:"id"`
@@ -825,7 +828,9 @@ type OrgMembership struct {
 }
 
 // UserOrgs lists the orgs a user belongs to (admins included), with the teams
-// they're in — the self-service view whoami serves.
+// they're in — the self-service view whoami serves. Org ADMINS see all of
+// their org's teams (they may act in any of them, e.g. create-in-team), with
+// membership still deciding for plain members.
 func (s *Store) UserOrgs(id string) []OrgMembership {
 	id = normalizeID(id)
 	s.mu.RLock()
@@ -835,10 +840,11 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 		if !o.effMember(id) {
 			continue
 		}
-		m := OrgMembership{ID: o.ID, Name: o.Name, Admin: contains(o.Admins, id)}
+		admin := contains(o.Admins, id)
+		m := OrgMembership{ID: o.ID, Name: o.Name, Admin: admin}
 		for _, t := range o.Teams {
-			if contains(t.Members, id) {
-				m.Teams = append(m.Teams, TeamInfo{ID: t.ID, Name: t.Name})
+			if admin || contains(t.Members, id) {
+				m.Teams = append(m.Teams, TeamInfo{ID: t.ID, Name: t.Name, CanCreate: t.CanCreate})
 			}
 		}
 		out = append(out, m)

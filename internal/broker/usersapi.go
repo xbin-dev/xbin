@@ -157,7 +157,7 @@ func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
 	for _, o := range b.Users.Orgs() {
 		m := users.OrgMembership{ID: o.ID, Name: o.Name, Admin: true}
 		for _, t := range o.Teams {
-			m.Teams = append(m.Teams, users.TeamInfo{ID: t.ID, Name: t.Name})
+			m.Teams = append(m.Teams, users.TeamInfo{ID: t.ID, Name: t.Name, CanCreate: t.CanCreate})
 		}
 		out = append(out, m)
 	}

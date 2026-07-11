@@ -279,7 +279,7 @@ export class BxAdmin extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._off = window.xbin?.events.on((e) => {
-      if (e.type === 'grants' || e.type === 'reload' || e.type === 'build-ok') this._refresh();
+      if (e.type === 'grants' || e.type === 'reload' || e.type === 'build-ok' || e.type === 'users') this._refresh();
     });
     this._refresh();
     // The runtime tab is live: poll while it's the active tab.

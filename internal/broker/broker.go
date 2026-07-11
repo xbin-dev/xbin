@@ -399,9 +399,17 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	return nil
 }
 
+// PendingGrant is one unsatisfied `uses` declaration. Blocked, when set,
+// names the policy row that makes it unapprovable (D20) — approval would
+// 400, so UIs grey these out instead of offering a dead approve button.
+type PendingGrant struct {
+	registry.Grant
+	Blocked string `json:"blocked,omitempty"`
+}
+
 // Pending computes unsatisfied cross-scope `uses` declarations.
-func (b *Broker) Pending() []registry.Grant {
-	out := []registry.Grant{} // non-nil: JSON-encodes as [] not null (frontends do .length)
+func (b *Broker) Pending() []PendingGrant {
+	out := []PendingGrant{} // non-nil: JSON-encodes as [] not null (frontends do .length)
 	for _, c := range b.Reg.Components() {
 		// An offloaded component isn't running — its `uses` aren't live requests,
 		// so don't surface them as pending (plans/lifecycle.md).
@@ -415,7 +423,10 @@ func (b *Broker) Pending() []registry.Grant {
 			if _, ok := b.grantedRole(c.Path, u.Target); ok {
 				continue
 			}
-			out = append(out, registry.Grant{From: c.Path, Target: u.Target, Role: u.Role})
+			out = append(out, PendingGrant{
+				Grant:   registry.Grant{From: c.Path, Target: u.Target, Role: u.Role},
+				Blocked: b.ceilingBlockMsg(c.Path, u.Target),
+			})
 		}
 	}
 	return out

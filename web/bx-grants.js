@@ -111,11 +111,15 @@ export class BxGrants extends LitElement {
       ${this._pending.length > 0 ? html`
         <h4>pending access requests</h4>
         ${this._pending.map((p) => html`
-          <div class="row">
+          <div class="row" style=${p.blocked ? 'opacity:.55' : ''}>
             <span class="who">${p.from} → ${p.target}</span>
             <span class="role">${p.role}</span>
-            <span class="desc">${this._roleDocs[p.target]?.[p.role] ?? ''}</span>
-            <button @click=${() => this._approve(p)}>approve</button>
+            <span class="desc" title=${p.blocked ?? ''}>${p.blocked
+              ? `blocked by policy — ${p.blocked}`
+              : this._roleDocs[p.target]?.[p.role] ?? ''}</span>
+            ${p.blocked
+              ? html`<button disabled title=${p.blocked}>blocked</button>`
+              : html`<button @click=${() => this._approve(p)}>approve</button>`}
           </div>`)}` : nothing}
       ${this._showAll ? html`
         <h4 style="margin-top:.6rem">active grants</h4>

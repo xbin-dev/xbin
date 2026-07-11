@@ -198,18 +198,24 @@
     pretty.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(pretty.value); });
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
     // Create-in-team (docs/auth.md, orgs & teams): whoami carries the driving
-    // human's org/team memberships (`user.orgs`); picking a team pins the
-    // path under the org's namespace, apps/o/<org>/…, and the team gets its
-    // configured level on the result.
+    // human's org/team memberships (`user.orgs`; org admins see all their
+    // org's teams). Picking a team pins the path prefix under the org's
+    // namespace — the team's first create pattern when it names one, else
+    // apps/o/<org>/ — and the team gets its configured level on the result.
+    const teamPrefix = {}; // "<org>/<team>" → path prefix
     (async () => {
       try {
         const who = await (await xbin.fetch('/api/xbin/whoami')).json();
         const orgs = who.user?.orgs ?? who.orgs ?? [];
         for (const o of orgs) {
           for (const t of (o.teams ?? [])) {
+            const ref = `${o.id}/${t.id}`;
+            const pat = (t.canCreate ?? []).find((p) => p.endsWith('/*')
+              && (p.includes(`/o/${o.id}/`) || p.startsWith(`o/${o.id}/`)));
+            teamPrefix[ref] = pat ? pat.slice(0, -1) : `apps/o/${o.id}/`;
             const opt = document.createElement('option');
-            opt.value = `${o.id}/${t.id}`;
-            opt.textContent = `${o.id}/${t.id}${t.name && t.name !== t.id ? ` — ${t.name}` : ''}`;
+            opt.value = ref;
+            opt.textContent = `${ref}${t.name && t.name !== t.id ? ` — ${t.name}` : ''}`;
             teamSel.appendChild(opt);
           }
         }
@@ -217,8 +223,7 @@
       } catch { /* no teams; field stays hidden */ }
     })();
     teamSel.addEventListener('change', () => {
-      const org = teamSel.value.split('/')[0] || '';
-      pathPrefix.textContent = org ? `apps/o/${org}/` : 'apps/';
+      pathPrefix.textContent = teamPrefix[teamSel.value] ?? 'apps/';
     });
     document.getElementById('f').addEventListener('submit', async (ev) => {
       ev.preventDefault();

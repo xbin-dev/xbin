@@ -264,11 +264,13 @@ export class BxTileAdmin extends LitElement {
       ${roles.length ? html`<div style="margin-bottom:4px">exposes:
         ${roles.map((r) => html`<span class="pill">${r}</span>`)}</div>` : nothing}
       <table>
-        ${g.pending.map((p) => html`<tr>
-          <td class="mono" style="font-size:10.5px">${p.from} → ${p.target}</td>
+        ${g.pending.map((p) => html`<tr style=${p.blocked ? 'opacity:.55' : ''}>
+          <td class="mono" style="font-size:10.5px" title=${p.blocked ?? ''}>${p.from} → ${p.target}</td>
           <td><span class="pill">${p.role}</span></td>
-          <td style="text-align:right"><button class="act go" ?disabled=${this._busy}
-            @click=${() => this._do(() => api('/grants', { method: 'POST', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>approve</button></td>
+          <td style="text-align:right">${p.blocked
+            ? html`<button class="act" disabled title=${p.blocked}>blocked</button>`
+            : html`<button class="act go" ?disabled=${this._busy}
+                @click=${() => this._do(() => api('/grants', { method: 'POST', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>approve</button>`}</td>
         </tr>`)}
         ${g.grants.map((p) => html`<tr>
           <td class="mono" style="font-size:10.5px">${p.from} → ${p.target}</td>
