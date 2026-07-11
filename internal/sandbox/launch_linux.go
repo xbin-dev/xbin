@@ -183,11 +183,13 @@ func IDMapStatus(hostUID, hostGID int) (rangeOK bool, reason string) {
 	if _, err := exec.LookPath("newgidmap"); err != nil {
 		return false, "newgidmap not on PATH (install the 'uidmap' package)"
 	}
-	if _, _, ok := subIDRange("/etc/subuid", hostUID); !ok {
-		return false, fmt.Sprintf("no /etc/subuid range delegated for uid %d", hostUID)
+	owner := ownerName(hostUID)
+	if _, _, ok := subIDRange("/etc/subuid", owner, hostUID); !ok {
+		return false, fmt.Sprintf("no /etc/subuid range delegated for user %q (uid %d)", owner, hostUID)
 	}
-	if _, _, ok := subIDRange("/etc/subgid", hostGID); !ok {
-		return false, fmt.Sprintf("no /etc/subgid range delegated for gid %d", hostGID)
+	// /etc/subgid is keyed by the USER, not the gid — match by owner/uid.
+	if _, _, ok := subIDRange("/etc/subgid", owner, hostUID); !ok {
+		return false, fmt.Sprintf("no /etc/subgid range delegated for user %q (uid %d)", owner, hostUID)
 	}
 	return true, ""
 }
@@ -201,32 +203,51 @@ func detectIDRanges(hostUID, hostGID int) *idRanges {
 	if _, err := exec.LookPath("newgidmap"); err != nil {
 		return nil
 	}
-	uStart, uCount, ok := subIDRange("/etc/subuid", hostUID)
+	owner := ownerName(hostUID)
+	uStart, uCount, ok := subIDRange("/etc/subuid", owner, hostUID)
 	if !ok {
 		return nil
 	}
-	gStart, gCount, ok := subIDRange("/etc/subgid", hostGID)
+	gStart, gCount, ok := subIDRange("/etc/subgid", owner, hostUID)
 	if !ok {
 		return nil
 	}
 	return &idRanges{hostUID, hostGID, uStart, uCount, gStart, gCount}
 }
 
-// subIDRange parses an /etc/sub{u,g}id line for the user with the given id
-// (matched by name or numeric id): "name:start:count".
-func subIDRange(path string, id int) (start, count int, ok bool) {
-	name := ""
-	if u, err := user.LookupId(strconv.Itoa(id)); err == nil {
-		name = u.Username
+// ownerName resolves a uid to its login name (for matching /etc/sub{u,g}id
+// entries, which are keyed by the user). "" if the uid has no passwd entry.
+func ownerName(uid int) string {
+	if u, err := user.LookupId(strconv.Itoa(uid)); err == nil {
+		return u.Username
 	}
+	return ""
+}
+
+// subIDRange parses the /etc/sub{u,g}id range delegated to a user. BOTH files
+// are keyed by the USER (login name or UID) — /etc/subgid is NOT keyed by gid —
+// so the caller passes the user's name + uid for both, even when reading the
+// gid range from subgid. (Matching subgid by gid was a bug: it silently
+// dropped to single-uid mode whenever a user's uid != gid, e.g. a `useradd
+// --system` account — breaking apt/dpkg system-user installs.)
+func subIDRange(path, owner string, uid int) (start, count int, ok bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, 0, false
 	}
+	return parseSubID(data, owner, uid)
+}
+
+// parseSubID finds the "owner:start:count" line for owner (login name) or uid.
+func parseSubID(data []byte, owner string, uid int) (start, count int, ok bool) {
+	uidStr := strconv.Itoa(uid)
 	for _, line := range strings.Split(string(data), "\n") {
 		p := strings.Split(strings.TrimSpace(line), ":")
-		if len(p) != 3 || (p[0] != name && p[0] != strconv.Itoa(id)) {
+		if len(p) != 3 || (p[0] != owner && p[0] != uidStr) {
 			continue
+		}
+		if owner == "" && p[0] != uidStr {
+			continue // don't let an empty owner match a named line
 		}
 		s, err1 := strconv.Atoi(p[1])
 		c, err2 := strconv.Atoi(p[2])
