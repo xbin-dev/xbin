@@ -53,12 +53,16 @@ func cmdNew(args []string) error {
 		if team != "" {
 			body["team"] = team
 		}
-		if err := apiJSON("POST", "/api/xbin/create", body, nil); err != nil {
+		var out struct {
+			Path      string `json:"path"`
+			TeamLevel string `json:"teamLevel"`
+		}
+		if err := apiJSON("POST", "/api/xbin/create", body, &out); err != nil {
 			return err
 		}
-		fmt.Printf("scaffolded %s (runtime %s)", o.Path, orStatic(o.Runtime))
+		fmt.Printf("scaffolded %s", o.Path)
 		if team != "" {
-			fmt.Printf(" in team %s", team)
+			fmt.Printf(" in team %s (team level: %s)", team, out.TeamLevel)
 		}
 		fmt.Printf("\nframe it:  <bx-frame src=%q></bx-frame>\n", o.Path)
 		return nil

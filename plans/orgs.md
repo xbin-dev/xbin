@@ -73,13 +73,25 @@ Effective level of user U on path P = **max** of:
 
 `canCreate` and `termApi`/`termNet` union the same way (create is
 org-clamped; term flags are not path-scoped). No caps anywhere — membership
-only widens (GitHub semantics; rejected: per-team maxLevel).
+only widens (GitHub semantics; rejected: per-team maxLevel). Two deliberate
+asymmetries (pre-ship review): read/write personal patterns stay global
+(the auditor case), but creating INSIDE an org requires membership — a
+broad personal `canCreate` can't inject tiles into another org's tree; and
+the org container path itself is not a valid tile path.
 
 **Create-in-team**: `POST /create {team:"<org>/<team>"}` — path must satisfy
 `OrgOf(path)==org`, the *attributed human* must be a team member or an
 org/workspace admin (an element's own xbin-writer grant is not enough to act
 "in a team"), the team gets an exact entry at its `newTiles` level, and the
 creator keeps the personal D16 `terminal` auto-grant.
+
+**Creation authority is one gate** (`broker.canCreateAt`, shared by create /
+clone / git import / builtin import / template instantiate): admins; humans
+whose union create patterns cover the path; capability-granted elements —
+clamped by the attributed driving human's own rights (the confused-deputy
+rule: the manager tile never extends what its driver may create).
+Copy-shaped routes additionally require read on the source. Nesting guards
+(`guardNewComponentTree`) refuse paths inside or above existing components.
 
 ## Policy ceiling (D20)
 
@@ -102,6 +114,12 @@ Enforced twice:
   point every consumer resolves through (spawn env, relay, provider roster)
   — returns none under a deny, making even a pre-existing binding inert.
 
+`mayCall` governs EXTERNAL reach only: same-scope targets (an app's own
+`res:` resources, intra-app calls) are always exempt — a scope is one trust
+unit (ND5), and the obvious org row `{tiles:"*", mayCall:[…]}` must not
+sever an app from its own database. Pending requests a ceiling makes
+unapprovable carry a `blocked` annotation so UIs grey them out.
+
 Policy constrains the **runtime plane only** (elements). Humans are never
 subject to it; terminal egress/API stay governed by the D17 user/team flags.
 
@@ -115,13 +133,20 @@ They act **as signed-in humans** (cookie principal). Two consequences:
 
 - A frame principal (a tile they're driving) never inherits org-adminship —
   the standing "tiles act as themselves" rule.
-- Their UI surface is **workspace chrome** (the shell's per-tile ⚙ access
-  panel; raw fetch = the human), *not* the admin tile: granting a
-  non-workspace-admin read on `tiles/admin` would mint them its frame token
-  and hand them the tile's own `xbin` capabilities. The admin tile's
-  "orgs & teams" tab is the workspace-admin console; chrome is the
-  delegated surface. A richer org-admin panel in chrome (team CRUD without
-  bx) is a natural follow-up if delegation gets heavy use.
+- Their UI surface is **workspace chrome**, *not* the admin tile: granting
+  a non-workspace-admin read on `tiles/admin` would mint them its frame
+  token and hand them the tile's own `xbin` capabilities. Chrome surfaces:
+  the per-tile ⚙ access panel AND the shell's "orgs & teams" popover
+  (`bx-org-admin`: members, co-admins, base permission, team CRUD — term
+  flags render only for workspace admins). The admin tile's "orgs & teams"
+  tab (with the structured policy-row editor) is the workspace-admin
+  console.
+
+whoami's driving-user view on element principals is scoped by tile trust so
+a low-trust tile can't harvest memberships: `{id,name}` for every tile; the
+tile's own org's slice for org tiles; the full list (+admin flag) only for
+xbin/xbin:users-capable elements — a policy `xbin-caps` deny downgrades the
+view along with the capability.
 
 ## Reserved segments & migration
 
@@ -141,9 +166,11 @@ stray markers, inert team patterns). Migration note:
   like the manager can offer the create-in-team picker without raw fetch).
 - **CLI**: `bx org|team|access`, `bx org policy`, `bx new --team`,
   memberships in `bx user ls`, doctor warnings.
-- **UI**: admin tile "orgs & teams" tab (ws-admin console); shell ⚙ →
-  "access" section (also for org admins; other sections degrade to
-  "workspace-admin only"); manager create-in-team picker.
+- **UI**: admin tile "orgs & teams" tab with the policy-row editor
+  (ws-admin console); shell ⚙ → "access" section (also for org admins;
+  other sections degrade to "workspace-admin only"); the shell "orgs &
+  teams" popover for delegated org admins; org-grouped sidebar; manager
+  create-in-team picker (prefix pinned from the team's create patterns).
 
 ## Non-goals (this pass)
 
@@ -152,3 +179,5 @@ stray markers, inert team patterns). Migration note:
 - Org-scoped vaults/resources — resources stay scope/workspace-shaped.
 - Write-time validation of team patterns (the evaluation clamp is the
   guarantee; doctor covers the UX).
+- One-step "move tile into an org" (adopt = clone under the marker or
+  host-side mv; documented in docs/auth.md).

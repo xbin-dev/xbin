@@ -31,6 +31,36 @@ Segments merely *containing* the letters are unaffected (`apps/opera`,
 - Workspaces with no orgs configured behave exactly as before; the identity
   store (`data/users.json`) loads old files unchanged.
 
+## Existing workspaces: update the chrome to get the UI
+
+The org/team **enforcement and API** ship in the xbind binary, but the UI
+lives in workspace files copied at init: the shell (`shell/` — the per-tile
+⚙ access panel, the "orgs & teams" popover, org sidebar groups), the admin
+tile (`tiles/admin` — orgs tab, policy editor), and the manager
+(`tiles/manager` — create-in-team picker). On a workspace created before
+this release, update them after deploying:
+
+```
+bx builtin updates          # shows what drifted
+bx builtin update <id>      # per component; --replace or --merge if edited
+```
+
+Until then the feature is fully usable via `bx org|team|access` and the API
+— only the buttons are missing.
+
+## Also tightened in this release (behavior changes)
+
+- Tile-creation authority is uniform across create / clone / git import /
+  builtin import / template instantiate: users' `canCreate` patterns now
+  work on all of them (previously admin/capability-only for copy/import
+  routes); copy-shaped routes require read on the source; and an element's
+  workspace-management grant no longer extends the DRIVING user's own
+  create rights — a non-admin user driving the manager tile can only create
+  where their own patterns (or teams) allow. Unattributed automation is
+  unchanged.
+- `whoami`'s driving-user info on element principals is scoped by tile
+  trust (docs/auth.md) — plain tiles now see `{id, name}` only.
+
 ## Why
 
 Path-as-identity: a tile's org must be readable off its path with no

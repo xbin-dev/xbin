@@ -263,7 +263,10 @@ POST   /git/import                 same authority as /create on the
                                    pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
-GET    /grants                     admin. {grants: [{from,target,role}], pending: […]}
+GET    /grants                     admin. {grants: [{from,target,role}],
+                                   pending: [{from,target,role,blocked?}]} —
+                                   blocked names the policy row that makes a
+                                   request unapprovable (UIs grey it out)
 POST   /grants                     admin. body {from,target,role} — approve/add.
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured

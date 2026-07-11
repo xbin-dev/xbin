@@ -267,6 +267,16 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   D16 terminal auto-grant. All identity data in `data/users.json` — outside
   the workspace, terminals/tiles can't edit ACLs. `internal/users/orgs.go` is
   the whole semantic core; auth/broker/API/UI only ask it questions.
+  AMENDED (pre-ship review): creating INSIDE an org requires org membership
+  (a broad personal canCreate like `apps/*` must not inject tiles into
+  `apps/o/<org>/…`; read/write personal patterns deliberately stay global —
+  the auditor case); the org container path itself (`…/o/<org>`) is not a
+  valid tile path; and tile-creation authority is one shared gate across
+  create/clone/git-import/tile-import/template-instantiate (canCreate works
+  on all of them, copy-shaped routes need read on the source, and an
+  element's xbin:writer never extends the attributed DRIVING user's own
+  create rights — the confused-deputy clamp; unattributed automation keeps
+  capability semantics).
 - **D20 — Org policy = pattern-keyed ceiling rows, enforced at evaluation.**
   `{tiles, deny[net|gpu|xbin-caps], mayCall[]}` at workspace + org level;
   matching rows compose restrictively (any deny wins; every mayCall-bearing
@@ -281,6 +291,12 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   subject to policy (it constrains the runtime plane). Chosen over global
   toggles (no per-namespace differentiation) and over per-team constraint
   sets (would need tile→team ownership; rows reuse the pattern idiom).
+  AMENDED (pre-ship review): mayCall governs EXTERNAL reach only — same-
+  scope targets (an app's own res:<scope>/* and intra-app calls) are exempt,
+  because the obvious org row {tiles:"*", mayCall:["apps/o/x/*"]} silently
+  severed every covered tile from its own database (a scope is one trust
+  unit, ND5). Deny kinds apply regardless. Pending requests a ceiling makes
+  unapprovable are annotated `blocked` so UIs don't offer a dead approve.
 - **D21 — Org admins are security-capped, and live in chrome, not the admin
   tile.** Org admins manage their org (name, members, co-admins, base
   permission, teams, per-tile access entries — org-clamped) but NOT the
@@ -293,7 +309,13 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   own xbin capabilities (the same reason bx-tile-admin uses raw fetch). Org
   admins get implicit terminal+create on org tiles (equivalent power to their
   ACL-editing rights, with less friction; explicit rows still show in
-  /access provenance).
+  /access provenance). IMPLEMENTED for real delegation: the shell's
+  "orgs & teams" popover (bx-org-admin, chrome/raw-fetch like bx-tile-admin)
+  gives org admins members/teams/base editing without bx; whoami's driving-
+  user view on element principals is trust-scoped (identity only → own-org
+  slice for org tiles → full list for xbin-capable tiles) so a low-trust
+  tile can't harvest memberships — an xbin-caps policy deny downgrades the
+  view with the capability.
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
 - **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,

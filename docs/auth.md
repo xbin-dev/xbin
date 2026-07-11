@@ -395,6 +395,16 @@ membership**: a broad personal `canCreate` pattern never lets a non-member
 inject tiles into `apps/o/<org>/…`. The org container itself
 (`apps/o/<org>`) is not a valid tile path — tiles live strictly below it.
 
+**Moving an existing tile into an org.** A tile's org *is* its path, so
+adoption means getting the files under the marker: create the org, then
+`bx clone apps/thing apps/o/<org>/thing` (git history and self-references
+come along; secrets/resource data start empty — copy what you need, then
+disable/delete the original), or move the directory host-side and update
+any grants/bindings/lifecycle entries naming the old path. There is no
+one-step transfer yet. Creating the org *first* also adopts any
+pre-existing tiles already sitting under its marker path (`bx doctor`
+lists them while the org doesn't exist).
+
 **Create-in-team.** `POST /api/xbin/create` (and `bx new --team`, and the
 manager tile's picker) takes `team: "<org>/<team>"`: the path must be inside
 the org, the caller must be a team member (or an org/workspace admin), and

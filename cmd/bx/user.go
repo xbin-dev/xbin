@@ -81,10 +81,11 @@ func cmdUser(args []string) error {
 					access = "-"
 				}
 			}
+			line := fmt.Sprintf("%-14s %-8s %-40s %s", u.ID, u.Role, access, u.Name)
 			if ms := memberships[u.ID]; len(ms) > 0 {
-				access += " [" + strings.Join(ms, ",") + "]"
+				line += "  [" + strings.Join(ms, ",") + "]"
 			}
-			fmt.Printf("%-14s %-8s %-40s %s\n", u.ID, u.Role, access, u.Name)
+			fmt.Println(line)
 		}
 		return nil
 
