@@ -356,3 +356,42 @@ func TestParseTeamRef(t *testing.T) {
 		}
 	}
 }
+
+// Creating inside an org requires membership (D19 amendment) — broad personal
+// patterns must not reach into org trees; and the org container itself is not
+// a valid tile path.
+func TestOrgCreateMembershipAndContainer(t *testing.T) {
+	s := fixture(t)
+	// dave: outsider with a broad personal create pattern.
+	if _, err := s.Upsert(User{ID: "dave", Role: RoleUser, CanCreate: []string{"apps/*"}}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	dave, _ := s.Access("dave")
+	if !dave.CanCreateTile("apps/newthing") {
+		t.Fatal("personal pattern must still work outside orgs")
+	}
+	if dave.CanCreateTile("apps/o/sales/newthing") {
+		t.Fatal("non-member must not create inside an org, whatever their patterns")
+	}
+	// alice: member with the same pattern — allowed inside her org.
+	if _, err := s.Upsert(User{ID: "alice", Role: RoleUser, CanCreate: []string{"apps/*"}}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := s.Access("alice")
+	if !alice.CanCreateTile("apps/o/sales/newthing") {
+		t.Fatal("member's matching pattern must work inside their org")
+	}
+
+	// Org containers are not tile paths.
+	for _, p := range []string{"o/sales", "apps/o/sales", "tiles/o/sales"} {
+		if err := s.ValidateNewTilePath(p); err == nil || !strings.Contains(err.Error(), "container") {
+			t.Errorf("ValidateNewTilePath(%q) = %v, want container error", p, err)
+		}
+	}
+	if err := s.ValidateNewTilePath("apps/o/sales/crm"); err != nil {
+		t.Errorf("below the container must stay valid: %v", err)
+	}
+}

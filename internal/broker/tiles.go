@@ -3,6 +3,7 @@ package broker
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/builtins"
@@ -39,18 +40,6 @@ func (b *Broker) apiBuiltinsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
-	// Importing a tile creates a component: same capability as /create.
-	p := auth.PrincipalOf(r)
-	if !b.IsAdmin(p) {
-		role, ok := b.grantedRole(p.Component, "xbin")
-		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "importing tiles needs the workspace-management grant (xbin:writer) — the same as creating components",
-				"docs":  "/docs/auth.md",
-			})
-			return
-		}
-	}
 	if b.tiles == nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "no builtin tiles embedded"})
 		return
@@ -63,15 +52,31 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {name, path?}", "docs": "/docs/protocol.md"})
 		return
 	}
-	// Reserved-segment gate on an explicit target (a curated tile's default
-	// path never carries the o/u org markers).
-	if body.Path != "" {
-		if err := b.validateNewPath(body.Path); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+	// Importing a tile creates a component at the (possibly default) target:
+	// same authority as /create — resolve the target first so the gate and
+	// the reserved-segment check see the real path.
+	target := strings.Trim(body.Path, "/")
+	if target == "" {
+		m, ok := b.tiles.Get(body.Name)
+		if !ok {
+			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such builtin tile: " + body.Name})
 			return
 		}
+		target = m.DefaultPath
 	}
-	installed, files, err := b.tiles.Import(b.Reg.Root, body.Name, body.Path)
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target); !ok {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if err := b.validateNewPath(target); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		return
+	}
+	if err := b.guardNewComponentTree(target); err != nil {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	installed, files, err := b.tiles.Import(b.Reg.Root, body.Name, target)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

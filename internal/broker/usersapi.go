@@ -80,21 +80,67 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 	case p.Component != "":
 		out["kind"] = "element"
 		out["id"] = p.Component
-		// The human driving the tile (frame-token attribution): identity +
-		// org/team memberships, so chrome tiles (manager's create-in-team
-		// picker) can adapt to the user without raw-fetch tricks. This is
-		// attribution data only — the tile's own privilege is unchanged.
-		if p.UserID != "" && b.Users != nil {
-			if u, ok := b.Users.Get(p.UserID); ok {
-				du := map[string]any{"id": u.ID, "name": u.Name, "admin": u.IsAdmin()}
-				if orgs := b.userOrgsView(u); len(orgs) > 0 {
-					du["orgs"] = orgs
-				}
-				out["user"] = du
-			}
+		if du := b.driverView(p); du != nil {
+			out["user"] = du
 		}
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// driverView is whoami's `user` object on element principals — the human
+// driving the tile (frame/terminal attribution), FILTERED by the tile's
+// trust so a low-trust or compromised tile can't harvest memberships:
+//
+//   - every tile: {id, name} only (attribution the tile can already infer
+//     from per-user prefs; the element's own privilege is unchanged);
+//   - the tile's own org: plus that ONE org's membership slice (its teams,
+//     org-admin flag) — org-internal tiles may adapt to "your team here";
+//   - workspace-management tiles (an xbin or xbin:users capability grant,
+//     where a compromise already means workspace control): plus the admin
+//     flag and the full org list — this is what the manager's
+//     create-in-team picker runs on. A policy row denying xbin-caps
+//     downgrades the tile's view along with its capability.
+func (b *Broker) driverView(p auth.Principal) map[string]any {
+	if p.UserID == "" || b.Users == nil {
+		return nil
+	}
+	u, ok := b.Users.Get(p.UserID)
+	if !ok {
+		return nil
+	}
+	du := map[string]any{"id": u.ID, "name": u.Name}
+	switch {
+	case b.elementXbinCapable(p.Component):
+		du["admin"] = u.IsAdmin()
+		if orgs := b.userOrgsView(u); len(orgs) > 0 {
+			du["orgs"] = orgs
+		}
+	default:
+		if org, inOrg := users.OrgOf(p.Component); inOrg {
+			for _, m := range b.userOrgsView(u) {
+				if m.ID == org {
+					du["orgs"] = []users.OrgMembership{m}
+					break
+				}
+			}
+		}
+	}
+	return du
+}
+
+// elementXbinCapable reports whether an element holds any workspace-
+// management capability (target "xbin" at any role, or "xbin:users") —
+// grantedRole applies the policy ceiling, so an xbin-caps deny strips this
+// trust tier too.
+func (b *Broker) elementXbinCapable(comp string) bool {
+	if comp == "" {
+		return false
+	}
+	if _, ok := b.grantedRole(comp, "xbin"); ok {
+		return true
+	}
+	_, ok := b.grantedRole(comp, "xbin:users")
+	return ok
 }
 
 // userOrgsView is whoami's orgs field: memberships for a regular user; for a

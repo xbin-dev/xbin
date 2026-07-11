@@ -5,9 +5,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/builtins"
+	"github.com/magik6k/xbin/internal/registry"
 	"github.com/magik6k/xbin/internal/server"
 )
 
@@ -62,18 +64,6 @@ func (b *Broker) apiTemplatesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
-	// Instantiating a template creates a component: same capability as /create.
-	p := auth.PrincipalOf(r)
-	if !b.IsAdmin(p) {
-		role, ok := b.grantedRole(p.Component, "xbin")
-		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "instantiating templates needs the workspace-management grant (xbin:writer) — the same as creating components",
-				"docs":  "/docs/auth.md",
-			})
-			return
-		}
-	}
 	var body struct {
 		Source string `json:"source"` // builtin name or workspace component path
 		Path   string `json:"path"`   // target component path (optional)
@@ -82,13 +72,48 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {source, path?}", "docs": "/docs/protocol.md"})
 		return
 	}
-	// Reserved-segment gate on an explicit target (derived defaults never
-	// carry the o/u org markers).
-	if body.Path != "" {
-		if err := b.validateNewPath(body.Path); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+	// Resolve the source and the effective target FIRST — instantiating
+	// creates a component there, so it takes the same authority as /create
+	// (create patterns work; the confused-deputy clamp applies), and copying
+	// a WORKSPACE template additionally needs read on the source.
+	p := auth.PrincipalOf(r)
+	isBuiltin := b.templates != nil && templateExists(b.templates, body.Source)
+	var srcComp *registry.Component
+	if !isBuiltin {
+		c, ok := b.Reg.Component(body.Source)
+		if !ok || !c.IsTemplate() {
+			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such template: " + body.Source})
 			return
 		}
+		srcComp = c
+	}
+	target := strings.Trim(body.Path, "/")
+	if target == "" {
+		if isBuiltin {
+			if t, ok := b.templates.Get(body.Source); ok {
+				target = t.DefaultPath
+			}
+		} else {
+			target = "apps/" + path.Base(srcComp.Path) // instantiateWorkspace's default
+		}
+	}
+	if ok, msg := b.canCreateAt(p, target); !ok {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if srcComp != nil && !b.attributedCanRead(p, srcComp.Path) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{
+			"error": "instantiating copies the template — your account has no read access to " + srcComp.Path, "docs": "/docs/auth.md",
+		})
+		return
+	}
+	if err := b.validateNewPath(target); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		return
+	}
+	if err := b.guardNewComponentTree(target); err != nil {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
 	}
 
 	var (
@@ -98,18 +123,11 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		err         error
 	)
 	switch {
-	case b.templates != nil && templateExists(b.templates, body.Source):
+	case isBuiltin:
 		builtinName = body.Source
-		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, body.Path)
+		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, target)
 	default:
-		// Workspace template: source is a component path carrying a marker.
-		c, ok := b.Reg.Component(body.Source)
-		if !ok || !c.IsTemplate() {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such template: " + body.Source})
-			return
-		}
-		target := body.Path
-		installed, files, err = instantiateWorkspace(b.Reg.Root, c.Path, target)
+		installed, files, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target)
 	}
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

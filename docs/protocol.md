@@ -101,11 +101,16 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile alerts to admins + that tile's users
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,admin,teams}]
-                                   (the self-service membership view); for
+                                   (the self-service membership view). On
                                    element principals driven by a signed-in
-                                   human also user:{id,name,admin,orgs} —
-                                   attribution so chrome tiles can adapt
-                                   (the element's own privilege is unchanged)
+                                   human, `user` reports the driver, SCOPED
+                                   by the tile's trust (docs/auth.md): every
+                                   tile gets {id,name}; a tile inside an org
+                                   additionally gets that one org's
+                                   membership slice; a workspace-management
+                                   tile (xbin / xbin:users capability) gets
+                                   {admin, orgs:[…]} in full — the element's
+                                   own privilege is unchanged either way
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
@@ -193,7 +198,10 @@ POST   /create                     owner/admin, a user whose canCreate
                                    `o` only as the org marker (o/<org>/… or
                                    <dir>/o/<org>/…) naming an existing org;
                                    applies to clone/imports too.
-POST   /clone                      xbin:writer (as /create). body {from, to}
+POST   /clone                      same authority as /create (create
+                                   patterns work; the deputy clamp applies)
+                                   + the human must have READ on `from`
+                                   (copying is reading). body {from, to}
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
@@ -202,7 +210,9 @@ POST   /clone                      xbin:writer (as /create). body {from, to}
                                    unresolvable uses reject the clone.
 GET    /builtins                   any. optional tile catalog
                                    [{name,title,description,defaultPath,installed}]
-POST   /builtins/import            xbin:writer (as /create). body {name, path?}
+POST   /builtins/import            same authority as /create, checked on
+                                   the resolved target (path? or the tile's
+                                   defaultPath). body {name, path?}
                                    → {path, files, pendingGrants} — installs an
                                    embedded tile (plans/tile-sharing.md).
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
@@ -216,7 +226,10 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
                                    [{id,source,title,description,defaultName}]
-POST   /templates/new               xbin:writer. body {source, path?} → {path,
+POST   /templates/new               same authority as /create on the
+                                   resolved target; a workspace-template
+                                   source also needs READ. body {source,
+                                   path?} → {path,
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md). A
                                    builtin-template instance also gets a read-only
@@ -241,7 +254,8 @@ GET    /git/diff                   admin OR code[:<component>]. ?component=<path
 GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.
-POST   /git/import                 xbin:writer. body {url, path?, ref?} — clone a
+POST   /git/import                 same authority as /create on the
+                                   resolved path. body {url, path?, ref?} — clone a
                                    component in from a git remote (GitHub/GitLab/
                                    any git URL); path defaults to apps/<repo>, ref
                                    = a tag/branch. Its origin remote is kept (so

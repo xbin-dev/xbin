@@ -26,18 +26,6 @@ import (
 // Cross-scope `uses` re-enter the owner-approval flow like any import
 // (pendingGrants in the response). Same capability gate as /create.
 func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
-	p := auth.PrincipalOf(r)
-	if !b.IsAdmin(p) {
-		role, ok := b.grantedRole(p.Component, "xbin")
-		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "cloning components needs the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it",
-				"docs":  "/docs/auth.md",
-			})
-			return
-		}
-	}
-
 	var body struct {
 		From string `json:"from"`
 		To   string `json:"to"`
@@ -50,6 +38,21 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	to := strings.Trim(strings.TrimSpace(body.To), "/")
 	if from == "" || to == "" || from == to {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, to} with distinct paths"})
+		return
+	}
+	// Cloning creates a tile at `to` — same authority as /create (a user's
+	// create patterns work; the confused-deputy clamp applies) — and copies
+	// the source, so a human must be able to READ `from` (otherwise a
+	// manager-style tile is a source-exfiltration route).
+	p := auth.PrincipalOf(r)
+	if ok, msg := b.canCreateAt(p, to); !ok {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if !b.attributedCanRead(p, from) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{
+			"error": "cloning copies the source — your account has no read access to " + from, "docs": "/docs/auth.md",
+		})
 		return
 	}
 	src, ok := b.Reg.Component(from)
@@ -65,10 +68,10 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
 		return
 	}
-	// Nesting either way is a mess: no cloning INTO an existing component's
-	// tree, and no cloning a parent over its own clone destination.
-	if owner, _, ok := b.Reg.Resolve(to); ok && owner != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": to + " is inside existing component " + owner.Path})
+	// Nesting either way is a mess: not inside an existing component, not a
+	// subtree containing one, and no nesting with the clone source.
+	if err := b.guardNewComponentTree(to); err != nil {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
 	if strings.HasPrefix(to+"/", from+"/") || strings.HasPrefix(from+"/", to+"/") {

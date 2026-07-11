@@ -311,9 +311,20 @@ admin: opening the admin tile only grants admin because the tile itself holds
 allow-list**.
 
 **Create permission.** `canCreate` lists path patterns (`sales/*`) under
-which the user may scaffold new tiles (`POST /api/xbin/create`, `bx new`,
-the manager tile). Creating one auto-grants the creator `terminal` on it —
-create ≈ own a namespace.
+which the user may scaffold new tiles. It governs **every way a tile can
+appear**: `POST /api/xbin/create`, clone, git import, builtin tile import,
+and template instantiate (`bx new`, the manager tile). Creating one
+auto-grants the creator `terminal` on it — create ≈ own a namespace.
+Copy-shaped creation (clone, workspace-template instantiate) additionally
+requires **read on the source** — copying is reading.
+
+**The confused-deputy clamp.** An element holding the workspace-management
+grant (`xbin:writer` — the manager tile ships with it) may create tiles, but
+when a signed-in human is attributed on the call (frame/terminal
+principals), the human's **own** create permission must cover the path too.
+Granting a user the manager tile never extends what they may create;
+unattributed automation (instance tokens, the bootstrap owner) keeps plain
+capability semantics.
 
 **Terminal-plane grants.** A non-admin's terminals run restricted
 (docs/isolation.md): beyond the kernel lockdown, they get **no live tile-API
@@ -377,6 +388,13 @@ Membership only ever widens access; there are no caps. Deleting a user
 strips them from every org and team; removing an org member removes them
 from that org's teams.
 
+Two deliberate asymmetries: **read/write via personal patterns stays
+global** (a workspace admin granting `apps/*: read` means it, org tiles
+included — the auditor case), but **creating inside an org requires
+membership**: a broad personal `canCreate` pattern never lets a non-member
+inject tiles into `apps/o/<org>/…`. The org container itself
+(`apps/o/<org>`) is not a valid tile path — tiles live strictly below it.
+
 **Create-in-team.** `POST /api/xbin/create` (and `bx new --team`, and the
 manager tile's picker) takes `team: "<org>/<team>"`: the path must be inside
 the org, the caller must be a team member (or an org/workspace admin), and
@@ -404,6 +422,12 @@ pre-existing net binding goes inert the moment a deny row covers its tile.
 `xbin-caps` also neuters a covered element's `xbin`/`xbin:users` capability
 grants (including tile adminship).
 
+`mayCall` governs a tile's **external** reach only: same-scope targets — an
+app's own resources (`res:<scope>/db`) and intra-app calls — are always
+exempt, so an allow-list can never sever a tile from its own database. The
+deny kinds apply regardless. Org rows are already scoped to the org's
+tiles, so `"tiles": "*"` is usually the pattern you want there.
+
 **Org admins are security-capped delegation (D21).** Org admins manage their
 org's name, members, co-admins, base permission, teams, and per-tile access
 entries — clamped to the org. Workspace-admin-only: creating/deleting orgs,
@@ -427,10 +451,16 @@ GET/PUT        /api/xbin/policy                   workspace ceiling rows
 GET/PUT        /api/xbin/orgs/<org>/policy        org ceiling rows
 ```
 
-`whoami` reports a user's memberships (`orgs: [{id,name,admin,teams}]`), and
-for element principals the attributed driving human (`user: {id,name,admin,
-orgs}`) so chrome tiles can adapt. CLI: `bx org`, `bx team`, `bx access`,
-`bx org policy`, `bx new --team`.
+`whoami` reports a user's memberships (`orgs: [{id,name,admin,teams}]`). On
+element principals it also reports the attributed driving human — **scoped
+by the tile's trust**, so a low-trust or compromised tile can't harvest
+memberships: every tile sees `{id, name}` only; a tile inside an org
+additionally sees that one org's membership slice; a workspace-management
+tile (`xbin`/`xbin:users` capability — the manager, whose create-in-team
+picker runs on this) sees the admin flag and the full org list. A policy
+row denying `xbin-caps` downgrades the tile's view along with its
+capability. CLI: `bx org`, `bx team`, `bx access`, `bx org policy`,
+`bx new --team`.
 
 **Public-surface lockdown.** Only `/healthz` and `/login`/`/logout` are
 unauthenticated; everything else needs a valid principal. Login uses a

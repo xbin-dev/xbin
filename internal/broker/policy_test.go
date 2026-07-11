@@ -32,23 +32,37 @@ func TestCeilingInGrantedRole(t *testing.T) {
 	b := testBroker(t)
 	st := testUsers(t, b)
 
-	// Baseline: the fixture grant row and a same-scope auto-grant hold.
+	// Baseline: the fixture grant row, a same-scope auto-grant, and an
+	// explicitly-granted cross-scope resource all hold.
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: "res:apps/calendar/bus", Role: "reader"})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if role, ok := b.grantedRole("apps/email", "apps/calendar"); !ok || role != "reader" {
 		t.Fatalf("baseline explicit grant: %q %v", role, ok)
 	}
 	if _, ok := b.grantedRole("apps/calendar", "res:apps/calendar/events"); !ok {
 		t.Fatal("baseline same-scope auto-grant should hold")
 	}
+	if _, ok := b.grantedRole("apps/email", "res:apps/calendar/bus"); !ok {
+		t.Fatal("baseline cross-scope resource grant should hold")
+	}
 
-	// A mayCall allow-list that covers neither target blocks both sources.
+	// A mayCall allow-list that covers nothing blocks CROSS-scope reach —
+	// but never a tile's own scope (its resources, intra-app calls): mayCall
+	// governs external reach only, so an org row can't sever an app's own db.
 	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "apps/*", MayCall: []string{"nothing/*"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := b.grantedRole("apps/email", "apps/calendar"); ok {
-		t.Fatal("explicit grant must be capped by mayCall")
+		t.Fatal("explicit cross-scope grant must be capped by mayCall")
 	}
-	if _, ok := b.grantedRole("apps/calendar", "res:apps/calendar/events"); ok {
-		t.Fatal("same-scope auto-grant must be capped by mayCall")
+	if _, ok := b.grantedRole("apps/email", "res:apps/calendar/bus"); ok {
+		t.Fatal("cross-scope resource grant must be capped by mayCall")
+	}
+	if _, ok := b.grantedRole("apps/calendar", "res:apps/calendar/events"); !ok {
+		t.Fatal("a tile's own scope is exempt from mayCall")
 	}
 
 	// Covering the targets lifts the cap.
@@ -258,5 +272,83 @@ func TestValidateNewPathGate(t *testing.T) {
 	b.Users = nil
 	if err := b.validateNewPath("apps/u/bob/x"); err != nil {
 		t.Fatal("nil store must not restrict")
+	}
+}
+
+// canCreateAt: the confused-deputy clamp — an element's workspace-management
+// grant never extends the attributed human's own create rights; unattributed
+// automation keeps the old capability semantics.
+func TestCanCreateAtDeputyClamp(t *testing.T) {
+	b := testBroker(t)
+	st := testUsers(t, b)
+	for _, u := range []users.User{
+		{ID: "admin2", Role: users.RoleAdmin},
+		{ID: "maker", Role: users.RoleUser, CanCreate: []string{"apps/mk/*"}},
+		{ID: "plain", Role: users.RoleUser},
+	} {
+		if _, err := st.Upsert(u, "password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// tiles/manager-style element with the capability grant.
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: "xbin", Role: "writer"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	acc := func(id string) *users.Access { a, _ := st.Access(id); return a }
+	cases := []struct {
+		name string
+		p    auth.Principal
+		path string
+		want bool
+	}{
+		{"owner", auth.Principal{Owner: true}, "apps/x", true},
+		{"session maker in-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/mk/x", true},
+		{"session maker out-of-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/x", false},
+		{"unattributed element w/ grant", auth.Principal{Component: "apps/email"}, "apps/anything", true},
+		{"element w/ grant, plain human", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/anything", false},
+		{"element w/ grant, maker human in-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/mk/x", true},
+		{"element w/ grant, maker human out-of-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/x", false},
+		{"element w/ grant, admin human", auth.Principal{Component: "apps/email", UserID: "admin2"}, "apps/anything", true},
+		{"element w/o grant", auth.Principal{Component: "apps/calendar", UserID: "maker"}, "apps/mk/x", false},
+		{"session plain", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", false},
+	}
+	for _, c := range cases {
+		if got, msg := b.canCreateAt(c.p, c.path); got != c.want {
+			t.Errorf("%s: canCreateAt=%v (%s), want %v", c.name, got, msg, c.want)
+		}
+	}
+
+	// The read clamp: an attributed human copying a source needs read on it.
+	if b.attributedCanRead(auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/calendar") {
+		t.Fatal("attributed human without read must be clamped")
+	}
+	if !b.attributedCanRead(auth.Principal{Component: "apps/email"}, "apps/calendar") {
+		t.Fatal("unattributed automation keeps capability semantics")
+	}
+	if err := st.GrantTile("plain", "apps/calendar", users.LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	if !b.attributedCanRead(auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/calendar") {
+		t.Fatal("read grant should satisfy the source clamp")
+	}
+}
+
+// guardNewComponentTree: no creating inside a component, over a component, or
+// above existing components (the org-container scenario).
+func TestGuardNewComponentTree(t *testing.T) {
+	b := testBroker(t)
+	if err := b.guardNewComponentTree("apps/free"); err != nil {
+		t.Fatalf("free path refused: %v", err)
+	}
+	if err := b.guardNewComponentTree("apps/calendar"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("existing path: %v", err)
+	}
+	if err := b.guardNewComponentTree("apps/calendar/sub"); err == nil || !strings.Contains(err.Error(), "inside existing") {
+		t.Fatalf("inside a component: %v", err)
+	}
+	if err := b.guardNewComponentTree("apps"); err == nil || !strings.Contains(err.Error(), "would contain") {
+		t.Fatalf("above components: %v", err)
 	}
 }

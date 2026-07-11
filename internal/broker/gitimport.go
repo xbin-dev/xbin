@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/util"
 )
@@ -112,9 +113,6 @@ func dedupSortTags(tags []string) []string {
 
 // apiGitImport (POST /git/import {url, path?, ref?}) clones a remote component in.
 func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
-	if !b.requireWriter(w, r) {
-		return
-	}
 	var body struct{ URL, Path, Ref string }
 	if err := decodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {url, path?, ref?} with a valid git URL"})
@@ -125,12 +123,22 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "apps/" + repoNameFromURL(url)
 	}
+	// Importing creates a tile at `path` — same authority as /create (create
+	// patterns work; the confused-deputy clamp applies to attributed humans).
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path); !ok {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
 	if !util.ComponentPathOK(path) || util.ReservedTop[strings.Split(path, "/")[0]] {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved import path: " + path})
 		return
 	}
 	if err := b.validateNewPath(path); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		return
+	}
+	if err := b.guardNewComponentTree(path); err != nil {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
 	target := filepath.Join(b.Reg.Root, filepath.FromSlash(path))

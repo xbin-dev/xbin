@@ -128,6 +128,11 @@ func (s *Store) ValidateNewTilePath(path string) error {
 			if _, ok := s.Org(segs[i+1]); !ok {
 				return fmt.Errorf("no such org %q — create the org first", segs[i+1])
 			}
+			if i+1 == len(segs)-1 {
+				// A tile AT the org container would block (or nest with)
+				// every tile of the org — tiles live strictly below it.
+				return fmt.Errorf("%s is org %q's container directory — create tiles under it (e.g. %s/<name>)", path, segs[i+1], path)
+			}
 		}
 	}
 	return nil
@@ -521,7 +526,11 @@ func (a *Access) CanTerminalTile(path string) bool {
 }
 
 // CanCreateTile: the user's own patterns, their teams' (org-clamped), or
-// implicit org-admin create inside the org.
+// implicit org-admin create inside the org. Creating INSIDE an org
+// additionally requires membership of that org (D19 amendment): a broad
+// personal pattern like apps/* must not let a non-member inject tiles into
+// apps/o/<org>/… — unlike read/write access, where workspace-admin-granted
+// personal patterns deliberately stay global (the auditor case).
 func (a *Access) CanCreateTile(path string) bool {
 	if a == nil {
 		return false
@@ -529,14 +538,17 @@ func (a *Access) CanCreateTile(path string) bool {
 	if a.user.IsAdmin() {
 		return true
 	}
-	for _, pat := range a.user.CanCreate {
-		if matchTile(pat, path) {
-			return true
-		}
-	}
 	if org, ok := OrgOf(path); ok {
 		if a.adminOrgs[org] {
 			return true
+		}
+		if _, member := a.memberOrgs[org]; !member {
+			return false // non-members never create in an org, whatever their patterns
+		}
+		for _, pat := range a.user.CanCreate {
+			if matchTile(pat, path) {
+				return true
+			}
 		}
 		for _, t := range a.teams {
 			if t.org != org {
@@ -547,6 +559,12 @@ func (a *Access) CanCreateTile(path string) bool {
 					return true
 				}
 			}
+		}
+		return false
+	}
+	for _, pat := range a.user.CanCreate {
+		if matchTile(pat, path) {
+			return true
 		}
 	}
 	return false

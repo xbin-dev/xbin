@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/scaffold"
@@ -41,16 +42,16 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
 		return
 	}
+	// No nesting either way: not inside an existing component, and not a
+	// subtree that already contains one (an org container, say).
+	if err := b.guardNewComponentTree(strings.Trim(o.Path, "/")); err != nil {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 	p := auth.PrincipalOf(r)
-	if !b.IsAdmin(p) && !p.CanCreateTile(o.Path) {
-		role, ok := b.grantedRole(p.Component, "xbin")
-		if p.Component == "" || !ok || !roleSatisfies(role, "writer", nil) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "creating components needs a create permission on this path (ask an admin), or the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it",
-				"docs":  "/docs/auth.md",
-			})
-			return
-		}
+	if ok, msg := b.canCreateAt(p, o.Path); !ok {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
 	}
 
 	// Validate create-in-team before any side effect.

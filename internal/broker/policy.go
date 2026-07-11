@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/users"
 )
 
@@ -36,6 +37,13 @@ func (b *Broker) ceilingBlockMsg(from, target string) string {
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets
+		// Same-scope targets are exempt from mayCall: a scope is one trust
+		// unit (ND5), so the allow-list governs a tile's EXTERNAL reach — it
+		// must never sever an app from its own resources (res:<scope>/db) or
+		// intra-app calls. Deny kinds above still apply regardless.
+		if caller, ok := b.Reg.Component(from); ok && b.sameScope(caller, target) {
+			return ""
+		}
 		if row, ok := c.MayCallBlocker(target); ok {
 			return fmt.Sprintf("a policy row for tiles matching %q allow-lists call targets and %q is not covered (workspace/org policy — see /docs/auth.md)", row.Tiles, target)
 		}
@@ -58,4 +66,79 @@ func (b *Broker) validateNewPath(path string) error {
 		return nil
 	}
 	return b.Users.ValidateNewTilePath(path)
+}
+
+// canCreateAt is the shared tile-creation authority for the same five entry
+// points: workspace admins; humans whose (org/team-unioned) create patterns
+// cover the path; or an element holding the workspace-management capability
+// (xbin:writer). When a HUMAN is attributed on an element call (frame or
+// terminal principal), the human's own rights must cover the path too — the
+// confused-deputy clamp: a manager-style tile can never be driven to create
+// beyond what its driver may create themselves. Unattributed automation
+// (instance tokens, the bootstrap owner) is unaffected.
+func (b *Broker) canCreateAt(p auth.Principal, path string) (bool, string) {
+	if b.IsAdmin(p) {
+		return true, ""
+	}
+	if p.CanCreateTile(path) { // session humans: their own union rights
+		return true, ""
+	}
+	if p.Component == "" {
+		return false, "creating components needs a create permission on this path (ask an admin for a create pattern or a team)"
+	}
+	if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
+		return false, "creating components needs a create permission on this path (ask an admin), or the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
+	}
+	if p.UserID != "" && !b.attributedAccess(p.UserID).CanCreateTile(path) {
+		return false, "your account has no create permission on " + path + " — the tile's workspace-management grant doesn't extend your own rights (ask an admin for a create pattern or a team)"
+	}
+	return true, ""
+}
+
+// attributedCanRead is the matching source-side clamp for copy-shaped
+// creation (clone, workspace-template instantiate): a human must be able to
+// READ what they are copying, directly (session principal) or attributed on
+// an element call — otherwise a manager-style tile would be a source-code
+// exfiltration route into the caller's own namespace.
+func (b *Broker) attributedCanRead(p auth.Principal, path string) bool {
+	if b.IsAdmin(p) {
+		return true
+	}
+	if p.Component == "" {
+		return p.CanReadTile(path)
+	}
+	if p.UserID == "" { // unattributed automation with the capability grant
+		return true
+	}
+	return b.attributedAccess(p.UserID).CanReadTile(path)
+}
+
+// attributedAccess resolves the org/team-aware access of the human riding an
+// element principal (nil-safe: unknown user / no store ⇒ a nil Access, which
+// answers no to everything).
+func (b *Broker) attributedAccess(userID string) *users.Access {
+	if b.Users == nil {
+		return nil
+	}
+	acc, _ := b.Users.Access(userID)
+	return acc
+}
+
+// guardNewComponentTree rejects creation paths that nest with existing
+// components either way (the same rule clone always had): not inside one,
+// and not a subtree that already contains one — e.g. a tile AT an org
+// container (apps/o/sales) above existing org tiles.
+func (b *Broker) guardNewComponentTree(path string) error {
+	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
+		if owner.Path == path {
+			return fmt.Errorf("%s already exists", path)
+		}
+		return fmt.Errorf("%s is inside existing component %s", path, owner.Path)
+	}
+	for _, c := range b.Reg.Components() {
+		if strings.HasPrefix(c.Path, path+"/") {
+			return fmt.Errorf("%s would contain existing component %s", path, c.Path)
+		}
+	}
+	return nil
 }

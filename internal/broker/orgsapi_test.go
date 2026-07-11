@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/magik6k/xbin/internal/auth"
+	"github.com/magik6k/xbin/internal/registry"
 	"github.com/magik6k/xbin/internal/users"
 )
 
@@ -222,5 +223,67 @@ func TestWhoamiOrgs(t *testing.T) {
 	}
 	if len(got.Orgs) != 1 || !got.Orgs[0].Admin {
 		t.Fatalf("whoami org admin flag: %s", w.Body.String())
+	}
+}
+
+// whoami's driving-user view is scoped by tile trust: plain tiles get
+// identity only, org tiles their own org's slice, xbin-capable tiles the
+// full membership list — and an xbin-caps policy deny downgrades that tier.
+func TestWhoamiDriverViewScoping(t *testing.T) {
+	b, st := orgFixture(t)
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: "xbin", Role: "writer"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertOrg(users.Org{ID: "eng", Members: []string{"bob"}}); err != nil {
+		t.Fatal(err)
+	}
+	// A sales org tile must exist as the org-tile case's component identity —
+	// components need not be registered for whoami (Component is the path).
+	whoami := func(comp string) map[string]any {
+		w := call(t, b.apiWhoami, auth.Principal{Component: comp, UserID: "bob", Via: "frame"}, "GET", "/x", ``, nil)
+		var got map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	orgsOf := func(g map[string]any) []any {
+		u, _ := g["user"].(map[string]any)
+		if u == nil {
+			t.Fatalf("no user view: %v", g)
+		}
+		orgs, _ := u["orgs"].([]any)
+		return orgs
+	}
+
+	// Plain tile: id+name, no orgs, no admin flag.
+	g := whoami("apps/calendar")
+	u := g["user"].(map[string]any)
+	if u["id"] != "bob" || u["orgs"] != nil || u["admin"] != nil {
+		t.Fatalf("plain tile must see identity only, got %v", u)
+	}
+
+	// The tile's own org: exactly that org's slice.
+	orgs := orgsOf(whoami("apps/o/sales/crm"))
+	if len(orgs) != 1 || orgs[0].(map[string]any)["id"] != "sales" {
+		t.Fatalf("org tile must see its own org only, got %v", orgs)
+	}
+
+	// xbin-capable tile: everything (bob is in sales and eng).
+	orgs = orgsOf(whoami("apps/email"))
+	if len(orgs) != 2 {
+		t.Fatalf("capable tile must see all memberships, got %v", orgs)
+	}
+
+	// A policy row denying xbin-caps strips the tier back down.
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "apps/email", Deny: []string{users.PolicyDenyXbinCaps}}}); err != nil {
+		t.Fatal(err)
+	}
+	g = whoami("apps/email")
+	u = g["user"].(map[string]any)
+	if u["orgs"] != nil || u["admin"] != nil {
+		t.Fatalf("xbin-caps-denied tile must lose the full view, got %v", u)
 	}
 }
