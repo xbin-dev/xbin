@@ -31,6 +31,7 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
+import './bx-org-admin.js';
 import '/vendor/bx-dialog.js';
 
 const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
@@ -78,6 +79,7 @@ export class BxShell extends LitElement {
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
     _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
+    _orgsOpen: { state: true },   // the orgs & teams management popover
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -188,6 +190,18 @@ export class BxShell extends LitElement {
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
     }
+    /* orgs & teams management popover (org admins + ws admins) — centered. */
+    .admin-pop.orgs-pop { left: 50%; top: 9vh; transform: translateX(-50%);
+      width: min(560px, 92vw); max-height: 80vh; }
+    .orgbtn {
+      display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px;
+      border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
+      color: var(--bx-text, #33414e); border-radius: 6px; padding: 4px 8px;
+      font: inherit; font-size: 11px; cursor: pointer; text-align: left;
+    }
+    .orgbtn:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .orgbtn .n { margin-left: auto; font-family: var(--bx-mono, monospace);
+      font-size: 10px; color: var(--bx-muted, #8794a1); }
 
     /* ---- tile-spawned pop-out windows ---- */
     .spawn {
@@ -375,6 +389,7 @@ export class BxShell extends LitElement {
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._isAdmin = false;
     this._adminOrgs = new Set();
+    this._orgsOpen = false;
     this._adminFor = null;
     this._adminPos = { x: 0, y: 0 };
     this._dialogs = [];
@@ -1350,6 +1365,11 @@ export class BxShell extends LitElement {
               ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
                 ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
             </div>
+            ${this._adminOrgs?.size ? html`
+              <button class="orgbtn" title="manage the orgs you administer (members, teams, access)"
+                @click=${() => { this._orgsOpen = !this._orgsOpen; }}>
+                ⚑ orgs &amp; teams <span class="n">${this._adminOrgs.size}</span>
+              </button>` : nothing}
             ${this._statusFooter()}
             ${this._buildFoot()}
           </aside>
@@ -1371,6 +1391,12 @@ export class BxShell extends LitElement {
         <div class="admin-pop-backdrop" @click=${() => { this._adminFor = null; }}></div>
         <div class="admin-pop" style="left:${this._adminPos.x}px; top:${this._adminPos.y}px">
           <bx-tile-admin .path=${this._adminFor}></bx-tile-admin>
+        </div>` : nothing}
+
+      ${this._orgsOpen ? html`
+        <div class="admin-pop-backdrop" @click=${() => { this._orgsOpen = false; }}></div>
+        <div class="admin-pop orgs-pop">
+          <bx-org-admin ?wsadmin=${this._isAdmin}></bx-org-admin>
         </div>` : nothing}
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
