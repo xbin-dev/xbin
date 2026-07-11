@@ -299,6 +299,9 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
+		// Also log it — the error otherwise only reaches the browser (HTTP 400),
+		// which makes "my terminal won't open" undiagnosable from the server side.
+		slog.Error("terminal spawn failed", "cwd", filepath.ToSlash(rel), "err", err)
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
 	// The egress relay can only start once init has created the TUN in its netns
@@ -760,7 +763,7 @@ func (s *Session) pump(onExit func()) {
 	}
 	s.clients = map[*client]struct{}{}
 	s.mu.Unlock()
-	_ = s.cmd.Wait()
+	waitErr := s.cmd.Wait()
 	if s.relay != nil {
 		s.relay.Close()
 	}
@@ -768,7 +771,18 @@ func (s *Session) pump(onExit func()) {
 		s.cleanup()
 	}
 	onExit()
-	slog.Info("terminal session ended", "id", s.ID)
+	// Exit status + uptime make an instantly-dying shell (sandbox init failure —
+	// its stderr goes to the PTY, not the log) visible server-side: exit 127 +
+	// sub-second uptime = the sandbox never reached the shell.
+	slog.Info("terminal session ended", "id", s.ID, "uptime", time.Since(s.born).Round(time.Second), "exit", exitString(waitErr))
+}
+
+// exitString renders a Wait error compactly ("ok", "exit status 127", …).
+func exitString(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	return err.Error()
 }
 
 func (s *Session) kill() {
