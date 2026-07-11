@@ -29,6 +29,17 @@ func RunInit(specPath string) {
 	}
 }
 
+// dbg is the init's step trace (Spec.Debug / XBIN_SANDBOX_DEBUG=1): one terse
+// `[sbx] …` line per setup step to stderr — a terminal's PTY (captured into
+// the session log tail on early death) or a backend's log pipe — so a sandbox
+// that dies before its entrypoint pinpoints the failing step. Instrumentation
+// only.
+func dbg(on bool, format string, a ...any) {
+	if on {
+		fmt.Fprintf(os.Stderr, "[sbx] "+format+"\r\n", a...)
+	}
+}
+
 func runInit(specPath string) error {
 	runtime.LockOSThread()
 
@@ -48,6 +59,7 @@ func runInit(specPath string) error {
 	// now-mapped root, which regains full capabilities — required for the mount
 	// setup below. Single-uid mode maps before exec, so it skips straight through.
 	if s.SyncFD > 0 && os.Getenv(mappedEnv) != "1" {
+		dbg(s.Debug, "stage1 uid=%d: awaiting uid maps on fd %d", os.Getuid(), s.SyncFD)
 		if err := awaitMaps(s.SyncFD); err != nil {
 			os.Remove(specPath)
 			return must(err, "await uid maps")
@@ -56,11 +68,14 @@ func runInit(specPath string) error {
 		return must(unix.Exec("/proc/self/exe", []string{"xbind", InitArg, specPath}, env), "re-exec mapped")
 	}
 	os.Remove(specPath) // consume the spec (final stage, or single-uid mode)
+	dbg(s.Debug, "init pid=%d uid=%d net=%q hostnet=%v restricted=%v unpriv=%v",
+		os.Getpid(), os.Getuid(), s.Net, s.HostNet, s.Restricted, s.Unprivileged)
 
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return must(err, "make-rprivate /")
 	}
+	dbg(s.Debug, "mount propagation rprivate")
 
 	// A private tmpfs to hold the new root and (if needed) the overlay dirs.
 	base := filepath.Join(os.TempDir(), fmt.Sprintf("bxroot.%d", os.Getpid()))
@@ -74,6 +89,7 @@ func runInit(specPath string) error {
 	if err := os.Mkdir(newroot, 0o755); err != nil {
 		return must(err, "mkdir newroot")
 	}
+	dbg(s.Debug, "private tmpfs at %s", base)
 
 	// Overlay: base rootfs + granted deps (lower, ro) with a per-component
 	// writable upper. If the caller gave no Upper, use dirs on our private tmpfs.
@@ -92,6 +108,7 @@ func runInit(specPath string) error {
 		return fmt.Errorf("spec has no rootfs lowerdir")
 	}
 	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
+	dbg(s.Debug, "overlay: %s (fuse=%q)", opt, s.FuseOverlay)
 	if s.FuseOverlay != "" {
 		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
 		// overlayfs forbids), so directory renames work → `apt install` etc. It
@@ -105,6 +122,7 @@ func runInit(specPath string) error {
 	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
 		return must(err, "mount overlay ("+opt+")")
 	}
+	dbg(s.Debug, "overlay mounted at %s", newroot)
 
 	// Fresh /proc (needs the new pid ns) and a private /tmp, /dev/shm — mounted
 	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
@@ -149,14 +167,17 @@ func runInit(specPath string) error {
 	if s.FuseOverlay != "" {
 		_ = bindNode(newroot, "/dev/fuse")
 	}
+	dbg(s.Debug, "proc/tmp/dev mounted")
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
 	for _, b := range sortBinds(s.Binds) {
+		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v norec=%v)", b.Src, b.Dst, b.RO, b.Mask, b.NoRec)
 		if err := mountBind(newroot, b); err != nil {
 			return err
 		}
 	}
+	dbg(s.Debug, "binds done (%d)", len(s.Binds))
 
 	// Egress relay: create the TUN in this netns and hand its fd to xbind,
 	// which runs the userspace stack + policy. Without this the netns stays
@@ -165,6 +186,7 @@ func runInit(specPath string) error {
 		if err := setupEgress(newroot, &s); err != nil {
 			return must(err, "egress")
 		}
+		dbg(s.Debug, "egress TUN handed to parent")
 	}
 	// Sharing the host network (terminals): give the sandbox the host's DNS +
 	// hosts so name resolution / internet works (the rootfs's own resolv.conf is
@@ -189,6 +211,7 @@ func runInit(specPath string) error {
 		return must(err, "detach oldroot")
 	}
 	_ = os.Remove("/.oldroot")
+	dbg(s.Debug, "pivot_root done, old root detached")
 
 	// Bring loopback up in our own netns (skip when sharing the host's).
 	if !s.HostNet {
@@ -223,6 +246,7 @@ func runInit(specPath string) error {
 		if err := installRestrictNamespaces(); err != nil {
 			return must(err, "install ns-restrict seccomp")
 		}
+		dbg(s.Debug, "restricted lockdown applied (ucounts+caps+seccomp)")
 	}
 	// Tile backends: drop caps + seccomp block-list (they need neither). Order:
 	// bounding-set drop needs CAP_SETPCAP, so caps go before the filter.
@@ -251,6 +275,7 @@ func runInit(specPath string) error {
 	if len(argv) == 0 {
 		argv = []string{s.Entry}
 	}
+	dbg(s.Debug, "guards on, exec %s (cwd=%s)", s.Entry, cwd)
 	if err := unix.Exec(s.Entry, argv, s.Env); err != nil {
 		return must(err, "exec "+s.Entry)
 	}

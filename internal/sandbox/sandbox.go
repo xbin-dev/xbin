@@ -210,6 +210,11 @@ type Spec struct {
 	// init mounts the root with (supports redirect_dir/metacopy that unprivileged
 	// kernel overlayfs forbids, so `apt install` etc. work). "" = kernel overlay.
 	FuseOverlay string `json:"fuseOverlay,omitempty"`
+	// Debug makes the init emit a `[sbx] <step>` trace to stderr (a terminal's
+	// PTY / a backend's log pipe) so a sandbox that dies before its entrypoint
+	// is diagnosable step by step. Set per-daemon via XBIN_SANDBOX_DEBUG=1
+	// (picked up in Launch); pure instrumentation, no behavior change.
+	Debug bool `json:"debug,omitempty"`
 }
 
 // ReadGuardSpec parameterizes the terminal read guard (Landlock). All paths are

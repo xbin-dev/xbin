@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -31,8 +32,17 @@ func Available() bool {
 	return true
 }
 
-// RecvTUN blocks until the init sends the TUN fd (via SCM_RIGHTS) and returns it.
-func (h *Handle) RecvTUN() (int, error) { return recvFD(h.ctrl) }
+// RecvTUN waits until the init sends the TUN fd (via SCM_RIGHTS) and returns
+// it. Bounded: an init that dies before creating the TUN gives no EOF (the
+// ctrl socket is SOCK_DGRAM — no teardown signal), so an unbounded read here
+// would hang the whole session-open forever, with nothing ever logged. A
+// healthy init sends the fd well under a second; the generous bound only
+// bites on an already-dead sandbox.
+func (h *Handle) RecvTUN() (int, error) {
+	_ = h.ctrl.SetReadDeadline(time.Now().Add(15 * time.Second))
+	defer func() { _ = h.ctrl.SetReadDeadline(time.Time{}) }()
+	return recvFD(h.ctrl)
+}
 
 // Launch builds (but does not start) an *exec.Cmd that, when started, re-execs
 // this binary as PID 1 of a fresh user+mount+pid+net+ipc+uts namespace set,
@@ -46,6 +56,7 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	// before we serialize it.
 	ids := detectIDRanges(s.HostUID, s.HostGID)
 	s.FuseOverlay = fuseOverlayfsPath()
+	s.Debug = s.Debug || os.Getenv("XBIN_SANDBOX_DEBUG") != ""
 
 	// ExtraFiles land at fd 3, 4, … in the init, in append order.
 	var extra []*os.File
@@ -254,6 +265,10 @@ func socketpair() (parent, child *os.File, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// The parent end must be nonblocking so os.File registers it with the
+	// runtime poller — that's what makes RecvTUN's read deadline (above)
+	// actually work. The child end stays blocking (the init writes once).
+	_ = unix.SetNonblock(fds[0], true)
 	return os.NewFile(uintptr(fds[0]), "ctrl-parent"), os.NewFile(uintptr(fds[1]), "ctrl-child"), nil
 }
 

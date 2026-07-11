@@ -865,6 +865,17 @@ func (s *Session) pump(onExit func()) {
 	// its stderr goes to the PTY, not the log) visible server-side: exit 127 +
 	// sub-second uptime = the sandbox never reached the shell.
 	slog.Info("terminal session ended", "id", s.ID, "uptime", time.Since(s.born).Round(time.Second), "exit", exitString(waitErr))
+	// A session that dies this fast never showed anyone its output — surface
+	// the PTY's last bytes (that's where "sandbox-init: <the actual error>"
+	// went) in the log, or the failure is undiagnosable server-side.
+	if time.Since(s.born) < 10*time.Second {
+		s.mu.Lock()
+		tail := scrollTail(s.scrollback, 2048) // room for the [sbx] debug trace + the error line
+		s.mu.Unlock()
+		if tail != "" {
+			slog.Warn("terminal died at start; last output", "id", s.ID, "tail", tail)
+		}
+	}
 }
 
 // exitString renders a Wait error compactly ("ok", "exit status 127", …).
@@ -873,6 +884,35 @@ func exitString(err error) string {
 		return "ok"
 	}
 	return err.Error()
+}
+
+// scrollTail renders the last n bytes of PTY scrollback as plain text for the
+// log: ANSI escape sequences (CSI/OSC) and control bytes are stripped so the
+// sandbox init's error line comes out readable.
+func scrollTail(b []byte, n int) string {
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); i++ {
+		switch c := b[i]; {
+		case c == 0x1b: // ESC — skip the sequence it introduces
+			if i+1 < len(b) && b[i+1] == '[' { // CSI: until a final byte @…~
+				for i += 2; i < len(b) && (b[i] < 0x40 || b[i] > 0x7e); i++ {
+				}
+			} else if i+1 < len(b) && b[i+1] == ']' { // OSC: until BEL or ESC
+				for i += 2; i < len(b) && b[i] != 0x07 && b[i] != 0x1b; i++ {
+				}
+			} else {
+				i++
+			}
+		case c == '\n':
+			out = append(out, ' ')
+		case c >= 32 && c < 127:
+			out = append(out, c)
+		}
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (s *Session) kill() {
@@ -887,7 +927,16 @@ func (s *Session) attach(conn *websocket.Conn) {
 
 	s.mu.Lock()
 	if s.dead {
+		// The session died before this client attached (a sandbox that fails
+		// its init lives ~10ms). Its scrollback holds WHY — the init's stderr
+		// goes to the PTY — so replay it before the exit frame instead of
+		// discarding it, or the browser shows a silently-dead pane.
+		sb := make([]byte, len(s.scrollback))
+		copy(sb, s.scrollback)
 		s.mu.Unlock()
+		if len(sb) > 0 {
+			_ = conn.WriteMessage(websocket.BinaryMessage, sb)
+		}
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"op":"exit"}`))
 		conn.Close()
 		return
