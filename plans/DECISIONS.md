@@ -297,6 +297,14 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   severed every covered tile from its own database (a scope is one trust
   unit, ND5). Deny kinds apply regardless. Pending requests a ceiling makes
   unapprovable are annotated `blocked` so UIs don't offer a dead approve.
+  AMENDED 2026-07-12 (code:reader regression): reserved CAPABILITY targets
+  must be classified explicitly, never left to the mayCall path-matcher —
+  bare `code` (whole-workspace source read, owner-level) joins xbin/xbin:*
+  under the xbin-caps class; `code:<comp>` is governed like calling that
+  component (same-scope exempt + mayCall on the component path). The suite
+  missed it because testBroker ran without a user store while prod always
+  has one, so every ceiling path was dormant in tests — testBroker now
+  attaches an empty store, so all broker tests run the ceiling like prod.
 - **D21 — Org admins are security-capped, and live in chrome, not the admin
   tile.** Org admins manage their org (name, members, co-admins, base
   permission, teams, per-tile access entries — org-clamped) but NOT the

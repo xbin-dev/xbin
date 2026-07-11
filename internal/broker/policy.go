@@ -18,6 +18,14 @@ import (
 
 // ceilingBlockMsg reports why the policy ceiling blocks `from` reaching
 // `target` ("" = allowed). from=="" (not a tile) is never blocked.
+//
+// Target classification matters: reserved CAPABILITY targets must never fall
+// into the mayCall path-matcher (a path allow-list can't cover the string
+// "code", so it would silently strip the capability — the 2026-07-12
+// code:reader regression). xbin/xbin:* and bare `code` (whole-workspace
+// source read — owner-level, see code.go) are the xbin-caps class;
+// `code:<comp>` reads ONE component's source, so it is governed exactly like
+// calling that component.
 func (b *Broker) ceilingBlockMsg(from, target string) string {
 	if b.Users == nil || from == "" {
 		return ""
@@ -29,25 +37,32 @@ func (b *Broker) ceilingBlockMsg(from, target string) string {
 		}
 		return ""
 	}
+	// callBlock evaluates a component/res call target. Same-scope targets are
+	// exempt from mayCall: a scope is one trust unit (ND5), so the allow-list
+	// governs a tile's EXTERNAL reach — it must never sever an app from its
+	// own resources (res:<scope>/db) or intra-app calls.
+	callBlock := func(display, t string) string {
+		if caller, ok := b.Reg.Component(from); ok && b.sameScope(caller, t) {
+			return ""
+		}
+		if row, ok := c.MayCallBlocker(t); ok {
+			return fmt.Sprintf("a policy row for tiles matching %q allow-lists call targets and %q is not covered (workspace/org policy — see /docs/auth.md)", row.Tiles, display)
+		}
+		return ""
+	}
 	switch {
 	case target == "xbin" || strings.HasPrefix(target, "xbin:"):
 		return deny(users.PolicyDenyXbinCaps)
+	case target == "code": // blanket workspace source read — owner-level capability
+		return deny(users.PolicyDenyXbinCaps)
+	case strings.HasPrefix(target, "code:"): // one component's source — like calling it
+		return callBlock(target, strings.TrimPrefix(target, "code:"))
 	case strings.HasPrefix(target, "gpu:"):
 		return deny(users.PolicyDenyGPU)
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets
-		// Same-scope targets are exempt from mayCall: a scope is one trust
-		// unit (ND5), so the allow-list governs a tile's EXTERNAL reach — it
-		// must never sever an app from its own resources (res:<scope>/db) or
-		// intra-app calls. Deny kinds above still apply regardless.
-		if caller, ok := b.Reg.Component(from); ok && b.sameScope(caller, target) {
-			return ""
-		}
-		if row, ok := c.MayCallBlocker(target); ok {
-			return fmt.Sprintf("a policy row for tiles matching %q allow-lists call targets and %q is not covered (workspace/org policy — see /docs/auth.md)", row.Tiles, target)
-		}
-		return ""
+		return callBlock(target, target)
 	}
 }
 

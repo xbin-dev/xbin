@@ -8,6 +8,7 @@ import (
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/events"
 	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/users"
 )
 
 func testWorkspace(t *testing.T) *registry.Registry {
@@ -50,6 +51,15 @@ func testBroker(t *testing.T) *Broker {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Production always wires a user store (main.go), and the policy-ceiling
+	// paths only run when one is present — a nil store here let the
+	// code:reader ceiling regression slip past the whole suite (2026-07-12).
+	// Tests run like prod: store attached, zero users/orgs/rows.
+	st, err := users.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Users = st
 	return b
 }
 

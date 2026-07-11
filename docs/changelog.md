@@ -26,7 +26,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   deny[net|gpu|xbin-caps], mayCall[]}` capping what the covered tiles may
   be granted — enforced at approval *and* at every evaluation, so
   hand-edited grants/bindings under a ceiling are inert (`mayCall` governs
-  external reach only; a tile's own scope is always exempt; unapprovable
+  external reach only: a tile's own scope is always exempt, and capability
+  targets are classified — bare `code` sits under the `xbin-caps` deny
+  class, `code:<comp>` is governed like calling that component — so a path
+  allow-list never silently strips `code:reader` source access; unapprovable
   pending requests are annotated `blocked`). Delegated **org admins**
   manage their org's teams/members/access from the shell's "orgs & teams"
   popover and per-tile ⚙ (workspace-security knobs — policy, term flags,

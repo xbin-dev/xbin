@@ -438,6 +438,13 @@ exempt, so an allow-list can never sever a tile from its own database. The
 deny kinds apply regardless. Org rows are already scoped to the org's
 tiles, so `"tiles": "*"` is usually the pattern you want there.
 
+Reserved **capability** targets are never subject to `mayCall` (a path
+allow-list can't name them): `xbin`/`xbin:*` and the blanket `code` grant
+(whole-workspace source read — owner-level) fall under the `xbin-caps` deny
+class instead. The scoped `code:<component>` grant reads ONE component's
+source, so it is governed exactly like *calling* that component (same-scope
+exempt, otherwise `mayCall` must cover the component's path).
+
 **Org admins are security-capped delegation (D21).** Org admins manage their
 org's name, members, co-admins, base permission, teams, and per-tile access
 entries — clamped to the org. Workspace-admin-only: creating/deleting orgs,

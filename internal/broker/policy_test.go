@@ -14,15 +14,18 @@ import (
 	"github.com/magik6k/xbin/internal/users"
 )
 
-// testUsers wires a fresh user store into a broker.
+// testUsers returns the broker's user store (testBroker always attaches one,
+// mirroring production), attaching a fresh one for brokers built directly.
 func testUsers(t *testing.T, b *Broker) *users.Store {
 	t.Helper()
-	st, err := users.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	if b.Users == nil {
+		st, err := users.Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Users = st
 	}
-	b.Users = st
-	return st
+	return b.Users
 }
 
 // The ceiling must cap every grant source in grantedRole: explicit rows,
@@ -375,5 +378,61 @@ func TestPendingBlockedAnnotation(t *testing.T) {
 	}
 	if p, ok = found(); !ok || p.Blocked == "" {
 		t.Fatalf("ceiling-blocked pending must carry the reason: %+v %v", p, ok)
+	}
+}
+
+// code / code:<comp> are reserved capability targets and must never fall
+// into the mayCall path-matcher (the 2026-07-12 code:reader regression: any
+// mayCall row silently killed source-read grants). Bare `code` is the
+// owner-level whole-workspace read (xbin-caps class); code:<comp> is
+// governed like calling that component.
+func TestCeilingCodeTargets(t *testing.T) {
+	b := testBroker(t)
+	st := b.Users
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants,
+			registry.Grant{From: "apps/email", Target: "code", Role: "reader"},
+			registry.Grant{From: "apps/email", Target: "code:apps/calendar", Role: "reader"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tree := func(comp string) int {
+		r := httptest.NewRequest("GET", "/code/tree?component="+comp, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Component: "apps/email"}))
+		w := httptest.NewRecorder()
+		b.apiCodeTree(w, r)
+		return w.Code
+	}
+
+	// A path allow-list must not strip the code capability…
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", MayCall: []string{"nothing/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.grantedRole("apps/email", "code"); !ok {
+		t.Fatal("bare code grant must survive mayCall rows")
+	}
+	if got := tree("apps/calendar"); got != 200 {
+		t.Fatalf("code read under mayCall row: want 200, got %d", got)
+	}
+	// …but code:<comp> follows the allow-list of the component it reads.
+	if _, ok := b.grantedRole("apps/email", "code:apps/calendar"); ok {
+		t.Fatal("code:<comp> must be governed like calling the component")
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", MayCall: []string{"apps/calendar"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.grantedRole("apps/email", "code:apps/calendar"); !ok {
+		t.Fatal("covered component must allow its code:<comp> read")
+	}
+
+	// An explicit capability strip DOES kill the blanket read.
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", Deny: []string{users.PolicyDenyXbinCaps}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.grantedRole("apps/email", "code"); ok {
+		t.Fatal("xbin-caps deny must strip the blanket code capability")
+	}
+	if got := tree("apps/email"); got != 200 {
+		t.Fatalf("self-read is never policy-gated: want 200, got %d", got)
 	}
 }
