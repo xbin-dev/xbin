@@ -84,22 +84,21 @@ type NetClient struct {
 // and other users' homes this way, so the read-only workspace bind can't be
 // used to read them. RO seals the cover (nothing may nest); a read-write cover
 // lets a deeper bind nest on top (the own $HOME under a masked homes/).
+// The bind is always RECURSIVE (MS_BIND|MS_REC). Non-recursive was tried (to
+// keep the workspace's per-resource gocryptfs "resenc" submounts out of a
+// terminal's mount table) and is IMPOSSIBLE here: the sandbox is a rootless
+// user namespace, so every inherited mount is LOCKED, and the kernel forbids a
+// non-recursive bind of a subtree that has locked children (has_locked_children
+// → EINVAL) exactly as it forbids unmounting them from inside (umount2 →
+// EINVAL). Both directions are the same lock. So resenc submounts are carried
+// in and their NAMES remain visible in mountinfo; their contents are still
+// masked (see mountMask). Hiding the names needs resenc storage OUTSIDE the
+// workspace tree — a separate change. (docs/isolation.md; plans/DECISIONS.md.)
 type Bind struct {
 	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
 	Dst  string `json:"dst"`            // absolute path inside the new root
 	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
 	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
-	// NoRec binds Src non-recursively (MS_BIND without MS_REC), so mounts nested
-	// under Src are NOT cloned into the sandbox. The terminal binds the workspace
-	// this way to keep the workspace's per-resource gocryptfs (resenc) mounts —
-	// which xbind holds and which name every tile — out of the terminal's mount
-	// namespace entirely. This is the *only* way to hide them: the sandbox is a
-	// rootless user namespace, which LOCKS inherited mounts, so once cloned they
-	// can never be unmounted from inside (umount2 → EINVAL). Safe because $HOME
-	// and the component are plain directories in the workspace fs (re-bound
-	// explicitly on top), not submounts — a non-recursive bind still carries
-	// their contents. (plans/DECISIONS.md; docs/isolation.md.)
-	NoRec bool `json:"noRec,omitempty"`
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable

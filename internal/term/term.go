@@ -534,13 +534,13 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 	}
 	// Workspace read-only — so a tile terminal sees ALL tiles' source (needed to
 	// integrate against another tile's API), but writes only its own dir + $HOME.
-	// NON-recursive (NoRec): the workspace fs carries the per-resource gocryptfs
-	// (resenc) mounts that name every tile, and a rootless userns locks inherited
-	// mounts so they can't be unmounted from inside; binding non-recursively keeps
-	// them out of the terminal's mount table entirely. Safe because $HOME and the
-	// component are plain dirs in the workspace fs (re-bound rw below), not
-	// submounts, so their contents still come through. (See sandbox.Bind.NoRec.)
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true, NoRec: true}}
+	// The bind is recursive (the only option in a rootless userns — see
+	// sandbox.Bind), so the workspace's per-resource gocryptfs (resenc) submounts
+	// are carried in; their contents are masked below, but their names stay in the
+	// terminal's mountinfo. That's an accepted limitation (docs/isolation.md): a
+	// terminal user can already `ls` every tile, so the mount-table names disclose
+	// nothing new; truly hiding them needs resenc storage outside the workspace.
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
 	// ...and the platform's secrets and other users' data are masked out entirely:
 	// .xbin (owner token + frame-token secret), data (vault, the encrypted
 	// resource state, and users.json password hashes), and every OTHER user's

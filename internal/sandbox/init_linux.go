@@ -172,7 +172,7 @@ func runInit(specPath string) error {
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
 	for _, b := range sortBinds(s.Binds) {
-		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v norec=%v)", b.Src, b.Dst, b.RO, b.Mask, b.NoRec)
+		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
 		if err := mountBind(newroot, b); err != nil {
 			return err
 		}
@@ -318,11 +318,9 @@ func mountBind(newroot string, b Bind) error {
 			f.Close()
 		}
 	}
-	flags := uintptr(unix.MS_BIND)
-	if !b.NoRec {
-		flags |= unix.MS_REC // recursive by default; NoRec keeps nested (resenc) submounts out
-	}
-	if err := unix.Mount(b.Src, dst, "", flags, ""); err != nil {
+	// Always recursive: a non-recursive bind of a subtree with locked children
+	// (resenc, in a rootless userns) is rejected with EINVAL — see Bind's doc.
+	if err := unix.Mount(b.Src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return must(err, "bind "+b.Src+" -> "+b.Dst)
 	}
 	if b.RO {

@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- terminal: **fixed terminals failing to start** (`exit 127` at spawn) on any
+  workspace with encrypted resources. The read-only workspace bind had been
+  made *non-recursive* to hide other tiles' resource (resenc) mounts from
+  `mount`; but in a rootless user namespace those inherited mounts are locked,
+  and the kernel rejects a non-recursive bind of a subtree with locked
+  children (`EINVAL`) — the exact mirror of not being able to unmount them.
+  Reverted to a recursive bind. Resource *contents* stay masked; their mount
+  names may reappear in `mount` (benign — a terminal can already `ls` every
+  tile; docs/isolation.md). Ships with xbind.
+- terminal/sandbox: a terminal that dies during sandbox init now surfaces the
+  reason instead of a blank pane — the failing pane replays the init's error,
+  the daemon logs a sanitized tail of it (`journalctl -u xbin`), and
+  `XBIN_SANDBOX_DEBUG=1` adds a per-step init trace. (Diagnostics; no
+  behavior change.)
 - users: **BREAKING — per-tile access tiers.** A user's `tiles` is now a
   `{path: level}` map with levels `read < write < terminal`, plus `canCreate`
   (path patterns the user may scaffold tiles under; creating auto-grants them

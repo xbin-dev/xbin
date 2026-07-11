@@ -83,10 +83,11 @@ func TestScopedBinds(t *testing.T) {
 		t.Errorf("own $HOME must remain read-write under the homes mask")
 	}
 
-	// The workspace root is bound NON-recursively, so the resource (resenc)
-	// gocryptfs submounts the workspace fs carries aren't cloned into the terminal
-	// — the only way to keep other tiles' resource names out of `mount`, since a
-	// rootless userns locks inherited mounts against unmounting from inside.
+	// The workspace root is bound read-only (a tile terminal reads all source,
+	// writes only its own dir + $HOME). It's recursive — the only option in a
+	// rootless userns (a non-recursive bind of a tree with locked resenc children
+	// is EINVAL; see sandbox.Bind) — so the bind must not be sealed against the
+	// deeper rw $HOME/component binds nesting on top.
 	sb := scopedBinds(root, "apps/welcome", home, extra, nil)
 	var wsBind *sandbox.Bind
 	for i := range sb {
@@ -97,9 +98,6 @@ func TestScopedBinds(t *testing.T) {
 	}
 	if wsBind == nil {
 		t.Fatal("no workspace root bind")
-	}
-	if !wsBind.NoRec {
-		t.Errorf("workspace root bind must be NoRec (else resenc submounts leak into the terminal's mount table)")
 	}
 	if !wsBind.RO {
 		t.Errorf("workspace root bind must be read-only")

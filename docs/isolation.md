@@ -62,17 +62,23 @@ This holds for **every** terminal, including one on a tile you own. So a rogue
 agent in a component terminal can touch **only its own component and `$HOME`**,
 and can read code but not secrets.
 
-The masks hide the secrets' *contents*; the mount table would still hint at
+The masks hide the secrets' *contents*; the mount table may still hint at
 their *existence*. The workspace's per-resource encrypted stores are each a
-gocryptfs mount under `.xbin/resenc/…` named after the owning tile. To keep
-those names out of a terminal's `mount` / `/proc/self/mountinfo`, the read-only
-workspace bind is **non-recursive** — the resenc submounts are never cloned into
-the terminal's mount namespace. (Detaching them after a recursive bind is *not*
-possible: the sandbox is a rootless user namespace, which locks every inherited
-mount, so `umount2` from inside returns `EINVAL`. Not cloning them is the only
-option.) This is safe because a terminal's `$HOME` and its component are plain
-directories in the workspace filesystem — re-bound read-write on top — not
-submounts, so a non-recursive bind still carries their contents.
+gocryptfs mount under `.xbin/resenc/…` named after the owning tile. The
+read-only workspace bind is **recursive**, so those submounts are cloned into
+the terminal; the `.xbin` mask then shadows them (their contents are
+unreadable), and on current kernels they drop out of the terminal's
+`/proc/self/mountinfo` as well — but that shadow-hiding isn't guaranteed
+across kernels, so treat the resource *names* as potentially visible in the
+mount table. This is a benign disclosure: a tile terminal can already `ls`
+every tile's source (the workspace is bound read-only precisely so a tile can
+integrate against another's API), so a resource path in `mount` names nothing
+`ls` doesn't. Truly removing the names would require moving resource storage
+outside the workspace tree — the mount can't be pruned in place, because a
+rootless user namespace **locks every inherited mount**: you can neither
+unmount a resenc submount from inside (`umount2` → `EINVAL`) nor bind the
+workspace *non*-recursively to exclude them (a non-recursive bind of a subtree
+with locked children is also `EINVAL`). Both directions are the same lock.
 
 **Live-API toggle.** A terminal's titlebar has a **tile-API / no-API** switch
 (alongside the network scope). With it off, the session is minted with **no

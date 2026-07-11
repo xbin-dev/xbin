@@ -261,6 +261,20 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   meaningful; subdomain-per-scope (phase 5) makes it enforced.
 - **D11 — xbind restart kills terminal sessions**; `tmux` inside is the workaround.
 - **In-memory bus, at-most-once**; durability is the subscribing app's job.
+- **Terminal resource-mount (resenc) names can appear in `mount`** — the tile
+  terminal binds the workspace with a RECURSIVE bind, which is the only option:
+  a rootless userns locks every inherited mount, so the resenc gocryptfs
+  submounts can be neither unmounted from inside (`umount2`→EINVAL) NOR excluded
+  by a non-recursive bind (a non-recursive bind of a subtree with locked
+  children →EINVAL — same lock, other direction; verified on the live kernel).
+  Two prior attempts to hide the names — a post-clone detach (b7520a9, silent
+  no-op) and a non-recursive bind (76d399b) — the latter **broke terminal
+  startup entirely** on any workspace with encrypted resources (EINVAL on the
+  workspace bind → sandbox-init exit 127). Reverted to recursive. Contents stay
+  masked; the names are a benign disclosure (a terminal can already `ls` every
+  tile). **Do not re-try NoRec/detach.** Actually removing the names needs
+  resenc storage relocated outside the workspace tree — a separate change, not
+  yet done. (docs/isolation.md; related lock: D18.)
 
 ---
 
