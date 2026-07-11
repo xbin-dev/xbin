@@ -79,7 +79,13 @@ export class BxTerminal extends HTMLElement {
   #baseFont = savedFontSize(); #ambient = 1;
 
   connectedCallback() {
-    this.style.display = 'block';
+    // NB: do NOT force `display: block` here. The host (bx-frame) hides inactive
+    // tabs with an inline `display: none`, and an inline `display: block` set
+    // here would override it — so on reload, when several restored terminals
+    // connect at once, they'd ALL show (stacked in the column) until each tab is
+    // clicked and re-rendered. `:host { display: block }` in the shadow CSS is
+    // the standalone default and (being a shadow rule) never overrides the
+    // host's inline display.
     this.style.height = this.style.height || '100%';
     if (!this.shadowRoot) {
       // xterm's stylesheet is linked inside the shadow root so <bx-terminal>

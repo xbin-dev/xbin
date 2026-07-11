@@ -135,7 +135,27 @@ export class BxFrame extends LitElement {
       border-radius: 5px; padding: 1px 8px; white-space: nowrap;
     }
     .titlebar button.upgrade:hover { color: #23272e; filter: brightness(1.06); }
-    .titlebar button.tab { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Tabs are spans (not buttons) so each can hold a close button — nested
+       buttons are invalid HTML. Styled like the titlebar buttons. */
+    .titlebar .tab {
+      display: inline-flex; align-items: center; gap: 2px; max-width: 150px;
+      border: 1px solid transparent; border-radius: 4px; padding: 1px 3px 1px 7px;
+      color: var(--bx-muted, #8794a1);
+      font: 11px var(--bx-mono, ui-monospace, monospace); cursor: pointer;
+    }
+    .titlebar .tab.on {
+      background: var(--bx-panel, #fff);
+      border-color: var(--bx-border, #e4e8ed);
+      color: var(--bx-text, #33414e);
+    }
+    .titlebar .tab:hover { color: var(--bx-text, #33414e); }
+    .titlebar .tab .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .titlebar .tab .tabx {
+      flex: none; padding: 0 3px; border: 0; border-radius: 3px;
+      background: transparent; color: inherit; opacity: .45;
+      font-size: 12px; line-height: 1; cursor: pointer;
+    }
+    .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #e4e8ed); }
     .titlebar select.scope {
       margin-left: 2px; border: 1px solid var(--bx-border, #e4e8ed);
       background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
@@ -331,7 +351,9 @@ export class BxFrame extends LitElement {
   // Title-bar drag; the native CSS resize handle owns width/height, and we
   // read the final geometry back into _pop so reopening keeps it.
   _dragStart(ev) {
-    if (ev.button !== 0 || ev.target.closest('button, select')) return;
+    // Don't start a window drag from an interactive control in the titlebar —
+    // buttons, selects, or a terminal tab (a <span>, so it needs naming).
+    if (ev.button !== 0 || ev.target.closest('button, select, .tab')) return;
     const el = this._popEl;
     if (!el) return;
     ev.preventDefault();
@@ -507,10 +529,14 @@ export class BxFrame extends LitElement {
           <div class="titlebar" @pointerdown=${this._dragStart}>
             <span class="path">${this.src}</span>
             ${this._sessions.map((s, i) => html`
-              <button class="tab ${i === this._active ? 'on' : ''}"
-                      @click=${() => { this._active = i; }}
-                      @dblclick=${() => this._renameTerm(i)}
-                      title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>${s.name || (i + 1)}</button>`)}
+              <span class="tab ${i === this._active ? 'on' : ''}"
+                    @click=${() => { this._active = i; }}
+                    @dblclick=${() => this._renameTerm(i)}
+                    title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>
+                <span class="lbl">${s.name || (i + 1)}</span>
+                <button class="tabx" title="close this terminal"
+                        @click=${(e) => { e.stopPropagation(); this._closeTerm(i); }}>✕</button>
+              </span>`)}
             <button title="new terminal" @click=${this._newTerm}>+</button>
             <span class="lyt">
               <button class=${this._layout === 'term' ? 'on' : ''} title="terminal only"

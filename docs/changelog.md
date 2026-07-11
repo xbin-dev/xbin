@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- terminal: **fixed multi-tab terminals rendering stacked in the first tab after
+  a reload**, and **added per-tab close buttons**. On restore, every saved
+  terminal reattached at once and each forced itself visible (`bx-terminal`'s
+  `connectedCallback` set an inline `display:block` that overrode the host's
+  `display:none` for inactive tabs), so they piled up in a vertical split until
+  each tab was clicked. The element no longer sets that inline display (the
+  `:host` rule is the standalone default). Tabs now carry an ✕ to close one
+  (the whole window still has its own close), and typing `exit` closes just
+  that tab — closing the last one closes the window. (web/bx-terminal.js,
+  web/bx-frame.js.)
 - terminal: **`apt install` of packages that create system users fixed** (was
   failing with `chown … Invalid argument` mid-configure on systemd/dbus/etc.,
   while simple packages installed fine). Two parts:
