@@ -68,7 +68,15 @@ const enc = new TextEncoder();
 
 export class BxTerminal extends HTMLElement {
   #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
-  #onPref; #onStorage; #gen = 0; // connection epoch: only the latest socket drives the term
+  #onPref; #onStorage; #onAmbient; #gen = 0; // connection epoch: only the latest socket drives the term
+  // #baseFont is the user's chosen terminal font size; #ambient is the workspace
+  // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
+  // product, and the host counter-zooms by 1/#ambient — so the terminal looks
+  // the same size as if it were zoomed, but xterm sees net-zoom-1 and its mouse
+  // math stays exact (its canvas cell metrics ignore CSS zoom; its pointer
+  // coords don't — the mismatch drifts selection/right-click, worse the further
+  // from the top-left). See _applySettings in bx-shell.
+  #baseFont = savedFontSize(); #ambient = 1;
 
   connectedCallback() {
     this.style.display = 'block';
@@ -128,6 +136,7 @@ export class BxTerminal extends HTMLElement {
     this.#term?.dispose();
     if (this.#onPref) window.removeEventListener('bx-term-pref', this.#onPref);
     if (this.#onStorage) window.removeEventListener('storage', this.#onStorage);
+    if (this.#onAmbient) window.removeEventListener('bx-ambient-zoom', this.#onAmbient);
   }
 
   // --- settings (theme + font size) ---------------------------------------
@@ -147,12 +156,57 @@ export class BxTerminal extends HTMLElement {
     if (sel && sel.value !== name) sel.value = name;
   }
 
+  // The user's font size is the BASE; xterm renders at base × ambient zoom (the
+  // host counter-zooms so the net is 1). Changing either re-applies the product.
   #setFontSize(next) {
     next = Math.max(7, Math.min(28, next));
-    if (!this.#term || next === this.#term.options.fontSize) return;
-    this.#term.options.fontSize = next;
+    if (next === this.#baseFont) return;
+    this.#baseFont = next;
     try { localStorage.setItem('bx-term-fontsize', String(next)); } catch { }
+    this.#applyFont();
+  }
+
+  #applyFont() {
+    if (!this.#term) return;
+    const eff = Math.max(7, Math.min(44, Math.round(this.#baseFont * this.#ambient)));
+    if (this.#term.options.fontSize !== eff) this.#term.options.fontSize = eff;
     try { this.#fit.fit(); } catch { }
+  }
+
+  // #applyAmbient counters an ancestor's CSS zoom so xterm renders at net-zoom-1
+  // (exact mouse math) while staying the same visual size, via a larger font.
+  #applyAmbient(z) {
+    z = Number(z) > 0 ? Number(z) : 1;
+    this.#ambient = z;
+    this.style.zoom = Math.abs(z - 1) < 0.01 ? '' : String(1 / z);
+    this.#applyFont();
+  }
+
+  // #syncAmbient re-detects the ancestor zoom and re-applies only if it changed
+  // (so it's safe to call from the ResizeObserver — applying zoom resizes us,
+  // which would otherwise loop).
+  #syncAmbient() {
+    const z = this.#detectAmbient();
+    if (Math.abs(z - this.#ambient) > 0.005) this.#applyAmbient(z);
+  }
+
+  // #detectAmbient computes the cumulative CSS `zoom` an ANCESTOR applies to
+  // this terminal, crossing shadow-DOM boundaries and excluding our own
+  // counter-zoom. Self-contained on purpose: the terminal ships with xbind but
+  // the shell that zooms it is workspace-owned, so relying on the shell to
+  // announce its zoom would leave the fix half-applied on an un-updated
+  // workspace. (Verified against Chromium; see scratch zoom tests.)
+  #detectAmbient() {
+    let z = 1, n = this;
+    for (;;) {
+      let parent = n.assignedSlot || n.parentNode;
+      if (parent && parent.nodeType === 11) parent = parent.host; // ShadowRoot → host
+      if (!parent || parent.nodeType !== 1) break;                // reached the document
+      n = parent;
+      const zz = parseFloat(getComputedStyle(n).zoom);
+      if (zz > 0) z *= zz;
+    }
+    return z > 0 ? z : 1;
   }
 
   // #wireSettings builds the gear menu and syncs prefs across terminals: a
@@ -172,7 +226,7 @@ export class BxTerminal extends HTMLElement {
       sel.appendChild(o);
     }
     sel.value = savedTheme();
-    const fontNow = () => (this.#term ? this.#term.options.fontSize : savedFontSize());
+    const fontNow = () => this.#baseFont; // the user's size, not the zoom-scaled effective one
     const showFs = () => { fsv.textContent = String(fontNow()); };
     showFs();
 
@@ -205,7 +259,7 @@ export class BxTerminal extends HTMLElement {
     root.querySelectorAll('.step').forEach((b) => b.addEventListener('click', () => {
       this.#setFontSize(fontNow() + Number(b.dataset.d));
       showFs();
-      window.dispatchEvent(new CustomEvent('bx-term-pref', { detail: { fontSize: this.#term?.options.fontSize } }));
+      window.dispatchEvent(new CustomEvent('bx-term-pref', { detail: { fontSize: this.#baseFont } }));
     }));
 
     // Live-sync from another terminal in this document, or another tab.
@@ -252,8 +306,10 @@ export class BxTerminal extends HTMLElement {
   async #start() {
     await loadXterm();
     if (this.#closed) return;
+    this.#baseFont = savedFontSize();
+    this.#ambient = this.#detectAmbient();
     this.#term = new window.Terminal({
-      fontSize: savedFontSize(),
+      fontSize: Math.max(7, Math.min(44, Math.round(this.#baseFont * this.#ambient))),
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       // Color scheme: the user's saved theme (settings menu), or the
       // --bx-term-bg token with xterm's default palette. See TERM_THEMES.
@@ -277,19 +333,25 @@ export class BxTerminal extends HTMLElement {
     });
     this.#term.open(this.#host);
     this.#host.style.background = this.#themeObj().background || ''; // match themed bg
-    this.#fit.fit();
-    this.#ro = new ResizeObserver(() => { try { this.#fit.fit(); } catch { } });
+    this.#applyAmbient(this.#ambient); // counter the ancestor zoom + fit
+    // Follow the workspace font-size setting: it zooms the whole shell, but the
+    // terminal counters that and re-scales via its font so xterm's mouse math
+    // stays exact (see #applyAmbient). The ResizeObserver re-detects on any
+    // layout change (a zoom change reflows us), so this works even on a
+    // workspace whose shell predates the bx-ambient-zoom event; the event is
+    // just a faster, jitter-free trigger when the shell does emit it.
+    this.#onAmbient = () => this.#syncAmbient();
+    window.addEventListener('bx-ambient-zoom', this.#onAmbient);
+    this.#ro = new ResizeObserver(() => { this.#syncAmbient(); try { this.#fit.fit(); } catch { } });
     this.#ro.observe(this);
     // ctrl+scroll = font size (shared preference across all terminals).
     this.#host.addEventListener('wheel', (e) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      const cur = this.#term.options.fontSize;
-      const next = Math.max(7, Math.min(28, cur + (e.deltaY < 0 ? 1 : -1)));
-      if (next === cur) return;
-      this.#term.options.fontSize = next;
-      try { localStorage.setItem('bx-term-fontsize', String(next)); } catch { }
-      try { this.#fit.fit(); } catch { }
+      const next = this.#baseFont + (e.deltaY < 0 ? 1 : -1);
+      if (next === this.#baseFont) return;
+      this.#setFontSize(next);
+      window.dispatchEvent(new CustomEvent('bx-term-pref', { detail: { fontSize: this.#baseFont } }));
     }, { passive: false });
     this.#term.onData((d) => {
       if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(enc.encode(d));

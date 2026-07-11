@@ -707,6 +707,14 @@ export class BxShell extends LitElement {
 
   // The whole workspace scales via zoom (13px = 100%). Height/width are
   // compensated so the zoomed shell still fits the viewport exactly.
+  //
+  // Terminals are the exception: xterm measures its cell size on a canvas
+  // (which ignores an ancestor's CSS zoom) but reads pointer coords that DO
+  // honor it, so any ambient zoom drifts selection/right-click by that factor,
+  // worse the further from the terminal's top-left. bx-terminal detects the
+  // ambient zoom itself and counters it (re-scaling through its own font size),
+  // so it needs no cooperation here — this event just lets it react instantly
+  // instead of waiting for its ResizeObserver to notice the reflow.
   _applySettings() {
     const fs = Math.max(9, Math.min(20, this._settings?.fontSize || 13));
     const z = fs / 13;
@@ -717,6 +725,7 @@ export class BxShell extends LitElement {
       this.style.height = `calc(100vh / ${z})`;
       this.style.width = `calc(100vw / ${z})`;
     }
+    window.dispatchEvent(new CustomEvent('bx-ambient-zoom', { detail: { zoom: z } }));
   }
 
   _addFolder() {

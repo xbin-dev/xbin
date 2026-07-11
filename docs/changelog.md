@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- terminal: **mouse/selection no longer drifts when the workspace font size is
+  changed.** The workspace scales via CSS `zoom`, but xterm measures its cell
+  size on a canvas (which ignores an ancestor's zoom) while reading pointer
+  coords that honor it — so clicks, right-click, and text selection landed off
+  by the zoom factor, worse the further from the terminal's top-left. The
+  terminal now detects the ambient zoom (walking its ancestors' computed
+  `zoom`, across shadow-DOM boundaries), counters it so xterm renders at
+  net-zoom-1 (exact coordinate math), and re-applies the scale through xterm's
+  own font size — same visual size, correct mouse. Ships with xbind; works even
+  on a workspace whose shell predates this change. (web/bx-terminal.js.)
 - terminal: **fixed terminals failing to start** (`exit 127` at spawn) on any
   workspace with encrypted resources. The read-only workspace bind had been
   made *non-recursive* to hide other tiles' resource (resenc) mounts from
