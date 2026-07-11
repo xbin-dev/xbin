@@ -23,6 +23,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
+	b.registerOrgs(srv)
 }
 
 // canManageUsers: root/admin, or an element granted xbin:users (or xbin:admin).
@@ -64,10 +65,15 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["id"] = p.User.ID
 		out["name"] = p.User.Name
 		out["role"] = p.User.Role
-		out["tiles"] = p.User.Tiles // path→level map (D16)
+		out["tiles"] = p.User.Tiles // path→level map (D16); direct entries only
 		out["canCreate"] = p.User.CanCreate
 		out["termApi"] = p.CanTermAPI()
 		out["termNet"] = p.CanTermNet()
+		if b.Users != nil { // org/team memberships (plans/orgs.md)
+			if orgs := b.Users.UserOrgs(p.User.ID); len(orgs) > 0 {
+				out["orgs"] = orgs
+			}
+		}
 	case p.Owner:
 		out["kind"] = "root"
 		out["id"] = "root"

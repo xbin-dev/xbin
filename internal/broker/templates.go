@@ -82,6 +82,14 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {source, path?}", "docs": "/docs/protocol.md"})
 		return
 	}
+	// Reserved-segment gate on an explicit target (derived defaults never
+	// carry the o/u org markers).
+	if body.Path != "" {
+		if err := b.validateNewPath(body.Path); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+			return
+		}
+	}
 
 	var (
 		installed   string

@@ -3,6 +3,7 @@ package broker
 import (
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/scaffold"
@@ -12,17 +13,32 @@ import (
 
 // POST /api/xbin/create — the higher-level "create tile" API (same engine
 // as `bx new`). Creating components is an editing-plane action, so callers
-// are the owner/admins, a user whose CanCreate patterns cover the path
-// (D16 — "create ≈ own a namespace"), or elements holding the
+// are the owner/admins, a user whose (org/team-unioned) create patterns cover
+// the path (D16 — "create ≈ own a namespace"), or elements holding the
 // workspace-management capability: an explicit grant on the reserved target
 // "xbin" at role writer (the template ships tiles/manager with that grant;
 // revoke it and the tile request shows up in the grants panel like any other).
+//
+// An optional `team: "<org>/<team>"` creates the tile IN that team (plans/
+// orgs.md): the path must be inside the team's org, the attributed human must
+// be a team member (or an org/workspace admin), and the team is auto-granted
+// its NewTiles level on the result.
 func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
-	var o scaffold.Options
-	if err := decodeJSON(r, &o); err != nil || o.Path == "" {
+	var body struct {
+		scaffold.Options
+		Team string `json:"team"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Path == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "need {path, runtime?, title?, expose?}", "docs": "/docs/protocol.md",
+			"error": "need {path, runtime?, title?, expose?, team?}", "docs": "/docs/protocol.md",
 		})
+		return
+	}
+	o := body.Options
+	// Reserved-segment gate (plans/orgs.md): `o` must name an existing org,
+	// `u` is reserved — applies to every caller, admins included.
+	if err := b.validateNewPath(o.Path); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -33,6 +49,18 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 				"error": "creating components needs a create permission on this path (ask an admin), or the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it",
 				"docs":  "/docs/auth.md",
 			})
+			return
+		}
+	}
+
+	// Validate create-in-team before any side effect.
+	var team *users.Team
+	var teamOrg string
+	if body.Team != "" {
+		var msg string
+		team, teamOrg, msg = b.resolveCreateTeam(p, body.Team, o.Path)
+		if msg != "" {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 			return
 		}
 	}
@@ -53,6 +81,56 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Create-in-team: the team gets its configured NewTiles level (D19).
+	if team != nil {
+		if err := b.Users.GrantTileTeam(teamOrg, team.ID, o.Path, team.NewTiles); err != nil {
+			slog.Warn("create team auto-grant", "team", body.Team, "tile", o.Path, "err", err)
+		}
+	}
 	_ = b.Reg.Rescan() // visible immediately; the watcher event follows anyway
-	server.WriteJSON(w, http.StatusOK, map[string]any{"path": o.Path, "files": files})
+	out := map[string]any{"path": o.Path, "files": files}
+	if team != nil {
+		out["team"] = teamOrg + "/" + team.ID
+		out["teamLevel"] = team.NewTiles
+	}
+	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// resolveCreateTeam validates a create-in-team request: the ref parses, the
+// tile path is inside the team's org, and the attributed human is a team
+// member or an org admin (workspace admins pass outright). Returns the team
+// and its org, or a user-facing refusal.
+func (b *Broker) resolveCreateTeam(p auth.Principal, ref, tilePath string) (*users.Team, string, string) {
+	if b.Users == nil {
+		return nil, "", "no user store — teams are unavailable"
+	}
+	orgID, teamID, err := users.ParseTeamRef(ref)
+	if err != nil {
+		return nil, "", err.Error()
+	}
+	tileOrg, ok := users.OrgOf(tilePath)
+	if !ok || tileOrg != orgID {
+		return nil, "", "the tile path is not inside org \"" + orgID + "\" — create-in-team paths look like apps/o/" + orgID + "/<name>"
+	}
+	org, ok := b.Users.Org(orgID)
+	if !ok {
+		return nil, "", "no such org \"" + orgID + "\""
+	}
+	team := org.Team(teamID)
+	if team == nil {
+		return nil, "", "no such team \"" + ref + "\""
+	}
+	if !b.IsAdmin(p) {
+		// The human behind the call (session principal, or the user id riding
+		// a frame principal) must be a team member or an org admin — an
+		// element's own xbin-writer grant is not enough to act "in a team".
+		acc := (*users.Access)(nil)
+		if p.UserID != "" {
+			acc, _ = b.Users.Access(p.UserID)
+		}
+		if !acc.IsAdminOrg(orgID) && !slices.Contains(team.Members, p.UserID) {
+			return nil, "", "create-in-team needs membership of " + ref + " (or org admin)"
+		}
+	}
+	return team, orgID, ""
 }

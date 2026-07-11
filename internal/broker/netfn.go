@@ -11,6 +11,7 @@ import (
 	"github.com/magik6k/xbin/internal/registry"
 	"github.com/magik6k/xbin/internal/sandbox"
 	"github.com/magik6k/xbin/internal/server"
+	"github.com/magik6k/xbin/internal/users"
 )
 
 // Network-function interface wiring (plans/interfaces.md): a component's `net`
@@ -34,7 +35,13 @@ func providesNet(p *registry.Component) bool {
 // a builtin ("internet"/"host"/"lan:<cidr>") or a provider-tile path — or "" if
 // the component has no net interface or it's unbound. Owner-set; there is no
 // implicit default, so egress stays owner-authorized (like a net:internet grant).
+// The policy ceiling (D20) is applied here — the one resolution point every
+// consumer (spawn env, relay, provider roster) goes through — so a deny row
+// makes even a pre-existing binding inert.
 func (b *Broker) netBinding(comp string) string {
+	if b.Users != nil && b.Users.Ceiling(comp).Denies(users.PolicyDenyNet) {
+		return ""
+	}
 	c, ok := b.Reg.Component(comp)
 	if !ok {
 		return ""
@@ -493,6 +500,13 @@ func (b *Broker) validateBinding(comp, slot string, refs []string) error {
 	}
 	if len(refs) > 1 && !(def.Kind == "http" && def.Multi) {
 		return fmt.Errorf("slot %q takes a single binding (multi-input needs {kind:http, multi:true})", slot)
+	}
+	// Policy ceiling (D20): refuse binding net when a workspace/org row denies
+	// it (netBinding also enforces at resolution, so this is the friendly half).
+	if def.Kind == "net" && b.Users != nil {
+		if row, ok := b.Users.Ceiling(comp).DenyRow(users.PolicyDenyNet); ok {
+			return fmt.Errorf("a policy row for tiles matching %q denies net for %s (workspace/org policy — see /docs/auth.md)", row.Tiles, comp)
+		}
 	}
 	for _, ref := range refs {
 		prov, inst := splitRef(ref)

@@ -61,6 +61,10 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved clone path: " + to})
 		return
 	}
+	if err := b.validateNewPath(to); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		return
+	}
 	// Nesting either way is a mess: no cloning INTO an existing component's
 	// tree, and no cloning a parent over its own clone destination.
 	if owner, _, ok := b.Reg.Resolve(to); ok && owner != nil {

@@ -302,8 +302,14 @@ func roleSatisfies(have, want string, exp *registry.Expose) bool {
 
 // grantedRole returns the role `from` holds on `target` (component path or
 // res:…), combining the explicit grant table with same-scope auto-grants
-// from `uses` declarations (decision ND5).
+// from `uses` declarations (decision ND5). The policy ceiling (D20) is
+// applied first, so it caps every grant source at once — explicit rows,
+// interface bindings, and same-scope auto-grants — even when the rows were
+// hand-edited into xbin.json.
 func (b *Broker) grantedRole(from, target string) (string, bool) {
+	if !b.ceilingAllows(from, target) {
+		return "", false
+	}
 	ws := b.Reg.Workspace()
 	best := ""
 	for _, g := range ws.Grants {
@@ -489,6 +495,15 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	if r.Method == http.MethodPost && strings.HasPrefix(g.Target, "net:") {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)"})
 		return registry.Grant{}, false
+	}
+	// Policy ceiling (D20): approving a grant the ceiling would nullify is a
+	// config error — refuse it with the blocking row named. Revoking (DELETE)
+	// is always allowed so over-ceiling rows can be cleaned up.
+	if r.Method == http.MethodPost {
+		if msg := b.ceilingBlockMsg(g.From, g.Target); msg != "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return registry.Grant{}, false
+		}
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

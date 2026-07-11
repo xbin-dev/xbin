@@ -129,6 +129,10 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved import path: " + path})
 		return
 	}
+	if err := b.validateNewPath(path); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		return
+	}
 	target := filepath.Join(b.Reg.Root, filepath.FromSlash(path))
 	if _, err := os.Stat(target); err == nil {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": path + " already exists"})

@@ -63,6 +63,14 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {name, path?}", "docs": "/docs/protocol.md"})
 		return
 	}
+	// Reserved-segment gate on an explicit target (a curated tile's default
+	// path never carries the o/u org markers).
+	if body.Path != "" {
+		if err := b.validateNewPath(body.Path); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+			return
+		}
+	}
 	installed, files, err := b.tiles.Import(b.Reg.Root, body.Name, body.Path)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

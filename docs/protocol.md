@@ -99,7 +99,9 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
                                    disk / cgroup at-limit; system alerts to all,
                                    tile alerts to admins + that tile's users
-GET    /whoami                    any. caller identity + permissions
+GET    /whoami                    any. caller identity + permissions; for
+                                   users also orgs:[{id,name,admin,teams}]
+                                   (the self-service membership view)
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
@@ -134,14 +136,59 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
                                    disabling requires a signed-in admin user
                                    (Bearer owner token unaffected)
 
+GET    /orgs                      management view (docs/auth.md, orgs&teams):
+                                   admin/xbin:users → all orgs; a signed-in
+                                   org admin → their orgs; others → [].
+                                   {orgs:[{id,name,admins,members,
+                                   basePermission,policy,teams:[…]}]}
+POST   /orgs                      admin/xbin:users. create {id, name?,
+                                   admins?, members?, basePermission?}
+                                   (id: [a-z0-9._-], immutable; o/u/workspace
+                                   reserved)
+PATCH  /orgs/<org>                admin/xbin:users, or that org's admin.
+                                   overlay {name?, admins?, members?,
+                                   basePermission?} — members removed here
+                                   leave the org's teams too
+DELETE /orgs/<org>                admin/xbin:users only
+POST   /orgs/<org>/teams          org-manage (as PATCH /orgs/<org>). create
+                                   {id, name?, members?, tiles?, canCreate?,
+                                   newTiles?} — members must be org members;
+                                   termApi/termNet additionally need a
+                                   workspace admin
+PATCH  /orgs/<org>/teams/<team>   org-manage. overlay (same fields/rules)
+DELETE /orgs/<org>/teams/<team>   org-manage
+GET    /access?tile=<path>        admin/xbin:users, or the tile's org admin.
+                                   the tile's resolved ACL: {tile, org?,
+                                   orgAdmins?, entries:[{kind:user|team|org,
+                                   id, level, source: exact|pattern:<pat>|
+                                   base}]}
+PUT    /access                    same gate. set/clear one EXACT entry:
+                                   {tile, kind:user|team, id, level:
+                                   read|write|terminal|""} — team entries
+                                   only on the team's own org's tiles
+GET    /policy                    admin/xbin:users. workspace policy-ceiling
+                                   rows {policy:[{tiles,deny?,mayCall?}]}
+                                   (deny kinds net|gpu|xbin-caps; docs/auth.md)
+PUT    /policy                    admin/xbin:users. replace the rows
+GET    /orgs/<org>/policy         admin/xbin:users. that org's rows
+PUT    /orgs/<org>/policy         admin/xbin:users. replace them
+
 POST   /create                     owner/admin, a user whose canCreate
                                    covers the path (creating auto-grants
                                    them terminal on it — docs/auth.md), or
                                    an element granted target "xbin" at role
                                    writer (workspace management). body
-                                   {path, runtime?, title?, expose?} →
-                                   {path, files}. Same scaffolder as
-                                   `bx new`; never overwrites.
+                                   {path, runtime?, title?, expose?, team?} →
+                                   {path, files, team?, teamLevel?}. Same
+                                   scaffolder as `bx new`; never overwrites.
+                                   team: "<org>/<team>" creates IN that team
+                                   (path must be in the org; caller must be a
+                                   team member or org/workspace admin; the
+                                   team is auto-granted its newTiles level).
+                                   Paths: the segments `o`/`u` are reserved —
+                                   `o` only as the org marker (o/<org>/… or
+                                   <dir>/o/<org>/…) naming an existing org;
+                                   applies to clone/imports too.
 POST   /clone                      xbin:writer (as /create). body {from, to}
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
