@@ -558,11 +558,25 @@ export class BxShell extends LitElement {
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
       if (this._offloaded(c)) continue; // archived — restore from the admin console
       if (filed.has(c.path)) continue; // shown under its folder instead
-      const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
+      // Org tiles group under their org (o/<org>), wherever the marker sits
+      // in the path; everything else under its top-level dir as before.
+      const org = this._orgOf(c.path);
+      const top = org ? `o/${org}` : (c.path.includes('/') ? c.path.split('/')[0] : 'workspace');
       if (!g.has(top)) g.set(top, []);
       g.get(top).push(c);
     }
     return [...g.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  // _sideLabel shortens an item's label for its group: org tiles drop
+  // everything up to the o/<org>/ marker (the group header carries it), others
+  // drop their top-level dir as before. The tooltip keeps the full path.
+  _sideLabel(top, path) {
+    if (top.startsWith('o/')) {
+      const i = path.indexOf(top + '/');
+      if (i >= 0) return path.slice(i + top.length + 1);
+    }
+    return path.includes('/') ? path.slice(path.indexOf('/') + 1) : path;
   }
 
   // ---- tile-spawned dialogs & pop-out windows (docs/elements.md) ----
@@ -988,7 +1002,7 @@ export class BxShell extends LitElement {
   }
 
   // One sidebar row for a component — used by folders and prefix groups alike.
-  _itemTemplate(c, folderId = null) {
+  _itemTemplate(c, folderId = null, label = null) {
     return html`
       <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''}"
            draggable="true"
@@ -1001,7 +1015,7 @@ export class BxShell extends LitElement {
            @drop=${(e) => this._dropOnItem(e, c.path, folderId)}
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
-        <span>${c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path}</span>
+        <span>${label ?? (c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path)}</span>
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         <span class="rt">${c.runtime || ''}</span>
       </div>`;
@@ -1360,7 +1374,7 @@ export class BxShell extends LitElement {
               ${(this._side.folders ?? []).map((f) => this._folderTemplate(f))}
               ${this._groups.map(([top, comps]) => html`
                 <div class="group">${top} <span class="n">${comps.length}</span></div>
-                ${comps.map((c) => this._itemTemplate(c))}
+                ${comps.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path)))}
               `)}
               ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
                 ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}

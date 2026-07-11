@@ -61,6 +61,7 @@ export class BxAdmin extends LitElement {
     _users: { state: true },
     _orgs: { state: true },     // orgs & teams (docs/auth.md)
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
+    _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
@@ -1437,16 +1438,61 @@ export class BxAdmin extends LitElement {
     return v == null ? null : v.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
-  _editPolicy(orgID, rows) {
-    const v = prompt(
-      `Policy ceiling rows${orgID ? ` for org ${orgID}` : ' (workspace-wide)'} — JSON array of `
-      + `{"tiles":"<pattern>","deny":["net"|"gpu"|"xbin-caps"],"mayCall":["<pattern>", …]}. `
-      + `Deny strips the capability from matching tiles; mayCall allow-lists their call targets. [] = no ceiling:`,
-      JSON.stringify(rows ?? []));
-    if (v == null) return;
-    let parsed;
-    try { parsed = JSON.parse(v); } catch (e) { this._err = 'bad JSON: ' + String(e.message ?? e); return; }
-    this._orgAPI('PUT', orgID ? `/orgs/${encodeURIComponent(orgID)}/policy` : '/policy', { policy: parsed });
+  // ---- policy-row editor (workspace + per-org ceilings, D20) ----
+  // Draft-based: "edit" copies the live rows into _polEdit[key] (mayCall kept
+  // as raw text while typing), save PUTs the parsed rows, cancel drops the
+  // draft. key = '' for the workspace rows, else the org id.
+  _polDraft(key) { return this._polEdit?.[key]; }
+  _polSet(key, rows) { this._polEdit = { ...(this._polEdit ?? {}), [key]: rows }; }
+  _polStop(key) { const e = { ...(this._polEdit ?? {}) }; delete e[key]; this._polEdit = e; }
+
+  async _polSave(key) {
+    const rows = (this._polDraft(key) ?? [])
+      .map((r) => {
+        const mayCall = r.mayCallText.split(',').map((s) => s.trim()).filter(Boolean);
+        const row = { tiles: r.tiles.trim() };
+        if (r.deny.length) row.deny = r.deny;
+        if (mayCall.length) row.mayCall = mayCall;
+        return row;
+      })
+      .filter((r) => r.tiles);
+    await this._orgAPI('PUT', key ? `/orgs/${encodeURIComponent(key)}/policy` : '/policy', { policy: rows });
+    if (!this._err) this._polStop(key);
+  }
+
+  _policyEditor(key, rows) {
+    const draft = this._polDraft(key);
+    if (!draft) {
+      return html`
+        ${(rows ?? []).map((r) => html`<div class="mono" style="font-size:11px">
+          tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}</div>`)}
+        ${!(rows ?? []).length ? html`<div class="muted" style="font-size:11px">no rows (no ceiling)</div>` : nothing}
+        <button class="act" style="margin-top:3px" @click=${() => this._polSet(key,
+          (rows ?? []).map((r) => ({ tiles: r.tiles, deny: [...(r.deny ?? [])], mayCallText: (r.mayCall ?? []).join(', ') })))}>edit</button>`;
+    }
+    const upd = (i, patch) => this._polSet(key, draft.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    return html`
+      <table class="flowtab" style="margin-top:4px">
+        ${draft.map((r, i) => html`<tr>
+          <td><input size="14" placeholder=${key ? '* (all org tiles)' : 'apps/o/x/*'} .value=${r.tiles}
+                @input=${(e) => upd(i, { tiles: e.target.value })}></td>
+          <td style="white-space:nowrap">${['net', 'gpu', 'xbin-caps'].map((k) => html`
+            <label class="muted" style="font-size:10.5px; margin-right:5px">
+              <input type="checkbox" .checked=${r.deny.includes(k)}
+                @change=${(e) => upd(i, { deny: e.target.checked ? [...r.deny, k] : r.deny.filter((d) => d !== k) })}>deny ${k}</label>`)}</td>
+          <td><input size="20" placeholder="mayCall: a/*, res:a/* (empty = any)" .value=${r.mayCallText}
+                @input=${(e) => upd(i, { mayCallText: e.target.value })}></td>
+          <td><button class="act rm" title="remove row" @click=${() => this._polSet(key, draft.filter((_, j) => j !== i))}>✕</button></td>
+        </tr>`)}
+      </table>
+      <div style="margin-top:4px">
+        <button class="act" @click=${() => this._polSet(key, [...draft, { tiles: key ? '*' : '', deny: [], mayCallText: '' }])}>+ row</button>
+        <button class="act go" @click=${() => this._polSave(key)}>save</button>
+        <button class="act" @click=${() => this._polStop(key)}>cancel</button>
+        <span class="muted" style="font-size:10.5px; margin-left:6px">
+          deny strips the capability; mayCall allow-lists external call targets
+          (a tile's own scope is always exempt)</span>
+      </div>`;
   }
 
   async _createOrg(f) {
@@ -1516,7 +1562,6 @@ export class BxAdmin extends LitElement {
             if (a) this._orgAPI('PATCH', opath, { admins: a }); }}>admins</button>
           <button class="act" @click=${() => { const m = this._promptList(`Members of ${o.id}:`, o.members);
             if (m) this._orgAPI('PATCH', opath, { members: m }); }}>members</button>
-          <button class="act" @click=${() => this._editPolicy(o.id, o.policy)}>policy${o.policy?.length ? ` (${o.policy.length})` : ''}</button>
           <button class="act rm" @click=${() => confirm(`Delete org ${o.id}? Team grants and its policy vanish; tiles stay on disk.`) &&
             this._orgAPI('DELETE', opath)}>del</button>
         </div>
@@ -1533,6 +1578,10 @@ export class BxAdmin extends LitElement {
           <input name="members" placeholder="members: a, b" size="16">
           <button class="act go">add team</button>
         </form>
+        <div style="margin-top:8px">
+          <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">org policy ceiling</span>
+          ${this._policyEditor(o.id, o.policy)}
+        </div>
       </div>`;
   }
 
@@ -1559,9 +1608,7 @@ export class BxAdmin extends LitElement {
         Pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (org rows add on top;
         any deny wins, mayCall allow-lists intersect). Enforced at approval and at every evaluation —
         a hand-edited xbin.json can't bypass it.</p>
-      ${(this._wsPolicy ?? []).map((r) => html`<div class="mono" style="font-size:11px">
-        tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}</div>`)}
-      <button class="act" style="margin-top:4px" @click=${() => this._editPolicy('', this._wsPolicy)}>edit workspace policy</button>
+      ${this._policyEditor('', this._wsPolicy)}
 
       <p class="muted" style="font-size:11px; margin-top:10px; max-width:60ch">
         Teams grant by union: a member's level is the highest of their own entries, their teams'

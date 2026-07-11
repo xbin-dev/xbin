@@ -114,7 +114,8 @@ export class BxTileAdmin extends LitElement {
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
         api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
       ]);
-      this._ov = (ov.components ?? []).find((c) => c.path === this.path) ?? {};
+      this._ov = ov.forbidden ? { forbidden: true }
+        : ((ov.components ?? []).find((c) => c.path === this.path) ?? {});
       const mine = (g) => g.from === this.path || g.target === this.path ||
         g.target.startsWith(this.path + ':') || g.target.startsWith('res:' + this.path + '/');
       this._grants = grants.forbidden ? grants : {
@@ -148,6 +149,7 @@ export class BxTileAdmin extends LitElement {
   // ---- sections ----
 
   _lifecycle() {
+    if (this._ov?.forbidden) return html`<div class="sec muted">workspace-admin only</div>`;
     const st = this._ov?.state ?? 'enabled';
     return html`<div class="sec">
       <span class="pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>
@@ -378,7 +380,8 @@ export class BxTileAdmin extends LitElement {
     return html`
       <div class="hd">
         <span class="t">${this.path}</span>
-        <span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>
+        ${this._ov?.forbidden ? nothing
+          : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>`}
         <button class="act" title="reload" @click=${() => { this._rt = null; this._loadCore(); }}>⟳</button>
       </div>
       ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
