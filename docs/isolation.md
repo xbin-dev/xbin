@@ -64,14 +64,15 @@ and can read code but not secrets.
 
 The masks hide the secrets' *contents*; the mount table would still hint at
 their *existence*. The workspace's per-resource encrypted stores are each a
-gocryptfs mount under `.xbin/resenc/…` named after the owning tile, and the
-read-only workspace bind is recursive, so those mounts get cloned into the
-terminal. Before masking `.xbin`/`data`, the terminal therefore **detaches**
-every submount beneath them, so `mount` / `/proc/self/mountinfo` can't
-enumerate other tiles by their resource names. This is safe two ways: the dirs
-are fully masked (nothing under them is reachable anyway), and the sandbox root
-is `MS_REC|MS_PRIVATE`, so the detach only drops the terminal's private clones —
-the host's live resource mounts, shared by the running tiles, are untouched.
+gocryptfs mount under `.xbin/resenc/…` named after the owning tile. To keep
+those names out of a terminal's `mount` / `/proc/self/mountinfo`, the read-only
+workspace bind is **non-recursive** — the resenc submounts are never cloned into
+the terminal's mount namespace. (Detaching them after a recursive bind is *not*
+possible: the sandbox is a rootless user namespace, which locks every inherited
+mount, so `umount2` from inside returns `EINVAL`. Not cloning them is the only
+option.) This is safe because a terminal's `$HOME` and its component are plain
+directories in the workspace filesystem — re-bound read-write on top — not
+submounts, so a non-recursive bind still carries their contents.
 
 **Live-API toggle.** A terminal's titlebar has a **tile-API / no-API** switch
 (alongside the network scope). With it off, the session is minted with **no

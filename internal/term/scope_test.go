@@ -11,8 +11,8 @@ import (
 func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {
 	rw, ro = map[string]bool{}, map[string]bool{}
 	for _, b := range binds {
-		if b.Mask || b.Detach {
-			continue // masks/detaches carry no Src; checked separately
+		if b.Mask {
+			continue // masks carry no Src; checked separately via masked()
 		}
 		if b.RO {
 			ro[b.Src] = true
@@ -83,31 +83,27 @@ func TestScopedBinds(t *testing.T) {
 		t.Errorf("own $HOME must remain read-write under the homes mask")
 	}
 
-	// .xbin/data are also DETACHED before masking, so the recursive workspace
-	// bind's cloned resource (resenc) submounts don't leak other tiles' names
-	// into the terminal's `mount`. Each detach must precede the same-path mask
-	// (sortBinds is stable, so caller order is preserved) — otherwise the mask
-	// would shadow the submounts and the detach would find nothing to remove.
+	// The workspace root is bound NON-recursively, so the resource (resenc)
+	// gocryptfs submounts the workspace fs carries aren't cloned into the terminal
+	// — the only way to keep other tiles' resource names out of `mount`, since a
+	// rootless userns locks inherited mounts against unmounting from inside.
 	sb := scopedBinds(root, "apps/welcome", home, extra)
-	for _, secret := range []string{".xbin", "data"} {
-		dst := filepath.Join(root, secret)
-		di, mi := indexOf(sb, dst, true), indexOf(sb, dst, false)
-		if di < 0 {
-			t.Errorf("%s must be detached before masking (resenc mount-name leak)", secret)
-		} else if mi >= 0 && di > mi {
-			t.Errorf("%s: detach (%d) must come before its mask (%d)", secret, di, mi)
+	var wsBind *sandbox.Bind
+	for i := range sb {
+		if sb[i].Dst == root && sb[i].Src == root {
+			wsBind = &sb[i]
+			break
 		}
 	}
-}
-
-// indexOf returns the position of the first detach (wantDetach) or mask bind for dst, or -1.
-func indexOf(binds []sandbox.Bind, dst string, wantDetach bool) int {
-	for i, b := range binds {
-		if b.Dst == dst && b.Detach == wantDetach && b.Mask == !wantDetach {
-			return i
-		}
+	if wsBind == nil {
+		t.Fatal("no workspace root bind")
 	}
-	return -1
+	if !wsBind.NoRec {
+		t.Errorf("workspace root bind must be NoRec (else resenc submounts leak into the terminal's mount table)")
+	}
+	if !wsBind.RO {
+		t.Errorf("workspace root bind must be read-only")
+	}
 }
 
 // $HOME is only rw-bound if it exists (fresh/odd workspaces without one still work).

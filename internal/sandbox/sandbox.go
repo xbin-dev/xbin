@@ -85,19 +85,21 @@ type NetClient struct {
 // used to read them. RO seals the cover (nothing may nest); a read-write cover
 // lets a deeper bind nest on top (the own $HOME under a masked homes/).
 type Bind struct {
-	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask/Detach
+	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
 	Dst  string `json:"dst"`            // absolute path inside the new root
 	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
 	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
-	// Detach lazily unmounts every mount nested under Dst (Src ignored). Used
-	// before a Mask to drop submounts the recursive workspace bind cloned in —
-	// the workspace's gocryptfs resource (resenc) mounts — so a terminal's
-	// `mount`/mountinfo can't enumerate other tiles' resource names even though
-	// their contents are already masked. Safe because the sandbox root is
-	// MS_REC|MS_PRIVATE: the detach applies to the sandbox clone only, never the
-	// host's live mounts. Order it ahead of the same-Dst Mask (sortBinds keeps
-	// caller order within a depth) so the submounts are still addressable.
-	Detach bool `json:"detach,omitempty"`
+	// NoRec binds Src non-recursively (MS_BIND without MS_REC), so mounts nested
+	// under Src are NOT cloned into the sandbox. The terminal binds the workspace
+	// this way to keep the workspace's per-resource gocryptfs (resenc) mounts —
+	// which xbind holds and which name every tile — out of the terminal's mount
+	// namespace entirely. This is the *only* way to hide them: the sandbox is a
+	// rootless user namespace, which LOCKS inherited mounts, so once cloned they
+	// can never be unmounted from inside (umount2 → EINVAL). Safe because $HOME
+	// and the component are plain directories in the workspace fs (re-bound
+	// explicitly on top), not submounts — a non-recursive bind still carries
+	// their contents. (plans/DECISIONS.md; docs/isolation.md.)
+	NoRec bool `json:"noRec,omitempty"`
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable

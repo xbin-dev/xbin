@@ -42,37 +42,3 @@ func TestSortBindsAncestorsFirst(t *testing.T) {
 		t.Error("sortBinds mutated its input")
 	}
 }
-
-// A Detach and a Mask on the same Dst (the terminal drops resenc submounts under
-// .xbin/data, then masks the dir) rely on stability: the detach must survive the
-// sort ahead of its same-path mask, or the mask would shadow the submounts and
-// the detach would find nothing to unmount. Locks that ordering invariant.
-func TestSortBindsDetachBeforeSamePathMask(t *testing.T) {
-	in := []Bind{
-		{Src: "/ws", Dst: "/ws", RO: true},
-		{Dst: "/ws/.xbin", Detach: true},
-		{Dst: "/ws/.xbin", Mask: true, RO: true},
-		{Dst: "/ws/data", Detach: true},
-		{Dst: "/ws/data", Mask: true, RO: true},
-	}
-	got := sortBinds(in)
-	firstDetach, firstMask := map[string]int{}, map[string]int{}
-	for i, b := range got {
-		if b.Detach {
-			if _, ok := firstDetach[b.Dst]; !ok {
-				firstDetach[b.Dst] = i
-			}
-		}
-		if b.Mask {
-			if _, ok := firstMask[b.Dst]; !ok {
-				firstMask[b.Dst] = i
-			}
-		}
-	}
-	for _, dst := range []string{"/ws/.xbin", "/ws/data"} {
-		if firstDetach[dst] >= firstMask[dst] {
-			t.Errorf("%s: detach (%d) must sort before its mask (%d): %v",
-				dst, firstDetach[dst], firstMask[dst], got)
-		}
-	}
-}

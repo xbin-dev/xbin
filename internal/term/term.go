@@ -454,24 +454,20 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind
 	}
 	// Workspace read-only — so a tile terminal sees ALL tiles' source (needed to
 	// integrate against another tile's API), but writes only its own dir + $HOME.
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
-	// ...except the platform's secrets and other users' data, which are masked
-	// out entirely: .xbin (owner token + frame-token secret), data (vault, the
-	// encrypted resource state, and users.json password hashes), and every OTHER
-	// user's $HOME. Without these the read-only bind would re-grant owner
-	// (`cat .xbin/token`), defeating the tile-scoped terminal token. Applies to
-	// every terminal, including the owner's own tiles.
+	// NON-recursive (NoRec): the workspace fs carries the per-resource gocryptfs
+	// (resenc) mounts that name every tile, and a rootless userns locks inherited
+	// mounts so they can't be unmounted from inside; binding non-recursively keeps
+	// them out of the terminal's mount table entirely. Safe because $HOME and the
+	// component are plain dirs in the workspace fs (re-bound rw below), not
+	// submounts, so their contents still come through. (See sandbox.Bind.NoRec.)
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true, NoRec: true}}
+	// ...and the platform's secrets and other users' data are masked out entirely:
+	// .xbin (owner token + frame-token secret), data (vault, the encrypted
+	// resource state, and users.json password hashes), and every OTHER user's
+	// $HOME. Without these the read-only bind would re-grant owner (`cat
+	// .xbin/token`), defeating the tile-scoped terminal token. Applies to every
+	// terminal, including the owner's own tiles.
 	binds = append(binds,
-		// First detach the resource submounts the recursive workspace bind cloned
-		// in (the per-resource gocryptfs "resenc" mounts under .xbin/resenc) so a
-		// tile terminal's `mount` can't enumerate other tiles' resource names. The
-		// masks below already hide their contents; this also hides their existence
-		// from the mount table. Ordered ahead of the same-path masks (sortBinds is
-		// stable) so the submounts are still addressable; safe because .xbin/data
-		// are fully masked (nothing under them is reachable) and the sandbox root
-		// is MS_REC|MS_PRIVATE (the detach can't reach the host's live mounts).
-		sandbox.Bind{Dst: filepath.Join(root, ".xbin"), Detach: true},
-		sandbox.Bind{Dst: filepath.Join(root, "data"), Detach: true},
 		sandbox.Bind{Dst: filepath.Join(root, ".xbin"), Mask: true, RO: true},
 		sandbox.Bind{Dst: filepath.Join(root, "data"), Mask: true, RO: true},
 		sandbox.Bind{Dst: filepath.Join(root, "homes"), Mask: true}, // rw: own $HOME nests below
