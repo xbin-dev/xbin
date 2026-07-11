@@ -12,6 +12,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-11
 
+- users: **BREAKING — per-tile access tiers.** A user's `tiles` is now a
+  `{path: level}` map with levels `read < write < terminal`, plus `canCreate`
+  (path patterns the user may scaffold tiles under; creating auto-grants them
+  terminal on it) and `termApi`/`termNet` (whether a non-admin's terminals
+  get the live tile-API token / internet egress — both default off, `net=host`
+  stays admin-only). `users.json` and legacy API bodies migrate automatically
+  (array entries → `write`, `terminal: true` → `terminal`); API *responses*
+  return the new shape, so update your workspace's admin tile. `bx user` flags
+  changed accordingly (`--tiles a=terminal,b`, `--create`, `--term-api`,
+  `--term-net`). Admin/owner behavior is unchanged. Migration note:
+  [changes/2026-07-11-tile-access-tiers.md](/docs/changes/2026-07-11-tile-access-tiers.md);
+  model: [auth.md](/docs/auth.md).
+- terminal: **non-admin terminals are locked down by default**
+  (isolation.md): source of tiles below the user's `read` level is masked out
+  of the mount; no tile-API token without the `termApi` grant; no egress
+  without `termNet` (query params are clamped, the session still opens); and,
+  under cgroup delegation, each restricted session gets the same
+  memory/pids/CPU caps as a tile backend. Admin terminals unchanged.
+- xbind: terminal session logs now include spawn failures (ERROR + cwd) and
+  exit status + uptime on session end, so a shell that dies at start is
+  diagnosable from the server log.
 - terminal: **`apt update` fixed** — same fuse-overlayfs cross-device rename as
   the earlier `apt install` fix, but for apt's *other* working dir. Relocated
   `Dir::State::Lists` to `/var/lib/xbin-apt-lists` (base-absent → upper-only at

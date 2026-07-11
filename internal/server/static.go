@@ -32,11 +32,11 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tile-level RBAC: a user may load only permitted tiles (plans/multi-user.md).
-	// Chrome (root, shell) is always viewable; the shell then shows only the
-	// tiles the user may use.
+	// Tile-level RBAC: a user may load only tiles they can read (D16 — read is
+	// the visibility level). Chrome (root, shell) is always viewable; the shell
+	// then shows only the tiles the user may see.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanUseTile(owner) {
+		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) {
 			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
 			return
 		}
@@ -135,7 +135,7 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	frameTok := ""
-	if p := auth.PrincipalOf(r); p.CanUseTile(compPath) {
+	if p := auth.PrincipalOf(r); p.CanReadTile(compPath) {
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 

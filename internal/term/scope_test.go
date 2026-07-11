@@ -43,13 +43,13 @@ func TestScopedBinds(t *testing.T) {
 	extra := []sandbox.Bind{{Src: "/sdk", Dst: "/sdk", RO: true}}
 
 	// Root terminal (owner plane): the whole workspace rw, no ro root bind.
-	rw, ro := rwRO(scopedBinds(root, "", home, extra))
+	rw, ro := rwRO(scopedBinds(root, "", home, extra, nil))
 	if !rw[root] || ro[root] {
 		t.Fatalf("root terminal must bind the workspace rw")
 	}
 
 	// Component terminal: workspace read-only, the user's $HOME + the component read-write.
-	rw, ro = rwRO(scopedBinds(root, "apps/welcome", home, extra))
+	rw, ro = rwRO(scopedBinds(root, "apps/welcome", home, extra, nil))
 	if !ro[root] || rw[root] {
 		t.Errorf("component terminal: workspace root must be READ-ONLY")
 	}
@@ -72,7 +72,7 @@ func TestScopedBinds(t *testing.T) {
 	// terminal, even though the root is bound read-only (Gap 0): .xbin (owner
 	// token, frame secret), data (vault, resource state, password hashes), and
 	// homes (other users' $HOME).
-	mk := masked(scopedBinds(root, "apps/welcome", home, extra))
+	mk := masked(scopedBinds(root, "apps/welcome", home, extra, nil))
 	for _, secret := range []string{".xbin", "data", "homes"} {
 		if !mk[filepath.Join(root, secret)] {
 			t.Errorf("%s must be masked from a tile terminal", secret)
@@ -87,7 +87,7 @@ func TestScopedBinds(t *testing.T) {
 	// gocryptfs submounts the workspace fs carries aren't cloned into the terminal
 	// — the only way to keep other tiles' resource names out of `mount`, since a
 	// rootless userns locks inherited mounts against unmounting from inside.
-	sb := scopedBinds(root, "apps/welcome", home, extra)
+	sb := scopedBinds(root, "apps/welcome", home, extra, nil)
 	var wsBind *sandbox.Bind
 	for i := range sb {
 		if sb[i].Dst == root && sb[i].Src == root {
@@ -106,10 +106,40 @@ func TestScopedBinds(t *testing.T) {
 	}
 }
 
+// D17a: hide masks cover unreadable tiles' dirs, sealed; anything overlapping
+// the session's own component is skipped (a mask must never shadow the cwd).
+func TestScopedBindsHiddenTiles(t *testing.T) {
+	root := t.TempDir()
+	home := HomeDir(root, "alice")
+	hide := []string{"apps/secret", "apps/welcome", "apps/welcome/nested", "sales/x"}
+	sb := scopedBinds(root, "apps/welcome", home, nil, hide)
+	mk := masked(sb)
+	for _, h := range []string{"apps/secret", "sales/x"} {
+		if !mk[filepath.Join(root, h)] {
+			t.Errorf("%s must be masked for a hidden tile", h)
+		}
+	}
+	for _, h := range []string{"apps/welcome", "apps/welcome/nested"} {
+		if mk[filepath.Join(root, h)] {
+			t.Errorf("%s overlaps the session's component and must not be masked", h)
+		}
+	}
+	// A hidden-tile mask is sealed (RO) — nothing may nest back over it.
+	for _, b := range sb {
+		if b.Mask && b.Dst == filepath.Join(root, "apps/secret") && !b.RO {
+			t.Error("hidden-tile mask must be read-only (sealed)")
+		}
+	}
+	// No hide list (admins) adds nothing beyond the three secret masks.
+	if n := len(masked(scopedBinds(root, "apps/welcome", home, nil, nil))); n != 3 {
+		t.Errorf("admin terminal: %d masks, want 3 (.xbin, data, homes)", n)
+	}
+}
+
 // $HOME is only rw-bound if it exists (fresh/odd workspaces without one still work).
 func TestScopedBindsNoHome(t *testing.T) {
 	root := t.TempDir()
-	rw, _ := rwRO(scopedBinds(root, "apps/x", HomeDir(root, "ghost"), nil))
+	rw, _ := rwRO(scopedBinds(root, "apps/x", HomeDir(root, "ghost"), nil, nil))
 	if rw[HomeDir(root, "ghost")] {
 		t.Errorf("no home dir → no home bind")
 	}

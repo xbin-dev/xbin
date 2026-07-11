@@ -21,7 +21,7 @@ func TestTerminalTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.SetUsers(store)
-	if _, err := store.Upsert(users.User{ID: "alice", Role: users.RoleAdmin, Terminal: true}, "pw"); err != nil {
+	if _, err := store.Upsert(users.User{ID: "alice", Role: users.RoleAdmin}, "pw"); err != nil {
 		t.Fatal(err)
 	}
 

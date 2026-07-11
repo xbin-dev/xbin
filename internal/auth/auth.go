@@ -55,27 +55,64 @@ func (p Principal) IsAdmin() bool {
 	return p.Owner || (p.User != nil && p.User.IsAdmin())
 }
 
-// CanUseTile reports whether this principal may open/drive a tile. The root
-// token and admins: all. Users: their allow-list. Elements: not applicable
-// here (governed by grants) — return true so element self-calls aren't blocked
-// by the tile gate.
-func (p Principal) CanUseTile(path string) bool {
+// CanReadTile / CanWriteTile / CanTerminalTile are the per-tile access gates
+// (plans/DECISIONS.md D16; monotone read < write < terminal). The root token
+// and admins: all. Users: their per-tile levels. Element principals
+// (frame/instance) are governed by grants, not the tile gates — read/write
+// pass them through so element self-calls aren't blocked here; a terminal is
+// a human-plane thing, so elements never get one.
+func (p Principal) CanReadTile(path string) bool  { return p.tileLevel(path, users.LevelRead) }
+func (p Principal) CanWriteTile(path string) bool { return p.tileLevel(path, users.LevelWrite) }
+func (p Principal) CanTerminalTile(path string) bool {
+	if p.IsAdmin() {
+		return true
+	}
+	return p.User != nil && p.User.CanTerminalTile(path)
+}
+
+func (p Principal) tileLevel(path, want string) bool {
 	if p.IsAdmin() {
 		return true
 	}
 	if p.User != nil {
-		return p.User.CanUseTile(path)
+		switch want {
+		case users.LevelWrite:
+			return p.User.CanWriteTile(path)
+		default:
+			return p.User.CanReadTile(path)
+		}
 	}
 	// Element principals (frame/instance) are gated by grants, not this.
 	return p.Component != ""
 }
 
-// CanTerminal reports terminal (root-shell) permission.
+// CanCreateTile reports whether this principal may create a component at
+// `path` (D16): admins anywhere; users within their CanCreate patterns.
+// Element principals are handled by the xbin:writer grant at the call site.
+func (p Principal) CanCreateTile(path string) bool {
+	if p.IsAdmin() {
+		return true
+	}
+	return p.User != nil && p.User.CanCreateTile(path)
+}
+
+// CanTerminal is the coarse "may open any terminal at all" pre-gate on
+// /ws/term; the per-tile CanTerminalTile decides which tile.
 func (p Principal) CanTerminal() bool {
 	if p.Owner {
 		return true
 	}
 	return p.User != nil && p.User.CanTerminal()
+}
+
+// CanTermAPI / CanTermNet report the terminal-plane grants (D17): whether this
+// principal's terminals may carry a live tile-API token / internet egress.
+// Admins have both implicitly.
+func (p Principal) CanTermAPI() bool {
+	return p.IsAdmin() || (p.User != nil && p.User.TermAPI)
+}
+func (p Principal) CanTermNet() bool {
+	return p.IsAdmin() || (p.User != nil && p.User.TermNet)
 }
 
 func (p Principal) From() string {

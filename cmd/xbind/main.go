@@ -203,7 +203,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	// (gated on --dev, which never runs in production).
 	if dev && !noAuth && userStore.Count() == 0 {
 		if _, err := userStore.Upsert(users.User{
-			ID: "admin", Name: "Dev Admin", Role: users.RoleAdmin, Terminal: true,
+			ID: "admin", Name: "Dev Admin", Role: users.RoleAdmin,
 		}, "admin"); err == nil {
 			slog.Warn("dev: seeded admin user — login 'admin' / 'admin' — DEV ONLY, never expose")
 		}
@@ -277,6 +277,19 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	tm.Listen = listen             // for the internet-scope relay host-forward to xbind
 	tm.SeedHome = seedHomeSkeleton // .zshrc/.bashrc/… into a fresh per-user home
 	tm.Tokens = a                  // per-session tile-scoped terminal tokens (plans/terminal-tokens.md)
+	// D17a: a non-admin's terminal masks out the source of every tile below
+	// their read level — the mount-level half of the same visibility rule the
+	// tile list applies (chrome isn't a registry component, so no exception
+	// needed here).
+	tm.HiddenTiles = func(p auth.Principal) []string {
+		var hide []string
+		for _, c := range reg.Components() {
+			if !p.CanReadTile(c.Path) {
+				hide = append(hide, c.Path)
+			}
+		}
+		return hide
+	}
 
 	webFS, docsFS := xbin.WebFS(), xbin.DocsFS()
 	if dev {
@@ -426,6 +439,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			CPUWeight: 100,                                   // fair share; burst when idle
 		})
 		run.Cgroup = cg
+		tm.Cgroup = cg // restricted (non-admin) terminals get the same caps (D17d)
 		slog.Info("cgroup v2 limits enabled", "memMax", 2<<30, "pidsMax", max(512, goruntime.NumCPU()*8))
 	}
 	// Isolation is orthogonal to --dev/--no-auth (which only change asset serving

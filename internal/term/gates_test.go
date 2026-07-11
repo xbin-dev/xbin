@@ -33,16 +33,58 @@ func TestServeWSGates(t *testing.T) {
 		t.Fatalf("cwd=apps/..: %d, want 403", c)
 	}
 
-	// A terminal-flagged non-admin can only open terminals on their tiles.
+	// A non-admin can only open terminals on tiles where their level is
+	// TERMINAL (D16) — not elsewhere, and not on tiles they can merely
+	// read or write.
 	alice := auth.Principal{UserID: "alice", Via: "session",
-		User: &users.User{ID: "alice", Role: "user", Terminal: true, Tiles: []string{"apps/mine"}}}
+		User: &users.User{ID: "alice", Role: "user", Tiles: map[string]string{
+			"apps/mine": users.LevelTerminal,
+			"apps/docs": users.LevelWrite,
+			"lib/*":     users.LevelRead,
+		}}}
 	if c := do("cwd=apps/other", alice); c != 403 {
 		t.Fatalf("tile outside allow-list: %d, want 403", c)
+	}
+	if c := do("cwd=apps/docs", alice); c != 403 {
+		t.Fatalf("write-level tile must not grant a terminal: %d, want 403", c)
+	}
+	if c := do("cwd=lib/ui", alice); c != 403 {
+		t.Fatalf("read-level tile must not grant a terminal: %d, want 403", c)
 	}
 
 	// Unknown reattach id stays a 404.
 	if c := do("session=nope", owner); c != 404 {
 		t.Fatalf("unknown session: %d, want 404", c)
+	}
+}
+
+// The D17 b+c clamps: a non-admin without the grants gets a code-only,
+// airgapped shell no matter what the query asked for; the grants restore the
+// normal defaults; host networking never leaves the admin plane.
+func TestClampTermScopes(t *testing.T) {
+	admin := auth.Principal{Owner: true}
+	plain := auth.Principal{UserID: "u", User: &users.User{ID: "u", Role: "user"}}
+	granted := auth.Principal{UserID: "g", User: &users.User{ID: "g", Role: "user", TermAPI: true, TermNet: true}}
+
+	for _, tc := range []struct {
+		name    string
+		p       auth.Principal
+		api     bool
+		net     string
+		wantAPI bool
+		wantNet string
+	}{
+		{"admin keeps host", admin, true, NetHost, true, NetHost},
+		{"ungranted loses api+net", plain, true, NetInternet, false, NetNone},
+		{"ungranted host clamps", plain, false, NetHost, false, NetNone},
+		{"ungranted none passes", plain, false, NetNone, false, NetNone},
+		{"granted keeps api+internet", granted, true, NetInternet, true, NetInternet},
+		{"granted host still clamps", granted, true, NetHost, true, NetNone},
+	} {
+		api, net := clampTermScopes(tc.p, tc.api, tc.net)
+		if api != tc.wantAPI || net != tc.wantNet {
+			t.Errorf("%s: got (api=%v net=%s), want (api=%v net=%s)", tc.name, api, net, tc.wantAPI, tc.wantNet)
+		}
 	}
 }
 

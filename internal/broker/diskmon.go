@@ -216,7 +216,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 	admin := b.IsAdmin(p)
 	out := []Alert{}
 	for _, a := range b.DiskAlerts() {
-		if a.System || admin || (a.Tile != "" && p.CanUseTile(a.Tile)) {
+		if a.System || admin || (a.Tile != "" && p.CanReadTile(a.Tile)) {
 			out = append(out, a)
 		}
 	}

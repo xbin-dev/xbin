@@ -195,7 +195,12 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   Rationale: a mixed dev/sales/exec team needs finer grants than "use or not."
   Migration is trivial (prod is one admin = all); loader upgrades `Tiles`→`write`
   and `Terminal:true`→`terminal`, accepting both shapes and rewriting on save
-  (D15-style). Not yet implemented — sequenced after D17's source-visibility.
+  (D15-style). IMPLEMENTED 2026-07-11 (`internal/users`, gates in
+  `internal/auth`; levels union — highest matching entry wins, patterns widen
+  and never narrow; legacy API bodies still accepted, responses are new-shape;
+  view/frame/alerts gates = read, terminal open + dev-layer reset = terminal;
+  create auto-grant fires for the attributed user even when driving a
+  manager-style tile). `docs/changes/2026-07-11-tile-access-tiers.md`.
 - **D17 — Non-admin terminals are locked down by default** (mixed-tenant hygiene;
   each gates on `!IsAdmin()`, so admin/owner terminals are unchanged and — since
   prod is single-admin — these are dormant until non-admin users exist):
@@ -204,7 +209,17 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   (b) **`api=0` by default** — no live-tile token unless explicitly granted;
   (c) **`net=none` by default** — no internet egress (the exfil path that makes
   (a) matter); (d) **cgroup + disk limits** on the terminal (survive-incompetence).
-  D18 is the kernel-level half of this. (a)/(b)/(c)/(d) staged incrementally.
+  D18 is the kernel-level half of this. IMPLEMENTED 2026-07-11 except the disk
+  half of (d): (a) = sealed masks over every tile below `read` (term.Manager.
+  HiddenTiles, wired from the registry); (b)/(c) = **explicit per-user grants**
+  `TermAPI`/`TermNet` (the "self-serve vs grant" question resolved: grants —
+  they ride the same users.json/UI we were already touching, and clamping beats
+  403 so an ungranted user still gets a working airgapped code-only shell;
+  `net=host` stays admin-only unconditionally); (d) = restricted sessions join
+  a per-session cgroup leaf with the backend caps when delegation is on
+  (admin terminals stay unlimited). Disk quotas on terminals DEFERRED — needs
+  per-directory quota machinery the workspace fs doesn't have; the existing
+  low-free-space alerts + resource-write blocks still apply workspace-wide.
 - **D18 — Restricted terminals block namespace re-privilege via ucounts, not
   clone-filtering.** For an untrusted terminal we drop `CAP_SYS_ADMIN` (mount /
   namespaces) — but `apt` never needed it (only file caps: CHOWN/DAC_OVERRIDE/

@@ -1,6 +1,6 @@
 // Package users is the multi-user store (plans/multi-user.md): human users
-// with a role, a tile allow-list, and a terminal permission, persisted to
-// data/users.json (xbind-owned, 0600). Passwords are hashed with Argon2id.
+// with a role, per-tile access levels, and terminal-plane grants, persisted
+// to data/users.json (xbind-owned, 0600). Passwords are hashed with Argon2id.
 //
 // The root token (XBIN_TOKEN) is separate and always admin — this store only
 // holds the human users layered on top. No users configured ⇒ single-user
@@ -8,6 +8,7 @@
 package users
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -28,42 +29,194 @@ const (
 	RoleUser  = "user"
 )
 
+// Per-tile access levels (plans/DECISIONS.md D16), monotone:
+// terminal ⊇ write ⊇ read. `read` = see the tile + its source; `write` =
+// edit/drive it; `terminal` = a shell on it.
+const (
+	LevelRead     = "read"
+	LevelWrite    = "write"
+	LevelTerminal = "terminal"
+)
+
+// levelRank orders levels for the monotone comparison; unknown ranks 0 (none).
+func levelRank(l string) int {
+	switch l {
+	case LevelRead:
+		return 1
+	case LevelWrite:
+		return 2
+	case LevelTerminal:
+		return 3
+	}
+	return 0
+}
+
 // User is a human account. PassHash is never serialized outward (API strips it).
 type User struct {
-	ID       string   `json:"id"`   // stable, lowercase; the login name
-	Name     string   `json:"name"` // display name
-	Role     string   `json:"role"` // admin | user
-	Tiles    []string `json:"tiles"`
-	Terminal bool     `json:"terminal"`
-	PassHash string   `json:"passHash,omitempty"`
-	Created  int64    `json:"created"`
+	ID   string `json:"id"`   // stable, lowercase; the login name
+	Name string `json:"name"` // display name
+	Role string `json:"role"` // admin | user
+	// Tiles maps a component path — or a `prefix/*` / `*` pattern — to that
+	// user's access level (read|write|terminal). Levels union: the highest
+	// matching entry wins, so patterns widen access and can't narrow it.
+	Tiles map[string]string `json:"tiles"`
+	// CanCreate lists path patterns (`sales/*`, `*`, or an exact path) under
+	// which the user may create tiles; creating one auto-grants them terminal
+	// on it ("create ≈ own a namespace", D16).
+	CanCreate []string `json:"canCreate,omitempty"`
+	// TermAPI / TermNet are the terminal-plane grants for non-admins (D17):
+	// without TermAPI their terminals get no live tile-API token (api=0 forced);
+	// without TermNet no internet egress (net=none forced). Admins have both
+	// implicitly.
+	TermAPI  bool   `json:"termApi,omitempty"`
+	TermNet  bool   `json:"termNet,omitempty"`
+	PassHash string `json:"passHash,omitempty"`
+	Created  int64  `json:"created"`
+}
+
+// UnmarshalJSON accepts both the current shape (tiles as a path→level map) and
+// the legacy one (tiles as a []string allow-list + a global "terminal" bool):
+// legacy entries load as `write`, or `terminal` when the flag was set — the
+// exact power they had under the old model. Rewritten to the new shape on the
+// next save (D15-style).
+func (u *User) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Role      string          `json:"role"`
+		Tiles     json.RawMessage `json:"tiles"`
+		Terminal  bool            `json:"terminal"` // legacy global flag
+		CanCreate []string        `json:"canCreate"`
+		TermAPI   bool            `json:"termApi"`
+		TermNet   bool            `json:"termNet"`
+		PassHash  string          `json:"passHash"`
+		Created   int64           `json:"created"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	tiles, err := ParseTiles(raw.Tiles, raw.Terminal)
+	if err != nil {
+		return fmt.Errorf("user %q: %w", raw.ID, err)
+	}
+	*u = User{
+		ID: raw.ID, Name: raw.Name, Role: raw.Role, Tiles: tiles,
+		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
+		PassHash: raw.PassHash, Created: raw.Created,
+	}
+	return nil
+}
+
+// ParseTiles decodes a tiles field that may be either shape (see
+// User.UnmarshalJSON); the API uses it too, so old clients that still POST
+// {tiles: [...], terminal: bool} keep working. nil/absent ⇒ empty map.
+func ParseTiles(raw json.RawMessage, legacyTerminal bool) (map[string]string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return map[string]string{}, nil
+	}
+	if raw[0] == '[' { // legacy allow-list
+		var list []string
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, fmt.Errorf("tiles: %w", err)
+		}
+		level := LevelWrite
+		if legacyTerminal {
+			level = LevelTerminal
+		}
+		tiles := make(map[string]string, len(list))
+		for _, t := range list {
+			if t = strings.TrimSpace(t); t != "" {
+				tiles[t] = level
+			}
+		}
+		return tiles, nil
+	}
+	var tiles map[string]string
+	if err := json.Unmarshal(raw, &tiles); err != nil {
+		return nil, fmt.Errorf("tiles: %w", err)
+	}
+	for k, v := range tiles {
+		if levelRank(v) == 0 {
+			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal)", k, v)
+		}
+	}
+	if tiles == nil {
+		tiles = map[string]string{}
+	}
+	return tiles, nil
 }
 
 // IsAdmin reports the admin role.
 func (u *User) IsAdmin() bool { return u.Role == RoleAdmin }
 
-// CanUseTile reports whether the user may open/drive component `path`.
-// Admins: everything. Others: exact match or a `prefix/*` / `*` entry.
-func (u *User) CanUseTile(path string) bool {
+// matchTile reports whether allow-list entry t covers component path: exact,
+// `prefix/*` (the prefix itself or anything under it), or `*` (everything).
+func matchTile(t, path string) bool {
+	if t == "*" || t == path {
+		return true
+	}
+	if strings.HasSuffix(t, "/*") {
+		prefix := strings.TrimSuffix(t, "/*")
+		return path == prefix || strings.HasPrefix(path, prefix+"/")
+	}
+	return false
+}
+
+// TileLevel returns the user's access level for component `path`: the highest
+// level among matching Tiles entries ("" = none). Admins: terminal everywhere.
+func (u *User) TileLevel(path string) string {
+	if u.IsAdmin() {
+		return LevelTerminal
+	}
+	best := ""
+	for t, l := range u.Tiles {
+		if matchTile(t, path) && levelRank(l) > levelRank(best) {
+			best = l
+		}
+	}
+	return best
+}
+
+// CanReadTile / CanWriteTile / CanTerminalTile are the monotone level gates
+// (read: see the tile + its source; write: edit/drive; terminal: a shell).
+func (u *User) CanReadTile(path string) bool {
+	return levelRank(u.TileLevel(path)) >= levelRank(LevelRead)
+}
+func (u *User) CanWriteTile(path string) bool {
+	return levelRank(u.TileLevel(path)) >= levelRank(LevelWrite)
+}
+func (u *User) CanTerminalTile(path string) bool {
+	return levelRank(u.TileLevel(path)) >= levelRank(LevelTerminal)
+}
+
+// CanCreateTile reports whether the user may create a component at `path`
+// (admins: anywhere; others: a CanCreate pattern must cover it).
+func (u *User) CanCreateTile(path string) bool {
 	if u.IsAdmin() {
 		return true
 	}
-	for _, t := range u.Tiles {
-		if t == "*" || t == path {
+	for _, t := range u.CanCreate {
+		if matchTile(t, path) {
 			return true
-		}
-		if strings.HasSuffix(t, "/*") {
-			prefix := strings.TrimSuffix(t, "/*")
-			if path == prefix || strings.HasPrefix(path, prefix+"/") {
-				return true
-			}
 		}
 	}
 	return false
 }
 
-// CanTerminal reports terminal (root-shell) permission.
-func (u *User) CanTerminal() bool { return u.IsAdmin() || u.Terminal }
+// CanTerminal reports whether the user may open any terminal at all — the
+// coarse pre-gate on /ws/term (the per-tile CanTerminalTile decides which).
+func (u *User) CanTerminal() bool {
+	if u.IsAdmin() {
+		return true
+	}
+	for _, l := range u.Tiles {
+		if levelRank(l) >= levelRank(LevelTerminal) {
+			return true
+		}
+	}
+	return false
+}
 
 // Public is the outward form (no hash).
 func (u *User) Public() User {
@@ -198,6 +351,14 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 	if u.Role != RoleAdmin && u.Role != RoleUser {
 		u.Role = RoleUser
 	}
+	if u.Tiles == nil {
+		u.Tiles = map[string]string{}
+	}
+	for t, l := range u.Tiles {
+		if levelRank(l) == 0 {
+			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal)", t, l)
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.byID[u.ID]
@@ -227,6 +388,32 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 	}
 	c := nu
 	return &c, nil
+}
+
+// GrantTile raises a user's level on one tile (never lowers — levels union,
+// and an explicit wider grant must survive incidental re-grants). Used for the
+// create auto-grant: whoever creates a tile gets a terminal on it (D16).
+func (s *Store) GrantTile(id, path, level string) error {
+	if levelRank(level) == 0 {
+		return fmt.Errorf("unknown level %q", level)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.byID[normalizeID(id)]
+	if u == nil {
+		return fmt.Errorf("no such user %q", id)
+	}
+	if levelRank(u.Tiles[path]) >= levelRank(level) {
+		return nil // already at or above
+	}
+	nu := *u
+	nu.Tiles = make(map[string]string, len(u.Tiles)+1)
+	for k, v := range u.Tiles {
+		nu.Tiles[k] = v
+	}
+	nu.Tiles[path] = level
+	s.byID[nu.ID] = &nu
+	return s.persistLocked()
 }
 
 func (s *Store) Delete(id string) error {

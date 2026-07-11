@@ -139,16 +139,18 @@ func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 // (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
 func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 	cwd := r.URL.Query().Get("cwd")
-	// Resetting a tile's layer needs access to that tile (admins: any); the
-	// legacy root layer ("" — root terminals are disabled) is admin-only.
+	// Resetting a tile's dev layer is a terminal-plane action (it IS the
+	// terminal's overlay), so it needs terminal level on that tile (admins:
+	// any); the legacy root layer ("" — root terminals are disabled) is
+	// admin-only.
 	p := auth.PrincipalOf(r)
 	if cwd == "" {
 		if !p.IsAdmin() {
 			http.Error(w, "resetting the root layer is admin-only", http.StatusForbidden)
 			return
 		}
-	} else if !p.CanUseTile(strings.Trim(cwd, "/")) {
-		http.Error(w, "your account doesn't have access to this tile", http.StatusForbidden)
+	} else if !p.CanTerminalTile(strings.Trim(cwd, "/")) {
+		http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 		return
 	}
 	if err := s.Term.ResetEnv(cwd); err != nil {

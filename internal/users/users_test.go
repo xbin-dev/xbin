@@ -29,35 +29,109 @@ func TestPasswordHashing(t *testing.T) {
 	}
 }
 
-func TestCanUseTile(t *testing.T) {
+func TestTileLevels(t *testing.T) {
 	admin := &User{Role: RoleAdmin}
-	if !admin.CanUseTile("anything/at/all") || !admin.CanTerminal() {
-		t.Fatal("admin should use all tiles + terminal")
+	if admin.TileLevel("anything/at/all") != LevelTerminal || !admin.CanTerminal() {
+		t.Fatal("admin should have terminal everywhere")
 	}
-	u := &User{Role: RoleUser, Tiles: []string{"apps/chat", "lib/*"}}
-	cases := map[string]bool{
-		"apps/chat":     true,
-		"apps/chatX":    false, // not a prefix, exact only
-		"apps/other":    false,
-		"lib":           true, // prefix root
-		"lib/ui/button": true, // under prefix
-		"libs/x":        false,
+	u := &User{Role: RoleUser, Tiles: map[string]string{"apps/chat": LevelWrite, "lib/*": LevelRead}}
+	cases := map[string]string{
+		"apps/chat":     LevelWrite,
+		"apps/chatX":    "", // not a prefix, exact only
+		"apps/other":    "",
+		"lib":           LevelRead, // prefix root
+		"lib/ui/button": LevelRead, // under prefix
+		"libs/x":        "",
 	}
 	for path, want := range cases {
-		if got := u.CanUseTile(path); got != want {
-			t.Errorf("CanUseTile(%q)=%v want %v", path, got, want)
+		if got := u.TileLevel(path); got != want {
+			t.Errorf("TileLevel(%q)=%q want %q", path, got, want)
 		}
 	}
+	// Monotone gates: write ⊇ read, terminal ⊇ write.
+	if !u.CanReadTile("apps/chat") || !u.CanWriteTile("apps/chat") || u.CanTerminalTile("apps/chat") {
+		t.Fatal("write level must grant read+write, not terminal")
+	}
+	if !u.CanReadTile("lib/ui") || u.CanWriteTile("lib/ui") {
+		t.Fatal("read level must grant read only")
+	}
 	if u.CanTerminal() {
-		t.Fatal("regular user without flag must not have terminal")
+		t.Fatal("no terminal-level entry → no terminal pre-gate")
 	}
-	u.Terminal = true
-	if !u.CanTerminal() {
-		t.Fatal("terminal flag ignored")
+	u.Tiles["apps/chat"] = LevelTerminal
+	if !u.CanTerminal() || !u.CanTerminalTile("apps/chat") {
+		t.Fatal("terminal level ignored")
 	}
-	star := &User{Role: RoleUser, Tiles: []string{"*"}}
-	if !star.CanUseTile("apps/anything") {
+	// Levels union — the HIGHEST matching entry wins, patterns can only widen.
+	both := &User{Role: RoleUser, Tiles: map[string]string{"apps/*": LevelTerminal, "apps/chat": LevelRead}}
+	if !both.CanTerminalTile("apps/chat") {
+		t.Fatal("highest matching level must win")
+	}
+	star := &User{Role: RoleUser, Tiles: map[string]string{"*": LevelWrite}}
+	if !star.CanWriteTile("apps/anything") {
 		t.Fatal("* should allow all")
+	}
+}
+
+// Legacy users.json shape (tiles array + global terminal flag) loads as the
+// power it had: write on each entry, terminal when the flag was set.
+func TestLegacyUserShape(t *testing.T) {
+	var u User
+	if err := u.UnmarshalJSON([]byte(`{"id":"bob","role":"user","tiles":["apps/a","lib/*"],"terminal":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if u.TileLevel("apps/a") != LevelTerminal || u.TileLevel("lib/x") != LevelTerminal {
+		t.Fatalf("legacy terminal user: tiles = %v, want terminal on both", u.Tiles)
+	}
+	var v User
+	if err := v.UnmarshalJSON([]byte(`{"id":"eve","role":"user","tiles":["apps/a"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if v.TileLevel("apps/a") != LevelWrite || v.CanTerminal() {
+		t.Fatalf("legacy non-terminal user: tiles = %v, want write, no terminal", v.Tiles)
+	}
+	// New shape passes through; unknown levels are rejected, not misread.
+	var w User
+	if err := w.UnmarshalJSON([]byte(`{"id":"kim","tiles":{"apps/a":"read"}}`)); err != nil || w.TileLevel("apps/a") != LevelRead {
+		t.Fatalf("map shape: %v / %v", err, w.Tiles)
+	}
+	if err := w.UnmarshalJSON([]byte(`{"id":"kim","tiles":{"apps/a":"rw"}}`)); err == nil {
+		t.Fatal("unknown level must be rejected")
+	}
+}
+
+func TestCanCreateAndGrantTile(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	if _, err := s.Upsert(User{ID: "dev", Role: RoleUser, CanCreate: []string{"sales/*"}}, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.Get("dev")
+	if !u.CanCreateTile("sales/leads") || u.CanCreateTile("apps/x") {
+		t.Fatal("CanCreate must be pattern-scoped")
+	}
+	// The create auto-grant: terminal on the new tile, raise-only.
+	if err := s.GrantTile("dev", "sales/leads", LevelTerminal); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = s.Get("dev")
+	if !u.CanTerminalTile("sales/leads") {
+		t.Fatal("auto-grant missing")
+	}
+	if err := s.GrantTile("dev", "sales/leads", LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = s.Get("dev")
+	if !u.CanTerminalTile("sales/leads") {
+		t.Fatal("GrantTile must never lower a level")
+	}
+	// Persisted (reload sees the grant).
+	s2, err := Open(s.path[:len(s.path)-len("/users.json")])
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, _ := s2.Get("dev")
+	if !u2.CanTerminalTile("sales/leads") {
+		t.Fatal("grant not persisted")
 	}
 }
 

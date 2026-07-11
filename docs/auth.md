@@ -275,8 +275,8 @@ xbin can have **human users** on top of the root token (plans/multi-user.md).
   Full admin; used by `bx`, terminals, automation. Always valid.
 - **Admin user** — logs in with username+password; full access (all tiles,
   terminals, user management).
-- **Regular user** — logs in; may open/drive only the tiles on their
-  allow-list; no terminal or admin unless explicitly granted.
+- **Regular user** — logs in; access is scoped per tile by an access level
+  (below); no admin, and no terminal/create beyond what's granted.
 
 No users configured ⇒ single-user mode (the root token is the only
 principal), exactly as before. The first user is created by an admin.
@@ -291,19 +291,35 @@ Passwords set through the API must be **at least 8 characters** (Argon2id
 hashed; the dev-seeded admin and tests bypass this by writing the store
 directly).
 
-**Tile-level RBAC.** A user's `tiles` is an allow-list of component paths or
-`prefix/*` (a scope/subtree; `*` = all). They can load `/c/<tile>/` and get a
-frame token only for allowed tiles; the shell sidebar shows only those; every
-door (view, frame-token mint) enforces it. A tile a user is allowed to use
-runs with its *own* grants — allowing a user a tile lets them use that tile's
-capabilities, like app permissions on a phone. A tile never inherits the
-driving user's admin: opening the admin tile only grants admin because the
-tile itself holds `xbin:admin` — so **don't add admin/privileged tiles to a
-non-admin user's allow-list**.
+**Tile-level RBAC — access levels.** A user's `tiles` maps component paths —
+or `prefix/*` (a scope/subtree; `*` = all) — to an **access level**, monotone
+`read < write < terminal`:
 
-**Terminals are admin-only.** `/ws/term` is a **root shell** in a tile's
-directory, gated behind a per-user `terminal` permission (admins have it;
-grant it to others only if you mean root).
+| Level | Grants |
+|-------|--------|
+| `read` | see the tile: load `/c/<tile>/`, get a frame token, see it in the shell, read its source in a terminal |
+| `write` | everything read grants, plus edit/drive the tile (the old allow-list power) |
+| `terminal` | everything write grants, plus a **root shell** in the tile's directory (`/ws/term`, and resetting its dev layer) |
+
+Levels union: the highest matching entry wins, so patterns widen access and
+can never narrow it (`{"apps/*": "read", "apps/chat": "terminal"}` gives a
+shell on chat and read on the rest). A tile a user may use runs with its
+*own* grants — allowing a user a tile lets them use that tile's capabilities,
+like app permissions on a phone. A tile never inherits the driving user's
+admin: opening the admin tile only grants admin because the tile itself holds
+`xbin:admin` — so **don't add admin/privileged tiles to a non-admin user's
+allow-list**.
+
+**Create permission.** `canCreate` lists path patterns (`sales/*`) under
+which the user may scaffold new tiles (`POST /api/xbin/create`, `bx new`,
+the manager tile). Creating one auto-grants the creator `terminal` on it —
+create ≈ own a namespace.
+
+**Terminal-plane grants.** A non-admin's terminals run restricted
+(docs/isolation.md): beyond the kernel lockdown, they get **no live tile-API
+token** unless the user has `termApi`, and **no internet egress** unless
+`termNet` (host networking is admin-only, always). Grant `terminal` levels
+only if you mean root in that directory.
 
 **User management API** — gated by `xbin:users` (distinct from
 `xbin:admin`, so a dedicated user-admin tile can hold just this; admin
@@ -312,10 +328,16 @@ implies it):
 ```
 GET    /api/xbin/whoami            caller identity + permissions (any principal)
 GET    /api/xbin/users             list (no hashes)
-POST   /api/xbin/users             create {id,name,role,tiles,terminal,password}
-PATCH  /api/xbin/users/<id>        update (role/tiles/terminal/password reset)
+POST   /api/xbin/users             create {id,name,role,tiles:{path:level},
+                                   canCreate?,termApi?,termNet?,password}
+PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset)
 DELETE /api/xbin/users/<id>        remove (revokes their sessions)
 ```
+
+(The pre-tiers body — `tiles` as an array + a global `terminal` bool — is
+still accepted: array entries load as `write`, or `terminal` when the flag is
+set; `users.json` migrates the same way on load. See
+changes/2026-07-11-tile-access-tiers.md.)
 
 The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
 Passwords are Argon2id-hashed in `data/users.json` (0600); sessions are

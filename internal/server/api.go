@@ -106,8 +106,8 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	out := []componentInfo{}
 	for _, c := range s.Reg.Components() {
-		// A user sees only the tiles they may use (plus chrome); admins, all.
-		if !isChrome(c.Path) && !p.CanUseTile(c.Path) {
+		// A user sees only the tiles they may read (plus chrome); admins, all.
+		if !isChrome(c.Path) && !p.CanReadTile(c.Path) {
 			continue
 		}
 		ci := componentInfo{
@@ -161,7 +161,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)
-	ok := comp != "" && (p.Component == comp || (p.Component == "" && p.CanUseTile(comp)))
+	ok := comp != "" && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
 	if !ok {
 		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")
 		return

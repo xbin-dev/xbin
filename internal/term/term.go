@@ -123,6 +123,21 @@ type Manager struct {
 		RevokeTerminal(token string)
 	}
 
+	// HiddenTiles lists the component dirs to mask out of this principal's
+	// terminals (D17a — source visibility scoped to the allow-list): every
+	// tile below read level. Wired by main from the registry; nil ⇒ terminals
+	// see all source (fine for the single-admin workspace).
+	HiddenTiles func(p auth.Principal) []string
+
+	// Cgroup, when set (main wires it under cgroup delegation), puts each
+	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a
+	// runaway non-admin terminal OOMs/throttles alone instead of taking the
+	// workspace down. Admin terminals stay unlimited (dev builds are hungry).
+	Cgroup interface {
+		Add(name string, pid int)
+		Remove(name string)
+	}
+
 	mu       sync.Mutex
 	sessions map[string]*Session
 	envHeld  map[string]bool // component key → a live session holds its persistent layer
@@ -179,19 +194,30 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		// (plans/terminal-tokens.md). The root terminal (no cwd) is disabled
 		// outright: it was the whole-workspace owner plane, is not reachable
 		// from any UI, and admin work belongs to the browser UI or host-side
-		// bx. A tile terminal needs tile access.
+		// bx. A tile terminal needs TERMINAL level on that tile (D16).
 		if cwd == "" {
 			http.Error(w, "the root terminal is disabled — open a terminal on a tile (admin ops: the admin tile, or bx from the host)", http.StatusForbidden)
 			return
 		}
-		if _, rel, err := util.SafeJoin(m.Root, cwd); err != nil || rel == "" || !p.CanUseTile(rel) {
-			http.Error(w, "your account doesn't have access to this tile's terminal", http.StatusForbidden)
+		if _, rel, err := util.SafeJoin(m.Root, cwd); err != nil || rel == "" || !p.CanTerminalTile(rel) {
+			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 			return
 		}
-		// Non-admin users get the restricted-terminal lockdown (D18): no nested
-		// user/mount namespaces, dangerous caps dropped (apt still works). Admins
-		// and the owner keep full caps for dev work.
-		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID, apiAccess, !p.IsAdmin())
+		// Non-admin users get the restricted tier: the D18 kernel lockdown (no
+		// nested user/mount namespaces, dangerous caps dropped — apt still
+		// works), the D17 scope clamps (api/net below), source visibility cut
+		// to their allow-list, and resource limits. Admins and the owner keep
+		// full caps + full view for dev work.
+		o := openOpts{
+			cwd: cwd, net: netMode, gpu: gpuMode,
+			homeKey: homeKey, userID: p.UserID,
+			api: apiAccess, restricted: !p.IsAdmin(),
+		}
+		o.api, o.net = clampTermScopes(p, o.api, o.net)
+		if o.restricted && m.HiddenTiles != nil {
+			o.hide = m.HiddenTiles(p)
+		}
+		s, err = m.create(o)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -235,17 +261,53 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAccess, restricted bool) (*Session, error) {
+// openOpts carries a new session's parameters from the WS gate to the spawn.
+type openOpts struct {
+	cwd        string   // workspace-relative component path
+	net        string   // network scope (already clamped)
+	gpu        string   // GPU request (owner plane)
+	homeKey    string   // whose $HOME the session mounts
+	userID     string   // creating user, for token attribution ("" = token principal)
+	api        bool     // mint a live tile-API token (already clamped)
+	restricted bool     // non-admin: D18 kernel lockdown + D17 masks/limits
+	hide       []string // component dirs masked out of the mount (D17a)
+}
+
+// clampTermScopes applies the non-admin terminal defaults (D17 b+c): no live
+// tile-API token without the TermAPI grant, no internet egress without the
+// TermNet grant, and host networking stays admin-only. Clamped rather than
+// rejected — the session still opens, and its banner reports the effective
+// scope, so an ungranted user gets a working (airgapped, code-only) shell
+// instead of an error.
+func clampTermScopes(p auth.Principal, api bool, net string) (bool, string) {
+	if p.IsAdmin() {
+		return api, net
+	}
+	if !p.CanTermAPI() {
+		api = false
+	}
+	switch net {
+	case NetHost: // LAN + host services — never for non-admins
+		net = NetNone
+	case NetInternet:
+		if !p.CanTermNet() {
+			net = NetNone
+		}
+	}
+	return api, net
+}
+
+func (m *Manager) create(o openOpts) (*Session, error) {
 	dir := m.Root
 	rel := ""
-	if cwd != "" {
+	if o.cwd != "" {
 		var err error
-		dir, rel, err = util.SafeJoin(m.Root, cwd)
+		dir, rel, err = util.SafeJoin(m.Root, o.cwd)
 		if err != nil {
 			return nil, err
 		}
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("cwd %q is not a directory", cwd)
+			return nil, fmt.Errorf("cwd %q is not a directory", o.cwd)
 		}
 	}
 
@@ -256,7 +318,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 	}
 	perUser := 0 // one user can't exhaust the global pool
 	for _, s := range m.sessions {
-		if s.homeKey == homeKey {
+		if s.homeKey == o.homeKey {
 			perUser++
 		}
 	}
@@ -267,7 +329,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 
 	// This user's $HOME, created + skeleton-seeded on first use (lazy: the user
 	// set is dynamic, so homes materialize per user, not at scaffold time).
-	homeDir := HomeDir(m.Root, homeKey)
+	homeDir := HomeDir(m.Root, o.homeKey)
 	if err := os.MkdirAll(homeDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create home %s: %w", homeDir, err)
 	}
@@ -281,8 +343,8 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
 	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
 	token := ""
-	if m.Tokens != nil && apiAccess {
-		token = m.Tokens.MintTerminal(rel, userID)
+	if m.Tokens != nil && o.api {
+		token = m.Tokens.MintTerminal(rel, o.userID)
 	}
 	revokeTok := func() {
 		if token != "" {
@@ -290,7 +352,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 		}
 	}
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir, token, restricted)
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, homeDir, token, o)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -312,8 +374,8 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 	}
 
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, Net: netMode, cmd: cmd, pty: f,
-		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: homeKey, token: token,
+		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f,
+		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey),
 		born:    time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
@@ -321,14 +383,24 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 
+	// A restricted session's sandbox goes into its own resource-limited cgroup
+	// leaf (D17d) — children (the shell, builds) follow the leader in.
+	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil
+	if limited {
+		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
+	}
+
 	go s.pump(func() {
 		m.remove(s.ID)
 		revokeTok() // the session's API credential dies with it
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
+		if limited {
+			m.Cgroup.Remove("term-" + s.ID)
+		}
 	})
-	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", netMode)
+	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", o.net, "restricted", o.restricted)
 	return s, nil
 }
 
@@ -338,9 +410,9 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 // relay, and the persistent env-layer key this session holds ("" = none).
 // homeDir is the session user's $HOME (homes/<user>); token the per-session
 // terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none).
-func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir, token string, restricted bool) (*exec.Cmd, func(), func() *relay.Relay, string) {
+func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir, token, restricted); err == nil {
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, homeDir, token, o); err == nil {
 			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
@@ -451,7 +523,12 @@ func (m *Manager) ResetEnv(rel string) error {
 //
 // Read-only ExtraBinds (e.g. the SDK) are appended last. rw binds go AFTER the
 // ro root so they shadow it at their paths.
-func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind {
+//
+// hide lists component dirs (workspace-relative) to mask out entirely — the
+// D17a source-visibility cut for non-admin users: tiles below read level
+// aren't just unlisted in the UI, their source disappears from the terminal's
+// filesystem too. nil for admins.
+func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string) []sandbox.Bind {
 	if rel == "" {
 		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (root terminals are disabled)
 	}
@@ -480,6 +557,19 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind) []sandbox.Bind
 	}
 	comp := filepath.Join(root, filepath.FromSlash(rel))
 	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write
+	// D17a: mask unreadable tiles' source. Sealed (RO) covers — nothing may
+	// nest back on top. Anything overlapping the session's own component is
+	// skipped defensively (can't happen while levels stay monotone — terminal
+	// implies read — but a mask over the shell's cwd must never win a race
+	// against that invariant).
+	for _, h := range hide {
+		h = strings.Trim(filepath.ToSlash(h), "/")
+		if h == "" || h == rel ||
+			strings.HasPrefix(rel+"/", h+"/") || strings.HasPrefix(h+"/", rel+"/") {
+			continue
+		}
+		binds = append(binds, sandbox.Bind{Dst: filepath.Join(root, filepath.FromSlash(h)), Mask: true, RO: true})
+	}
 	return append(binds, extra...)
 }
 
@@ -494,12 +584,12 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // — a resettable dev sandbox per component (plans/component-env.md). Only one
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
-func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string, restricted bool) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
-	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds)
-	env := m.sandboxEnv(rel, netMode, homeDir, token)
+func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds, o.hide)
+	env := m.sandboxEnv(rel, o.net, homeDir, token)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
-	if gpuMode != "" && gpuMode != "none" {
-		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + gpuMode})); len(gb) > 0 {
+	if o.gpu != "" && o.gpu != "none" {
+		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {
 			binds = append(binds, gb...)
 			env = append(env, genv...)
 		}
@@ -519,7 +609,7 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		// plane has no masks, so no guards.
 		MountGuard: rel != "",
 		// Non-admin user terminals additionally get the ns/cap lockdown (D18).
-		Restricted: restricted && rel != "",
+		Restricted: o.restricted && rel != "",
 	}
 	if rel != "" {
 		spec.ReadGuard = &sandbox.ReadGuardSpec{
@@ -554,7 +644,7 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		envKey = "" // someone else holds it → ephemeral, no persistence this session
 	}
 
-	switch netMode {
+	switch o.net {
 	case NetHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
 	case NetNone:
@@ -578,7 +668,7 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		if err := h.SetupUserns(); err != nil {
 			slog.Warn("terminal sandbox: userns setup", "err", err)
 		}
-		if netMode != NetInternet || !h.NeedsRelay() {
+		if o.net != NetInternet || !h.NeedsRelay() {
 			return nil
 		}
 		fd, err := h.RecvTUN()

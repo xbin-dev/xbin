@@ -549,6 +549,23 @@ func TestMultiUser(t *testing.T) {
 		t.Errorf("bob admin tile: %d, want 200", code)
 	}
 
+	// Tile access tiers (D16): the map shape works over the API, read level
+	// makes the tile visible, and the terminal pre-gate stays closed below
+	// terminal level (alice above covers the legacy array shape → write).
+	if c := root("POST", "/api/xbin/users", `{"id":"carol","role":"user","tiles":{"apps/welcome":"read"},"password":"carol-pw3"}`); c != 200 {
+		t.Fatalf("create carol (tiers shape): %d", c)
+	}
+	carolC, ok := login("carol", "carol-pw3")
+	if !ok {
+		t.Fatal("carol login failed")
+	}
+	if code := as(carolC, "/c/apps/welcome/"); code != 200 {
+		t.Errorf("carol read-level tile: %d, want 200", code)
+	}
+	if code := as(carolC, "/ws/term?cwd=apps/welcome"); code != 403 {
+		t.Errorf("carol read-level terminal: %d, want 403", code)
+	}
+
 	if c := root("DELETE", "/api/xbin/users/alice", ""); c != 200 {
 		t.Fatal("delete alice failed")
 	}

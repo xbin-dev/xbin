@@ -1231,12 +1231,28 @@ export class BxAdmin extends LitElement {
   }
 
   // ---- users ----
+  // Tiles are per-path access levels (read < write < terminal, D16), written
+  // "apps/chat=terminal, lib/*=read"; a bare path means write.
+  _parseTilesSpec(s) {
+    const tiles = {};
+    for (const part of (s || '').split(',')) {
+      const t = part.trim(); if (!t) continue;
+      const [path, level] = t.split('=').map((x) => x.trim());
+      if (path) tiles[path] = level || 'write';
+    }
+    return tiles;
+  }
+  _tilesSpec(tiles) {
+    return Object.entries(tiles || {}).map(([p, l]) => `${p}=${l}`).join(', ');
+  }
   async _createUser(f) {
-    const tiles = f.tiles.value.split(',').map((s) => s.trim()).filter(Boolean);
     try {
       await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
-          tiles, terminal: f.terminal.checked, password: f.password.value }) });
+          tiles: this._parseTilesSpec(f.tiles.value),
+          canCreate: f.create.value.split(',').map((s) => s.trim()).filter(Boolean),
+          termApi: f.termApi.checked, termNet: f.termNet.checked,
+          password: f.password.value }) });
       f.reset(); this._err = ''; this._refresh(); // only clear the form on success
     } catch (e) { this._err = String(e.message ?? e); }
   }
@@ -1255,10 +1271,21 @@ export class BxAdmin extends LitElement {
     } catch (e) { this._err = String(e.message ?? e); }
   }
   async _editTiles(u) {
-    const v = prompt(`Allowed tiles for ${u.id} (comma-separated paths or prefix/*; * = all):`,
-      (u.tiles || []).join(', '));
+    const v = prompt(
+      `Tile access for ${u.id} — "path=level" per entry, levels read|write|terminal; `
+      + `a bare path = write; prefix/* and * work (e.g. "apps/chat=terminal, lib/*=read"):`,
+      this._tilesSpec(u.tiles));
     if (v == null) return;
-    this._patchUser(u.id, { tiles: v.split(',').map((s) => s.trim()).filter(Boolean) });
+    try { await this._patchUser(u.id, { tiles: this._parseTilesSpec(v) }); this._err = ''; }
+    catch (e) { this._err = String(e.message ?? e); }
+  }
+  async _editCreate(u) {
+    const v = prompt(
+      `Create permission for ${u.id} — path patterns they may create tiles under `
+      + `(e.g. "sales/*"; creating auto-grants them terminal on the new tile):`,
+      (u.canCreate || []).join(', '));
+    if (v == null) return;
+    this._patchUser(u.id, { canCreate: v.split(',').map((s) => s.trim()).filter(Boolean) });
   }
   async _delUser(id) {
     if (!confirm(`Delete user ${id}? Their sessions are revoked immediately.`)) return;
@@ -1322,23 +1349,28 @@ export class BxAdmin extends LitElement {
     return html`
       <h4>users</h4>
       <table>
-        <tr><th>id</th><th>name</th><th>role</th><th>tiles</th><th>terminal</th><th></th></tr>
+        <tr><th>id</th><th>name</th><th>role</th><th>access</th><th></th></tr>
         ${users.length ? users.map((u) => html`<tr>
           <td class="mono">${u.id}</td>
           <td>${u.name}</td>
           <td><span class="pill">${u.role}</span></td>
           <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
-            : (u.tiles || []).length ? (u.tiles || []).map((t) => html`<span class="pill">${t}</span>`)
-            : html`<span class="muted">none</span>`}</td>
-          <td>${u.terminal || u.role === 'admin' ? '✓' : ''}</td>
+            : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill">${p}·${l}</span>`)}
+              ${(u.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
+              ${u.termApi ? html`<span class="pill">term-api</span>` : nothing}
+              ${u.termNet ? html`<span class="pill">term-net</span>` : nothing}
+              ${!Object.keys(u.tiles || {}).length && !(u.canCreate || []).length
+                ? html`<span class="muted">none</span>` : nothing}`}</td>
           <td style="text-align:right; white-space:nowrap">
             <button class="act" @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote' : 'make admin'}</button>
             ${u.role === 'admin' ? nothing : html`<button class="act" @click=${() => this._editTiles(u)}>tiles</button>
-              <button class="act" @click=${() => this._patchUser(u.id, { terminal: !u.terminal })}>${u.terminal ? '− term' : '+ term'}</button>`}
+              <button class="act" @click=${() => this._editCreate(u)}>create</button>
+              <button class="act" @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? '− api' : '+ api'}</button>
+              <button class="act" @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? '− net' : '+ net'}</button>`}
             <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
             <button class="act rm" @click=${() => this._delUser(u.id)}>del</button>
           </td>
-        </tr>`) : html`<tr><td class="muted" colspan="6">no users — the root token is the only admin. Add one below.</td></tr>`}
+        </tr>`) : html`<tr><td class="muted" colspan="5">no users — the root token is the only admin. Add one below.</td></tr>`}
       </table>
 
       <h4>add user</h4>
@@ -1346,13 +1378,19 @@ export class BxAdmin extends LitElement {
         <input name="id" placeholder="username" size="12" required>
         <input name="name" placeholder="display name" size="14">
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
-        <input name="tiles" placeholder="apps/chat, lib/*  (blank = none)" size="22">
-        <label class="muted" style="font-size:11px"><input type="checkbox" name="terminal"> terminal</label>
+        <input name="tiles" placeholder="apps/chat=terminal, lib/*=read" size="24">
+        <input name="create" placeholder="create: sales/*" size="14">
+        <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
+        <label class="muted" style="font-size:11px"><input type="checkbox" name="termNet"> term-net</label>
         <input name="password" type="password" placeholder="password (min 8)" size="12" minlength="8" required>
         <button class="act go">create</button>
       </form>
       <p class="muted" style="font-size:11px;margin-top:6px">
-        Terminal = a <b>root shell</b> in a tile's directory; grant it only to trusted users.</p>
+        Tile access levels: <b>read</b> = see the tile + its source · <b>write</b> = edit/drive it ·
+        <b>terminal</b> = a root shell in its directory (grant to trusted users only).
+        <b>create</b> lets the user scaffold tiles under a path (they get terminal on what they create).
+        A non-admin's terminals run restricted: no live tile-API token without <b>term-api</b>,
+        no internet egress without <b>term-net</b>.</p>
 
       ${this._signInSecurityView()}`;
   }

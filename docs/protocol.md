@@ -111,10 +111,18 @@ PUT    /prefs/<key>               set it (body = JSON value)
 DELETE /prefs/<key>               remove it
                                   (each principal reads/writes only its own
                                    bucket; the shell stores layout here)
-GET    /users                     admin or xbin:users. [{id,name,role,tiles,terminal}]
-POST   /users                     admin/xbin:users. create {id,name,role,tiles,terminal,password}
-                                   (id: [a-z0-9._-], immutable; password ≥ 8)
-PATCH  /users/<id>                admin/xbin:users. update fields (+password reset)
+GET    /users                     admin or xbin:users. [{id,name,role,
+                                   tiles:{path:level}, canCreate, termApi,
+                                   termNet}] — levels read|write|terminal
+                                   (docs/auth.md, D16)
+POST   /users                     admin/xbin:users. create {id,name,role,
+                                   tiles:{path:level}, canCreate?, termApi?,
+                                   termNet?, password}
+                                   (id: [a-z0-9._-], immutable; password ≥ 8;
+                                   the legacy body — tiles array + terminal
+                                   bool — is still accepted and migrated)
+PATCH  /users/<id>                admin/xbin:users. update — present fields
+                                   overlay (+password reset)
 DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
                                    hasAdminUser, canDisable} — owner-token
@@ -126,11 +134,14 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
                                    disabling requires a signed-in admin user
                                    (Bearer owner token unaffected)
 
-POST   /create                     owner, or an element granted target
-                                   "xbin" at role writer (workspace
-                                   management). body {path, runtime?, title?,
-                                   expose?} → {path, files}. Same scaffolder
-                                   as `bx new`; never overwrites.
+POST   /create                     owner/admin, a user whose canCreate
+                                   covers the path (creating auto-grants
+                                   them terminal on it — docs/auth.md), or
+                                   an element granted target "xbin" at role
+                                   writer (workspace management). body
+                                   {path, runtime?, title?, expose?} →
+                                   {path, files}. Same scaffolder as
+                                   `bx new`; never overwrites.
 POST   /clone                      xbin:writer (as /create). body {from, to}
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
@@ -301,17 +312,24 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 
 ## WebSockets
 
-### `/ws/term` — terminals (admins + terminal-flagged users)
+### `/ws/term` — terminals (admins + users with a terminal-level tile)
 
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
-the caller can use, mounts its creator's `$HOME`, and carries a per-session
-`XBIN_TOKEN` scoped to that tile (plans/terminal-tokens.md). Under `--isolate`
-the workspace mounts read-only (all tiles' source) with `.xbin/`, `data/`, and
-other users' `homes/` **masked out** (docs/isolation.md), so the terminal can't
-read the owner token or resource state. **The root terminal (no cwd) is
-disabled** — 403 for everyone. Reattach/kill of another user's session: admins
-only. New-session query params (all optional):
+where the caller's access level is **terminal** (docs/auth.md), mounts its
+creator's `$HOME`, and carries a per-session `XBIN_TOKEN` scoped to that tile
+(plans/terminal-tokens.md). Under `--isolate` the workspace mounts read-only
+(all tiles' source — for a non-admin, minus tiles below their read level,
+which are masked out) with `.xbin/`, `data/`, and other users' `homes/`
+**masked out** (docs/isolation.md), so the terminal can't read the owner
+token or resource state. **The root terminal (no cwd) is disabled** — 403 for
+everyone. Reattach/kill of another user's session: admins only.
+
+For a **non-admin**, the query params below are clamped rather than honored
+(docs/isolation.md): `api` is forced to `0` without the `termApi` grant,
+`net` is forced to `none` without `termNet`, and `net=host` is admin-only
+always. The session still opens; the `session` control frame reports the
+effective scope. New-session query params (all optional):
 
 - `?api=0` — mint **no** terminal token: the shell sees code but every tile/xbin
   API call is unauthorized (default `1`).

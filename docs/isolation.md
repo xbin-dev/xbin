@@ -123,6 +123,21 @@ tier — while still running `apt`:
   shell can't raise those limits back — it can neither nest a userns nor reach
   `mount`. A seccomp filter denying the namespace-creating syscalls backs this up
   on kernels where the knob doesn't take (see `plans/DECISIONS.md` D18).
+- **Source visibility cut to the allow-list.** An admin's terminal sees every
+  tile's source read-only; a non-admin's masks out each tile below their
+  `read` level (docs/auth.md) — the same rule the tile list applies, enforced
+  at the mount level. Sealed covers: nothing can be re-mounted over them.
+- **Code-only and airgapped by default.** Without the user's `termApi` grant
+  the session is minted with **no** tile-API token (the `?api=1` toggle is
+  clamped); without `termNet`, no internet egress (`?net=` is clamped to
+  `none`) — the exfiltration path that makes source masking matter. `host`
+  networking never leaves the admin plane. The session still opens either
+  way — an ungranted user gets a working, airgapped, code-only shell.
+- **Resource limits.** Where xbind's cgroup is delegated (see *Resource
+  limits* below), each restricted session lives in its own cgroup leaf with
+  the same memory/pids/CPU caps as a tile backend — a runaway build or fork
+  bomb degrades that one shell, not the workspace. (Admin terminals stay
+  unlimited; dev builds are hungry.)
 
 The trade-off: a restricted terminal can't run rootless podman, nested `bwrap`,
 or Chromium's own userns sandbox (use `--no-sandbox` there). The mount + read

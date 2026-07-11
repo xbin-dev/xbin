@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -63,7 +64,10 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["id"] = p.User.ID
 		out["name"] = p.User.Name
 		out["role"] = p.User.Role
-		out["tiles"] = p.User.Tiles
+		out["tiles"] = p.User.Tiles // path→level map (D16)
+		out["canCreate"] = p.User.CanCreate
+		out["termApi"] = p.CanTermAPI()
+		out["termNet"] = p.CanTermNet()
 	case p.Owner:
 		out["kind"] = "root"
 		out["id"] = "root"
@@ -96,12 +100,21 @@ func (b *Broker) apiUsersList(w http.ResponseWriter, r *http.Request) {
 }
 
 type userBody struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Role     string   `json:"role"`
-	Tiles    []string `json:"tiles"`
-	Terminal bool     `json:"terminal"`
-	Password string   `json:"password"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+	// Tiles is either the current shape (a path→level map, levels
+	// read|write|terminal — D16) or the legacy allow-list array; users.ParseTiles
+	// normalizes, so pre-tiers clients (an old admin tile) keep working.
+	Tiles json.RawMessage `json:"tiles"`
+	// Terminal is the legacy global flag. With an array Tiles it picks the
+	// migrated level (write vs terminal); alone on PATCH it re-levels the
+	// user's existing entries (the old ±term toggle).
+	Terminal  *bool    `json:"terminal"`
+	CanCreate []string `json:"canCreate"`
+	TermAPI   *bool    `json:"termApi"`
+	TermNet   *bool    `json:"termNet"`
+	Password  string   `json:"password"`
 }
 
 // minPasswordLen is the floor for account passwords set through the API. It's
@@ -142,9 +155,16 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
 		return
 	}
+	tiles, err := users.ParseTiles(body.Tiles, body.Terminal != nil && *body.Terminal)
+	if err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	u, err := st.Upsert(users.User{
 		ID: body.ID, Name: firstNonEmpty(body.Name, body.ID), Role: body.Role,
-		Tiles: body.Tiles, Terminal: body.Terminal,
+		Tiles: tiles, CanCreate: body.CanCreate,
+		TermAPI: body.TermAPI != nil && *body.TermAPI,
+		TermNet: body.TermNet != nil && *body.TermNet,
 	}, body.Password)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -167,8 +187,10 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
 		return
 	}
-	// Start from current, overlay provided fields (only password if non-empty).
-	body := userBody{ID: cur.ID, Name: cur.Name, Role: cur.Role, Tiles: cur.Tiles, Terminal: cur.Terminal}
+	// Start from current, overlay provided fields (string fields by prefill;
+	// tiles/flags by presence — absent keeps the current value, and password
+	// only when non-empty).
+	body := userBody{ID: cur.ID, Name: cur.Name, Role: cur.Role}
 	if err := decodeJSON(r, &body); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
 		return
@@ -180,9 +202,43 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	u, err := st.Upsert(users.User{
-		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: body.Tiles, Terminal: body.Terminal,
-	}, body.Password)
+	tiles := cur.Tiles
+	if body.Tiles != nil {
+		var err error
+		if tiles, err = users.ParseTiles(body.Tiles, body.Terminal != nil && *body.Terminal); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	} else if body.Terminal != nil {
+		// The legacy toggle alone (the old admin tile's ±term button): re-level
+		// the user's existing entries — on raises everything to terminal, off
+		// caps terminal entries back to write.
+		tiles = make(map[string]string, len(cur.Tiles))
+		for k, v := range cur.Tiles {
+			switch {
+			case *body.Terminal:
+				tiles[k] = users.LevelTerminal
+			case v == users.LevelTerminal:
+				tiles[k] = users.LevelWrite
+			default:
+				tiles[k] = v
+			}
+		}
+	}
+	nu := users.User{
+		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: tiles,
+		CanCreate: cur.CanCreate, TermAPI: cur.TermAPI, TermNet: cur.TermNet,
+	}
+	if body.CanCreate != nil {
+		nu.CanCreate = body.CanCreate
+	}
+	if body.TermAPI != nil {
+		nu.TermAPI = *body.TermAPI
+	}
+	if body.TermNet != nil {
+		nu.TermNet = *body.TermNet
+	}
+	u, err := st.Upsert(nu, body.Password)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
