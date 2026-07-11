@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv python-is-python3 \
       build-essential pkg-config passwd sudo \
       iproute2 iputils-ping traceroute dnsutils net-tools \
-      procps psmisc lsof \
+      procps psmisc lsof strace \
       jq unzip zip xz-utils file tree \
       htop netcat-openbsd socat rsync openssh-client gnupg \
       fd-find bat shellcheck zsh \
@@ -37,19 +37,17 @@ RUN mkdir -p /usr/local/node \
 # single-uid sandbox namespace only one uid is mapped, so that setuid/setgid
 # fails ("setgroups … Operation not permitted") and `apt update`/`install` break.
 # Tell apt to run as root instead — the standard fix for unprivileged containers.
-# (Terminal overlays are ephemeral, so installs last for the session.)
 #
-# Also move apt's two download working dirs off their defaults. Both ship in
-# this base image (the overlay lower), so at runtime they're "merged" dirs and
-# apt's partial/ → parent rename crosses overlay layers, failing with EXDEV
-# ("Invalid cross-device link") — /var/cache/apt/archives breaks `apt install`,
-# /var/lib/apt/lists breaks `apt update`. The replacement paths do NOT exist in
-# the base (we delete them at build end), so at runtime apt creates them fresh
-# in the writable upper and each rename stays within one layer. This fixes apt
-# without any overlay-mount options (redirect_dir on the shared overlay is
-# unsafe — it broke component backends' state).
-RUN printf 'APT::Sandbox::User "root";\nDir::Cache::Archives "/var/cache/xbin-apt";\nDir::State::Lists "/var/lib/xbin-apt-lists";\n' \
-      > /etc/apt/apt.conf.d/00xbin-no-sandbox
+# apt's `partial/ → parent` rename (both /var/cache/apt/archives and
+# /var/lib/apt/lists) fails with EXDEV ("Invalid cross-device link") on some
+# kernels when those dirs live on fuse-overlayfs. We do NOT try to dodge that by
+# relocating the dirs (a base-absent path doesn't change fuse-overlayfs's
+# cross-layer rename behavior — it was tried and regressed `apt update`).
+# Instead xbind mounts a real tmpfs over both dirs in the terminal sandbox, so
+# the rename happens on a normal filesystem and can never cross devices
+# (internal/term; docs/isolation.md). Nothing to configure here beyond the
+# sandbox-user fix; apt keeps its default paths.
+RUN printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00xbin-no-sandbox
 
 ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -85,11 +83,9 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright
 RUN npm install -g playwright @playwright/test || true \
     && (playwright install --with-deps chromium || true)
 
-# Drop every apt download working dir so /var/cache/xbin-apt and
-# /var/lib/xbin-apt-lists are ABSENT from the base (the reason the runtime rename
-# fix above works — they must be upper-only) and the image ships no build-time
-# .debs or index lists.
-RUN apt-get clean && rm -rf /var/cache/xbin-apt /var/cache/apt/archives/* /var/lib/xbin-apt-lists
+# Ship no build-time .debs or package index lists (the terminal tmpfs mounts
+# start these dirs empty at runtime anyway; keep the image lean).
+RUN apt-get clean && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
 
 # The xbin CLI (built by hack/build-rootfs.sh into the build context).
 COPY bx /usr/local/bin/bx

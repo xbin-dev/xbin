@@ -47,18 +47,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - xbind: terminal session logs now include spawn failures (ERROR + cwd) and
   exit status + uptime on session end, so a shell that dies at start is
   diagnosable from the server log.
-- terminal: **`apt update` fixed** — same fuse-overlayfs cross-device rename as
-  the earlier `apt install` fix, but for apt's *other* working dir. Relocated
-  `Dir::State::Lists` to `/var/lib/xbin-apt-lists` (base-absent → upper-only at
-  runtime), so the `partial/ → parent` rename stays within one layer. Needs a
-  `make rootfs` rebuild.
-- terminal: **other tiles' resource (resenc) mounts no longer appear in
-  `mount`.** The earlier detach-based attempt could never work — the sandbox is
-  a rootless user namespace, which locks inherited mounts, so `umount2` from
-  inside fails. Fixed properly by binding the workspace **non-recursively**, so
-  the resenc submounts are never cloned into the terminal. `$HOME`/component are
-  plain dirs (re-bound rw), so their contents still come through. Ships with
-  xbind. (docs/isolation.md.)
+- terminal: **`apt` fully fixed** (`apt update` + `apt install`) — the real
+  cause of the `rename … Invalid cross-device link` was **not** fuse-overlayfs
+  but the terminal's Landlock read guard: on an ABI-2+ kernel, enforcing any
+  Landlock ruleset denies *reparenting* (cross-directory rename/link) with
+  EXDEV unless the ruleset handles `LANDLOCK_ACCESS_FS_REFER`. The read guard
+  handled only file-reads, so apt's `partial/ → parent` rename failed on every
+  filesystem. The guard now handles + grants REFER on the same paths it already
+  allows reading, so cross-directory renames work while secret reads stay
+  denied. Ships with xbind — **no `make rootfs` needed** (the earlier apt
+  working-dir relocation was treating the wrong cause and is reverted in the
+  next base image, which also adds `strace`). (docs/isolation.md.)
 - terminal: **restricted tier for non-admin users** (isolation.md). A shell
   opened by a non-admin user drops `CAP_SYS_ADMIN`/`CAP_SYS_RESOURCE` (+ other
   privileged caps) but keeps the file caps `apt` needs, and its user namespace

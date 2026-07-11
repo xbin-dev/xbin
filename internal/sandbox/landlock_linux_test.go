@@ -26,19 +26,25 @@ func TestReadGuardKernelInstall(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(os.MkdirAll(filepath.Join(root, "allowed"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, "allowed", "sub"), 0o755))
 	must(os.MkdirAll(filepath.Join(root, ".xbin"), 0o755))
 	must(os.WriteFile(filepath.Join(root, "allowed", "f"), []byte("OK"), 0o644))
+	must(os.WriteFile(filepath.Join(root, "allowed", "sub", "moveme"), []byte("x"), 0o644))
 	must(os.WriteFile(filepath.Join(root, ".xbin", "token"), []byte("SECRET"), 0o600))
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestReadGuardChild", "-test.v")
 	cmd.Env = append(os.Environ(), "XBIN_READGUARD_CHILD=1", "XBIN_READGUARD_ROOT="+root)
 	out, _ := cmd.CombinedOutput()
 	switch {
-	case bytes.Contains(out, []byte("READGUARD-OK")):
-		// secret denied, sibling allowed — the real assertion.
 	case bytes.Contains(out, []byte("READGUARD-SKIP")):
 		t.Skipf("child couldn't apply Landlock:\n%s", out)
+	case bytes.Contains(out, []byte("REFER-DENIED")):
+		// The guard broke cross-directory rename — the apt regression. Distinct
+		// message so a future breakage points straight at the REFER handling.
+		t.Fatalf("read guard denied a cross-directory rename in a granted dir "+
+			"(missing LANDLOCK_ACCESS_FS_REFER → apt's partial/->parent rename EXDEVs):\n%s", out)
+	case bytes.Contains(out, []byte("READGUARD-OK")):
+		// secret denied, sibling allowed, cross-dir rename allowed — the assertion.
 	default:
 		t.Fatalf("read guard did not deny reading the secret file:\n%s", out)
 	}
@@ -71,9 +77,17 @@ func TestReadGuardChild(t *testing.T) {
 	}
 	okAllowed := readable(filepath.Join(root, "allowed", "f"))
 	okSecret := readable(filepath.Join(root, ".xbin", "token"))
-	if okAllowed && !okSecret {
+	// Cross-directory rename WITHIN a granted hierarchy (allowed/sub → allowed):
+	// must succeed. Landlock (ABI≥2) denies reparenting with EXDEV unless the
+	// guard handles+grants REFER — the exact failure that broke `apt`. os.Rename
+	// surfaces that EXDEV (it doesn't fall back to copy the way `mv` does).
+	referErr := os.Rename(filepath.Join(root, "allowed", "sub", "moveme"), filepath.Join(root, "allowed", "moved"))
+	switch {
+	case referErr != nil:
+		fmt.Printf("REFER-DENIED %v\n", referErr)
+	case okAllowed && !okSecret:
 		fmt.Println("READGUARD-OK")
-	} else {
+	default:
 		fmt.Printf("READGUARD-FAIL allowed=%v secret=%v\n", okAllowed, okSecret)
 	}
 	os.Exit(0)

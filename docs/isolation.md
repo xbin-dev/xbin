@@ -105,8 +105,13 @@ that:
   password hashes, and other agents' credentials are unreadable regardless of
   the mount. (seccomp can't do this — it can't see an `open`'s path argument;
   Landlock enforces on the resolved path.) Directory listing, execution, and
-  writes are untouched, so collateral is nil. Best-effort: a no-op on kernels
-  without Landlock (the masks + mount guard still apply).
+  writes are untouched, so collateral is nil. The guard also explicitly grants
+  *reparenting* (`LANDLOCK_ACCESS_FS_REFER`) on every path it allows reading:
+  on an ABI-2+ kernel, enforcing any Landlock ruleset otherwise denies
+  cross-directory `rename`/`link` with `EXDEV` — which would break `apt`
+  (its `partial/ → parent` rename) and any tool that moves a file between
+  directories. Best-effort: a no-op on kernels without Landlock (the masks +
+  mount guard still apply).
 
 The admin console's **runtime** tab shows each guard's kernel support
 (*terminal guard: mount ✓ · read ✓ (ABI n)*).

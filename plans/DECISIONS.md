@@ -261,6 +261,18 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   meaningful; subdomain-per-scope (phase 5) makes it enforced.
 - **D11 — xbind restart kills terminal sessions**; `tmux` inside is the workaround.
 - **In-memory bus, at-most-once**; durability is the subscribing app's job.
+- **Terminal Landlock read guard MUST handle `LANDLOCK_ACCESS_FS_REFER`** — on an
+  ABI-2+ kernel (5.19+), enforcing *any* Landlock ruleset denies reparenting
+  (cross-directory `rename`/`link`) with `EXDEV` unless REFER is handled AND
+  granted on both source and destination, regardless of what the ruleset
+  otherwise restricts. The read guard handling only `READ_FILE` silently broke
+  `apt` (its `partial/ → parent` rename) and every tool that moves a file
+  across directories — misdiagnosed for three commits as a fuse-overlayfs
+  cross-layer rename (it fails identically on tmpfs; the overlay was never the
+  cause). Fix: handle REFER and grant it on the same hierarchies as READ_FILE
+  (access-neutral, so no escalation; secrets stay ungranted). Do NOT drop REFER
+  from the read guard's access mask. (`internal/sandbox/landlock_linux.go`,
+  TestReadGuardKernelInstall; docs/isolation.md.)
 - **Terminal resource-mount (resenc) names can appear in `mount`** — the tile
   terminal binds the workspace with a RECURSIVE bind, which is the only option:
   a rootless userns locks every inherited mount, so the resenc gocryptfs

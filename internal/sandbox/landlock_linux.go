@@ -19,14 +19,27 @@ import (
 // argument of openat — so we use Landlock, a VFS-level, unprivileged,
 // inherited-across-execve filesystem sandbox.
 //
-// It restricts exactly one right, LANDLOCK_ACCESS_FS_READ_FILE, and grants it
-// on everything the shell legitimately reads (the whole rootfs, all tile
-// source, the own $HOME) — but NOT on the workspace's .xbin/data/homes. So
-// reading those files' *contents* (the owner token, vault, password hashes,
-// other users' agent credentials) is denied at the kernel, independent of the
-// mount. Directory listing, execution, and writes are untouched (the read-only
-// bind already scopes writes), so collateral is near zero. Best-effort: a
-// kernel without Landlock is a silent no-op (the masks + mount guard remain).
+// It restricts LANDLOCK_ACCESS_FS_READ_FILE, and grants it on everything the
+// shell legitimately reads (the whole rootfs, all tile source, the own $HOME)
+// — but NOT on the workspace's .xbin/data/homes. So reading those files'
+// *contents* (the owner token, vault, password hashes, other users' agent
+// credentials) is denied at the kernel, independent of the mount. Directory
+// listing, execution, and writes are untouched (the read-only bind already
+// scopes writes), so collateral is near zero. Best-effort: a kernel without
+// Landlock is a silent no-op (the masks + mount guard remain).
+//
+// LANDLOCK_ACCESS_FS_REFER (ABI ≥ 2) MUST be handled too, or the guard silently
+// breaks every cross-directory rename/link in the sandbox. Once ANY Landlock
+// ruleset is enforced on an ABI-2+ kernel, the kernel denies reparenting a file
+// to a different directory with EXDEV UNLESS the ruleset handles REFER and
+// grants it on both the source and destination — even if REFER is otherwise
+// unrelated to what the ruleset restricts. Without this, `apt`'s
+// `partial/ → parent` rename (and any tool that moves a file between dirs)
+// fails with "Invalid cross-device link". We therefore handle REFER and grant
+// it on the very same hierarchies as READ_FILE: since every granted path
+// carries the identical right, moving a file among them is access-neutral (no
+// escalation, which REFER forbids), while the ungranted secret dirs still can't
+// be a rename source or target. (See go-test TestReadGuardRefer; docs/isolation.md.)
 
 // DetectProtections probes the kernel for the terminal-hardening mechanisms
 // (for the admin console). Cheap, side-effect-free syscalls.
@@ -55,10 +68,20 @@ func landlockABI() int {
 // init sets it). Returns nil (no-op) when Landlock is unavailable — the caller
 // treats the guard as best-effort defense in depth.
 func installReadGuard(g *ReadGuardSpec) error {
-	if g == nil || g.Root == "" || g.Root == "/" || landlockABI() < 1 {
+	abi := landlockABI()
+	if g == nil || g.Root == "" || g.Root == "/" || abi < 1 {
 		return nil
 	}
-	attr := unix.LandlockRulesetAttr{Access_fs: unix.LANDLOCK_ACCESS_FS_READ_FILE}
+	// Handle READ_FILE always; add REFER on ABI ≥ 2 so cross-directory renames
+	// stay possible where we grant it (else the kernel EXDEVs every reparent —
+	// breaks apt; see the package doc). Both the ruleset's handled set and each
+	// path grant use this same mask, so granted paths are access-equivalent for
+	// REFER (no escalation) and the ungranted secrets remain off-limits.
+	access := uint64(unix.LANDLOCK_ACCESS_FS_READ_FILE)
+	if abi >= 2 {
+		access |= unix.LANDLOCK_ACCESS_FS_REFER
+	}
+	attr := unix.LandlockRulesetAttr{Access_fs: access}
 	fd, _, e := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET,
 		uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0)
 	if e != 0 {
@@ -67,8 +90,8 @@ func installReadGuard(g *ReadGuardSpec) error {
 	rulesetFD := int(fd)
 	defer unix.Close(rulesetFD)
 
-	// grant read-file on a path hierarchy (missing paths are skipped — a bind
-	// that isn't present just isn't granted, never an error).
+	// grant read-file (+ refer) on a path hierarchy (missing paths are skipped —
+	// a bind that isn't present just isn't granted, never an error).
 	grant := func(path string) {
 		pf, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
 		if err != nil {
@@ -76,7 +99,7 @@ func installReadGuard(g *ReadGuardSpec) error {
 		}
 		defer unix.Close(pf)
 		pb := unix.LandlockPathBeneathAttr{
-			Allowed_access: unix.LANDLOCK_ACCESS_FS_READ_FILE,
+			Allowed_access: access,
 			Parent_fd:      int32(pf),
 		}
 		_, _, _ = unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE,
