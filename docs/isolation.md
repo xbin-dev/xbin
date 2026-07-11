@@ -104,6 +104,29 @@ that:
 The admin console's **runtime** tab shows each guard's kernel support
 (*terminal guard: mount ✓ · read ✓ (ABI n)*).
 
+**Restricted terminals (non-admin users).** The guards above keep `CAP_SYS_ADMIN`
+so an admin's dev shell can still mount and nest containers. A terminal opened by
+a **non-admin** user instead gives that power up entirely — it's an untrusted
+tier — while still running `apt`:
+
+- **Caps dropped to a file-only set.** `CAP_SYS_ADMIN` (mount/namespaces) and
+  `CAP_SYS_RESOURCE` are gone, along with every other privileged cap; only the
+  file/ownership caps `dpkg` needs to unpack packages remain, so `apt install`
+  works but the shell can't reach past its own files.
+- **No new namespaces.** Dropping `CAP_SYS_ADMIN` isn't enough on its own —
+  creating an *unprivileged* user namespace needs no capability, so a capless
+  shell could `unshare -Ur` into a nested userns and get the full cap set back.
+  So init pins the terminal's userns with `/proc/sys/user/max_user_namespaces=0`
+  and `max_mnt_namespaces=0` (which block creation inside the kernel, regardless
+  of `clone`/`clone3`/`unshare`) **and then drops `CAP_SYS_RESOURCE`**, so the
+  shell can't raise those limits back — it can neither nest a userns nor reach
+  `mount`. A seccomp filter denying the namespace-creating syscalls backs this up
+  on kernels where the knob doesn't take (see `plans/DECISIONS.md` D18).
+
+The trade-off: a restricted terminal can't run rootless podman, nested `bwrap`,
+or Chromium's own userns sandbox (use `--no-sandbox` there). The mount + read
+guards still apply underneath, so this is defense in depth, not a replacement.
+
 **Honest bound.** With the masks + both guards, the secrets are unreadable from
 a tile terminal even against a deliberately adversarial shell: peeling a mask
 is blocked (seccomp) *and* reading the files is blocked independently

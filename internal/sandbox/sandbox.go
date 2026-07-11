@@ -183,6 +183,18 @@ type Spec struct {
 	// mount/read guards instead.
 	Unprivileged bool `json:"unprivileged,omitempty"`
 
+	// Restricted (set for untrusted, non-admin *user* terminals) hardens a
+	// terminal beyond the mount/read guards without breaking `apt`: init pins
+	// the user namespace to zero nested user/mount namespaces (the ucount knobs
+	// under /proc/sys/user, which block creation inside the kernel regardless of
+	// clone/clone3/unshare — immune to clone3's unfilterable flags), then drops
+	// CAP_SYS_ADMIN and CAP_SYS_RESOURCE (plus other dangerous caps) while KEEPING
+	// the file/ownership caps dpkg needs, and installs a seccomp filter denying
+	// the ns-creating syscalls as belt-and-suspenders. Net: a rogue shell can't
+	// `unshare -Ur` into a fresh userns to regain CAP_SYS_ADMIN and mount over its
+	// masks — yet `apt install` still works. (plans/DECISIONS.md D18; isolation.md.)
+	Restricted bool `json:"restricted,omitempty"`
+
 	// The following are filled by Launch (not the caller) to carry runtime wiring
 	// to the re-exec'd init:
 

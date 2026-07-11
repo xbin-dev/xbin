@@ -208,6 +208,23 @@ func runInit(specPath string) error {
 	if s.ReadGuard != nil {
 		_ = installReadGuard(s.ReadGuard) // best effort; the mount guard still applies
 	}
+	// Restricted terminals (untrusted, non-admin users): remove the shell's
+	// ability to regain privilege or escape its mounts, while keeping apt usable.
+	// Primary defense — pin this userns to zero nested user/mount namespaces;
+	// once we drop CAP_SYS_RESOURCE just below, the shell can't raise it back, and
+	// with no nested userns it can never re-acquire CAP_SYS_ADMIN. Belt-and-
+	// suspenders — a seccomp filter denying the ns-creating syscalls. ORDER IS
+	// LOAD-BEARING: write the ucount knobs (needs CAP_SYS_RESOURCE) before dropping
+	// caps; keep the file caps dpkg needs. (plans/DECISIONS.md D18.)
+	if s.Restricted {
+		setUserNSLimits() // best-effort; the seccomp below is the fallback
+		if err := dropCapsExcept(aptSafeCaps()); err != nil {
+			return must(err, "restrict caps")
+		}
+		if err := installRestrictNamespaces(); err != nil {
+			return must(err, "install ns-restrict seccomp")
+		}
+	}
 	// Tile backends: drop caps + seccomp block-list (they need neither). Order:
 	// bounding-set drop needs CAP_SETPCAP, so caps go before the filter.
 	if s.Unprivileged {
@@ -348,6 +365,21 @@ func detachUnder(dir string) {
 	sort.Slice(mps, func(i, j int) bool { return len(mps[i]) > len(mps[j]) }) // children first
 	for _, mp := range mps {
 		_ = unix.Unmount(mp, unix.MNT_DETACH)
+	}
+}
+
+// setUserNSLimits pins the current user namespace so that no NESTED user or
+// mount namespace can be created under it: max = 0 blocks unconditionally, and
+// the check lives inside create_user_ns/copy_mnt_ns — below the syscall layer —
+// so it holds for clone, clone3, and unshare alike (immune to clone3's flags
+// living in unreadable memory). Written from inside the userns while init still
+// holds CAP_SYS_RESOURCE; once that cap is dropped (dropCapsExcept, right after)
+// the shell can't raise the limit back, and with no nested userns it can never
+// re-acquire the caps to try. Best-effort: on an old kernel or a read-only
+// /proc/sys the restrictNS seccomp filter is the fallback. (plans/DECISIONS.md D18.)
+func setUserNSLimits() {
+	for _, name := range []string{"max_user_namespaces", "max_mnt_namespaces"} {
+		_ = os.WriteFile("/proc/sys/user/"+name, []byte("0"), 0)
 	}
 }
 

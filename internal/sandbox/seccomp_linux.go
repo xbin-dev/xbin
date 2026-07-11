@@ -34,13 +34,27 @@ import (
 const (
 	scOffNR         = 0
 	scOffArch       = 4
-	scOffMountFlags = 16 + 3*8
+	scOffArg0       = 16       // args[0] low word — clone/unshare flags
+	scOffMountFlags = 16 + 3*8 // args[3] low word — mount(2) flags
 )
+
+// nsCreateFlags are the clone/unshare flag bits that create a new user or mount
+// namespace — the routes a shell with dropped caps could use to `unshare -Ur`
+// into a fresh userns and regain CAP_SYS_ADMIN, or open a private mount tree.
+// Both fit the low 32 bits, so a register-arg filter can test them race-free.
+const nsCreateFlags = uint32(unix.CLONE_NEWUSER | unix.CLONE_NEWNS)
 
 // retErrnoEPERM is SECCOMP_RET_ERRNO with EPERM in the data bits — deny the
 // call but let the shell live (a KILL would nuke the terminal on a stray
 // `fusermount`/`umount`).
 const retErrnoEPERM = uint32(unix.SECCOMP_RET_ERRNO | (uint32(unix.EPERM) & unix.SECCOMP_RET_DATA))
+
+// retErrnoENOSYS denies a call as "not implemented" — used for clone3, whose
+// flags live in a memory struct the filter can't dereference. ENOSYS makes
+// glibc fall back to clone(2), whose flags ARE a register we can filter; EPERM
+// would be wrong (glibc treats it as fatal and aborts pthread_create/
+// posix_spawn → breaks apt — the Docker moby#42680 lesson). See restrictNSProgram.
+const retErrnoENOSYS = uint32(unix.SECCOMP_RET_ERRNO | (uint32(unix.ENOSYS) & unix.SECCOMP_RET_DATA))
 
 // nativeAuditArch is the AUDIT_ARCH_* token for the running architecture, or
 // (0,false) if we don't have a syscall table for it — in which case the guard
@@ -115,6 +129,50 @@ func mountGuardProgram(arch uint32) []bpf.Instruction {
 	}, true)
 }
 
+// restrictNSProgram (restricted terminals) blocks creation of new USER and
+// MOUNT namespaces, so a shell whose CAP_SYS_ADMIN/CAP_SYS_RESOURCE were dropped
+// can't `unshare -Ur` into a fresh userns and regain them (nor open a private
+// mount tree to peel its masks). This is the belt-and-suspenders layer under the
+// *primary* defense — the userns ucount knobs set to 0 (plans/DECISIONS.md D18),
+// which block creation in-kernel regardless of ABI — and also covers kernels
+// where the ucount write didn't take.
+//
+//   - clone / unshare: EPERM iff args[0] carries CLONE_NEWUSER|CLONE_NEWNS
+//     (a register arg, so this test is race-free, unlike clone3's memory flags).
+//   - clone3: ENOSYS unconditionally → glibc retries with the filterable clone().
+//   - setns: EPERM (entering a foreign ns; needs an fd + caps anyway).
+//   - everything else — incl. plain fork and thread-clone without those flags —
+//     is allowed, so normal programs and apt/dpkg are unaffected.
+//
+// A foreign-ABI call is killed (as the other guards do); the primary ucount knob
+// is ABI-independent, so any exotic-ABI gap here is still covered there.
+func restrictNSProgram(arch uint32) []bpf.Instruction {
+	const (
+		iFlag   = 9  // flags-check block
+		iEPERM  = 12 // deny (has ns flags, or setns)
+		iAllow2 = 13 // allow (flags-check fall-through)
+		iENOSYS = 14 // clone3
+	)
+	jmp := func(from, to int) uint8 { return uint8(to - from - 1) }
+	return []bpf.Instruction{
+		/* 0  */ bpf.LoadAbsolute{Off: scOffArch, Size: 4},
+		/* 1  */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: arch, SkipTrue: 1}, // native → skip kill
+		/* 2  */ bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_KILL_PROCESS)},
+		/* 3  */ bpf.LoadAbsolute{Off: scOffNR, Size: 4},
+		/* 4  */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_CLONE3), SkipTrue: jmp(4, iENOSYS)},
+		/* 5  */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_CLONE), SkipTrue: jmp(5, iFlag)},
+		/* 6  */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_UNSHARE), SkipTrue: jmp(6, iFlag)},
+		/* 7  */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(unix.SYS_SETNS), SkipTrue: jmp(7, iEPERM)},
+		/* 8  */ bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_ALLOW)}, // default: allow
+		/* 9  */ bpf.LoadAbsolute{Off: scOffArg0, Size: 4}, // iFlag: load clone/unshare flags
+		/* 10 */ bpf.ALUOpConstant{Op: bpf.ALUOpAnd, Val: nsCreateFlags},
+		/* 11 */ bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0, SkipTrue: jmp(11, iAllow2)}, // no ns flags → allow
+		/* 12 */ bpf.RetConstant{Val: retErrnoEPERM}, // iEPERM
+		/* 13 */ bpf.RetConstant{Val: uint32(unix.SECCOMP_RET_ALLOW)}, // iAllow2
+		/* 14 */ bpf.RetConstant{Val: retErrnoENOSYS}, // iENOSYS
+	}
+}
+
 // backendDeny is the block-list for tile backends: privileged / system-damaging
 // syscalls no element server needs (mount family, module/kexec/reboot, device
 // nodes, ptrace, bpf, keyrings, time/quota/accounting). Defense in depth on top
@@ -139,7 +197,8 @@ func backendDeny() []uint32 {
 // installMountGuard / installBackendSeccomp install the respective filter on the
 // calling thread (inherited across execve). Require no_new_privs (init sets it).
 // No-op on architectures without a known syscall table.
-func installMountGuard() error { return installFilter(mountGuardProgram) }
+func installMountGuard() error         { return installFilter(mountGuardProgram) }
+func installRestrictNamespaces() error { return installFilter(restrictNSProgram) }
 func installBackendSeccomp() error {
 	return installFilter(func(arch uint32) []bpf.Instruction { return denyProgram(arch, backendDeny(), false) })
 }
@@ -177,6 +236,52 @@ func dropAllCaps() error {
 	var data [2]unix.CapUserData // all zero: no eff/perm/inh
 	if err := unix.Capset(&hdr, &data[0]); err != nil {
 		return fmt.Errorf("capset(clear): %w", err)
+	}
+	return nil
+}
+
+// aptSafeCaps is the capability keep-set for a restricted terminal: the file /
+// ownership caps dpkg needs to unpack packages as root, and nothing that grants
+// mount, namespace, module, trace, or resource-limit power. So `apt install`
+// keeps working while the shell can't reach past its own files. Notably absent:
+// CAP_SYS_ADMIN (mount/namespaces) and CAP_SYS_RESOURCE (which would let the
+// shell raise the userns ucount limit back — see setUserNSLimits / D18).
+func aptSafeCaps() []int {
+	return []int{
+		unix.CAP_CHOWN, unix.CAP_DAC_OVERRIDE, unix.CAP_DAC_READ_SEARCH,
+		unix.CAP_FOWNER, unix.CAP_FSETID, unix.CAP_MKNOD, unix.CAP_SETFCAP,
+		unix.CAP_SETGID, unix.CAP_SETUID, unix.CAP_SYS_CHROOT,
+		unix.CAP_KILL, unix.CAP_NET_BIND_SERVICE,
+	}
+}
+
+// dropCapsExcept drops every capability except keep from the bounding set (so
+// none can be regained across execve) and sets the effective/permitted/
+// inheritable sets to exactly keep. Because a restricted terminal runs as uid 0
+// in its userns, the kept caps that remain in the bounding set are what the
+// exec'd shell receives (the euid-0 execve rule). One-way: the caller must have
+// already used any cap it's dropping — in particular it must write the userns
+// ucount limits (needs CAP_SYS_RESOURCE) *before* calling this.
+func dropCapsExcept(keep []int) error {
+	keepSet := make(map[int]bool, len(keep))
+	for _, c := range keep {
+		keepSet[c] = true
+	}
+	// Bounding-set drops need CAP_SETPCAP, still held in effective here.
+	for c := 0; c <= unix.CAP_LAST_CAP; c++ {
+		if !keepSet[c] {
+			_ = unix.Prctl(unix.PR_CAPBSET_DROP, uintptr(c), 0, 0, 0)
+		}
+	}
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3, Pid: 0}
+	var data [2]unix.CapUserData
+	for _, c := range keep {
+		data[c>>5].Effective |= 1 << (uint(c) & 31)
+		data[c>>5].Permitted |= 1 << (uint(c) & 31)
+		data[c>>5].Inheritable |= 1 << (uint(c) & 31)
+	}
+	if err := unix.Capset(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("capset(keep): %w", err)
 	}
 	return nil
 }

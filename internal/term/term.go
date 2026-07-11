@@ -188,7 +188,10 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "your account doesn't have access to this tile's terminal", http.StatusForbidden)
 			return
 		}
-		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID, apiAccess)
+		// Non-admin users get the restricted-terminal lockdown (D18): no nested
+		// user/mount namespaces, dangerous caps dropped (apt still works). Admins
+		// and the owner keep full caps for dev work.
+		s, err = m.create(cwd, netMode, gpuMode, homeKey, p.UserID, apiAccess, !p.IsAdmin())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -232,7 +235,7 @@ func (m *Manager) List() []map[string]any {
 	return out
 }
 
-func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAccess bool) (*Session, error) {
+func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAccess, restricted bool) (*Session, error) {
 	dir := m.Root
 	rel := ""
 	if cwd != "" {
@@ -287,7 +290,7 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 		}
 	}
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir, token)
+	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, netMode, gpuMode, homeDir, token, restricted)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -332,9 +335,9 @@ func (m *Manager) create(cwd, netMode, gpuMode, homeKey, userID string, apiAcces
 // relay, and the persistent env-layer key this session holds ("" = none).
 // homeDir is the session user's $HOME (homes/<user>); token the per-session
 // terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none).
-func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir, token string) (*exec.Cmd, func(), func() *relay.Relay, string) {
+func (m *Manager) shellCmd(dir, rel, netMode, gpuMode, homeDir, token string, restricted bool) (*exec.Cmd, func(), func() *relay.Relay, string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir, token); err == nil {
+		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, netMode, gpuMode, homeDir, token, restricted); err == nil {
 			return cmd, cleanup, post, envKey
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
@@ -492,7 +495,7 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // — a resettable dev sandbox per component (plans/component-env.md). Only one
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
-func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string, restricted bool) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
 	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds)
 	env := m.sandboxEnv(rel, netMode, homeDir, token)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
@@ -516,6 +519,8 @@ func (m *Manager) sandboxShell(dir, rel, netMode, gpuMode, homeDir, token string
 		// reading the secret files even if a mask is peeled. The (disabled) root
 		// plane has no masks, so no guards.
 		MountGuard: rel != "",
+		// Non-admin user terminals additionally get the ns/cap lockdown (D18).
+		Restricted: restricted && rel != "",
 	}
 	if rel != "" {
 		spec.ReadGuard = &sandbox.ReadGuardSpec{

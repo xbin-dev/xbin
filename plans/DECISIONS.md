@@ -185,6 +185,50 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   Session-open gates: `CanUseTile(cwd)`; the **root terminal is disabled**
   (whole-ws editing + owner automation live on the host). Deleting a user
   kills their live shells' API access. `plans/terminal-tokens.md`.
+- **D16 — Per-tile access tiers + a create permission** (planned RBAC refinement,
+  `plans/multi-user.md`). Replace the flat `Tiles []string` allow-list + global
+  `Terminal bool` with per-tile levels **read < write < terminal** (monotone:
+  terminal⊇write⊇read) — `read` = see the tile + its source (the visibility gate,
+  D17), `write` = edit/drive it, `terminal` = a shell on it — plus a **prefix-
+  scoped `CanCreate`** (`sales/*`, reusing the existing `prefix/*` syntax; "create"
+  ≈ "own a namespace"). Creating a tile auto-grants the creator `terminal` on it.
+  Rationale: a mixed dev/sales/exec team needs finer grants than "use or not."
+  Migration is trivial (prod is one admin = all); loader upgrades `Tiles`→`write`
+  and `Terminal:true`→`terminal`, accepting both shapes and rewriting on save
+  (D15-style). Not yet implemented — sequenced after D17's source-visibility.
+- **D17 — Non-admin terminals are locked down by default** (mixed-tenant hygiene;
+  each gates on `!IsAdmin()`, so admin/owner terminals are unchanged and — since
+  prod is single-admin — these are dormant until non-admin users exist):
+  (a) **source visibility scoped to the allow-list** — bind only tiles the user
+  may access + shared SDK, mask the rest (today every terminal sees all source);
+  (b) **`api=0` by default** — no live-tile token unless explicitly granted;
+  (c) **`net=none` by default** — no internet egress (the exfil path that makes
+  (a) matter); (d) **cgroup + disk limits** on the terminal (survive-incompetence).
+  D18 is the kernel-level half of this. (a)/(b)/(c)/(d) staged incrementally.
+- **D18 — Restricted terminals block namespace re-privilege via ucounts, not
+  clone-filtering.** For an untrusted terminal we drop `CAP_SYS_ADMIN` (mount /
+  namespaces) — but `apt` never needed it (only file caps: CHOWN/DAC_OVERRIDE/
+  FOWNER/FSETID/MKNOD/SETFCAP/SETUID/SETGID/SYS_CHROOT), so we keep those and it
+  still installs packages. The hard part: unprivileged userns creation needs *no*
+  capability, so a capless shell could `unshare -Ur` into a nested userns and
+  regain a full cap set. **Primary fix** — init writes `/proc/sys/user/max_user_
+  namespaces=0` + `max_mnt_namespaces=0` inside the terminal userns (blocks
+  creation *inside* `create_user_ns`/`copy_mnt_ns`, so it's immune to `clone3`'s
+  in-memory flags that seccomp can't read), **then drops `CAP_SYS_RESOURCE`** so
+  the shell can't raise the limit back — a closed loop (can't raise it, can't
+  escape to a userns to try). **Belt-and-suspenders** — a seccomp filter EPERMs
+  `clone`/`unshare`(NEWUSER|NEWNS)/`setns` and ENOSYS's `clone3` (the systemd/
+  Docker `RestrictNamespaces` recipe; **ENOSYS not EPERM**, or glibc aborts
+  `pthread_create`→apt, per moby#42680). **Rejected:** seccomp user-notify
+  (unsound — its own man page forbids security use; TOCTOU on the re-read of
+  clone3's memory) and ptrace `RET_TRACE` (sound only single-threaded; a hostile
+  sibling races the same window). **Considered/deferred:** BPF-LSM `userns_create`
+  (6.1+, per-cgroup) — clean but no mount-ns hook, needs `lsm=bpf`/reboot/host-root;
+  the ucount knob is upstream, LSM-free, and covers both. Cost: restricted
+  terminals can't run rootless podman / nested `bwrap` / Chrome's userns sandbox
+  (`--no-sandbox`) — acceptable for the untrusted tier; dev/admin keep full caps.
+  Researched in depth (three agents; man pages + kernel `ucount.c`/`user_
+  namespace.c` + moby/systemd sources). `internal/sandbox` + `docs/isolation.md`.
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
 - **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,

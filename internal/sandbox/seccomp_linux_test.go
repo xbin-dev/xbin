@@ -29,6 +29,74 @@ func seccompData(nr int, arch uint32, mountFlags uint64) []byte {
 	return b
 }
 
+// seccompDataArg0 is like seccompData but puts flags in args[0] — the clone(2)/
+// unshare(2) flags argument that restrictNSProgram inspects.
+func seccompDataArg0(nr int, arch uint32, arg0 uint64) []byte {
+	b := make([]byte, 64)
+	binary.BigEndian.PutUint32(b[0:], uint32(nr))
+	binary.BigEndian.PutUint32(b[4:], arch)
+	binary.BigEndian.PutUint32(b[scOffArg0:], uint32(arg0)) // args[0] low word = clone/unshare flags
+	return b
+}
+
+// TestRestrictNSProgram pins the namespace-restrict filter: clone/unshare that
+// create a user or mount namespace are EPERM'd, clone3 is ENOSYS'd (so glibc
+// falls back to the filterable clone), setns is denied, and ordinary spawns /
+// syscalls are allowed. Foreign ABI is killed. The whole security argument for
+// dropping CAP_SYS_ADMIN on a restricted terminal rests on this being right.
+func TestRestrictNSProgram(t *testing.T) {
+	arch, ok := nativeAuditArch()
+	if !ok {
+		t.Skipf("no audit arch for GOARCH=%s", runtime.GOARCH)
+	}
+	vm, err := bpf.NewVM(restrictNSProgram(arch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(nr int, a uint32, arg0 uint64) uint32 {
+		v, err := vm.Run(seccompDataArg0(nr, a, arg0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return uint32(v)
+	}
+	allow, eperm, enosys := uint32(unix.SECCOMP_RET_ALLOW), retErrnoEPERM, retErrnoENOSYS
+	newuser, newns := uint64(unix.CLONE_NEWUSER), uint64(unix.CLONE_NEWNS)
+
+	cases := []struct {
+		name string
+		nr   int
+		arg0 uint64
+		want uint32
+	}{
+		// clone3: always ENOSYS — flags are unreachable in memory, so the only safe
+		// move is to make glibc retry via clone (even a NEWUSER "ptr" is ignored).
+		{"clone3", unix.SYS_CLONE3, 0, enosys},
+		{"clone3 w/ newuser-looking arg", unix.SYS_CLONE3, newuser, enosys},
+		// clone/unshare creating a user or mount ns → denied.
+		{"clone NEWUSER", unix.SYS_CLONE, newuser, eperm},
+		{"clone NEWNS", unix.SYS_CLONE, newns, eperm},
+		{"clone NEWUSER|SIGCHLD", unix.SYS_CLONE, newuser | 17, eperm},
+		{"unshare NEWUSER", unix.SYS_UNSHARE, newuser, eperm},
+		{"unshare NEWNS", unix.SYS_UNSHARE, newns, eperm},
+		{"setns", unix.SYS_SETNS, 0, eperm},
+		// Ordinary spawns / syscalls → allowed (apt, shells, threads keep working).
+		{"clone thread", unix.SYS_CLONE, uint64(unix.CLONE_VM | unix.CLONE_FS | unix.CLONE_FILES), allow},
+		{"clone fork (SIGCHLD)", unix.SYS_CLONE, 17, allow},
+		{"unshare files only", unix.SYS_UNSHARE, uint64(unix.CLONE_FILES), allow},
+		{"read", unix.SYS_READ, 0, allow},
+		{"mount (not this filter's job)", unix.SYS_MOUNT, 0, allow},
+	}
+	for _, c := range cases {
+		if got := run(c.nr, arch, c.arg0); got != c.want {
+			t.Errorf("%s: got %#x, want %#x", c.name, got, c.want)
+		}
+	}
+	if got := run(unix.SYS_READ, arch^0xFF, 0); got != uint32(unix.SECCOMP_RET_KILL_PROCESS) {
+		t.Errorf("foreign arch: got %#x, want kill", got)
+	}
+}
+
 // TestMountGuardProgram runs the filter in a userspace VM over synthetic
 // syscalls, pinning exactly which calls it denies — the security-critical
 // logic, validated without needing the (privileged, locally-flaky) sandbox.
@@ -160,4 +228,52 @@ func TestMountGuardChild(t *testing.T) {
 	} else {
 		fmt.Println("GUARD-FAIL umount2 not denied:", err)
 	}
+}
+
+// TestRestrictNSKernelInstall installs the ns-restrict filter in a child and
+// checks the real kernel denies namespace creation — same no-privilege trick as
+// the mount-guard test, so it runs in normal CI without the full sandbox.
+func TestRestrictNSKernelInstall(t *testing.T) {
+	if _, ok := nativeAuditArch(); !ok {
+		t.Skip("unsupported arch")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRestrictNSChild", "-test.v")
+	cmd.Env = append(os.Environ(), "XBIN_NSGUARD_CHILD=1")
+	out, _ := cmd.CombinedOutput()
+	switch {
+	case bytes.Contains(out, []byte("NSGUARD-OK")):
+		// filter installed and the kernel denied setns + unshare(NEWUSER).
+	case bytes.Contains(out, []byte("install:")), bytes.Contains(out, []byte("no_new_privs:")):
+		t.Skipf("environment won't let a process install a seccomp filter:\n%s", out)
+	default:
+		t.Fatalf("ns-restrict filter did not deny in a real process:\n%s", out)
+	}
+}
+
+// TestRestrictNSChild is the child half: install the filter, then confirm the
+// kernel turns setns and unshare(CLONE_NEWUSER) into EPERM. setns(-1) is the
+// tell — unfiltered it's EBADF, so EPERM proves the filter is live regardless of
+// whether the host even allows unprivileged userns.
+func TestRestrictNSChild(t *testing.T) {
+	if os.Getenv("XBIN_NSGUARD_CHILD") != "1" {
+		t.Skip("child-only helper (spawned by TestRestrictNSKernelInstall)")
+	}
+	runtime.LockOSThread() // seccomp (mode filter) binds the calling thread
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		fmt.Println("NSGUARD-FAIL no_new_privs:", err)
+		return
+	}
+	if err := installRestrictNamespaces(); err != nil {
+		fmt.Println("NSGUARD-FAIL install:", err)
+		return
+	}
+	if err := unix.Setns(-1, 0); err != unix.EPERM { // unfiltered → EBADF
+		fmt.Println("NSGUARD-FAIL setns not denied:", err)
+		return
+	}
+	if err := unix.Unshare(unix.CLONE_NEWUSER); err != unix.EPERM {
+		fmt.Println("NSGUARD-FAIL unshare(NEWUSER) not denied:", err)
+		return
+	}
+	fmt.Println("NSGUARD-OK")
 }

@@ -10,6 +10,16 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-11
+
+- terminal: **restricted tier for non-admin users** (isolation.md). A shell
+  opened by a non-admin user drops `CAP_SYS_ADMIN`/`CAP_SYS_RESOURCE` (+ other
+  privileged caps) but keeps the file caps `apt` needs, and its user namespace
+  is pinned so no nested user/mount namespace can be created — so it can't
+  regain privilege via `unshare -Ur` or mount over its masks. Admin/owner
+  terminals are unchanged (full caps for dev work). Ships with xbind; dormant
+  until non-admin users exist. (plans/DECISIONS.md D18.)
+
 ## 2026-07-10
 
 - terminal: **resource mounts no longer leak in `mount`.** A tile terminal
