@@ -246,6 +246,62 @@ because your code and `$HOME` are bind mounts, not part of the overlay. Reset
 needs `terminal` level on the tile; resetting the (disabled) root layer is
 admin-only.
 
+## How tiles and terminals share the filesystem
+
+Three planes touch a tile's files, and they compose along **three different
+axes** — this is the subtle part, so here it is in one place.
+
+**The tile source is one real directory, shared live.** A terminal's own-tile
+bind (`{Src: root/<tile>, RO: false}`) and the backend's source bind
+(`{Src: <tile>, RO: true}`) point at the **same real path** under the
+workspace — not copies. So the loop closes on itself: you edit a file in the
+terminal, the same bytes are what the backend reads, the workspace watcher
+fires (300 ms debounce), the registry rescans, and the backend rebuilds and
+blue/green-swaps ([03-components.md](03-components.md)). That is the whole
+"editing plane feeds the runtime plane" mechanism — no sync step, no copy.
+Every principal with `terminal` on the tile writes that same directory (last
+write wins on disk, then a rebuild); the backend only ever reads it.
+
+**`apt install` in a terminal does *not* reach the backend.** They live in
+different overlays. A terminal's system changes land in the tile's persistent
+dev layer (above); the backend gets the base rootfs plus the read-only **env
+layer** built from `setup` ([08-sandbox.md](08-sandbox.md)) and a throwaway
+upper. The only paths that cross from terminal to backend are the tile
+directory (shared, above) and brokered resources — never installed packages or
+`/etc` edits. Move anything the backend needs into `setup`.
+
+**The dev layer is per *tile*, not per *user*.** Its key is the component path
+alone — so two users with `terminal` access to the same tile contend for one
+`.xbin/term/<tile>` layer: whoever opens first holds it, the other gets an
+ephemeral upper that session. When the holder closes, the next session — *even
+a different user* — inherits that layer: their `apt` installs, their `/etc`
+tweaks, and any file they wrote **outside** the tile dir and `$HOME` (into
+`/opt`, `/var`, `/tmp`, …). The layer belongs to the tile's dev box, not to a
+person. `$HOME` is the opposite: keyed per user, so credentials and dotfiles
+never cross between users on the same tile. (In a single-owner workspace this
+is all one human; it matters once a tile has terminal access from more than
+one user — e.g. a shared org tile.)
+
+| What | Scoped by | Shared across | Backend sees it? |
+|------|-----------|---------------|------------------|
+| Tile **source** (`<tile>/…`) | the tile | everyone with `terminal` on the tile — one real dir | **yes**, read-only → triggers rebuild |
+| Dev **layer** (`.xbin/term/<tile>`: apt, `/etc`, stray writes) | the tile | **all users** of that tile (serially; one live holder, rest ephemeral) | no — separate overlay |
+| **`$HOME`** (`homes/<user>`) | the **user** | that user's terminals on **every** tile | no — a private bind |
+| Other tiles' source | — | read-only if within your read level; masked otherwise (D17a) | n/a |
+| Secrets (`.xbin`, `data`, other homes) | — | nobody (masked + read-guarded) | no |
+
+So: **source is per-tile-and-live**, **the dev layer is per-tile-across-users**,
+**`$HOME` is per-user-across-tiles**. Three axes, three answers — and the
+backend shares exactly one of them (source, read-only).
+
+> **Cross-user dev-layer sharing is a design choice, not an accident** — the
+> layer models "this tile's dev box," which is a property of the tile. It does
+> mean a lower-trust user with terminal access to a shared tile inherits and can
+> read a higher-trust user's *system-level* artifacts on that tile (never their
+> `$HOME`). If per-user isolation of the dev layer is ever wanted, the layer key
+> would move from the tile to `(tile, user)` — at the cost of every user
+> re-installing per-tile apt deps. Recorded as an open design point.
+
 ## Base images and their lifecycle
 
 The sandbox lower is a base rootfs directory. Because a persistent upper records

@@ -134,7 +134,7 @@ model itself.
 | `.xbin/build/<comp~key>/bin` | Go build outputs |
 | `.xbin/cache/` | shared build caches (`go-build`) |
 | `.xbin/env/<comp~key>/<hash>/` | built `setup` environment layers, keyed by script+rootfs hash |
-| `.xbin/term/<key>/` | persistent per-tile terminal dev layers (overlay upper + base-image pin) |
+| `.xbin/term/<key>/` | persistent per-tile terminal dev layers (overlay upper + base-image pin). Keyed by tile, **not** by user — shared across every user's terminals on that tile ([09-terminals.md](09-terminals.md) §How tiles and terminals share the filesystem) |
 | `.xbin/resenc/<scope~key>/<name>` | **decrypted** gocryptfs mountpoints for encrypted resources |
 | `.xbin/docs/` | the builder docs extracted to disk so terminals read them as files (`$XBIN_DOCS`) |
 | `.xbin/builtins.json`, `.xbin/builtins/<id>/` | builtin-update provenance + pristine base snapshots ([14-lifecycle.md](14-lifecycle.md)) |
@@ -194,7 +194,8 @@ The tree at a glance, as a trust table (enforcement details:
 | workspace `xbin.json` | xbind (grant/binding APIs) | readable everywhere the workspace is — the capability table is deliberately visible |
 | `data/resources/<scope>/` | broker + granted same-scope backends (rw bind) | not from terminals (masked); cross-scope only through service APIs |
 | `data/users.json`, `data/vault/`, `.xbin/token`, `.xbin/secret` | xbind only | nowhere else: masked in terminals **and** Landlock read-denied even if a mask were peeled |
-| `homes/<user>/` | that user's terminals | only that user's terminals; masked for everyone else |
+| `homes/<user>/` | that user's terminals | only that user's terminals (on any tile); masked for everyone else |
+| `.xbin/term/<tile>/` (dev layer: apt, `/etc`, stray writes) | terminals on that tile — **any** user with `terminal` access | later terminals on the same tile, **including other users**; never a backend ([09-terminals.md](09-terminals.md)) |
 | `.xbin/log/`, `.xbin/build/`, `.xbin/env/` | xbind (runner) | logs via the gated logs API/tab; the rest is daemon-internal |
 | `.xbin/run` (tmpfs) | xbind + backends (sockets) | bind-mounted into sandboxes; sockets only |
 
