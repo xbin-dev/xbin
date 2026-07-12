@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-12
+
+- Terminal window: a **read-only "logs" tab** (the ▤ button next to `>_`
+  `{ }` `⇋`) streams the tile backend's captured stdout/stderr live —
+  rendered in an xterm view for ANSI colors + scrollback, no input. It's
+  gated exactly like the tile's terminal (admin, the tile itself, or a
+  **terminal-level** user — read/write users don't get it, since backend
+  output can carry secrets), so it only appears where a shell would. Backed
+  by `GET /api/xbin/logs?component=<p>[&tail=<bytes>][&follow=1]` (text/plain
+  tail + chunked follow; the HTTP twin of `bx logs -f`) — see protocol.md.
+
 ## 2026-07-11
 
 - **Organizations & teams** (docs/auth.md → "Organizations & teams"): GitHub-

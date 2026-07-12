@@ -203,6 +203,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTiles(srv)
 	b.registerTemplates(srv)
 	b.registerUsers(srv)
+	b.registerLogs(srv)
 	b.registerPrefs(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin

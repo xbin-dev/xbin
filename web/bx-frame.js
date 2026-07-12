@@ -26,6 +26,7 @@ import { repeat } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
+import '/vendor/bx-logs.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -471,7 +472,7 @@ export class BxFrame extends LitElement {
   // so its session survives; bx-code mounts lazily on first non-'term' view.
   _setLayout(l) {
     this._layout = l;
-    if (l !== 'term' && this._pop && this._pop.w < 760) {
+    if ((l === 'code' || l === 'split') && this._pop && this._pop.w < 760) {
       this._pop = { ...this._pop, w: 960 }; // widen for the code panel
       this._saveTerm?.();
     }
@@ -545,6 +546,8 @@ export class BxFrame extends LitElement {
                       @click=${() => this._setLayout('code')}>{ }</button>
               <button class=${this._layout === 'split' ? 'on' : ''} title="code + terminal side by side"
                       @click=${() => this._setLayout('split')}>⇋</button>
+              <button class=${this._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
+                      @click=${() => this._setLayout('logs')}>▤</button>
             </span>
             <span class="spacer"></span>
             <select class="scope" title="network scope (switching restarts the terminal)"
@@ -577,10 +580,11 @@ export class BxFrame extends LitElement {
                     @click=${() => { this._termOpen = false; }}>✕</button>
           </div>
           <div class="panels">
-            ${this._layout !== 'term' ? html`<bx-code src=${this.src}
+            ${this._layout === 'code' || this._layout === 'split' ? html`<bx-code src=${this.src}
                 style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
-            <div class="term-host" style="display:${this._layout === 'code' ? 'none' : 'flex'}; flex-direction:column">
+            ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
+            <div class="term-host" style="display:${this._layout === 'term' || this._layout === 'split' ? 'flex' : 'none'}; flex-direction:column">
             ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
                 cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}

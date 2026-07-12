@@ -87,6 +87,16 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    quota,blocked}, alerts[]. Readable from that
                                    tile's terminal (tile-scoped token). `bx
                                    status` renders it.
+GET    /logs?component=<p>         admin, the tile itself, or a user with
+                                   TERMINAL-level access on it (read/write
+                                   users don't — output can carry secrets).
+                                   text/plain tail of the backend's captured
+                                   stdout/stderr (.xbin/log/<key>.log, all
+                                   generations). ?tail=<bytes> (default 64K,
+                                   max 1M) sizes it; ?follow=1 keeps streaming
+                                   appended bytes (chunked) until the client
+                                   goes away. The HTTP twin of `bx logs [-f]`;
+                                   the terminal window's read-only logs tab.
 GET    /auth-overview              admin. components(+roles/uses/vault), grants,
                                    pending, counts — powers the admin console
 GET    /vaults                     admin. [{component, keys}] across all vaults
