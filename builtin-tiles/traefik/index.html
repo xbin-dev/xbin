@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Public HTTPS (Traefik)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: var(--bx-font, 13px/1.5 system-ui, sans-serif);
+         color: var(--bx-text, #33414e); background: var(--bx-panel, #fff);
+         margin: 0; padding: 14px 16px; }
+  h1 { font-size: 14px; margin: 0 0 2px; }
+  h2 { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+       color: var(--bx-muted, #8794a1); margin: 16px 0 6px; }
+  .muted { color: var(--bx-muted, #8794a1); }
+  .err { color: var(--bx-red, #e5484d); }
+  .ok  { color: var(--bx-green, #43a047); }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  td, th { text-align: left; padding: 3px 10px 3px 0;
+           border-top: 1px solid var(--bx-border, #e4e8ed); }
+  th { border-top: none; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--bx-muted, #8794a1); }
+  code, .mono { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 11.5px; }
+  input[type=email] { font: inherit; padding: 3px 7px; border: 1px solid var(--bx-border, #e4e8ed);
+          border-radius: 5px; background: var(--bx-panel, #fff); color: inherit; min-width: 210px; }
+  button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer;
+           border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel-2, #f7f8fa);
+           color: inherit; }
+  label { margin-right: 12px; }
+  form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+</style>
+</head>
+<body>
+  <h1>Public HTTPS — Traefik ingress terminator</h1>
+  <div class="muted">Publish a tile: <code>bx expose apps/blog web=<span id="self"></span> --host blog.example.com</code>
+    (or the admin tile → interfaces → ingress). Point the domain's DNS at this server.</div>
+
+  <h2>Status</h2>
+  <div id="status" class="muted">loading…</div>
+
+  <h2>ACME / TLS</h2>
+  <form id="settings">
+    <input type="email" id="email" placeholder="ACME account email (Let's Encrypt)">
+    <label><input type="checkbox" id="staging"> staging (test certs, no rate limits)</label>
+    <label><input type="checkbox" id="notls"> plain :80 only (TLS handled in front)</label>
+    <button type="submit">save</button>
+  </form>
+
+  <h2>Routes served here</h2>
+  <table id="routes"><tr><th>public host</th><th>→ tile</th><th>zone</th></tr></table>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const self = xbin.self;
+  $('self').textContent = self;
+  const api = async (p, opt) => {
+    const r = await xbin.fetch(`/api/${self}${p}`, opt);
+    if (!r.ok) throw new Error((await r.text()) || r.status);
+    return r.status === 204 ? null : r.json();
+  };
+  async function refresh() {
+    try {
+      const s = await api('/state');
+      $('status').innerHTML =
+        `${s.running ? '<span class="ok">traefik running</span>' : '<span class="err">traefik not running</span>'}`
+        + ` · ${s.routes?.length ?? 0} route(s) · ${s.settings?.noTls ? 'plain HTTP mode' : (s.acmeReady ? 'ACME TLS on' : 'TLS pending setup')}`
+        + (s.error ? ` · <span class="err">${s.error}</span>` : '');
+      $('email').value = s.settings?.email ?? '';
+      $('staging').checked = !!s.settings?.staging;
+      $('notls').checked = !!s.settings?.noTls;
+      const t = $('routes');
+      t.querySelectorAll('tr:not(:first-child)').forEach((r) => r.remove());
+      for (const r of s.routes ?? []) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="mono">${r.host}</td><td class="mono">${r.component}.${r.slot}</td>`
+          + `<td class="muted">${r.zone ?? ''}</td>`;
+        t.appendChild(tr);
+      }
+      if (!(s.routes ?? []).length) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="muted" colspan="3">nothing published through this terminator yet</td>`;
+        t.appendChild(tr);
+      }
+    } catch (e) { $('status').innerHTML = `<span class="err">${e.message ?? e}</span>`; }
+  }
+  $('settings').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      await api('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: $('email').value.trim(), staging: $('staging').checked, noTls: $('notls').checked }) });
+      setTimeout(refresh, 500);
+    } catch (e) { $('status').innerHTML = `<span class="err">${e.message ?? e}</span>`; }
+  });
+  refresh();
+  setInterval(refresh, 10_000);
+</script>
+</body>
+</html>

@@ -39,6 +39,12 @@ Environment=XBIN_SDK_PATH=/opt/xbin/sdk
 # 0600) for auto-unseal. Leave the file absent to unseal manually after login —
 # the leading '-' makes it optional.
 EnvironmentFile=-/etc/xbin/xbin.env
+# Publishing tiles (docs/ingress.md) is opt-in. To turn the builtin public
+# HTTP listener on, set XBIN_INGRESS_LISTEN=:8080 (+ XBIN_INGRESS_CERT/KEY
+# for BYO TLS) in /etc/xbin/xbin.env. Binding host ports below 1024 —
+# the Traefik terminator tile's :80/:443, or any low stream port — needs:
+#   AmbientCapabilities=CAP_NET_BIND_SERVICE
+# (uncomment; it grants ONLY low-port binding, nothing else).
 ExecStart=/opt/xbin/bin/xbind --isolate --rootfs /opt/xbin/rootfs --workspace /opt/xbin/workspace --listen 127.0.0.1:8642
 Restart=on-failure
 RestartSec=2

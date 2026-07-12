@@ -1,0 +1,42 @@
+{
+  // Traefik ingress terminator — the batteries-included PUBLIC HTTPS door
+  // (plans/ingress.md, docs/ingress.md). Other tiles publish by binding their
+  // http exposes to this tile (`bx expose apps/blog web=<this tile> --host
+  // blog.example.com`); it terminates TLS with automatic Let's Encrypt (ACME)
+  // certificates and reverse-proxies each admitted request back into xbind's
+  // ingress-forward door, where the route table + public-path allowlist decide
+  // what reaches which tile. ACME/cert lifecycle lives HERE, in a sandboxed
+  // tile — never in the xbind daemon.
+  "runtime": "go",
+
+  // Raw :80/:443 — the tile's own exposed stream ports, published via the
+  // runtime L4 relay: `bx expose <this tile> web=runtime --listen :80` and
+  // `websecure=runtime --listen :443`. (Host ports <1024 need xbind to hold
+  // CAP_NET_BIND_SERVICE — systemd: AmbientCapabilities=CAP_NET_BIND_SERVICE.)
+  // Inside its own netns the sandbox lets it bind :80/:443 unprivileged.
+  "exposes": {
+    "web":       { "kind": "stream", "port": 80 },
+    "websecure": { "kind": "stream", "port": 443 }
+  },
+
+  // The terminator provide: http exposes of other tiles bind to this.
+  "provides": {
+    "public": { "kind": "ingress" }
+  },
+
+  // Its own egress — Let's Encrypt ACME needs the internet:
+  // `bx bind <this tile> net=internet`.
+  "interfaces": {
+    "net": { "kind": "net" }
+  },
+
+  // certs: acme.json + rendered traefik config, persisted across restarts.
+  "uses": [
+    { "target": "res:apps/traefik/certs", "role": "writer" }
+  ],
+
+  // Fetch the pinned traefik binary at env-layer build time (runs once, with
+  // net:internet, cached until this script changes). Version-pinned over
+  // https from the official release; bump V here to upgrade.
+  "setup": "set -e; V=3.1.7; A=$(dpkg --print-architecture); cd /usr/local/bin; curl -fsSLo t.tgz \"https://github.com/traefik/traefik/releases/download/v${V}/traefik_v${V}_linux_${A}.tar.gz\"; tar xzf t.tgz traefik; rm t.tgz; chmod +x traefik; ./traefik version"
+}

@@ -167,7 +167,7 @@ func TestNetBindingCeiling(t *testing.T) {
 	if nb := b.netBinding("apps/o/sales/bot"); nb != "internet" {
 		t.Fatalf("baseline binding = %q, want internet", nb)
 	}
-	if err := b.validateBinding("apps/o/sales/bot", "net", []string{"internet"}); err != nil {
+	if err := b.validateBinding("apps/o/sales/bot", "net", registry.BindTo("internet")); err != nil {
 		t.Fatalf("baseline validateBinding: %v", err)
 	}
 
@@ -178,7 +178,7 @@ func TestNetBindingCeiling(t *testing.T) {
 	if nb := b.netBinding("apps/o/sales/bot"); nb != "" {
 		t.Fatalf("denied binding must resolve to none, got %q", nb)
 	}
-	err = b.validateBinding("apps/o/sales/bot", "net", []string{"internet"})
+	err = b.validateBinding("apps/o/sales/bot", "net", registry.BindTo("internet"))
 	if err == nil || !strings.Contains(err.Error(), "denies net") {
 		t.Fatalf("validateBinding should refuse with the row named, got %v", err)
 	}

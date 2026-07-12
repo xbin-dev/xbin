@@ -94,6 +94,13 @@ func Caller(r *http.Request) CallerInfo {
 	return CallerInfo{From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner"}
 }
 
+// Ingress reports whether the request is anonymous PUBLIC traffic that
+// arrived through a published endpoint (docs/ingress.md). Such requests
+// carry no role and reach only the paths declared public in the manifest's
+// "exposes"; the app owns any further auth on them. The public hostname it
+// arrived on rides in X-XBin-Ingress-Host.
+func (c CallerInfo) Ingress() bool { return c.From == "ingress" }
+
 // roleRank orders the conventional role names. Custom roles are exact-match.
 func roleRank(role string) int {
 	switch role {

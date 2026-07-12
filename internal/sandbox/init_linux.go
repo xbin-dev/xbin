@@ -216,6 +216,10 @@ func runInit(specPath string) error {
 	// Bring loopback up in our own netns (skip when sharing the host's).
 	if !s.HostNet {
 		upLoopback()
+		// Let the (capability-less, post-drop) backend bind ANY port inside its
+		// own netns — :80/:443 for an ingress terminator tile (plans/ingress.md).
+		// Scoped to this netns only; the host's port privilege is untouched.
+		_ = os.WriteFile("/proc/sys/net/ipv4/ip_unprivileged_port_start", []byte("0"), 0)
 	}
 
 	// Lock down and become the backend.

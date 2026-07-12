@@ -68,6 +68,8 @@ export class BxAdmin extends LitElement {
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
+    _ingress: { state: true },  // {exposes, routes, streams, …} — published endpoints
+    _ingEdit: { state: true },  // per-row route edits before publish (comp\x00slot → {…})
     _schedules: { state: true }, // [{component, schedule, retention}]
     _versions: { state: true },  // comp -> [{version,time,size}] (lazy)
     _verOpen: { state: true },   // set of comps whose version list is expanded
@@ -964,8 +966,10 @@ export class BxAdmin extends LitElement {
 
   // ---- interfaces (typed capability wiring; plans/interfaces.md) ----
   async _loadIfaces() {
-    try { this._ifaces = await api('/bindings'); this._err = ''; }
-    catch (e) { this._err = String(e.message ?? e); }
+    try {
+      const [b, ing] = await Promise.all([api('/bindings'), api('/ingress')]);
+      this._ifaces = b; this._ingress = ing; this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
   }
   async _bindSet(component, slot, provider) {
     try {
@@ -1058,7 +1062,114 @@ export class BxAdmin extends LitElement {
             </select></td></tr>`;
         })}
         ${requests.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces</td></tr>` : nothing}
-      </table>`;
+      </table>
+      ${this._ingressView()}`;
+  }
+
+  // ---- ingress (published endpoints; plans/ingress.md) ----
+  _ingKey(comp, slot) { return comp + '\x00' + slot; }
+  _ingEditFor(e) {
+    // The working row state: pending edits over the current binding.
+    return this._ingEdit?.[this._ingKey(e.component, e.slot)]
+      ?? { source: e.source || '', host: e.host || '', zone: e.zone || '', listen: e.listen || '' };
+  }
+  _ingSetEdit(e, patch) {
+    const k = this._ingKey(e.component, e.slot);
+    this._ingEdit = { ...(this._ingEdit || {}), [k]: { ...this._ingEditFor(e), ...patch } };
+  }
+  async _ingPublish(e) {
+    const ed = this._ingEditFor(e);
+    if (!ed.source) return;
+    const body = { component: e.component, slot: e.slot, provider: ed.source };
+    if (e.kind === 'http') {
+      // Exactly one of host/zone — send whichever is filled (server validates).
+      if (ed.zone) body.zone = ed.zone; else body.host = ed.host;
+    } else if (ed.listen) body.listen = ed.listen;
+    try {
+      await api('/bindings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const k = this._ingKey(e.component, e.slot);
+      const { [k]: _, ...rest } = this._ingEdit || {}; this._ingEdit = rest;
+      await this._loadIfaces();
+    } catch (err) { this._err = String(err.message ?? err); }
+  }
+  async _ingUnpublish(e) {
+    try {
+      await api('/bindings', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ component: e.component, slot: e.slot }) });
+      await this._loadIfaces();
+    } catch (err) { this._err = String(err.message ?? err); }
+  }
+  _ingressView() {
+    const d = this._ingress;
+    if (!d) return nothing;
+    const exposes = d.exposes || [];
+    const routes = d.routes || [];
+    const streams = d.streams || [];
+    const lst = d.httpListener || {};
+    const sources = (kind) => kind === 'http'
+      ? ['runtime', ...(d.terminators || [])]
+      : ['runtime'];
+    return html`
+      <h3>Ingress — published endpoints</h3>
+      <p class="muted">Tiles declare <code>exposes</code> in their manifest; <b>binding a slot to an
+        ingress source publishes it</b> to the outside (anonymous traffic, confined to the tile's
+        declared public paths). Unbound = unreachable, exactly like interfaces.
+        See <a href="/docs/ingress.md" target="_blank">docs/ingress.md</a>.</p>
+      ${exposes.length === 0 ? html`<div class="muted">no tile declares exposes yet</div>` : html`
+      <table class="tbl">
+        <tr><th>tile</th><th>endpoint</th><th>source</th><th>route</th><th></th><th>state</th></tr>
+        ${exposes.map((e) => {
+          const ed = this._ingEditFor(e);
+          const bound = !!e.source;
+          const dirty = ed.source !== (e.source || '') || ed.host !== (e.host || '')
+            || ed.zone !== (e.zone || '') || ed.listen !== (e.listen || '');
+          const endpoint = e.kind === 'http'
+            ? html`<span class="pill">http</span> <span class="muted">${(e.paths || []).join(' ')}</span>`
+            : html`<span class="pill">${e.proto}:${e.port}</span>`;
+          const routeEd = e.kind === 'http'
+            ? html`<input class="mono" style="width:12em" placeholder="host (blog.example.com)"
+                     .value=${ed.zone ? '' : ed.host} ?disabled=${!!ed.zone}
+                     @input=${(ev) => this._ingSetEdit(e, { host: ev.target.value.trim(), zone: '' })}>
+                   <input class="mono" style="width:11em" placeholder="or zone (*.sites.…)"
+                     .value=${ed.zone}
+                     @input=${(ev) => this._ingSetEdit(e, { zone: ev.target.value.trim() })}>`
+            : html`<input class="mono" style="width:8em" placeholder=":${e.port} (host port)"
+                     .value=${ed.listen}
+                     @input=${(ev) => this._ingSetEdit(e, { listen: ev.target.value.trim() })}>`;
+          let state = html`<span class="muted">unbound — not reachable</span>`;
+          if (e.blocked) state = html`<span class="st-failed">⛔ ${e.blocked}</span>`;
+          else if (bound && e.kind === 'http') state = html`<span class="st-healthy">public: ${e.zone || e.host}</span>`;
+          else if (bound) {
+            const st = streams.find((s) => s.component === e.component && s.slot === e.slot);
+            state = st?.error ? html`<span class="st-failed">⚠ ${st.error}</span>`
+              : html`<span class="st-healthy">host ${e.listen || ':' + e.port} → :${e.port}${st ? ` (${st.active} active)` : ''}</span>`;
+          }
+          return html`<tr>
+            <td class="mono">${e.component}</td><td>${e.slot} ${endpoint}</td>
+            <td><select ?disabled=${!!e.blocked} @change=${(ev) => this._ingSetEdit(e, { source: ev.target.value })}>
+              <option value="" ?selected=${!ed.source}>— unbound —</option>
+              ${sources(e.kind).map((s) => html`<option value=${s} ?selected=${ed.source === s}>${s}</option>`)}
+            </select></td>
+            <td>${routeEd}</td>
+            <td>
+              ${ed.source && (dirty || !bound) ? html`<button class="act go" @click=${() => this._ingPublish(e)}>publish</button>` : nothing}
+              ${bound ? html`<button class="act rm" @click=${() => this._ingUnpublish(e)}>unpublish</button>` : nothing}
+            </td>
+            <td>${state}</td></tr>`;
+        })}
+      </table>`}
+      ${routes.length ? html`
+        <h4>Live routes</h4>
+        <table class="tbl">
+          <tr><th>public host</th><th>→ tile</th><th>via</th></tr>
+          ${routes.map((r) => html`<tr>
+            <td class="mono">${r.host}</td>
+            <td class="mono">${r.component}.${r.slot}</td>
+            <td>${r.source}${r.zone ? html` <span class="muted">(zone ${r.zone})</span>` : nothing}</td></tr>`)}
+        </table>` : nothing}
+      <div class="muted" style="margin-top:.5em">
+        builtin HTTP listener: ${lst.listen ? `${lst.listen} (${lst.tls ? 'TLS' : 'no TLS — front it, or use the traefik tile'})` : 'off — start xbind with --ingress-listen'}
+      </div>`;
   }
 
   // ---- backup (plans/lifecycle.md) ----

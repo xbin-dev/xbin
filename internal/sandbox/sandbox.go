@@ -76,6 +76,16 @@ type NetClient struct {
 	Addr string `json:"addr"` // provider-side link address, e.g. "10.42.0.1/30"
 }
 
+// NetLink is one extra addressed link on the CLIENT side — a service tile's
+// lan-ingress leg into a net provider's subnet (plans/ingress.md ING-6). The
+// init creates a TUN per entry (address, no default route) and hands the fd
+// to xbind, which splices it to the provider's matching client link.
+type NetLink struct {
+	Provider string `json:"provider"` // the net-provider tile terminating this link
+	Slot     string `json:"slot"`     // the client's lan-ingress interface slot
+	Addr     string `json:"addr"`     // client-side link address, e.g. "10.43.0.2/30"
+}
+
 // Bind is one mount into the sandbox root.
 //
 // When Mask is set, Src is ignored and Dst is instead covered with an empty
@@ -157,6 +167,9 @@ type Spec struct {
 	// hands each fd to xbind, which splices it to that client's egress TUN. The
 	// egress TUN fd is sent first, then these in order.
 	NetClients []NetClient `json:"netClients,omitempty"`
+	// NetLinks are this component's own lan-ingress legs into provider tiles
+	// (fd-passing order: egress TUN, NetClients, then these).
+	NetLinks []NetLink `json:"netLinks,omitempty"`
 
 	// HostNet skips the network namespace entirely — the process shares the host
 	// network (unrestricted). For the owner plane (terminals), not components.

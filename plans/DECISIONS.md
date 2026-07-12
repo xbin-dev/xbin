@@ -346,7 +346,67 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **D12 — Playwright e2e only JS tooling, dev-side only.**
 - **Nested-frame reload targeting** — longest-prefix match, most-specific frame only.
 - **Reserved namespace** — component id `xbin`; top-level `vendor`, `data`,
-  `.xbin`, `home`; URL prefixes `/c/ /api/ /ws/ /vendor/ /healthz`.
+  `.xbin`, `home`; URL prefixes `/c/ /api/ /ws/ /vendor/ /healthz`; since
+  ingress: `ingress` (the public-caller From identity) and `runtime` (the
+  builtin ingress source).
+
+### Ingress (2026-07-12, from `plans/ingress.md` — implemented)
+
+- **ING-1 — `exposes` manifest section + config-carrying bindings.** A third
+  direction on the binding graph: `exposes` declares endpoints offered to
+  the OUTSIDE (`http` with a public-paths allowlist; `stream` with
+  proto/port); the owner binds each slot to an ingress source (`runtime` or
+  a terminator tile), and the binding CARRIES the route config
+  (`BindRef{ref, host|zone|listen}` — bare refs still marshal as plain
+  strings, full back-compat). Unexposed/unbound = unreachable (today's
+  default-deny preserved). Declaring is agent-writable and inert; binding
+  is admin-only.
+- **ING-2 — hostname authority at bind: exact host or delegated zone.** An
+  http binding grants either one exact hostname or a wildcard zone
+  (`*.sites.example.com`) within which the tile self-registers concrete
+  hosts at runtime (`PUT /ingress-hosts`, self-scoped like iface-instances,
+  refused outside the zone, conflict-checked). The owner draws the boundary
+  once; no per-host approval queue; a tile can never claim
+  `bank.example.com`.
+- **ING-3 — two HTTP terminators, one route table.** A minimal builtin
+  second listener in xbind (`--ingress-listen`, BYO/no TLS — for
+  Tailscale/LB/dev; public traffic never shares the console listener) and
+  the Traefik builtin tile (ACME/Let's Encrypt TLS in a sandboxed tile;
+  certs in its own resource — ACME never in the daemon). Both consult the
+  same broker-computed routes; a terminator tile hands requests back on a
+  per-tile forward unix socket (reached via a relay gateway forward —
+  possession of the socket IS the attribution) and can only route hosts
+  bound through it.
+- **ING-4 — L4 = userspace relay first; the egress relay is also the
+  inbound door.** A tile's gVisor egress stack doubles as its ingress path:
+  `relay.DialIn` dials from the host side into the netns over the existing
+  TUN (source = the gateway IP) — no setns, no extra fds, no privilege. A
+  bound stream expose forces the TUN+relay plumbing with a DENY-ALL egress
+  policy (and no DNS) for ingress-only tiles. Host listeners (tcp splice /
+  udp idle-expiring sessions) reconcile against bindings; unbinding severs
+  live flows. Kernel veth/DNAT fast-path deferred. Non-isolated tiers dial
+  127.0.0.1 (backends live on the host there).
+- **ING-5 — the `ingress` principal is structural.** Anonymous public
+  traffic enters only on the ingress listeners, reaches exactly the one
+  bound tile, only its declared public paths (path-cleaned before matching),
+  with all inbound `X-XBin-*` stripped, the workspace session cookie
+  removed, `X-XBin-From: ingress` + `X-XBin-Ingress-Host` injected, and no
+  route to `/api/xbin/*` or siblings. `ingress`/`runtime` are reserved
+  component names so the identity can't be spoofed. A new policy-ceiling
+  deny kind `ingress` makes tiles unpublishable (refused at bind AND inert
+  at evaluation).
+- **ING-6 — net-tile inbound = `lan-ingress` links; hairpin =
+  split-horizon.** A service tile binds a `lan-ingress` interface to a
+  router/VPN provider tile and gets a second addressed TUN leg
+  (10.43/16 /30s, the inbound twin of the 10.42/16 egress splice links);
+  the provider routes to it (an L3 link — the provider is the filter, it
+  holds cap:net-admin). Published hostnames resolve inside egress relays to
+  a hairpin VIP (10.0.2.4) whose flows short-circuit into the ingress path
+  (same anonymous principal) — never a real out-and-back; no-egress tiles
+  get no hairpin. Direct tile→tile TCP is a `stream` interface bound to a
+  sibling's exposed slot (`provider#slot` → `XBIN_IFACE_<slot>_ADDR` via a
+  per-slot gateway forward), so intra-workspace consumers skip ingress
+  entirely.
 
 ---
 

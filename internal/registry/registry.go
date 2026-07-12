@@ -66,11 +66,16 @@ type Manifest struct {
 	// to others (e.g. a firewall tile provides a "net" interface). Keyed by slot.
 	Interfaces map[string]Iface `json:"interfaces,omitempty"`
 	Provides   map[string]Iface `json:"provides,omitempty"`
+	// Exposes are endpoints offered to the OUTSIDE world (plans/ingress.md):
+	// http endpoints routed by hostname through an ingress terminator, and
+	// stream (tcp/udp) ports relayed from a host port. Keyed by slot; bound by
+	// the owner like interfaces (unbound = unreachable, today's default-deny).
+	Exposes map[string]ExposeDef `json:"exposes,omitempty"`
 }
 
 // Iface declares one interface slot (requested or provided).
 type Iface struct {
-	Kind    string `json:"kind"`              // net | http | gpu | resource
+	Kind    string `json:"kind"`              // net | http | gpu | resource | stream | lan-ingress | ingress (provide)
 	Service string `json:"service,omitempty"` // for kind=http: the service contract (e.g. "openai")
 	// Role is which exposed role a kind=http PROVIDER grants bound requesters
 	// (so the binding is also the call grant). Defaults to "reader".
@@ -84,6 +89,69 @@ type Iface struct {
 	// registers concrete instances at runtime (PUT /api/xbin/iface-instances),
 	// each addressable as "<provider>#<instance>" in bindings.
 	Instances bool `json:"instances,omitempty"`
+}
+
+// ExposeDef is one entry of a manifest "exposes" map: an endpoint the
+// component offers to the OUTSIDE world (plans/ingress.md). Declaring it is
+// inert — the endpoint becomes reachable only when the owner binds the slot
+// to an ingress source (the `runtime` builtin or a terminator tile).
+type ExposeDef struct {
+	Kind string `json:"kind"` // http | stream
+	// Paths (kind=http) is the public path allowlist: exact paths, or
+	// subtree patterns ending in "/*" ("/*" publishes everything). Requests
+	// outside it are refused at the terminator — default-deny.
+	Paths []string `json:"paths,omitempty"`
+	// Proto/Port (kind=stream): the L4 protocol (tcp default, or udp) and the
+	// in-netns port the backend listens on (ordinary net.Listen).
+	Proto string `json:"proto,omitempty"`
+	Port  int    `json:"port,omitempty"`
+}
+
+// ValidateExposes checks a manifest's exposes section; the error names the
+// offending slot (surfaced by bx doctor and refused at bind time).
+func ValidateExposes(m Manifest) error {
+	for slot, def := range m.Exposes {
+		if _, dup := m.Interfaces[slot]; dup {
+			return fmt.Errorf("exposes slot %q collides with an interfaces slot of the same name", slot)
+		}
+		switch def.Kind {
+		case "http":
+			if len(def.Paths) == 0 {
+				return fmt.Errorf("exposes.%s: kind=http needs a non-empty \"paths\" allowlist (use [\"/*\"] to publish everything)", slot)
+			}
+			for _, p := range def.Paths {
+				if !strings.HasPrefix(p, "/") {
+					return fmt.Errorf("exposes.%s: path %q must start with /", slot, p)
+				}
+			}
+			if def.Port != 0 || def.Proto != "" {
+				return fmt.Errorf("exposes.%s: proto/port are for kind=stream", slot)
+			}
+		case "stream":
+			if def.Port < 1 || def.Port > 65535 {
+				return fmt.Errorf("exposes.%s: kind=stream needs \"port\" (1-65535), the in-sandbox port the backend listens on", slot)
+			}
+			switch def.Proto {
+			case "", "tcp", "udp":
+			default:
+				return fmt.Errorf("exposes.%s: proto must be tcp or udp", slot)
+			}
+			if len(def.Paths) > 0 {
+				return fmt.Errorf("exposes.%s: paths are for kind=http", slot)
+			}
+		default:
+			return fmt.Errorf("exposes.%s: kind must be http or stream", slot)
+		}
+	}
+	return nil
+}
+
+// StreamProto returns a stream expose's protocol (tcp default).
+func (d ExposeDef) StreamProto() string {
+	if d.Proto == "" {
+		return "tcp"
+	}
+	return d.Proto
 }
 
 // Resource is a broker-provisioned resource declared in scope.json.
@@ -123,6 +191,11 @@ type WorkspaceManifest struct {
 	// Registered by the provider itself (PUT /api/xbin/iface-instances);
 	// addressed in bindings as "<provider>#<instance>".
 	IfaceInstances map[string]map[string]string `json:"ifaceInstances,omitempty"`
+	// IngressHosts holds the concrete hostnames a component self-registered
+	// inside a delegated zone binding (plans/ingress.md ING-2), keyed by
+	// component. Registered via PUT /api/xbin/ingress-hosts, bounded to the
+	// zones the owner bound — the runtime half of the hostname authority.
+	IngressHosts map[string][]string `json:"ingressHosts,omitempty"`
 	// Lifecycle holds each component's non-default state (plans/lifecycle.md):
 	// "disabled" | "offloaded" | "offloaded-full". Absent = enabled. Owner-managed.
 	Lifecycle map[string]string `json:"lifecycle,omitempty"`
@@ -132,10 +205,53 @@ type WorkspaceManifest struct {
 	LifecycleAt map[string]string `json:"lifecycleAt,omitempty"`
 }
 
-// Binding is the ordered provider set bound to one interface slot. The
-// common single-provider case marshals as a plain string — every pre-multi
-// workspace manifest parses unchanged and stays in its original format.
-type Binding []string
+// BindRef is one bound provider/source: the ref plus optional route config
+// (plans/ingress.md — bindings CARRY CONFIG for exposed endpoints; interface
+// bindings never set the extra fields). A config-free ref marshals as the
+// plain string it always was.
+type BindRef struct {
+	Ref string `json:"ref"` // "<provider>[#<instance>]", or an ingress source ("runtime" / a tile path)
+	// Host/Zone (http exposes): the hostname authority this binding grants —
+	// an exact public host, or a delegated wildcard zone ("*.sites.example.com")
+	// the tile registers concrete hosts within (PUT /api/xbin/ingress-hosts).
+	Host string `json:"host,omitempty"`
+	Zone string `json:"zone,omitempty"`
+	// Listen (stream exposes bound to runtime): the HOST listen address
+	// (":2456", "0.0.0.0:443"); defaults to ":<expose port>".
+	Listen string `json:"listen,omitempty"`
+}
+
+// bare reports whether the ref carries no config (marshals as a string).
+func (r BindRef) bare() bool { return r.Host == "" && r.Zone == "" && r.Listen == "" }
+
+func (r BindRef) MarshalJSON() ([]byte, error) {
+	if r.bare() {
+		return json.Marshal(r.Ref)
+	}
+	type raw BindRef // shed the method set
+	return json.Marshal(raw(r))
+}
+
+func (r *BindRef) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*r = BindRef{Ref: s}
+		return nil
+	}
+	type raw BindRef
+	var v raw
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*r = BindRef(v)
+	return nil
+}
+
+// Binding is the ordered provider set bound to one slot. The common
+// single-provider case marshals as a plain string — every pre-multi workspace
+// manifest parses unchanged and stays in its original format; refs carrying
+// ingress route config marshal as objects.
+type Binding []BindRef
 
 // First returns the sole/first provider ref ("" when unbound) — the accessor
 // for slots that are single-valued by construction (net, @archive, …).
@@ -143,27 +259,54 @@ func (b Binding) First() string {
 	if len(b) == 0 {
 		return ""
 	}
+	return b[0].Ref
+}
+
+// FirstRef returns the sole/first entry with its route config (zero value
+// when unbound) — the accessor for exposed-endpoint slots.
+func (b Binding) FirstRef() BindRef {
+	if len(b) == 0 {
+		return BindRef{}
+	}
 	return b[0]
+}
+
+// Refs returns just the ref strings (display, set comparisons).
+func (b Binding) Refs() []string {
+	out := make([]string, len(b))
+	for i, r := range b {
+		out[i] = r.Ref
+	}
+	return out
+}
+
+// BindTo builds a config-free Binding from ref strings.
+func BindTo(refs ...string) Binding {
+	out := make(Binding, len(refs))
+	for i, r := range refs {
+		out[i] = BindRef{Ref: r}
+	}
+	return out
 }
 
 func (b Binding) MarshalJSON() ([]byte, error) {
 	if len(b) == 1 {
 		return json.Marshal(b[0])
 	}
-	return json.Marshal([]string(b))
+	return json.Marshal([]BindRef(b))
 }
 
 func (b *Binding) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		if s == "" {
+	var one BindRef
+	if err := json.Unmarshal(data, &one); err == nil {
+		if one == (BindRef{}) {
 			*b = nil
 		} else {
-			*b = Binding{s}
+			*b = Binding{one}
 		}
 		return nil
 	}
-	var list []string
+	var list []BindRef
 	if err := json.Unmarshal(data, &list); err != nil {
 		return err
 	}
@@ -279,6 +422,10 @@ func (r *Registry) Rescan() error {
 		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
 			if err := jsonc.Unmarshal(b, &c.Manifest); err != nil {
+				c.ManifestErr = err.Error()
+			} else if err := ValidateExposes(c.Manifest); err != nil {
+				// Surfaced like a parse error (bx ls/doctor, status API); the
+				// component keeps serving — publishing just refuses at bind.
 				c.ManifestErr = err.Error()
 			}
 		}

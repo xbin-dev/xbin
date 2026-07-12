@@ -35,6 +35,15 @@ import (
 const (
 	CookieName       = "xbin_session"
 	FrameTokenHeader = "X-XBin-Frame-Token"
+
+	// IngressFrom is the reserved X-XBin-From identity of anonymous external
+	// traffic reaching a published endpoint (plans/ingress.md ING-5). It is a
+	// STRUCTURAL principal: such requests never pass FromRequest — they enter
+	// on the ingress listeners, bypassing owner auth by design, confined to
+	// the one target tile's declared public paths. No component may sit at a
+	// path that would collide with it (util.ReservedTop), so a tile can
+	// always trust From=="ingress" to mean "the public".
+	IngressFrom = "ingress"
 )
 
 // Principal identifies a verified caller (plans/multi-user.md).

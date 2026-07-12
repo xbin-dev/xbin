@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/magik6k/xbin/internal/auth"
 	"github.com/magik6k/xbin/internal/events"
 	"github.com/magik6k/xbin/internal/registry"
+	"github.com/magik6k/xbin/internal/sandbox"
 	"github.com/magik6k/xbin/internal/server"
 	"github.com/magik6k/xbin/internal/util"
 )
@@ -118,6 +120,25 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 				env = append(env, "XBIN_IFACE_"+envName(slot)+"_INSTANCE="+inst)
 			}
 		}
+	}
+	// Ingress wiring (plans/ingress.md). A terminator tile gets its forward
+	// door; a bound stream interface gets the gateway address its provider's
+	// port answers on; a lan-ingress leg gets the address it owns on the
+	// provider's subnet; a provider gets its client map.
+	if providesIngress(c) && b.IngressSocket != nil {
+		env = append(env, fmt.Sprintf("XBIN_INGRESS_FORWARD_URL=http://%s:%d", sandbox.GatewayIP, ingressFwdPort))
+	}
+	for i, slot := range streamIfaceSlots(c) {
+		if _, _, ok := b.streamIfaceTarget(c, slot); ok {
+			env = append(env, fmt.Sprintf("XBIN_IFACE_%s_ADDR=%s:%d", envName(slot), sandbox.GatewayIP, streamIfacePortBase+i))
+		}
+	}
+	for _, l := range b.NetLinksFor(c) {
+		ip, _, _ := strings.Cut(l.Addr, "/")
+		env = append(env, "XBIN_IFACE_"+envName(l.Slot)+"_IP="+ip)
+	}
+	if j := b.lanIngressEnvJSON(c); j != "" {
+		env = append(env, "XBIN_LAN_INGRESS="+j)
 	}
 	return env
 }

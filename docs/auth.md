@@ -20,10 +20,22 @@ xbin has two planes with different rules:
 | Element frontend | owner cookie **+ frame token** (`xbin.fetch` attaches it) | `apps/email` |
 | Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
 | Scheduler | internal | `xbin/cron` |
+| Public visitor | none — anonymous traffic through a **published endpoint** (docs/ingress.md) | `ingress` |
 
 Callees never verify any of this themselves: xbind strips inbound
 `X-XBin-*` headers and injects the verified `X-XBin-From` and
 `X-XBin-Role`. If those headers are present, they're true.
+
+**The `ingress` principal** is structural, not a credential: it enters only
+on the separate ingress listeners (never the authenticated routes), reaches
+exactly ONE tile — the one whose owner-approved binding published the
+hostname — and only the paths that tile's manifest declared public
+(`exposes.…paths`, default-deny; traversal resolved before matching). It
+carries no role, can't call `/api/xbin/*` or any sibling tile, and the
+workspace session cookie is stripped before it reaches the backend. The tile
+owns any app-level auth on its public routes; a workspace/org policy row can
+deny `ingress` for a set of tiles outright (see policy ceiling below).
+`ingress` is a reserved name — no component can produce that `From`.
 
 **Frame tokens** are why *which element's page* made a browser request
 matters and can't be forged by another element's JS: the cookie proves the
@@ -429,7 +441,7 @@ be granted:
 
 ```jsonc
 { "tiles": "apps/o/sales/*",          // which tiles the row covers
-  "deny":    ["net", "gpu", "xbin-caps"], // strip capability classes outright
+  "deny":    ["net", "gpu", "xbin-caps", "ingress"], // strip capability classes outright
   "mayCall": ["apps/o/sales/*", "res:apps/o/sales/*"] } // allow-list call targets
 ```
 
@@ -454,6 +466,12 @@ allow-list can't name them): `xbin`/`xbin:*` and the blanket `code` grant
 class instead. The scoped `code:<component>` grant reads ONE component's
 source, so it is governed exactly like *calling* that component (same-scope
 exempt, otherwise `mayCall` must cover the component's path).
+
+The `ingress` deny kind makes covered tiles **unpublishable**
+(docs/ingress.md): exposed-endpoint bindings are refused with the row named,
+and any existing binding goes inert — the tile drops out of the route table,
+its host-port listeners close, and split-horizon stops answering its names.
+The `net` deny also severs lan-ingress legs (they're network links).
 
 **Org admins are security-capped delegation (D21).** Org admins manage their
 org's name, members, co-admins, base permission, teams, and per-tile access

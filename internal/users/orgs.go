@@ -24,9 +24,12 @@ const (
 	PolicyDenyNet      = "net"       // net interface bindings (internet/host/lan/provider)
 	PolicyDenyGPU      = "gpu"       // gpu:* grants
 	PolicyDenyXbinCaps = "xbin-caps" // the reserved xbin / xbin:* capability targets
+	PolicyDenyIngress  = "ingress"   // exposed-endpoint bindings (public reachability, plans/ingress.md)
 )
 
-var policyDenyKinds = map[string]bool{PolicyDenyNet: true, PolicyDenyGPU: true, PolicyDenyXbinCaps: true}
+var policyDenyKinds = map[string]bool{
+	PolicyDenyNet: true, PolicyDenyGPU: true, PolicyDenyXbinCaps: true, PolicyDenyIngress: true,
+}
 
 // PolicyRow is one pattern-keyed ceiling row (D20): for tiles covered by the
 // Tiles pattern, Deny strips capability classes outright, and MayCall (when

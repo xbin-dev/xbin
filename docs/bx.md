@@ -25,6 +25,10 @@ bx grant --revoke <caller> <target>:<role>
 bx iface                               interface requests, providers, bindings
 bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                        wire interface slots (# = provider instance)
+bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P]
+                                       publish an exposed endpoint (docs/ingress.md)
+bx unexpose <tile> <slot>              unpublish it
+bx ingress [routes]                    published endpoints + live routes/listeners
 bx vault status|unseal|seal|rekey      encryption-at-rest barrier
 bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls                             scheduled jobs

@@ -12,6 +12,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **Ingress — publishing tiles** ([docs/ingress.md](/docs/ingress.md)): tiles
+  can now be reached from OUTSIDE the workspace, deliberately and
+  owner-gated. A new manifest section `exposes` declares endpoints —
+  `{kind:"http", paths:[…]}` (a hostname-routed site/API with a **public
+  path allowlist**, default-deny) or `{kind:"stream", proto, port}` (the
+  backend just `net.Listen`s; xbind relays a host port in, TCP or UDP).
+  Declaring is inert: the **owner binds** each slot to an ingress source
+  (`bx expose <tile> <slot>=<source> --host/--zone/--listen`, or admin →
+  interfaces → ingress), exactly like interface bindings — the binding
+  carries the route. Public traffic reaches the one bound tile as the new
+  anonymous **`ingress` principal** (`X-XBin-From: ingress`, SDK
+  `Caller(r).Ingress()`, public host in `X-XBin-Ingress-Host`), confined to
+  the declared paths, with no reach into `/api/xbin/*` or sibling tiles.
+  Sources: **`runtime`** — xbind's own second listener (`xbind
+  --ingress-listen`, BYO TLS via `--ingress-cert/-key`) + host-port stream
+  relays — or an **ingress terminator tile**: the new **Public HTTPS
+  (Traefik)** builtin does automatic Let's Encrypt TLS in a sandboxed tile
+  (certs in its own resource, never in the daemon). Also: delegated
+  wildcard **zones** with tile self-registration bounded to the zone (`PUT
+  /api/xbin/ingress-hosts`), direct tile→tile TCP via `{kind:"stream"}`
+  interfaces (`bx bind app db=apps/postgres#pg` → `XBIN_IFACE_DB_ADDR`),
+  `{kind:"lan-ingress"}` links for VPN/router-tile inbound, split-horizon
+  hairpin (a tile using its own public URL routes straight back), a new
+  policy-ceiling deny kind **`ingress`**, `bx ingress` + an admin ingress
+  panel, and `GET /api/xbin/ingress[-routes]`. Host ports <1024 need
+  `AmbientCapabilities=CAP_NET_BIND_SERVICE` on the xbind unit. Additive —
+  nothing is published until you bind it.
 - **BREAKING (net-provider tiles): `cap:net-admin` grant required.** A
   regression on 2026-07-10 (making every tile backend fully unprivileged)
   broke **net-provider tiles** — routers/firewalls that splice other tiles'

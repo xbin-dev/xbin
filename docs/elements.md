@@ -63,7 +63,11 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // slots it offers others (e.g. a firewall/VPN tile provides a "net" interface
   // that other components route their egress through). Kinds: net (L3 egress;
   // bind to "internet"/"host"/"lan:<cidr>"/a provider tile), http (a service
-  // endpoint, "service": "<contract>").
+  // endpoint, "service": "<contract>"), stream (a raw TCP dependency — bind
+  // to a sibling's exposed stream slot, "provider#slot"; injected as
+  // XBIN_IFACE_<slot>_ADDR), lan-ingress (an inbound link into a router/VPN
+  // tile's subnet; injected as XBIN_IFACE_<slot>_IP), and — provide-side —
+  // ingress (an HTTP ingress terminator tile, docs/ingress.md).
   //
   // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
   // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON
@@ -93,6 +97,18 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "provides":   { "egress": { "kind": "net" },
                   "email":  { "kind": "http", "service": "comm", "role": "writer",
                               "instances": true } },
+
+  // Endpoints offered to the OUTSIDE world (docs/ingress.md). Declaring is
+  // inert — the endpoint becomes publicly reachable only when the owner
+  // binds the slot to an ingress source (`bx expose`, or admin → interfaces
+  // → ingress). http: "paths" is the public allowlist (default-deny; "/*" =
+  // everything; anonymous callers arrive as X-XBin-From: ingress). stream:
+  // the backend just net.Listen()s on "port" inside its sandbox; binding
+  // relays a host port (tcp or udp) into it.
+  "exposes": {
+    "web":  { "kind": "http",   "paths": ["/", "/api/public/*"] },
+    "game": { "kind": "stream", "proto": "udp", "port": 2456 }
+  },
 
   // The callable surface this component offers to others.
   "expose": {

@@ -253,9 +253,14 @@ gpu=0`, `bx net graph`, `bx net flows`.
    `xbin.iface`) + binding-as-grant; `llm-gw`/`chat` use it. Still to do: the
    service-catalog UX and a TLS CA-trust binding.
 3. **`resource` family** — fold `res:*` into bindings.
-4. Perf (veth/kernel forwarding, eBPF metering), roster **hot-add**, recursive-
-   chain polish, **ingress** chains (WAF), and the parked **flow-plane** as a
-   `flow` kind on the same framework.
+4. **Ingress** *(done — plans/ingress.md, docs/ingress.md, ING-1..6)*: the
+   `exposes` section + ingress-source bindings — the builtin second listener
+   + the Traefik terminator tile, host-port stream relays, `stream` /
+   `lan-ingress` interface kinds, split-horizon hairpin. Remaining there:
+   the kernel fast-path and WAF-style ingress chains.
+5. Perf (veth/kernel forwarding, eBPF metering), roster **hot-add**, recursive-
+   chain polish, and the parked **flow-plane** as a `flow` kind on the same
+   framework.
 
 ## Decisions (IFACE-*)
 

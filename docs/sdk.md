@@ -30,6 +30,9 @@ c := xbin.Caller(r)          // CallerInfo{From, Role, Owner}
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
 xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact
+c.Ingress()                  // anonymous PUBLIC traffic via a published
+                             // endpoint (docs/ingress.md) — no role; the
+                             // public hostname is in X-XBin-Ingress-Host
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects

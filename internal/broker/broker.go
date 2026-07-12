@@ -7,7 +7,9 @@
 package broker
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -64,6 +66,17 @@ type Broker struct {
 	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by
 	// main to avoid a broker→proxy import cycle.
 	ProxyHandler http.Handler
+
+	// Ingress wiring (plans/ingress.md), set by main:
+	// IngressSocket maps a terminator tile to its forward-socket path;
+	// DialStream is the netns-reach primitive (runner.DialInto) hairpin flows
+	// use; IngressHTTPAddr is the builtin second listener's local dial address
+	// ("" = off); OnIngressChange reconciles listeners after binding/manifest/
+	// registration changes.
+	IngressSocket   func(source string) string
+	DialStream      func(ctx context.Context, comp, proto string, port int) (net.Conn, error)
+	IngressHTTPAddr string
+	OnIngressChange func()
 
 	// Version is the xbind version, stamped into backup manifests.
 	Version string
@@ -173,6 +186,8 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
 	srv.RegisterAPI("PUT /iface-instances", b.apiIfaceInstancesSet)
+	srv.RegisterAPI("PUT /ingress-hosts", b.apiIngressHosts)
+	srv.RegisterAPI("GET /ingress-routes", b.apiIngressRoutes)
 	srv.RegisterAPI("POST /lifecycle", b.apiLifecycleSet)
 	srv.RegisterAPI("POST /backup", b.apiBackupNow)
 	srv.RegisterAPI("GET /backups", b.apiBackupList)

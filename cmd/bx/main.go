@@ -59,6 +59,12 @@ func main() {
 		err = cmdGrants()
 	case "bind":
 		err = cmdBind(os.Args[2:])
+	case "expose":
+		err = cmdExpose(os.Args[2:])
+	case "unexpose":
+		err = cmdUnexpose(os.Args[2:])
+	case "ingress":
+		err = cmdIngress(os.Args[2:])
 	case "iface", "ifaces":
 		err = cmdIface()
 	case "vault":
@@ -118,6 +124,10 @@ func usage() {
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                         add/remove on a multi slot (# = instance)
   bx bind --unset <component> <slot>
+  bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P]
+                                        publish an exposed endpoint (docs/ingress.md)
+  bx unexpose <tile> <slot>             unpublish
+  bx ingress [routes]                   published endpoints + live routing
   bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
   bx offload <component> [--full]       archive + free local bytes
   bx backup <component>                 back up now to the bound archiver
@@ -514,7 +524,8 @@ func cmdIface() error {
 }
 
 // bindingRefs normalizes a binding value from the API — a plain ref string,
-// or an array of refs for a multi slot — into a list.
+// a {ref,…} object carrying ingress route config, or an array of either —
+// into a ref list.
 func bindingRefs(v any) []string {
 	switch t := v.(type) {
 	case string:
@@ -522,12 +533,15 @@ func bindingRefs(v any) []string {
 			return nil
 		}
 		return []string{t}
+	case map[string]any:
+		if s, ok := t["ref"].(string); ok && s != "" {
+			return []string{s}
+		}
+		return nil
 	case []any:
 		out := make([]string, 0, len(t))
 		for _, e := range t {
-			if s, ok := e.(string); ok {
-				out = append(out, s)
-			}
+			out = append(out, bindingRefs(e)...)
 		}
 		return out
 	}

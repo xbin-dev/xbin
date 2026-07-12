@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -22,6 +23,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"github.com/magik6k/xbin/internal/deps"
 	"github.com/magik6k/xbin/internal/events"
 	"github.com/magik6k/xbin/internal/gpu"
+	ingressPkg "github.com/magik6k/xbin/internal/ingress"
 	"github.com/magik6k/xbin/internal/proxy"
 	"github.com/magik6k/xbin/internal/registry"
 	"github.com/magik6k/xbin/internal/runner"
@@ -129,6 +132,9 @@ func main() {
 		insecureVault = flag.Bool("insecure-vault", false, "store secrets AND resource data as PLAINTEXT at rest (not recommended; --no-auth implies it; a bare --dev instead auto-encrypts with a dev key)")
 		isolate       = flag.Bool("isolate", false, "run each backend in a per-component sandbox (namespaces + overlay rootfs; auth tier 3, needs --rootfs)")
 		rootfs        = flag.String("rootfs", envOr("XBIN_ROOTFS", ""), "base rootfs dir (unpacked OCI image) for --isolate sandboxes")
+		ingressListen = flag.String("ingress-listen", envOr("XBIN_INGRESS_LISTEN", ""), "public ingress HTTP listener (plans/ingress.md; \"\" = off). Serves ONLY published tile routes — never the console")
+		ingressCert   = flag.String("ingress-cert", envOr("XBIN_INGRESS_CERT", ""), "TLS certificate (PEM) for the ingress listener (with --ingress-key; reloaded on change)")
+		ingressKey    = flag.String("ingress-key", envOr("XBIN_INGRESS_KEY", ""), "TLS key (PEM) for the ingress listener")
 	)
 	flag.Parse()
 
@@ -140,12 +146,16 @@ func main() {
 	// no longer implies --no-auth, so `make dev` can exercise multi-user auth
 	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
-	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs); err != nil {
+	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs,
+		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}); err != nil {
 		fatal("%v", err)
 	}
 }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string) error {
+// ingressOpts is the builtin HTTP terminator's config (plans/ingress.md ING-3).
+type ingressOpts struct{ Listen, Cert, Key string }
+
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -426,6 +436,34 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	brk.Version = version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 
+	// Ingress (plans/ingress.md): the L4 stream relay + per-terminator forward
+	// doors, and their broker/runner wiring. The managers reconcile against
+	// broker-computed state on boot, binding changes, and rescans.
+	strm := &ingressPkg.Streams{Dial: run.DialInto}
+	fwds := &ingressPkg.Forwards{
+		Dir: run.RunDir,
+		Handler: func(source string) http.Handler {
+			return &ingressPkg.HTTPHandler{
+				Source: source, Lookup: brk.IngressLookup,
+				Forward: func(w http.ResponseWriter, r *http.Request, rt ingressPkg.Route) {
+					px.ForwardIngress(w, r, rt, true)
+				},
+			}
+		},
+	}
+	brk.IngressSocket = fwds.SocketPath
+	brk.DialStream = run.DialInto
+	reconcileIngress := func() {
+		strm.Reconcile(brk.IngressStreamSpecs())
+		fwds.Reconcile(brk.IngressSources())
+	}
+	brk.OnIngressChange = reconcileIngress
+	run.IngressNet = brk.IngressNetFor
+	run.IngressFwd = brk.IngressFwdFor
+	run.NetLinks = brk.NetLinksFor
+	run.Published = brk.PublishedHost
+	run.HairpinDial = brk.HairpinDial
+
 	if scopeUIDs && os.Geteuid() == 0 {
 		run.SpawnUser = brk.SpawnUser
 	}
@@ -536,6 +574,22 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
 		})
 	})
+	// Ingress overview (plans/ingress.md): exposes + bindings + routes from
+	// the broker, live listener/forward status from the managers. Admin-only —
+	// the published surface and its failure modes are operator data.
+	srv.RegisterAPI("GET /ingress", func(w http.ResponseWriter, r *http.Request) {
+		if !brk.IsAdmin(auth.PrincipalOf(r)) {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		out := brk.IngressOverview()
+		out["streams"] = strm.Status()
+		out["forwards"] = fwds.Status()
+		out["httpListener"] = map[string]any{
+			"listen": ing.Listen, "tls": ing.Cert != "" && ing.Key != "",
+		}
+		server.WriteJSON(w, http.StatusOK, out)
+	})
 	// Per-tile runtime status — readable from a tile terminal (self) or by an
 	// admin for any tile. Read-only. Runtime metrics we already collect, scoped
 	// to one component: backend process/cgroup/egress + disk usage/quota + its
@@ -576,7 +630,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	if err != nil {
 		return err
 	}
-	go watchLoop(w, reg, hub, run, brk)
+	go watchLoop(w, reg, hub, run, brk, reconcileIngress)
 
 	handler := srv.Handler()
 
@@ -601,6 +655,51 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			slog.Error("gateway serve", "err", err)
 		}
 	}()
+
+	// Boot reconcile: stand up stream listeners + forward doors for existing
+	// bindings before traffic arrives.
+	reconcileIngress()
+
+	// The builtin HTTP terminator (plans/ingress.md ING-3): a SECOND listener
+	// — public, unauthenticated traffic never shares the console socket. It
+	// serves only published tile routes (Host-routed, path-allowlisted); TLS
+	// is bring-your-own-cert or none (a Tailscale/LB/reverse-proxy front, or
+	// the Traefik tile for public ACME).
+	if ing.Listen != "" {
+		ingressHandler := &ingressPkg.HTTPHandler{
+			Source: broker.IngressSourceRuntime, Lookup: brk.IngressLookup,
+			Forward: func(w http.ResponseWriter, r *http.Request, rt ingressPkg.Route) {
+				px.ForwardIngress(w, r, rt, false)
+			},
+		}
+		iln, err := net.Listen("tcp", ing.Listen)
+		if err != nil {
+			return fmt.Errorf("ingress listener: %w", err)
+		}
+		if (ing.Cert == "") != (ing.Key == "") {
+			return fmt.Errorf("ingress TLS needs BOTH --ingress-cert and --ingress-key")
+		}
+		if ing.Cert != "" {
+			tc, err := ingressTLSConfig(ing.Cert, ing.Key)
+			if err != nil {
+				return fmt.Errorf("ingress TLS: %w", err)
+			}
+			iln = tls.NewListener(iln, tc)
+		}
+		// Hairpin flows into the builtin terminator dial its local address.
+		brk.IngressHTTPAddr = localDialAddr(ing.Listen)
+		go func() {
+			iSrv := &http.Server{
+				Handler:           ingressHandler,
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 30 * time.Second,
+			}
+			if err := iSrv.Serve(iln); err != nil {
+				slog.Error("ingress serve", "err", err)
+			}
+		}()
+		slog.Info("ingress listener up", "addr", ing.Listen, "tls", ing.Cert != "")
+	}
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
@@ -631,12 +730,13 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	return httpSrv.Serve(ln)
 }
 
-func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker) {
+func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, reconcileIngress func()) {
 	for ev := range w.C {
 		if err := reg.Rescan(); err != nil {
 			slog.Warn("rescan", "err", err)
 		}
 		brk.Provision()
+		reconcileIngress() // manifest exposes / bindings may have changed on disk
 		for _, p := range deps.Reconcile(reg) {
 			slog.Debug("deps", "problem", p)
 		}
@@ -910,3 +1010,54 @@ func fatal(f string, args ...any) {
 
 // watchDebounce coalesces editor save bursts (plans/implementation.md phase 1).
 const watchDebounce = 300 * time.Millisecond
+
+// ingressTLSConfig serves the BYO cert pair, re-loading it when the cert
+// file changes on disk (a cert renewed in place picks up on the next
+// handshake — no restart).
+func ingressTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+	var mu sync.Mutex
+	var cached *tls.Certificate
+	var mtime time.Time
+	load := func() (*tls.Certificate, error) {
+		fi, err := os.Stat(certFile)
+		if err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if cached != nil && fi.ModTime().Equal(mtime) {
+			return cached, nil
+		}
+		c, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			if cached != nil {
+				slog.Warn("ingress TLS reload failed; keeping previous cert", "err", err)
+				return cached, nil
+			}
+			return nil, err
+		}
+		cached, mtime = &c, fi.ModTime()
+		return cached, nil
+	}
+	if _, err := load(); err != nil { // validate at startup
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion:     tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return load() },
+	}, nil
+}
+
+// localDialAddr maps a listen address to the address local (hairpin) flows
+// dial: wildcard hosts become loopback.
+func localDialAddr(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return ""
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}

@@ -459,12 +459,32 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   approve and lands pending on import; it keeps CAP_NET_ADMIN/NET_RAW/
   NET_BIND_SERVICE inside your own netns only (docs/auth.md, plans/interfaces.md).
 
+- **`stream` — a raw TCP dependency on a sibling tile.** `"interfaces": {
+  "db": { "kind": "stream" } }`, bound by the owner to another tile's
+  exposed stream port (`bx bind <you> db=apps/postgres#pg`). Your backend
+  gets `XBIN_IFACE_DB_ADDR=<host:port>` — dial it like any TCP address. The
+  binding is the authorization; tcp-only.
+- **`lan-ingress` — an inbound link from a VPN/router tile.** `"interfaces":
+  { "vpn": { "kind": "lan-ingress" } }`, bound to a net-provider tile that
+  `provides {kind:"lan-ingress"}`: you get a second link with a stable
+  address (`XBIN_IFACE_VPN_IP`) on the provider's subnet, and it routes
+  inbound (e.g. decrypted VPN) traffic to you. Note: an L3 link — the
+  provider can reach ALL your ports.
+
+**Publishing to the OUTSIDE world** is its own section — `"exposes"` in the
+manifest (public http endpoints with a **paths allowlist**, or raw tcp/udp
+ports) — read **docs/ingress.md** before using it. Declaring is inert; only
+the owner can publish (`bx expose <tile> <slot>=<source> --host …`). Public
+callers arrive as the anonymous `ingress` principal (`xbin.Caller(r).Ingress()`,
+no role) confined to your declared paths — your app owns any further auth
+on those routes, so treat every public path as hostile input.
+
 **Before you build:** look for an existing interface/service contract to reuse
 (check `bx iface` / the admin Interfaces tab); reuse a standard `service` name
 (`openai`, …) so your component is interchangeable; define a *new* service
 contract only for a genuinely new standard API — and if you expose one, `provide`
-it. Declare `interfaces`/`provides`; leave **binding to the owner** (`bx bind
-<comp> <slot>=<provider>` or the admin Interfaces tab).
+it. Declare `interfaces`/`provides`/`exposes`; leave **binding to the owner**
+(`bx bind <comp> <slot>=<provider>` / `bx expose`, or the admin Interfaces tab).
 
 ## Auth (read docs/auth.md before building multi-app systems)
 

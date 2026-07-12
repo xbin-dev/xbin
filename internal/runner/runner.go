@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,16 +54,17 @@ type BuildError struct{ Output string }
 func (e *BuildError) Error() string { return "build failed:\n" + e.Output }
 
 type instance struct {
-	gen      int
-	sock     string
-	token    string
-	cmd      *exec.Cmd
-	relay    *relay.Relay   // userspace egress relay (nil unless net:* granted)
-	splicer  *relay.Splicer // L3 splice to a net-provider tile (nil unless bound)
-	provider string         // net-provider this instance is a client of ("" if none)
-	egress   []string       // granted net:* rules (for visibility)
-	started  time.Time      // for uptime
-	waitCh   chan struct{}  // closed when the process exits
+	gen          int
+	sock         string
+	token        string
+	cmd          *exec.Cmd
+	relay        *relay.Relay     // userspace egress/ingress relay (nil unless plumbed)
+	splicer      *relay.Splicer   // L3 splice to a net-provider tile (nil unless bound)
+	linkSplicers []*relay.Splicer // lan-ingress legs into provider tiles (plans/ingress.md)
+	provider     string           // net-provider this instance is a client of ("" if none)
+	egress       []string         // granted net:* rules (for visibility)
+	started      time.Time        // for uptime
+	waitCh       chan struct{}    // closed when the process exits
 }
 
 type state struct {
@@ -121,6 +123,24 @@ type Runner struct {
 	// NET_RAW, NET_BIND_SERVICE) to build its dataplane, instead of being fully
 	// unprivileged (plans/interfaces.md, DECISIONS D18a). nil = never.
 	NetCaps func(c *registry.Component) bool
+	// IngressNet reports whether a component needs in-netns reachability even
+	// without egress — it has a bound stream expose or stream interface
+	// (plans/ingress.md) — which forces the TUN+relay plumbing with a deny-all
+	// egress policy so DialInto can reach its ports. nil = never.
+	IngressNet func(c *registry.Component) bool
+	// IngressFwd returns a component's policy-exempt gateway forwards (virtual
+	// gateway port → host dial target): a terminator tile's ingress-forward
+	// socket, a stream interface's provider port. nil/empty = none.
+	IngressFwd func(c *registry.Component) map[int]string
+	// NetLinks returns a component's lan-ingress legs into provider tiles
+	// (plans/ingress.md ING-6). nil = none.
+	NetLinks func(c *registry.Component) []sandbox.NetLink
+	// Published + HairpinDial wire split-horizon resolution for published
+	// hostnames into each egress relay (plans/ingress.md ING-6): DNS answers
+	// published names with the hairpin VIP, and VIP flows dial the ingress
+	// path. nil = no split horizon.
+	Published   func(host string) bool
+	HairpinDial func(port int) (net.Conn, error)
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
@@ -446,8 +466,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
 
 	// Network setup: the init handed back its TUN fd(s) — egress first, then one
-	// per provider client-link. The egress is either spliced to a provider tile
-	// (this component is a client of it) or run through the userspace relay.
+	// per provider client-link, then this component's own lan-ingress legs. The
+	// egress is either spliced to a provider tile (this component is a client of
+	// it) or run through the userspace relay.
 	if sb.NeedsRelay() {
 		var netClients []sandbox.NetClient
 		if r.NetRoster != nil {
@@ -467,10 +488,31 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			} else {
 				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
 			}
-		} else if rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err != nil {
-			fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
 		} else {
-			inst.relay = rl
+			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
+			if pol.Empty() {
+				// Ingress-only plumbing: the relay exists so xbind can dial IN
+				// (bound stream exposes); outbound stays deny-all — including
+				// DNS, which would otherwise be a free exfiltration channel.
+				cfg.Resolver = ""
+			} else if r.Published != nil && r.HairpinDial != nil {
+				// Split-horizon for published names rides only on tiles that
+				// have SOME egress — a no-egress tile gets no hairpin either.
+				cfg.Published = r.Published
+				cfg.HairpinDial = r.HairpinDial
+			}
+			if r.IngressFwd != nil {
+				if m := r.IngressFwd(c); len(m) > 0 {
+					cfg.Gateway = netip.MustParseAddr(sandbox.GatewayIP)
+					cfg.HostFwd = m
+					cfg.HostDial = r.hostDial
+				}
+			}
+			if rl, err := relay.Start(cfg); err != nil {
+				fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
+			} else {
+				inst.relay = rl
+			}
 		}
 		// Provider tile: receive one TUN per client link and register it.
 		for _, cl := range netClients {
@@ -480,12 +522,37 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 				r.netmux.register(c.Path, cl.Name, fd)
 			}
 		}
+		// Lan-ingress legs: splice each to the provider's matching client link
+		// (registered under "<client>#<slot>" in its roster).
+		var netLinks []sandbox.NetLink
+		if r.NetLinks != nil {
+			netLinks = r.NetLinks(c)
+		}
+		for _, ll := range netLinks {
+			fd, err := sb.RecvTUN()
+			if err != nil {
+				fmt.Fprintf(logf, "lan-ingress link %s: %v\n", ll.Slot, err)
+				continue
+			}
+			r.ensureProvider(ll.Provider)
+			if pfd, ok := r.netmux.get(ll.Provider, c.Path+"#"+ll.Slot); ok {
+				inst.linkSplicers = append(inst.linkSplicers, relay.Splice(fd, pfd))
+			} else {
+				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
+			}
+		}
 		if len(netClients) > 0 {
 			// This provider (re)started with fresh link fds; any client already
 			// running is spliced to a now-stale fd, so nudge each to re-splice.
+			// Lan-ingress roster entries are keyed "<client>#<slot>" — strip to
+			// the component for the nudge.
 			go func(clients []sandbox.NetClient) {
 				for _, cl := range clients {
-					if cc, ok := r.Reg.Component(cl.Name); ok {
+					name := cl.Name
+					if i := strings.IndexByte(name, '#'); i >= 0 {
+						name = name[:i]
+					}
+					if cc, ok := r.Reg.Component(name); ok {
 						r.Changed(cc)
 					}
 				}
@@ -500,6 +567,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		if inst.splicer != nil {
 			inst.splicer.Close() // stop the L3 splice (leaves the provider link open)
+		}
+		for _, s := range inst.linkSplicers {
+			s.Close()
 		}
 		if r.Cgroup != nil {
 			r.Cgroup.Remove(util.CompKey(c.Path))
@@ -580,6 +650,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	if r.NetRoster != nil {
 		spec.NetClients = r.NetRoster(c)
 	}
+	if r.NetLinks != nil {
+		spec.NetLinks = r.NetLinks(c) // lan-ingress legs (plans/ingress.md)
+	}
 	if r.NetCaps != nil && r.NetCaps(c) {
 		spec.NetAdmin = true // net-provider tile (cap:net-admin) keeps net-admin caps
 	}
@@ -592,6 +665,14 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	}
 	if spec.Net == "" && !spec.HostNet && !pol.Empty() {
 		spec.Net = "relay" // granted / bound builtin egress → TUN + userspace relay
+	}
+	if spec.Net == "" && !spec.HostNet {
+		// Ingress plumbing without egress (plans/ingress.md): a bound stream
+		// expose / stream interface / lan-ingress leg needs the TUN so xbind
+		// can reach in — the relay runs with a deny-all outbound policy.
+		if (r.IngressNet != nil && r.IngressNet(c)) || len(spec.NetLinks) > 0 {
+			spec.Net = "relay"
+		}
 	}
 	return sandbox.Launch(spec)
 }

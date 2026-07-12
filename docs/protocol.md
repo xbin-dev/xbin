@@ -23,9 +23,17 @@ Identity headers **injected by xbind** on proxied component requests
 (inbound values are stripped — receiving them means they're verified):
 
 ```
-X-XBin-From: owner | <component-path> | xbin/cron
+X-XBin-From: owner | <component-path> | xbin/cron | ingress
 X-XBin-Role: <role granted on the callee>
+X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 ```
+
+`From: ingress` is anonymous PUBLIC traffic through a published endpoint
+(docs/ingress.md): no role, confined to the manifest's declared public
+paths, and structurally unable to reach `/api/xbin/*` or any other tile. It
+enters on the separate ingress listeners — never the authenticated routes
+below — and no component can be named `ingress` (reserved), so the value is
+always trustworthy.
 
 ## HTTP routes
 
@@ -299,12 +307,15 @@ DELETE /grants                     admin. body {from,target,role} — revoke
 GET    /bindings                   admin. Typed interface wiring (see
                                    plans/interfaces.md; manifest fields in
                                    docs/elements.md).
-                                   {bindings: {comp: {slot: provider}},
+                                   {bindings: {comp: {slot: provider|{ref,host,
+                                    zone,listen}|[…]}},
                                     components: [{component, interfaces, provides}],
                                     pending: [{component, slot, kind, service,
-                                              options: [{id, label}]}]}. `pending`
-                                   is the unbound slots + candidate providers —
-                                   the bind-on-install prompt.
+                                              expose?, options: [{id, label}]}]}.
+                                   `pending` is the unbound slots + candidate
+                                   providers — the bind-on-install prompt;
+                                   expose:true rows are unpublished exposed
+                                   endpoints (bind = publish, docs/ingress.md).
 POST   /bindings                   admin. body {component, slot, provider} or
                                    {component, slot, providers:[…]} (the full
                                    set for a multi:true http slot). Refs are
@@ -315,7 +326,15 @@ POST   /bindings                   admin. body {component, slot, provider} or
                                    path). Owner-only (agents can't self-bind).
                                    Restarts the component (+ a net provider whose
                                    roster changed) so wiring takes effect at once.
+                                   For an EXPOSED endpoint slot (docs/ingress.md)
+                                   the body also carries the route config:
+                                   {host} or {zone} (http; source "runtime" or a
+                                   terminator tile), {listen} (stream; source
+                                   "runtime"); binding = publishing. A stream
+                                   INTERFACE slot binds "provider#expose-slot".
 DELETE /bindings                   admin. body {component, slot} — clear a binding
+                                   (for an exposed slot: unpublish — the host
+                                   404s, a stream port closes + live flows end)
 PUT    /iface-instances            self or admin. body {component?, instances:
                                    {"<id>": "/provider-relative/prefix"}} — a
                                    provider with provides {instances:true}
@@ -329,6 +348,31 @@ PUT    /iface-instances            self or admin. body {component?, instances:
                                    install path into persisted state (stale
                                    after a rename/clone). Trailing "/" is
                                    normalized away.
+
+PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
+                                   — a tile with a DELEGATED-ZONE http expose
+                                   binding registers the concrete hostnames it
+                                   serves (docs/ingress.md; replaces the set,
+                                   [] clears). Every host must sit inside one
+                                   of the tile's own bound zones (403 outside —
+                                   the authority boundary), be a valid bare
+                                   hostname, and not collide with any exact-
+                                   bound host or another tile's registration
+                                   (409). Routes update live; no restart.
+GET    /ingress-routes             terminator tiles + admin. {routes: [{host,
+                                   component, slot, paths, source, zone?}]} —
+                                   the concrete host→tile routes. A tile with
+                                   provides {kind:"ingress"} sees the routes
+                                   bound THROUGH IT (its proxy/ACME config
+                                   input); admins see all; others 403.
+GET    /ingress                    admin. The whole ingress picture: {exposes:
+                                   [{component, slot, kind, paths|proto+port,
+                                   source, host|zone|listen, blocked?}],
+                                   routes, ingressHosts, terminators, streams:
+                                   [{…, error?, active}], forwards, httpListener:
+                                   {listen, tls}} — every exposes slot with its
+                                   binding + policy state, live routes, stream
+                                   listener health, and the builtin listener.
 
 POST   /lifecycle                  admin. body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:
@@ -515,7 +559,12 @@ windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
   after ~30 min, and crash-loop-broken after 3 fast exits.
 - stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`).
 - Env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY`, `XBIN_TOKEN`
-  (per-generation), `XBIN_RES_*` (grants).
+  (per-generation), `XBIN_RES_*` (grants), `XBIN_IFACE_<slot>_URL`
+  (http interfaces). Ingress wiring (docs/ingress.md):
+  `XBIN_IFACE_<slot>_ADDR` (bound stream interface — dial it),
+  `XBIN_IFACE_<slot>_IP` (lan-ingress leg — the address you own),
+  `XBIN_INGRESS_FORWARD_URL` + `XBIN_LAN_INGRESS` (terminator / net-provider
+  tiles).
 
 ## Filesystem contract
 

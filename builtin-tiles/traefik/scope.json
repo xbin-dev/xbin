@@ -1,0 +1,8 @@
+{
+  // apps/traefik is a scope. certs persists the ACME account + issued
+  // certificates (acme.json) and the rendered traefik config across restarts —
+  // losing it would re-issue every certificate (Let's Encrypt rate-limits).
+  "resources": {
+    "certs": { "type": "filesystem" }
+  }
+}

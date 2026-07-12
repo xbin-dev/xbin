@@ -9,10 +9,13 @@
 package relay
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,20 +34,32 @@ import (
 const nicID = 1
 const recentFlows = 64
 
+// gatewayIP is the virtual gateway inside a relay netns (sandbox.GatewayIP;
+// duplicated here so the relay stays importable standalone). DialIn flows
+// source from it — the backend's default gateway.
+const gatewayIP = "10.0.2.2"
+
 // udpIdleTimeout ends a UDP flow after this much silence. UDP has no close, so
 // without it a flow (e.g. a DNS query/reply) would show as "open" forever and
 // keep counting toward Active. Any datagram in either direction refreshes it —
 // mirroring conntrack's UDP idle expiry — so a live flow stays up.
 const udpIdleTimeout = 30 * time.Second
 
-// Relay owns a gVisor stack forwarding a component's egress.
+// Relay owns a gVisor stack forwarding a component's egress. The same stack
+// is the component's INBOUND door (plans/ingress.md): DialIn opens a flow
+// from the host side to a port the backend listens on inside its netns — the
+// TUN carries it like any other packet, no setns and no extra privilege.
 type Relay struct {
-	stack   *stack.Stack
-	dial    net.Dialer
-	allow   Allow
-	gateway netip.Addr     // virtual gateway IP that host-forwards apply to
-	hostFwd map[int]string // gateway port → host dial addr (e.g. xbind)
-	icmp    *icmpTap       // link-layer ICMP echo forwarder (nil if setup failed)
+	stack    *stack.Stack
+	dial     net.Dialer
+	allow    Allow
+	gateway  netip.Addr     // virtual gateway IP that host-forwards apply to
+	hostFwd  map[int]string // gateway port → host dial addr (e.g. xbind)
+	hostDial func(dst string) (net.Conn, error)
+	tileIP   netip.Addr                       // the in-netns peer address DialIn targets
+	hairpin  netip.Addr                       // split-horizon VIP (invalid = off)
+	hairDial func(port int) (net.Conn, error) // ingress-path dial for hairpin flows
+	icmp     *icmpTap                         // link-layer ICMP echo forwarder (nil if setup failed)
 
 	mu      sync.Mutex
 	allowed int64
@@ -118,7 +133,14 @@ func Start(cfg Config) (*Relay, error) {
 
 	r := &Relay{
 		stack: s, allow: cfg.Allow, dial: net.Dialer{Timeout: 15 * time.Second},
-		gateway: cfg.Gateway, hostFwd: cfg.HostFwd,
+		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, hostDial: cfg.HostDial,
+		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial,
+	}
+	if !r.tileIP.IsValid() {
+		r.tileIP = netip.MustParseAddr("10.0.2.15") // the egress TUN default
+	}
+	if cfg.Published != nil && cfg.HairpinDial != nil {
+		r.hairpin = netip.MustParseAddr(HairpinIP)
 	}
 
 	// Interpose an ICMP-echo forwarder at the link layer so `ping` works
@@ -144,7 +166,7 @@ func Start(cfg Config) (*Relay, error) {
 
 	tcpFwd := tcp.NewForwarder(s, 0, 2048, r.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
-	udpFwd := udp.NewForwarder(s, r.udpHandler(cfg.Resolver))
+	udpFwd := udp.NewForwarder(s, r.udpHandler(cfg))
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
 	return r, nil
 }
@@ -175,6 +197,22 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 		return
 	}
 
+	// Split-horizon hairpin (plans/ingress.md ING-6): flows to the published-
+	// services VIP take the internal ingress path. Policy-exempt like the
+	// gateway forwards — the target is a PUBLISHED endpoint, reachable by the
+	// whole internet; the tile arrives as the same anonymous ingress caller.
+	if r.hairpin.IsValid() && ip == r.hairpin {
+		out, err := r.hairDial(port)
+		if err != nil {
+			f := r.record("tcp", ip, port, true)
+			r.finish(f, 0, 0)
+			req.Complete(true)
+			return
+		}
+		r.spliceTCP(req, ip, port, out)
+		return
+	}
+
 	if !ok || !r.allow(ip, port) {
 		r.record("tcp", ip, port, false) // RST — denied
 		req.Complete(true)
@@ -184,15 +222,31 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 }
 
 // proxyTCP dials dst on the host, accepts the netns-side endpoint, and splices
-// them, recording the flow under (ip, port).
+// them, recording the flow under (ip, port). "unix:<path>" targets dial a
+// unix socket (the ingress-forward door); cfg.HostDial overrides entirely.
 func (r *Relay) proxyTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, dst string) {
-	out, err := r.dial.Dial("tcp", dst)
+	var out net.Conn
+	var err error
+	switch {
+	case r.hostDial != nil:
+		out, err = r.hostDial(dst)
+	case strings.HasPrefix(dst, "unix:"):
+		out, err = r.dial.Dial("unix", strings.TrimPrefix(dst, "unix:"))
+	default:
+		out, err = r.dial.Dial("tcp", dst)
+	}
 	if err != nil {
 		f := r.record("tcp", ip, port, true) // allowed, but unreachable
 		r.finish(f, 0, 0)
 		req.Complete(true)
 		return
 	}
+	r.spliceTCP(req, ip, port, out)
+}
+
+// spliceTCP accepts the netns-side endpoint and splices it with an
+// already-dialed host-side conn, recording the flow under (ip, port).
+func (r *Relay) spliceTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, out net.Conn) {
 	var wq waiter.Queue
 	gep, e := req.CreateEndpoint(&wq)
 	if e != nil {
@@ -208,16 +262,36 @@ func (r *Relay) proxyTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, dst
 	go func() { tx, rx := splice(in, out); r.finish(f, tx, rx) }()
 }
 
+// DialIn opens a flow from the host side INTO the netns — to a port the
+// backend listens on (plans/ingress.md: the L4 ingress plane and the last
+// hop of every published route). The gVisor stack sources the flow from the
+// virtual gateway address, so to the backend it's an ordinary connection
+// from its default gateway.
+func (r *Relay) DialIn(ctx context.Context, proto string, port int) (net.Conn, error) {
+	if r == nil {
+		return nil, errors.New("no relay")
+	}
+	remote := tcpip.FullAddress{NIC: nicID, Addr: tcpip.AddrFrom4(r.tileIP.As4()), Port: uint16(port)}
+	local := tcpip.FullAddress{NIC: nicID, Addr: tcpip.AddrFrom4(netip.MustParseAddr(gatewayIP).As4())}
+	if proto == "udp" {
+		return gonet.DialUDP(r.stack, &local, &remote, ipv4.ProtocolNumber)
+	}
+	return gonet.DialTCPWithBind(ctx, r.stack, local, remote, ipv4.ProtocolNumber)
+}
+
 // udpHandler forwards UDP flows: DNS (:53) is relayed to the configured host
-// resolver (so name resolution works for net:internet); other UDP is subject to
-// the same allow check as TCP.
-func (r *Relay) udpHandler(resolver string) func(*udp.ForwarderRequest) bool {
+// resolver (so name resolution works for net:internet) — with published
+// hostnames answered locally (split horizon) when configured; other UDP is
+// subject to the same allow check as TCP.
+func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
+	resolver := cfg.Resolver
 	return func(req *udp.ForwarderRequest) bool {
 		id := req.ID()
 		ip, ok := addr(id.LocalAddress)
 		port := int(id.LocalPort)
 		dst := net.JoinHostPort(ip.String(), strconv.Itoa(port))
-		if port == 53 && resolver != "" {
+		dns := port == 53 && resolver != ""
+		if dns {
 			dst = resolver // pin DNS to the host resolver
 		} else if !ok || !r.allow(ip, port) {
 			return true // consumed (dropped)
@@ -234,6 +308,13 @@ func (r *Relay) udpHandler(resolver string) func(*udp.ForwarderRequest) bool {
 		}
 		in := gonet.NewUDPConn(&wq, gep)
 		f := r.record("udp", ip, port, true)
+		if dns && r.hairpin.IsValid() && cfg.Published != nil {
+			go func() {
+				tx, rx := spliceDNS(in, out, cfg.Published, r.hairpin, udpIdleTimeout)
+				r.finish(f, tx, rx)
+			}()
+			return true
+		}
 		go func() { tx, rx := spliceUDPIdle(in, out, udpIdleTimeout); r.finish(f, tx, rx) }()
 		return true
 	}

@@ -74,6 +74,23 @@ func setupEgress(newroot string, s *Spec) error {
 		}
 		unix.Close(fd)
 	}
+	// Lan-ingress legs (plans/ingress.md ING-6): an addressed link into each
+	// bound provider's ingress subnet — no default route; the provider routes
+	// inbound traffic to this address.
+	for i, l := range s.NetLinks {
+		name := fmt.Sprintf("bxl%d", i)
+		fd, err := createTUN(name)
+		if err != nil {
+			return fmt.Errorf("create lan link tun %s: %w", l.Slot, err)
+		}
+		if err := configAddr(name, l.Addr); err != nil {
+			return fmt.Errorf("config lan link tun %s: %w", l.Slot, err)
+		}
+		if err := sendFD(s.CtrlFD, fd); err != nil {
+			return fmt.Errorf("hand lan link tun %s: %w", l.Slot, err)
+		}
+		unix.Close(fd)
+	}
 	unix.Close(s.CtrlFD)
 	return nil
 }
