@@ -13,14 +13,21 @@ import (
 )
 
 // TestReadGuardKernelInstall applies the real Landlock read guard in a child
-// process and checks the kernel denies reading a "secret" file while a sibling
-// stays readable — no sandbox or privileges needed (Landlock is unprivileged
-// with no_new_privs), so it runs in normal CI.
+// process and checks the kernel denies reading a "secret" file while
+// everything legitimate stays readable — no sandbox or privileges needed
+// (Landlock is unprivileged with no_new_privs), so it runs in normal CI.
+//
+// The layout mirrors the production install (`/opt/xbin/workspace`): the
+// workspace root is NESTED, with an sdk/ sibling next to it — the shape that
+// regressed on 2026-07-12, when the guard skipped the workspace's whole
+// top-level component and thereby read-blocked /opt/xbin/sdk (cat/go build
+// failed on world-readable files while ls worked).
 func TestReadGuardKernelInstall(t *testing.T) {
 	if landlockABI() < 1 {
 		t.Skip("kernel has no Landlock")
 	}
-	root := filepath.Join(t.TempDir(), "ws")
+	base := filepath.Join(t.TempDir(), "opt", "xbin") // ← ws root is 4+ levels deep
+	root := filepath.Join(base, "workspace")
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)
@@ -28,9 +35,15 @@ func TestReadGuardKernelInstall(t *testing.T) {
 	}
 	must(os.MkdirAll(filepath.Join(root, "allowed", "sub"), 0o755))
 	must(os.MkdirAll(filepath.Join(root, ".xbin"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, "homes", "alice"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, "homes", "bob"), 0o755))
+	must(os.MkdirAll(filepath.Join(base, "sdk"), 0o755))
 	must(os.WriteFile(filepath.Join(root, "allowed", "f"), []byte("OK"), 0o644))
 	must(os.WriteFile(filepath.Join(root, "allowed", "sub", "moveme"), []byte("x"), 0o644))
 	must(os.WriteFile(filepath.Join(root, ".xbin", "token"), []byte("SECRET"), 0o600))
+	must(os.WriteFile(filepath.Join(root, "homes", "alice", "cred"), []byte("mine"), 0o644))
+	must(os.WriteFile(filepath.Join(root, "homes", "bob", "cred"), []byte("theirs"), 0o644))
+	must(os.WriteFile(filepath.Join(base, "sdk", "xbin.go"), []byte("package xbin"), 0o644))
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestReadGuardChild", "-test.v")
 	cmd.Env = append(os.Environ(), "XBIN_READGUARD_CHILD=1", "XBIN_READGUARD_ROOT="+root)
@@ -43,16 +56,22 @@ func TestReadGuardKernelInstall(t *testing.T) {
 		// message so a future breakage points straight at the REFER handling.
 		t.Fatalf("read guard denied a cross-directory rename in a granted dir "+
 			"(missing LANDLOCK_ACCESS_FS_REFER → apt's partial/->parent rename EXDEVs):\n%s", out)
+	case bytes.Contains(out, []byte("SIBLING-DENIED")):
+		// The 2026-07-12 regression: a workspace-ADJACENT path (the SDK bind)
+		// must stay readable when the workspace root is nested.
+		t.Fatalf("read guard denied a workspace-sibling read (the /opt/xbin/sdk "+
+			"regression — grant siblings level by level, never skip a whole top component):\n%s", out)
 	case bytes.Contains(out, []byte("READGUARD-OK")):
-		// secret denied, sibling allowed, cross-dir rename allowed — the assertion.
+		// secrets denied, everything legitimate allowed — the assertion.
 	default:
-		t.Fatalf("read guard did not deny reading the secret file:\n%s", out)
+		t.Fatalf("read guard did not behave (secret readable, or a grant missing):\n%s", out)
 	}
 }
 
 // TestReadGuardChild is the child half: apply the guard for $XBIN_READGUARD_ROOT
-// (secret dir .xbin), then read a granted file and the secret. Uses raw opens
-// and exits immediately so nothing else touches the filesystem post-restrict.
+// (secret dirs .xbin/data/homes, own $HOME under AllowUnder — the production
+// spec shape), then probe reads. Uses raw opens and exits immediately so
+// nothing else touches the filesystem post-restrict.
 func TestReadGuardChild(t *testing.T) {
 	if os.Getenv("XBIN_READGUARD_CHILD") == "" {
 		t.Skip("child-only helper (spawned by TestReadGuardKernelInstall)")
@@ -63,7 +82,11 @@ func TestReadGuardChild(t *testing.T) {
 		fmt.Println("READGUARD-SKIP no_new_privs:", err)
 		os.Exit(0)
 	}
-	if err := installReadGuard(&ReadGuardSpec{Root: root, SecretDirs: []string{".xbin"}}); err != nil {
+	if err := installReadGuard(&ReadGuardSpec{
+		Root:       root,
+		SecretDirs: []string{".xbin", "data", "homes"},
+		AllowUnder: []string{filepath.Join(root, "homes", "alice")},
+	}); err != nil {
 		fmt.Println("READGUARD-SKIP install:", err)
 		os.Exit(0)
 	}
@@ -77,6 +100,9 @@ func TestReadGuardChild(t *testing.T) {
 	}
 	okAllowed := readable(filepath.Join(root, "allowed", "f"))
 	okSecret := readable(filepath.Join(root, ".xbin", "token"))
+	okSibling := readable(filepath.Join(filepath.Dir(root), "sdk", "xbin.go")) // the SDK bind shape
+	okOwnHome := readable(filepath.Join(root, "homes", "alice", "cred"))       // AllowUnder inside a secret dir
+	okOtherHome := readable(filepath.Join(root, "homes", "bob", "cred"))       // still masked
 	// Cross-directory rename WITHIN a granted hierarchy (allowed/sub → allowed):
 	// must succeed. Landlock (ABI≥2) denies reparenting with EXDEV unless the
 	// guard handles+grants REFER — the exact failure that broke `apt`. os.Rename
@@ -85,10 +111,13 @@ func TestReadGuardChild(t *testing.T) {
 	switch {
 	case referErr != nil:
 		fmt.Printf("REFER-DENIED %v\n", referErr)
-	case okAllowed && !okSecret:
+	case !okSibling:
+		fmt.Println("SIBLING-DENIED")
+	case okAllowed && okOwnHome && !okSecret && !okOtherHome:
 		fmt.Println("READGUARD-OK")
 	default:
-		fmt.Printf("READGUARD-FAIL allowed=%v secret=%v\n", okAllowed, okSecret)
+		fmt.Printf("READGUARD-FAIL allowed=%v secret=%v ownHome=%v otherHome=%v\n",
+			okAllowed, okSecret, okOwnHome, okOtherHome)
 	}
 	os.Exit(0)
 }

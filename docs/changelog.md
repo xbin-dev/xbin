@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **Fix: terminal read guard blocked the SDK (and other workspace-adjacent
+  files) on nested installs.** On the standard layout (`/opt/xbin/workspace`)
+  the Landlock read guard skipped the workspace's whole top-level path
+  component, so terminals couldn't read file *contents* anywhere else under
+  `/opt` — `cat /opt/xbin/sdk/xbin.go` failed with `Permission denied` on a
+  world-readable file (while `ls` worked, since only reads are restricted),
+  and `go build` of backends couldn't read the SDK source. The guard now
+  grants siblings level by level down to the workspace root, and terminals'
+  explicit read-only mounts (the SDK bind) are always allowed. Workspaces at
+  a top-level path (`/workspace`) were unaffected; the deny set (`.xbin/`,
+  `data/`, other users' `homes/`) is unchanged.
 - **Ingress — publishing tiles** ([docs/ingress.md](/docs/ingress.md)): tiles
   can now be reached from OUTSIDE the workspace, deliberately and
   owner-gated. A new manifest section `exposes` declares endpoints —

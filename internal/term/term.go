@@ -612,10 +612,18 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		Restricted: o.restricted && rel != "",
 	}
 	if rel != "" {
+		// AllowUnder: the own $HOME (under the otherwise-masked homes/), plus
+		// every explicit read-only extra mount (the SDK for `go build`) — a
+		// bind the sandbox itself makes must never be read-blocked, wherever
+		// it lands (the /opt/xbin/sdk regression, 2026-07-12).
+		allow := []string{homeDir}
+		for _, b := range m.ExtraBinds {
+			allow = append(allow, b.Dst)
+		}
 		spec.ReadGuard = &sandbox.ReadGuardSpec{
 			Root:       m.Root,
 			SecretDirs: []string{".xbin", "data", "homes"},
-			AllowUnder: []string{homeDir}, // own $HOME stays readable under the masked homes/
+			AllowUnder: allow,
 		}
 	}
 

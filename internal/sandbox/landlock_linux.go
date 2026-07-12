@@ -107,18 +107,27 @@ func installReadGuard(g *ReadGuardSpec) error {
 			uintptr(unsafe.Pointer(&pb)), 0, 0, 0)
 	}
 
-	// Everything in the rootfs stays readable — grant every top-level of / except
-	// the workspace's own top component (so nothing there is granted broadly and
-	// the secrets under it aren't swept in). Generous on purpose: the only reads
-	// we deny are the workspace secrets, so the shell can never be starved.
-	wsTop := topComponent(g.Root)
-	if entries, err := os.ReadDir("/"); err == nil {
-		for _, e := range entries {
-			if e.Name() == wsTop {
-				continue
+	// Everything OUTSIDE the workspace stays readable: walk from / down to the
+	// workspace root, granting every SIBLING at each level, so only the
+	// workspace subtree itself is left to the selective grants below.
+	// (Granting an ancestor — or excluding a whole top-level component, as an
+	// earlier version did — is wrong in both directions: "/" would sweep the
+	// secrets in, and skipping all of e.g. /opt read-blocked its other
+	// children, notably the SDK bind at /opt/xbin/sdk when the workspace lives
+	// at /opt/xbin/workspace: `go build` and `cat` failed on world-readable
+	// files while `ls` worked, since only READ_FILE is restricted.)
+	// Generous on purpose: the only reads we deny are the workspace secrets,
+	// so the shell can never be starved.
+	dir := "/"
+	for _, seg := range strings.Split(strings.TrimPrefix(filepath.Clean(g.Root), "/"), "/") {
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				if e.Name() != seg {
+					grant(filepath.Join(dir, e.Name()))
+				}
 			}
-			grant("/" + e.Name())
 		}
+		dir = filepath.Join(dir, seg)
 	}
 	// The workspace: grant each child (sibling tile source, root files like
 	// AGENTS.md/go.work) except the secret dirs; keep the own $HOME readable.
@@ -142,11 +151,4 @@ func installReadGuard(g *ReadGuardSpec) error {
 		return fmt.Errorf("landlock_restrict_self: %w", e)
 	}
 	return nil
-}
-
-// topComponent returns the first path element of an absolute path
-// ("/workspace" → "workspace", "/home/u/ws" → "home", "/" → "").
-func topComponent(p string) string {
-	t := strings.SplitN(strings.TrimPrefix(filepath.Clean(p), "/"), "/", 2)
-	return t[0]
 }
