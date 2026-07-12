@@ -6,6 +6,13 @@ workspace's own root page. Components have real backends (Go, node, python,
 shell) that hot-reload on save, declare roles other components can be
 granted, and share brokered resources (kv, blobs, bus, cron, sqlite).
 
+**New here? Take the guided tour.** [overview/](/docs/overview/00-index.md)
+is a top-down walk through the whole system — how the subsystems compose and
+why they're shaped the way they are — in 17 short chapters (the model, the
+sandbox, identity & authorization, interfaces, egress/ingress, lifecycle,
+operations…). The reference docs below stay the field-level truth; the
+overview is the map that puts them in context.
+
 **Reading order for builders:**
 
 1. [getting-started.md](/docs/getting-started.md) — install, login, first component
@@ -16,6 +23,7 @@ granted, and share brokered resources (kv, blobs, bus, cron, sqlite).
 
 **Reference:**
 
+- [overview/](/docs/overview/00-index.md) — the top-down system tour (start at `00-index.md`)
 - [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints

@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **New: a top-down system overview** at [/docs/overview/](/docs/overview/00-index.md)
+  (start at `00-index.md`). 17 short chapters walking the whole architecture —
+  the core model, workspace anatomy, components & the backend lifecycle, the
+  frontend & shell, identity & authorization, users/orgs/teams, the backend
+  sandbox and the terminal plane, resources & the vault, interfaces & bindings,
+  egress & net-provider tiles, ingress, tile lifecycle, deployment/operations,
+  and extending xbin — explaining how the subsystems compose and why. The
+  existing reference docs stay the field-level truth; the overview is the map
+  that puts them in context. Served at `/docs/overview/` and on disk in every
+  terminal (`$XBIN_DOCS/overview/`).
 - **Fix: terminal read guard blocked the SDK (and other workspace-adjacent
   files) on nested installs.** On the standard layout (`/opt/xbin/workspace`)
   the Landlock read guard skipped the workspace's whole top-level path
