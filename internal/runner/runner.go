@@ -116,6 +116,11 @@ type Runner struct {
 	// NetHost reports whether a component's net interface is bound to the host
 	// builtin (share the host network).
 	NetHost func(c *registry.Component) bool
+	// NetCaps reports whether a component holds the admin-granted cap:net-admin
+	// capability — a net-PROVIDER tile keeps the network-admin caps (NET_ADMIN,
+	// NET_RAW, NET_BIND_SERVICE) to build its dataplane, instead of being fully
+	// unprivileged (plans/interfaces.md, DECISIONS D18a). nil = never.
+	NetCaps func(c *registry.Component) bool
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
@@ -574,6 +579,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	// through a provider tile, or the relay under a builtin (internet/lan) policy.
 	if r.NetRoster != nil {
 		spec.NetClients = r.NetRoster(c)
+	}
+	if r.NetCaps != nil && r.NetCaps(c) {
+		spec.NetAdmin = true // net-provider tile (cap:net-admin) keeps net-admin caps
 	}
 	if r.NetHost != nil && r.NetHost(c) {
 		spec.HostNet = true // net → host builtin (share the host network)

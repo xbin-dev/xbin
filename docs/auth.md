@@ -84,6 +84,16 @@ once; xbind enforces at every call.
   source, and admin reads any. Powerful — it exposes everything in the
   target's tree except `.git` internals / `node_modules` / `data`; `code`
   (all) even more so. Grant deliberately.
+- **`cap:net-admin`** — a **net-provider** tile (a router/firewall/VPN that
+  splices other tiles' egress; `plans/interfaces.md`) builds its own dataplane
+  — routing tables, `ip_forward`, `AF_PACKET` sockets — which needs the
+  network-admin capabilities (CAP_NET_ADMIN, CAP_NET_RAW, CAP_NET_BIND_SERVICE)
+  the sandbox otherwise drops from every backend. Request
+  `uses {target:"cap:net-admin", role:"writer"}`; **admin-only to approve**
+  and it lands pending on import. Without it the provider's gate setup fails
+  with "operation not permitted". A workspace/org policy `net` deny
+  (`plans/orgs.md`) strips it, and it stays confined to the tile's own network
+  namespace (the caps don't reach the host). Grant deliberately.
 
 Enforcing in the callee is one middleware:
 

@@ -255,6 +255,19 @@ func aptSafeCaps() []int {
 	}
 }
 
+// netProviderCaps is the keep-set for a net-provider tile backend
+// (Spec.NetAdmin — an admin-granted cap:net-admin): the network-administration
+// capabilities a router/firewall tile needs to set up its dataplane inside its
+// own netns — CAP_NET_ADMIN (routing tables, `ip rule`/`ip route`, the
+// per-netns net sysctls like ip_forward), CAP_NET_RAW (AF_PACKET sockets for
+// packet inspection/injection), and CAP_NET_BIND_SERVICE (low ports). Nothing
+// else — no mount, namespace, module, or resource-limit power (the backend
+// seccomp block-list still applies on top). See plans/interfaces.md,
+// DECISIONS D18a.
+func netProviderCaps() []int {
+	return []int{unix.CAP_NET_ADMIN, unix.CAP_NET_RAW, unix.CAP_NET_BIND_SERVICE}
+}
+
 // dropCapsExcept drops every capability except keep from the bounding set (so
 // none can be regained across execve) and sets the effective/permitted/
 // inheritable sets to exactly keep. Because a restricted terminal runs as uid 0

@@ -23,8 +23,16 @@
   // Persist the approve/deny lists across restarts (byte counters are in-memory,
   // "since last restart"). Its own frontend is admin of it (docs/auth.md), so the
   // settings page reaches /state, /approve, … without any extra grant.
+  //
+  // cap:net-admin — a net-PROVIDER tile builds a routing/firewall dataplane
+  // (routing tables, ip_forward, AF_PACKET), which needs the network-admin
+  // capabilities the sandbox drops from ordinary tiles. It's admin-only to
+  // approve and lands PENDING in the grants panel on import; without it the
+  // gate setup fails with "operation not permitted" (plans/interfaces.md,
+  // DECISIONS D18a).
   "uses": [
-    { "target": "res:apps/egress-approver/approvals", "role": "writer" }
+    { "target": "res:apps/egress-approver/approvals", "role": "writer" },
+    { "target": "cap:net-admin", "role": "writer" }
   ],
   // iproute2 gives us `ip rule`/`ip route` for the per-destination forward gate
   // (the base rootfs configures net via the netlink library, not the binary).

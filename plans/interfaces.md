@@ -57,6 +57,16 @@ on the binding:
   stay free) and taps the client links with `AF_PACKET` to surface + meter each
   destination. It's the reference for a programmable net provider + its per-tile
   admin UI.
+  - **Capability**: building that dataplane (routing tables, `ip_forward`,
+    `AF_PACKET`) needs the network-admin capabilities the sandbox drops from
+    every ordinary backend (DECISIONS D18/D18a). A provider tile therefore
+    declares `uses {target:"cap:net-admin", role:"writer"}`; it's **admin-only
+    to approve** (a reserved grant, never same-scope auto-granted) and shows
+    up pending on import. With it the sandbox keeps CAP_NET_ADMIN /
+    CAP_NET_RAW / CAP_NET_BIND_SERVICE **inside the tile's own network
+    namespace only** — nothing reaches the host — while still dropping every
+    other cap and applying the backend seccomp block-list. Without it the gate
+    setup fails with "operation not permitted".
 - **Chaining** = a provider's egress bound to *another* provider. gVisor runs only
   at the terminal `internet` binding (guest flows → host sockets); every
   intermediate hop is a raw splice.

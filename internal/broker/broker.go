@@ -478,15 +478,15 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 // grantRestart restarts the caller's backend when the changed grant is one whose
-// effect is materialized at spawn (a resource env var or GPU devices), so
-// approving e.g. res:… or gpu:0 takes effect without a manual restart. (Egress
-// is no longer a grant — it's a `net` interface binding, restarted via the
-// bindings API; see apiBindingSet.)
+// effect is materialized at spawn (a resource env var, GPU devices, or the
+// net-admin capability), so approving e.g. res:…, gpu:0, or cap:net-admin takes
+// effect without a manual restart. (Egress is no longer a grant — it's a `net`
+// interface binding, restarted via the bindings API; see apiBindingSet.)
 func (b *Broker) grantRestart(g registry.Grant) {
 	if b.OnGrantChange == nil {
 		return
 	}
-	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") {
+	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") || g.Target == NetAdminCap {
 		b.OnGrantChange(g.From)
 	}
 }

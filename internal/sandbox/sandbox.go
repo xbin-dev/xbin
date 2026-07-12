@@ -184,6 +184,16 @@ type Spec struct {
 	// mount/read guards instead.
 	Unprivileged bool `json:"unprivileged,omitempty"`
 
+	// NetAdmin (only meaningful with Unprivileged) keeps the network-admin
+	// capabilities — CAP_NET_ADMIN, CAP_NET_RAW, CAP_NET_BIND_SERVICE — instead
+	// of dropping ALL of them, so a net-PROVIDER tile (a router/firewall that
+	// splices other tiles' egress) can build its dataplane: routing tables,
+	// ip_forward, AF_PACKET. Everything else is still dropped and the backend
+	// seccomp block-list still applies. Gated by the admin-only cap:net-admin
+	// grant (plans/interfaces.md, DECISIONS D18a) — never on by default, so an
+	// ordinary tile stays fully unprivileged.
+	NetAdmin bool `json:"netAdmin,omitempty"`
+
 	// Restricted (set for untrusted, non-admin *user* terminals) hardens a
 	// terminal beyond the mount/read guards without breaking `apt`: init pins
 	// the user namespace to zero nested user/mount namespaces (the ucount knobs

@@ -436,3 +436,51 @@ func TestCeilingCodeTargets(t *testing.T) {
 		t.Fatalf("self-read is never policy-gated: want 200, got %d", got)
 	}
 }
+
+// cap:net-admin is the admin-granted net-provider capability: NetAdminFor
+// resolves it, it's a reserved target (admin-only, never same-scope
+// auto-granted), and the policy `net` deny class strips it — never the
+// mayCall path-matcher (the code-target regression class).
+func TestNetAdminCapGrant(t *testing.T) {
+	b := testBroker(t)
+	st := b.Users
+	router, _ := b.Reg.Component("apps/email") // stand-in provider tile
+
+	if b.NetAdminFor(router) {
+		t.Fatal("ungranted tile must not hold net-admin caps")
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: NetAdminCap, Role: "writer"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.NetAdminFor(router) {
+		t.Fatal("granted tile must hold net-admin caps")
+	}
+
+	// A path allow-list (mayCall) must NOT strip a capability grant.
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", MayCall: []string{"nothing/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.NetAdminFor(router) {
+		t.Fatal("mayCall row must not strip the net-admin capability")
+	}
+	// …but a `net` deny row does (a tile denied network can't be a provider).
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", Deny: []string{users.PolicyDenyNet}}}); err != nil {
+		t.Fatal(err)
+	}
+	if b.NetAdminFor(router) {
+		t.Fatal("a net deny must strip the net-admin capability")
+	}
+
+	// Reserved target: never same-scope auto-granted (a tile can't self-grant
+	// it by merely declaring the use).
+	b2 := testBroker(t)
+	if err := b2.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {}); err != nil {
+		t.Fatal(err)
+	}
+	cal, _ := b2.Reg.Component("apps/calendar")
+	if b2.NetAdminFor(cal) {
+		t.Fatal("undeclared/ungranted tile must not hold the capability")
+	}
+}

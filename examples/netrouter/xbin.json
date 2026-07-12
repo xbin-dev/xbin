@@ -5,5 +5,10 @@
   // the backend with nftables rules for a firewall, a wg interface for a VPN, etc.
   "runtime": "go",
   "interfaces": { "net": { "kind": "net" } },  // this router's own egress — owner binds it (e.g. bx bind <this> net=internet)
-  "provides": { "net": { "kind": "net" } }     // offers a net interface to others
+  "provides": { "net": { "kind": "net" } },    // offers a net interface to others
+  // A net provider builds its own dataplane (routing, forwarding, raw
+  // sockets), so it needs the network-admin caps the sandbox drops from
+  // ordinary tiles. cap:net-admin is admin-only to approve and shows up as a
+  // pending grant on import (plans/interfaces.md, DECISIONS D18a).
+  "uses": [ { "target": "cap:net-admin", "role": "writer" } ]
 }

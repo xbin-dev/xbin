@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **BREAKING (net-provider tiles): `cap:net-admin` grant required.** A
+  regression on 2026-07-10 (making every tile backend fully unprivileged)
+  broke **net-provider tiles** — routers/firewalls that splice other tiles'
+  egress (the `egress-approver` builtin, `examples/netrouter`): building their
+  dataplane needs network-admin capabilities the sandbox now drops, so they
+  failed at startup with `operation not permitted` (ip_forward / ip route /
+  AF_PACKET). A provider now declares `uses {target:"cap:net-admin",
+  role:"writer"}` — an **admin-only** reserved grant that makes the sandbox
+  keep CAP_NET_ADMIN / CAP_NET_RAW / CAP_NET_BIND_SERVICE **inside the tile's
+  own network namespace** (nothing reaches the host; every other cap still
+  dropped, seccomp block-list unchanged). The shipped provider tiles declare
+  it; approve it once in the grants panel (it lands pending). A workspace/org
+  policy `net` deny strips it. See
+  [changes/2026-07-12-net-provider-cap.md](changes/2026-07-12-net-provider-cap.md).
 - Terminal window: a **read-only "logs" tab** (the ▤ button next to `>_`
   `{ }` `⇋`) streams the tile backend's captured stdout/stderr live —
   rendered in an xterm view for ANSI colors + scrollback, no input. It's

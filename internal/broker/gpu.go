@@ -23,3 +23,19 @@ func (b *Broker) GPUFor(c *registry.Component) []gpu.Device {
 	}
 	return gpu.Resolve(targets)
 }
+
+// NetAdminCap is the reserved capability grant a net-PROVIDER tile needs: the
+// sandbox keeps the network-admin caps (NET_ADMIN, NET_RAW, NET_BIND_SERVICE)
+// for it instead of dropping all, so it can build its routing/firewall
+// dataplane (plans/interfaces.md, DECISIONS D18a). Admin-only to approve (it's
+// a reserved target, never same-scope auto-granted); the policy ceiling's
+// `net` deny class covers it (a tile denied network can't be a net provider).
+const NetAdminCap = "cap:net-admin"
+
+// NetAdminFor reports whether a component holds the cap:net-admin grant — the
+// runner's NetCaps hook (wired in main.go). grantedRole applies the policy
+// ceiling, so an org/workspace `net` deny strips this too.
+func (b *Broker) NetAdminFor(c *registry.Component) bool {
+	_, ok := b.grantedRole(c.Path, NetAdminCap)
+	return ok
+}

@@ -277,3 +277,41 @@ func TestRestrictNSChild(t *testing.T) {
 	}
 	fmt.Println("NSGUARD-OK")
 }
+
+// netProviderCaps must grant exactly the network-admin caps a provider tile
+// needs — and none of the dangerous ones (SYS_ADMIN/MODULE/PTRACE/BPF) — and
+// the backend seccomp must NOT block socket(), so a net provider's AF_PACKET
+// socket fails only on the missing cap, not the filter (the regression was
+// purely the dropped caps: cap:net-admin restores them, seccomp is unchanged).
+func TestNetProviderCaps(t *testing.T) {
+	got := map[int]bool{}
+	for _, c := range netProviderCaps() {
+		got[c] = true
+	}
+	for _, want := range []int{unix.CAP_NET_ADMIN, unix.CAP_NET_RAW, unix.CAP_NET_BIND_SERVICE} {
+		if !got[want] {
+			t.Errorf("netProviderCaps missing cap %d", want)
+		}
+	}
+	for _, banned := range []int{unix.CAP_SYS_ADMIN, unix.CAP_SYS_MODULE, unix.CAP_SYS_PTRACE, unix.CAP_SYS_RESOURCE} {
+		if got[banned] {
+			t.Errorf("netProviderCaps must not grant dangerous cap %d", banned)
+		}
+	}
+
+	arch, ok := nativeAuditArch()
+	if !ok {
+		t.Skipf("no audit arch for GOARCH=%s", runtime.GOARCH)
+	}
+	vm, err := bpf.NewVM(denyProgram(arch, backendDeny(), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := vm.Run(seccompData(int(unix.SYS_SOCKET), arch, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uint32(v) != uint32(unix.SECCOMP_RET_ALLOW) {
+		t.Fatal("backend seccomp must allow socket() — a net provider needs AF_PACKET")
+	}
+}

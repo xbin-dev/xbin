@@ -59,6 +59,8 @@ func (b *Broker) ceilingBlockMsg(from, target string) string {
 		return callBlock(target, strings.TrimPrefix(target, "code:"))
 	case strings.HasPrefix(target, "gpu:"):
 		return deny(users.PolicyDenyGPU)
+	case target == NetAdminCap: // net-provider capability — a `net` deny covers it
+		return deny(users.PolicyDenyNet)
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets

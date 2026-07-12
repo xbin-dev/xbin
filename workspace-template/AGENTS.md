@@ -451,6 +451,13 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   (`"provides": { "egress": { "kind": "net" } }`) — a firewall/VPN/router your
   traffic routes through. A provider is a real Linux router in its sandbox
   (`ip_forward` + `nftables`/`wg`); it's also a client of its own egress.
+  **If you BUILD a net provider** (you `provide` a `net`/kind:net interface),
+  declare `"uses": [{ "target": "cap:net-admin", "role": "writer" }]` — the
+  sandbox drops network-admin capabilities from every backend by default, so
+  without this grant your dataplane setup fails with *"operation not
+  permitted"* (`ip_forward`, `ip route`, `AF_PACKET`). It's **admin-only** to
+  approve and lands pending on import; it keeps CAP_NET_ADMIN/NET_RAW/
+  NET_BIND_SERVICE inside your own netns only (docs/auth.md, plans/interfaces.md).
 
 **Before you build:** look for an existing interface/service contract to reuse
 (check `bx iface` / the admin Interfaces tab); reuse a standard `service` name

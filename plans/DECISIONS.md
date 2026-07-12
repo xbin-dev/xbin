@@ -244,6 +244,25 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   (`--no-sandbox`) — acceptable for the untrusted tier; dev/admin keep full caps.
   Researched in depth (three agents; man pages + kernel `ucount.c`/`user_
   namespace.c` + moby/systemd sources). `internal/sandbox` + `docs/isolation.md`.
+- **D18a — Net-provider tiles keep net-admin caps via an admin-granted
+  `cap:net-admin`.** D18 made every tile backend fully unprivileged
+  (`dropAllCaps` under `Spec.Unprivileged`) — which broke net-PROVIDER tiles
+  (egress-approver, netrouter): building their dataplane needs CAP_NET_ADMIN
+  (routing tables, `ip_forward` sysctl) + CAP_NET_RAW (`AF_PACKET`), so they
+  died at gate setup with "operation not permitted" (regression 2026-07-10,
+  663ec76; reported 2026-07-12). Fix: a reserved capability grant
+  `cap:net-admin` (admin-only to approve, like `gpu:*`; declared in the
+  provider's `uses`, pending on import) makes the sandbox
+  `dropCapsExcept(netProviderCaps())` — keeping only NET_ADMIN / NET_RAW /
+  NET_BIND_SERVICE **inside the tile's own netns**, still dropping every other
+  cap and applying the backend seccomp block-list (which never blocked the net
+  syscalls — the break was purely the caps). Chosen over auto-granting any
+  `provides: net` tile (declaring a provide isn't an admin action, so an
+  imported tile could self-claim raw sockets) and over a blanket "sysadmin"
+  cap (a provider needs only the three net caps; scope to what's needed). The
+  policy ceiling's `net` deny class covers it (a tile denied network can't be
+  a provider); `grantedRole`→`grantRestart` so approval takes effect without a
+  manual restart. `internal/sandbox` + `internal/broker/gpu.go` + runner hook.
 - **D19 — Orgs & teams: positional `/o/` path binding, union-only grants**
   (plans/orgs.md; user decisions 2026-07-11). Multiple orgs per workspace; an
   org OWNS a namespace **positionally** — the reserved `o` segment

@@ -249,9 +249,16 @@ func runInit(specPath string) error {
 		dbg(s.Debug, "restricted lockdown applied (ucounts+caps+seccomp)")
 	}
 	// Tile backends: drop caps + seccomp block-list (they need neither). Order:
-	// bounding-set drop needs CAP_SETPCAP, so caps go before the filter.
+	// bounding-set drop needs CAP_SETPCAP, so caps go before the filter. A
+	// net-PROVIDER tile (NetAdmin, admin-granted cap:net-admin) keeps only the
+	// network-admin caps it needs to build its dataplane — everything else is
+	// still dropped and the same seccomp block-list still applies.
 	if s.Unprivileged {
-		if err := dropAllCaps(); err != nil {
+		drop := dropAllCaps
+		if s.NetAdmin {
+			drop = func() error { return dropCapsExcept(netProviderCaps()) }
+		}
+		if err := drop(); err != nil {
 			return must(err, "drop caps")
 		}
 		if err := installBackendSeccomp(); err != nil {
