@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **Admin console: two-level navigation + filtering, built for large
+  deployments.** The flat tab row is now grouped — **runtime**
+  (components · resources · backup · cron), **user management** (users ·
+  organisations · teams · access map), **vault**, **binding** (roles ·
+  grants · interface providers · binding), **ingress** (endpoints ·
+  services / expose). Every list view gained a live text filter (and
+  scope/org category chips on the component + team lists) so it scales to
+  thousands of tiles. The component list now merges manifest data with live
+  backend state and expands to show **who can reach each tile** (its access
+  relations) alongside the backend's runtime detail. Ingress **publishing is
+  now a first-class surface** (ingress → services / expose) with the
+  live routing table under ingress → endpoints. Old hash deep-links
+  (`#overview`, `#runtime`, `#interfaces`) redirect to their new homes.
 - **New: a top-down system overview** at [/docs/overview/](/docs/overview/00-index.md)
   (start at `00-index.md`). 17 short chapters walking the whole architecture —
   the core model, workspace anatomy, components & the backend lifecycle, the

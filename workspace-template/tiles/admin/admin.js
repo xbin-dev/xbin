@@ -89,14 +89,38 @@ export class BxAdmin extends LitElement {
   static styles = css`
     :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
             color: var(--bx-text, #33414e); background: var(--bx-panel, #fff); }
-    .tabs { display: flex; gap: 2px; padding: 6px 8px 0;
+    /* two-level nav: a primary group row + a sub-tab row under it */
+    .groups { display: flex; gap: 4px; padding: 6px 8px 0; flex-wrap: wrap;
+              background: var(--bx-panel-2, #f7f8fa); position: sticky; top: 0; z-index: 2; }
+    .groups button { border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600;
+      padding: 5px 12px; cursor: pointer; color: var(--bx-muted, #8794a1); border-radius: 6px;
+      letter-spacing: .01em; }
+    .groups button.on { background: var(--bx-accent, #f5a623); color: #fff; }
+    .groups button:not(.on):hover { background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); }
+    .tabs { display: flex; gap: 2px; padding: 4px 8px 0; flex-wrap: wrap;
             border-bottom: 1px solid var(--bx-border, #e4e8ed);
-            background: var(--bx-panel-2, #f7f8fa); position: sticky; top: 0; z-index: 1; }
+            background: var(--bx-panel-2, #f7f8fa); position: sticky; top: 33px; z-index: 1; }
+    .tabs.sub { top: 33px; }
     .tabs button { border: 1px solid transparent; border-bottom: none; background: none;
       font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
       color: var(--bx-muted, #8794a1); border-radius: 5px 5px 0 0; }
     .tabs button.on { background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
       border-color: var(--bx-border, #e4e8ed); margin-bottom: -1px; }
+    /* filter bar (scales list views to 1000s of tiles) */
+    .filterbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 2px 0 10px; }
+    .filterbar input.q { flex: 1; min-width: 12em; font: inherit; font-size: 12px; padding: 4px 9px;
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;
+      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); }
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .chip { font-size: 11px; padding: 2px 9px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
+      color: var(--bx-muted, #8794a1); }
+    .chip.on { background: var(--bx-accent, #f5a623); border-color: transparent; color: #fff; }
+    .count-note { font-size: 11px; color: var(--bx-muted, #8794a1); white-space: nowrap; }
+    /* standalone expand caret (component rows aren't inside .bk) */
+    .caret { display: inline-block; color: var(--bx-muted, #8794a1); font-size: 10px;
+             transition: transform .1s; }
+    .caret.o { transform: rotate(90deg); }
     .body { padding: 12px 14px; }
     .err { color: var(--bx-red, #e5484d); font-size: 12px; margin: 4px 0; }
     .alertbar { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
@@ -285,24 +309,44 @@ export class BxAdmin extends LitElement {
     .err-pill { color: var(--bx-red, #e5484d); font-size: 11px; }
   `;
 
-  // {id, label} — ids stay URL-safe (no spaces/&) for hash deep-links.
-  static TABS = [
-    { id: 'overview', label: 'overview' },
-    { id: 'runtime', label: 'runtime' },
-    { id: 'users', label: 'users' },
-    { id: 'orgs', label: 'orgs & teams' },
-    { id: 'map', label: 'access map' },
-    { id: 'vault', label: 'vault' },
-    { id: 'grants', label: 'roles & grants' },
-    { id: 'interfaces', label: 'interfaces' },
-    { id: 'backup', label: 'backup' },
-    { id: 'cron', label: 'cron' },
+  // Two-level nav (deployments run to thousands of tiles, so the flat tab row
+  // no longer scales). Primary GROUPS, each with sub-tabs; sub-tab ids stay
+  // URL-safe for hash deep-links and unique across groups.
+  static GROUPS = [
+    { id: 'runtime', label: 'runtime', tabs: [
+      { id: 'components', label: 'components' },
+      { id: 'resources', label: 'resources' },
+      { id: 'backup', label: 'backup' },
+      { id: 'cron', label: 'cron' },
+    ] },
+    { id: 'usermgmt', label: 'user management', tabs: [
+      { id: 'users', label: 'users' },
+      { id: 'orgs', label: 'organisations' },
+      { id: 'teams', label: 'teams' },
+      { id: 'map', label: 'access map' },
+    ] },
+    { id: 'vaultgrp', label: 'vault', tabs: [{ id: 'vault', label: 'vault' }] },
+    { id: 'binding', label: 'binding', tabs: [
+      { id: 'roles', label: 'roles' },
+      { id: 'grants', label: 'grants' },
+      { id: 'providers', label: 'interface providers' },
+      { id: 'wiring', label: 'binding' },
+    ] },
+    { id: 'ingressgrp', label: 'ingress', tabs: [
+      { id: 'endpoints', label: 'endpoints' },
+      { id: 'expose', label: 'services / expose' },
+    ] },
   ];
+  static tabsFlat() { return BxAdmin.GROUPS.flatMap((g) => g.tabs); }
+  _grpOf(tab) { return BxAdmin.GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) || BxAdmin.GROUPS[0]; }
 
   constructor() {
     super();
     const h = location.hash.replace(/^#/, '');
-    this._tab = BxAdmin.TABS.some((t) => t.id === h) ? h : 'overview';
+    // Back-compat: honor a couple of old hash ids so bookmarks don't 404.
+    const alias = { overview: 'components', runtime: 'components', interfaces: 'providers' };
+    const want = alias[h] || h;
+    this._tab = BxAdmin.tabsFlat().some((t) => t.id === want) ? want : 'components';
     this._err = '';
     this._alerts = [];
     this._denied = false;
@@ -310,17 +354,24 @@ export class BxAdmin extends LitElement {
     this._versions = {};
     this._verOpen = new Set();
     this._schedules = [];
+    this._q = '';          // per-view text filter (reset on tab change)
+    this._cats = new Set(); // active category chips
+    this._access = {};      // per-component access relations, lazily loaded
+    this._accOpen = new Set();
   }
+
+  _setGroup(g) { this._setTab(g.tabs[0].id); }
 
   _setTab(t) {
     this._tab = t;
+    this._q = ''; this._cats = new Set();
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
-    // Leaving/clicking overview drops any code drill-in (back to the list);
-    // _openCode re-sets _codeComp right after calling this to drill in.
+    // Leaving/clicking the component list drops any code drill-in (back to the
+    // list); _openCode re-sets _codeComp right after calling this to drill in.
     this._codeComp = null;
-    if (t === 'runtime') this._loadRuntime();
+    if (t === 'components' || t === 'resources') this._loadRuntime();
     if (t === 'map') this._loadMap();
-    if (t === 'interfaces') this._loadIfaces();
+    if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose') this._loadIfaces();
     if (t === 'backup') this._loadBackup();
   }
 
@@ -330,8 +381,16 @@ export class BxAdmin extends LitElement {
       if (e.type === 'grants' || e.type === 'reload' || e.type === 'build-ok' || e.type === 'users') this._refresh();
     });
     this._refresh();
-    // The runtime tab is live: poll while it's the active tab.
-    this._rtTimer = setInterval(() => { if (this._tab === 'runtime') this._loadRuntime(); }, 2000);
+    // Prime the data the initial tab needs (constructor set _tab from the hash
+    // but doesn't fetch; _setTab does that on later clicks).
+    if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
+    if (this._tab === 'map') this._loadMap();
+    if (['providers', 'wiring', 'endpoints', 'expose'].includes(this._tab)) this._loadIfaces();
+    if (this._tab === 'backup') this._loadBackup();
+    // Live backend/resource data: poll while a runtime-data tab is active.
+    this._rtTimer = setInterval(() => {
+      if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
+    }, 2000);
   }
   disconnectedCallback() { super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); }
 
@@ -575,7 +634,7 @@ export class BxAdmin extends LitElement {
   }
 
   _codeView() {
-    if (!this._codeComp) return this._overview(); // reached only defensively; the overview is the picker
+    if (!this._codeComp) return this._componentsView(); // reached only defensively; the list is the picker
     const tree = this._codeTree?.files ?? [];
     const log = this._codeLog?.commits ?? [];
     const noRepo = this._codeLog?.repo === false;
@@ -626,28 +685,72 @@ export class BxAdmin extends LitElement {
       panel, or run <code>bx grant tiles/admin xbin:admin</code>.
       See <a href="/docs/auth.md" target="_blank">docs/auth.md</a>.</div>`;
     const tab = this._tab;
+    const grp = this._grpOf(tab);
     return html`
       ${(this._alerts || []).length ? html`<div class="alertbar">
         ${this._alerts.map((a) => html`<div class="al ${a.level}">
           <b>${a.level === 'crit' ? '\u26A0' : '\u26A1'}</b> ${a.message}</div>`)}
       </div>` : nothing}
-      <div class="tabs">
-        ${BxAdmin.TABS.map((t) => html`
-          <button class=${t.id === tab ? 'on' : ''} @click=${() => this._setTab(t.id)}>${t.label}</button>`)}
+      <div class="groups">
+        ${BxAdmin.GROUPS.map((g) => html`
+          <button class=${g.id === grp.id ? 'on' : ''} @click=${() => this._setGroup(g)}>${g.label}</button>`)}
       </div>
+      ${grp.tabs.length > 1 ? html`<div class="tabs sub">
+        ${grp.tabs.map((t) => html`
+          <button class=${t.id === tab ? 'on' : ''} @click=${() => this._setTab(t.id)}>${t.label}</button>`)}
+      </div>` : nothing}
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
           : tab === 'orgs' ? this._orgsView()
+          : tab === 'teams' ? this._teamsView()
           : tab === 'map' ? this._mapView()
-          : tab === 'overview' ? (this._codeComp ? this._codeView() : this._overview())
-          : tab === 'runtime' ? this._runtimeView()
+          : tab === 'components' ? (this._codeComp ? this._codeView() : this._componentsView())
+          : tab === 'resources' ? this._resourcesView()
           : tab === 'vault' ? this._vaultView()
-          : tab === 'grants' ? this._rolesView()
-          : tab === 'interfaces' ? this._ifacesView()
+          : tab === 'roles' ? this._rolesCatalogView()
+          : tab === 'grants' ? this._grantsView()
+          : tab === 'providers' ? this._providersView()
+          : tab === 'wiring' ? this._bindingView()
+          : tab === 'endpoints' ? this._ingressEndpointsView()
+          : tab === 'expose' ? this._ingressExposeView()
           : tab === 'backup' ? this._backupView()
           : this._cronView()}
       </div>`;
+  }
+
+  // ---- shared filter primitive (list views scale to 1000s of tiles) ----
+  // _match tests any of the given strings against the current query (case-
+  // insensitive substring). _filterBar renders the query input + optional
+  // category chips + a result count; chips are toggled in this._cats.
+  _match(...parts) {
+    const q = (this._q || '').trim().toLowerCase();
+    if (!q) return true;
+    return parts.some((p) => (p || '').toString().toLowerCase().includes(q));
+  }
+  _catActive(c) { return this._cats.size === 0 || this._cats.has(c); }
+  _toggleCat(c) {
+    const s = new Set(this._cats); s.has(c) ? s.delete(c) : s.add(c); this._cats = s;
+  }
+  _filterBar(placeholder, cats, shown, total) {
+    return html`<div class="filterbar">
+      <input class="q" type="search" placeholder=${placeholder} .value=${this._q}
+             @input=${(e) => { this._q = e.target.value; }}>
+      ${cats && cats.length ? html`<div class="chips">
+        ${cats.map((c) => html`<span class="chip ${this._cats.has(c) ? 'on' : ''}"
+          @click=${() => this._toggleCat(c)}>${c}</span>`)}
+      </div>` : nothing}
+      ${total != null ? html`<span class="count-note">${shown}/${total}</span>` : nothing}
+    </div>`;
+  }
+
+  // The scope/org category a component path falls in (for chips): its org
+  // (o/<org>), else its top-level segment ("apps", "lib", \u2026).
+  _catOf(path) {
+    const s = (path || '').split('/');
+    if (s[0] === 'o' && s[1]) return 'org:' + s[1];
+    if (s[1] === 'o' && s[2]) return 'org:' + s[2];
+    return s[0] || '\u2014';
   }
 
   // ---- runtime ----
@@ -690,34 +793,6 @@ export class BxAdmin extends LitElement {
       >mount ${mark(p.seccomp)} · read ${land}</span>`;
   }
 
-  _runtimeView() {
-    const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
-    const h = rt.host || {};
-    const kv = (label, val) => html`<div class="kv"><span>${label}</span> <b>${val}</b></div>`;
-    return html`
-      <div class="hostcard">
-        ${kv('xbind', h.version)}
-        ${kv('kernel', h.kernel || '—')}
-        ${kv('pid', h.pid)}
-        ${kv('euid', h.uid)}
-        ${kv('cpus', h.numCPU)}
-        ${kv('goroutines', h.goroutines)}
-        ${kv('heap', this._fmtBytes((h.heapMB || 0) * 1e6))}
-        ${kv('uptime', this._fmtDur(h.uptimeSec))}
-        ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
-        ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
-        ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
-      </div>
-      <div class="bk"><div class="row hdr">
-        <span></span><span>component</span><span>state</span>
-        <span class="num">pid</span><span class="num">cpu·s</span><span class="num">mem</span>
-        <span class="num">fds</span><span class="num">conns</span><span>net</span><span>egress</span>
-      </div></div>
-      ${(rt.backends || []).map((b) => this._bkRow(b))}
-      ${(rt.backends || []).length === 0 ? html`<span class="muted">no backends running</span>` : nothing}
-      ${this._resourcesSection(rt.resources)}`;
-  }
-
   _resourcesSection(resources) {
     if (!resources || !resources.length) return nothing;
     return html`
@@ -729,32 +804,6 @@ export class BxAdmin extends LitElement {
         <span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>
         <span class="muted">${r.detail || ''}</span>
       </div></div>`)}`;
-  }
-
-  _bkRow(b) {
-    const open = this._rtOpen.has(b.path);
-    const act = b.activity;
-    const egress = b.isolated
-      ? (b.egress && b.egress.length
-          ? html`${b.egress.length} rule(s)${act ? html` · <span class="flow-allow">${act.allowed}↑</span>/<span class="flow-deny">${act.denied}⛔</span>` : nothing}`
-          : html`<span class="muted">deny-all</span>`)
-      : html`<span class="muted">host net</span>`;
-    return html`
-      <div class="bk ${open ? 'open' : ''}">
-        <div class="row" @click=${() => this._toggleBk(b.path)}>
-          <span class="caret">▶</span>
-          <span class="p" title=${b.path}>${b.path} ${b.isolated ? html`<span class="lock" title="sandboxed">🔒</span>` : nothing}</span>
-          <span class="state ${b.state}">${b.state}</span>
-          <span class="num">${b.pid || '—'}</span>
-          <span class="num">${b.cpuSec ? b.cpuSec.toFixed(1) : '—'}</span>
-          <span class="num" title=${b.cgroup ? 'cgroup memory.current' : 'RSS'}>${this._mem(b)}</span>
-          <span class="num">${b.fds || '—'}</span>
-          <span class="num">${b.activeConns}</span>
-          <span>${b.isolated ? this._spark(b.path) : html`<span class="muted" style="font-size:10px">—</span>`}</span>
-          <span>${egress}</span>
-        </div>
-        ${open ? this._bkDetail(b) : nothing}
-      </div>`;
   }
 
   _bkDetail(b) {
@@ -814,9 +863,37 @@ export class BxAdmin extends LitElement {
     return html`<div class="vault-banner ok">vault unsealed — encryption at rest active</div>`;
   }
 
-  _overview() {
+  // ---- components (runtime → components): the tile roster ----
+  // Merges the manifest/principal view (_ov) with live backend state (_rt) and
+  // adds per-component access relations on expand. Filterable + category-chipped
+  // so it scales to thousands of tiles.
+  _bkByPath() {
+    const m = {};
+    for (const b of (this._rt?.backends ?? [])) m[b.path] = b;
+    return m;
+  }
+  _toggleComp(path) {
+    const s = new Set(this._rtOpen); s.has(path) ? s.delete(path) : s.add(path); this._rtOpen = s;
+    if (s.has(path) && this._access[path] === undefined) this._loadAccess(path);
+  }
+  async _loadAccess(path) {
+    this._access = { ...this._access, [path]: null }; // mark loading
+    try {
+      const d = await api('/access?tile=' + encodeURIComponent(path));
+      this._access = { ...this._access, [path]: d };
+    } catch (e) { this._access = { ...this._access, [path]: { error: String(e.message ?? e) } }; }
+  }
+
+  _componentsView() {
     const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
     const c = ov.counts;
+    const bk = this._bkByPath();
+    const all = ov.components ?? [];
+    const cats = [...new Set(all.map((k) => this._catOf(k.path)))].sort();
+    const rows = all.filter((k) => this._catActive(this._catOf(k.path)) &&
+      this._match(k.path, k.runtime, (k.uses ?? []).map((u) => u.target).join(' ')));
+    const live = rows.filter((k) => !this._isOffloaded(k));
+    const off = rows.filter((k) => this._isOffloaded(k));
     return html`
       ${this._vaultBanner()}
       <div class="cards">
@@ -825,38 +902,89 @@ export class BxAdmin extends LitElement {
         <div class="stat"><div class="n">${c.grants}</div><div class="l">grants</div></div>
         <div class="stat ${c.pending ? 'warn' : ''}"><div class="n">${c.pending}</div><div class="l">pending</div></div>
       </div>
-      <h4>principals</h4>
+      ${this._filterBar('filter tiles by path, runtime or use…', cats, rows.length, all.length)}
       <table>
-        <tr><th>component</th><th>runtime</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
-        ${ov.components.filter((k) => !this._isOffloaded(k)).map((k) => html`<tr>
-          <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
-          <td class="muted">${k.runtime || 'static'}</td>
-          <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
-          <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
-          <td>${k.hasVault ? '🔑' : ''}</td>
-          <td>${this._lifecycleCell(k)}</td>
-        </tr>`)}
+        <tr><th></th><th>component</th><th>runtime</th><th>state</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
+        ${live.map((k) => this._compRow(k, bk[k.path]))}
+        ${live.length === 0 ? html`<tr><td></td><td class="muted" colspan="7">no matching components</td></tr>` : nothing}
       </table>
-      ${this._offloadedSection(ov)}`;
+      ${off.length ? html`<h4>offloaded <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— archived, not running</span></h4>
+        <table>
+          <tr><th>component</th><th>state</th><th></th></tr>
+          ${off.map((k) => html`<tr>
+            <td class="mono">${k.path}</td>
+            <td><span class="pill st-failed">${k.state}</span></td>
+            <td style="text-align:right"><a class="link" @click=${() => this._setTab('backup')}>restore in Backup →</a></td>
+          </tr>`)}
+        </table>` : nothing}`;
+  }
+
+  _compRow(k, b) {
+    const open = this._rtOpen.has(k.path);
+    const state = b ? html`<span class="state ${b.state}">${b.state}</span>${b.isolated ? html` <span class="lock" title="sandboxed">🔒</span>` : nothing}`
+      : html`<span class="muted">${(k.runtime && k.runtime !== 'static') ? 'idle' : 'static'}</span>`;
+    return html`
+      <tr>
+        <td><span class="caret ${open ? 'o' : ''}" style="cursor:pointer" @click=${() => this._toggleComp(k.path)}>▶</span></td>
+        <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
+        <td class="muted">${k.runtime || 'static'}</td>
+        <td>${state}</td>
+        <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
+        <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
+        <td>${k.hasVault ? '🔑' : ''}</td>
+        <td>${this._lifecycleCell(k)}</td>
+      </tr>
+      ${open ? html`<tr><td></td><td colspan="7">${this._compDetail(k, b)}</td></tr>` : nothing}`;
+  }
+
+  // Component detail (expanded): who can reach it (access relations) + live
+  // backend runtime. The access relations are the "user relations" view — the
+  // reverse of the access map, per tile.
+  _compDetail(k, b) {
+    const acc = this._access[k.path];
+    return html`<div class="detail" style="grid-template-columns:1fr">
+      <div>
+        <h5>access — who can reach this tile</h5>
+        ${acc === undefined || acc === null ? html`<span class="muted">loading…</span>`
+          : acc.error ? html`<span class="err-pill">${acc.error}</span>`
+          : html`
+            ${acc.org ? html`<div class="mono" style="font-size:11px;margin-bottom:3px">org: ${acc.org}</div>` : nothing}
+            ${(acc.entries ?? []).length === 0 ? html`<span class="muted">no users or teams have access (admins always do)</span>` : html`
+            <table class="tbl"><tr><th>who</th><th>level</th><th>via</th></tr>
+              ${acc.entries.map((e) => html`<tr>
+                <td>${e.kind === 'team' ? '👥' : '👤'} <span class="mono">${e.id}</span></td>
+                <td><span class="pill">${e.level}</span></td>
+                <td class="muted">${e.source}</td></tr>`)}
+            </table>`}
+            <a class="link" @click=${() => this._setTab('map')}>full access map →</a>`}
+      </div>
+      ${b ? html`<div style="margin-top:8px"><h5>runtime</h5>${this._bkDetail(b)}</div>` : nothing}
+    </div>`;
   }
 
   _isOffloaded(k) { return k.state === 'offloaded' || k.state === 'offloaded-full'; }
 
-  // Offloaded (archived) components live in their own section — they're not
-  // running, so they'd only clutter the principals table. Restore from Backup.
-  _offloadedSection(ov) {
-    const off = (ov.components ?? []).filter((k) => this._isOffloaded(k));
-    if (!off.length) return nothing;
+  // ---- resources (runtime → resources): host health + brokered state ----
+  _resourcesView() {
+    const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
+    const h = rt.host || {};
+    const kv = (label, val) => html`<div class="kv"><span>${label}</span> <b>${val}</b></div>`;
     return html`
-      <h4>offloaded <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— archived, not running</span></h4>
-      <table>
-        <tr><th>component</th><th>state</th><th></th></tr>
-        ${off.map((k) => html`<tr>
-          <td class="mono">${k.path}</td>
-          <td><span class="pill st-failed">${k.state}</span></td>
-          <td style="text-align:right"><a class="link" @click=${() => { this._tab = 'backup'; }}>restore in Backup →</a></td>
-        </tr>`)}
-      </table>`;
+      <div class="hostcard">
+        ${kv('xbind', h.version)}
+        ${kv('kernel', h.kernel || '—')}
+        ${kv('pid', h.pid)}
+        ${kv('euid', h.uid)}
+        ${kv('cpus', h.numCPU)}
+        ${kv('goroutines', h.goroutines)}
+        ${kv('heap', this._fmtBytes((h.heapMB || 0) * 1e6))}
+        ${kv('uptime', this._fmtDur(h.uptimeSec))}
+        ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
+        ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
+        ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
+      </div>
+      ${this._resourcesSection(rt.resources)}
+      ${(!rt.resources || !rt.resources.length) ? html`<p class="muted">no brokered resources provisioned yet — declare them in a <span class="mono">scope.json</span> (kv, blob, bus, cron, sqlite, filesystem). See <a href="/docs/resources.md" target="_blank">docs/resources.md</a>.</p>` : nothing}`;
   }
 
   // Lifecycle toggle (plans/lifecycle.md). Static/CGI components with no backend
@@ -921,18 +1049,22 @@ export class BxAdmin extends LitElement {
       </datalist>`;
   }
 
-  _rolesView() {
+  // ---- binding → grants: the grant table + approvals ----
+  _grantsView() {
     const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
-    // Empty slices arrive as null over JSON — coalesce before touching them.
     const comps = ov.components ?? [];
-    const pending = ov.pending ?? [];
-    const grants = ov.grants ?? [];
+    const pending = (ov.pending ?? []).filter((g) => this._match(g.from, g.target, g.role));
+    const grants = (ov.grants ?? []).filter((g) => this._match(g.from, g.target, g.role));
+    const total = (ov.grants ?? []).length + (ov.pending ?? []).length;
     return html`
+      ${this._filterBar('filter grants by caller, target or role…', null, pending.length + grants.length, total)}
       ${pending.length ? html`<h4>pending requests</h4>
         <table>${pending.map((g) => html`<tr>
           <td class="mono">${g.from} → ${g.target}</td>
           <td><span class="pill">${g.role}</span></td>
-          <td style="text-align:right"><button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button></td>
+          <td style="text-align:right">${g.blocked
+            ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
+            : html`<button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button>`}</td>
         </tr>`)}</table>` : nothing}
 
       <h4>active grants</h4>
@@ -940,7 +1072,7 @@ export class BxAdmin extends LitElement {
         <td class="mono">${g.from} → ${g.target}</td>
         <td><span class="pill">${g.role}</span></td>
         <td style="text-align:right"><button class="act rm" @click=${() => this._revoke(g)}>revoke</button></td>
-      </tr>`) : html`<tr><td class="muted">none</td></tr>`}</table>
+      </tr>`) : html`<tr><td class="muted">${this._q ? 'no matching grants' : 'none'}</td></tr>`}</table>
 
       <h4>add grant</h4>
       <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
@@ -952,15 +1084,26 @@ export class BxAdmin extends LitElement {
         <span class="muted">:</span>
         <input name="role" placeholder="reader" size="8" value="reader">
         <button class="act go">grant</button>
-      </form>
+      </form>`;
+  }
 
-      <h4>exposed roles</h4>
+  // ---- binding → roles: the exposed-role catalog ----
+  _rolesCatalogView() {
+    const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
+    const rows = (ov.components ?? []).filter((k) => k.roles)
+      .flatMap((k) => Object.entries(k.roles).map(([role, desc]) => ({ path: k.path, role, desc })))
+      .filter((r) => this._match(r.path, r.role, r.desc));
+    return html`
+      <p class="muted">Every role a component <b>exposes</b> for others to be granted (manifest
+        <code>expose.roles</code>). Callers request them in <code>uses</code>; you approve in
+        <a class="link" @click=${() => this._setTab('grants')}>grants</a>.</p>
+      ${this._filterBar('filter roles by component, role or description…', null, rows.length, rows.length)}
       <table>
         <tr><th>component</th><th>role</th><th>description</th></tr>
-        ${comps.filter((k) => k.roles).flatMap((k) =>
-          Object.entries(k.roles).map(([role, desc]) => html`<tr>
-            <td class="mono">${k.path}</td><td><span class="pill">${role}</span></td>
-            <td class="muted">${desc}</td></tr>`))}
+        ${rows.map((r) => html`<tr>
+          <td class="mono">${r.path}</td><td><span class="pill">${r.role}</span></td>
+          <td class="muted">${r.desc}</td></tr>`)}
+        ${rows.length === 0 ? html`<tr><td class="muted" colspan="3">no exposed roles${this._q ? ' match' : ''}</td></tr>` : nothing}
       </table>`;
   }
 
@@ -992,15 +1135,12 @@ export class BxAdmin extends LitElement {
       await this._loadIfaces();
     } catch (e) { this._err = String(e.message ?? e); }
   }
-  _ifacesView() {
-    const d = this._ifaces;
-    if (!d) return html`<div class="muted">loading…</div>`;
+  // Shared iface model: the provider roster (by kind, service-aware, instances
+  // expanded) and the request list — consumed by both providers + binding views.
+  _ifaceModel() {
+    const d = this._ifaces || {};
     const comps = d.components || [];
     const instances = d.instances || {};
-    // providers of each kind, carrying their service contract — an
-    // instances-provide expands to one option per registered instance
-    // (provider#instance; a subslot presents itself like any other provider,
-    // so non-subslot-aware tiles bind to it the same way).
     const providersByKind = {};
     for (const c of comps)
       for (const def of Object.values(c.provides || {})) {
@@ -1012,35 +1152,52 @@ export class BxAdmin extends LitElement {
           list.push({ ref: c.component, service: def.service });
         }
       }
-    // builtin net providers
     const builtins = { net: ['internet', 'host'] };
     const requests = comps.flatMap((c) =>
       Object.entries(c.interfaces || {}).map(([slot, def]) => ({ comp: c.component, slot, def })));
+    return { d, comps, instances, providersByKind, builtins, requests };
+  }
+
+  // ---- binding → interface providers ----
+  _providersView() {
+    if (!this._ifaces) return html`<div class="muted">loading…</div>`;
+    const { comps, instances, providersByKind } = this._ifaceModel();
+    const rows = comps.flatMap((c) => Object.entries(c.provides || {})
+      .map(([slot, def]) => ({ comp: c.component, slot, def })))
+      .filter((r) => this._match(r.comp, r.slot, r.def.kind, r.def.service));
     return html`
-      <p class="muted">Each component <b>requests</b> typed interface slots; you <b>bind</b> each to a
-        provider (a builtin or a tile that <b>provides</b> it). The binding is the authorization —
-        unbound means no capability. See <a href="/docs/protocol.md" target="_blank">plans/interfaces.md</a>.</p>
-      <h3>Providers</h3>
+      <p class="muted">Tiles that <b>provide</b> a typed interface others can bind to — net providers,
+        service (<code>http</code>) endpoints, ingress terminators. See
+        <a href="/docs/elements.md" target="_blank">docs/elements.md</a>.</p>
+      ${this._filterBar('filter providers by tile, slot, kind or service…', null, rows.length, rows.length)}
       <table class="tbl">
         <tr><th>tile</th><th>slot</th><th>kind</th><th>instances</th></tr>
-        ${comps.flatMap((c) => Object.entries(c.provides || {}).map(([slot, def]) => html`<tr>
-          <td class="mono">${c.component}</td><td>${slot}</td>
-          <td><span class="pill">${def.kind}${def.service ? ':' + def.service : ''}</span></td>
-          <td class="mono">${def.instances
-            ? (Object.keys(instances[c.component] || {}).sort().map((id) => html`<span class="pill">#${id}</span>`) || nothing)
-            : html`<span class="muted">—</span>`}</td></tr>`))}
-        ${Object.keys(providersByKind).length === 0 ? html`<tr><td class="muted" colspan="4">no provider tiles</td></tr>` : nothing}
-      </table>
-      <h3>Requests → binding</h3>
+        ${rows.map((r) => html`<tr>
+          <td class="mono">${r.comp}</td><td>${r.slot}</td>
+          <td><span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}</span></td>
+          <td class="mono">${r.def.instances
+            ? (Object.keys(instances[r.comp] || {}).sort().map((id) => html`<span class="pill">#${id}</span>`) || nothing)
+            : html`<span class="muted">—</span>`}</td></tr>`)}
+        ${rows.length === 0 ? html`<tr><td class="muted" colspan="4">no provider tiles${this._q ? ' match' : ''}${!this._q && Object.keys(providersByKind).length === 0 ? '' : ''}</td></tr>` : nothing}
+      </table>`;
+  }
+
+  // ---- binding → binding: wire each requested slot to a provider ----
+  _bindingView() {
+    if (!this._ifaces) return html`<div class="muted">loading…</div>`;
+    const { d, providersByKind, builtins, requests } = this._ifaceModel();
+    const rows = requests.filter((r) => this._match(r.comp, r.slot, r.def.kind, r.def.service));
+    return html`
+      <p class="muted">Each component <b>requests</b> typed interface slots; you <b>bind</b> each to a
+        provider. The binding is the authorization — unbound means no capability. Public exposure is
+        under <a class="link" @click=${() => this._setTab('expose')}>ingress → services / expose</a>.</p>
+      ${this._filterBar('filter by component, slot, kind or service…', null, rows.length, requests.length)}
       <table class="tbl">
         <tr><th>component</th><th>slot</th><th>kind</th><th>bound to</th></tr>
-        ${requests.map((r) => {
+        ${rows.map((r) => {
           const raw = d.bindings?.[r.comp]?.[r.slot];
-          const bound = [].concat(raw ?? []);           // string | array → array
+          const bound = [].concat(raw ?? []).map((x) => (x && x.ref) ? x.ref : x); // string|{ref}|array → refs
           const own = (p) => p === r.comp || p.startsWith(r.comp + '#');
-          // http slots bind within their service contract (same filter the
-          // backend's bindOptions + bind validation apply) — an s3 slot must
-          // not offer an openai provider.
           const opts = [...(builtins[r.def.kind] || []),
             ...(providersByKind[r.def.kind] || [])
               .filter((e) => !own(e.ref) &&
@@ -1048,7 +1205,6 @@ export class BxAdmin extends LitElement {
               .map((e) => e.ref)];
           const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
           if (r.def.multi) {
-            // Multi-input slot: a dropdown checklist over the same options.
             return html`<tr>
               <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
               <td><bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
@@ -1061,9 +1217,8 @@ export class BxAdmin extends LitElement {
               ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
             </select></td></tr>`;
         })}
-        ${requests.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces</td></tr>` : nothing}
-      </table>
-      ${this._ingressView()}`;
+        ${rows.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces${this._q ? ' match' : ''}</td></tr>` : nothing}
+      </table>`;
   }
 
   // ---- ingress (published endpoints; plans/ingress.md) ----
@@ -1099,23 +1254,23 @@ export class BxAdmin extends LitElement {
       await this._loadIfaces();
     } catch (err) { this._err = String(err.message ?? err); }
   }
-  _ingressView() {
+  // ---- ingress → services / expose: publish tiles to the outside ----
+  _ingressExposeView() {
     const d = this._ingress;
-    if (!d) return nothing;
-    const exposes = d.exposes || [];
-    const routes = d.routes || [];
+    if (!d) return html`<span class="muted">loading…</span>`;
     const streams = d.streams || [];
-    const lst = d.httpListener || {};
-    const sources = (kind) => kind === 'http'
-      ? ['runtime', ...(d.terminators || [])]
-      : ['runtime'];
+    const sources = (kind) => kind === 'http' ? ['runtime', ...(d.terminators || [])] : ['runtime'];
+    const all = d.exposes || [];
+    const exposes = all.filter((e) => this._match(e.component, e.slot, e.kind, e.host, e.zone));
     return html`
-      <h3>Ingress — published endpoints</h3>
       <p class="muted">Tiles declare <code>exposes</code> in their manifest; <b>binding a slot to an
-        ingress source publishes it</b> to the outside (anonymous traffic, confined to the tile's
-        declared public paths). Unbound = unreachable, exactly like interfaces.
+        ingress source publishes it</b> to the outside — anonymous traffic, confined to the tile's
+        declared public paths. Unbound = unreachable, exactly like interfaces.
         See <a href="/docs/ingress.md" target="_blank">docs/ingress.md</a>.</p>
-      ${exposes.length === 0 ? html`<div class="muted">no tile declares exposes yet</div>` : html`
+      ${all.length === 0 ? html`<div class="muted">No tile declares <code>exposes</code> yet. Add an
+        <span class="mono">exposes</span> block to a tile's <span class="mono">xbin.json</span>
+        (http paths, or a tcp/udp port), or import the <b>Public HTTPS (Traefik)</b> tile.</div>` : html`
+      ${this._filterBar('filter exposed endpoints…', null, exposes.length, all.length)}
       <table class="tbl">
         <tr><th>tile</th><th>endpoint</th><th>source</th><th>route</th><th></th><th>state</th></tr>
         ${exposes.map((e) => {
@@ -1157,19 +1312,50 @@ export class BxAdmin extends LitElement {
             </td>
             <td>${state}</td></tr>`;
         })}
-      </table>`}
-      ${routes.length ? html`
-        <h4>Live routes</h4>
+        ${exposes.length === 0 ? html`<tr><td class="muted" colspan="6">no matching endpoints</td></tr>` : nothing}
+      </table>`}`;
+  }
+
+  // ---- ingress → endpoints: live routes, listeners, terminators ----
+  _ingressEndpointsView() {
+    const d = this._ingress;
+    if (!d) return html`<span class="muted">loading…</span>`;
+    const routes = (d.routes || []).filter((r) => this._match(r.host, r.component, r.slot, r.source));
+    const streams = d.streams || [];
+    const forwards = d.forwards || [];
+    const lst = d.httpListener || {};
+    return html`
+      <p class="muted">The live public routing table — what the outside can reach right now. Publish
+        or unpublish under <a class="link" @click=${() => this._setTab('expose')}>services / expose</a>.</p>
+      <div class="muted" style="margin:2px 0 10px">
+        builtin HTTP listener: ${lst.listen ? html`<b>${lst.listen}</b> (${lst.tls ? 'TLS' : 'no TLS — front it, or use the Traefik tile'})` : 'off — start xbind with --ingress-listen'}
+      </div>
+      <h4>HTTP routes</h4>
+      ${this._filterBar('filter routes by host or tile…', null, routes.length, (d.routes || []).length)}
+      <table class="tbl">
+        <tr><th>public host</th><th>→ tile</th><th>via</th></tr>
+        ${routes.map((r) => html`<tr>
+          <td class="mono">${r.host}</td>
+          <td class="mono">${r.component}.${r.slot}</td>
+          <td>${r.source}${r.zone ? html` <span class="muted">(zone ${r.zone})</span>` : nothing}</td></tr>`)}
+        ${routes.length === 0 ? html`<tr><td class="muted" colspan="3">no HTTP routes${this._q ? ' match' : ''}</td></tr>` : nothing}
+      </table>
+      ${streams.length ? html`<h4>stream listeners (tcp / udp)</h4>
         <table class="tbl">
-          <tr><th>public host</th><th>→ tile</th><th>via</th></tr>
-          ${routes.map((r) => html`<tr>
-            <td class="mono">${r.host}</td>
-            <td class="mono">${r.component}.${r.slot}</td>
-            <td>${r.source}${r.zone ? html` <span class="muted">(zone ${r.zone})</span>` : nothing}</td></tr>`)}
+          <tr><th>host listen</th><th>→ tile</th><th>proto</th><th>state</th></tr>
+          ${streams.map((s) => html`<tr>
+            <td class="mono">${s.listen}</td>
+            <td class="mono">${s.component}.${s.slot} → :${s.port}</td>
+            <td>${s.proto}</td>
+            <td>${s.error ? html`<span class="st-failed">⚠ ${s.error}</span>` : html`<span class="st-healthy">${s.active} active</span>`}</td></tr>`)}
         </table>` : nothing}
-      <div class="muted" style="margin-top:.5em">
-        builtin HTTP listener: ${lst.listen ? `${lst.listen} (${lst.tls ? 'TLS' : 'no TLS — front it, or use the traefik tile'})` : 'off — start xbind with --ingress-listen'}
-      </div>`;
+      ${forwards.length ? html`<h4>terminator forward doors</h4>
+        <table class="tbl">
+          <tr><th>terminator tile</th><th>state</th></tr>
+          ${forwards.map((f) => html`<tr>
+            <td class="mono">${f.source}</td>
+            <td>${f.error ? html`<span class="st-failed">⚠ ${f.error}</span>` : html`<span class="st-healthy">up</span>`}</td></tr>`)}
+        </table>` : nothing}`;
   }
 
   // ---- backup (plans/lifecycle.md) ----
@@ -1973,6 +2159,38 @@ export class BxAdmin extends LitElement {
           ${this._policyEditor(o.id, o.policy)}
         </div>
       </div>`;
+  }
+
+  // ---- user management → teams: cross-org team roster ----
+  _teamsView() {
+    const orgs = this._orgs ?? [];
+    const orgIds = orgs.map((o) => o.id).sort();
+    const all = orgs.flatMap((o) => (o.teams ?? []).map((t) => ({ org: o.id, t })));
+    const rows = all.filter(({ org, t }) => this._catActive('org:' + org) &&
+      this._match(org, t.id, t.name, (t.members ?? []).join(' '), Object.keys(t.tiles ?? {}).join(' ')));
+    return html`
+      <p class="muted">Teams group an org's members and grant tile access by <b>union</b> (GitHub-shaped):
+        a member's level is the highest of their own entries, their teams' entries (inside the team's
+        org only), and the org base permission. Membership + tile access are edited per org under
+        <a class="link" @click=${() => this._setTab('orgs')}>organisations</a> (or the shell's per-tile
+        ⚙ panel); term-api / term-net are workspace-admin only.</p>
+      ${orgs.length === 0 ? html`<p class="muted">No orgs yet — create one under
+        <a class="link" @click=${() => this._setTab('orgs')}>organisations</a>.</p>` : html`
+      ${this._filterBar('filter teams by org, name, member or tile…', orgIds.map((o) => 'org:' + o), rows.length, all.length)}
+      <table class="tbl">
+        <tr><th>org / team</th><th>members</th><th>tile access</th><th>new-tile</th><th>terminal flags</th></tr>
+        ${rows.map(({ org, t }) => html`<tr>
+          <td class="mono">${org}/<b>${t.id}</b>${t.name && t.name !== t.id ? html` <span class="muted">${t.name}</span>` : nothing}</td>
+          <td>${(t.members ?? []).length ? (t.members).map((m) => html`<span class="pill">${m}</span>`) : html`<span class="muted">none</span>`}</td>
+          <td>${Object.entries(t.tiles ?? {}).length
+            ? Object.entries(t.tiles).map(([pat, lvl]) => html`<span class="pill" title=${pat}>${pat}: ${lvl}</span>`)
+            : html`<span class="muted">—</span>`}
+            ${(t.canCreate ?? []).length ? html`<span class="pill" title="can create">＋ ${(t.canCreate).join(', ')}</span>` : nothing}</td>
+          <td>${t.newTiles || 'write'}</td>
+          <td>${t.termApi ? html`<span class="pill">term-api</span>` : nothing}${t.termNet ? html`<span class="pill">term-net</span>` : nothing}${(!t.termApi && !t.termNet) ? html`<span class="muted">—</span>` : nothing}</td>
+        </tr>`)}
+        ${rows.length === 0 ? html`<tr><td class="muted" colspan="5">no teams${this._q || this._cats.size ? ' match' : ' yet — add teams under organisations'}</td></tr>` : nothing}
+      </table>`}`;
   }
 
   _orgsView() {
