@@ -119,7 +119,7 @@ stdout out, nothing to keep alive.
 Any executable. CGI/1.1 env (`PATH_INFO`, `QUERY_STRING`, `REQUEST_METHOD`,
 body on stdin) plus `XBIN_COMPONENT`, `XBIN_FROM`, `XBIN_ROLE`. Response:
 headers, blank line, body on stdout. Perfect for shell-script endpoints;
-per-request exec, 30 s timeout.
+one exec per request (no persistent process, so no idle reaping or drain).
 
 ## In-frame JS API (`window.xbin`)
 
@@ -137,8 +137,10 @@ const llm = xbin.iface('llm');  // { url: '/api/apps/llm-gw', service: 'openai' 
 if (llm) await xbin.fetch(`${llm.url}/v1/chat/completions`, { method: 'POST', … });
 
 // fetch with identity attribution. REQUIRED for calling other elements'
-// APIs from the browser; plain fetch to a sibling 403s (auth.md).
-// Streaming responses (SSE via ReadableStream) work.
+// APIs from the browser: it attaches the frame token so the callee sees your
+// tile as the caller. A plain fetch to a sibling is unattributed — 403 for a
+// non-admin user; an admin's own cookie would call as admin and mask a missing
+// grant, so always use xbin.fetch (auth.md). Streaming (SSE) works.
 const r = await xbin.fetch(`/api/${xbin.self}/events`);
 const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
 

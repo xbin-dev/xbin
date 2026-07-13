@@ -23,8 +23,9 @@ import (
 // Cron resource (plans/auth.md §5): an element registers jobs that call its
 // OWN endpoints on a schedule — cron can never be aimed at a third element.
 // Invocations carry From: xbin/cron and the role the element chose at
-// registration (bounded by its own declared roles). Jobs persist in
-// data/resources/<scope-key>/<res>.cron.json and survive restarts.
+// registration (jobs are self-targeted, so the role is not separately vetted
+// against the caller's grants — a tile is already admin of itself). Jobs
+// persist in data/cron-jobs.json (workspace-wide) and survive restarts.
 
 type cronJob struct {
 	Name      string `json:"name"`

@@ -207,14 +207,27 @@ kv/prefs is excluded as noise) logs one structured line: who (principal),
 method, path, resulting status. It rides the daemon journal
 (`journalctl -u xbin`).
 
-## The admin tile, in one line per tab
+## The admin tile: two-level nav, one line per sub-tab
 
-overview (components, backends, disk, versions) · runtime (the `/runtime`
-deep view) · users (accounts, roles, per-tile levels) · orgs & teams (D19–21
-management) · access map (who-can-what matrix with provenance) · vault
-(seal/unseal, per-tile secrets) · roles & grants (pending approvals, grant
-table) · interfaces (bindings, providers, the ingress panel) · backup
-(archiver bindings, schedules, restore) · cron (scheduled jobs).
+The console groups its tabs (it runs to thousands of tiles, so every list view
+also carries a text filter and, where it helps, scope/org category chips):
+
+- **runtime** — *components* (the tile roster: manifest + live backend state,
+  expandable to each tile's access relations and runtime detail; filterable) ·
+  *resources* (host health + brokered-resource footprint) · *backup*
+  (archiver bindings, schedules, restore) · *cron* (scheduled jobs).
+- **user management** — *users* (accounts, roles, per-tile levels) ·
+  *organisations* (D19–21) · *teams* (cross-org roster) · *access map*
+  (who-can-what matrix with provenance).
+- **vault** — seal/unseal, per-tile secrets.
+- **binding** — *roles* (the exposed-role catalog) · *grants* (pending
+  approvals + grant table) · *interface providers* · *binding* (wire each
+  requested slot to a provider).
+- **ingress** — *endpoints* (the live public routing table + listeners) ·
+  *services / expose* (publish/unpublish exposed endpoints).
+
+Old hash deep-links (`#overview`, `#runtime`, `#interfaces`) redirect to their
+new homes.
 
 ## `bx doctor`
 

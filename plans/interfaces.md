@@ -72,7 +72,8 @@ on the binding:
   intermediate hop is a raw splice.
 - Mechanics: per-client `/30`; client `resolv.conf` → a public resolver (the
   terminal relay pins `:53` to the host resolver, so DNS resolves at the end of
-  the path); MTU ~1400 (room for WireGuard encap); provider learns its client
+  the path); MTU is **1500** in the shipped relay (`fdbased` — this "~1400 for
+  WireGuard encap" was a design note, not what the code sets); provider learns its client
   **roster at spawn** and creates that many TUNs — a roster change restarts it in
   v1 (hot-add is the optimization).
 

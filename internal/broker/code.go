@@ -21,8 +21,9 @@ import (
 // files and its git history/diffs. Admin-gated, OR readable by a component
 // granted "code:<target>" (requireCodeRead) — like the rest of
 // the console) — this exposes source and history across the whole workspace,
-// which is owner-level. History is scoped to a component's path within the
-// single workspace repo (decision D2); there are no per-component repos.
+// which is owner-level. History comes from each component's OWN git repo
+// (EnsureComponentRepos; the workspace is also a repo, decision D2) — the
+// per-component repos are what make clone/import/templates/backups diffable.
 
 var revRE = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 

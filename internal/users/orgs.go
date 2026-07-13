@@ -376,7 +376,7 @@ func validatePolicy(rows []PolicyRow) error {
 		}
 		for _, d := range r.Deny {
 			if !policyDenyKinds[d] {
-				return fmt.Errorf("policy[%d]: unknown deny kind %q (want net|gpu|xbin-caps)", i, d)
+				return fmt.Errorf("policy[%d]: unknown deny kind %q (want net|gpu|xbin-caps|ingress)", i, d)
 			}
 		}
 		for _, m := range r.MayCall {

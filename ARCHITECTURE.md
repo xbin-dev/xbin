@@ -5,6 +5,19 @@ screen is backed by a directory you can open a shell into and edit live — incl
 workspace shell itself. Think Jupyter's "the document is the program" premise, but for
 whole applications, with real backends, and Smalltalk-image-style self-hosting.
 
+> **This is the founding vision doc; some specifics have since evolved — the
+> live truth is `docs/` (builder contract) and `plans/` + `plans/DECISIONS.md`
+> (design record). Known drift here:** vendored deps are **embedded in the
+> xbind binary** and served at `/vendor/`, not copied into `/workspace/vendor/`
+> (which is only a reserved name); the §1 manifest snippet predates auth
+> (`resources:[…]`/`expose:{api:true}` are now `uses` + `expose.roles` +
+> `interfaces`/`provides`/`exposes` — see docs/elements.md); **terminals are
+> sandboxed** (tier-3 per-tile dev sandboxes, D17/D18 — docs/isolation.md) and
+> **multi-user/orgs shipped** (D16–D21 — docs/auth.md), so any "not sandboxed"
+> / "out of scope" notes below are superseded; there is no `xbin vendor add`
+> CLI (deps are refreshed with `./hack/vendor.sh`). A fuller top-down tour
+> lives at [docs/overview/](docs/overview/00-index.md).
+
 ---
 
 ## 1. Core model

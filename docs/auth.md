@@ -265,13 +265,14 @@ depends on the tier:
 |---|---|---|
 | 1 (no `--isolate`; dev/local) | all backends run as one uid | read a sibling's env via `/proc` (steal its instance token), open sibling sockets directly, write any workspace file |
 | 2 (`--scope-uids`, xbind runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
-| 3 (`--isolate`, rootless — production) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **default-deny egress** via the `net:*` relay; cgroup accounting | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, and no network beyond its `net:*` grants |
+| 3 (`--isolate`, rootless — production) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **all Linux capabilities dropped** + a **seccomp block-list** (a net-provider tile keeps net-admin caps in its own netns, D18a); **default-deny egress** via the `net:*` relay; **enforced cgroup limits** (memory/pids/CPU) | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, no network beyond its `net:*` grants, and it can't exceed its memory/pids budget |
 
 Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`) and the
 production model: rootless (unprivileged user namespaces), run on a VM/host
-xbind controls (README → Running it). Still roadmap: a default **seccomp**
-profile, enforced **cgroup resource limits** (today it's accounting only),
-`wasm`/wazero backends, and per-scope **origin** isolation.
+xbind controls (README → Running it). Backends already drop all capabilities,
+carry a seccomp block-list, and run under enforced cgroup v2 limits
+(memory.max/high, pids.max, cpu.weight). Still roadmap: `wasm`/wazero backends
+and per-scope **origin** isolation.
 
 Browser side, all elements are same-origin: frame tokens give **attribution**
 (RBAC works), not **isolation** (a malicious element's JS runs in the same

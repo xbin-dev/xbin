@@ -129,7 +129,12 @@ gains the per-component/scheduled forms; the monolithic workspace `bx backup`
 
 - An archiver is a **privileged tap** (sees a component's whole tar) — owner
   binding is the loud, explicit authorization, exactly like a `net` provider.
-- Vault excluded by default; `--with-vault` archives only the encrypted envelope.
+- Vault excluded by default; `--with-vault` (design) would archive only the
+  encrypted envelope — **not yet wired** (the `WithVault` manifest field exists
+  but is never set, so vault is always excluded). Likewise sqlite is currently
+  copied with its `-wal`/`-shm` sidecars (consistent only when the tile is
+  stopped); the `VACUUM INTO` checkpoint described below is a later drop-in.
+  Restore validates the archive **schema** number, not an xbind version window.
 - Restore/restore-file and all lifecycle transitions are **admin-only**;
   xbind strips inbound `X-XBin-*`; the archiver never gets element principals.
 - Restore validates the backup header's xbin version (≤ one minor newer, like

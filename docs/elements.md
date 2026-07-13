@@ -124,9 +124,10 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   },
 
   // Set false to serve this component's HTML byte-exact, skipping the
-  // standard <head> injection. You lose the import map, xbin-client.js,
-  // and frame-token attribution (your frontend can then only be called as
-  // anonymous). Escape hatch; leave it alone normally.
+  // standard <head> injection. You lose the import map, xbin-client.js, and
+  // frame-token attribution — so requests fall back to the plain cookie
+  // principal (an admin acts as admin; a non-admin user gets 403 on element
+  // APIs), never a tile identity. Escape hatch; leave it alone normally.
   "inject": true,
 
   // Marks this component a TEMPLATE — a blueprint, not a live tile. It runs

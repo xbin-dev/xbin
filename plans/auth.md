@@ -168,7 +168,7 @@ Databases, search, cron are **broker-owned targets in the same RBAC grammar** �
 | `kv`, `blob` | `reader`/`writer` | brokered API |
 | `bus` | `subscriber`/`publisher` | topics per resource |
 | `cron` | `writer` (manage own jobs) | element registers jobs targeting **its own** endpoints; xbind invokes them as `X-XBin-From: xbin/cron` + a role chosen by the element at registration, bounded by the element's own roles. Cron can never be aimed at a third element. |
-| `search` | `reader`/`writer` | workspace full-text index (bleve); writers index docs under their own namespace, readers query across namespaces they could otherwise reach — phase 5 |
+| `search` | `reader`/`writer` | workspace full-text index (bleve); writers index docs under their own namespace, readers query across namespaces they could otherwise reach — **not implemented** (design placeholder; the shipped resource types are kv/blob/bus/cron/sqlite/filesystem) |
 
 ## 6. Browser-side model
 

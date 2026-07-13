@@ -29,8 +29,10 @@ Delivery: each granted resource appears in the backend env as
 `XBIN_RES_<NAME>` (name uppercased; e.g. `events` → `XBIN_RES_EVENTS`).
 For brokered types (kv/blob/bus/cron) the value is the canonical id you pass to
 the APIs; for **filesystem** it's a directory path, and for **sqlite** a file
-path (both a real rw path bound into your sandbox). State lives under
-`data/resources/<scope>/` — gitignored, captured by backups.
+path (both a real rw path bound into your sandbox — the *decrypted* mount when
+encryption is on, see §Encryption). The on-disk bytes are ciphertext under
+`data/resources-enc/<scope>/` (or plaintext `data/resources/<scope>/` when the
+vault is off) — gitignored, captured by backups.
 
 Roles: `reader` / `writer` as usual (`subscriber`/`publisher` accepted for
 bus).
@@ -125,7 +127,8 @@ Document your topics in your `API.md` — they're part of your contract.
 Elements register jobs that call **their own endpoints** on a schedule
 (cron can't be aimed at other elements; the owner can register anything).
 Invocations arrive as `POST <path>` with `X-XBin-From: xbin/cron` and the
-role you chose (bounded by your own declared roles). Jobs persist across
+role you chose at registration (a job is self-targeted — a tile is already
+admin of itself — so the role isn't separately vetted). Jobs persist across
 restarts; a tick on an idle backend wakes it (lazy start), so cron + idle
 reaping compose correctly.
 

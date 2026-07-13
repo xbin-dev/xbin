@@ -254,6 +254,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
 	server.WriteJSON(w, http.StatusOK, u.Public())
 }
 
@@ -327,6 +328,7 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
 	server.WriteJSON(w, http.StatusOK, u.Public())
 }
 
@@ -342,6 +344,7 @@ func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	b.usersEvent() // a deleted user's sessions/frame/terminal principals are gone — refresh panels
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 

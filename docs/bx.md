@@ -9,14 +9,22 @@ not magic.
 
 ```
 bx ls                                  list components (runtime, exposed roles, manifest errors)
-bx status                              backend states (building/healthy/failed, generations)
+bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
+                                       --all = workspace-wide, else this terminal's tile
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"]
                                        scaffold a component
 bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
+bx builtin updates | update <id> [--replace|--merge]
+                                       offer/apply newer embedded scaffold + tiles
 bx user ls | add <id> [flags] | set <id> [flags] | rm <id>
                                        manage users (admin/xbin:users)
+bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md)
+bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
+bx team ls|add|set|rm <org>/<team>     teams (union grants within their org)
+bx access <tile> [set|rm user:…|team:…=level]
+                                       per-tile access entries
 bx logs [-f] <component>               backend logs (tail -f style with -f)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests
@@ -32,6 +40,14 @@ bx ingress [routes]                    published endpoints + live routes/listene
 bx vault status|unseal|seal|rekey      encryption-at-rest barrier
 bx vault ls|get|set|rm <component> [key] [value]
 bx cron ls                             scheduled jobs
+bx enable | disable <component>        lifecycle: pause/resume a tile (plans/lifecycle.md)
+bx offload <component> [--full]        archive + free local bytes (--full incl. source)
+bx backup <component>                  snapshot to the bound @archive provider
+bx backups <component>                 list archived versions
+bx restore <component> [--version V] [--file PATH]
+                                       restore a whole version, or one file
+bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
+                                       owner-scheduled backups
 bx doctor                              workspace health checks
 ```
 

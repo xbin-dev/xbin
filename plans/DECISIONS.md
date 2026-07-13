@@ -99,6 +99,12 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   *push/share* can be layered later via `git subtree`/`filter-repo` (see
   `tile-sharing.md` rungs 2–3) without changing this. *(Decided while the user
   was away; veto if per-component repos are actually wanted.)*
+  **AMENDED (reversed): each component now IS its own git repo**
+  (`broker.EnsureComponentRepos`; the workspace remains a repo too). Per-component
+  repos turned out to be what makes clone/import/templates/backups diffable and
+  independently versioned; the embedded-repo concerns were handled by keeping the
+  workspace repo ignoring component subtrees. History/diffs come from each
+  component's own repo, not `git -- <path>` on the workspace.
 - **CM-2 — Commit policy.** Agents commit **often and unprompted** on any
   meaningful change; the user is never asked to approve a commit. Small,
   component-scoped commits. xbind still **never auto-commits** (D2) — commits
@@ -297,7 +303,9 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   create rights — the confused-deputy clamp; unattributed automation keeps
   capability semantics).
 - **D20 — Org policy = pattern-keyed ceiling rows, enforced at evaluation.**
-  `{tiles, deny[net|gpu|xbin-caps], mayCall[]}` at workspace + org level;
+  `{tiles, deny[net|gpu|xbin-caps|ingress], mayCall[]}` at workspace + org level
+  (the `ingress` deny kind was added with ING-5 — makes matching tiles
+  unpublishable);
   matching rows compose restrictively (any deny wins; every mayCall-bearing
   row must cover the target — intersection). Enforced at approval (friendly
   400 naming the row) AND at every evaluation: `grantedRole` applies the
