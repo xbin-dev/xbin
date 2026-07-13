@@ -22,17 +22,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   existing reference docs stay the field-level truth; the overview is the map
   that puts them in context. Served at `/docs/overview/` and on disk in every
   terminal (`$XBIN_DOCS/overview/`).
-- **Fix: terminal read guard blocked the SDK (and other workspace-adjacent
-  files) on nested installs.** On the standard layout (`/opt/xbin/workspace`)
-  the Landlock read guard skipped the workspace's whole top-level path
-  component, so terminals couldn't read file *contents* anywhere else under
-  `/opt` — `cat /opt/xbin/sdk/xbin.go` failed with `Permission denied` on a
-  world-readable file (while `ls` worked, since only reads are restricted),
-  and `go build` of backends couldn't read the SDK source. The guard now
-  grants siblings level by level down to the workspace root, and terminals'
-  explicit read-only mounts (the SDK bind) are always allowed. Workspaces at
-  a top-level path (`/workspace`) were unaffected; the deny set (`.xbin/`,
-  `data/`, other users' `homes/`) is unchanged.
+- **Fix: terminal read guard blocked the SDK, and workspace-root files like
+  `AGENTS.md`.** Two bugs in the Landlock read guard, both surfacing as
+  `Permission denied` on world-readable files in tile terminals (while `ls`
+  worked, since only file *reads* are restricted):
+  1. On the standard nested layout (`/opt/xbin/workspace`) the guard skipped
+     the workspace's whole top-level path component, so nothing else under
+     `/opt` was readable — `cat /opt/xbin/sdk/xbin.go` failed and backend
+     `go build` couldn't read the SDK. The guard now grants siblings level by
+     level down to the workspace root, and terminals' explicit read-only
+     mounts (the SDK bind) are always allowed.
+  2. Files granted directly at the workspace root (`AGENTS.md`, `go.work`,
+     the `CLAUDE.md` symlink) were read-blocked because the grant carried
+     `LANDLOCK_ACCESS_FS_REFER`, which the kernel rejects on a non-directory —
+     the rule was silently dropped. A file is now granted read-only without
+     `REFER` (directories keep it, so `apt`'s cross-directory renames still
+     work). Workspaces at a top-level path (`/workspace`) were unaffected by
+     (1); (2) affected every layout. The deny set (`.xbin/`, `data/`, other
+     users' `homes/`) is unchanged. Restart xbind and reopen the terminal —
+     the guard is per-process and inherited, so live sessions keep the old one.
 - **Ingress — publishing tiles** ([docs/ingress.md](/docs/ingress.md)): tiles
   can now be reached from OUTSIDE the workspace, deliberately and
   owner-gated. A new manifest section `exposes` declares endpoints —

@@ -44,6 +44,10 @@ func TestReadGuardKernelInstall(t *testing.T) {
 	must(os.WriteFile(filepath.Join(root, "homes", "alice", "cred"), []byte("mine"), 0o644))
 	must(os.WriteFile(filepath.Join(root, "homes", "bob", "cred"), []byte("theirs"), 0o644))
 	must(os.WriteFile(filepath.Join(base, "sdk", "xbin.go"), []byte("package xbin"), 0o644))
+	// A FILE directly at the workspace root — granted individually, not via a
+	// parent dir. REFER is directory-only, so a naive READ_FILE|REFER grant
+	// EINVALs here and read-blocks it (AGENTS.md/go.work/CLAUDE.md).
+	must(os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("guide"), 0o644))
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestReadGuardChild", "-test.v")
 	cmd.Env = append(os.Environ(), "XBIN_READGUARD_CHILD=1", "XBIN_READGUARD_ROOT="+root)
@@ -61,6 +65,11 @@ func TestReadGuardKernelInstall(t *testing.T) {
 		// must stay readable when the workspace root is nested.
 		t.Fatalf("read guard denied a workspace-sibling read (the /opt/xbin/sdk "+
 			"regression — grant siblings level by level, never skip a whole top component):\n%s", out)
+	case bytes.Contains(out, []byte("ROOTFILE-DENIED")):
+		// A file granted directly at the workspace root read-blocked because
+		// READ_FILE|REFER EINVALs on a non-directory (AGENTS.md/go.work).
+		t.Fatalf("read guard denied a workspace-root FILE (REFER is directory-only — "+
+			"grant a file READ_FILE without REFER):\n%s", out)
 	case bytes.Contains(out, []byte("READGUARD-OK")):
 		// secrets denied, everything legitimate allowed — the assertion.
 	default:
@@ -103,6 +112,7 @@ func TestReadGuardChild(t *testing.T) {
 	okSibling := readable(filepath.Join(filepath.Dir(root), "sdk", "xbin.go")) // the SDK bind shape
 	okOwnHome := readable(filepath.Join(root, "homes", "alice", "cred"))       // AllowUnder inside a secret dir
 	okOtherHome := readable(filepath.Join(root, "homes", "bob", "cred"))       // still masked
+	okRootFile := readable(filepath.Join(root, "AGENTS.md"))                   // file granted directly at root
 	// Cross-directory rename WITHIN a granted hierarchy (allowed/sub → allowed):
 	// must succeed. Landlock (ABI≥2) denies reparenting with EXDEV unless the
 	// guard handles+grants REFER — the exact failure that broke `apt`. os.Rename
@@ -113,11 +123,13 @@ func TestReadGuardChild(t *testing.T) {
 		fmt.Printf("REFER-DENIED %v\n", referErr)
 	case !okSibling:
 		fmt.Println("SIBLING-DENIED")
+	case !okRootFile:
+		fmt.Println("ROOTFILE-DENIED")
 	case okAllowed && okOwnHome && !okSecret && !okOtherHome:
 		fmt.Println("READGUARD-OK")
 	default:
-		fmt.Printf("READGUARD-FAIL allowed=%v secret=%v ownHome=%v otherHome=%v\n",
-			okAllowed, okSecret, okOwnHome, okOtherHome)
+		fmt.Printf("READGUARD-FAIL allowed=%v secret=%v ownHome=%v otherHome=%v rootFile=%v\n",
+			okAllowed, okSecret, okOwnHome, okOtherHome, okRootFile)
 	}
 	os.Exit(0)
 }

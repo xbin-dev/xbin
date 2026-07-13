@@ -90,16 +90,28 @@ func installReadGuard(g *ReadGuardSpec) error {
 	rulesetFD := int(fd)
 	defer unix.Close(rulesetFD)
 
-	// grant read-file (+ refer) on a path hierarchy (missing paths are skipped —
-	// a bind that isn't present just isn't granted, never an error).
+	// grant read-file (+ refer) on a path (missing paths are skipped — a bind
+	// that isn't present just isn't granted, never an error).
+	//
+	// REFER is a DIRECTORY-only right: the kernel EINVALs an ADD_RULE that
+	// carries REFER against a regular file, and since we ignore the error the
+	// rule would be silently dropped — leaving that FILE read-DENIED. That is
+	// exactly what read-blocked workspace-root files (AGENTS.md, go.work, the
+	// CLAUDE.md symlink) even after the sibling-walk fix: they are granted
+	// individually, and a file grant must therefore carry READ_FILE only.
+	// (Directories keep REFER so cross-directory renames stay possible — apt.)
 	grant := func(path string) {
 		pf, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return
 		}
 		defer unix.Close(pf)
+		acc := access
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			acc = uint64(unix.LANDLOCK_ACCESS_FS_READ_FILE) // no REFER on a file → no EINVAL
+		}
 		pb := unix.LandlockPathBeneathAttr{
-			Allowed_access: access,
+			Allowed_access: acc,
 			Parent_fd:      int32(pf),
 		}
 		_, _, _ = unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE,
