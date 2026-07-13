@@ -152,10 +152,16 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Scrub any spoofed identity, then inject the verified one.
-	r.Header.Del(HeaderFrom)
-	r.Header.Del(HeaderRole)
-	r.Header.Del(auth.FrameTokenHeader)
+	// Scrub any spoofed identity, then inject the verified one. Strip every
+	// X-XBin-* an inbound caller might set — including X-XBin-Ingress-Host,
+	// which only the ingress path (ForwardIngress) legitimately injects; on
+	// this authenticated /api path a backend must never receive a caller-
+	// supplied one (a tile could otherwise fake a public hostname).
+	for k := range r.Header {
+		if strings.HasPrefix(http.CanonicalHeaderKey(k), "X-Xbin-") {
+			r.Header.Del(k)
+		}
+	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
 

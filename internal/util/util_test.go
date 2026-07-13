@@ -33,9 +33,12 @@ func TestSafeJoin(t *testing.T) {
 
 func TestComponentPathOK(t *testing.T) {
 	good := []string{"apps/x", "root", "lib/ui-kit/button"}
+	// Reserved top-levels can't be components — incl. the identity names
+	// (owner/ingress/runtime) a component path would otherwise impersonate as
+	// an injected X-XBin-From.
 	bad := []string{"", "/abs", "a/../b", ".hidden", "apps/.x", "vendor/x",
 		"data/x", "home/x", ".xbin/x", "xbin", "apps/node_modules/x",
-		"apps/deps/y", "a\\b"}
+		"apps/deps/y", "a\\b", "owner", "ingress", "runtime"}
 	for _, p := range good {
 		if !ComponentPathOK(p) {
 			t.Errorf("ComponentPathOK(%q) = false, want true", p)

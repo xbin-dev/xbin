@@ -57,12 +57,16 @@ func verFields(v string) []string {
 var ErrUnsafePath = errors.New("path escapes workspace")
 
 // ReservedTop are workspace top-level names that cannot be components.
-// "ingress" is the reserved public-caller identity (X-XBin-From, plans/
-// ingress.md) and "runtime" the builtin ingress source — neither may be a
-// component path, or a tile could impersonate them.
+// Several are reserved because a component path becomes an injected
+// X-XBin-From identity: a top-level component named "owner" would make the
+// proxy inject `X-XBin-From: owner`, so callees' SDK would see it as the human
+// owner (Caller().Owner) — an impersonation across the identity spine. Same
+// for "ingress" (the anonymous public-caller identity, plans/ingress.md) and
+// "runtime" (the builtin ingress source). "xbin/cron" can't collide (xbin is
+// reserved, so the "/" form is unreachable).
 var ReservedTop = map[string]bool{
 	".xbin": true, "vendor": true, "data": true, "home": true, "homes": true, "xbin": true,
-	"ingress": true, "runtime": true,
+	"ingress": true, "runtime": true, "owner": true,
 }
 
 // IgnoredDirs are never watched, scanned, or served as component internals.

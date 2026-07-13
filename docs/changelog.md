@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **Security: `owner` is now a reserved component path.** A top-level
+  component literally named `owner` would have made the proxy inject
+  `X-XBin-From: owner`, so a callee's SDK (`Caller().Owner`) would treat it as
+  the human owner — an impersonation across the identity spine. It joins
+  `ingress`/`runtime` as a reserved top-level name (creating one is refused;
+  an existing such dir stops being scanned as a component). The element proxy
+  also now strips **every** inbound `X-XBin-*` header before injecting the
+  verified identity (previously it enumerated three), so a caller can't feed a
+  backend a spoofed `X-XBin-Ingress-Host` on the authenticated `/api` path.
+  Low real-world likelihood (naming a top-level `owner` needs admin/top-level
+  create rights), but a latent contract break — now closed.
 - **Admin console: two-level navigation + filtering, built for large
   deployments.** The flat tab row is now grouped — **runtime**
   (components · resources · backup · cron), **user management** (users ·
