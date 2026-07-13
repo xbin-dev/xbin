@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-12
 
+- **Fix: disk quotas now count encrypted resources.** On an encrypted
+  workspace (the production default) a `filesystem`/`sqlite`/`blob` resource's
+  bytes are ciphertext under `data/resources-enc/…`, but the per-scope quota
+  measurement (and the admin "resources" size view) only scanned the plaintext
+  `data/resources/…` tree — which is an empty mountpoint once encrypted. So
+  those resources counted **~0** toward a scope's quota and the low-disk
+  block/alert never fired for the file plane. Both now measure the ciphertext
+  footprint (summed with the plaintext tree for unencrypted / mid-migration
+  scopes). `kv` was always counted correctly.
 - **Security: `owner` is now a reserved component path.** A top-level
   component literally named `owner` would have made the proxy inject
   `X-XBin-From: owner`, so a callee's SDK (`Caller().Owner`) would treat it as

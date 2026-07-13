@@ -43,14 +43,11 @@ func (b *Broker) ResourceUsage() []ResourceInfo {
 
 func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 	ri := ResourceInfo{ID: id, Scope: scope, Name: name, Type: typ}
-	dir := filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(scope))
 	switch typ {
 	case "sqlite":
-		if fi, err := os.Stat(filepath.Join(dir, name+".sqlite")); err == nil {
-			ri.Size = fi.Size()
-		}
+		ri.Size, _ = b.fileResSize(scope, name, "sqlite")
 	case "blob":
-		size, files := dirUsage(filepath.Join(dir, name))
+		size, files := b.fileResSize(scope, name, "blob")
 		ri.Size = size
 		ri.Detail = plural(files, "file")
 	case "kv":
@@ -63,6 +60,28 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 		ri.Detail = "ephemeral"
 	}
 	return ri
+}
+
+// fileResSize measures a file-backed resource's real on-disk footprint,
+// honoring encryption: once a resource is encrypted its bytes are CIPHERTEXT
+// under data/resources-enc/<key>/<name> (the plaintext dir is just an empty
+// mountpoint), so the old plaintext-only scan reported ~0. The ciphertext is
+// the honest "disk used" figure; unencrypted resources keep the legacy
+// data/resources/<key> layout. (blob file counts are ciphertext counts when
+// encrypted — a small gocryptfs-metadata skew.)
+func (b *Broker) fileResSize(scope, name, typ string) (int64, int) {
+	key := util.ScopeKey(scope)
+	if b.resenc != nil && b.resenc.Encrypted(key, name) {
+		return dirUsage(b.resenc.CipherDir(key, name))
+	}
+	dir := filepath.Join(b.Reg.Root, "data", "resources", key)
+	if typ == "sqlite" {
+		if fi, err := os.Stat(filepath.Join(dir, name+".sqlite")); err == nil {
+			return fi.Size(), 1
+		}
+		return 0, 0
+	}
+	return dirUsage(filepath.Join(dir, name))
 }
 
 func dirUsage(dir string) (size int64, files int) {

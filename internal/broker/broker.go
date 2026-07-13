@@ -122,15 +122,21 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	return b, nil
 }
 
-// scopeDiskUsage measures each scope's resource footprint (its
-// data/resources/<scope> tree — blob/sqlite/filesystem storage), keyed by
-// scope key, for the disk monitor.
+// scopeDiskUsage measures each scope's resource footprint (blob/sqlite/
+// filesystem storage), keyed by scope key, for the disk-monitor quota. It sums
+// BOTH the plaintext tree (data/resources/<scope>, used when the vault is off)
+// AND the encrypted tree (data/resources-enc/<scope>, the ciphertext once a
+// resource is encrypted). A file resource lives in exactly one of them, so the
+// sum is its real disk footprint across mixed/migrating states — the
+// plaintext-only scan reported ~0 for every encrypted resource, so quotas went
+// unenforced for the file plane on production (encrypted) workspaces.
 func (b *Broker) scopeDiskUsage() map[string]int64 {
 	out := map[string]int64{}
 	measure := func(scope string) {
 		key := util.ScopeKey(scope)
-		size, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources", key))
-		out[key] = size
+		plain, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources", key))
+		enc, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources-enc", key))
+		out[key] = plain + enc
 	}
 	measure("")
 	for scope := range b.Reg.Scopes() {
