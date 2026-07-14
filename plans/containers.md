@@ -52,6 +52,39 @@ guard is needed.
 - Approving it restarts the tile's backend (spawn-materialized, like
   `cap:net-admin`).
 
+## Why keeping mount + caps is still safe (workspace secrets)
+
+Dropping `backendDeny` (which blocks `mount`/`pivot_root`/`setns`/`mknod`) and
+keeping `CAP_SYS_ADMIN` sounds alarming, but the secret boundary for a backend
+was **never** the seccomp block-list — it's the **empty mount namespace**. The
+mount/read guards are *terminal* defenses (a terminal binds the whole workspace
+read-only, then masks + guards the secrets). A **backend** — ordinary or
+container-host — mounts only its **own** component dir (ro), its own run dir,
+the gateway socket, its granted resources, and the overlay rootfs. `.xbin`,
+`data/`, `homes/`, and every other tile are **not in its namespace at all** —
+absent, not masked. There is nothing to reveal.
+
+Keeping the caps + allowing `mount` cannot bring them back, because the tile is
+**rootless** (`CAP_SYS_ADMIN` in its *own* userns only):
+
+- can't mount host block devices (needs initial-userns root);
+- can't bind-mount a path it can't see — the host tree is `MNT_DETACH`'d after
+  `pivot_root`, so host paths resolve against the overlay root where they don't
+  exist;
+- can't `setns` into the host or another tile (needs `CAP_SYS_ADMIN` in the
+  target's owning userns);
+- sees only its own PIDs (fresh pidns); its mounts are `MS_PRIVATE` and never
+  propagate to the host.
+
+So a container-host backend mounts strictly **less** than an admin terminal (no
+workspace), and is admin-only + ceiling-deniable on top. The load-bearing
+boundary is the kernel's user-namespace isolation — the same one that makes
+rootless containers and admin terminals safe; a userns *kernel* escape is the
+residual risk, not specific to this feature. (One tile-author caveat: the tile's
+*own* granted resources are bound rw — bind-mounting one into a container shares
+the tile's own data with that container, which is the author's choice, not a
+workspace-secret leak.)
+
 ## What a container-host tile still needs (environmental, in the tile)
 
 The capability lifts the *kernel* blocks; the tile's own `setup` supplies the
