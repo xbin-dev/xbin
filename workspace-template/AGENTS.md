@@ -459,6 +459,17 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   approve and lands pending on import; it keeps CAP_NET_ADMIN/NET_RAW/
   NET_BIND_SERVICE inside your own netns only (docs/auth.md, plans/interfaces.md).
 
+  **If you BUILD a container-host tile** (rootless podman/docker spawning
+  sub-containers — a "dev sandbox"), declare `"uses": [{ "target":
+  "cap:containers", "role": "writer" }]`. Ordinary backends drop all caps + a
+  seccomp block-list that denies mount/pivot_root/setns, which no container
+  runtime survives; this admin-only grant keeps your user-namespace caps + a
+  minimal seccomp floor so podman can build nested namespaces/mounts. Still
+  rootless, still fully namespaced — no host reach. Add a `filesystem` resource
+  for image storage (`--root`) and a `net` binding for container egress; seed
+  nested `/etc/subuid`+`/etc/subgid` in `setup`. Worked example: the `devbox`
+  builtin tile (plans/containers.md, docs/changes/2026-07-14-container-tiles.md).
+
 - **`stream` — a raw TCP dependency on a sibling tile.** `"interfaces": {
   "db": { "kind": "stream" } }`, bound by the owner to another tile's
   exposed stream port (`bx bind <you> db=apps/postgres#pg`). Your backend

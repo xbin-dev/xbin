@@ -1,0 +1,47 @@
+{
+  // Devbox — a container-host tile (plans/containers.md, docs/changes/
+  // 2026-07-14-container-tiles.md). Creates rootless **Podman** containers as
+  // throwaway dev sandboxes and exposes each one's shell over SSH: point your
+  // client at the tile's exposed SSH port and the container name is the SSH
+  // user — `ssh -p 2222 <container>@<xbin-host>` drops you into a shell in
+  // that container. Manage containers + your authorized SSH keys from the
+  // tile's page.
+  "runtime": "go",
+
+  "uses": [
+    // The container-host capability: keeps this tile's user-namespace caps and
+    // a minimal seccomp floor so rootless podman can build nested namespaces +
+    // mounts. ADMIN-ONLY to approve; lands pending on import. Without it, podman
+    // fails at container setup ("operation not permitted" on mount/pivot_root).
+    { "target": "cap:containers", "role": "writer" },
+    // Persistent image + container storage (same-scope → auto-granted). Podman's
+    // --root points here, so images/containers survive restarts instead of
+    // living in the throwaway tmpfs upper. Also holds the SSH host key + your
+    // authorized public keys.
+    { "target": "res:apps/devbox/storage", "role": "writer" }
+  ],
+
+  // Container egress. Bind this to `internet` (contained, via the tile's egress
+  // relay) or `host` (the tile shares the host network — simplest/most robust
+  // for a dev box, more powerful): `bx bind apps/devbox net=host`.
+  "interfaces": {
+    "net": { "kind": "net" }
+  },
+
+  // The SSH front door. Declaring it is inert; publish it to a host TCP port:
+  //   bx expose apps/devbox ssh=runtime --listen :2222
+  // …then `ssh -p 2222 <container>@<xbin-host>`. (The in-tile Go SSH server
+  // does the auth + routes to `podman exec` — the ingress relay just carries
+  // the raw TCP; plans/ingress.md.)
+  "exposes": {
+    "ssh": { "kind": "stream", "proto": "tcp", "port": 2222 }
+  },
+
+  // Install the rootless container userland + seed nested subuid/subgid. Runs
+  // once in a net:internet build sandbox, cached until this changes.
+  //   - podman + uidmap + fuse-overlayfs + passt/slirp4netns: the runtime.
+  //   - /etc/subuid,/etc/subgid: podman subdivides the tile's delegated uid
+  //     RANGE for its containers' users (nested rootless). The tile runs as
+  //     container-root, so the "root" entries are what podman reads.
+  "setup": "set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends podman uidmap fuse-overlayfs slirp4netns passt ca-certificates; printf 'root:100000:65536\\n' > /etc/subuid; printf 'root:100000:65536\\n' > /etc/subgid; mkdir -p /etc/containers; printf 'unqualified-search-registries = [\"docker.io\"]\\n' > /etc/containers/registries.conf; podman --version"
+}

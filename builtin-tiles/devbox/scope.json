@@ -1,0 +1,9 @@
+{
+  // apps/devbox is a scope. `storage` holds podman's image/container store
+  // (--root), the SSH host key, and your authorized public keys — persisted
+  // (encrypted at rest via the vault barrier) across restarts. Losing it drops
+  // all containers/images and the host key (clients would re-verify).
+  "resources": {
+    "storage": { "type": "filesystem" }
+  }
+}
