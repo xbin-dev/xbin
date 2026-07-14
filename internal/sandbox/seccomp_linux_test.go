@@ -186,6 +186,47 @@ func TestBackendSeccompProgram(t *testing.T) {
 	}
 }
 
+// TestContainerSeccompProgram verifies the container-host floor: it denies the
+// host-damaging syscalls but ALLOWS the mount/namespace family rootless podman
+// needs (mount, umount2, pivot_root, setns, mknodat) — the block-list is
+// inherited by every container, so over-blocking here would break the dev boxes.
+func TestContainerSeccompProgram(t *testing.T) {
+	arch, ok := nativeAuditArch()
+	if !ok {
+		t.Skipf("no audit arch for GOARCH=%s", runtime.GOARCH)
+	}
+	vm, err := bpf.NewVM(denyProgram(arch, containerDeny(), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(nr int) uint32 {
+		v, err := vm.Run(seccompData(nr, arch, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return uint32(v)
+	}
+	deny, allow := retErrnoEPERM, uint32(unix.SECCOMP_RET_ALLOW)
+	// host-damaging syscalls: denied.
+	for _, nr := range []int{
+		unix.SYS_INIT_MODULE, unix.SYS_FINIT_MODULE, unix.SYS_KEXEC_LOAD,
+		unix.SYS_REBOOT, unix.SYS_SWAPON, unix.SYS_SETTIMEOFDAY,
+	} {
+		if got := run(nr); got != deny {
+			t.Errorf("container floor: syscall %d should be EPERM, got %#x", nr, got)
+		}
+	}
+	// container-runtime essentials: allowed (podman/runc need these).
+	for _, nr := range []int{
+		unix.SYS_MOUNT, unix.SYS_UMOUNT2, unix.SYS_PIVOT_ROOT, unix.SYS_SETNS,
+		unix.SYS_MKNODAT, unix.SYS_UNSHARE, unix.SYS_CLONE, unix.SYS_OPEN_TREE,
+	} {
+		if got := run(nr); got != allow {
+			t.Errorf("container floor: syscall %d must be allowed for podman, got %#x", nr, got)
+		}
+	}
+}
+
 // TestMountGuardKernelInstall installs the real filter in a child process and
 // checks the kernel actually denies umount2 — no namespaces or privileges
 // needed (no_new_privs lets any process install a seccomp filter), so this

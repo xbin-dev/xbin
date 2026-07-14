@@ -484,3 +484,35 @@ func TestNetAdminCapGrant(t *testing.T) {
 		t.Fatal("undeclared/ungranted tile must not hold the capability")
 	}
 }
+
+// cap:containers is the admin-granted container-host capability: ContainersFor
+// resolves it, a mayCall row must not strip it, but an xbin-caps deny does.
+func TestContainersCapGrant(t *testing.T) {
+	b := testBroker(t)
+	st := b.Users
+	dev, _ := b.Reg.Component("apps/email") // stand-in container-host tile
+
+	if b.ContainersFor(dev) {
+		t.Fatal("ungranted tile must not hold container caps")
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: ContainersCap, Role: "writer"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.ContainersFor(dev) {
+		t.Fatal("granted tile must hold container caps")
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", MayCall: []string{"nothing/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.ContainersFor(dev) {
+		t.Fatal("a mayCall allow-list must not strip the container capability")
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", Deny: []string{users.PolicyDenyXbinCaps}}}); err != nil {
+		t.Fatal(err)
+	}
+	if b.ContainersFor(dev) {
+		t.Fatal("an xbin-caps deny must strip the container capability")
+	}
+}

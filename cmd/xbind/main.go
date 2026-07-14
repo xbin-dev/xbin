@@ -501,7 +501,8 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.NetRoster = brk.NetProviderRoster
 		run.NetTarget = brk.NetClientTarget
 		run.NetHost = brk.NetHostShare
-		run.NetCaps = brk.NetAdminFor // cap:net-admin → keep net-admin caps
+		run.NetCaps = brk.NetAdminFor        // cap:net-admin → keep net-admin caps
+		run.ContainerCaps = brk.ContainersFor // cap:containers → keep userns caps for rootless podman
 		if inv := gpu.Inventory(); len(inv) > 0 {
 			slog.Info("NVIDIA GPUs available for gpu:* grants", "count", len(inv))
 		}

@@ -507,7 +507,8 @@ func (b *Broker) grantRestart(g registry.Grant) {
 	if b.OnGrantChange == nil {
 		return
 	}
-	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") || g.Target == NetAdminCap {
+	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") ||
+		g.Target == NetAdminCap || g.Target == ContainersCap {
 		b.OnGrantChange(g.From)
 	}
 }

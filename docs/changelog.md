@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-14
+
+- **New capability: `cap:containers` — run containers inside a tile**
+  ([plans/containers.md](../plans/containers.md)). A **container-host tile**
+  (rootless Podman/Docker spawning sub-containers — the substrate for "dev
+  sandbox" tiles) declares `uses: [{target:"cap:containers", role:"writer"}]`.
+  It's an **admin-only** reserved grant (lands pending on import) that keeps the
+  tile's user-namespace capabilities and swaps the backend seccomp block-list
+  for a **minimal floor** (only host-damaging syscalls — module/kexec/reboot/
+  swap/clock), so the mount family / `pivot_root` / `setns` a container runtime
+  needs are available. Still fully rootless and namespaced — no host reach, no
+  other-tile reach; the policy `xbin-caps` deny strips it. The tile supplies the
+  runtime itself (Podman + subuid seeding + storage + networking, in its
+  `setup`/manifest). Worked example: the new **devbox** builtin tile. See
+  [changes/2026-07-14-container-tiles.md](changes/2026-07-14-container-tiles.md).
+
 ## 2026-07-12
 
 - **Fix: disk quotas now count encrypted resources.** On an encrypted

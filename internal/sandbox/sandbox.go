@@ -207,6 +207,20 @@ type Spec struct {
 	// ordinary tile stays fully unprivileged.
 	NetAdmin bool `json:"netAdmin,omitempty"`
 
+	// Containers (only meaningful with Unprivileged) makes a **container-host
+	// tile** (admin-granted cap:containers, plans/containers.md): instead of
+	// dropping all caps + the backend block-list, the backend KEEPS its
+	// user-namespace capabilities (rootless podman needs CAP_SYS_ADMIN to build
+	// nested user/mount/net namespaces and mount overlay/tmpfs/proc for each
+	// container) and carries only a MINIMAL seccomp floor — just the
+	// host-damaging syscalls (module load, kexec, reboot, swap, clock/acct).
+	// The mount family, pivot_root, setns, mknod stay allowed (a container
+	// runtime can't work without them); podman applies its own per-container
+	// seccomp profile on top. Still rootless and in its own namespaces — no
+	// host reach, no other-tile reach — and a backend carries no workspace-
+	// secret masks (unlike a terminal), so no mount/read guard is needed.
+	Containers bool `json:"containers,omitempty"`
+
 	// Restricted (set for untrusted, non-admin *user* terminals) hardens a
 	// terminal beyond the mount/read guards without breaking `apt`: init pins
 	// the user namespace to zero nested user/mount namespaces (the ucount knobs

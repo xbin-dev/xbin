@@ -194,6 +194,25 @@ func backendDeny() []uint32 {
 	}
 }
 
+// containerDeny is the MINIMAL seccomp floor for a container-host tile
+// (cap:containers): only syscalls that damage the host/kernel and that a
+// rootless userns can't otherwise reach — module (un)loading, kexec, reboot,
+// swap, time/accounting. Everything a container runtime needs — the mount
+// family, pivot_root, setns, mknod, ptrace/bpf (both userns/pidns-contained) —
+// stays allowed, because this filter is INHERITED by every container the tile
+// spawns and podman applies its own per-container profile on top. Keeping it
+// tight-but-minimal is deliberate: a wider block-list here would silently
+// break tools inside the dev containers (strace, gdb, mount, unshare).
+func containerDeny() []uint32 {
+	return []uint32{
+		uint32(unix.SYS_INIT_MODULE), uint32(unix.SYS_FINIT_MODULE), uint32(unix.SYS_DELETE_MODULE),
+		uint32(unix.SYS_KEXEC_LOAD), uint32(unix.SYS_KEXEC_FILE_LOAD), uint32(unix.SYS_REBOOT),
+		uint32(unix.SYS_SWAPON), uint32(unix.SYS_SWAPOFF),
+		uint32(unix.SYS_ACCT), uint32(unix.SYS_SETTIMEOFDAY),
+		uint32(unix.SYS_ADJTIMEX), uint32(unix.SYS_CLOCK_SETTIME),
+	}
+}
+
 // installMountGuard / installBackendSeccomp install the respective filter on the
 // calling thread (inherited across execve). Require no_new_privs (init sets it).
 // No-op on architectures without a known syscall table.
@@ -201,6 +220,9 @@ func installMountGuard() error         { return installFilter(mountGuardProgram)
 func installRestrictNamespaces() error { return installFilter(restrictNSProgram) }
 func installBackendSeccomp() error {
 	return installFilter(func(arch uint32) []bpf.Instruction { return denyProgram(arch, backendDeny(), false) })
+}
+func installContainerSeccomp() error {
+	return installFilter(func(arch uint32) []bpf.Instruction { return denyProgram(arch, containerDeny(), false) })
 }
 
 func installFilter(build func(arch uint32) []bpf.Instruction) error {

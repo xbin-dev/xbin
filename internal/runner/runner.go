@@ -123,6 +123,11 @@ type Runner struct {
 	// NET_RAW, NET_BIND_SERVICE) to build its dataplane, instead of being fully
 	// unprivileged (plans/interfaces.md, DECISIONS D18a). nil = never.
 	NetCaps func(c *registry.Component) bool
+	// ContainerCaps reports whether a component holds the admin-granted
+	// cap:containers capability — a **container-host tile** keeps its userns
+	// capabilities + a minimal seccomp floor so rootless podman can build nested
+	// namespaces/mounts (plans/containers.md). nil = never.
+	ContainerCaps func(c *registry.Component) bool
 	// IngressNet reports whether a component needs in-netns reachability even
 	// without egress — it has a bound stream expose or stream interface
 	// (plans/ingress.md) — which forces the TUN+relay plumbing with a deny-all
@@ -655,6 +660,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	}
 	if r.NetCaps != nil && r.NetCaps(c) {
 		spec.NetAdmin = true // net-provider tile (cap:net-admin) keeps net-admin caps
+	}
+	if r.ContainerCaps != nil && r.ContainerCaps(c) {
+		spec.Containers = true // container-host tile (cap:containers): keep caps, minimal seccomp
 	}
 	if r.NetHost != nil && r.NetHost(c) {
 		spec.HostNet = true // net → host builtin (share the host network)

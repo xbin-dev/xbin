@@ -39,3 +39,22 @@ func (b *Broker) NetAdminFor(c *registry.Component) bool {
 	_, ok := b.grantedRole(c.Path, NetAdminCap)
 	return ok
 }
+
+// ContainersCap is the reserved capability grant a **container-host tile**
+// needs (plans/containers.md): the sandbox keeps the tile's user-namespace
+// capabilities and applies only a minimal seccomp floor, so rootless podman
+// can create nested namespaces and mount container filesystems. It is a
+// powerful, high-surface capability — **admin-only** to approve (a reserved
+// target, never same-scope auto-granted), and the policy ceiling's `xbin-caps`
+// deny class strips it (an org that forbids system capabilities for its tiles
+// forbids container hosts too). Still rootless: no host reach, no other-tile
+// reach.
+const ContainersCap = "cap:containers"
+
+// ContainersFor reports whether a component holds the cap:containers grant —
+// the runner's ContainerCaps hook (wired in main.go). grantedRole applies the
+// policy ceiling.
+func (b *Broker) ContainersFor(c *registry.Component) bool {
+	_, ok := b.grantedRole(c.Path, ContainersCap)
+	return ok
+}

@@ -258,15 +258,27 @@ func runInit(specPath string) error {
 	// network-admin caps it needs to build its dataplane — everything else is
 	// still dropped and the same seccomp block-list still applies.
 	if s.Unprivileged {
-		drop := dropAllCaps
-		if s.NetAdmin {
-			drop = func() error { return dropCapsExcept(netProviderCaps()) }
-		}
-		if err := drop(); err != nil {
-			return must(err, "drop caps")
-		}
-		if err := installBackendSeccomp(); err != nil {
-			return must(err, "install backend seccomp")
+		if s.Containers {
+			// Container-host tile (cap:containers): keep the userns caps rootless
+			// podman needs for nested namespaces + mounts, and install only the
+			// minimal seccomp floor (host-damaging syscalls). The mount family,
+			// pivot_root, setns, mknod stay available; podman restricts each
+			// container itself. Still rootless in its own namespaces.
+			if err := installContainerSeccomp(); err != nil {
+				return must(err, "install container seccomp")
+			}
+			dbg(s.Debug, "container-host profile (caps kept, minimal seccomp floor)")
+		} else {
+			drop := dropAllCaps
+			if s.NetAdmin {
+				drop = func() error { return dropCapsExcept(netProviderCaps()) }
+			}
+			if err := drop(); err != nil {
+				return must(err, "drop caps")
+			}
+			if err := installBackendSeccomp(); err != nil {
+				return must(err, "install backend seccomp")
+			}
 		}
 	}
 	if s.MountGuard {
