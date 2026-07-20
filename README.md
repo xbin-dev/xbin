@@ -15,8 +15,10 @@ Workspace (one host, one git repo)
 
 xbind is a single Go binary; the frontend is buildless (Lit via import maps,
 vendored — no bundler anywhere). Full docs are served by the workspace itself at
-`/docs/` (also in [docs/](docs/)): getting started, the component contract,
-auth/grants, resources, SDKs, wire protocol, CLI.
+`/docs/` (also in [docs/](docs/)) — new here? take the top-down
+[overview tour](docs/overview/00-index.md); then the reference covers getting
+started, the component contract, auth/grants, resources, ingress, SDKs, the
+wire protocol, and the CLI.
 
 ## What's inside
 
@@ -30,16 +32,33 @@ auth/grants, resources, SDKs, wire protocol, CLI.
   every call and injects `X-XBin-From`/`X-XBin-Role`. Element frontends are
   attributed via frame tokens; backends via per-generation instance credentials
   on a gateway socket.
+- **Users, orgs & teams**: humans get per-tile access levels (read < write <
+  terminal); orgs group them GitHub-style (positional `o/<org>/…` paths, teams
+  granting by union), and **policy ceilings** cap what an org's — or the
+  workspace's — tiles may ever be granted (net / gpu / system caps / ingress),
+  enforced at approval *and* every evaluation. Owner is admin, default-deny for
+  everyone else.
+- **Ingress — publish a tile to the outside**: a tile declares `exposes` (an
+  HTTP endpoint with a default-deny public-path allowlist, or a raw TCP/UDP
+  port) and the owner binds it to xbind's built-in listener or the
+  batteries-included **Traefik terminator tile** (automatic Let's Encrypt TLS,
+  in a sandboxed tile — no ACME in the daemon). Public traffic reaches the one
+  bound tile as an anonymous, path-confined principal. `bx expose`.
 - **Resources**: kv, blob, bus (live cross-app events into the browser), cron
   (scheduled calls that wake idle backends), sqlite — one grant grammar
   (`res:apps/calendar/bus`).
 - **Per-component OS isolation** (`--isolate`, rootless): each backend runs in
   its own user + mount + pid + ipc + uts + net namespaces over an overlay of a
   shared base rootfs; egress is **default-deny** through a transparent relay
-  that enforces `net:*` grants (TCP/UDP/ICMP); cgroup v2 accounting. Terminals
-  share the base rootfs (Go/Node/Python + agent CLIs, zero setup) and pick a
-  per-session **network scope** — internet-only (own netns, no host interfaces),
-  host, or offline.
+  that enforces `net:*` grants (TCP/UDP/ICMP); capabilities dropped + a seccomp
+  block-list; enforced cgroup v2 limits (memory/pids/CPU). Two admin-only
+  reserved grants relax one tile's profile when it needs to: `cap:net-admin`
+  (a router/firewall/VPN provider tile) and `cap:containers` (a container-host
+  tile that runs rootless Podman — the `devbox` builtin spins up dev sandboxes
+  you SSH into). Terminals share the base rootfs (Go/Node/Python + agent CLIs,
+  zero setup) as a **persistent per-tile dev layer** (apt installs survive) and
+  pick a per-session **network scope** — internet-only (own netns, no host
+  interfaces), host, or offline.
 - **Vault**: per-element private secrets (`bx vault`, `xbin.Secret()`),
   encrypted at rest.
 - **bx** CLI + **Go SDK** (`github.com/magik6k/xbin/sdk`, zero deps).
@@ -78,7 +97,7 @@ Rootless — no root needed — but the host must provide:
 | **`newuidmap` / `newgidmap`** (the `uidmap` package) | apply that range rootlessly (setuid, or file caps `cap_setuid,cap_setgid`) |
 | **`/dev/fuse`** | mount each sandbox root with fuse-overlayfs so unprivileged directory renames work (`apt install`). xbind ships its own static one (`make` builds it from source); absent it, falls back to kernel overlay |
 | **`/dev/net/tun`** | the per-netns egress relay TUN — needed for any `net:*` grant or the terminal internet scope |
-| **cgroup v2** (optional) | per-component CPU/mem/pids accounting; under systemd, `Delegate=yes` |
+| **cgroup v2** (optional) | per-component memory/pids/CPU **limits** + accounting; under systemd, `Delegate=yes` |
 | **NVIDIA driver** (optional) | enables `gpu:*` grants — components/terminals get GPUs by binding the world-readable `/dev/nvidia*` + host driver libs (rootless, no container toolkit). `plans/gpu.md` |
 
 The base rootfs (Go/Node/Python + agent CLIs + `bx`) is bind-mounted read-only
@@ -167,9 +186,10 @@ break it; the boundary is the VM, kept on loopback behind Tailscale or a proxy.
 **Data.** Everything is the workspace directory: source, manifests, and the
 grant table are plain files you can commit; `.xbin/` (build cache, sockets,
 logs) and `data/` (resource state, vault, kv) are the runtime bits. Back up = the
-workspace dir (`tar` it, minus `.xbin/`), or `bx backup` for a safe sqlite
-checkpoint. Upgrades migrate the workspace schema forward untouched; roll back by
-pinning the previous version.
+workspace dir (`tar` it, minus `.xbin/`), or `bx backup <tile>` to snapshot one
+tile (source + resource data + dev layer) to a bound **archiver tile** —
+scheduled or on demand, with offload/restore on the same path. Upgrades migrate
+the workspace schema forward untouched; roll back by pinning the previous version.
 
 **Vault.** Production never stores secrets in the clear — two ways to run the
 encryption barrier:
@@ -225,12 +245,18 @@ decision log with rationale).
 xbin is remote code execution as a feature — treat the box like a dev machine.
 The **outer boundary** is the VM/host xbind runs on; keep it bound to loopback
 behind Tailscale or a TLS proxy. Inside, `--isolate` gives genuine per-component
-OS sandboxing (user/mount/pid/net namespaces + overlay rootfs, **default-deny
-`net:*` egress**), on top of real RBAC/grants at the API. Terminals are the
-deliberate **owner plane** (full workspace, a host-network escape hatch) — not
-sandboxed from you. Browser-side, elements are same-origin: frame tokens give
-attribution, not isolation — per-scope origin isolation is roadmap. Details:
-[docs/auth.md](docs/auth.md), `plans/isolation.md`.
+OS sandboxing (user/mount/pid/net namespaces + overlay rootfs, capabilities
+dropped, **default-deny `net:*` egress**, enforced cgroup limits), on top of
+real RBAC/grants at the API. Terminals are the **editing plane** — a real shell
+in a tile's dir — but still OS-sandboxed (own namespaces + a persistent dev
+layer), acting *as the tile* via a per-session token, not as you, with the
+workspace secrets (`.xbin`, `data`, other users' homes) masked and Landlock
+read-guarded; non-admin users get a further-locked-down terminal that can't see
+tiles below their access level. Publicly exposed tiles (ingress) are reached by
+an anonymous principal confined to their declared paths. Browser-side, elements
+are same-origin: frame tokens give attribution, not isolation — per-scope
+origin isolation is roadmap. Details: [docs/auth.md](docs/auth.md),
+[docs/isolation.md](docs/isolation.md), `plans/isolation.md`.
 
 ## License
 
