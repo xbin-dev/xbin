@@ -12,9 +12,12 @@
  *
  * Layout is **persisted per user** via the prefs API (server-side, so it
  * follows you across browsers/devices). Organise work into named **screens**
- * (the tabs at the top) — each screen holds its own set of tiles laid out in
- * vertical columns; drag a card by its title bar to reorder within a column
- * or move it between columns. Open tiles from the sidebar; close with ✕.
+ * (the tabs at the top) — each screen holds its own set of tiles on a **fixed
+ * snappable grid** (48px). Drag a card by its title bar to move it (it snaps to
+ * the grid); drag the bottom-right corner to resize it. Positions are absolute,
+ * so resizing the browser window never rearranges anything, and a tile is a
+ * fixed size — its content scrolls inside instead of stretching the card. Open
+ * tiles from the sidebar; close with ✕.
  * The sidebar is collapsible («/»), resizable (drag its right edge), and
  * supports view-only **folders**: ＋ folder, then drag components in to
  * organise them — purely visual grouping, nothing moves on disk; drop a
@@ -34,8 +37,18 @@ import './bx-tile-admin.js';
 import './bx-org-admin.js';
 import '/vendor/bx-dialog.js';
 
-const COL_WIDTH = 700; // min column width; column count = floor(canvas / this).
-// Tiles must be usable at this width with NO horizontal scroll — see AGENTS.md.
+// Fixed snappable grid. Tiles are absolutely positioned + sized in multiples of
+// GRID px, so resizing the browser window never reflows them, and a tile's own
+// content can't stretch it (fixed size — the frame scrolls inside). GAP is the
+// gutter drawn between neighbouring tiles. Tiles must be usable at MIN_W with no
+// horizontal scroll (see AGENTS.md).
+const GRID = 48;
+const GAP = 8;
+const DEF_W = 12 * GRID; // default new-tile size: 576×384
+const DEF_H = 8 * GRID;
+const MIN_W = 4 * GRID; // resize floor: 192×144
+const MIN_H = 3 * GRID;
+const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
 
@@ -65,15 +78,30 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 // terminal pop-ups (which start at 2000) so a terminal always sits on top.
 let zTop = 100;
 
+// Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
+// ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
+// columns of DEF_W width, their tiles stacked top-to-bottom. Floating tiles get
+// a grid home too (used when pinned back).
+function gridMigrate(tiles) {
+  const nextY = {}; // col → next free y
+  return (tiles ?? []).map((o) => {
+    if (o.x != null && o.w != null) return o; // already grid
+    const { col = 0, height, pinned, ...rest } = o;
+    if (o.float) return { x: 0, y: 0, w: DEF_W, h: DEF_H, ...rest };
+    const x = col * DEF_W;
+    const y = nextY[col] ?? 0;
+    const h = snap(Math.max(MIN_H, Math.min(height ?? DEF_H, 16 * GRID)));
+    nextY[col] = y + h;
+    return { x, y, w: DEF_W, h, ...rest };
+  });
+}
+
 export class BxShell extends LitElement {
   static properties = {
     name: { type: String },
     _components: { state: true },
-    _screens: { state: true }, // [{id, name, tiles: [{path, col, height?, float?:{x,y,w,h,z}}]}]
+    _screens: { state: true }, // [{id, name, tiles: [{path, x, y, w, h, float?:{x,y,w,h,z}}]}]
     _active: { state: true },  // active screen id
-    _cols: { state: true },
-    _drag: { state: true },    // {path} while dragging
-    _drop: { state: true },    // {col, idx} target slot
     _side: { state: true },    // sidebar: {width, collapsed, folders:[{id,name,open,items}]}
     _dropFolder: { state: true }, // folder id highlighted as a drag target
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
@@ -313,20 +341,33 @@ export class BxShell extends LitElement {
     .item .err { color: var(--bx-red, #e5484d); font-size: 10px; }
     .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #8794a1); }
 
-    main { flex: 1; min-width: 0; overflow-y: auto; padding: 14px; }
+    main { flex: 1; min-width: 0; overflow: auto; padding: 14px; }
     .grants { margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
 
-    /* ---- draggable column canvas ---- */
-    .canvas { display: flex; gap: 14px; align-items: flex-start; }
-    .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    /* ---- fixed snappable grid canvas ---- */
+    /* Absolutely-positioned tiles on a GRID-px module; positions never reflow on
+       window resize. Height grows to fit the lowest tile (min-height set inline). */
+    .canvas { position: relative; }
+    .gtile { position: absolute; display: flex; }
+    .gtile.dragging { opacity: .85; z-index: 50; }
+    .gtile.dragging .card { box-shadow: 0 8px 24px rgba(16,24,40,.22); }
+    /* the resize corner */
+    .gtile .rz {
+      position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+      cursor: nwse-resize; z-index: 3; touch-action: none;
+      background: linear-gradient(135deg, transparent 50%, var(--bx-border, #c7cdd4) 50%);
+      border-bottom-right-radius: var(--bx-radius, 6px); opacity: .6;
+    }
+    .gtile .rz:hover { opacity: 1; }
     .card {
+      flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: var(--bx-radius, 6px);
       box-shadow: var(--bx-shadow, 0 1px 2px rgba(16,24,40,.05));
       overflow: hidden;
     }
-    .card.dragging { opacity: .35; }
     .card .head {
+      flex: none;
       display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px;
       border-bottom: 1px solid var(--bx-border, #e4e8ed);
       background: var(--bx-panel-2, #f7f8fa);
@@ -346,10 +387,9 @@ export class BxShell extends LitElement {
     .card .head button:hover { color: var(--bx-text, #33414e); }
     .card .head button.term { font-family: var(--bx-mono, monospace); font-size: 9.5px;
       font-weight: 700; letter-spacing: -.5px; }
-    .drop {
-      height: 3px; border-radius: 2px; background: var(--bx-accent, #f5a623);
-      margin: -8px 0; /* fold into the column gap */
-    }
+    /* the tile body: fixed height, content scrolls inside — never stretches the card */
+    .card .cbody { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+    .card .cbody > bx-frame { position: absolute; inset: 0; }
     .empty { color: var(--bx-muted, #8794a1); font-size: 12.5px; padding: 24px; text-align: center; }
 
     /* ---- floating (unpinned) tile windows ---- */
@@ -367,11 +407,7 @@ export class BxShell extends LitElement {
                   8px 18px 44px rgba(0, 0, 0, 0.3);
       overflow: hidden; resize: both; min-width: 220px; min-height: 120px;
     }
-    .float > .card {
-      flex: 1; min-height: 0; display: flex; flex-direction: column;
-      border: 0; border-radius: 0; box-shadow: none;
-    }
-    .float .fbody { flex: 1; min-height: 0; overflow: auto; }
+    .float > .card { border: 0; border-radius: 0; box-shadow: none; }
   `;
 
   constructor() {
@@ -380,9 +416,6 @@ export class BxShell extends LitElement {
     this._components = [];
     this._screens = [];
     this._active = '';
-    this._cols = 2;
-    this._drag = null;
-    this._drop = null;
     this._side = { width: 224, collapsed: false, folders: [] }; // persisted with the layout
     this._dropFolder = null;
     this._sys = null;
@@ -408,8 +441,6 @@ export class BxShell extends LitElement {
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
-    this._onMove = (e) => this._dragMove(e);
-    this._onUp = (e) => this._dragEnd(e);
     this._onBlur = () => this._raiseFocusedFloat();
   }
 
@@ -439,23 +470,12 @@ export class BxShell extends LitElement {
     window.removeEventListener('bx-spawn-close', this._onSpawnClose);
     clearInterval(this._sysTimer);
     clearInterval(this._alertTimer);
-    this._ro?.disconnect();
-    window.removeEventListener('pointermove', this._onMove);
-    window.removeEventListener('pointerup', this._onUp);
     window.removeEventListener('blur', this._onBlur);
   }
 
   firstUpdated() {
-    const main = this.renderRoot.querySelector('main');
-    this._ro = new ResizeObserver(() => {
-      const cols = Math.max(1, Math.floor(main.clientWidth / COL_WIDTH));
-      if (cols !== this._cols) {
-        this._cols = cols;
-        this._mutateTiles((tiles) => tiles.map((o) => o.col >= cols ? { ...o, col: cols - 1 } : o));
-      }
-    });
-    this._ro.observe(main);
-
+    // The grid is absolute-positioned in fixed px, so window resize never
+    // reflows it — no ResizeObserver on the canvas.
     const slot = this.renderRoot.querySelector('slot');
     const adopt = () => {
       for (const f of slot.assignedElements()) {
@@ -479,7 +499,8 @@ export class BxShell extends LitElement {
       if (r?.ok) {
         const l = await r.json();
         if (Array.isArray(l?.screens) && l.screens.length) {
-          this._screens = l.screens;
+          // Migrate any old column-based layout to the fixed grid on load.
+          this._screens = l.screens.map((s) => ({ ...s, tiles: gridMigrate(s.tiles ?? []) }));
           this._active = l.screens.some((s) => s.id === l.active) ? l.active : l.screens[0].id;
         }
         if (l?.side && typeof l.side === 'object') {
@@ -492,10 +513,15 @@ export class BxShell extends LitElement {
   }
 
   // Seed a default screen from the slotted <bx-frame> pins, but only once the
-  // saved layout has been consulted and found empty.
+  // saved layout has been consulted and found empty. Lay them out two per row.
   _ensureScreen() {
     if (!this._layoutLoaded || this._screens.length) return;
-    const tiles = this._seeds.map((s, i) => ({ ...s, col: i % this._cols, pinned: true }));
+    const perRow = 2;
+    const tiles = this._seeds.map((s, i) => ({
+      path: s.path,
+      x: (i % perRow) * DEF_W, y: Math.floor(i / perRow) * DEF_H,
+      w: DEF_W, h: DEF_H,
+    }));
     this._screens = [{ id: uid(), name: 'Home', tiles }];
     this._active = this._screens[0].id;
     this._save();
@@ -1043,17 +1069,32 @@ export class BxShell extends LitElement {
       ${f.open ? comps.map((c) => this._itemTemplate(c, f.id)) : nothing}`;
   }
 
-  _shortestCol() {
-    const counts = Array(this._cols).fill(0);
-    for (const o of this._tiles) if (!o.float && o.col < this._cols) counts[o.col]++;
-    return counts.indexOf(Math.min(...counts));
+  // Find a free-ish grid spot for a new tile: scan the top row left→right for a
+  // gap wide enough for a default tile that overlaps nothing, else drop into a
+  // new row below everything. Cheap and deterministic; the user rearranges.
+  _freeSpot() {
+    const placed = this._tiles.filter((o) => !o.float);
+    const overlaps = (x, y) => placed.some((o) =>
+      x < o.x + o.w && x + DEF_W > o.x && y < o.y + o.h && y + DEF_H > o.y);
+    const viewW = this.renderRoot?.querySelector('main')?.clientWidth || 1200;
+    const cols = Math.max(1, Math.floor(viewW / DEF_W));
+    for (let row = 0; row < 100; row++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * DEF_W, y = row * DEF_H;
+        if (!overlaps(x, y)) return { x, y };
+      }
+    }
+    const maxY = placed.reduce((m, o) => Math.max(m, o.y + o.h), 0);
+    return { x: 0, y: snap(maxY) };
   }
 
   _toggle(path) {
-    const col = this._shortestCol();
-    this._mutateTiles((tiles) => this._isOpen(path)
-      ? tiles.filter((o) => o.path !== path)
-      : [{ path, col }, ...tiles]);
+    if (this._isOpen(path)) {
+      this._mutateTiles((tiles) => tiles.filter((o) => o.path !== path));
+      return;
+    }
+    const { x, y } = this._freeSpot();
+    this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
   }
 
   _runtimeOf(path) {
@@ -1086,61 +1127,79 @@ export class BxShell extends LitElement {
     this._save();
   }
 
-  // ---- drag ----
-  _dragStart(ev, path) {
-    if (ev.button !== 0 || ev.target.closest('button')) return;
+  // ---- grid drag + resize ----
+  // Both manipulate the tile's DOM directly during the gesture (so its
+  // <bx-frame> isn't re-rendered/reloaded mid-move) and commit snapped geometry
+  // on release. The tile is a `.gtile` at (x, y) sized (w−GAP)×(h−GAP) — the GAP
+  // is the gutter — so committed w/h add GAP back.
+  _gtile(path) { return this.renderRoot.querySelector(`.gtile[data-path="${path}"]`); }
+
+  _gridDragStart(ev, path) {
+    if (ev.button !== 0 || ev.target.closest('button, select, .rz')) return;
     ev.preventDefault();
-    this._drag = { path };
-    this._drop = null;
-    this._shield = dragShield();
-    window.addEventListener('pointermove', this._onMove);
-    window.addEventListener('pointerup', this._onUp);
+    const el = this._gtile(path);
+    if (!el) return;
+    el.classList.add('dragging');
+    const dx = ev.clientX - el.offsetLeft, dy = ev.clientY - el.offsetTop;
+    const shield = dragShield('grabbing');
+    const move = (e) => {
+      el.style.left = snap(Math.max(0, e.clientX - dx)) + 'px';
+      el.style.top = snap(Math.max(0, e.clientY - dy)) + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      shield();
+      el.classList.remove('dragging');
+      this._setGeom(path, { x: el.offsetLeft, y: el.offsetTop });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
-  _dragMove(ev) {
-    if (!this._drag) return;
-    const cols = [...this.renderRoot.querySelectorAll('.col')];
-    if (cols.length === 0) return;
-    let colIdx = 0, best = Infinity;
-    cols.forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      const d = Math.abs(ev.clientX - (r.left + r.width / 2));
-      if (ev.clientX >= r.left - 7 && ev.clientX <= r.right + 7 && d < best) { best = d; colIdx = i; }
-    });
-    const colEl = cols[colIdx];
-    const cards = [...colEl.querySelectorAll('.card')].filter((c) => c.dataset.path !== this._drag.path);
-    let idx = cards.length;
-    for (let i = 0; i < cards.length; i++) {
-      const r = cards[i].getBoundingClientRect();
-      if (ev.clientY < r.top + r.height / 2) { idx = i; break; }
-    }
-    this._drop = { col: colIdx, idx };
+  _gridResizeStart(ev, path) {
+    if (ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const el = this._gtile(path);
+    if (!el) return;
+    const sx = ev.clientX, sy = ev.clientY;
+    const w0 = el.offsetWidth + GAP, h0 = el.offsetHeight + GAP; // full cell size
+    const shield = dragShield('nwse-resize');
+    const move = (e) => {
+      el.style.width = (snap(Math.max(MIN_W, w0 + (e.clientX - sx))) - GAP) + 'px';
+      el.style.height = (snap(Math.max(MIN_H, h0 + (e.clientY - sy))) - GAP) + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      shield();
+      this._setGeom(path, { w: el.offsetWidth + GAP, h: el.offsetHeight + GAP });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
-  _dragEnd() {
-    window.removeEventListener('pointermove', this._onMove);
-    window.removeEventListener('pointerup', this._onUp);
-    this._shield?.(); this._shield = null;
-    const drag = this._drag, drop = this._drop;
-    this._drag = null; this._drop = null;
-    if (!drag || !drop) return;
+  _setGeom(path, patch) {
+    this._mutateTiles((tiles) => tiles.map((o) =>
+      o.path === path && !o.float ? { ...o, ...patch } : o));
+  }
 
-    this._mutateTiles((tiles) => {
-      const moved = tiles.find((o) => o.path === drag.path);
-      if (!moved) return tiles;
-      const rest = tiles.filter((o) => o.path !== drag.path);
-      const inCol = rest.filter((o) => o.col === drop.col);
-      const before = inCol[drop.idx];
-      const target = { ...moved, col: drop.col };
-      const out = [];
-      let inserted = false;
-      for (const o of rest) {
-        if (!inserted && o === before) { out.push(target); inserted = true; }
-        out.push(o);
-      }
-      if (!inserted) out.push(target);
-      return out;
-    });
+  _gridCard(o) {
+    return html`
+      <div class="gtile" data-path=${o.path}
+           style="left:${o.x}px; top:${o.y}px; width:${o.w - GAP}px; height:${o.h - GAP}px;">
+        ${this._cardTemplate(o, 'grid')}
+        <div class="rz" title="drag to resize" @pointerdown=${(e) => this._gridResizeStart(e, o.path)}></div>
+      </div>`;
+  }
+
+  // Content bounds so the (absolute-positioned) canvas scrolls to fit its tiles.
+  _gridExtent() {
+    const g = this._tiles.filter((o) => !o.float);
+    return {
+      w: g.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID,
+      h: g.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID,
+    };
   }
 
   // Open/close the terminal of the card's own frame (the header >_ button —
@@ -1150,11 +1209,14 @@ export class BxShell extends LitElement {
     e.currentTarget.closest('.card')?.querySelector('bx-frame')?.toggleTerminal?.();
   }
 
-  _cardTemplate(o, floating = false) {
-    const frame = html`<bx-frame src=${o.path} no-edit height=${floating ? nothing : (o.height ?? nothing)}></bx-frame>`;
+  // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window).
+  // Both are fixed-size: the frame fills a fixed body and scrolls inside.
+  _cardTemplate(o, kind = 'grid') {
+    const floating = kind === 'float';
+    const frame = html`<bx-frame src=${o.path} no-edit height="100%"></bx-frame>`;
     return html`
-      <div class="card ${this._drag?.path === o.path ? 'dragging' : ''}" data-path=${o.path}>
-        <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._dragStart(e, o.path))}>
+      <div class="card" data-path=${o.path}>
+        <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path))}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           <span class="spacer"></span>
@@ -1164,18 +1226,18 @@ export class BxShell extends LitElement {
           ${this._canAdminTile(o.path) ? html`<button title="tile admin (access · lifecycle · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
-          <button title=${floating ? 'pin back into the column layout' : 'unpin into a floating window'}
+          <button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
                   @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
           <button title="close" @click=${() => this._toggle(o.path)}>✕</button>
         </div>
-        ${floating ? html`<div class="fbody">${frame}</div>` : frame}
+        <div class="cbody">${frame}</div>
       </div>`;
   }
 
   // ---- floating (unpinned) windows ----
   // A tile with a `float:{x,y,w,h,z}` is rendered as a viewport-fixed window
-  // instead of in a column; the geometry is part of the tile, so it persists in
+  // instead of on the grid; the geometry is part of the tile, so it persists in
   // the saved layout. Pinning/unpinning re-creates the tile's <bx-frame> (moving
   // between two DOM containers) — a brief reload, but any open terminal on it
   // reattaches via bx-frame's session persistence.
@@ -1186,7 +1248,7 @@ export class BxShell extends LitElement {
            style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
            @pointerdown=${() => this._floatFront(o.path)}
            @pointerup=${(e) => this._floatCommit(e, o.path)}>
-        ${this._cardTemplate(o, true)}
+        ${this._cardTemplate(o, 'float')}
       </div>`;
   }
 
@@ -1276,29 +1338,6 @@ export class BxShell extends LitElement {
   _setFloat(path, patch) {
     this._mutateTiles((tiles) => tiles.map((o) =>
       o.path === path && o.float ? { ...o, float: { ...o.float, ...patch } } : o));
-  }
-
-  _column(colIdx) {
-    const cards = this._tiles.filter((o) => o.col === colIdx && !o.float);
-    const showDrop = this._drag && this._drop?.col === colIdx;
-    // The dragged card stays MOUNTED (dimmed ghost in place) rather than being
-    // filtered out — unmounting it destroys its <bx-frame>, which kills any
-    // terminal window the user has open on that tile. The drop indicator is
-    // positioned among the non-dragged cards (idx from _dragMove).
-    let vi = 0;
-    return html`
-      <div class="col" data-col=${colIdx}>
-        ${cards.map((o) => {
-          const dragged = this._drag?.path === o.path;
-          const drop = showDrop && !dragged && this._drop.idx === vi;
-          if (!dragged) vi++;
-          return html`
-            ${drop ? html`<div class="drop"></div>` : nothing}
-            ${repeat([o], (x) => x.path, (x) => this._cardTemplate(x))}
-          `;
-        })}
-        ${showDrop && this._drop.idx >= vi ? html`<div class="drop"></div>` : nothing}
-      </div>`;
   }
 
   render() {
@@ -1391,10 +1430,11 @@ export class BxShell extends LitElement {
                @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}
         <main @contextmenu=${(e) => this._openCtx(e)}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
-          <div class="canvas">
-            ${Array.from({ length: this._cols }, (_, i) => this._column(i))}
+          <div class="canvas" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">
+            ${repeat(this._tiles.filter((o) => !o.float), (o) => o.path, (o) => this._gridCard(o))}
           </div>
-          ${this._tiles.length === 0 ? html`<div class="empty">empty screen — open a tile from the sidebar</div>` : nothing}
+          ${this._tiles.filter((o) => !o.float).length === 0 && !this._tiles.some((o) => o.float)
+            ? html`<div class="empty">empty screen — open a tile from the sidebar</div>` : nothing}
           <slot style="display:none"></slot>
         </main>
       </div>

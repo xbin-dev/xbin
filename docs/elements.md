@@ -163,9 +163,10 @@ Write your view as a plain HTML document. Relative URLs work (you're a real
 document in an iframe). Vendored libraries: `lit` via the import map,
 anything else you drop into your own component dir.
 
-**Sizing.** A view is framed inside a card column that is **≥ 700px wide** (the
-shell fits `floor(canvas / 700)` columns) and can also be opened full page.
-Design for **700px wide** and make the layout **reflow, never scroll
+**Sizing.** A view is framed inside a fixed-size card on the shell's snappable
+grid (the user drags to size it, down to ~192px; content scrolls inside — it
+can't stretch the card) and can also be opened full page.
+Design to be usable when **narrow** and to **reflow, never scroll
 horizontally**: relative units, flexbox/grid, `max-width:100%` on media, and
 wrap inherently wide content (tables, code, diagrams) in its own
 `overflow-x:auto` container so the view body never overflows sideways.

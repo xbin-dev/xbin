@@ -128,9 +128,10 @@ browsers), is the source of truth.
 
 What the shell provides:
 
-- **Screens & cards** — named tabs, each an independent set of tiles in
-  draggable columns; unpin a card into a floating window; all persisted
-  per user.
+- **Screens & cards** — named tabs, each an independent set of tiles on
+  a fixed snappable grid (48px); drag a card by its head to reposition,
+  drag its corner to resize, or unpin it into a floating window; all
+  persisted per user.
 - **The sidebar** — the openable-tile list from `GET /api/xbin/components`,
   which the server already filters to the caller's *readable* tiles (chrome
   excepted) — visibility is enforced server-side, the shell just renders
