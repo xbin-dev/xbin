@@ -346,8 +346,21 @@ export class BxShell extends LitElement {
 
     /* ---- fixed snappable grid canvas ---- */
     /* Absolutely-positioned tiles on a GRID-px module; positions never reflow on
-       window resize. Height grows to fit the lowest tile (min-height set inline). */
-    .canvas { position: relative; }
+       window resize. Height grows to fit the lowest tile — floored to the
+       viewport so the dot field always fills the pane (min size set inline). */
+    /* Modern technical-slate surface: a fine dot at every 48px grid node (so a
+       tile's snapped corner sits on a dot) with a brighter dot every 4th node
+       (192px = MIN_W) for a blueprint 'major grid' read. Each layer's dots are
+       shifted half a cell so they land on the nodes, not the cell centres. */
+    .canvas {
+      position: relative;
+      background-color: var(--bx-bg, #1b1e24);
+      background-image:
+        radial-gradient(color-mix(in srgb, var(--bx-muted, #868f9a) 30%, transparent) 1.5px, transparent 1.8px),
+        radial-gradient(color-mix(in srgb, var(--bx-muted, #868f9a) 15%, transparent) 1px, transparent 1.4px);
+      background-size: 192px 192px, 48px 48px;
+      background-position: 96px 96px, 24px 24px;
+    }
     .gtile { position: absolute; display: flex; }
     .gtile.dragging { opacity: .85; z-index: 50; }
     .gtile.dragging .card { box-shadow: 0 8px 24px rgba(16,24,40,.22); }
@@ -1193,12 +1206,18 @@ export class BxShell extends LitElement {
       </div>`;
   }
 
-  // Content bounds so the (absolute-positioned) canvas scrolls to fit its tiles.
+  // Content bounds so the (absolute-positioned) canvas scrolls to fit its tiles,
+  // floored to the visible pane so the dot field fills it even on a near-empty
+  // screen. main's padding (14px) and the grants bar sit above the canvas.
   _gridExtent() {
     const g = this._tiles.filter((o) => !o.float);
+    const main = this.renderRoot?.querySelector('main');
+    const grants = this.renderRoot?.querySelector('.grants');
+    const vw = main ? main.clientWidth - 28 : 0;
+    const vh = main ? main.clientHeight - 28 - (grants?.offsetHeight ?? 0) : 0;
     return {
-      w: g.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID,
-      h: g.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID,
+      w: Math.max(vw, g.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID),
+      h: Math.max(vh, g.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID),
     };
   }
 

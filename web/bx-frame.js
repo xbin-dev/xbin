@@ -70,7 +70,13 @@ export class BxFrame extends LitElement {
 
   static styles = css`
     :host { display: block; position: relative; }
-    .frame-wrap { position: relative; }
+    /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
+       floating windows pin the host with position:absolute; inset:0) flow a
+       definite height down to the iframe: iframe height:100% resolves against
+       .frame-wrap, so .frame-wrap must itself fill the host — otherwise it
+       stays content-height (auto) and the iframe collapses. In auto-height mode
+       the host is content-sized, so 100%-of-auto is just auto — no change. */
+    .frame-wrap { position: relative; height: 100%; }
     iframe {
       display: block; width: 100%; border: 0;
       height: var(--bx-frame-height, 100%);
