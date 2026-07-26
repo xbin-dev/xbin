@@ -348,18 +348,21 @@ export class BxShell extends LitElement {
     /* Absolutely-positioned tiles on a GRID-px module; positions never reflow on
        window resize. Height grows to fit the lowest tile — floored to the
        viewport so the dot field always fills the pane (min size set inline). */
-    /* Modern technical-slate surface: a fine dot at every 48px grid node (so a
-       tile's snapped corner sits on a dot) with a brighter dot every 4th node
-       (192px = MIN_W) for a blueprint 'major grid' read. Each layer's dots are
-       shifted half a cell so they land on the nodes, not the cell centres. */
-    .canvas {
-      position: relative;
-      background-color: var(--bx-bg, #1b1e24);
-      background-image:
-        radial-gradient(color-mix(in srgb, var(--bx-muted, #868f9a) 30%, transparent) 1.5px, transparent 1.8px),
-        radial-gradient(color-mix(in srgb, var(--bx-muted, #868f9a) 15%, transparent) 1px, transparent 1.4px);
-      background-size: 192px 192px, 48px 48px;
-      background-position: 96px 96px, 24px 24px;
+    /* Modern technical-slate surface: a crosshair marker at every 48px
+       intersection, sitting on the real snap crossing. A tile sits on a 48k node
+       but renders GAP (8px) narrower, so four tile corners meet in each gutter
+       cross (~48k+44); mask-position 20px lands the SVG's centred crosshair
+       there. Drawn on a ::before overlay via mask (not a background image) so the
+       colour stays themeable — a data-URI SVG can't read CSS vars, so the SVG is
+       only the mask shape and the ::before background supplies the var-driven
+       colour. pointer-events:none keeps tile drag / canvas context-menu intact,
+       and it paints behind the (later-in-DOM) absolutely-positioned tiles. */
+    .canvas { position: relative; background-color: var(--bx-bg, #1b1e24); }
+    .canvas::before {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: color-mix(in srgb, var(--bx-muted, #868f9a) 25%, transparent);
+      -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") 20px 20px / 48px 48px repeat;
+      mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") 20px 20px / 48px 48px repeat;
     }
     .gtile { position: absolute; display: flex; }
     .gtile.dragging { opacity: .85; z-index: 50; }
