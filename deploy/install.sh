@@ -360,7 +360,10 @@ Environment=XBIN_SDK_PATH=$PREFIX/sdk
 EnvironmentFile=-/etc/xbin/xbin.env
 ExecStart=$PREFIX/bin/xbind --isolate --rootfs $PREFIX/rootfs --workspace $WORKSPACE --listen $LISTEN
 Restart=on-failure
-RestartSec=2
+# A workspace spawns sandboxed children (tiles, rootless podman) in a delegated
+# cgroup subtree; give it time to drain before the new instance attaches, or the
+# immediate restart can fail with 219/CGROUP ("cgroup busy") and flap.
+RestartSec=15
 # tmpfs run dir (/run/xbin) for IPC sockets — bind-mounted RW into sandboxes,
 # so it must be tmpfs not host disk (plans/isolation.md).
 RuntimeDirectory=xbin
@@ -380,6 +383,28 @@ UNIT
   mv "$tmp" "$unit"; chmod 644 "$unit"
   systemctl daemon-reload
   ok "unit written to $unit"
+}
+install_needrestart_dropin() {
+  # needrestart (Debian/Ubuntu; the thing unattended-upgrades runs) auto-restarts
+  # every service whose libraries a security update replaced. Restarting xbind
+  # mid-run seals the vault — and, because it manages a delegated cgroup subtree
+  # of sandboxes/containers, the immediate restart can fail 219/CGROUP and flap.
+  # Exclude it: upgrades still INSTALL, but you restart xbind (and unseal) on your
+  # own schedule with `systemctl restart xbin`. Only relevant where needrestart is
+  # (or may be) present — skip other distros.
+  if [ "$PKG" != apt ] && ! have needrestart && [ ! -d /etc/needrestart ]; then
+    return 0
+  fi
+  info "Excluding xbin from needrestart auto-restart"
+  install -d -m 0755 /etc/needrestart/conf.d
+  cat >/etc/needrestart/conf.d/xbin.conf <<'NR'
+# Managed by deploy/install.sh. Keep OS security updates installing, but do NOT
+# let needrestart / unattended-upgrades auto-restart the xbin daemon — a mid-run
+# restart seals the vault (and can leave a busy sandbox cgroup). Restart it
+# yourself after patch days:  sudo systemctl restart xbin
+$nrconf{override_rc}{qr(^xbin\.service$)} = 0;
+NR
+  ok "needrestart: xbin.service excluded from auto-restart (/etc/needrestart/conf.d/xbin.conf)"
 }
 start_service() {
   info "Starting xbin"
@@ -412,6 +437,8 @@ show_summary() {
   echo "    • TLS proxy:  point Caddy/Traefik at $LISTEN   (cookie flips to Secure behind X-Forwarded-Proto: https)"
   echo
   echo "  Upgrade: re-run this script (rebuilds + swaps in place)."
+  echo "  Updates: OS security updates install but won't auto-restart xbind (that would seal the vault)."
+  echo "           After patch days, restart on your schedule:  sudo systemctl restart xbin"
   echo "  Remove : systemctl disable --now xbin; rm /etc/systemd/system/xbin.service; userdel -r $XBIN_USER"
 }
 
@@ -445,6 +472,7 @@ if [ "$UPGRADE" = 1 ]; then
   test_userns
   install_files   # stops the service, swaps binaries/rootfs/sdk
   install_unit    # re-render (a locally-modified unit is saved to .bak)
+  install_needrestart_dropin  # keep OS updates from auto-restarting (sealing) xbin
   start_service || true
   show_summary
   exit 0
@@ -462,5 +490,6 @@ test_userns
 install_files
 configure_vault
 install_unit
+install_needrestart_dropin
 start_service || true
 show_summary

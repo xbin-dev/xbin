@@ -65,8 +65,18 @@ The directives that ARE there are load-bearing:
 | `RuntimeDirectory=xbin` (mode 0700) | a **tmpfs** at `/run/xbin` for xbind's IPC sockets (the gateway socket + each backend's listen socket). The run dir is bind-mounted **read-write into every sandbox**, and the isolation model forbids RW host-disk mounts in sandboxes — tmpfs only (plans/isolation.md). xbind picks it up via `$RUNTIME_DIRECTORY`; without one it falls back to `$XDG_RUNTIME_DIR`/`$TMPDIR` and warns if no tmpfs is found. |
 | `Delegate=yes` | xbind manages its own cgroup-v2 subtree: one leaf per backend with memory (`XBIN_LIMIT_MEM`, default 2 GiB), pids (≥512, scaled by CPUs), and CPU-weight caps — a runaway tile OOMs *alone*. |
 | `LimitNOFILE=1048576`, `TasksMax=infinity`, `OOMPolicy=continue` | a busy workspace holds many watches, sockets and child processes; one component's OOM must not take the daemon down. |
+| `Restart=on-failure`, `RestartSec=15` | restart on a crash, but wait 15 s first: a workspace's delegated cgroup subtree (sandboxes, rootless podman) has to drain before the new instance can attach, or the immediate restart fails `219/CGROUP` ("cgroup busy") and flaps. |
 | `Environment=XBIN_ROOTFS/XBIN_FUSE_OVERLAYFS/XBIN_GOCRYPTFS/XBIN_SDK_PATH` | pin the sandbox base image, the bundled overlay/crypto helpers, and the SDK location. |
 | `EnvironmentFile=-/etc/xbin/xbin.env` | optional secrets/opt-ins (vault passphrase, ingress listener). |
+
+**OS updates don't restart xbind.** On Debian/Ubuntu, `needrestart` (run by
+`unattended-upgrades`) restarts every service whose libraries a security update
+replaced — and restarting xbind mid-run **seals the vault** (and can leave a
+busy sandbox cgroup that flaps the restart). The installer writes
+`/etc/needrestart/conf.d/xbin.conf`
+(`$nrconf{override_rc}{qr(^xbin\.service$)} = 0`) so security updates still
+*install* but never bounce the daemon. Restart it on your own schedule after
+patch days with `sudo systemctl restart xbin` (then unseal, if you run sealed).
 
 **Sub-uid delegation matters.** With `newuidmap`/`newgidmap` (the `uidmap`
 package) and a subid range, every sandbox maps a full uid space: `apt`,

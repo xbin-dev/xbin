@@ -47,7 +47,12 @@ EnvironmentFile=-/etc/xbin/xbin.env
 # (uncomment; it grants ONLY low-port binding, nothing else).
 ExecStart=/opt/xbin/bin/xbind --isolate --rootfs /opt/xbin/rootfs --workspace /opt/xbin/workspace --listen 127.0.0.1:8642
 Restart=on-failure
-RestartSec=2
+# A workspace spawns sandboxed children (tiles, rootless podman) in a delegated
+# cgroup subtree; give it time to drain before the new instance attaches, or the
+# immediate restart can fail with 219/CGROUP ("cgroup busy") and flap. See also
+# /etc/needrestart/conf.d/xbin.conf, which the installer writes so OS security
+# updates don't auto-restart (and thereby seal) the daemon.
+RestartSec=15
 
 # A tmpfs at /run/xbin for xbind's IPC sockets. The run dir is bind-mounted
 # RW into every component sandbox, so it must be tmpfs, never host disk
