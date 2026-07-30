@@ -34,6 +34,7 @@ func (b *Broker) registerCode(srv *server.Server) {
 	srv.RegisterAPI("GET /code/file", b.apiCodeFile)
 	srv.RegisterAPI("GET /git/log", b.apiGitLog)
 	srv.RegisterAPI("GET /git/diff", b.apiGitDiff)
+	srv.RegisterAPI("GET /git/activity", b.apiGitActivity)
 	srv.RegisterAPI("GET /git/remote-info", b.apiGitRemoteInfo)
 	srv.RegisterAPI("POST /git/import", b.apiGitImport)
 }
@@ -241,26 +242,125 @@ func (b *Broker) apiGitLog(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	// The component's own repo — its whole history is the component's history.
+	// %x1e (record separator) starts each commit; --numstat appends per-file
+	// "<add>\t<del>\t<path>" lines after the pretty line so we can total the
+	// churn (add/del/files) for a change-count summary in the UI.
 	out, err := runGitIn(dir, "log", "--no-color", "-n", strconv.Itoa(limit),
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s")
+		"--numstat", "--pretty=format:%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s")
 	if err != nil {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": []any{}, "note": err.Error(), "remote": componentRemote(dir)})
 		return
 	}
-	commits := []map[string]string{}
+	commits := []map[string]any{}
+	for _, rec := range strings.Split(out, "\x1e") {
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		lines := strings.Split(rec, "\n")
+		f := strings.Split(lines[0], "\x1f")
+		if len(f) != 5 {
+			continue
+		}
+		add, del, files := 0, 0, 0
+		for _, ln := range lines[1:] {
+			if ln == "" {
+				continue
+			}
+			p := strings.SplitN(ln, "\t", 3)
+			if len(p) != 3 {
+				continue
+			}
+			files++ // "-" add/del = binary file: counts, but no line churn
+			if n, e := strconv.Atoi(p[0]); e == nil {
+				add += n
+			}
+			if n, e := strconv.Atoi(p[1]); e == nil {
+				del += n
+			}
+		}
+		commits = append(commits, map[string]any{
+			"hash": f[0], "short": f[1], "author": f[2], "date": f[3], "subject": f[4],
+			"add": add, "del": del, "files": files,
+		})
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": commits, "remote": componentRemote(dir)})
+}
+
+// GET /git/activity?component=<path> — a commit-activity timeline for the
+// component's own history, plus its upstream tracking branch if one exists
+// (a git-imported component keeps origin/<default>). Author dates + names only,
+// so the UI can bucket them into an activity chart. Read-gated like the rest.
+func (b *Broker) apiGitActivity(w http.ResponseWriter, r *http.Request) {
+	comp, dir, ok := b.component(w, r)
+	if !ok {
+		return
+	}
+	if !b.requireCodeRead(w, r, comp) {
+		return
+	}
+	if !isRepo(dir) {
+		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": false, "local": []any{}})
+		return
+	}
+	const activityCap = 5000
+	upstreamRef := upstreamTrackingRef(dir)
+	var upstream any // nil → JSON null (no upstream tracked)
+	if upstreamRef != "" {
+		upstream = gitActivitySeries(dir, upstreamRef, activityCap)
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"repo":        true,
+		"remote":      componentRemote(dir),
+		"upstreamRef": upstreamRef,
+		"local":       gitActivitySeries(dir, "HEAD", activityCap),
+		"upstream":    upstream,
+	})
+}
+
+// gitActivitySeries returns up to limit commits reachable from ref as
+// [{t:<unix author date>, a:<author name>}] (empty on any error, e.g. a bad
+// ref or an empty repo). ref is caller-derived (HEAD / a tracking ref), never
+// raw user input.
+func gitActivitySeries(dir, ref string, limit int) []map[string]any {
+	out, err := runGitIn(dir, "log", ref, "--no-color", "-n", strconv.Itoa(limit),
+		"--pretty=format:%at%x1f%an")
+	if err != nil {
+		return []map[string]any{}
+	}
+	series := []map[string]any{}
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
-		f := strings.Split(line, "\x1f")
-		if len(f) != 5 {
+		f := strings.SplitN(line, "\x1f", 2)
+		ts, err := strconv.ParseInt(f[0], 10, 64)
+		if err != nil {
 			continue
 		}
-		commits = append(commits, map[string]string{
-			"hash": f[0], "short": f[1], "author": f[2], "date": f[3], "subject": f[4],
-		})
+		a := ""
+		if len(f) == 2 {
+			a = f[1]
+		}
+		series = append(series, map[string]any{"t": ts, "a": a})
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "commits": commits, "remote": componentRemote(dir)})
+	return series
+}
+
+// upstreamTrackingRef finds the component repo's upstream branch ref
+// (origin's default, else origin/main|master) if one is tracked locally, else
+// "". No network — only refs already present (a clone/import fetched them).
+func upstreamTrackingRef(dir string) string {
+	if out, err := runGitIn(dir, "symbolic-ref", "-q", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := strings.TrimPrefix(strings.TrimSpace(out), "refs/remotes/"); ref != "" {
+			return ref
+		}
+	}
+	for _, ref := range []string{"origin/main", "origin/master"} {
+		if _, err := runGitIn(dir, "rev-parse", "--verify", "-q", ref+"^{commit}"); err == nil {
+			return ref
+		}
+	}
+	return ""
 }
 
 // GET /git/diff?component=<path>&rev=<hash> — a commit's diff scoped to the

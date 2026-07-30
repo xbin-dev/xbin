@@ -277,11 +277,19 @@ GET    /code/tree                  admin OR code[:<component>]. ?component=<path
 GET    /code/file                  admin OR code[:<component>]. ?component=<path>&file=<rel> →
                                    {path, content|binary|truncated}.
 GET    /git/log                    admin OR code[:<component>]. ?component=<path>&limit=N → {repo,
-                                   commits:[{hash,short,author,date,subject}],
-                                   remote}. From the component's OWN repo (each
-                                   component is its own git repo); remote = origin.
+                                   commits:[{hash,short,author,date,subject,
+                                   add,del,files}], remote}. From the component's
+                                   OWN repo (each component is its own git repo);
+                                   add/del/files = that commit's churn; remote =
+                                   origin.
 GET    /git/diff                   admin OR code[:<component>]. ?component=<path>&rev=<hash> → {repo,
                                    diff}. rev empty = uncommitted changes vs HEAD.
+GET    /git/activity               admin OR code[:<component>]. ?component=<path> → {repo,
+                                   remote, upstreamRef, local:[{t,a}],
+                                   upstream:[{t,a}]|null}. Author-date (t, unix)
+                                   + author (a) timeline of the component's
+                                   history and, if a remote-tracking branch
+                                   exists, its upstream — for activity charts.
 GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranch,
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.

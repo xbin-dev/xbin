@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-07-30
+
+- **Code browser: line numbers, change counts, an Analysis tab, and live
+  refresh.** The terminal's code panel (`bx-code`) now shows **line numbers** in
+  the file view, a **change-count summary** (`+add −del · N files`) on the
+  working-tree/commit diff and per-commit in the Changes list, and a new
+  **Analysis** tab charting commit activity over time (commits/week for the last
+  year, top authors, totals) — including the **upstream** tracking branch when a
+  component was git-imported. The file/changes views also **refresh
+  automatically** when a tile's files change on disk (agent or terminal edits),
+  instead of showing stale content. `GET /git/log` now returns `add`/`del`/
+  `files` per commit and there's a new `GET /git/activity` endpoint
+  ([protocol.md](protocol.md)).
+
 ## 2026-07-14
 
 - **New capability: `cap:containers` — run containers inside a tile**

@@ -42,6 +42,29 @@ func TestCodeReadGrant(t *testing.T) {
 	}
 }
 
+// /git/activity is read-gated exactly like the other code endpoints: admin and
+// self pass, an ungranted cross-scope element is refused. (A non-repo component
+// still answers 200 with repo:false — the gate runs before the repo check.)
+func TestGitActivityGate(t *testing.T) {
+	b := testBroker(t)
+	call := func(p auth.Principal) int {
+		r := httptest.NewRequest("GET", "/git/activity?component=apps/calendar", nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		b.apiGitActivity(w, r)
+		return w.Code
+	}
+	if got := call(auth.Principal{Owner: true}); got != 200 {
+		t.Fatalf("admin: want 200, got %d", got)
+	}
+	if got := call(auth.Principal{Component: "apps/calendar"}); got != 200 {
+		t.Fatalf("self: want 200, got %d", got)
+	}
+	if got := call(auth.Principal{Component: "apps/email"}); got != 403 {
+		t.Fatalf("ungranted element: want 403, got %d", got)
+	}
+}
+
 // A bare "code" grant reads ANY component's source (tooling/scanners).
 func TestCodeReadBlanket(t *testing.T) {
 	b := testBroker(t)
