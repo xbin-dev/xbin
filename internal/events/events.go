@@ -9,7 +9,7 @@ import (
 
 // Event is one message on the hub. JSON-encoded on the wire.
 type Event struct {
-	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants
+	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status
 	Component string `json:"component,omitempty"` // workspace-relative path
 	Text      string `json:"text,omitempty"`      // human text (compiler output, log line)
 	Topic     string `json:"topic,omitempty"`     // bus: resource-qualified topic "res:scope/name/topic"

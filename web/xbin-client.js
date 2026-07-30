@@ -17,7 +17,12 @@
  *                             forwarded to the callee)
  *   xbin.bus.on(prefix,cb) — subscribe to bus topics (granted resources)
  *   xbin.bus.publish(resource, topic, data)
- *   xbin.events.on(cb)     — raw event stream (reload/build/bus)
+ *   xbin.events.on(cb)     — raw event stream (reload/build/bus/status)
+ *   xbin.status(level,msg) — report this tile's condition to the workspace
+ *                             (level ok|info|warn|error; 'ok'+'' clears it) —
+ *                             the shell shows warn/error as a breathing sidebar
+ *                             dot + tab tint. xbin.clearStatus() to clear.
+ *   xbin.notify(level,msg) — one-shot user notification (toast)
  *
  * It also reports the document's height to the embedding <bx-frame> so
  * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
@@ -104,6 +109,25 @@ const events = {
   on(cb) { eventHandlers.add(cb); ensureEvents(); return () => eventHandlers.delete(cb); },
 };
 
+// --- workspace status & notifications (docs/elements.md · workspace AGENTS.md) ---
+// Tell the shell how this tile is doing. status() sets a persistent, self-
+// clearing condition (a breathing sidebar dot + tab tint for warn/error);
+// notify() fires a one-shot toast.
+async function report(level, message, transient) {
+  const r = await bfetch('/api/xbin/tile-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level, message: message ?? '', transient: !!transient }),
+  });
+  if (!r.ok) throw new Error(`status: ${r.status} ${await r.text()}`);
+}
+/** Set this tile's status. level: 'ok'|'info'|'warn'|'error'. 'ok' with no message clears it. */
+const status = (level, message) => report(level, message, false);
+/** Clear this tile's status (same as status('ok','')). */
+const clearStatus = () => report('ok', '', false);
+/** One-shot notification (toast) — does not change the persistent status. */
+const notify = (level, message) => report(level, message, true);
+
 // --- height reporting to the embedding bx-frame ---
 const embedded = window.parent !== window;
 if (embedded) {
@@ -179,4 +203,4 @@ function openWindow(spec = {}) {
   };
 }
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events, dialog, window: openWindow });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events, dialog, window: openWindow, status, clearStatus, notify });

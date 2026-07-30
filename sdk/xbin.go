@@ -254,3 +254,37 @@ func Publish(resource, topic string, data any) error {
 	}
 	return nil
 }
+
+// Status reports this component's condition to the workspace — health, or a
+// problem that clears itself when resolved. level is "ok" | "info" | "warn" |
+// "error"; the shell shows warn/error as a breathing dot on the tile and tints
+// the screen tab. "ok" with an empty message CLEARS the status (see
+// ClearStatus); "ok" WITH a message shows a healthy indicator. Call it again to
+// update, and clear it once the condition passes. Keep messages to a short
+// headline. Guidelines: the workspace AGENTS.md.
+func Status(level, message string) error { return reportStatus(level, message, false) }
+
+// ClearStatus removes this component's status — the same as Status("ok", "").
+func ClearStatus() error { return reportStatus("ok", "", false) }
+
+// Notify raises a one-shot user notification (a toast) at the given level
+// without changing the persistent status — for transient events ("backup done",
+// "12 items imported"). Use Status for conditions that persist until resolved.
+func Notify(level, message string) error { return reportStatus(level, message, true) }
+
+func reportStatus(level, message string, transient bool) error {
+	body, err := json.Marshal(map[string]any{"level": level, "message": message, "transient": transient})
+	if err != nil {
+		return err
+	}
+	resp, err := Client().Post("http://xbin/api/xbin/tile-status", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}

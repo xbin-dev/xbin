@@ -46,6 +46,9 @@ type Broker struct {
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 
+	statusMu sync.Mutex
+	statuses map[string]statusRec // component → last reported status (status.go)
+
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
 	// symlinks and regenerate go.work without waiting for the watcher.
@@ -226,6 +229,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerUsers(srv)
 	b.registerLogs(srv)
 	b.registerPrefs(srv)
+	b.registerStatus(srv)
 	srv.BusFilter = b.busFilter
 	srv.IsAdmin = b.IsAdmin
 	srv.Interfaces = b.HTTPInterfaces

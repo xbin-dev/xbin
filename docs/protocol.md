@@ -445,6 +445,20 @@ DELETE /blob/res:<scope>/<name>/<path>   writer.
 POST   /bus/publish                      writer on the resource.
                                          body {resource, topic, data?}
 
+GET    /tile-status                      any signed-in user (read-filtered).
+                                         {statuses:{<component>:{level,message,ts}}}
+                                         — current per-tile status for the shell's
+                                         sidebar/tab health indicators.
+POST   /tile-status                      element (self) or owner (?component=).
+                                         body {level:ok|info|warn|error, message?,
+                                         transient?}. Sets this tile's persistent,
+                                         self-clearing status (ok+empty message
+                                         clears it); transient=true fires a one-shot
+                                         notification instead. Publishes a `status`
+                                         event. SDK xbin.Status/Notify; JS
+                                         xbin.status/notify. Cleared on backend
+                                         restart. Guidelines: workspace AGENTS.md.
+
 GET    /cron/jobs                        own jobs (admin: all). {jobs}
 PUT    /cron/jobs                        writer on the cron resource.
                                          body {name, resource, schedule, path, role?, component?¹}
@@ -526,11 +540,16 @@ Auth: cookie (owner) or `?frame=<frame-token>` (element). JSON text frames:
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
+{"type":"status","component":"apps/thing",           // a tile reported its condition
+ "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
 ```
 
 Non-bus events go to every subscriber. `bus` events are delivered only to
-the owner and to elements holding a reader grant on the resource. Slow
-consumers are disconnected; reconnect with backoff (the bundled clients do).
+the owner and to elements holding a reader grant on the resource. `status`
+events broadcast like the build events (the shell renders each only for tiles
+it shows; the `GET /tile-status` snapshot below is read-filtered per caller).
+Slow consumers are disconnected; reconnect with backoff (the bundled clients
+do).
 
 ## Tile ↔ shell messaging (window.postMessage)
 

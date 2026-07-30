@@ -224,7 +224,9 @@ await xbin.fetch(`/api/${xbin.self}/x`)   // ALWAYS use xbin.fetch for /api/ —
                                             // raw fetch to other elements 403s
 xbin.bus.on(`res:${xbin.self}/bus/`, (topic, data) => {…})   // live events
 await xbin.bus.publish(`res:${xbin.self}/bus`, 'changed', {…})
-xbin.events.on(e => {…})                   // reload/build/bus/grants stream
+xbin.events.on(e => {…})                   // reload/build/bus/grants/status stream
+xbin.status('error', 'msg') / xbin.clearStatus()   // sidebar/tab health (see below)
+xbin.notify('info', 'msg')                 // one-shot toast
 
 // per-user UI state (server-side, follows the user across devices); each tile
 // gets its own bucket, isolated per user:
@@ -346,6 +348,55 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.
 - Handle SIGTERM (the SDKs/skeletons do).
+
+## Status & notifications — tell the workspace how you're doing
+
+A tile can surface its condition to the workspace UI: the shell shows it as a
+coloured dot on your sidebar entry (breathing for `warn`/`error`), tints the
+screen tab of any screen holding an affected tile, and marks the browser tab.
+Two calls, one channel:
+
+```js
+// frontend (xbin-client)
+xbin.status('error', 'Stripe webhook secret rejected');  // persistent, self-clearing
+xbin.status('ok', 'synced 30s ago');   // healthy signal (steady green dot)
+xbin.clearStatus();                     // condition passed — remove the dot
+xbin.notify('info', 'Backup complete'); // one-shot toast, fades on its own
+```
+```go
+// backend (SDK)
+xbin.Status("warn", "queue backed up: 240 jobs")
+xbin.ClearStatus()                       // = Status("ok","")
+xbin.Notify("info", "12 items imported")
+```
+
+**Levels** — `error` (broken, needs action), `warn` (degraded/attention),
+`info` (FYI, steady dot), `ok` (healthy). `error`/`warn` breathe and colour the
+tab; `info`/`ok` are a steady dot.
+
+**Guidelines — apply these:**
+
+- **Report what the user can't otherwise see** — a failing upstream, expired
+  credentials, a stuck queue, a paused sync. Not routine per-request errors
+  (return those in the HTTP response); status is for *conditions*.
+- **Always clear it when it resolves.** `Status`/`xbin.status` is sticky — it
+  stays until you set `ok` (with an empty message) or call `ClearStatus`. A
+  stale red dot that never clears trains the user to ignore all of them.
+- **Set on change, not on every tick/request.** Track your last-reported level
+  and only call when it flips. The shell de-dups by component, but re-sending
+  the same thing still churns the UI (and the events stream).
+- **One short headline** (≤ ~280 chars, one line): *what* is wrong and, if you
+  can, *what to do*. Detail belongs in your own UI or `bx logs`.
+- **`ok` with a message = a positive health signal** (a steady green dot on
+  hover shows the text); **`ok` with an empty message clears**. Use healthy
+  signals sparingly — a calm sidebar is the goal.
+- **`notify` is for one-shot events** worth a glance but not a lasting
+  condition (“backup done”, “3 new tickets”). It toasts and disappears; it does
+  **not** change your persistent status.
+- **It's self-scoped and per-component** — you report your *own* status; the
+  owner sees every tile's, other users only tiles they can read.
+- **Status resets when your backend restarts** (a fresh process re-asserts). If
+  health matters, re-report it on startup once you've checked your deps.
 
 ## Sandbox — what your backend can reach (isolation is on by default)
 

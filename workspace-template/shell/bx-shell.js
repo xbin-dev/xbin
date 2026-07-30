@@ -117,6 +117,8 @@ export class BxShell extends LitElement {
     _settings: { state: true },     // per-user workspace settings {fontSize}
     _settingsOpen: { state: true }, // the 🔧 settings dropdown
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
+    _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-status)
+    _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
@@ -273,6 +275,46 @@ export class BxShell extends LitElement {
     .alert .ico { font-size: 14px; }
     .alert.warn { background: #b7791f; }
     .alert.crit { background: #c53030; }
+
+    /* ---- component status: sidebar dots + tab tint + toasts (tiles → workspace) ---- */
+    /* level → colour, carried as --st so the dot + breathe ring inherit it */
+    .st-ok    { --st: var(--bx-green, #43a047); }
+    .st-info  { --st: #61afef; }
+    .st-warn  { --st: var(--bx-amber, #f2a71b); }
+    .st-error { --st: var(--bx-red, #e5484d); }
+    .stdot { flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--st, var(--bx-muted, #8794a1)); }
+    .item { position: relative; }
+    .item .stdot { margin-left: 4px; }
+    .item.st-warn, .item.st-error { background: color-mix(in srgb, var(--st) 9%, transparent); }
+    .item.st-warn::before, .item.st-error::before {
+      content: ''; position: absolute; left: 0; top: 3px; bottom: 3px; width: 2px;
+      border-radius: 0 2px 2px 0; background: var(--st); }
+    .group.folder .stdot { margin-left: 2px; }
+    .tab.st-warn, .tab.st-error { color: var(--st); }
+    .tab .stdot { margin-left: 2px; }
+    .tab.on.st-warn, .tab.on.st-error { box-shadow: inset 0 -2px 0 var(--st); }
+    /* breathe for warn/error only; ok/info stay steady; motion-reduced = steady */
+    @media (prefers-reduced-motion: no-preference) {
+      .item.st-warn .stdot, .item.st-error .stdot,
+      .group.folder.st-warn .stdot, .group.folder.st-error .stdot,
+      .tab.st-warn .stdot, .tab.st-error .stdot { animation: bx-breathe 1.9s ease-in-out infinite; }
+    }
+    @keyframes bx-breathe {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--st) 65%, transparent); opacity: 1; }
+      55% { box-shadow: 0 0 0 4px transparent; opacity: .5; }
+    }
+    /* transient notifications (xbin.notify) — floating, auto-dismissed, click to close */
+    .toasts { position: fixed; right: 14px; bottom: 14px; z-index: 4000;
+      display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
+    .toast { display: flex; align-items: center; gap: 8px; cursor: pointer;
+      padding: 9px 12px; border-radius: 8px; font-size: 12.5px; color: var(--bx-text, #33414e);
+      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      border-left: 3px solid var(--st, var(--bx-muted, #8794a1));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .28); animation: bx-toast-in .18s ease-out; }
+    .toast .tmsg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .toast b { font-family: var(--bx-mono, monospace); font-weight: 700; }
+    @keyframes bx-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
     .wsmenu {
       position: fixed; top: 42px; right: 12px; z-index: 3001; min-width: 220px; padding: 8px 10px;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
@@ -448,6 +490,8 @@ export class BxShell extends LitElement {
     this._folderEdit = null;
     this._settings = { fontSize: 13 };
     this._alerts = [];
+    this._status = {};
+    this._toasts = [];
     this._settingsOpen = false;
     this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
@@ -468,7 +512,9 @@ export class BxShell extends LitElement {
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
       if (e.type === 'users') { this._load(); this._probeAdmin(); } // org/team/access changes
+      if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
     });
+    this._loadStatuses();
     window.addEventListener('blur', this._onBlur);
     this._probeAdmin();
     window.addEventListener('bx-spawn', this._onSpawn);
@@ -893,6 +939,50 @@ export class BxShell extends LitElement {
     } catch { /* transient */ }
   }
 
+  // ---- component status & notifications (tiles → workspace) ----
+  // RAW fetch: the cookie principal is the signed-in user, so the list is
+  // read-filtered to their tiles (xbin.fetch would downgrade to the chrome
+  // element and see nothing). Live updates arrive as `status` events.
+  async _loadStatuses() {
+    try {
+      const r = await fetch('/api/xbin/tile-status');
+      if (r.ok) { this._status = (await r.json()).statuses || {}; this._reflectTitle(); }
+    } catch { /* transient */ }
+  }
+  _onStatusEvent(e) {
+    if (!e.component) return;
+    const d = e.data || {};
+    if (d.transient) { this._pushToast(e.component, d); return; }
+    const next = { ...this._status };
+    if ((!d.level || d.level === 'ok') && !d.message) delete next[e.component];
+    else next[e.component] = { level: d.level, message: d.message || '', ts: d.ts };
+    this._status = next;
+    this._reflectTitle();
+  }
+  _statusOf(path) { return this._status[path]; }
+  // Highest-severity status among the given component paths (null if none).
+  _worstStatus(paths) {
+    const rank = { ok: 0, info: 1, warn: 2, error: 3 };
+    let best = null, bestR = -1;
+    for (const p of paths) {
+      const s = this._status[p];
+      if (s && (rank[s.level] ?? -1) > bestR) { best = s.level; bestR = rank[s.level]; }
+    }
+    return best;
+  }
+  // Ambient signal in the browser tab title when something needs attention.
+  _reflectTitle() {
+    const worst = this._worstStatus(Object.keys(this._status));
+    const mark = worst === 'error' ? '🔴 ' : worst === 'warn' ? '🟡 ' : '';
+    document.title = mark + (this.name ? `${this.name} · xbin` : 'xbin');
+  }
+  _pushToast(comp, d) {
+    const id = uid();
+    this._toasts = [...this._toasts, { id, comp, level: d.level || 'info', message: d.message || '' }];
+    setTimeout(() => this._dismissToast(id), 6500);
+  }
+  _dismissToast(id) { this._toasts = this._toasts.filter((t) => t.id !== id); }
+
   async _loadSys() {
     if (this._side.collapsed || document.hidden) return;
     try {
@@ -1045,10 +1135,13 @@ export class BxShell extends LitElement {
 
   // One sidebar row for a component — used by folders and prefix groups alike.
   _itemTemplate(c, folderId = null, label = null) {
+    const st = this._statusOf(c.path);
+    const title = st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
+      : (c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path);
     return html`
-      <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''}"
+      <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''}"
            draggable="true"
-           title=${c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path}
+           title=${title}
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-comp', c.path);
              e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
            @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-comp')) {
@@ -1058,6 +1151,7 @@ export class BxShell extends LitElement {
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
         <span>${label ?? (c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path)}</span>
+        ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         <span class="rt">${c.runtime || ''}</span>
       </div>`;
@@ -1066,8 +1160,9 @@ export class BxShell extends LitElement {
   _folderTemplate(f) {
     const comps = f.items.map((p) => this._components.find((c) => c.path === p))
       .filter((c) => c && !this._offloaded(c)); // hide archived tiles in folders too
+    const fst = f.open ? null : this._worstStatus(comps.map((c) => c.path)); // surface when collapsed
     return html`
-      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''}" draggable="true"
+      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''}" draggable="true"
            title="click to fold · double-click to rename/icon · drag to reorder or drop components in"
            @click=${() => this._toggleFolder(f)}
            @dblclick=${() => this._folderDialog(f)}
@@ -1079,6 +1174,7 @@ export class BxShell extends LitElement {
         <span class="tri">${f.open ? '▾' : '▸'}</span>
         <span class="ficon">${f.icon || '📁'}</span>
         <span class="fname">${f.name}</span> <span class="n">${comps.length}</span>
+        ${fst ? html`<span class="stdot"></span>` : nothing}
         <button class="fx" title="delete folder (components return to their groups)"
                 @click=${(e) => { e.stopPropagation(); this._deleteFolder(f); }}>✕</button>
       </div>
@@ -1368,6 +1464,13 @@ export class BxShell extends LitElement {
         ${this._alerts.map((a) => html`<div class="alert ${a.level}">
           <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}</div>`)}
       </div>` : nothing}
+      ${this._toasts.length ? html`<div class="toasts">
+        ${repeat(this._toasts, (t) => t.id, (t) => html`
+          <div class="toast st-${t.level}" @click=${() => this._dismissToast(t.id)} title="dismiss">
+            <span class="stdot"></span>
+            <span class="tmsg"><b>${t.comp.includes('/') ? t.comp.slice(t.comp.indexOf('/') + 1) : t.comp}</b>${t.message ? ' \u2014 ' + t.message : ''}</span>
+          </div>`)}
+      </div>` : nothing}
       <div class="top">
         <span class="logo">
           <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
@@ -1400,15 +1503,19 @@ export class BxShell extends LitElement {
       </div>
 
       <div class="tabs">
-        ${this._screens.map((s) => html`
-          <div class="tab ${s.id === this._active ? 'on' : ''}"
+        ${this._screens.map((s) => {
+          const tst = this._worstStatus((s.tiles ?? []).map((t) => t.path));
+          return html`
+          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}"
                @click=${() => this._switchScreen(s.id)}
                @dblclick=${() => this._renameScreen(s.id)}
-               title="double-click to rename">
+               title=${tst ? `${s.name} — a tile here needs attention (${tst})` : 'double-click to rename'}>
             <span>${s.name}</span>
+            ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
             ${this._screens.length > 1
               ? html`<button class="x" @click=${(e) => this._closeScreen(s.id, e)}>✕</button>` : nothing}
-          </div>`)}
+          </div>`;
+        })}
         <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
       </div>
 

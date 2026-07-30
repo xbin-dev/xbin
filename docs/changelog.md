@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-07-30
 
+- **Tiles can report status & notifications to the workspace.** A new
+  self-scoped channel lets a component surface its condition: `xbin.status(level,
+  message)` / `xbin.clearStatus()` (frontend) and `xbin.Status` / `xbin.ClearStatus`
+  / `xbin.Notify` (Go SDK), levels `ok|info|warn|error`. The shell renders it as a
+  breathing dot on the tile's sidebar entry (and its folder), a tint on the
+  screen tab holding an affected tile, and a mark in the browser-tab title;
+  `xbin.notify` raises a one-shot toast. Status is **persistent and
+  self-clearing** (set `ok` to clear) and **resets when the backend restarts**.
+  New `GET/POST /api/xbin/tile-status` + a `status` event on `/ws/events`
+  ([protocol.md](protocol.md), [elements.md](elements.md)). Guidelines — when to
+  use each level and the always-clear-it rule — are in the workspace `AGENTS.md`.
+
 - **Code browser: line numbers, change counts, an Analysis tab, and live
   refresh.** The terminal's code panel (`bx-code`) now shows **line numbers** in
   the file view, a **change-count summary** (`+add −del · N files`) on the

@@ -242,6 +242,26 @@ What is deliberately *impossible*: `xbin.window({html})` (tile HTML in the top
 page = privilege escalation), spoofing another component's identity, and
 framing a component the user may not use.
 
+## Status & notifications
+
+A tile tells the workspace how it's doing over a small self-scoped channel; the
+shell renders it as a colour on the tile's sidebar entry (breathing for
+`warn`/`error`), a tint on the screen tab, and the browser-tab title.
+
+- **`xbin.status(level, message)`** — set a **persistent, self-clearing**
+  condition. `level` ∈ `ok | info | warn | error`. `ok` with an empty message
+  **clears** it (or use `xbin.clearStatus()`); `ok` with a message shows a
+  healthy dot. Sticky until you change it — clear it when the condition passes.
+- **`xbin.notify(level, message)`** — a **one-shot** notification (toast) that
+  fades; does not change the persistent status.
+- Backend equivalents: `xbin.Status` / `xbin.ClearStatus` / `xbin.Notify`
+  (SDK). Both planes POST `/api/xbin/tile-status` ([protocol.md](/docs/protocol.md)).
+
+Status is per-component and self-reported (the owner sees all; other users only
+tiles they can read), and it **resets when your backend restarts**. Keep
+messages to a short headline. Full guidelines — when to use which level, and the
+“always clear it” rule — are in the workspace `AGENTS.md`.
+
 ## Runtimes & backend lifecycle
 
 Backends serve plain HTTP on a unix socket xbind hands them
