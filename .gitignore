@@ -4,3 +4,15 @@ devws*/
 go.work.sum
 *.log
 *_scrot.png
+
+# Local Claude/agent backups — NEVER publish (contain credentials, cache, debug)
+bak*.tar
+dotclaude-bak*/
+.claude-bak*/
+# Secrets & local env — defense-in-depth (none of these are tracked today)
+.env
+.env.*
+*.pem
+*.key
+.credentials.json
+*.credentials.json
