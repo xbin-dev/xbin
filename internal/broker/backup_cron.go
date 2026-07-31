@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/magik6k/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // Scheduled component backups (plans/lifecycle.md LC-5). Owner-registered jobs on

@@ -9,8 +9,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // ResourceInfo is a provisioned resource plus its on-disk usage.

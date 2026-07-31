@@ -41,7 +41,7 @@ make fmt-check vet  # CI mirrors exactly these
   `make dev`. Say so honestly in the commit if you couldn't drive the UI.
 - Builtin tile backends aren't part of the workspace build. To typecheck one:
   `cd builtin-tiles/<t> && cp go.mod.tile go.mod`, write a throwaway
-  `go.work` with `replace github.com/magik6k/xbin/sdk => ../../sdk`, build,
+  `go.work` with `replace github.com/xbin-dev/xbin/sdk => ../../sdk`, build,
   then **delete both** (never commit them).
 - Verify with the whole pyramid before pushing: `go build ./...`,
   `make fmt-check vet`, `make test`, JS parse checks — and `make integration`

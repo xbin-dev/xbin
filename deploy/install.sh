@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # xbin — VM/host installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/magik6k/xbin/master/deploy/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | sudo bash
 #
 # Installs xbind as an unprivileged systemd service on a Linux host it controls
 # (see README → "Deployment on a VM" for the model). It:
@@ -23,7 +23,7 @@ PREFIX="${XBIN_PREFIX:-/opt/xbin}"
 XBIN_USER="${XBIN_USER:-xbin}"
 WORKSPACE="${XBIN_WORKSPACE:-$PREFIX/workspace}"
 LISTEN="${XBIN_LISTEN:-127.0.0.1:8642}"
-REPO_URL="${XBIN_REPO_URL:-https://github.com/magik6k/xbin}"
+REPO_URL="${XBIN_REPO_URL:-https://github.com/xbin-dev/xbin}"
 REF="${XBIN_REF:-master}"
 SUBID_START="${XBIN_SUBID_START:-100000}"
 SUBID_COUNT="${XBIN_SUBID_COUNT:-65536}"
@@ -197,7 +197,7 @@ SRC=
 fetch_source() {
   [ "$BUILD_FROM_SOURCE" = 1 ] || return 0
   if [ -n "$XBIN_SRC" ]; then SRC="$XBIN_SRC"
-  elif [ -f ./go.mod ] && grep -q 'module github.com/magik6k/xbin' ./go.mod 2>/dev/null; then SRC="$(pwd)"
+  elif [ -f ./go.mod ] && grep -q 'module github.com/xbin-dev/xbin' ./go.mod 2>/dev/null; then SRC="$(pwd)"
   else
     SRC="$BUILD_DIR/xbin"
     info "fetching source: $REPO_URL@$REF"
@@ -296,7 +296,7 @@ install_files() {
   fi
   mv "$PREFIX/rootfs.new" "$PREFIX/rootfs"
   # The Go SDK source: xbind's generated go.work resolves
-  # github.com/magik6k/xbin/sdk here (deps.SDKPath → $PREFIX/sdk), and
+  # github.com/xbin-dev/xbin/sdk here (deps.SDKPath → $PREFIX/sdk), and
   # terminals get it as a read-only bind so `go build` works offline.
   if [ -n "${XBIN_SDK_SRC:-}" ] && [ -d "$XBIN_SDK_SRC" ]; then
     rm -rf "$PREFIX/sdk.new"
@@ -342,7 +342,7 @@ install_unit() {
 # sandboxes itself and those directives break it.
 [Unit]
 Description=xbin self-modifying workspace daemon
-Documentation=https://github.com/magik6k/xbin
+Documentation=https://github.com/xbin-dev/xbin
 After=network-online.target
 Wants=network-online.target
 

@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/magik6k/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/events"
 )
 
 var eventsUpgrader = websocket.Upgrader{

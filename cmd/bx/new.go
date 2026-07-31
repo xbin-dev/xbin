@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/scaffold"
+	"github.com/xbin-dev/xbin/internal/scaffold"
 )
 
 // cmdNew scaffolds a component (shared engine with POST /api/xbin/create;

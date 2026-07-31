@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/scaffold"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/scaffold"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // POST /api/xbin/create — the higher-level "create tile" API (same engine

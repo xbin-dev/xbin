@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 func main() {

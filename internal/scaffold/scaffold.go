@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 type Options struct {

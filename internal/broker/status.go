@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // Component status & notifications — a small channel for a component to tell the

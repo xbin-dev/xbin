@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/magik6k/xbin/internal/users"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (

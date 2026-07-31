@@ -13,7 +13,7 @@
 
 [Unit]
 Description=xbin self-modifying workspace daemon
-Documentation=https://github.com/magik6k/xbin
+Documentation=https://github.com/xbin-dev/xbin
 After=network-online.target
 Wants=network-online.target
 

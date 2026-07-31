@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 const pollEvery = 15 * time.Second

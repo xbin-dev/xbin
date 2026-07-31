@@ -17,7 +17,7 @@ an xbin tile. It's one file with inlined CSS/JS and an inline SVG logo.
 
 ## Placeholders to wire before launch
 - **`https://xbin.dev/install.sh`** — set up as a redirect to the real installer
-  (`https://raw.githubusercontent.com/magik6k/xbin/master/deploy/install.sh`), or
+  (`https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh`), or
   serve the script at that path.
 - Copy is a first pass — tighten claims against the shipping feature set before
   it goes public.

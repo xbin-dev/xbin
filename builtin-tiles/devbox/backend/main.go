@@ -24,7 +24,7 @@ import (
 	"os"
 	"path/filepath"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 const sshPort = ":2222" // matches exposes.ssh.port in xbin.json

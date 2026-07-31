@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 func TestHomeKey(t *testing.T) {

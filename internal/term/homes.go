@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/auth"
 )
 
 // Per-user terminal homes (decision D6, amended). $HOME used to be one shared

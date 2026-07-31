@@ -54,7 +54,7 @@ func TestIngress(t *testing.T) {
 			"echo": {"kind": "stream", "port": 7777}
 		}
 	}`)
-	writeWS("apps/site/go.mod", "module site\n\ngo 1.24\n\nrequire github.com/magik6k/xbin/sdk v0.0.0\n")
+	writeWS("apps/site/go.mod", "module site\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n")
 	writeWS("apps/site/backend/main.go", `package main
 
 import (
@@ -62,7 +62,7 @@ import (
 	"net"
 	"net/http"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 func main() {

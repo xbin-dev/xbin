@@ -61,7 +61,7 @@ wire protocol, and the CLI.
   interfaces), host, or offline.
 - **Vault**: per-element private secrets (`bx vault`, `xbin.Secret()`),
   encrypted at rest.
-- **bx** CLI + **Go SDK** (`github.com/magik6k/xbin/sdk`, zero deps).
+- **bx** CLI + **Go SDK** (`github.com/xbin-dev/xbin/sdk`, zero deps).
 
 ## Running it
 
@@ -109,7 +109,7 @@ under every sandbox and terminal; refresh it by rebuilding the OCI image
 To stand xbin up on a Linux VM (or bare-metal host) you control, one command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/magik6k/xbin/master/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | sudo bash
 ```
 
 It's interactive, idempotent (re-run to upgrade), and does the whole job:

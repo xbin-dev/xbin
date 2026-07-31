@@ -22,8 +22,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/jsonc"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/jsonc"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Meta is a tile.json catalog entry.

@@ -11,10 +11,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/util"
-	"github.com/magik6k/xbin/internal/vault"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // Vault: per-element private secrets (plans/auth.md §4). One JSON file per

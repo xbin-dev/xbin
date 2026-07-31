@@ -30,14 +30,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/cgroup"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/gpu"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/sandbox"
-	"github.com/magik6k/xbin/internal/sandbox/relay"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/gpu"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (

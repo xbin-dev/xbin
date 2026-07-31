@@ -5,10 +5,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // Org/team management API (plans/orgs.md). Pure translation: decode → gate →

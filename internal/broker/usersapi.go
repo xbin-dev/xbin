@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // User-management API (plans/multi-user.md). Gated by the xbin:users

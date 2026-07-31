@@ -5,10 +5,10 @@ import (
 	"os"
 	"sort"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/vault"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // Admin-console aggregate endpoints (plans/admin-tile.md). All gated by

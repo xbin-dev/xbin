@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/builtins"
-	"github.com/magik6k/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // Builtin tile catalog endpoints (plans/tile-sharing.md). Listing is open to

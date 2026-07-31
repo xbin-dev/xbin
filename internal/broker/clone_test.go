@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/auth"
 )
 
 func TestReplaceWordBoundaries(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // cmdDoctor checks the workspace for the problems that actually happen:

@@ -17,7 +17,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Event is a debounced change notification for one workspace-relative path

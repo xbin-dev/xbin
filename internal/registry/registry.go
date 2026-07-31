@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/magik6k/xbin/internal/jsonc"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/jsonc"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Use is one entry of a manifest "uses" list: a runtime call grant request.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 func TestGoWorkSelfHeal(t *testing.T) {

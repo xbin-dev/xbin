@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/auth"
 )
 
 // A component reports its OWN status; the owner may report for any; a cross-

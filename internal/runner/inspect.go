@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/cgroup"
-	"github.com/magik6k/xbin/internal/sandbox/relay"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // nsKinds are the namespaces we report per backend.

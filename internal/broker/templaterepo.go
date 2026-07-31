@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Template source repos (plans/agent-v2.md §template updates). The builtin-tile

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // watcherRound tracks one firing of a watcher schedule: the message seq before

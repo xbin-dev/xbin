@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // A terminator TILE (a `provides {kind:"ingress"}` component, e.g. the

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 // The runner's half of the ingress plane (plans/ingress.md): reaching a port

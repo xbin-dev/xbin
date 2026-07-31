@@ -27,24 +27,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/magik6k/xbin"
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/broker"
-	"github.com/magik6k/xbin/internal/builtins"
-	"github.com/magik6k/xbin/internal/cgroup"
-	"github.com/magik6k/xbin/internal/deps"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/gpu"
-	ingressPkg "github.com/magik6k/xbin/internal/ingress"
-	"github.com/magik6k/xbin/internal/proxy"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/runner"
-	"github.com/magik6k/xbin/internal/sandbox"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/term"
-	"github.com/magik6k/xbin/internal/users"
-	"github.com/magik6k/xbin/internal/util"
-	"github.com/magik6k/xbin/internal/watch"
+	"github.com/xbin-dev/xbin"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/deps"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/gpu"
+	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/proxy"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/runner"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/watch"
 )
 
 var version = "dev" // set via -ldflags at release (make build → `git describe`)
@@ -501,7 +501,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		run.NetRoster = brk.NetProviderRoster
 		run.NetTarget = brk.NetClientTarget
 		run.NetHost = brk.NetHostShare
-		run.NetCaps = brk.NetAdminFor        // cap:net-admin → keep net-admin caps
+		run.NetCaps = brk.NetAdminFor         // cap:net-admin → keep net-admin caps
 		run.ContainerCaps = brk.ContainersFor // cap:containers → keep userns caps for rootless podman
 		if inv := gpu.Inventory(); len(inv) > 0 {
 			slog.Info("NVIDIA GPUs available for gpu:* grants", "count", len(inv))

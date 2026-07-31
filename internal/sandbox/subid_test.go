@@ -10,7 +10,7 @@ import "testing"
 // sandbox silently fell back to single-uid mode — breaking apt/dpkg installs
 // that chown to system users. parseSubID must match by owner name or uid.
 func TestParseSubIDByUserNotGid(t *testing.T) {
-	subgid := []byte("magik6k:100000:65536\nxbin:200000:65536\n")
+	subgid := []byte("alice:100000:65536\nxbin:200000:65536\n")
 
 	// Keyed by the user (name "xbin", uid 999) — must find the range even though
 	// the account's gid (988) never appears in the file.

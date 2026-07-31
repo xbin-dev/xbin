@@ -132,7 +132,7 @@ func (p *sshProxy) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, conta
 			}
 			ptmx = f
 			req.Reply(true, nil)
-			go func() { _, _ = io.Copy(f, ch) }()      // ssh → pty
+			go func() { _, _ = io.Copy(f, ch) }()                  // ssh → pty
 			go func() { _, _ = io.Copy(ch, f); ch.CloseWrite() }() // pty → ssh
 			go func() {
 				err := cmd.Wait()

@@ -13,12 +13,12 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/sandbox"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Resource provisioning + delivery (plans/auth.md §5, docs/resources.md).

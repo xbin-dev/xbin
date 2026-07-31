@@ -16,15 +16,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/builtins"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/resenc"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/users"
-	"github.com/magik6k/xbin/internal/util"
-	"github.com/magik6k/xbin/internal/vault"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/resenc"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // CronPrincipal is the From identity of scheduler-invoked calls.

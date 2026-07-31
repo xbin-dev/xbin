@@ -1,4 +1,4 @@
-module github.com/magik6k/xbin
+module github.com/xbin-dev/xbin
 
 go 1.26.3
 

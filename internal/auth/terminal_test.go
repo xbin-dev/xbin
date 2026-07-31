@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 func TestTerminalTokens(t *testing.T) {

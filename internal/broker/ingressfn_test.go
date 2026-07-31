@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // ingressWorkspace: a blog (http expose), a game server (stream expose), a

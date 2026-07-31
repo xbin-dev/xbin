@@ -1,12 +1,12 @@
 # SDKs: Go backends, node/python patterns, and the in-frame JS API
 
-## Go SDK — `github.com/magik6k/xbin/sdk`
+## Go SDK — `github.com/xbin-dev/xbin/sdk`
 
 Zero-dependency. In a xbin workspace the generated `go.work` resolves it
 (the container ships the module at `/opt/xbin/sdk`); just require it:
 
 ```go
-import xbin "github.com/magik6k/xbin/sdk"
+import xbin "github.com/xbin-dev/xbin/sdk"
 ```
 
 ### Serving

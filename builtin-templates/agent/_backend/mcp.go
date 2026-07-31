@@ -18,7 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 type MCPServer struct {

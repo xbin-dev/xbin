@@ -1,3 +1,3 @@
-module github.com/magik6k/xbin/sdk
+module github.com/xbin-dev/xbin/sdk
 
 go 1.24

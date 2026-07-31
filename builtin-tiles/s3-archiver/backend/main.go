@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 var kv = xbin.KV(xbin.Resource("state"))

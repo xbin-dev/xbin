@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 type Agent struct {

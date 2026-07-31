@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 // multiWorkspace: a communication agent with a multi http slot, an imap

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/ingress"
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 // The ingress last hop (plans/ingress.md ING-5): forward an admitted public

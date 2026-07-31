@@ -15,11 +15,11 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/backup"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/backup"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Per-component backup / archive (plans/lifecycle.md). xbind builds a

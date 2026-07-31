@@ -312,11 +312,11 @@ process env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY` +
 `XBIN_TOKEN` (this generation's credential for outbound calls),
 `XBIN_RES_<NAME>` per granted resource.
 
-Go (SDK `github.com/magik6k/xbin/sdk`, resolved by the generated
+Go (SDK `github.com/xbin-dev/xbin/sdk`, resolved by the generated
 `go.work` — just `require` it, no replace needed):
 
 ```go
-import xbin "github.com/magik6k/xbin/sdk"
+import xbin "github.com/xbin-dev/xbin/sdk"
 
 func main() {
 	mux := http.NewServeMux()

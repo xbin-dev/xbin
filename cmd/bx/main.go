@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 func main() {

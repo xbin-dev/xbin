@@ -63,7 +63,7 @@ Every sandbox — and every terminal — needs a userland. Ship one:
   `lsof`, `htop`, `nc`, `socat`, `rsync`, `ssh`), `bx`, **and the agent CLIs
   (`opencode`, `claude-code`)** so a freshly-opened terminal is a first-class
   AI-assisted builder shell with zero setup. (docker/rootfs.Dockerfile)
-- Published as `ghcr.io/magik6k/xbin-rootfs:<tag>`, **unpacked** (skopeo/umoci,
+- Published as `ghcr.io/xbin-dev/xbin-rootfs:<tag>`, **unpacked** (skopeo/umoci,
   or xbind's own puller) into a content dir on the host. xbind bind-mounts it
   **read-only** as the base layer of every sandbox. Baked into the appliance;
   updatable by pulling a new tag (A/B, like the OS).

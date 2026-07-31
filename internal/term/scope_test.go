@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
 func rwRO(binds []sandbox.Bind) (rw, ro map[string]bool) {

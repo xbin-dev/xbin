@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/builtins"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // Template component endpoints (plans/templates.md). A template is a component

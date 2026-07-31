@@ -10,8 +10,8 @@ Status meanings:
 
 ## Resolved (2026-07-02, magik6k)
 
-- **D10 — Repo & license**: `github.com/magik6k/xbin`, images at
-  `ghcr.io/magik6k/xbin`, **dual-licensed MIT + Apache-2.0** (Rust-style,
+- **D10 — Repo & license**: `github.com/xbin-dev/xbin`, images at
+  `ghcr.io/xbin-dev/xbin`, **dual-licensed MIT + Apache-2.0** (Rust-style,
   `LICENSE-MIT` + `LICENSE-APACHE`).
 - **D2 — Workspace git policy**: option (a) — auto `git init`, ignore `.xbin/` +
   `data/`, never auto-commit.

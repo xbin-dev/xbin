@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"strings"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // obj builds a JSON-Schema object node from (name, schema) pairs.

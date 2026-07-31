@@ -4,10 +4,10 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/resenc"
-	"github.com/magik6k/xbin/internal/util"
-	"github.com/magik6k/xbin/internal/vault"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/resenc"
+	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // Encryption-at-rest for resource data (plans/vault-data.md). There is no

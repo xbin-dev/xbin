@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/gpu"
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/gpu"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 // registerCoreAPI mounts the always-present /api/xbin/* endpoints. Broker,

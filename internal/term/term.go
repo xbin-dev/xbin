@@ -28,11 +28,11 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/gpu"
-	"github.com/magik6k/xbin/internal/sandbox"
-	"github.com/magik6k/xbin/internal/sandbox/relay"
-	"github.com/magik6k/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/gpu"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (

@@ -39,7 +39,7 @@ swap on save with a 30 s drain (D8), stdout/stderr captured to the
 component log, idle reap after ~30 min (streams hold it open), and
 crash-loop braking after 3 fast exits.
 
-### The Go SDK — `github.com/magik6k/xbin/sdk`
+### The Go SDK — `github.com/xbin-dev/xbin/sdk`
 
 **Zero-dependency by hard rule** — components inherit whatever the SDK
 depends on, so it depends on nothing but the standard library. The

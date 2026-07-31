@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/events"
-	"github.com/magik6k/xbin/internal/ingress"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/sandbox"
-	"github.com/magik6k/xbin/internal/server"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // Ingress resolution (plans/ingress.md): this file is where a manifest's

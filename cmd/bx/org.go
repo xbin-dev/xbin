@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // cmdOrg / cmdTeam / cmdAccess — organizations & teams (plans/orgs.md,

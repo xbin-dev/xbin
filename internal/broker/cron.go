@@ -15,9 +15,9 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // Cron resource (plans/auth.md §5): an element registers jobs that call its

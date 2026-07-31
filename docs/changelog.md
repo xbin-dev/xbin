@@ -657,7 +657,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 ## 2026-07-05
 
 - **BREAKING** — the project renamed **buxon → xbin**: module
-  `github.com/magik6k/xbin`, daemon `xbind`, env `XBIN_*`, API `/api/xbin/*`,
+  `github.com/xbin-dev/xbin`, daemon `xbind`, env `XBIN_*`, API `/api/xbin/*`,
   headers `X-XBin-*`, manifest `xbin.json`, runtime dir `.xbin/`, JS global
   `xbin`. Workspaces are migrated on upgrade; external tiles need the same
   rename (see the bx-term-tile migration for the pattern).

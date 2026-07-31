@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // asString renders a wireMsg content value (string, raw JSON parts, or nil) as

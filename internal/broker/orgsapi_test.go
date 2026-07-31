@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/magik6k/xbin/internal/auth"
-	"github.com/magik6k/xbin/internal/registry"
-	"github.com/magik6k/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // orgFixture: broker + store with alice (member), bob (team member),

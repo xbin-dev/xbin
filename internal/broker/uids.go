@@ -8,7 +8,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/magik6k/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/registry"
 )
 
 // Auth tier 2 (plans/auth.md §9): each scope's backends run under a

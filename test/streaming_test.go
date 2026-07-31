@@ -91,7 +91,7 @@ go 1.24
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/magik6k/xbin/sdk v0.0.0
+	github.com/xbin-dev/xbin/sdk v0.0.0
 )
 `)
 	write(t, "apps/stream/backend/main.go", `package main
@@ -102,7 +102,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	xbin "github.com/magik6k/xbin/sdk"
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 var up = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
