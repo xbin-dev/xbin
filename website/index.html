@@ -101,6 +101,26 @@
   .cursor{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
   @keyframes blink{50%{opacity:0}}
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+  /* the dashboard-in-a-tile scene: a dashboard that opens its terminal + updates */
+  .m-card .body{display:flex;flex-direction:column;height:300px}
+  .dash{flex:1;min-height:0;overflow:hidden;padding:12px 13px;display:flex;flex-direction:column;gap:11px}
+  .dash-h{display:flex;align-items:center;gap:8px;font:600 12px var(--sans);color:var(--text)}
+  .dash-h .sp{flex:1}
+  .dash-h .live{font:10px var(--mono);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 45%,transparent);border-radius:999px;padding:1px 7px;letter-spacing:.05em}
+  .stats{display:flex;gap:9px}
+  .stat{flex:1 1 0;min-width:0;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;gap:2px}
+  .stat b{font:700 16px var(--sans);letter-spacing:-.02em;color:var(--text);font-variant-numeric:tabular-nums}
+  .stat span{font:10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .stat.added{max-width:0;opacity:0;overflow:hidden;padding:9px 0;border-width:0;margin-left:-9px;white-space:nowrap;
+    transition:max-width .55s ease,opacity .45s ease,padding .45s,border-width .3s,margin .5s}
+  .stat.added.show{max-width:38%;opacity:1;padding:9px 10px;border-width:1px;border-color:color-mix(in srgb,var(--accent) 55%,transparent);
+    box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 26%,transparent);margin-left:0}
+  .bars{display:flex;align-items:flex-end;gap:5px;height:52px}
+  .bars i{flex:1;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 80%,transparent),color-mix(in srgb,var(--accent) 32%,transparent));border-radius:2px 2px 0 0}
+  .tpane{flex:none;height:0;overflow:hidden;background:#0d0f13;border-top:1px solid var(--border);transition:height .45s ease}
+  .tpane.open{height:150px}
+  .tbtn{margin-left:auto;font:11px var(--mono);color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 8px;transition:background .2s,color .2s,border-color .2s}
+  .tbtn.hot{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
 
   /* ---------- generic section ---------- */
   section{padding:clamp(56px,8vw,96px) 0;border-bottom:1px solid var(--border)}
@@ -255,8 +275,19 @@
         </div>
         <div class="m-main">
           <div class="m-card">
-            <div class="h"><span class="m-dot" style="width:7px;height:7px;background:var(--accent)"></span>apps/dashboard<span class="b">&gt;_ &nbsp;⚙ &nbsp;⤢</span></div>
-            <div class="term" id="term"></div>
+            <div class="h"><span class="m-dot" style="width:7px;height:7px;background:var(--accent)"></span>apps/dashboard<span class="tbtn" id="tbtn">&gt;_ terminal</span></div>
+            <div class="body">
+              <div class="dash">
+                <div class="dash-h">Service dashboard<span class="sp"></span><span class="live">live</span></div>
+                <div class="stats" id="stats">
+                  <div class="stat"><b>1.24M</b><span>requests</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,12 15,10 30,11 45,7 60,8 75,4 90,5" fill="none" stroke="var(--blue)" stroke-width="1.4"/></svg></div>
+                  <div class="stat"><b>0.31%</b><span>errors</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,6 15,7 30,5 45,8 60,6 75,7 90,6" fill="none" stroke="var(--green)" stroke-width="1.4"/></svg></div>
+                  <div class="stat added" id="newcard"><b>142ms</b><span>p95 latency</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,11 15,9 30,10 45,6 60,7 75,5 90,4" fill="none" stroke="var(--accent)" stroke-width="1.4"/></svg></div>
+                </div>
+                <div class="bars" id="bars"></div>
+              </div>
+              <div class="tpane" id="tpane"><div class="term" id="term"></div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -432,35 +463,47 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
     });
   }
 
-  // the hero terminal types out a short "boot your workspace" story
+  // Hero scene: a dashboard tile opens its own terminal, an agent edits it, and
+  // the dashboard updates — looping. Respects prefers-reduced-motion.
   const term = document.getElementById('term');
+  const tpane = document.getElementById('tpane');
+  const tbtn = document.getElementById('tbtn');
+  const newcard = document.getElementById('newcard');
+  const bars = document.getElementById('bars');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const lines = [
-    {t:'<span class="a">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash'},
-    {t:'<span class="m">==&gt; preflight: user namespaces ok · /dev/fuse ok</span>'},
-    {t:'<span class="m">==&gt; building xbind, bx, rootfs…</span>'},
-    {t:'<span class="g">✓ xbind is healthy</span> <span class="m">· http://127.0.0.1:8642</span>'},
-    {t:''},
-    {t:'<span class="a">$</span> bx new apps/dashboard --runtime go'},
-    {t:'<span class="g">✓</span> scaffolded <span class="b">apps/dashboard</span> <span class="m">(sandboxed, git-init)</span>'},
-    {t:'<span class="a">$</span> bx expose apps/dashboard web --host dash.lan'},
-    {t:'<span class="g">✓ live</span> <span class="m">· behind your TLS · reachable on your tailnet</span>'},
-    {t:'<span class="a">$</span> <span class="cursor"></span>', raw:true},
+  bars.innerHTML = [40,54,47,61,57,69,64,77,71,83].map(h => `<i style="height:${h}%"></i>`).join('');
+  const script = [
+    '<span class="a">you@dashboard</span> $ claude "add a p95 latency card"',
+    '<span class="m">● read apps/dashboard/index.html</span>',
+    '<span class="m">● edit index.html</span>  <span class="b">+18 −2</span>',
+    '<span class="m">● bx build apps/dashboard</span>  <span class="g">✓</span>',
+    '<span class="g">✓ p95 latency card is live</span>',
   ];
-  if (reduce) {
-    term.innerHTML = lines.map(l => l.t).join('\n');
-  } else {
-    let li = 0, out = '';
-    const step = () => {
-      if (li >= lines.length) return;
-      const line = lines[li];
-      if (line.raw || line.t === '') { out += line.t + (li < lines.length-1 ? '\n' : ''); term.innerHTML = out; li++; setTimeout(step, 260); return; }
-      // type this line char-aware but fast (skip inside tags)
-      out += line.t + '\n'; term.innerHTML = out; li++;
-      setTimeout(step, 520);
+  let timers = [];
+  const at = (ms, fn) => timers.push(setTimeout(fn, ms));
+  function typeLines(after){
+    let i = 0, out = '';
+    const next = () => {
+      if (i >= script.length){ term.innerHTML = out; after && after(); return; }
+      out += script[i] + '\n'; term.innerHTML = out + '<span class="cursor"></span>'; i++;
+      at(640, next);
     };
-    step();
+    next();
   }
+  function run(){
+    timers.forEach(clearTimeout); timers = [];
+    tpane.classList.remove('open'); tbtn.classList.remove('hot');
+    newcard.classList.remove('show'); term.innerHTML = '';
+    at(1100, () => tbtn.classList.add('hot'));       // "click" the terminal button
+    at(1500, () => tpane.classList.add('open'));     // terminal slides in
+    at(1950, () => typeLines(() => at(350, () => newcard.classList.add('show')))); // edit → dashboard updates
+    at(9500, run);                                   // loop
+  }
+  if (reduce){
+    tpane.classList.add('open'); tbtn.classList.add('hot');
+    term.innerHTML = script.join('\n'); newcard.classList.add('show');
+  } else { run(); }
 </script>
+
 </body>
 </html>
