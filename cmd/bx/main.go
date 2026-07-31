@@ -160,13 +160,41 @@ func api(method, path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if tok := os.Getenv("XBIN_TOKEN"); tok != "" {
+	if tok := ownerToken(); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	return client.Do(req)
+}
+
+// ownerToken resolves the bearer token bx sends. Inside a terminal or component
+// sandbox, xbind injects XBIN_TOKEN (the scoped identity). On the HOST — a plain
+// root/operator shell where nothing is injected — fall back to reading the
+// workspace's owner token (.xbin/token) so `sudo -u xbin bx …` / `sudo bx …`
+// just work. Never read a file inside a sandbox (XBIN_GATEWAY set): there the
+// injected token IS the identity, and the host workspace isn't even in view.
+func ownerToken() string {
+	if t := os.Getenv("XBIN_TOKEN"); t != "" {
+		return t
+	}
+	if os.Getenv("XBIN_GATEWAY") != "" {
+		return "" // inside a component sandbox — no host token to borrow
+	}
+	var paths []string
+	if ws := workspaceRoot(); ws != "" { // XBIN_WORKSPACE, or walk up from cwd
+		paths = append(paths, filepath.Join(ws, ".xbin", "token"))
+	}
+	paths = append(paths, "/opt/xbin/workspace/.xbin/token") // the reference deployment
+	for _, p := range paths {
+		if b, err := os.ReadFile(p); err == nil {
+			if t := strings.TrimSpace(string(b)); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
 }
 
 // transport picks how bx reaches xbind:
@@ -208,6 +236,8 @@ func apiJSON(method, path string, body, out any) error {
 		hint := ""
 		if c := os.Getenv("XBIN_COMPONENT"); resp.StatusCode == http.StatusForbidden && c != "" {
 			hint = fmt.Sprintf(" — this terminal is scoped to %s; admin/cross-tile ops need the admin tile or bx from the host", c)
+		} else if resp.StatusCode == http.StatusUnauthorized && os.Getenv("XBIN_COMPONENT") == "" && ownerToken() == "" {
+			hint = " — no owner token found; run bx as root or the xbin user so it can read <workspace>/.xbin/token (set XBIN_WORKSPACE if it isn't /opt/xbin/workspace), or export XBIN_TOKEN"
 		}
 		var e struct{ Error string }
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {

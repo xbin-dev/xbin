@@ -99,5 +99,15 @@ generation is delimited by a `--- gen N start …` line.
 | `XBIN_TOKEN` | (set in terminals) | bearer token — tile-scoped in terminals; the owner token on the host (`.xbin/token`) |
 | `XBIN_WORKSPACE` | walk up from cwd to a dir with `xbin.json` + `.xbin` | workspace root |
 
-Outside a xbin terminal (ssh into the container, host shell in dev), set
-these yourself or run from inside the workspace tree.
+**On the host** (a root/operator shell — not a xbin terminal) nothing is
+injected, so `bx` reads the workspace **owner token** from `.xbin/token` — which
+requires being able to read that 0600 file, i.e. run as root or the `xbin` user:
+
+```
+sudo -u xbin bx ls
+```
+
+It locates the workspace via `XBIN_WORKSPACE`, else by walking up from the
+current directory, else the default `/opt/xbin/workspace`. A non-privileged user
+can't read the token, so `bx` there stays unauthenticated (by design). To point
+at a non-default listener, also set `XBIN_URL`.

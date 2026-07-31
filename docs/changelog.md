@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-01
 
+- **`bx` works from the host without fiddling with tokens.** Run on the host
+  (not inside a terminal), `bx` now auto-reads the workspace **owner token** from
+  `.xbin/token` — locating the workspace via `XBIN_WORKSPACE`, a walk-up from the
+  cwd, or the default `/opt/xbin/workspace` — so `sudo -u xbin bx ls` just works.
+  A non-privileged user still can't read the 0600 token (unchanged). When no
+  token is found, the 401 now explains how to fix it instead of only "sign in at
+  /login". (`bx term`/`bx login` were never commands — bx prints usage for
+  unknown ones.)
+
 - **Sidebar & tabs: filter, nested folders, reorderable + parkable tabs.** The
   component tree gains a **filter box** (matches tile and tab names, auto-expands
   folders). **Folders nest** — drop a folder onto another to nest it, onto empty
