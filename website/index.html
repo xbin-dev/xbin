@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xbin — a self-hosted, sandboxed, self-modifying browser workspace</title>
+<meta name="description" content="xbin turns a Linux box into a multi-user workspace of tiles. Open a terminal in any app, sandbox it, run agents, and publish it — all from the browser, on hardware you own. MIT / Apache-2.0.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="xbin — a browser workspace you own, and rewrite from inside it">
+<meta property="og:description" content="Self-hosted. Sandboxed. Self-modifying. One unprivileged daemon, a workspace of tiles, rootless isolation, and browser terminals.">
+</head>
+<body>
+<style>
+  /* ===== xbin.dev — built in the product's own palette (theme.css) ===== */
+  :root{
+    --bg:#16181d; --steel:#1b1e24; --panel:#23272e; --panel2:#2b3038;
+    --border:#363c45; --border2:#454d59;
+    --text:#d4d9e0; --muted:#868f9a; --dim:#5c6672;
+    --accent:#f5a623; --accent-ink:#231a06;
+    --green:#4caf50; --amber:#f2a71b; --red:#ef5350; --blue:#61afef;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+    --maxw:1120px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .eyebrow{font:600 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .mono{font-family:var(--mono)}
+  h2{font:700 clamp(26px,4vw,38px)/1.1 var(--sans);letter-spacing:-.02em;text-wrap:balance;margin:0}
+  .lede{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:60ch;text-wrap:pretty}
+
+  /* ---------- top nav ---------- */
+  nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--steel) 88%,transparent);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+  .navin{display:flex;align-items:center;gap:14px;height:56px;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:.05em;font-size:15px}
+  .brand svg{flex:none}
+  .nav-sp{flex:1}
+  nav .lnk{color:var(--muted);font-size:14px;padding:6px 8px}
+  nav .lnk:hover{color:var(--text)}
+  .btn{display:inline-flex;align-items:center;gap:8px;font:600 14px var(--sans);border-radius:8px;
+    padding:9px 15px;cursor:pointer;border:1px solid var(--border2);background:var(--panel);color:var(--text);white-space:nowrap}
+  .btn:hover{border-color:var(--muted)}
+  .btn.amber{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.amber:hover{filter:brightness(1.06)}
+  nav .btn{padding:7px 13px}
+  .nav-links{display:flex;align-items:center;gap:4px}
+
+  /* ---------- hero ---------- */
+  header.hero{position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
+  header.hero::before{content:"";position:absolute;inset:0;z-index:0;
+    background:
+      radial-gradient(1100px 500px at 78% -8%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 60%),
+      radial-gradient(var(--border) 1px,transparent 1.5px);
+    background-size:auto,26px 26px;opacity:.9}
+  .hero-in{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr 1.15fr;gap:44px;
+    align-items:center;max-width:var(--maxw);margin:0 auto;padding:clamp(40px,7vw,88px) 24px}
+  .hero h1{font:800 clamp(34px,5.4vw,58px)/1.03 var(--sans);letter-spacing:-.03em;margin:16px 0 0;text-wrap:balance}
+  .hero h1 .amber{color:var(--accent)}
+  .hero p.sub{color:var(--muted);font-size:clamp(16px,2.1vw,19px);margin:20px 0 0;max-width:52ch;text-wrap:pretty}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px;align-items:center}
+  .install{display:flex;align-items:center;gap:10px;margin-top:20px;background:#0e1014;border:1px solid var(--border);
+    border-radius:9px;padding:11px 12px;font:13px/1 var(--mono);color:var(--text);max-width:100%;overflow-x:auto}
+  .install .pmt{color:var(--accent)}
+  .install .cp{margin-left:auto;flex:none;border:1px solid var(--border2);background:var(--panel);color:var(--muted);
+    border-radius:6px;padding:4px 9px;font:11px var(--mono);cursor:pointer}
+  .install .cp:hover{color:var(--text)}
+  .subnote{color:var(--dim);font:12px/1.5 var(--mono);margin-top:12px}
+  .subnote b{color:var(--muted);font-weight:600}
+
+  /* ---------- the shell mock (the hero's right column) ---------- */
+  .mock{border:1px solid var(--border2);border-radius:12px;overflow:hidden;background:var(--steel);
+    box-shadow:0 24px 70px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.4);display:flex;flex-direction:column;min-height:0}
+  .m-top{display:flex;align-items:center;gap:8px;background:var(--panel);border-bottom:1px solid var(--border);padding:8px 11px}
+  .m-top .brand{font-size:12px;gap:7px}
+  .m-chip{font:11px var(--mono);color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:1px 9px}
+  .m-dot{width:8px;height:8px;border-radius:50%}
+  .m-tabs{display:flex;gap:2px;background:var(--panel2);border-bottom:1px solid var(--border);padding:5px 9px 0}
+  .m-tab{font:12px var(--mono);color:var(--muted);padding:6px 11px;border-radius:6px 6px 0 0;display:flex;gap:6px;align-items:center}
+  .m-tab.on{background:var(--steel);color:var(--text);border:1px solid var(--border);border-bottom:none;margin-bottom:-1px}
+  .m-body{display:flex;min-height:340px}
+  .m-side{width:150px;flex:none;border-right:1px solid var(--border);padding:6px 0;background:color-mix(in srgb,var(--panel) 40%,var(--steel))}
+  .m-grp{font:9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:8px 11px 3px}
+  .m-item{display:flex;align-items:center;gap:6px;padding:4px 11px;font:12px var(--mono);color:var(--muted)}
+  .m-item.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:#fff}
+  .m-item .st{margin-left:auto;width:7px;height:7px;border-radius:50%}
+  .m-main{flex:1;min-width:0;padding:9px;display:flex;flex-direction:column;gap:9px;
+    background:radial-gradient(var(--border) 1px,transparent 1.4px);background-size:22px 22px;background-position:11px 11px}
+  .m-card{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel);flex:none}
+  .m-card .h{display:flex;align-items:center;gap:7px;padding:5px 9px;border-bottom:1px solid var(--border);background:var(--panel2);font:10.5px var(--mono);color:var(--muted)}
+  .m-card .h .b{margin-left:auto;color:var(--dim);letter-spacing:1px}
+  .term{background:#0d0f13;color:#c8d0da;font:11.5px/1.6 var(--mono);padding:10px 11px;min-height:150px;white-space:pre-wrap;word-break:break-word}
+  .term .g{color:var(--green)} .term .a{color:var(--accent)} .term .m{color:var(--muted)} .term .b{color:var(--blue)}
+  .cursor{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+
+  /* ---------- generic section ---------- */
+  section{padding:clamp(56px,8vw,96px) 0;border-bottom:1px solid var(--border)}
+  .sec-head{max-width:60ch}
+  .sec-head h2{margin-top:10px}
+  .sec-head .lede{margin-top:14px}
+
+  /* pillars */
+  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:40px}
+  .pillar{background:linear-gradient(180deg,var(--panel),color-mix(in srgb,var(--panel) 70%,var(--steel)));
+    border:1px solid var(--border);border-radius:12px;padding:22px}
+  .pillar .ic{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 16%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);margin-bottom:14px}
+  .pillar h3{font-size:17px;margin:0 0 6px;letter-spacing:-.01em}
+  .pillar p{color:var(--muted);font-size:14px;margin:0}
+
+  /* how it works */
+  .how{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start;margin-top:36px}
+  .steps{display:flex;flex-direction:column;gap:2px}
+  .step{display:flex;gap:14px;padding:16px 0;border-top:1px solid var(--border)}
+  .step:first-child{border-top:none}
+  .step .n{font:700 13px var(--mono);color:var(--accent);flex:none;width:26px;height:26px;border-radius:7px;
+    display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .step h4{margin:2px 0 4px;font-size:15px}
+  .step p{margin:0;color:var(--muted);font-size:14px}
+  .step code{font-family:var(--mono);font-size:12.5px;color:var(--text);background:#0e1014;border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+  .codeblock{background:#0d0f13;border:1px solid var(--border);border-radius:10px;overflow-x:auto}
+  .codeblock .cbh{display:flex;gap:6px;padding:9px 12px;border-bottom:1px solid var(--border)}
+  .codeblock .cbh i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.7 var(--mono);color:#c8d0da}
+  .codeblock .g{color:var(--green)} .codeblock .a{color:var(--accent)} .codeblock .m{color:var(--dim)} .codeblock .k{color:var(--blue)}
+
+  /* audience */
+  .aud{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:40px}
+  .aud .card{border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--panel)}
+  .aud .tag{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+  .aud h3{font-size:17px;margin:10px 0 8px}
+  .aud p{color:var(--muted);font-size:14px;margin:0}
+
+  /* security band */
+  .sec-band{background:linear-gradient(180deg,var(--steel),var(--bg))}
+  .seclist{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 30px;margin-top:34px}
+  .seclist .row{display:flex;gap:12px;align-items:flex-start}
+  .seclist .row .k{color:var(--green);flex:none;font:700 14px var(--mono);margin-top:2px}
+  .seclist .row div b{display:block;font-size:15px;margin-bottom:2px}
+  .seclist .row div span{color:var(--muted);font-size:13.5px}
+
+  /* features */
+  .feat{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:38px}
+  .feat .f{border:1px solid var(--border);border-radius:10px;padding:16px;background:color-mix(in srgb,var(--panel) 60%,var(--steel))}
+  .feat .f .ic{font-size:18px;margin-bottom:9px;color:var(--accent)}
+  .feat .f b{display:block;font-size:14px;margin-bottom:3px}
+  .feat .f span{color:var(--muted);font-size:12.5px;line-height:1.5}
+
+  /* install band */
+  .installband{text-align:center;background:
+    radial-gradient(700px 300px at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%)}
+  .installband .lede{margin:14px auto 0;text-align:center}
+  .bigcmd{display:inline-flex;align-items:center;gap:12px;margin:28px auto 0;background:#0d0f13;border:1px solid var(--border2);
+    border-radius:11px;padding:15px 18px;font:15px/1 var(--mono);max-width:100%;overflow-x:auto}
+  .bigcmd .pmt{color:var(--accent)}
+  .bigcmd .cp{flex:none;border:1px solid var(--border2);background:var(--panel);color:var(--muted);border-radius:6px;padding:6px 11px;font:12px var(--mono);cursor:pointer}
+  .bigcmd .cp:hover{color:var(--text)}
+  .reach{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px;color:var(--muted);font:13px var(--mono)}
+  .reach span{border:1px solid var(--border);border-radius:999px;padding:5px 12px;background:var(--panel)}
+
+  footer{padding:44px 0;color:var(--muted)}
+  .footin{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+  footer .brand{font-size:14px}
+  footer .lnk{color:var(--muted);font-size:14px}
+  footer .lnk:hover{color:var(--text)}
+  .lic{margin-left:auto;font:12px var(--mono);color:var(--dim)}
+
+  /* ---------- responsive (dogfood the mobile posture) ---------- */
+  @media (max-width:900px){
+    .hero-in{grid-template-columns:1fr;gap:30px}
+    .how{grid-template-columns:1fr;gap:26px}
+    .pillars{grid-template-columns:1fr}
+    .aud{grid-template-columns:1fr}
+    .seclist{grid-template-columns:1fr}
+    .feat{grid-template-columns:repeat(2,1fr)}
+    .nav-links .lnk{display:none}
+  }
+  @media (max-width:560px){
+    .feat{grid-template-columns:1fr}
+    .m-side{width:118px}
+    .navin{gap:8px}
+  }
+</style>
+
+<nav>
+  <div class="navin">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path>
+        <path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path>
+      </svg>X/BIN
+    </a>
+    <div class="nav-sp"></div>
+    <div class="nav-links">
+      <a class="lnk" href="#how">How it works</a>
+      <a class="lnk" href="#who">Who it's for</a>
+      <a class="lnk" href="#security">Security</a>
+      <a class="lnk" href="#install">Install</a>
+    </div>
+    <a class="btn" href="https://github.com/magik6k/xbin" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="hero-in">
+    <div>
+      <span class="eyebrow">Self-hosted · Sandboxed · Self-modifying</span>
+      <h1>A browser workspace you <span class="amber">own</span> — and rewrite from inside it.</h1>
+      <p class="sub">xbin turns one Linux box into a multi-user workspace of tiles. Every tile is a
+        folder you can open a terminal into, run agents in, sandbox, and publish — all from the
+        browser, on hardware you control.</p>
+      <div class="install">
+        <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
+        <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
+      </div>
+      <div class="cta">
+        <a class="btn amber" href="#install">Get started</a>
+        <a class="btn" href="https://github.com/magik6k/xbin" target="_blank" rel="noopener">★ Star on GitHub</a>
+        <a class="btn" href="#how">See how it works</a>
+      </div>
+      <div class="subnote">One unprivileged daemon · <b>MIT / Apache-2.0</b> · no SaaS, no telemetry · reach it behind Tailscale or your own TLS.</div>
+    </div>
+
+    <!-- the hero IS the product: a faithful mini-shell that boots itself -->
+    <div class="mock" aria-hidden="true">
+      <div class="m-top">
+        <span class="brand"><svg viewBox="0 0 64 64" width="15" height="15"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path><path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path></svg>X/BIN</span>
+        <span class="m-chip">home-lab</span>
+        <span style="flex:1"></span>
+        <span class="m-dot" style="background:var(--green)"></span>
+      </div>
+      <div class="m-tabs">
+        <div class="m-tab on">Home</div>
+        <div class="m-tab">Ops <span class="m-dot" style="width:7px;height:7px;background:var(--amber)"></span></div>
+        <div class="m-tab">Media</div>
+      </div>
+      <div class="m-body">
+        <div class="m-side">
+          <div class="m-grp">apps</div>
+          <div class="m-item on"><span class="m-dot" style="width:7px;height:7px;background:var(--accent)"></span>dashboard</div>
+          <div class="m-item">calendar</div>
+          <div class="m-item">notes<span class="st" style="background:var(--green)"></span></div>
+          <div class="m-item">queue<span class="st" style="background:var(--amber)"></span></div>
+          <div class="m-grp">tiles</div>
+          <div class="m-item">manager</div>
+          <div class="m-item">admin</div>
+        </div>
+        <div class="m-main">
+          <div class="m-card">
+            <div class="h"><span class="m-dot" style="width:7px;height:7px;background:var(--accent)"></span>apps/dashboard<span class="b">&gt;_ &nbsp;⚙ &nbsp;⤢</span></div>
+            <div class="term" id="term"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="pillars">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Why xbin</span>
+      <h2>Three properties, no compromise.</h2>
+    </div>
+    <div class="pillars">
+      <div class="pillar">
+        <div class="ic">🔒</div>
+        <h3>Yours</h3>
+        <p>Runs as one unprivileged systemd daemon on a box you control. Your files, your git,
+          your data on your disk. No accounts, no SaaS, no phone-home. Dual MIT / Apache-2.0.</p>
+      </div>
+      <div class="pillar">
+        <div class="ic">🧱</div>
+        <h3>Sandboxed</h3>
+        <p>Every tile runs in its own rootless sandbox — user, mount, pid and net namespaces,
+          seccomp and landlock. Grants are default-deny; secrets live encrypted in a vault.</p>
+      </div>
+      <div class="pillar">
+        <div class="ic">✎</div>
+        <h3>Self-modifying</h3>
+        <p>Open a terminal in any tile, right in the browser. Edit and rebuild it live, or point
+          an agent at it. Each tile is its own git repo, versioned and backed up.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">The model</span>
+      <h2>Everything is a folder.</h2>
+      <p class="lede">No registry, no build step, no magic. A component is a directory; its path is
+        its identity. Open a terminal in it, grant it what it needs, expose it if you want.</p>
+    </div>
+    <div class="how">
+      <div class="steps">
+        <div class="step"><span class="n">1</span><div><h4>A tile is a directory</h4>
+          <p>An <code>index.html</code> and/or a backend (Go, Node, Python — or none). <code>mv</code> renames it, <code>cp -r</code> forks it, <code>rm -r</code> deletes it.</p></div></div>
+        <div class="step"><span class="n">2</span><div><h4>Terminals, in the browser</h4>
+          <p>Attach a sandboxed shell to any tile to edit, build, and run agents — no SSH, no local checkout.</p></div></div>
+        <div class="step"><span class="n">3</span><div><h4>Grants are default-deny</h4>
+          <p>A tile reaches nothing — not the network, not another tile — until you approve a grant. Secrets come from its own vault.</p></div></div>
+        <div class="step"><span class="n">4</span><div><h4>Expose it, on your terms</h4>
+          <p><code>bx expose</code> publishes a tile behind your own TLS or Tailscale. Anonymous callers are path-confined.</p></div></div>
+      </div>
+      <div class="codeblock">
+        <div class="cbh"><i style="background:#ef5350"></i><i style="background:#f2a71b"></i><i style="background:#4caf50"></i></div>
+<pre><span class="m"># scaffold a tile, edit it live, ship it</span>
+$ <span class="a">bx</span> new apps/dashboard --runtime go
+$ <span class="a">bx</span> term apps/dashboard        <span class="m"># a shell, in the browser</span>
+  <span class="k">~/apps/dashboard</span> $ vim backend/main.go
+  <span class="k">~/apps/dashboard</span> $ git commit -am ship
+
+$ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</span> reader
+$ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
+      --host dash.example.com     <span class="m"># behind your TLS</span>
+<span class="g">✓ live</span> · sandboxed · versioned · backed up</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="who">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Who it's for</span>
+      <h2>One workspace, four kinds of operator.</h2>
+    </div>
+    <div class="aud">
+      <div class="card"><span class="tag">Homelab &amp; self-hosters</span>
+        <h3>Everything in one place, on your box</h3>
+        <p>A workspace of tiles — dashboards, notes, a calendar, a media tool, an agent. One binary,
+          backups built in, reachable over Tailscale. No docker-compose sprawl.</p></div>
+      <div class="card"><span class="tag">Linux enthusiasts</span>
+        <h3>Real isolation you can inspect</h3>
+        <p>Rootless user namespaces, cgroups v2, seccomp, landlock — not a container wrapper.
+          A buildless frontend (no npm). The shell itself is just a tile you can hack.</p></div>
+      <div class="card"><span class="tag">IT admins</span>
+        <h3>Multi-user, with real RBAC</h3>
+        <p>Users, orgs, teams, and per-tile access levels. An audit log. Ingress with TLS. Every app
+          boxed off from the others and from the host — least privilege by default.</p></div>
+      <div class="card"><span class="tag">Technical business</span>
+        <h3>Own your internal tools</h3>
+        <p>No per-seat SaaS, no vendor lock-in. Let agents build the internal dashboards and
+          integrations — then run them on your own infrastructure, versioned and auditable.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="security" class="sec-band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Security posture</span>
+      <h2>Isolation is the default, not a setting.</h2>
+      <p class="lede">xbin is a rootless sandbox runtime first and a UI second. The boundary is the
+        kernel, and it's on for every tile from the start.</p>
+    </div>
+    <div class="seclist">
+      <div class="row"><span class="k">▸</span><div><b>Per-tile rootless sandboxes</b><span>User, mount, pid, IPC, UTS and net namespaces per backend — mapped to a delegated sub-uid range, never host root.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>seccomp + landlock</b><span>A syscall block-list and a filesystem allow-list on every tile; the mount family and friends are denied unless a tile is explicitly a container host.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Default-deny grants</b><span>An element principal reaches no other tile, resource, or network until the owner approves an explicit grant. Inbound identity headers are stripped.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Encrypted vault</b><span>Per-component secrets and stateful resources are encrypted at rest; the workspace can start sealed and be unsealed after login.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Git per component + backups</b><span>Every tile is its own repo; scheduled backups and one-click restore are built in.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Bound network egress</b><span>Tiles have zero IP egress until you bind a net interface — internet, host, a LAN CIDR, or through another tile (a firewall/VPN).</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">In the box</span>
+      <h2>Batteries included, nothing hidden.</h2>
+    </div>
+    <div class="feat">
+      <div class="f"><div class="ic">▦</div><b>Tiles &amp; screens</b><span>A snappable grid of apps; drag, pin, float, or full-page any of them.</span></div>
+      <div class="f"><div class="ic">&gt;_</div><b>Browser terminals</b><span>A real sandboxed shell on any tile, with a code + diff review pane.</span></div>
+      <div class="f"><div class="ic">⎇</div><b>Git per component</b><span>Version, diff, and restore every tile independently.</span></div>
+      <div class="f"><div class="ic">🌐</div><b>Ingress &amp; expose</b><span>Publish HTTP or raw TCP/UDP behind your TLS, with a Traefik tile.</span></div>
+      <div class="f"><div class="ic">📦</div><b>Containers</b><span>An opt-in <span class="mono">cap:containers</span> tile runs rootless podman for dev boxes.</span></div>
+      <div class="f"><div class="ic">💾</div><b>Backups &amp; restore</b><span>Scheduled, encrypted, one-click restore of any tile or the whole workspace.</span></div>
+      <div class="f"><div class="ic">⚙</div><b>bx CLI + Go SDK</b><span>Zero-dependency SDK; a <span class="mono">bx</span> CLI for everything the UI does.</span></div>
+      <div class="f"><div class="ic">🤖</div><b>Agent-ready</b><span>An AGENTS.md contract, per-tile terminals, and a status channel agents drive.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="installband">
+  <div class="wrap">
+    <span class="eyebrow">Install</span>
+    <h2>Self-host it in one line.</h2>
+    <p class="lede">On any Linux box with unprivileged user namespaces. The installer preflight-checks
+      the kernel, builds from source, and starts the daemon on loopback.</p>
+    <div class="bigcmd">
+      <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
+      <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
+    </div>
+    <div class="reach">
+      <span>tailscale serve 127.0.0.1:8642</span>
+      <span>or point Caddy / Traefik at it</span>
+      <span>or build from source: make</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footin">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 64 64" width="18" height="18"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path><path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path></svg>X/BIN
+    </a>
+    <a class="lnk" href="https://github.com/magik6k/xbin" target="_blank" rel="noopener">GitHub</a>
+    <a class="lnk" href="#how">Docs</a>
+    <a class="lnk" href="#install">Install</a>
+    <span class="lic">MIT / Apache-2.0 · your box, your rules</span>
+  </div>
+</footer>
+
+<script>
+  // copy buttons
+  for (const b of document.querySelectorAll('.cp')) {
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(b.dataset.cmd); const t = b.textContent; b.textContent = 'copied ✓'; setTimeout(() => b.textContent = t, 1400); } catch {}
+    });
+  }
+
+  // the hero terminal types out a short "boot your workspace" story
+  const term = document.getElementById('term');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lines = [
+    {t:'<span class="a">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash'},
+    {t:'<span class="m">==&gt; preflight: user namespaces ok · /dev/fuse ok</span>'},
+    {t:'<span class="m">==&gt; building xbind, bx, rootfs…</span>'},
+    {t:'<span class="g">✓ xbind is healthy</span> <span class="m">· http://127.0.0.1:8642</span>'},
+    {t:''},
+    {t:'<span class="a">$</span> bx new apps/dashboard --runtime go'},
+    {t:'<span class="g">✓</span> scaffolded <span class="b">apps/dashboard</span> <span class="m">(sandboxed, git-init)</span>'},
+    {t:'<span class="a">$</span> bx expose apps/dashboard web --host dash.lan'},
+    {t:'<span class="g">✓ live</span> <span class="m">· behind your TLS · reachable on your tailnet</span>'},
+    {t:'<span class="a">$</span> <span class="cursor"></span>', raw:true},
+  ];
+  if (reduce) {
+    term.innerHTML = lines.map(l => l.t).join('\n');
+  } else {
+    let li = 0, out = '';
+    const step = () => {
+      if (li >= lines.length) return;
+      const line = lines[li];
+      if (line.raw || line.t === '') { out += line.t + (li < lines.length-1 ? '\n' : ''); term.innerHTML = out; li++; setTimeout(step, 260); return; }
+      // type this line char-aware but fast (skip inside tags)
+      out += line.t + '\n'; term.innerHTML = out; li++;
+      setTimeout(step, 520);
+    };
+    step();
+  }
+</script>
+</body>
+</html>
