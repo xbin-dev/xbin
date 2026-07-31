@@ -255,7 +255,7 @@ shell renders it as a colour on the tile's sidebar entry (breathing for
 - **`xbin.notify(level, message)`** — a **one-shot** notification (toast) that
   fades; does not change the persistent status.
 - Backend equivalents: `xbin.Status` / `xbin.ClearStatus` / `xbin.Notify`
-  (SDK). Both planes POST `/api/xbin/tile-status` ([protocol.md](/docs/protocol.md)).
+  (SDK). Both planes POST `/api/xbin/tile-report` ([protocol.md](/docs/protocol.md)).
 
 Status is per-component and self-reported (the owner sees all; other users only
 tiles they can read), and it **resets when your backend restarts**. Keep

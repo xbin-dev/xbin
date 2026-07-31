@@ -117,7 +117,7 @@ export class BxShell extends LitElement {
     _settings: { state: true },     // per-user workspace settings {fontSize}
     _settingsOpen: { state: true }, // the 🔧 settings dropdown
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
-    _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-status)
+    _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-report)
     _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
@@ -945,7 +945,7 @@ export class BxShell extends LitElement {
   // element and see nothing). Live updates arrive as `status` events.
   async _loadStatuses() {
     try {
-      const r = await fetch('/api/xbin/tile-status');
+      const r = await fetch('/api/xbin/tile-report');
       if (r.ok) { this._status = (await r.json()).statuses || {}; this._reflectTitle(); }
     } catch { /* transient */ }
   }

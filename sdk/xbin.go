@@ -277,7 +277,7 @@ func reportStatus(level, message string, transient bool) error {
 	if err != nil {
 		return err
 	}
-	resp, err := Client().Post("http://xbin/api/xbin/tile-status", "application/json", bytes.NewReader(body))
+	resp, err := Client().Post("http://xbin/api/xbin/tile-report", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

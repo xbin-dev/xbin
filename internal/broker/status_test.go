@@ -17,14 +17,14 @@ func TestTileStatus(t *testing.T) {
 	b.statuses = map[string]statusRec{}
 
 	set := func(p auth.Principal, query, body string) int {
-		r := httptest.NewRequest("POST", "/tile-status"+query, strings.NewReader(body))
+		r := httptest.NewRequest("POST", "/tile-report"+query, strings.NewReader(body))
 		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		w := httptest.NewRecorder()
 		b.apiStatusSet(w, r)
 		return w.Code
 	}
 	list := func(p auth.Principal) map[string]statusRec {
-		r := httptest.NewRequest("GET", "/tile-status", nil)
+		r := httptest.NewRequest("GET", "/tile-report", nil)
 		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		w := httptest.NewRecorder()
 		b.apiStatusList(w, r)

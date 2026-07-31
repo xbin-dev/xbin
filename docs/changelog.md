@@ -20,7 +20,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   screen tab holding an affected tile, and a mark in the browser-tab title;
   `xbin.notify` raises a one-shot toast. Status is **persistent and
   self-clearing** (set `ok` to clear) and **resets when the backend restarts**.
-  New `GET/POST /api/xbin/tile-status` + a `status` event on `/ws/events`
+  New `GET/POST /api/xbin/tile-report` + a `status` event on `/ws/events`
   ([protocol.md](protocol.md), [elements.md](elements.md)). Guidelines — when to
   use each level and the always-clear-it rule — are in the workspace `AGENTS.md`.
 

@@ -445,11 +445,13 @@ DELETE /blob/res:<scope>/<name>/<path>   writer.
 POST   /bus/publish                      writer on the resource.
                                          body {resource, topic, data?}
 
-GET    /tile-status                      any signed-in user (read-filtered).
+GET    /tile-report                      any signed-in user (read-filtered).
                                          {statuses:{<component>:{level,message,ts}}}
-                                         — current per-tile status for the shell's
-                                         sidebar/tab health indicators.
-POST   /tile-status                      element (self) or owner (?component=).
+                                         — status tiles reported about themselves,
+                                         for the shell's sidebar/tab indicators.
+                                         (Distinct from /tile-status = runtime
+                                         metrics, above.)
+POST   /tile-report                      element (self) or owner (?component=).
                                          body {level:ok|info|warn|error, message?,
                                          transient?}. Sets this tile's persistent,
                                          self-clearing status (ok+empty message
@@ -547,7 +549,7 @@ Auth: cookie (owner) or `?frame=<frame-token>` (element). JSON text frames:
 Non-bus events go to every subscriber. `bus` events are delivered only to
 the owner and to elements holding a reader grant on the resource. `status`
 events broadcast like the build events (the shell renders each only for tiles
-it shows; the `GET /tile-status` snapshot below is read-filtered per caller).
+it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
 do).
 

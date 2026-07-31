@@ -114,7 +114,7 @@ const events = {
 // clearing condition (a breathing sidebar dot + tab tint for warn/error);
 // notify() fires a one-shot toast.
 async function report(level, message, transient) {
-  const r = await bfetch('/api/xbin/tile-status', {
+  const r = await bfetch('/api/xbin/tile-report', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ level, message: message ?? '', transient: !!transient }),

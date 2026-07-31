@@ -33,12 +33,12 @@ var statusLevels = map[string]bool{"ok": true, "info": true, "warn": true, "erro
 
 func (b *Broker) registerStatus(srv *server.Server) {
 	b.statuses = map[string]statusRec{}
-	srv.RegisterAPI("GET /tile-status", b.apiStatusList)
-	srv.RegisterAPI("POST /tile-status", b.apiStatusSet)
+	srv.RegisterAPI("GET /tile-report", b.apiStatusList)
+	srv.RegisterAPI("POST /tile-report", b.apiStatusSet)
 	go b.watchStatusRestarts()
 }
 
-// GET /tile-status → {statuses:{<component>:{level,message,ts}}}. The caller sees
+// GET /tile-report → {statuses:{<component>:{level,message,ts}}}. The caller sees
 // only components they can read (admin: all).
 func (b *Broker) apiStatusList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
@@ -54,7 +54,7 @@ func (b *Broker) apiStatusList(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{"statuses": out})
 }
 
-// POST /tile-status  {level, message?, transient?, component?} — a component
+// POST /tile-report  {level, message?, transient?, component?} — a component
 // reports its own status; the owner may target another via ?component= or
 // body.component. level "ok" with an empty message CLEARS it (an "ok" WITH a
 // message shows a healthy indicator); transient=true fires a one-shot
