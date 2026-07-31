@@ -10,6 +10,15 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-01
+
+- **Mobile workspace mode.** The shell now adapts below 820px: the sidebar
+  becomes an off-canvas drawer (tap ☰), tiles stack full-width instead of the
+  mouse-driven snap-grid (drag/resize off on touch), and terminals and floating
+  windows open as full-screen sheets. Desktop is unchanged. Tile authors: your
+  tile becomes a full-width card on phones (its own height, content scrolls
+  inside) — make sure it's usable narrow (see workspace `AGENTS.md`).
+
 ## 2026-07-30
 
 - **Tiles can report status & notifications to the workspace.** A new

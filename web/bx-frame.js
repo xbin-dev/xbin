@@ -110,6 +110,11 @@ export class BxFrame extends LitElement {
       resize: both; overflow: hidden;
       min-width: 380px; min-height: 220px;
     }
+    /* On phones the draggable pop-up becomes a full-screen sheet. */
+    @media (max-width: 820px) {
+      .pop { inset: 0 !important; width: auto !important; height: auto !important;
+        resize: none !important; border-radius: 0; min-width: 0; min-height: 0; }
+    }
     .titlebar {
       display: flex; align-items: center; gap: 2px;
       background: var(--bx-panel-2, #f7f8fa);

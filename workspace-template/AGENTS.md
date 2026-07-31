@@ -299,7 +299,10 @@ and default to ~576×384, so design every tile to be usable when **narrow** and
 to **reflow, never scroll horizontally** — use relative units, flexbox/grid,
 `max-width: 100%` on media, and wrap any inherently wide content (tables, code,
 diagrams) in its own `overflow-x:auto` box. A tile that assumes a tall or wide
-viewport, or overflows sideways, is a bug; make the layout fluid.
+viewport, or overflows sideways, is a bug; make the layout fluid. On **phones
+(≤820px)** the shell stacks tiles full-width (its own height, body scrolling) —
+the same "reflow, never scroll sideways" rule is what makes your tile work
+there too.
 
 ## Backends
 

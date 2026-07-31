@@ -119,6 +119,8 @@ export class BxShell extends LitElement {
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
     _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-report)
     _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
+    _mobile: { state: true },       // narrow-screen layout (off-canvas sidebar, stacked tiles)
+    _drawer: { state: true },       // mobile: sidebar drawer open
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
@@ -466,6 +468,60 @@ export class BxShell extends LitElement {
       overflow: hidden; resize: both; min-width: 220px; min-height: 120px;
     }
     .float > .card { border: 0; border-radius: 0; box-shadow: none; }
+
+    /* ======================= mobile layout (≤ 820px) ======================= */
+    /* The desktop shell is mouse-driven (fixed sidebar, absolute snap-grid,
+       floating windows). On narrow screens we switch interaction models: the
+       sidebar becomes an off-canvas drawer, tiles stack full-width (no drag or
+       resize — content scrolls inside), and floating windows / terminals become
+       full-screen sheets. */
+    .ham {
+      flex: none; border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
+      color: var(--bx-text, #33414e); font-size: 16px; line-height: 1; cursor: pointer;
+      border-radius: 6px; padding: 5px 9px;
+    }
+    @media (max-width: 820px) {
+      .top { gap: 8px; padding: 6px 10px; }
+      .top .ws-chip { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tab { padding: 8px 13px; }               /* larger tap targets */
+      main { padding: 8px; }
+      .grants { margin-bottom: 8px; }
+
+      /* sidebar → off-canvas drawer, slid in over a backdrop */
+      .body.mobile aside.drawer {
+        position: fixed; left: 0; top: 0; bottom: 0; z-index: 3600;
+        width: min(290px, 84vw) !important;
+        transform: translateX(-100%); transition: transform .2s ease;
+        border-right: 1px solid var(--bx-border, #e4e8ed);
+        box-shadow: 6px 0 24px rgba(0, 0, 0, .4);
+      }
+      .body.mobile aside.drawer.open { transform: none; }
+      .drawer-backdrop { position: fixed; inset: 0; z-index: 3550; background: rgba(0, 0, 0, .45); }
+
+      /* tiles → stacked full-width cards (keep each tile's own height inline) */
+      .canvas {
+        position: static !important; min-width: 0 !important; min-height: 0 !important;
+        display: flex; flex-direction: column; gap: 10px; background: none;
+      }
+      .gtile {
+        position: static !important; left: auto !important; top: auto !important;
+        width: 100% !important; min-height: 260px; max-height: 82vh;
+      }
+      .gtile .rz { display: none; }             /* no resize on touch */
+      .gtile .card .head { cursor: default; }   /* no drag on touch */
+
+      /* floating windows → full-screen sheets */
+      .float {
+        position: fixed !important; inset: 0 !important;
+        width: auto !important; height: auto !important;
+        resize: none !important; border-radius: 0; border: 0;
+      }
+      /* admin / org popovers → near-full-width sheets under the bars */
+      .admin-pop {
+        left: 6px !important; right: 6px; top: 54px !important;
+        width: auto !important; max-width: none !important; max-height: 82vh;
+      }
+    }
   `;
 
   constructor() {
@@ -492,6 +548,8 @@ export class BxShell extends LitElement {
     this._alerts = [];
     this._status = {};
     this._toasts = [];
+    this._mobile = false;
+    this._drawer = false;
     this._settingsOpen = false;
     this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
@@ -516,6 +574,12 @@ export class BxShell extends LitElement {
     });
     this._loadStatuses();
     window.addEventListener('blur', this._onBlur);
+    // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
+    // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
+    this._mq = window.matchMedia('(max-width: 820px)');
+    this._mobile = this._mq.matches;
+    this._onMq = (e) => { this._mobile = e.matches; if (!e.matches) this._drawer = false; };
+    this._mq.addEventListener('change', this._onMq);
     this._probeAdmin();
     window.addEventListener('bx-spawn', this._onSpawn);
     window.addEventListener('bx-spawn-close', this._onSpawnClose);
@@ -533,6 +597,7 @@ export class BxShell extends LitElement {
     clearInterval(this._sysTimer);
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
+    this._mq?.removeEventListener('change', this._onMq);
   }
 
   firstUpdated() {
@@ -1207,6 +1272,7 @@ export class BxShell extends LitElement {
     }
     const { x, y } = this._freeSpot();
     this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
+    if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 
   _runtimeOf(path) {
@@ -1247,6 +1313,7 @@ export class BxShell extends LitElement {
   _gtile(path) { return this.renderRoot.querySelector(`.gtile[data-path="${path}"]`); }
 
   _gridDragStart(ev, path) {
+    if (this._mobile) return; // tiles are stacked (no free grid) on mobile
     if (ev.button !== 0 || ev.target.closest('button, select, .rz')) return;
     ev.preventDefault();
     const el = this._gtile(path);
@@ -1270,7 +1337,7 @@ export class BxShell extends LitElement {
   }
 
   _gridResizeStart(ev, path) {
-    if (ev.button !== 0) return;
+    if (this._mobile || ev.button !== 0) return;
     ev.preventDefault(); ev.stopPropagation();
     const el = this._gtile(path);
     if (!el) return;
@@ -1431,6 +1498,7 @@ export class BxShell extends LitElement {
   }
 
   _floatDragStart(ev, path) {
+    if (this._mobile) return; // floats are full-screen sheets on mobile
     if (ev.button !== 0 || ev.target.closest('button, select')) return;
     ev.preventDefault();
     this._floatFront(path);
@@ -1472,6 +1540,8 @@ export class BxShell extends LitElement {
           </div>`)}
       </div>` : nothing}
       <div class="top">
+        ${this._mobile ? html`<button class="ham" title="menu"
+          @click=${() => { this._drawer = !this._drawer; }}>☰</button>` : nothing}
         <span class="logo">
           <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
             <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#f5a623)"></path>
@@ -1519,13 +1589,14 @@ export class BxShell extends LitElement {
         <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
       </div>
 
-      <div class="body">
-        ${this._side.collapsed ? html`
+      <div class="body ${this._mobile ? 'mobile' : ''}">
+        ${(this._side.collapsed && !this._mobile) ? html`
           <aside class="collapsed">
             <button class="expand" title="expand sidebar"
                     @click=${() => this._saveSide({ collapsed: false })}>»</button>
           </aside>` : html`
-          <aside style="width:${this._side.width || 224}px"
+          <aside class="${this._mobile ? 'drawer' : ''} ${this._drawer ? 'open' : ''}"
+                 style=${this._mobile ? nothing : `width:${this._side.width || 224}px`}
                  @dragover=${(e) => e.preventDefault()}
                  @drop=${(e) => { // dropped outside any folder → unfile
                    const path = e.dataTransfer.getData('text/plain');
@@ -1555,8 +1626,10 @@ export class BxShell extends LitElement {
             ${this._statusFooter()}
             ${this._buildFoot()}
           </aside>
-          <div class="side-handle" title="drag to resize"
-               @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}
+          ${this._mobile ? nothing : html`<div class="side-handle" title="drag to resize"
+               @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}`}
+        ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
+          @click=${() => { this._drawer = false; }}></div>` : nothing}
         <main @contextmenu=${(e) => this._openCtx(e)}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <div class="canvas" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">
