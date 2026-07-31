@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-01
 
+- **Sidebar & tabs: filter, nested folders, reorderable + parkable tabs.** The
+  component tree gains a **filter box** (matches tile and tab names, auto-expands
+  folders). **Folders nest** — drop a folder onto another to nest it, onto empty
+  space to un-nest. **Screen tabs drag to reorder**, and can be **dropped into a
+  folder** to park them in the tree: the tree entry is the *live* screen (not a
+  snapshot), so closing its tab keeps the layout and clicking it restores the
+  screen exactly. Parked screens leave the tab bar until reopened.
+
 - **Mobile workspace mode.** The shell now adapts below 820px: the sidebar
   becomes an off-canvas drawer (tap ☰), tiles stack full-width instead of the
   mouse-driven snap-grid (drag/resize off on touch), and terminals and floating

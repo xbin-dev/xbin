@@ -121,6 +121,7 @@ export class BxShell extends LitElement {
     _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
     _mobile: { state: true },       // narrow-screen layout (off-canvas sidebar, stacked tiles)
     _drawer: { state: true },       // mobile: sidebar drawer open
+    _sideQ: { state: true },        // sidebar component/tab filter
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
   };
 
@@ -355,6 +356,26 @@ export class BxShell extends LitElement {
       font-size: 10.5px; color: var(--bx-muted, #8794a1); padding: 2px 4px;
     }
     .mini:hover { color: var(--bx-accent, #f5a623); }
+    /* sidebar filter */
+    .side-search { display: flex; align-items: center; gap: 4px; padding: 0 8px 5px; }
+    .side-q { flex: 1; min-width: 0; font: inherit; font-size: 11.5px; padding: 3px 7px;
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
+      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
+    .side-q::placeholder { color: var(--bx-muted, #8794a1); }
+    .qx { flex: none; border: 0; background: none; color: var(--bx-muted, #8794a1);
+      cursor: pointer; font-size: 11px; padding: 2px 4px; }
+    .qx:hover { color: var(--bx-red, #e5484d); }
+    /* a screen (tab) parked in the folder tree */
+    .item.screen { color: var(--bx-muted, #8794a1); }
+    .item.screen .sic { flex: none; color: var(--bx-accent, #f5a623); font-size: 11px; }
+    .item.screen .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item.screen .pk { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--bx-muted, #8794a1); border: 1px solid var(--bx-border, #e4e8ed); border-radius: 999px; padding: 0 5px; }
+    .item.screen .xt { flex: none; border: 0; background: none; cursor: pointer;
+      color: var(--bx-muted, #8794a1); font-size: 10px; opacity: 0; padding: 0 3px; }
+    .item.screen:hover .xt { opacity: .7; }
+    .item.screen .xt:hover { opacity: 1; color: var(--bx-red, #e5484d); }
+    .tab[draggable="true"] { cursor: grab; }
     .group.folder { cursor: pointer; user-select: none; align-items: center; }
     .group.folder .tri { flex: none; font-size: 9px; width: 10px; }
     .group.folder .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -550,6 +571,7 @@ export class BxShell extends LitElement {
     this._toasts = [];
     this._mobile = false;
     this._drawer = false;
+    this._sideQ = '';
     this._settingsOpen = false;
     this._dropBefore = null;
     // Tile → shell requests (dialog / pop-out window). Composed events reach
@@ -629,6 +651,10 @@ export class BxShell extends LitElement {
           // Migrate any old column-based layout to the fixed grid on load.
           this._screens = l.screens.map((s) => ({ ...s, tiles: gridMigrate(s.tiles ?? []) }));
           this._active = l.screens.some((s) => s.id === l.active) ? l.active : l.screens[0].id;
+          // Never leave a parked screen active (it isn't in the tab bar).
+          if (this._screens.find((s) => s.id === this._active)?.parked) {
+            this._active = (this._visibleScreens()[0] ?? this._screens[0]).id;
+          }
         }
         if (l?.side && typeof l.side === 'object') {
           this._side = { width: 224, collapsed: false, folders: [], ...l.side };
@@ -938,17 +964,6 @@ export class BxShell extends LitElement {
       f.id === edit.id ? { ...f, name: name || f.name, icon } : f) });
   }
 
-  // Move a folder before another (drag-reorder in the sidebar).
-  _moveFolder(dragId, beforeId) {
-    if (dragId === beforeId) return;
-    const drag = this._side.folders.find((f) => f.id === dragId);
-    if (!drag) return;
-    const rest = this._side.folders.filter((f) => f.id !== dragId);
-    const i = rest.findIndex((f) => f.id === beforeId);
-    const at = i < 0 ? rest.length : i;
-    this._saveSide({ folders: [...rest.slice(0, at), drag, ...rest.slice(at)] });
-  }
-
   // Move a component into folderId, positioned before beforePath (or at the end).
   _moveInto(folderId, path, beforePath) {
     this._saveSide({ folders: this._side.folders.map((f) => {
@@ -970,8 +985,20 @@ export class BxShell extends LitElement {
     if (folderId) this._moveInto(folderId, path, targetPath);
     else this._fileInto('', path); // dropped on an ungrouped item → unfile
   }
-  _deleteFolder(f) { // items just return to their prefix groups
-    this._saveSide({ folders: this._side.folders.filter((x) => x.id !== f.id) });
+  _deleteFolder(f) {
+    // Components return to their prefix groups; child folders re-parent up so
+    // they aren't hidden; any screen parked only here re-opens as a tab.
+    const parent = f.parent ?? null;
+    const folders = this._side.folders.filter((x) => x.id !== f.id)
+      .map((x) => (x.parent ?? null) === f.id ? { ...x, parent } : x);
+    const refs = f.items.filter((it) => this._isScreenItem(it)).map((it) => this._screenIdOf(it));
+    if (refs.length) {
+      const stillTracked = (id) => folders.some((x) => x.items.includes('#screen:' + id));
+      this._screens = this._screens.map((s) =>
+        (refs.includes(s.id) && s.parked && !stillTracked(s.id)) ? { ...s, parked: false } : s);
+    }
+    this._side = { ...this._side, folders };
+    this._save();
   }
   _toggleFolder(f) {
     this._saveSide({ folders: this._side.folders.map((x) => x.id === f.id ? { ...x, open: !x.open } : x) });
@@ -990,9 +1017,89 @@ export class BxShell extends LitElement {
     e.preventDefault(); e.stopPropagation();
     this._dropFolder = null;
     const fid = e.dataTransfer.getData('application/bx-folder');
-    if (fid) { this._moveFolder(fid, f.id); return; }
+    if (fid) { this._nestFolder(fid, f.id); return; }              // folder → nest under this one
+    const sid = e.dataTransfer.getData('application/bx-screen');
+    if (sid) { this._fileInto(f.id, '#screen:' + sid); return; }   // tab → park in the tree
     const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
     if (path) this._fileInto(f.id, path);
+  }
+
+  // ---- nested folders + screen refs in the tree ----
+  _isScreenItem(s) { return typeof s === 'string' && s.startsWith('#screen:'); }
+  _screenIdOf(s) { return s.slice(8); }
+  _childFolders(parentId) {
+    return (this._side.folders ?? []).filter((f) => (f.parent ?? null) === (parentId ?? null));
+  }
+  // Is folder aId an ancestor of bId? (walk bId's parents up) — used to reject cycles.
+  _isAncestorFolder(aId, bId) {
+    const by = new Map((this._side.folders ?? []).map((f) => [f.id, f]));
+    let p = by.get(bId)?.parent ?? null, guard = 0;
+    while (p && guard++ < 200) { if (p === aId) return true; p = by.get(p)?.parent ?? null; }
+    return false;
+  }
+  _nestFolder(dragId, targetId) {
+    if (dragId === targetId || this._isAncestorFolder(dragId, targetId)) return;
+    this._saveSide({ folders: this._side.folders.map((f) => f.id === dragId ? { ...f, parent: targetId } : f) });
+  }
+  _unnestFolder(dragId) {
+    this._saveSide({ folders: this._side.folders.map((f) => f.id === dragId ? { ...f, parent: null } : f) });
+  }
+
+  // ---- screens: visible tabs vs. parked-in-tree ----
+  _visibleScreens() { return this._screens.filter((s) => !s.parked); }
+  _isTracked(id) { return (this._side.folders ?? []).some((f) => f.items.includes('#screen:' + id)); }
+  // Open a screen from the tree: un-park it (if parked) and make it active — the
+  // live screen, not a snapshot.
+  _openScreen(id) {
+    if (!this._screens.some((s) => s.id === id)) return;
+    this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: false } : s);
+    this._active = id;
+    if (this._mobile) this._drawer = false;
+    this._save();
+  }
+  // Drop a screen's tree ref; if it was only reachable via the tree (parked),
+  // re-open it as a tab so it isn't stranded.
+  _removeScreenFromTree(id) {
+    const wasParked = this._screens.find((s) => s.id === id)?.parked;
+    this._side = { ...this._side, folders: this._side.folders.map((f) =>
+      ({ ...f, items: f.items.filter((it) => it !== '#screen:' + id) })) };
+    if (wasParked) this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: false } : s);
+    this._save();
+  }
+  _moveScreen(dragId, beforeId) {
+    if (dragId === beforeId) return;
+    const drag = this._screens.find((s) => s.id === dragId);
+    if (!drag) return;
+    const rest = this._screens.filter((s) => s.id !== dragId);
+    const i = beforeId ? rest.findIndex((s) => s.id === beforeId) : -1;
+    const at = i < 0 ? rest.length : i;
+    this._screens = [...rest.slice(0, at), drag, ...rest.slice(at)];
+    this._save();
+  }
+
+  // ---- sidebar filter ----
+  _sideMatch(text) { const q = this._sideQ.trim().toLowerCase(); return !q || (text ?? '').toLowerCase().includes(q); }
+  _folderHasMatch(f) {
+    if (!this._sideQ.trim()) return true;
+    if (this._sideMatch(f.name)) return true;
+    for (const it of f.items) {
+      if (this._isScreenItem(it)) {
+        const s = this._screens.find((x) => x.id === this._screenIdOf(it));
+        if (s && this._sideMatch(s.name)) return true;
+      } else if (this._sideMatch(it)) return true;
+    }
+    return this._childFolders(f.id).some((c) => this._folderHasMatch(c));
+  }
+  _sideEmptyMsg() {
+    const q = this._sideQ.trim();
+    if (q) {
+      const anyFolder = this._childFolders(null).some((f) => this._folderHasMatch(f));
+      const anyGroup = this._groups.some(([top, comps]) =>
+        comps.some((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path))));
+      return (!anyFolder && !anyGroup) ? html`<div class="empty">no matches for “${q}”</div>` : nothing;
+    }
+    return (this._groups.length === 0 && (this._side.folders ?? []).length === 0)
+      ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing;
   }
 
   // ---- sidebar: system status footer (admin-only; polls /status every 5s) ----
@@ -1199,13 +1306,15 @@ export class BxShell extends LitElement {
   }
 
   // One sidebar row for a component — used by folders and prefix groups alike.
-  _itemTemplate(c, folderId = null, label = null) {
+  _itemTemplate(c, folderId = null, label = null, depth = 0) {
+    if (!c) return nothing;
     const st = this._statusOf(c.path);
     const title = st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
       : (c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path);
     return html`
       <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''}"
            draggable="true"
+           style=${depth ? `padding-left:${12 + depth * 12}px` : nothing}
            title=${title}
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-comp', c.path);
              e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
@@ -1222,13 +1331,26 @@ export class BxShell extends LitElement {
       </div>`;
   }
 
-  _folderTemplate(f) {
-    const comps = f.items.map((p) => this._components.find((c) => c.path === p))
-      .filter((c) => c && !this._offloaded(c)); // hide archived tiles in folders too
-    const fst = f.open ? null : this._worstStatus(comps.map((c) => c.path)); // surface when collapsed
+  // A sidebar folder — may nest child folders and hold both components and
+  // parked screen tabs (#screen:<id>). Recursive; `depth` drives indentation.
+  _folderTemplate(f, depth = 0) {
+    if (!this._folderHasMatch(f)) return nothing;
+    const open = f.open || !!this._sideQ.trim(); // force-open while filtering
+    const items = f.items.filter((it) => {
+      if (this._isScreenItem(it)) {
+        const s = this._screens.find((x) => x.id === this._screenIdOf(it));
+        return s && this._sideMatch(s.name);
+      }
+      const c = this._components.find((x) => x.path === it);
+      return c && !this._offloaded(c) && this._sideMatch(it);
+    });
+    const children = this._childFolders(f.id);
+    const comps = items.filter((it) => !this._isScreenItem(it)).map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
+    const fst = !open ? this._worstStatus(comps.map((c) => c.path)) : null;
     return html`
       <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''}" draggable="true"
-           title="click to fold · double-click to rename/icon · drag to reorder or drop components in"
+           style="padding-left:${8 + depth * 12}px"
+           title="click to fold · double-click to rename/icon · drop a tile, a tab, or another folder in"
            @click=${() => this._toggleFolder(f)}
            @dblclick=${() => this._folderDialog(f)}
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-folder', f.id);
@@ -1236,14 +1358,35 @@ export class BxShell extends LitElement {
            @dragover=${(e) => { e.preventDefault(); this._dropFolder = f.id; }}
            @dragleave=${() => { if (this._dropFolder === f.id) this._dropFolder = null; }}
            @drop=${(e) => this._dropOnFolder(e, f)}>
-        <span class="tri">${f.open ? '▾' : '▸'}</span>
+        <span class="tri">${open ? '▾' : '▸'}</span>
         <span class="ficon">${f.icon || '📁'}</span>
-        <span class="fname">${f.name}</span> <span class="n">${comps.length}</span>
+        <span class="fname">${f.name}</span> <span class="n">${items.length + children.length}</span>
         ${fst ? html`<span class="stdot"></span>` : nothing}
-        <button class="fx" title="delete folder (components return to their groups)"
+        <button class="fx" title="delete folder (contents return to their groups / tabs)"
                 @click=${(e) => { e.stopPropagation(); this._deleteFolder(f); }}>✕</button>
       </div>
-      ${f.open ? comps.map((c) => this._itemTemplate(c, f.id)) : nothing}`;
+      ${open ? html`
+        ${children.map((c) => this._folderTemplate(c, depth + 1))}
+        ${items.map((it) => this._isScreenItem(it)
+          ? this._screenItemTemplate(this._screenIdOf(it), depth + 1)
+          : this._itemTemplate(this._components.find((c) => c.path === it), f.id, null, depth + 1))}`
+        : nothing}`;
+  }
+
+  // A parked/opened screen tab, shown in the tree. It's the live screen (by id),
+  // not a snapshot: clicking re-opens it and restores its exact layout.
+  _screenItemTemplate(id, depth = 0) {
+    const s = this._screens.find((x) => x.id === id);
+    if (!s) return nothing; // stale ref (the screen was deleted)
+    return html`
+      <div class="item screen ${this._active === id ? 'on' : ''}" style="padding-left:${12 + depth * 12}px"
+           title=${`screen "${s.name}" — click to open${s.parked ? ' (parked)' : ''}`}
+           @click=${() => this._openScreen(id)}>
+        <span class="sic">▦</span>
+        <span class="sname">${s.name}</span>
+        ${s.parked ? html`<span class="pk">parked</span>` : nothing}
+        <button class="xt" title="remove from tree" @click=${(e) => { e.stopPropagation(); this._removeScreenFromTree(id); }}>✕</button>
+      </div>`;
   }
 
   // Find a free-ish grid spot for a new tile: scan the top row left→right for a
@@ -1296,12 +1439,20 @@ export class BxShell extends LitElement {
   }
   _closeScreen(id, ev) {
     ev.stopPropagation();
-    if (this._screens.length <= 1) return; // keep at least one
+    if (this._visibleScreens().length <= 1) return; // keep at least one open tab
+    // If this screen is parked in the folder tree, closing the TAB just parks it
+    // (the layout stays, restorable from the tree) instead of deleting it.
+    if (this._isTracked(id)) {
+      this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: true } : s);
+      if (this._active === id) this._active = this._visibleScreens()[0].id;
+      this._save();
+      return;
+    }
     const s = this._screens.find((x) => x.id === id);
     if (s.tiles.length && !confirm(`Close screen "${s.name}" and its ${s.tiles.length} tile(s)?`)) return;
     const remaining = this._screens.filter((x) => x.id !== id);
     this._screens = remaining;
-    if (this._active === id) this._active = remaining[0].id;
+    if (this._active === id) this._active = (remaining.find((x) => !x.parked) ?? remaining[0]).id;
     this._save();
   }
 
@@ -1573,16 +1724,20 @@ export class BxShell extends LitElement {
       </div>
 
       <div class="tabs">
-        ${this._screens.map((s) => {
+        ${this._visibleScreens().map((s) => {
           const tst = this._worstStatus((s.tiles ?? []).map((t) => t.path));
           return html`
-          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}"
+          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}" draggable="true"
                @click=${() => this._switchScreen(s.id)}
                @dblclick=${() => this._renameScreen(s.id)}
-               title=${tst ? `${s.name} — a tile here needs attention (${tst})` : 'double-click to rename'}>
+               @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', s.id); e.dataTransfer.effectAllowed = 'move'; }}
+               @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-screen')) e.preventDefault(); }}
+               @drop=${(e) => { e.preventDefault(); const d = e.dataTransfer.getData('application/bx-screen'); if (d) this._moveScreen(d, s.id); }}
+               title=${tst ? `${s.name} — a tile here needs attention (${tst})`
+                 : 'drag to reorder · drag into a sidebar folder to park · double-click to rename'}>
             <span>${s.name}</span>
             ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
-            ${this._screens.length > 1
+            ${this._visibleScreens().length > 1
               ? html`<button class="x" @click=${(e) => this._closeScreen(s.id, e)}>✕</button>` : nothing}
           </div>`;
         })}
@@ -1598,9 +1753,11 @@ export class BxShell extends LitElement {
           <aside class="${this._mobile ? 'drawer' : ''} ${this._drawer ? 'open' : ''}"
                  style=${this._mobile ? nothing : `width:${this._side.width || 224}px`}
                  @dragover=${(e) => e.preventDefault()}
-                 @drop=${(e) => { // dropped outside any folder → unfile
-                   const path = e.dataTransfer.getData('text/plain');
-                   if (path) this._fileInto('', path);
+                 @drop=${(e) => { // dropped on empty sidebar space
+                   const fid = e.dataTransfer.getData('application/bx-folder');
+                   if (fid) { this._unnestFolder(fid); return; }      // folder → top level
+                   const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
+                   if (path) this._fileInto('', path);                // component → ungrouped
                  }}>
             <div class="side-top">
               <button class="mini" title="new folder (view-only grouping — nothing moves on disk)"
@@ -1609,14 +1766,21 @@ export class BxShell extends LitElement {
               <button class="mini" title="collapse sidebar"
                       @click=${() => this._saveSide({ collapsed: true })}>«</button>
             </div>
+            <div class="side-search">
+              <input class="side-q" placeholder="filter tiles &amp; tabs…" .value=${this._sideQ}
+                     @input=${(e) => { this._sideQ = e.target.value; }}>
+              ${this._sideQ ? html`<button class="qx" title="clear"
+                     @click=${() => { this._sideQ = ''; }}>✕</button>` : nothing}
+            </div>
             <div class="side-scroll">
-              ${(this._side.folders ?? []).map((f) => this._folderTemplate(f))}
-              ${this._groups.map(([top, comps]) => html`
-                <div class="group">${top} <span class="n">${comps.length}</span></div>
-                ${comps.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path)))}
-              `)}
-              ${this._groups.length === 0 && (this._side.folders ?? []).length === 0
-                ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing}
+              ${this._childFolders(null).map((f) => this._folderTemplate(f, 0))}
+              ${this._groups.map(([top, comps]) => {
+                const shown = comps.filter((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path)));
+                return shown.length ? html`
+                  <div class="group">${top} <span class="n">${shown.length}</span></div>
+                  ${shown.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path)))}` : nothing;
+              })}
+              ${this._sideEmptyMsg()}
             </div>
             ${this._adminOrgs?.size ? html`
               <button class="orgbtn" title="manage the orgs you administer (members, teams, access)"
