@@ -73,13 +73,33 @@ for a in "$@"; do case "$a" in
 esac; done
 
 # ---- Platform / package manager -------------------------------------------
-[ "$(uname -s)" = Linux ] || die "xbin runs on Linux only"
+case "$(uname -s)" in
+  Linux) ;;
+  Darwin)
+    printf '%serror:%s xbin cannot run on macOS.\n\n' "$RED" "$R" >&2
+    {
+      echo "  xbin's per-tile sandboxing is built directly on Linux kernel primitives"
+      echo "  (user/mount/pid/net namespaces, seccomp, Landlock). macOS has no"
+      echo "  equivalent, and xbin has no non-sandboxed mode — a Linux server or VM"
+      echo "  is required. Easy paths from this Mac:"
+      echo "    • a local Linux VM (UTM / Lima / OrbStack — an Ubuntu 24.04 VM works well)"
+      echo "    • any cloud or home server"
+      echo "  Install there, then open the UI from this Mac over Tailscale or an SSH tunnel."
+    } >&2
+    exit 1 ;;
+  *)
+    die "unsupported OS: $(uname -s) — xbin's sandboxing needs a Linux kernel (namespaces, seccomp, Landlock). Install on a Linux server or VM." ;;
+esac
 [ "$(id -u)" = 0 ] || die "run as root:  curl -fsSL <url> | sudo bash   (or: sudo bash install.sh)"
 have systemctl || die "systemd is required (systemctl not found)"
+# systemctl existing isn't enough — systemd must be PID 1 (WSL2 ships systemd
+# disabled by default; enable it rather than fail on every systemctl call).
+[ -d /run/systemd/system ] || die "systemd is installed but not running as init. On WSL2: add '[boot]' + 'systemd=true' to /etc/wsl.conf, then 'wsl --shutdown' and reopen."
 
 PKG=
 if   have apt-get; then PKG=apt
 elif have dnf;     then PKG=dnf
+elif have yum;     then PKG=yum     # RHEL-likes without dnf (Amazon Linux 2, CentOS 7)
 elif have pacman;  then PKG=pacman
 elif have zypper;  then PKG=zypper
 fi
@@ -87,18 +107,19 @@ pkg_install() {
   case "$PKG" in
     apt)    DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
     dnf)    dnf install -y "$@" ;;
+    yum)    yum install -y "$@" ;;
     pacman) pacman -Sy --needed --noconfirm "$@" ;;
-    zypper) zypper --non-interactive install -y "$@" ;;
+    zypper) zypper --non-interactive install "$@" ;;   # --non-interactive answers yes; `install -y` is not portable across zypper versions
     *) return 1 ;;
   esac
 }
 # Distro-specific package names.
 case "$PKG" in
-  apt)    UIDMAP_PKG=uidmap;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
-  dnf)    UIDMAP_PKG=shadow-utils;  FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
-  pacman) UIDMAP_PKG=shadow;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl";            PODMAN_PKG=podman ;;
-  zypper) UIDMAP_PKG=shadow;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
-  *)      UIDMAP_PKG=; FUSE_PKG=; RUN_PKGS=; PODMAN_PKG= ;;
+  apt)     UIDMAP_PKG=uidmap;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
+  dnf|yum) UIDMAP_PKG=shadow-utils;  FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
+  pacman)  UIDMAP_PKG=shadow;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl";            PODMAN_PKG=podman ;;
+  zypper)  UIDMAP_PKG=shadow;        FUSE_PKG=fuse3; RUN_PKGS="git ca-certificates curl tar";        PODMAN_PKG=podman ;;
+  *)       UIDMAP_PKG=; FUSE_PKG=; RUN_PKGS=; PODMAN_PKG= ;;
 esac
 go_arch() { case "$(uname -m)" in x86_64|amd64) echo amd64 ;; aarch64|arm64) echo arm64 ;; *) die "unsupported arch $(uname -m)" ;; esac; }
 
@@ -381,6 +402,13 @@ UNIT
     info "previous unit differed — saved to $unit.bak"
   fi
   mv "$tmp" "$unit"; chmod 644 "$unit"
+  # SELinux (Fedora/RHEL): mv from /tmp keeps tmp_t on the unit, and the rootfs
+  # cp -a preserved /var/tmp contexts — restore proper labels where enforcing.
+  if have getenforce && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+    info "SELinux enforcing — restoring file contexts (can take a moment on the rootfs)"
+    restorecon "$unit" 2>/dev/null || true
+    restorecon -R "$PREFIX" 2>/dev/null || true
+  fi
   systemctl daemon-reload
   ok "unit written to $unit"
 }
