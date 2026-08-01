@@ -98,10 +98,7 @@ func main() {
 		"--no-auth", "--ingress-listen", ingressAddr)
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer cmd.Process.Kill()
+	startDaemon(t, cmd, iWS) // group-kill on cleanup: reaps in-flight go builds too
 	base := "http://" + consoleAddr
 	if !waitFor(func() bool {
 		r, err := http.Get(base + "/healthz")

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -27,6 +28,30 @@ var (
 	ws       string
 	xbindBin string // built daemon, reused by tests that need their own instance
 )
+
+// startDaemon launches a dedicated xbind in its OWN process group and registers
+// cleanup that kills the whole group — xbind plus any in-flight `go build`
+// children (a trailing unbind/grant change restarts a backend, whose rebuild
+// writes to <ws>/.xbin/cache/go-build) — then clears the workspace with
+// retries. Killing only the xbind PID leaves such a builder racing t.TempDir's
+// removal: "TempDir RemoveAll cleanup: … directory not empty".
+func startDaemon(t *testing.T, cmd *exec.Cmd, ws string) {
+	t.Helper()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+		for i := 0; i < 40; i++ { // outlast any straggler's final flush
+			if err := os.RemoveAll(ws); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
+}
 
 func TestMain(m *testing.M) {
 	var err error
@@ -60,10 +85,12 @@ func TestMain(m *testing.M) {
 	cmd := exec.Command(bin, "--workspace", ws, "--listen", addr, "--no-auth")
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // group-killable (in-flight go builds too)
 	if err := cmd.Start(); err != nil {
 		panic(err)
 	}
-	defer cmd.Process.Kill()
+	killGroup := func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() }
+	defer killGroup()
 
 	if !waitFor(func() bool {
 		r, err := http.Get(baseURL + "/healthz")
@@ -77,7 +104,7 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-	_ = cmd.Process.Kill()
+	killGroup()
 	os.Exit(code)
 }
 
@@ -449,10 +476,7 @@ func TestMultiUser(t *testing.T) {
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer cmd.Process.Kill()
+	startDaemon(t, cmd, muWS)
 	if !waitFor(func() bool {
 		r, err := http.Get(base + "/healthz")
 		if err != nil {
