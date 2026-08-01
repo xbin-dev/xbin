@@ -193,10 +193,44 @@
   footer .lnk:hover{color:var(--text)}
   .lic{margin-left:auto;font:12px var(--mono);color:var(--dim)}
 
+  /* ---------- composition ---------- */
+  .cmp{display:grid;grid-template-columns:.92fr 1.08fr;gap:38px;align-items:start;margin-top:38px}
+  .cmp-steps{display:flex;flex-direction:column}
+  .wires{display:flex;flex-direction:column;gap:10px}
+  .wire{display:flex;align-items:center;gap:0;min-width:0}
+  .wnode{flex:none;display:inline-flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--text);
+    background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:6px 10px;white-space:nowrap}
+  .wnode.slot{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
+  .wnode.world{color:var(--muted);border-style:dashed}
+  .wnode .wdot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none}
+  .wlink{flex:1;min-width:18px;height:1px;background:linear-gradient(90deg,var(--border2),var(--border2));position:relative}
+  .wlink::after{content:"";position:absolute;right:-1px;top:-3px;border:4px solid transparent;border-left-color:var(--border2)}
+  .wlink.rev::after{right:auto;left:-1px;border-left-color:transparent;border-right-color:var(--border2)}
+  .wlink b{position:absolute;left:50%;top:-9px;transform:translateX(-50%);font:9.5px var(--mono);color:var(--dim);background:var(--bg);padding:0 6px;font-weight:400;letter-spacing:.04em;white-space:nowrap}
+  .wnote{color:var(--dim);font:11px var(--mono);margin:-4px 0 2px 4px}
+  /* the shell's binding-request panel, faithfully (web/bx-bindings.js) */
+  .bindpanel{margin-top:34px;background:var(--panel);border:1px solid var(--border);
+    border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;max-width:760px;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+  .bindpanel h4{margin:0 0 6px;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .brow{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;flex-wrap:wrap}
+  .brow .who{font-family:var(--mono);color:var(--text)}
+  .brow .slot{color:var(--accent);font-weight:600}
+  .brow .kind{color:var(--muted);font-size:11px}
+  .brow .sel{flex:1;min-width:150px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);
+    border:1px solid var(--border);border-radius:5px;background:var(--steel);padding:3px 8px}
+  .brow .sel .chev{margin-left:auto;color:var(--muted);font-size:10px}
+  .brow .sel .chip{background:color-mix(in srgb,var(--accent) 16%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);
+    border-radius:4px;padding:0 6px;font:11px var(--mono);color:var(--text)}
+  .brow .bindbtn{background:var(--green);color:#fff;border:0;border-radius:5px;padding:3px 12px;font:600 12px var(--sans)}
+  .bindcap{color:var(--dim);font:12px/1.6 var(--mono);margin-top:12px;max-width:72ch}
+  .bindcap b{color:var(--muted);font-weight:600}
+
   /* ---------- responsive (dogfood the mobile posture) ---------- */
   @media (max-width:900px){
     .hero-in{grid-template-columns:1fr;gap:30px}
     .how{grid-template-columns:1fr;gap:26px}
+    .cmp{grid-template-columns:1fr;gap:26px}
+    .wlink b{display:none}
     .pillars{grid-template-columns:1fr}
     .aud{grid-template-columns:1fr}
     .seclist{grid-template-columns:1fr}
@@ -221,6 +255,7 @@
     <div class="nav-sp"></div>
     <div class="nav-links">
       <a class="lnk" href="#how">How it works</a>
+      <a class="lnk" href="#compose">Composition</a>
       <a class="lnk" href="#who">Who it's for</a>
       <a class="lnk" href="#security">Security</a>
       <a class="lnk" href="#install">Install</a>
@@ -357,6 +392,66 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
 <span class="g">✓ live</span> · sandboxed · versioned · backed up</pre>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="compose">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Composition</span>
+      <h2>Small tiles, typed wires.</h2>
+      <p class="lede">Tiles don't hardcode each other. A tile declares <b>typed interface slots</b> —
+        "I need an LLM", "I need MCP servers", "I need somewhere to archive" — and the owner binds each
+        slot to any tile that speaks that contract. Same mechanism for the network, in both directions.</p>
+    </div>
+    <div class="cmp">
+      <div class="cmp-steps steps">
+        <div class="step"><span class="n">⇄</span><div><h4>Call another tile's API</h4>
+          <p>Declare <code>uses</code>, get a role-gated grant. The callee sees your verified identity —
+            no shared secrets, no ambient authority.</p></div></div>
+        <div class="step"><span class="n">◇</span><div><h4>Typed slots, swappable providers</h4>
+          <p>An agent's <code>llm</code> slot binds to a gateway tile; its <code>mcp</code> slot (multi)
+            binds to <em>several</em> MCP servers at once. Rebind later — the code never changes.</p></div></div>
+        <div class="step"><span class="n">⬆</span><div><h4>Egress is composition too</h4>
+          <p>A tile has <b>zero network</b> until its <code>net</code> slot is bound — to the internet,
+            a LAN, or <em>through another tile</em>: a WireGuard/firewall tile that provides <code>net</code>. Chains compose.</p></div></div>
+        <div class="step"><span class="n">⬇</span><div><h4>Ingress the same way</h4>
+          <p>An <code>exposes</code> endpoint goes public only when bound to an ingress terminator —
+            the Traefik tile or the built-in listener. Anonymous callers stay path-confined.</p></div></div>
+      </div>
+      <div class="wires" aria-label="example wiring of apps/agent">
+        <div class="wire"><span class="wnode slot">agent · llm</span><span class="wlink"><b>http:llm</b></span><span class="wnode"><span class="wdot"></span>tiles/llm-gw</span></div>
+        <div class="wnote">one key, every model — swap the gateway, not the agent</div>
+        <div class="wire"><span class="wnode slot">agent · mcp ×2</span><span class="wlink"><b>http:mcp</b></span><span class="wnode"><span class="wdot"></span>github-mcp&nbsp;+&nbsp;search-mcp</span></div>
+        <div class="wire"><span class="wnode slot">agent · archive</span><span class="wlink"><b>http:archive</b></span><span class="wnode"><span class="wdot"></span>tiles/s3-archiver</span><span class="wlink"></span><span class="wnode world">s3://backups</span></div>
+        <div class="wire"><span class="wnode slot">agent · net</span><span class="wlink"><b>net</b></span><span class="wnode"><span class="wdot"></span>tiles/wg-vpn</span><span class="wlink"></span><span class="wnode world">internet</span></div>
+        <div class="wnote">all egress rides the VPN tile — the agent can't bypass it</div>
+        <div class="wire"><span class="wnode world">https://agent.example.com</span><span class="wlink"><b>ingress</b></span><span class="wnode"><span class="wdot"></span>tiles/traefik</span><span class="wlink"></span><span class="wnode slot">agent · /hook/*</span></div>
+      </div>
+    </div>
+
+    <!-- the shell's binding-request panel (bx-bindings), as it renders in the workspace -->
+    <div class="bindpanel" role="img" aria-label="the workspace shell's interface-binding panel">
+      <h4>interfaces to bind</h4>
+      <div class="brow">
+        <span class="who">apps/agent</span><span class="slot">mcp</span><span class="kind">http:mcp</span>
+        <span class="sel"><span class="chip">github-mcp</span><span class="chip">search-mcp</span><span class="chev">▾</span></span>
+        <button class="bindbtn">bind</button>
+      </div>
+      <div class="brow">
+        <span class="who">apps/agent</span><span class="slot">archive</span><span class="kind">http:archive</span>
+        <span class="sel">tiles/s3-archiver<span class="chev">▾</span></span>
+        <button class="bindbtn">bind</button>
+      </div>
+      <div class="brow">
+        <span class="who">apps/agent</span><span class="slot">net</span><span class="kind">net</span>
+        <span class="sel">tiles/wg-vpn (net provider)<span class="chev">▾</span></span>
+        <button class="bindbtn">bind</button>
+      </div>
+    </div>
+    <p class="bindcap">Install a tile and its unbound slots appear in the shell like this.
+      <b>Binding is the owner's click</b> — a tile (or an agent inside one) can request a capability,
+      but it can't wire itself to anything. Until you bind, it has nothing.</p>
   </div>
 </section>
 
