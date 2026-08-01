@@ -225,11 +225,32 @@
   .bindcap{color:var(--dim);font:12px/1.6 var(--mono);margin-top:12px;max-width:72ch}
   .bindcap b{color:var(--muted);font-weight:600}
 
+  /* ---------- terminals ---------- */
+  .trm{display:grid;grid-template-columns:1fr 1.05fr;gap:38px;align-items:start;margin-top:38px}
+  .harness{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .harness span{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--border);
+    border-radius:999px;padding:4px 12px}
+  .harness span.any{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+  .twin{border:1px solid var(--border2);border-radius:10px;overflow:hidden;background:var(--panel);
+    box-shadow:0 14px 44px rgba(0,0,0,.45)}
+  .twin .tbar{display:flex;align-items:center;gap:6px;background:var(--panel2);border-bottom:1px solid var(--border);
+    padding:5px 9px;font:11px var(--mono);color:var(--muted)}
+  .twin .tbar .path{color:var(--text);font-weight:600;padding-right:4px}
+  .twin .tbar .tab{border:1px solid var(--border);border-radius:4px;padding:1px 8px;background:var(--panel)}
+  .twin .tbar .lyt{display:flex;gap:2px;margin-left:auto}
+  .twin .tbar .lyt i{font-style:normal;border:1px solid transparent;border-radius:4px;padding:1px 6px}
+  .twin .tbar .lyt i.on{border-color:var(--border);background:var(--panel)}
+  .twin .tbar .tg{border:1px solid var(--border);border-radius:4px;padding:1px 7px;background:var(--steel)}
+  .twin .tbar .tg b{color:var(--green);font-weight:600}
+  .twin .term{min-height:230px}
+  .trm-facts{margin-top:34px}
+
   /* ---------- responsive (dogfood the mobile posture) ---------- */
   @media (max-width:900px){
     .hero-in{grid-template-columns:1fr;gap:30px}
     .how{grid-template-columns:1fr;gap:26px}
     .cmp{grid-template-columns:1fr;gap:26px}
+    .trm{grid-template-columns:1fr;gap:26px}
     .wlink b{display:none}
     .pillars{grid-template-columns:1fr}
     .aud{grid-template-columns:1fr}
@@ -256,6 +277,7 @@
     <div class="nav-links">
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#compose">Composition</a>
+      <a class="lnk" href="#terminals">Terminals</a>
       <a class="lnk" href="#who">Who it's for</a>
       <a class="lnk" href="#security">Security</a>
       <a class="lnk" href="#install">Install</a>
@@ -452,6 +474,59 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
     <p class="bindcap">Install a tile and its unbound slots appear in the shell like this.
       <b>Binding is the owner's click</b> — a tile (or an agent inside one) can request a capability,
       but it can't wire itself to anything. Until you bind, it has nothing.</p>
+  </div>
+</section>
+
+<section id="terminals">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">App terminals</span>
+      <h2>Bring your own agent.</h2>
+      <p class="lede">Every tile opens a real shell in the browser. xbin has <b>zero opinion about your
+        harness</b> — run whatever you already use. Every workspace ships an <span class="mono">AGENTS.md</span> /
+        <span class="mono">CLAUDE.md</span> contract, so any agent lands with the full mental model.</p>
+    </div>
+    <div class="trm">
+      <div>
+        <div class="harness">
+          <span>Claude Code</span><span>OpenCode</span><span>Codex</span><span>Hermes</span><span>aider</span><span class="any">…or just vim</span>
+        </div>
+        <p style="color:var(--muted);font-size:14.5px;max-width:52ch">The terminal is where tiles get built
+          and rebuilt — but it's a <b style="color:var(--text)">sandbox with a job</b>, not a root shell.
+          It can ship this tile; it can't wander the box. A rogue agent's blast radius is one tile's
+          directory, and the base system it "installs into" is an overlay that never touches the real image.</p>
+        <p style="color:var(--muted);font-size:14.5px;max-width:52ch">Your <span class="mono">$HOME</span> follows
+          you: one per-user homedir shared across all your terminals — dotfiles, harness config, and keys set up
+          once, available on every tile.</p>
+      </div>
+      <div class="twin" aria-label="a tile terminal running an agent">
+        <div class="tbar">
+          <span class="path">apps/dashboard</span>
+          <span class="tab">agent</span><span>+</span>
+          <span class="lyt"><i class="on">&gt;_</i><i>{ }</i><i>⇋</i></span>
+          <span class="tg">net: <b>internet</b> ▾</span>
+          <span class="tg">api <b>✓</b></span>
+        </div>
+        <div class="term"><span class="m"># any harness — the workspace doesn't care</span>
+<span class="a">~/apps/dashboard $</span> head -1 $XBIN_WORKSPACE/AGENTS.md
+<span class="m"># AGENTS.md — building in this xbin workspace</span>
+<span class="a">~/apps/dashboard $</span> claude "wire the archive slot to S3"
+<span class="m">● read AGENTS.md · edit backend/main.go</span> <span class="b">+24 −3</span> <span class="m">· build</span> <span class="g">✓</span>
+<span class="a">~/apps/dashboard $</span> sudo apt install ripgrep
+<span class="m">→ lands in this terminal's overlay — the base image stays read-only</span>
+<span class="a">~/apps/dashboard $</span> cat ../billing/backend/main.go
+<span class="m">→ read-only (and only because you can read that tile)</span>
+<span class="a">~/apps/dashboard $</span> <span class="cursor"></span></div>
+      </div>
+    </div>
+    <div class="seclist trm-facts">
+      <div class="row"><span class="k">▸</span><div><b>Read-only base image</b><span>Each terminal stacks a throwaway overlay on the shared base — <span class="mono">apt install</span> anything; the image never changes.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>One home, all your terminals</b><span><span class="mono">$HOME</span> is your per-user directory — persistent, shared across your sessions, never the host's home.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>This tile read-write, the rest read-only</b><span>Only the tile the terminal was opened on is writable. Sibling tiles are readable for patterns and APIs — and only the ones your account can read.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span> — flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em>, never the owner — and you can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Runtime state stays with the backend</b><span>The tile's live resources — its database, its resource filesystem — are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
+    </div>
   </div>
 </section>
 
