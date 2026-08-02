@@ -17,7 +17,7 @@ import (
 //	bx org add <id> [--name "…"]
 //	bx org set <id> [--name "…"] [--sets +s|-s]… [--allow +t|-t]…
 //	bx org member <org> [<user> [--level read|write|terminal] [--create[=false]]
-//	                     [--admin[=false]] | rm <user>]
+//	                     [--admin[=false]] [--suspend|--unsuspend] | rm <user>]
 //	bx org rm  <id>
 //	bx org policy [<org>] [--set '<rows json>']
 //	bx owner <tile> [--transfer user:<id>|org:<id>|workspace]
@@ -121,7 +121,11 @@ func cmdOrg(args []string) error {
 		rest := args[2:]
 		if len(rest) == 0 { // list
 			for _, m := range org.Members {
-				fmt.Printf("%-16s level:%-9s create:%-5v admin:%v\n", m.ID, m.Level, m.Create, m.Admin)
+				tag := ""
+				if m.Suspended {
+					tag = "  SUSPENDED"
+				}
+				fmt.Printf("%-16s level:%-9s create:%-5v admin:%v%s\n", m.ID, m.Level, m.Create, m.Admin, tag)
 			}
 			return nil
 		}
@@ -159,6 +163,10 @@ func cmdOrg(args []string) error {
 					entry.Create = v != "false"
 				case "--admin":
 					entry.Admin = v != "false"
+				case "--suspend":
+					entry.Suspended = true
+				case "--unsuspend":
+					entry.Suspended = false
 				default:
 					return fmt.Errorf("unknown flag %s", rest[i])
 				}
@@ -356,16 +364,64 @@ func cmdAccess(args []string) error {
 		fmt.Println("owner:", out.Owner)
 		if len(out.Entries) == 0 {
 			fmt.Println("no entries — owner/admins only")
-			return nil
 		}
 		for _, e := range out.Entries {
 			fmt.Printf("%-5s %-24s %-9s %s\n", e.Kind, e.ID, e.Level, e.Source)
 		}
+		// Pending human requests for this tile (D36), best-effort.
+		var reqs struct {
+			Requests []struct {
+				User, Tile, Level, Note string
+			} `json:"requests"`
+		}
+		if err := apiJSON("GET", "/api/xbin/access-requests", nil, &reqs); err == nil {
+			for _, q := range reqs.Requests {
+				if q.Tile == tile {
+					note := ""
+					if q.Note != "" {
+						note = " — " + q.Note
+					}
+					fmt.Printf("REQUEST %s wants %s%s (approve: bx access %s approve %s)\n",
+						q.User, q.Level, note, tile, q.User)
+				}
+			}
+		}
 		return nil
 	}
 	mode := args[1]
+	if mode == "approve" { // D36: approve a pending request → exact ACL entry
+		if len(args) < 3 {
+			return fmt.Errorf("usage: bx access <tile> approve <user> [level]")
+		}
+		body := map[string]any{"tile": tile, "user": args[2]}
+		if len(args) > 3 {
+			body["level"] = args[3]
+		}
+		var out struct {
+			Level string `json:"level"`
+		}
+		if err := apiJSON("POST", "/api/xbin/access-requests/approve", body, &out); err != nil {
+			return err
+		}
+		fmt.Printf("granted %s %s on %s\n", args[2], out.Level, tile)
+		return nil
+	}
+	if mode == "request" { // D36: file a human access request
+		level := "read"
+		if len(args) > 2 {
+			level = args[2]
+		}
+		var out struct {
+			Level string `json:"level"`
+		}
+		if err := apiJSON("POST", "/api/xbin/access-requests", map[string]any{"tile": tile, "level": level}, &out); err != nil {
+			return err
+		}
+		fmt.Printf("requested %s on %s — the tile's owner/org admins see it in their queue\n", out.Level, tile)
+		return nil
+	}
 	if mode != "set" && mode != "rm" {
-		return fmt.Errorf("usage: bx access <tile> [set …|rm …]")
+		return fmt.Errorf("usage: bx access <tile> [set …|rm …|request [level]|approve <user> [level]]")
 	}
 	for _, spec := range args[2:] {
 		kind, rest, ok := strings.Cut(spec, ":")
@@ -390,10 +446,11 @@ func cmdAccess(args []string) error {
 // --- shared helpers ---------------------------------------------------------
 
 type memberDoc struct {
-	ID     string `json:"id"`
-	Level  string `json:"level"`
-	Create bool   `json:"create,omitempty"`
-	Admin  bool   `json:"admin,omitempty"`
+	ID        string `json:"id"`
+	Level     string `json:"level"`
+	Create    bool   `json:"create,omitempty"`
+	Admin     bool   `json:"admin,omitempty"`
+	Suspended bool   `json:"suspended,omitempty"`
 }
 
 type orgDoc struct {

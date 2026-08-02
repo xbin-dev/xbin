@@ -17,11 +17,19 @@ const HairpinIP = "10.0.2.4"
 
 // Config configures a relay (see Start).
 type Config struct {
-	TunFD    int
-	Allow    Allow          // egress policy for IP destinations
-	Resolver string         // host DNS server for :53 ("" = no DNS forwarding)
-	Gateway  netip.Addr     // virtual gateway IP (10.0.2.2); host-forwards apply here
-	HostFwd  map[int]string // gateway port → host dial address, policy-exempt
+	TunFD int
+	Allow Allow // egress policy for IP destinations
+	// AllowHost enables DNS-pinned HOSTNAME egress (D35): when set, the
+	// relay inspects the DNS responses it forwards and records name→address
+	// pins; a flow to a pinned PUBLIC address is admitted when AllowHost
+	// approves (name, port). Set it only when the policy carries host rules
+	// — the pin table is bounded but not free. Private/LAN answers are never
+	// pinned (a hostname rule is internet-class, so DNS rebinding can't
+	// steer a tile into the LAN).
+	AllowHost func(name string, port int) bool
+	Resolver  string         // host DNS server for :53 ("" = no DNS forwarding)
+	Gateway   netip.Addr     // virtual gateway IP (10.0.2.2); host-forwards apply here
+	HostFwd   map[int]string // gateway port → host dial address, policy-exempt
 	// HostDial, when set, dials HostFwd targets (so values may be "unix:<path>"
 	// or other schemes the host side understands); nil = net.Dial("tcp", dst).
 	HostDial func(dst string) (net.Conn, error)

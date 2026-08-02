@@ -185,7 +185,7 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 		{"xbin"}, {"xbin:users"}, {"xbin:*"},
 		{"whatever"}, {""}, {"res:"},
 		{"cap:xbin"}, {"cap:xbin-caps"}, // scary-but-inert spellings
-		{"net:tailscale"}, {"net:internet:x.com"}, // not a net form
+		{"net:tailscale"},                // not a net form (internet:<spec> IS valid now, D35)
 		{"iface:api@"}, {"iface:api@x#"}, // dangling qualifiers
 		{"ingress:listen:99999"}, {"ingress:listen:30-20"},
 		{"tile:apps/*@no:role"},
@@ -219,9 +219,12 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 		{"cap:net-admin", "admin", false},
 		{"net:internet", "", true},
 		{"net:host", "", true},
-		{"net:lan:10.0.0.0/8", "", true},     // exact binding value
-		{"net:lan:10.1.2.0/24", "", false},   // no CIDR-contains semantics — use a glob
+		{"net:lan:10.0.0.0/8", "", true},  // exact binding value
+		{"net:lan:10.1.2.0/24", "", true}, // CIDR containment (D35): /8 covers the /24 carve-out
+		{"net:lan:172.16.0.0/12", "", false},
 		{"net:lan:192.168.1.0/24", "", true}, // glob entry
+		// Unfiltered internet subsumes any filtered carve-out (D35).
+		{"net:internet:api.stripe.com", "", true},
 		{"iface:llm", "", true},
 		{"iface:llm@apps/any#x", "", true}, // unpinned entry covers any provider
 		{"iface:mcp", "", false},
@@ -250,6 +253,41 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 	for _, c := range cover {
 		if got := s.AllowanceCovers("dev", c.target, c.role); got != c.want {
 			t.Errorf("AllowanceCovers(%q, %q) = %v, want %v", c.target, c.role, got, c.want)
+		}
+	}
+}
+
+// D35: hostname-granular internet carve-outs — an org allowed a host glob /
+// a CIDR may approve narrower filtered bindings, never broader ones.
+func TestNetCarveOuts(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "ops", Members: []Member{{ID: "alice", Level: LevelTerminal, Admin: true}}})
+	if err := s.SetOrgAllow("ops", []string{
+		"net:internet:*.stripe.com",
+		"net:internet:203.0.113.0/24:443",
+		"net:lan:10.0.0.0/8",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		target string
+		want   bool
+	}{
+		{"net:internet:api.stripe.com", true},     // host glob
+		{"net:internet:api.stripe.com:443", true}, // entry has no port pin → any port
+		{"net:internet:evil.example.com", false},
+		{"net:internet", false},                    // a filter never covers FULL internet
+		{"net:internet:203.0.113.7:443", true},     // addr within CIDR, pinned port matches
+		{"net:internet:203.0.113.7:80", false},     // pinned port mismatch
+		{"net:internet:203.0.113.0/26:443", true},  // narrower CIDR carve-out
+		{"net:internet:203.0.112.0/23:443", false}, // BROADER than the entry
+		{"net:lan:10.1.2.0/24", true},              // subnet carve-out
+		{"net:lan:10.0.0.0/7", false},              // broader than granted
+		{"net:lan:192.168.0.0/16", false},
+	}
+	for _, c := range cases {
+		if got := s.AllowanceCovers("ops", c.target, ""); got != c.want {
+			t.Errorf("AllowanceCovers(%q) = %v, want %v", c.target, got, c.want)
 		}
 	}
 }

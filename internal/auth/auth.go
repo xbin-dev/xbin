@@ -490,11 +490,19 @@ func (a *Auth) framePrincipal(tok string) (Principal, bool) {
 	return Principal{Component: comp, UserID: uid, Via: "frame"}, true
 }
 
+// userSnapshot resolves a user for principal building. A DISABLED account
+// resolves like a deleted one (D34): sessions, frame tokens and live
+// terminals naming the user all stop authenticating the moment the flag is
+// set — and come back on re-enable.
 func (a *Auth) userSnapshot(uid string) (*users.User, bool) {
 	if a.Users == nil {
 		return nil, false
 	}
-	return a.Users.Get(uid)
+	u, ok := a.Users.Get(uid)
+	if !ok || u.Disabled {
+		return nil, false
+	}
+	return u, true
 }
 
 // accessSnapshot resolves the org/team-aware access for a user (nil when no

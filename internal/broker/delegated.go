@@ -158,6 +158,14 @@ func (b *Broker) bindingTargets(comp, slot string, binding registry.Binding) (ta
 		switch {
 		case iface.Kind == "net" && (v == "internet" || v == "host"):
 			targets = append(targets, "net:"+v)
+		case iface.Kind == "net" && strings.HasPrefix(v, "internet:"):
+			// Filtered internet (D35): every spec must be covered, so an
+			// allowance can carve "these hosts / this subnet only".
+			for _, spec := range strings.Split(strings.TrimPrefix(v, "internet:"), ",") {
+				if spec = strings.TrimSpace(spec); spec != "" {
+					targets = append(targets, "net:internet:"+spec)
+				}
+			}
 		case iface.Kind == "net" && strings.HasPrefix(v, "lan:"):
 			targets = append(targets, "net:"+v)
 		case iface.Kind == "net":

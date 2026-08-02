@@ -635,3 +635,38 @@ Deviations and refinements made while implementing; all deliberate:
   audit log carries the full triple. Lifecycle joins the ownership rights
   (owner/org-admin may disable/enable their tiles); org policy rows are
   org-admin-readable.
+
+- **D34 — Account disable (ws-admin) and org member suspension (org
+  admins).** (2026-08-02) `User.Disabled`: login, sessions, frame/terminal
+  tokens and invite redemption all refuse while set, but every ACL row,
+  membership and owned tile stays — re-enabling restores the account exactly
+  (contractor pause, incident response). Lockout-guarded: not yourself, not
+  the last enabled admin. `Member.Suspended` is the org-scoped little
+  sibling, set by org admins through normal member editing: a suspended
+  membership confers NOTHING (org-tile level, shares, create, adminship,
+  set-conferred term flags) but stays listed for one-click reinstatement —
+  "org admins get org-level moderation, ws-admins get the account switch."
+- **D35 — Hostname-granular egress + carve-out allowances.** (2026-08-02)
+  The `net` binding vocabulary gains FILTERED internet:
+  `internet:<host|ip|cidr>[:port][,…]` — enforced by the existing userspace
+  relay via DNS pinning (the relay already terminates the sandbox's :53; it
+  now records name→address pins from the responses it forwards and admits
+  flows to pinned PUBLIC addresses the policy's host rules allow — private
+  answers never pin, so DNS rebinding can't reach the LAN). Bindings name
+  concrete destinations; allowance entries do the granting:
+  `net:internet:<host-glob|cidr>[:port]` with hostname globs and CIDR
+  CONTAINMENT — an org allowed `net:lan:10.0.0.0/8` may approve any
+  narrower `lan:10.x.y.z/nn` binding ("carve a subnet out of the grant"),
+  and unfiltered `net:internet` subsumes every filter. Complex filtering
+  (L7, rotating CDNs, allowlist management) stays in provider tiles — a
+  filtering net-provider is the escape hatch, not more grammar. Org-wide
+  resource limits and per-tile memory caps were deliberately deferred.
+- **D36 — Human access requests.** (2026-08-02) The people-plane mirror of
+  the elements' pending-grant queue: any signed-in user files (tile, wanted
+  level, note ≤200 chars, ≤20 pending, dedupe per user+tile); the tile's
+  manager set (user-owner / owning-org admins / ws-admin — the D24 sharing
+  gate) approves into an exact ACL entry (authoritative, D31) or dismisses;
+  requesters withdraw. A signed-in human navigating to an unreadable tile
+  now gets a request-access page naming the owner instead of a bare 403 —
+  the tile's existence isn't secret to someone holding its link. Requests
+  ride `users` events (badges/queues update live) and die with the user.

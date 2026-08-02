@@ -33,6 +33,8 @@ func cmdUser(args []string) error {
 				Tiles            map[string]string
 				CanCreate        []string
 				TermAPI, TermNet bool
+				Disabled         bool
+				InvitePending    bool
 			} `json:"users"`
 		}
 		if err := apiJSON("GET", "/api/xbin/users", nil, &out); err != nil {
@@ -81,6 +83,11 @@ func cmdUser(args []string) error {
 			if ms := memberships[u.ID]; len(ms) > 0 {
 				line += "  [" + strings.Join(ms, ",") + "]"
 			}
+			if u.Disabled {
+				line += "  DISABLED"
+			} else if u.InvitePending {
+				line += "  invited"
+			}
 			fmt.Println(line)
 		}
 		return nil
@@ -110,6 +117,10 @@ func cmdUser(args []string) error {
 				wantPw = true
 			case "--invite":
 				wantPw = false // create credential-less → the server mints an invite link
+			case "--disable":
+				body["disabled"] = true
+			case "--enable":
+				body["disabled"] = false
 			case "--name":
 				i++
 				body["name"] = args[i]

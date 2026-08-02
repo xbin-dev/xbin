@@ -495,6 +495,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			}
 		} else {
 			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
+			if pol.HasHostRules() {
+				cfg.AllowHost = pol.AllowsHost // DNS-pinned hostname egress (D35)
+			}
 			if pol.Empty() {
 				// Ingress-only plumbing: the relay exists so xbind can dial IN
 				// (bound stream exposes); outbound stays deny-all — including

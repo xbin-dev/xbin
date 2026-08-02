@@ -63,6 +63,7 @@ export class BxAdmin extends LitElement {
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _permsets: { state: true }, // {sets, attachedTo} (D28)
     _invite: { state: true },   // last minted invite link {id, url} (D22)
+    _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
@@ -436,7 +437,7 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults, reqs] = await Promise.all([
         api('/auth-overview'),
         api('/vaults').catch(() => null), // 503 while the barrier is sealed
         api('/cron/jobs'),
@@ -448,6 +449,7 @@ export class BxAdmin extends LitElement {
         api('/policy').catch(() => ({ policy: [] })),
         api('/permission-sets').catch(() => ({ sets: {}, attachedTo: {} })),
         api('/defaults').catch(() => ({ defaultTiles: {} })),
+        api('/access-requests').catch(() => ({ requests: [] })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._alerts = alerts.alerts ?? [];
@@ -455,6 +457,7 @@ export class BxAdmin extends LitElement {
       this._orgs = orgs.orgs ?? [];
       this._wsPolicy = wsPolicy.policy ?? [];
       this._permsets = permsets; this._defaults = defaults.defaultTiles ?? {};
+      this._reqs = reqs.requests ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
       if (this._tab === 'map') this._loadMap(true); // keep the matrix current
@@ -1617,6 +1620,13 @@ export class BxAdmin extends LitElement {
       this._err = `password reset for ${id}`;
     } catch (e) { this._err = String(e.message ?? e); }
   }
+  async _setDisabled(u) {
+    if (!u.disabled && !confirm(`Disable ${u.id}? Their sessions and terminals stop working now; everything is kept for re-enable.`)) return;
+    try {
+      await this._patchUser(u.id, { disabled: !u.disabled });
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); } // self/last-admin guards land here
+  }
   async _delUser(id) {
     if (!confirm(`Delete user ${id}? Their sessions are revoked immediately.`)) return;
     await api(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -1679,7 +1689,7 @@ export class BxAdmin extends LitElement {
     const out = [];
     for (const o of (this._orgs ?? [])) {
       const m = (o.members ?? []).find((x) => x.id === uid);
-      if (m) out.push(m.admin ? `${o.id}·admin` : `${o.id}·${m.level}`);
+      if (m) out.push(m.suspended ? `${o.id}·suspended` : m.admin ? `${o.id}·admin` : `${o.id}·${m.level}`);
     }
     return out;
   }
@@ -1709,6 +1719,40 @@ export class BxAdmin extends LitElement {
     </div>`;
   }
 
+  // Pending human access requests (D36) — approve writes an exact entry at
+  // the chosen level (authoritative, D31) and clears the row.
+  _requestsView() {
+    const reqs = (this._reqs ?? []).filter((q) => q.manage);
+    if (!reqs.length) return nothing;
+    return html`
+      <h4>access requests</h4>
+      ${reqs.map((q) => html`<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:3px 0; font-size:12px">
+        <span class="mono">${q.user}</span> wants
+        <select id="rq-${q.user}-${q.tile}">
+          ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${q.level === l}>${l}</option>`)}
+        </select>
+        on <span class="mono">${q.tile}</span>
+        ${q.note ? html`<span class="muted">— ${q.note}</span>` : nothing}
+        <button class="act go" @click=${async () => {
+          const sel = this.renderRoot.getElementById(`rq-${q.user}-${q.tile}`);
+          try {
+            await api('/access-requests/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user: q.user, tile: q.tile, level: sel?.value || q.level }) });
+            this._err = '';
+          } catch (e) { this._err = String(e.message ?? e); }
+          this._refresh();
+        }}>approve</button>
+        <button class="act rm" @click=${async () => {
+          try {
+            await api('/access-requests', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user: q.user, tile: q.tile }) });
+            this._err = '';
+          } catch (e) { this._err = String(e.message ?? e); }
+          this._refresh();
+        }}>dismiss</button>
+      </div>`)}`;
+  }
+
   _usersView() {
     const users = this._users ?? [];
     return html`
@@ -1719,10 +1763,10 @@ export class BxAdmin extends LitElement {
         ${users.length ? users.map((u) => {
           const tilesKey = `user:${u.id}:tiles`;
           const createKey = `user:${u.id}:create`;
-          return html`<tr>
+          return html`<tr style=${u.disabled ? 'opacity:.55' : ''}>
           <td class="mono">${u.id}</td>
           <td>${u.name}</td>
-          <td><span class="pill">${u.role}</span>${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
+          <td><span class="pill">${u.role}</span>${u.disabled ? html`<span class="pill" style="color:var(--bx-red,#e5484d); border-color:var(--bx-red,#e5484d)" title="account disabled — can't sign in; everything is kept for re-enable (D34)">disabled</span>` : nothing}${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
           <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
             : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
               ${(u.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
@@ -1742,6 +1786,10 @@ export class BxAdmin extends LitElement {
             <button class="act" title="mint a single-use set-password link (re-minting invalidates the old one)"
               @click=${() => this._mintInvite(u.id)}>invite</button>
             <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
+            <button class="act ${u.disabled ? '' : 'rm'}" title=${u.disabled
+              ? 'restore the account — same password, tiles, memberships'
+              : 'pause the account: sign-in, sessions and invites all refuse; nothing is lost (D34)'}
+              @click=${() => this._setDisabled(u)}>${u.disabled ? 'enable' : 'disable'}</button>
             <button class="act rm" @click=${() => this._delUser(u.id)}>del</button>
           </td>
         </tr>
@@ -1753,6 +1801,8 @@ export class BxAdmin extends LitElement {
         </td></tr>` : nothing}`;
         }) : html`<tr><td class="muted" colspan="5">no users — the root token is the only admin. Add one below.</td></tr>`}
       </table>
+
+      ${this._requestsView()}
 
       <h4>add user</h4>
       <form class="inline" @submit=${(e) => { e.preventDefault(); this._createUser(e.target); }}>
@@ -2097,8 +2147,8 @@ export class BxAdmin extends LitElement {
       const members = (o.members ?? []).map((x) => (x.id === m.id ? { ...x, ...patch } : x));
       return this._orgAPI('PATCH', `/orgs/${encodeURIComponent(o.id)}`, { members });
     };
-    return html`<tr>
-      <td class="mono">${m.id}</td>
+    return html`<tr style=${m.suspended ? 'opacity:.55' : ''}>
+      <td class="mono">${m.id}${m.suspended ? html` <span class="pill">suspended</span>` : nothing}</td>
       <td><select title="role preset" @change=${(e) => {
             const p = BxAdmin.PRESETS[e.target.value];
             if (p) save(p);
@@ -2112,6 +2162,9 @@ export class BxAdmin extends LitElement {
             @change=${(e) => save({ create: e.target.checked })} title="may create org-owned tiles"> create</label></td>
       <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.admin}
             @change=${(e) => save({ admin: e.target.checked })} title="org management: members, ACLs, transfers, allowance approvals"> admin</label></td>
+      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.suspended}
+            @change=${(e) => save({ suspended: e.target.checked })}
+            title="pause this membership — it confers nothing while suspended, but keeps its knobs (D34)"> susp</label></td>
       <td style="text-align:right"><button class="act rm" @click=${() => this._orgAPI('PATCH', `/orgs/${encodeURIComponent(o.id)}`,
         { members: (o.members ?? []).filter((x) => x.id !== m.id) })}>remove</button></td>
     </tr>`;
@@ -2140,7 +2193,7 @@ export class BxAdmin extends LitElement {
         </div>
 
         <table style="margin-top:6px">
-          ${(o.members ?? []).length ? html`<tr><th>member</th><th>preset</th><th>level</th><th></th><th></th><th></th></tr>` : nothing}
+          ${(o.members ?? []).length ? html`<tr><th>member</th><th>preset</th><th>level</th><th></th><th></th><th></th><th></th></tr>` : nothing}
           ${(o.members ?? []).map((m) => this._memberRow(o, m))}
         </table>
         <div style="margin-top:4px; display:flex; gap:6px; align-items:center">

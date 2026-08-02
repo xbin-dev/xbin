@@ -146,6 +146,17 @@ func (p EgressPolicy) AllowsHost(name string, port int) bool {
 // Empty reports whether the policy grants no egress (default-deny → empty netns).
 func (p EgressPolicy) Empty() bool { return len(p.Rules) == 0 }
 
+// HasHostRules reports whether any rule matches by hostname — the signal to
+// enable the relay's DNS pinning (D35).
+func (p EgressPolicy) HasHostRules() bool {
+	for _, r := range p.Rules {
+		if r.Host != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // String renders a rule back to its net:… grant form (for display).
 func (r Rule) String() string {
 	var base string

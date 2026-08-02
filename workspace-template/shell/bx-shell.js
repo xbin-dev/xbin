@@ -108,6 +108,7 @@ export class BxShell extends LitElement {
     _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
     _ownedTiles: { state: true }, // tiles this human OWNS (⚙ on their own tiles, D24)
     _pendingN: { state: true },   // ⚑ badge: actionable pending approvals/requests
+    _setupCard: { state: true },  // first-run hardening prompt (root token, no users)
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -1221,6 +1222,14 @@ export class BxShell extends LitElement {
         this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
         this._ownedTiles = new Set(d.owned ?? []);
         this._orgish = !!((d.orgs ?? []).length || (d.owned ?? []).length);
+        // First-run hardening card: running on the bootstrap token with no
+        // accounts yet (the reusable token URL is the only credential).
+        if (d.kind === 'root' && !localStorage.getItem('xbin-setup-dismissed')) {
+          const u = await fetch('/api/xbin/users').then((x) => (x.ok ? x.json() : null)).catch(() => null);
+          this._setupCard = !!u && (u.users ?? []).length === 0;
+        } else {
+          this._setupCard = false;
+        }
       }
     } catch { /* xbind restarting */ }
     this._loadPendingCount();
@@ -1232,11 +1241,13 @@ export class BxShell extends LitElement {
   // events, so a new request lights the badge without a reload.
   async _loadPendingCount() {
     try {
-      const [gr, br] = await Promise.all([
+      const [gr, br, rr] = await Promise.all([
         fetch('/api/xbin/grants'), fetch('/api/xbin/bindings'),
+        fetch('/api/xbin/access-requests'),
       ]);
       const g = gr.ok ? await gr.json() : null;
       const b = br.ok ? await br.json() : null;
+      const q = rr.ok ? await rr.json() : null;
       let n = 0;
       const scoped = !!g?.scope;
       for (const p of g?.pending ?? []) {
@@ -1244,6 +1255,7 @@ export class BxShell extends LitElement {
         if (!scoped || p.approvable || p.direction === 'mine') n += 1;
       }
       n += (b?.pending ?? []).length;
+      n += (q?.requests ?? []).filter((x) => x.manage).length; // human requests you can grant (D36)
       this._pendingN = n;
     } catch { /* xbind restarting; next event refetches */ }
   }
@@ -1705,6 +1717,16 @@ export class BxShell extends LitElement {
         ${this._alerts.map((a) => html`<div class="alert ${a.level}">
           <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}</div>`)}
       </div>` : nothing}
+      ${this._setupCard ? html`<div class="alerts"><div class="alert warn">
+        <span class="ico">\u{1F510}</span>
+        <span><b>Secure this workspace:</b> \u2460 create your admin account
+          (admin tile \u2192 users) \u2461 then disable token sign-in (users \u2192
+          sign-in security). The bootstrap token URL in your server logs is a
+          reusable credential \u2014 anyone who sees it gets in.</span>
+        <span style="flex:1"></span>
+        <button style="font:inherit; background:none; border:1px solid rgba(255,255,255,.5); color:inherit; border-radius:4px; cursor:pointer"
+          @click=${() => { localStorage.setItem('xbin-setup-dismissed', '1'); this._setupCard = false; }}>dismiss</button>
+      </div></div>` : nothing}
       ${this._toasts.length ? html`<div class="toasts">
         ${repeat(this._toasts, (t) => t.id, (t) => html`
           <div class="toast st-${t.level}" @click=${() => this._dismissToast(t.id)} title="dismiss">

@@ -26,6 +26,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
 	b.registerOrgs(srv)
+	b.registerRequests(srv)
 }
 
 // canManageUsers: root/admin, or an element granted xbin:users (or xbin:admin).
@@ -215,7 +216,10 @@ type userBody struct {
 	CanCreate []string `json:"canCreate"`
 	TermAPI   *bool    `json:"termApi"`
 	TermNet   *bool    `json:"termNet"`
-	Password  string   `json:"password"`
+	// Disabled suspends/restores the account (D34): everything refuses while
+	// set, but rows/memberships/ownership stay for re-enable.
+	Disabled *bool  `json:"disabled"`
+	Password string `json:"password"`
 }
 
 // minPasswordLen is the floor for account passwords set through the API. It's
@@ -286,9 +290,27 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	if invite != "" {
 		out["invite"] = invite
 		out["inviteUrl"] = "/login?invite=" + invite
+		if l := inviteLink(r, invite); l != "" {
+			out["inviteLink"] = l // absolute — what a curl-driven admin pastes
+		}
 		out["inviteExpires"] = time.Now().Add(users.InviteTTL).Unix()
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// inviteLink builds the absolute invite URL from the request's own
+// host/scheme (X-Forwarded-Proto honored — invites travel through reverse
+// proxies). bx and the admin tile prepend their known origin themselves;
+// this saves the raw-curl admin from pasting a relative path into a chat.
+func inviteLink(r *http.Request, tok string) string {
+	if r.Host == "" {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + "/login?invite=" + tok
 }
 
 // apiUsersInvite (re)mints a single-use invite link for an existing user —
@@ -309,10 +331,14 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"invite": tok, "inviteUrl": "/login?invite=" + tok,
 		"inviteExpires": time.Now().Add(users.InviteTTL).Unix(),
-	})
+	}
+	if l := inviteLink(r, tok); l != "" {
+		out["inviteLink"] = l
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +396,7 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	nu := users.User{
 		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: tiles,
 		CanCreate: cur.CanCreate, TermAPI: cur.TermAPI, TermNet: cur.TermNet,
+		Disabled: cur.Disabled,
 	}
 	if body.CanCreate != nil {
 		nu.CanCreate = body.CanCreate
@@ -379,6 +406,37 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TermNet != nil {
 		nu.TermNet = *body.TermNet
+	}
+	if body.Disabled != nil {
+		// Lockout guards (D34): you can't disable yourself, and the last
+		// enabled admin USER can't be disabled (the bootstrap token may
+		// already be login-disabled — a workspace with zero usable admins is
+		// unrecoverable from the UI).
+		if *body.Disabled && !cur.Disabled {
+			p := auth.PrincipalOf(r)
+			self := p.UserID
+			if self == "" && p.User != nil {
+				self = p.User.ID
+			}
+			if self == cur.ID {
+				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "you can't disable your own account"})
+				return
+			}
+			if cur.IsAdmin() {
+				others := false
+				for _, u := range st.List() {
+					if u.IsAdmin() && !u.Disabled && u.ID != cur.ID {
+						others = true
+						break
+					}
+				}
+				if !others {
+					server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to disable the last enabled admin user"})
+					return
+				}
+			}
+		}
+		nu.Disabled = *body.Disabled
 	}
 	u, err := st.Upsert(nu, body.Password)
 	if err != nil {

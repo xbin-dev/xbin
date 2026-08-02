@@ -72,8 +72,14 @@ type User struct {
 	// without TermAPI their terminals get no live tile-API token (api=0 forced);
 	// without TermNet no internet egress (net=none forced). Admins have both
 	// implicitly.
-	TermAPI  bool   `json:"termApi,omitempty"`
-	TermNet  bool   `json:"termNet,omitempty"`
+	TermAPI bool `json:"termApi,omitempty"`
+	TermNet bool `json:"termNet,omitempty"`
+	// Disabled suspends the whole account (D34, ws-admin): login, sessions,
+	// frame/terminal tokens and invite redemption all refuse while set — but
+	// unlike delete, every ACL row, membership and owned tile stays, so
+	// re-enabling restores the user exactly (contractor pause, offboarding
+	// grace, incident response).
+	Disabled bool   `json:"disabled,omitempty"`
 	PassHash string `json:"passHash,omitempty"`
 	// InviteHash/InviteExpires carry a pending invite (D22): the sha256 of a
 	// single-use set-your-password token, admin-minted (no self-signup).
@@ -98,6 +104,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 		CanCreate     []string        `json:"canCreate"`
 		TermAPI       bool            `json:"termApi"`
 		TermNet       bool            `json:"termNet"`
+		Disabled      bool            `json:"disabled"`
 		PassHash      string          `json:"passHash"`
 		InviteHash    string          `json:"inviteHash"`
 		InviteExpires int64           `json:"inviteExpires"`
@@ -113,7 +120,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 	*u = User{
 		ID: raw.ID, Name: raw.Name, Role: raw.Role, Tiles: tiles,
 		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
-		PassHash: raw.PassHash, InviteHash: raw.InviteHash,
+		Disabled: raw.Disabled, PassHash: raw.PassHash, InviteHash: raw.InviteHash,
 		InviteExpires: raw.InviteExpires, Created: raw.Created,
 	}
 	return nil
@@ -269,6 +276,7 @@ type Store struct {
 	sets         map[string]*PermissionSet
 	policy       []PolicyRow
 	defaultTiles map[string]string
+	requests     []AccessRequest // pending human access requests (D36)
 
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
@@ -304,6 +312,7 @@ func Open(dataDir string) (*Store, error) {
 		PermissionSets     map[string]*PermissionSet `json:"permissionSets"`
 		DefaultTiles       map[string]string         `json:"defaultTiles"`
 		Policy             []PolicyRow               `json:"policy"`
+		AccessRequests     []AccessRequest           `json:"accessRequests"`
 		TokenLoginDisabled bool                      `json:"tokenLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -319,6 +328,7 @@ func Open(dataDir string) (*Store, error) {
 	s.sets = doc.PermissionSets
 	s.defaultTiles = doc.DefaultTiles
 	s.policy = doc.Policy
+	s.requests = doc.AccessRequests
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	if s.owners == nil {
 		s.owners = map[string]string{}
@@ -395,10 +405,11 @@ func (s *Store) List() []User {
 	return out
 }
 
-// Verify checks a login, returning the user on success.
+// Verify checks a login, returning the user on success. Disabled accounts
+// fail like unknown ones (D34).
 func (s *Store) Verify(id, password string) (*User, bool) {
 	u, ok := s.Get(id)
-	if !ok || u.PassHash == "" {
+	if !ok || u.PassHash == "" || u.Disabled {
 		// Constant-ish work even for unknown users (blunt username probing).
 		_ = hashPassword(password, make([]byte, 16))
 		return nil, false
@@ -448,6 +459,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 	}
 	if existing != nil {
 		u.Created = existing.Created
+		if u.InviteHash == "" { // a plain update must not burn a pending invite
+			u.InviteHash, u.InviteExpires = existing.InviteHash, existing.InviteExpires
+		}
 	} else {
 		u.Created = time.Now().Unix()
 	}
@@ -512,6 +526,13 @@ func (s *Store) Delete(id string) (orphaned []string, err error) {
 		}
 		s.orgs[oid] = &no
 	}
+	reqs := s.requests[:0]
+	for _, r := range s.requests {
+		if r.User != id {
+			reqs = append(reqs, r)
+		}
+	}
+	s.requests = reqs
 	ref := OwnerKindUser + ":" + id
 	for p, v := range s.owners {
 		if v == ref {
@@ -557,6 +578,9 @@ func (s *Store) persistLocked() error {
 	}
 	if len(s.policy) > 0 {
 		doc["policy"] = s.policy
+	}
+	if len(s.requests) > 0 {
+		doc["accessRequests"] = s.requests
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

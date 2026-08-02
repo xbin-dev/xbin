@@ -411,6 +411,47 @@ sign-in for company-wide workspaces) would bind to the same row via the same
 no-self-signup rule (the IdP asserts identity; a workspace admin — or a
 domain allow-rule they configure — still decides who gets an account).
 
+## Disable, suspend, and asking for access (D34/D36)
+
+Two pause switches, scoped to who holds them: a **workspace admin disables
+an account** (`PATCH /users/<id> {disabled:true}`, `bx user set --disable`)
+— login, sessions, frame/terminal tokens and invite redemption all refuse,
+but every row, membership and owned tile stays, so re-enabling restores the
+user exactly. Guarded against lockout (not yourself, not the last enabled
+admin). An **org admin suspends a member** (the member row's `suspended`
+knob): that one membership confers nothing while set — org-tile level,
+org shares, create, adminship, set-conferred term flags — and reinstating
+is unchecking the box. Org-level moderation without touching the account.
+
+And the people-plane request loop: any signed-in user can **ask for access**
+(`POST /access-requests`, `bx access <tile> request`, or simply navigating
+to a tile they can't read — the 403 is a request-access page naming the
+owner). Whoever manages the tile (its user-owner, the owning org's admins,
+or a ws-admin — the same set that shares it) sees the queue in the
+organisations tile and approves into an exact ACL entry or dismisses;
+requesters can withdraw. No more out-of-band "can someone give me…" pings —
+and no more over-granting because asking was harder than widening.
+
+### Hostname-granular egress (D35)
+
+The `net` binding vocabulary has a FILTERED internet form:
+
+```
+bx bind apps/scraper net=internet:api.stripe.com:443,files.stripe.com
+```
+
+Egress is then restricted to the named destinations — hostnames are
+enforced by the relay's **DNS pinning** (the relay terminates the sandbox's
+DNS; it pins the addresses that allowed names resolve to and admits only
+those flows; a name resolving into the LAN pins nothing, so DNS rebinding
+can't cross `net:internet`'s public-only line). IPs/CIDRs with optional
+ports work too. On the delegation side, allowance entries grant with globs
+and CIDR containment: `net:internet:*.stripe.com` lets an org admin approve
+any stripe host, and `net:lan:10.0.0.0/8` covers every narrower
+`lan:10.x/nn` binding — org admins carve subnets out of the grant they were
+given. For richer filtering (L7 rules, rotating CDN sets) run a filtering
+net-provider tile and bind through it.
+
 ## Ownership, organizations & delegated approval
 
 The multi-user grouping model (plans/ownership.md, DECISIONS D24–D28).

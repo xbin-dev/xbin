@@ -21,8 +21,10 @@ const splitHorizonTTL = 30 // seconds; routes move when bindings change
 
 // spliceDNS pumps a DNS flow like spliceUDPIdle, but answers published-name
 // A/AAAA queries locally (A → vip, AAAA → empty NOERROR so clients fall back
-// to v4). Everything else forwards to the resolver untouched.
-func spliceDNS(in, out net.Conn, published func(string) bool, vip netip.Addr, idle time.Duration) (aToB, bToA int64) {
+// to v4), and — when pin is non-nil — inspects forwarded RESPONSES to record
+// name→address pins for hostname egress (D35). Everything else forwards to
+// the resolver untouched.
+func spliceDNS(in, out net.Conn, published func(string) bool, vip netip.Addr, idle time.Duration, pin func([]byte)) (aToB, bToA int64) {
 	extend := func() {
 		d := time.Now().Add(idle)
 		_ = in.SetReadDeadline(d)
@@ -37,6 +39,9 @@ func spliceDNS(in, out net.Conn, published func(string) bool, vip netip.Addr, id
 			k, err := out.Read(buf)
 			if k > 0 {
 				extend()
+				if pin != nil {
+					pin(buf[:k])
+				}
 				w, _ := in.Write(buf[:k])
 				bToA += int64(w)
 			}
@@ -117,4 +122,50 @@ func answerPublished(query []byte, published func(string) bool, vip netip.Addr) 
 		return nil
 	}
 	return out
+}
+
+// pinAnswers parses one forwarded DNS response and pins its A/AAAA answers
+// under the QUESTION name (the name the policy speaks about — CNAME chains
+// resolve to whatever the query asked for). Malformed packets are ignored.
+func (r *Relay) pinAnswers(msg []byte) {
+	var p dnsmessage.Parser
+	hdr, err := p.Start(msg)
+	if err != nil || !hdr.Response {
+		return
+	}
+	q, err := p.Question()
+	if err != nil {
+		return
+	}
+	name := strings.ToLower(strings.TrimSuffix(q.Name.String(), "."))
+	if name == "" {
+		return
+	}
+	if err := p.SkipAllQuestions(); err != nil {
+		return
+	}
+	for {
+		h, err := p.AnswerHeader()
+		if err != nil {
+			return // ErrSectionDone or malformed — either way, stop
+		}
+		switch h.Type {
+		case dnsmessage.TypeA:
+			rr, err := p.AResource()
+			if err != nil {
+				return
+			}
+			r.pin(name, netip.AddrFrom4(rr.A), h.TTL)
+		case dnsmessage.TypeAAAA:
+			rr, err := p.AAAAResource()
+			if err != nil {
+				return
+			}
+			r.pin(name, netip.AddrFrom16(rr.AAAA), h.TTL)
+		default:
+			if err := p.SkipAnswer(); err != nil {
+				return
+			}
+		}
+	}
 }

@@ -199,7 +199,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok := r.URL.Query().Get("invite"); tok != "" {
-		s.serveInvitePage(w, tok, "")
+		s.serveInvitePage(w, r, tok, "")
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -207,8 +207,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveInvitePage renders the set-your-password page for an invite link
-// (D22). The token is only VERIFIED here — consumption happens on POST.
-func (s *Server) serveInvitePage(w http.ResponseWriter, tok, errMsg string) {
+// (D22). The token is only VERIFIED here — consumption happens on POST. When
+// the visitor is already signed in, the page says so: redeeming replaces the
+// current session and consumes the single-use link, so an admin "testing"
+// the link they minted shouldn't stumble into burning it.
+func (s *Server) serveInvitePage(w http.ResponseWriter, r *http.Request, tok, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.Auth.Users == nil {
 		http.Error(w, "invalid or expired invite", http.StatusForbidden)
@@ -227,6 +230,16 @@ func (s *Server) serveInvitePage(w http.ResponseWriter, tok, errMsg string) {
 		errHTML = `<div class="err">` + htmlEscape(errMsg) + `</div>`
 	}
 	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
+	warnHTML := ""
+	if p, ok := s.Auth.FromRequest(r); ok && (p.User != nil || p.Owner) {
+		who := "the workspace owner"
+		if p.User != nil {
+			who = htmlEscape(p.User.ID)
+		}
+		warnHTML = `<div class="warn">You are signed in as <b>` + who +
+			`</b> — setting this password signs you out and uses up this single-use link. Meant for someone else? Close this page and send them the URL instead.</div>`
+	}
+	page = strings.ReplaceAll(page, "{{WARN}}", warnHTML)
 	_, _ = w.Write([]byte(page))
 }
 
@@ -245,13 +258,13 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pass != r.FormValue("password2") {
-		s.serveInvitePage(w, tok, "passwords don't match")
+		s.serveInvitePage(w, r, tok, "passwords don't match")
 		return
 	}
 	u, err := s.Auth.Users.RedeemInvite(tok, pass)
 	if err != nil {
 		s.loginThrottle.fail(clientIP(r))
-		s.serveInvitePage(w, tok, err.Error())
+		s.serveInvitePage(w, r, tok, err.Error())
 		return
 	}
 	s.loginThrottle.ok(clientIP(r))

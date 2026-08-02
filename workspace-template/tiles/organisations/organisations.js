@@ -34,6 +34,7 @@ export class BxOrganisations extends LitElement {
     _dir: { state: true },      // users-directory (org admins)
     _grants: { state: true },   // scoped {grants, pending, scope} (D26/D33)
     _binds: { state: true },    // scoped {bindings, pending} (D26/D33)
+    _reqs: { state: true },     // human access requests, scoped mine/manage (D36)
     _acl: { state: true },      // per-tile expanded ACL {tile, owner, entries}
     _xfer: { state: true },     // transfer-in-progress {tile, to} (inline confirm)
     _err: { state: true },
@@ -99,6 +100,7 @@ export class BxOrganisations extends LitElement {
     this._orgs = (await api('/orgs').catch(() => ({ orgs: [] }))).orgs ?? [];
     this._grants = await api('/grants').catch(() => null);
     this._binds = await api('/bindings').catch(() => null);
+    this._reqs = (await api('/access-requests').catch(() => ({ requests: [] }))).requests ?? [];
     if (this._adminOrgIds().length || this._who?.admin) {
       this._dir = (await api('/users-directory').catch(() => ({ users: [] }))).users ?? [];
     }
@@ -211,9 +213,9 @@ export class BxOrganisations extends LitElement {
     const addable = (this._dir ?? []).filter((u) => !memberIds.has(u.id));
     return html`
       <table>
-        <tr><th>member</th><th>level</th><th>create</th><th>admin</th><th></th></tr>
-        ${(o.members ?? []).map((m) => html`<tr>
-          <td class="mono">${m.id}</td>
+        <tr><th>member</th><th>level</th><th>create</th><th>admin</th><th>suspended</th><th></th></tr>
+        ${(o.members ?? []).map((m) => html`<tr style=${m.suspended ? 'opacity:.55' : ''}>
+          <td class="mono">${m.id}${m.suspended ? html` <span class="pill">suspended</span>` : nothing}</td>
           <td><select @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, level: e.target.value } : x), 'updated')}>
             ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${m.level === l}>${l}</option>`)}
           </select></td>
@@ -221,6 +223,10 @@ export class BxOrganisations extends LitElement {
             @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, create: e.target.checked } : x), 'updated')}></td>
           <td><input type="checkbox" .checked=${!!m.admin} title="org management + allowance approvals"
             @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, admin: e.target.checked } : x), 'updated')}></td>
+          <td><input type="checkbox" .checked=${!!m.suspended}
+            title="pause this membership — it confers nothing while suspended, but keeps its knobs for reinstatement (D34)"
+            @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, suspended: e.target.checked } : x),
+              e.target.checked ? 'suspended' : 'reinstated')}></td>
           <td><button class="rm" @click=${() => save((o.members ?? []).filter((x) => x.id !== m.id), 'removed')}>remove</button></td>
         </tr>`)}
       </table>
@@ -291,6 +297,46 @@ export class BxOrganisations extends LitElement {
       </div>` : nothing}`;
   }
 
+  // ---- human access requests (D36) ----
+  _requestsView() {
+    const all = this._reqs ?? [];
+    const manage = all.filter((q) => q.manage);
+    const mine = all.filter((q) => q.mine && !q.manage);
+    if (!manage.length && !mine.length) return nothing;
+    return html`
+      <h3>access requests</h3>
+      ${manage.length ? html`<div class="card">
+        ${manage.map((q) => html`<div class="row" style="margin:3px 0">
+          <span class="mono">${q.user}</span> wants
+          <select id="rq-${q.user}-${q.tile}">
+            ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${q.level === l}>${l}</option>`)}
+          </select>
+          on <span class="mono">${q.tile}</span>
+          ${q.note ? html`<span class="muted" style="font-size:11px">— ${q.note}</span>` : nothing}
+          <span style="flex:1"></span>
+          <button class="go" @click=${() => {
+            const sel = this.renderRoot.getElementById(`rq-${q.user}-${q.tile}`);
+            this._do(() => api('/access-requests/approve',
+              jbody('POST', { user: q.user, tile: q.tile, level: sel?.value || q.level })), 'granted');
+          }}>approve</button>
+          <button class="rm" @click=${() => this._do(() =>
+            api('/access-requests', jbody('DELETE', { user: q.user, tile: q.tile })), 'dismissed')}>dismiss</button>
+        </div>`)}
+        <p class="muted" style="font-size:11px; margin:2px 0 0">
+          Approving writes an exact entry at the chosen level (authoritative, D31).</p>
+      </div>` : nothing}
+      ${mine.length ? html`<div class="card">
+        ${mine.map((q) => html`<div class="row" style="margin:3px 0">
+          <span class="muted" style="font-size:12px">your request:</span>
+          <span class="pill">${q.level}</span> on <span class="mono">${q.tile}</span>
+          <span class="muted" style="font-size:11px">— pending with the tile's owner/org admins</span>
+          <span style="flex:1"></span>
+          <button @click=${() => this._do(() =>
+            api('/access-requests', jbody('DELETE', { tile: q.tile })), 'withdrawn')}>withdraw</button>
+        </div>`)}
+      </div>` : nothing}`;
+  }
+
   // ---- provider view (D33): who consumes YOUR tiles ----
   _consumersView() {
     const rows = (this._grants?.grants ?? []).filter((g) =>
@@ -351,8 +397,10 @@ export class BxOrganisations extends LitElement {
       ${this._note ? html`<div class="note">${this._note}</div>` : nothing}
 
       <h3>my organisations</h3>
-      ${myOrgs.length ? myOrgs.map((o) => html`
-        <span class="pill ${o.admin ? 'on' : ''}" title="level ${o.level}${o.create ? ' · may create org tiles' : ''}${o.admin ? ' · org admin' : ''}">
+      ${myOrgs.length ? myOrgs.map((o) => o.suspended
+        ? html`<span class="pill" style="opacity:.6" title="this membership is paused — it confers nothing until an org admin reinstates it (D34)">
+            ${o.id} · membership suspended</span>`
+        : html`<span class="pill ${o.admin ? 'on' : ''}" title="level ${o.level}${o.create ? ' · may create org tiles' : ''}${o.admin ? ' · org admin' : ''}">
           ${o.admin ? '★ ' : ''}${o.id} · ${o.level}${o.create ? ' +create' : ''}</span>`)
         : who.admin
           ? html`<p class="muted">No organisations exist yet — create them in the
@@ -371,6 +419,7 @@ export class BxOrganisations extends LitElement {
         </div>`)}` : nothing}
 
       ${this._approvalsView()}
+      ${this._requestsView()}
       ${this._consumersView()}
       ${this._transferCard()}
 

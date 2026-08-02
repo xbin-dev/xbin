@@ -450,7 +450,7 @@ func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
 	switch req.Kind {
 	case "net":
 		builtins = []bindOption{
-			{ID: "internet", Label: "internet — public internet (gVisor relay, no LAN)"},
+			{ID: "internet", Label: "internet — public internet (gVisor relay, no LAN; internet:<host|cidr>[:port][,…] filters to named destinations, D35)"},
 			{ID: "host", Label: "host — share the host's network (powerful)"},
 		}
 		for _, p := range b.Reg.Components() {
@@ -642,6 +642,12 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 				return fmt.Errorf("net bindings take no #instance")
 			}
 			if prov == "internet" || prov == "host" || strings.HasPrefix(prov, "lan:") {
+				continue
+			}
+			if strings.HasPrefix(prov, "internet:") { // filtered internet (D35)
+				if err := validateFilteredInternet(prov); err != nil {
+					return err
+				}
 				continue
 			}
 			if p, ok := b.Reg.Component(prov); !ok || !providesNet(p) {

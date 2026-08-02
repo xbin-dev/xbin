@@ -50,16 +50,20 @@ const udpIdleTimeout = 30 * time.Second
 // from the host side to a port the backend listens on inside its netns — the
 // TUN carries it like any other packet, no setns and no extra privilege.
 type Relay struct {
-	stack    *stack.Stack
-	dial     net.Dialer
-	allow    Allow
-	gateway  netip.Addr     // virtual gateway IP that host-forwards apply to
-	hostFwd  map[int]string // gateway port → host dial addr (e.g. xbind)
-	hostDial func(dst string) (net.Conn, error)
-	tileIP   netip.Addr                       // the in-netns peer address DialIn targets
-	hairpin  netip.Addr                       // split-horizon VIP (invalid = off)
-	hairDial func(port int) (net.Conn, error) // ingress-path dial for hairpin flows
-	icmp     *icmpTap                         // link-layer ICMP echo forwarder (nil if setup failed)
+	stack     *stack.Stack
+	dial      net.Dialer
+	allow     Allow
+	gateway   netip.Addr     // virtual gateway IP that host-forwards apply to
+	hostFwd   map[int]string // gateway port → host dial addr (e.g. xbind)
+	hostDial  func(dst string) (net.Conn, error)
+	tileIP    netip.Addr                       // the in-netns peer address DialIn targets
+	hairpin   netip.Addr                       // split-horizon VIP (invalid = off)
+	hairDial  func(port int) (net.Conn, error) // ingress-path dial for hairpin flows
+	icmp      *icmpTap                         // link-layer ICMP echo forwarder (nil if setup failed)
+	allowHost func(name string, port int) bool // host-rule policy (D35; nil = no host rules)
+
+	pinMu sync.Mutex
+	pins  map[netip.Addr]map[string]int64 // DNS pins: addr → name → expiry (unix)
 
 	mu      sync.Mutex
 	allowed int64
@@ -119,6 +123,89 @@ func (r *Relay) finish(f *Flow, tx, rx int64) {
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 
+// permitted is the full egress decision: the static IP policy, or — when
+// host rules are configured — a DNS pin naming this address whose hostname
+// the policy allows at this port (D35).
+func (r *Relay) permitted(ip netip.Addr, port int) bool {
+	if r.allow != nil && r.allow(ip, port) {
+		return true
+	}
+	if r.allowHost == nil {
+		return false
+	}
+	now := time.Now().Unix()
+	r.pinMu.Lock()
+	names := r.pins[ip]
+	var live []string
+	for name, exp := range names {
+		if exp >= now {
+			live = append(live, name)
+		} else {
+			delete(names, name)
+		}
+	}
+	r.pinMu.Unlock()
+	for _, name := range live {
+		if r.allowHost(name, port) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxPins bounds the pin table (a hostile resolver can't balloon memory);
+// far above any real tile's working set of names.
+const maxPins = 4096
+
+// pin records a DNS answer (name → addr) for ttl seconds. Only public
+// addresses pin — hostname egress is internet-class, so a name resolving
+// into RFC1918/loopback (DNS rebinding) confers nothing.
+func (r *Relay) pin(name string, addr netip.Addr, ttl uint32) {
+	if r.pins == nil || !publicAddr(addr) {
+		return
+	}
+	if ttl < 60 {
+		ttl = 60 // don't churn on aggressive TTLs; re-resolution refreshes anyway
+	} else if ttl > 3600 {
+		ttl = 3600
+	}
+	exp := time.Now().Unix() + int64(ttl) + 30 // grace: in-flight connects after expiry
+	r.pinMu.Lock()
+	defer r.pinMu.Unlock()
+	if len(r.pins) >= maxPins {
+		now := time.Now().Unix()
+		for a, names := range r.pins { // drop expired first
+			for n, e := range names {
+				if e < now {
+					delete(names, n)
+				}
+			}
+			if len(names) == 0 {
+				delete(r.pins, a)
+			}
+		}
+		if len(r.pins) >= maxPins {
+			return // table full of live pins — refuse new ones over losing old
+		}
+	}
+	m := r.pins[addr]
+	if m == nil {
+		m = map[string]int64{}
+		r.pins[addr] = m
+	}
+	if e, ok := m[name]; !ok || exp > e {
+		m[name] = exp
+	}
+}
+
+// publicAddr mirrors the sandbox policy's "internet" test (kept local — the
+// parent package imports us).
+func publicAddr(ip netip.Addr) bool {
+	return ip.IsValid() && !ip.IsPrivate() && !ip.IsLoopback() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() &&
+		!ip.IsMulticast() && !ip.IsUnspecified()
+}
+
 // Start attaches a stack to a TUN (opened inside the target netns and passed to
 // us) and begins forwarding under cfg.
 func Start(cfg Config) (*Relay, error) {
@@ -134,7 +221,10 @@ func Start(cfg Config) (*Relay, error) {
 	r := &Relay{
 		stack: s, allow: cfg.Allow, dial: net.Dialer{Timeout: 15 * time.Second},
 		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, hostDial: cfg.HostDial,
-		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial,
+		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial, allowHost: cfg.AllowHost,
+	}
+	if r.allowHost != nil {
+		r.pins = map[netip.Addr]map[string]int64{}
 	}
 	if !r.tileIP.IsValid() {
 		r.tileIP = netip.MustParseAddr("10.0.2.15") // the egress TUN default
@@ -213,7 +303,7 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 		return
 	}
 
-	if !ok || !r.allow(ip, port) {
+	if !ok || !r.permitted(ip, port) {
 		r.record("tcp", ip, port, false) // RST — denied
 		req.Complete(true)
 		return
@@ -293,7 +383,7 @@ func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 		dns := port == 53 && resolver != ""
 		if dns {
 			dst = resolver // pin DNS to the host resolver
-		} else if !ok || !r.allow(ip, port) {
+		} else if !ok || !r.permitted(ip, port) {
 			return true // consumed (dropped)
 		}
 		var wq waiter.Queue
@@ -308,9 +398,13 @@ func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 		}
 		in := gonet.NewUDPConn(&wq, gep)
 		f := r.record("udp", ip, port, true)
-		if dns && r.hairpin.IsValid() && cfg.Published != nil {
+		if dns && ((r.hairpin.IsValid() && cfg.Published != nil) || r.pins != nil) {
+			pub := cfg.Published
+			if pub == nil {
+				pub = func(string) bool { return false }
+			}
 			go func() {
-				tx, rx := spliceDNS(in, out, cfg.Published, r.hairpin, udpIdleTimeout)
+				tx, rx := spliceDNS(in, out, pub, r.hairpin, udpIdleTimeout, r.pinAnswers)
 				r.finish(f, tx, rx)
 			}()
 			return true

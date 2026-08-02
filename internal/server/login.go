@@ -83,11 +83,13 @@ const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
   background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
 .card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
-  padding:26px 28px;width:300px}
+  padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
 .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:18px}
 .logo svg{flex:none}
 label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:#868f9a;margin:10px 0 3px}
+.warn{background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
+  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
 input{width:100%;box-sizing:border-box;border:1px solid #363c45;border-radius:6px;padding:7px 9px;
   font:14px inherit;color:#d4d9e0;background:#2b3038}
 input:focus{outline:2px solid rgba(245,166,35,.45)}
@@ -118,12 +120,14 @@ const invitePageHTML = `<!doctype html><html><head><meta charset="utf-8">
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
   background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
 .card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
-  padding:26px 28px;width:300px}
+  padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
 .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:14px}
 h1{font-size:15px;margin:0 0 4px}
 p{font-size:12.5px;color:#868f9a;margin:0 0 8px}
 label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:#868f9a;margin:10px 0 3px}
+.warn{background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
+  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
 input{width:100%;box-sizing:border-box;border:1px solid #363c45;border-radius:6px;padding:7px 9px;
   font:14px inherit;color:#d4d9e0;background:#2b3038}
 input:focus{outline:2px solid rgba(245,166,35,.45)}
@@ -142,6 +146,7 @@ button:hover{background:#e0912a}
   <label for="p2">Repeat password</label>
   <input id="p2" name="password2" type="password" autocomplete="new-password" minlength="8" required>
   <button>Set password &amp; sign in</button>
+  {{WARN}}
   {{ERR}}
 </form></body></html>`
 

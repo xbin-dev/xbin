@@ -12,6 +12,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **Disable, suspend, ask-for-access, and hostname-granular egress
+  (D34-D36).** The second wave of review follow-ups, all additive:
+  - *Account disable (D34):* `bx user set <id> --disable` (admin tile
+    toggle) pauses an account — login, sessions, live terminals and invite
+    links all refuse — while keeping every grant, membership and owned tile
+    for `--enable`. Lockout-guarded. Org admins get the org-scoped little
+    sibling: a member's **suspended** knob pauses one membership (confers
+    nothing, stays listed).
+  - *Ask for access (D36):* navigating to a tile you can't read now shows a
+    request-access page (owner named, one click) instead of a bare 403;
+    `bx access <tile> request [level]` does the same from a shell. The
+    tile's owner / org admins see the queue in the organisations tile (and
+    `bx access <tile>`), approve into an exact entry or dismiss; requesters
+    can withdraw. The ⚑ badge counts these too.
+  - *Filtered internet egress (D35):* `bx bind apps/x
+    net=internet:api.stripe.com:443` restricts a tile's egress to named
+    hosts/CIDRs/ports — hostnames enforced by DNS pinning in the egress
+    relay (rebinding into the LAN pins nothing). Allowances grant it with
+    globs and CIDR containment: `net:internet:*.stripe.com` or a
+    `net:lan:10.0.0.0/8` entry that lets org admins carve out any narrower
+    subnet. Complex filtering stays in net-provider tiles.
+  - Invite links now also return an absolute `inviteLink`, the invite page
+    warns when you're already signed in (so you don't burn someone else's
+    single-use link), and the login/invite cards no longer clip on small
+    phones. A fresh workspace's shell shows a one-time "secure this
+    workspace" checklist until the first admin account exists.
+
 - **BREAKING — the ownership model grew teeth: org-governed access, exact
   overrides, provider-side approvals, backend-only secrets, user
   attribution.** ([migration note](changes/2026-08-02-ownership-fixes.md))

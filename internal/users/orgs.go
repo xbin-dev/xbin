@@ -15,6 +15,7 @@ package users
 
 import (
 	"fmt"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,11 +51,19 @@ type PolicyRow struct {
 // management (members, org tiles' ACLs, transfers, exercising allowances).
 // The UI presents presets — Admin (terminal+create+admin), Developer
 // (terminal+create), Viewer (read) — over these three knobs.
+//
+// Suspended (D34) pauses the membership without losing it: a suspended
+// member contributes NOTHING through this org — no level on org tiles, no
+// org shares, no create, no adminship, no set-conferred term flags — but
+// the row (with its knobs) stays for one-click reinstatement. Org admins
+// set it (pausing a member of your org is org management); a full ACCOUNT
+// disable is the ws-admin's User.Disabled.
 type Member struct {
-	ID     string `json:"id"`
-	Level  string `json:"level"` // read|write|terminal
-	Create bool   `json:"create,omitempty"`
-	Admin  bool   `json:"admin,omitempty"`
+	ID        string `json:"id"`
+	Level     string `json:"level"` // read|write|terminal
+	Create    bool   `json:"create,omitempty"`
+	Admin     bool   `json:"admin,omitempty"`
+	Suspended bool   `json:"suspended,omitempty"`
 }
 
 // Org is one organization (D25): a flat member list, per-tile shares (tiles
@@ -558,10 +567,11 @@ func parseAllowEntry(e string) (allowEntry, error) {
 	case "net":
 		switch {
 		case rest == "internet" || rest == "host":
+		case strings.HasPrefix(rest, "internet:") && len(rest) > 9: // D35: filtered-internet carve-outs
 		case strings.HasPrefix(rest, "lan:") && len(rest) > 4:
 		case strings.HasPrefix(rest, "provider:") && len(rest) > 9:
 		default:
-			return allowEntry{}, fmt.Errorf("%q — net entries are net:internet, net:host, net:lan:<glob> or net:provider:<tile-glob>", e)
+			return allowEntry{}, fmt.Errorf("%q — net entries are net:internet, net:internet:<host-glob|cidr>[:port], net:lan:<glob|cidr>, or net:provider:<tile-glob>", e)
 		}
 	case "iface":
 		v := rest
@@ -687,7 +697,7 @@ func allowMatch(e allowEntry, target, role string) bool {
 		return globMatch(e.value, rest)
 	case "net":
 		rest, ok := strings.CutPrefix(target, "net:")
-		return ok && globMatch(e.value, rest)
+		return ok && netAllowMatch(e.value, rest)
 	case "iface":
 		rest, ok := strings.CutPrefix(target, "iface:")
 		if !ok {
@@ -730,6 +740,86 @@ func allowMatch(e allowEntry, target, role string) bool {
 		return e1 == nil && e2 == nil && e3 == nil && p >= l && p <= h
 	}
 	return false
+}
+
+// netAllowMatch matches a net-class allowance value against a normalized
+// net-class target value (both after "net:"). Beyond the plain glob, it
+// understands the D35 carve-out semantics:
+//
+//   - `internet` (unfiltered) covers every filtered `internet:<spec>` target
+//     — full egress subsumes any filter;
+//   - `internet:<glob|cidr>[:port]` covers `internet:<spec>` by hostname
+//     glob or CIDR CONTAINMENT (an org allowed 1.2.0.0/16 may approve
+//     1.2.3.0/24 or 1.2.3.4 — carving a subnet out of a larger grant), with
+//     an entry-pinned port matching only that port;
+//   - `lan:<glob|cidr>` covers `lan:<cidr>` the same way (containment or
+//     glob).
+func netAllowMatch(entry, target string) bool {
+	if es, ok := strings.CutPrefix(entry, "internet:"); ok {
+		if ts, ok2 := strings.CutPrefix(target, "internet:"); ok2 {
+			return netSpecCovers(es, ts)
+		}
+		return false
+	}
+	if entry == "internet" && (target == "internet" || strings.HasPrefix(target, "internet:")) {
+		return true
+	}
+	if es, ok := strings.CutPrefix(entry, "lan:"); ok {
+		if ts, ok2 := strings.CutPrefix(target, "lan:"); ok2 {
+			return netSpecCovers(es, ts)
+		}
+		return false
+	}
+	return globMatch(entry, target)
+}
+
+// netSpecCovers: one allowance spec vs one concrete binding spec — CIDR
+// containment when both are addresses, hostname glob otherwise; an entry
+// port pins the target's port.
+func netSpecCovers(entry, target string) bool {
+	eHost, ePort := cutNetPort(entry)
+	tHost, tPort := cutNetPort(target)
+	if ePort != "" && ePort != tPort {
+		return false
+	}
+	if epfx, ok := parsePrefixish(eHost); ok {
+		tpfx, ok2 := parsePrefixish(tHost)
+		return ok2 && epfx.Bits() <= tpfx.Bits() && epfx.Contains(tpfx.Addr())
+	}
+	return globMatch(strings.ToLower(eHost), strings.ToLower(tHost))
+}
+
+// cutNetPort splits a trailing ":<digits>" port off a spec (IPv4/hostname
+// forms; bracketed IPv6 keeps its brackets in the host half).
+func cutNetPort(s string) (host, port string) {
+	i := strings.LastIndexByte(s, ':')
+	if i < 0 {
+		return s, ""
+	}
+	p := s[i+1:]
+	if p == "" {
+		return s, ""
+	}
+	for _, c := range p {
+		if c < '0' || c > '9' {
+			return s, ""
+		}
+	}
+	return s[:i], p
+}
+
+// parsePrefixish parses a CIDR or bare address ("1.2.3.4" ⇒ /32).
+func parsePrefixish(s string) (netip.Prefix, bool) {
+	s = strings.Trim(s, "[]")
+	if strings.Contains(s, "/") {
+		p, err := netip.ParsePrefix(s)
+		return p.Masked(), err == nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	return netip.PrefixFrom(a, a.BitLen()), true
 }
 
 // globMatch supports one '*' anywhere (exact match without it).
@@ -833,8 +923,8 @@ func (s *Store) Access(id string) (*Access, bool) {
 	a := &Access{user: &uc, owners: s.owners, defaultTiles: s.defaultTiles}
 	for _, o := range s.orgs {
 		m, ok := o.Member(uc.ID)
-		if !ok {
-			continue
+		if !ok || m.Suspended {
+			continue // suspended membership confers nothing (D34)
 		}
 		a.orgs = append(a.orgs, orgShare{id: o.ID, member: m, tiles: o.Tiles})
 		for _, n := range o.Sets {
@@ -1225,10 +1315,14 @@ type OrgMembership struct {
 	Level  string `json:"level"`
 	Create bool   `json:"create,omitempty"`
 	Admin  bool   `json:"admin,omitempty"`
+	// Suspended: the membership is paused (D34) — shown so the member knows
+	// why the org's tiles are gone (rather than silently vanishing).
+	Suspended bool `json:"suspended,omitempty"`
 }
 
 // UserOrgs lists the orgs a user belongs to with their role — whoami's
-// `orgs` field, and what owner pickers build from.
+// `orgs` field, and what owner pickers build from. Suspended memberships
+// are included, flagged (they confer nothing; Access skips them).
 func (s *Store) UserOrgs(id string) []OrgMembership {
 	id = normalizeID(id)
 	s.mu.RLock()
@@ -1236,7 +1330,8 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 	var out []OrgMembership
 	for _, o := range s.orgs {
 		if m, ok := o.Member(id); ok {
-			out = append(out, OrgMembership{ID: o.ID, Name: o.Name, Level: m.Level, Create: m.Create, Admin: m.Admin})
+			out = append(out, OrgMembership{ID: o.ID, Name: o.Name, Level: m.Level,
+				Create: m.Create, Admin: m.Admin, Suspended: m.Suspended})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })

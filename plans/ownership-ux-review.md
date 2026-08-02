@@ -13,9 +13,13 @@
 > and P2 #13 (exact-entry narrowing + `none`), #14 (X-XBin-User
 > attribution), #16 partially (requester visibility + approver hints; a
 > full human request-access queue remains open), plus the vault
-> terminal/frame read hole found in review (now D30 backend-only). Still
-> open: user disable (#15), per-tile memory limits (#17), hostname-granular
-> egress (#18), SSO (#19), first-run hardening prompt and most P3 polish.
+> terminal/frame read hole found in review (now D30 backend-only). A second
+> wave (D34-D36, same day) closed user disable + org-scoped suspension
+> (#15), hostname-granular egress with allowance carve-outs (#18), the full
+> human request-access queue (#16 completely), the first-run hardening
+> prompt, and the invite paper-cuts. Still open: per-tile/org memory limits
+> (#17 — deliberately deferred, org-wide limits will come with it) and SSO
+> (#19).
 
 **Headline:** the model and its enforcement held up everywhere it was
 attacked — intra-org vs cross-owner vs allowance-scoped approval, the

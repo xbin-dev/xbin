@@ -34,9 +34,16 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 
 	// Tile-level RBAC: a user may load only tiles they can read (D16 — read is
 	// the visibility level). Chrome (root, shell) is always viewable; the shell
-	// then shows only the tiles the user may see.
+	// then shows only the tiles the user may see. A signed-in HUMAN navigating
+	// to an unreadable tile gets a request-access page instead of a bare 403
+	// (D36) — the tile exists (they have the link), so hiding it buys nothing
+	// and "ask an admin out of band" was the review's biggest sharing gap.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
 		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) {
+			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				s.serveRequestAccessPage(w, owner)
+				return
+			}
 			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
 			return
 		}

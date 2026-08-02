@@ -108,7 +108,7 @@ func cmdDoctor() error {
 						}
 					}
 					if !hasAdmin {
-						warn("org %q has no org admin — only workspace admins can manage it (bx org member %s <user> --admin)", o.ID, o.ID)
+						warn("org %q has no active org admin — only workspace admins can manage it (bx org member %s <user> --admin)", o.ID, o.ID)
 					}
 				}
 				for _, e := range o.ResolvedAllow {

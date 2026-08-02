@@ -65,7 +65,7 @@ func (s *Store) InviteUser(token string) (*User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, u := range s.byID {
-		if u.InviteHash == "" || u.InviteExpires < timeNow() {
+		if u.InviteHash == "" || u.InviteExpires < timeNow() || u.Disabled {
 			continue
 		}
 		if subtle.ConstantTimeCompare([]byte(u.InviteHash), []byte(want)) == 1 {
@@ -87,7 +87,7 @@ func (s *Store) RedeemInvite(token, password string) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, u := range s.byID {
-		if u.InviteHash == "" || u.InviteExpires < timeNow() {
+		if u.InviteHash == "" || u.InviteExpires < timeNow() || u.Disabled {
 			continue
 		}
 		if subtle.ConstantTimeCompare([]byte(u.InviteHash), []byte(want)) != 1 {

@@ -154,7 +154,8 @@ DELETE /prefs/<key>               remove it
                                    bucket; the shell stores layout here)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, canCreate, termApi,
-                                   termNet}] — levels read|write|terminal
+                                   termNet, disabled?, invitePending?}] —
+                                   levels read|write|terminal
                                    (docs/auth.md, D16)
 POST   /users                     admin/xbin:users. create a user: {id,
                                    name?, role?, tiles?, canCreate?, termApi?,
@@ -173,9 +174,16 @@ POST   /users/<id>/invite         admin/xbin:users. (re)mint an invite link
                                    or reset-by-link; re-minting invalidates
                                    the previous link; the current password
                                    keeps working until redemption. → {invite,
-                                   inviteUrl, inviteExpires}
+                                   inviteUrl, inviteLink (absolute, from the
+                                   request host), inviteExpires}
 PATCH  /users/<id>                admin/xbin:users. update — present fields
-                                   overlay (+password reset)
+                                   overlay (+password reset). {disabled:
+                                   bool} suspends/restores the account
+                                   (D34): login, sessions, tokens and
+                                   invite redemption refuse while set;
+                                   rows/memberships/ownership stay.
+                                   Guarded: not yourself, not the last
+                                   enabled admin
 DELETE /users/<id>                admin/xbin:users. remove (revokes
                                    sessions) → {ok, orphanedTiles: […]} —
                                    tiles that fell to workspace-owned, so
@@ -193,14 +201,18 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
 GET    /orgs                      management view (docs/auth.md, ownership):
                                    admin/xbin:users → all orgs; a signed-in
                                    org admin → their orgs. {orgs:[{id,name,
-                                   members:[{id,level,create,admin}],tiles,
+                                   members:[{id,level,create,admin,
+                                   suspended?}],tiles,
                                    sets,allow,policy,resolvedAllow,
                                    ownedTiles}]}
 POST   /orgs                      admin/xbin:users. create {id, name?}
                                    (id: [a-z0-9._-], immutable; "workspace"
                                    reserved)
 PATCH  /orgs/<org>                admin/xbin:users, or that org's admin:
-                                   {name?, members?}. WS-ADMIN ONLY fields:
+                                   {name?, members?} — a member entry's
+                                   suspended:true pauses the membership
+                                   (confers nothing, stays listed; D34).
+                                   WS-ADMIN ONLY fields:
                                    {sets?, allow?} — delegation is granted
                                    from above (D26/D28); xbin/xbin:* never
                                    valid in allow
@@ -240,6 +252,28 @@ GET    /access-matrix             admin/xbin:users. users×components
                                    D31) | org-member:<org> |
                                    org-share:<org>:<pat> | direct:<pat> |
                                    default:<pat>
+GET    /access-requests           signed-in users / admin. pending human
+                                   access requests (D36), scoped to the
+                                   viewer: {requests: [{user, tile, level,
+                                   note?, created, mine?, manage?}]} —
+                                   mine = you filed it; manage = you may
+                                   approve it (the tile's owner, its org's
+                                   admins, or ws-admin)
+POST   /access-requests           signed-in users. file {tile, level:
+                                   read|write|terminal, note?} (≤20
+                                   pending each; same-tile refiles
+                                   replace; refuses levels you already
+                                   hold). A signed-in human navigating to
+                                   an unreadable /c/ tile gets this as a
+                                   page (owner named + one-click request)
+                                   instead of a bare 403
+POST   /access-requests/approve   the tile's manager set. {user, tile,
+                                   level?} — writes the exact ACL entry
+                                   (level defaults to the requested one)
+                                   and removes the request
+DELETE /access-requests           {user?, tile} — withdraw your own;
+                                   dismissing others' needs the tile's
+                                   manager set
 GET    /users-directory           admin/xbin:users, or any org admin. the
                                    minimal people list for pickers:
                                    {users:[{id,name}]} — identity only
