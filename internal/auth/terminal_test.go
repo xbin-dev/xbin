@@ -46,7 +46,7 @@ func TestTerminalTokens(t *testing.T) {
 	}
 
 	// Deleting the user kills the live shell's API access.
-	if err := store.Delete("alice"); err != nil {
+	if _, err := store.Delete("alice"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := as(tok); ok {

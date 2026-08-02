@@ -58,21 +58,79 @@ func cmdDoctor() error {
 		}
 	}
 
-	// Ownership sanity (plans/ownership.md D24): owner entries pointing at
-	// paths with no component are orphans (a moved/deleted tile) — clear or
-	// re-assign with bx owner. Best-effort: needs the admin access-matrix.
+	// Ownership/org sanity (plans/ownership.md D24-D33). Best-effort: needs
+	// admin credentials; silently skipped otherwise.
 	if comps != nil {
+		have := map[string]bool{}
+		for _, c := range comps {
+			have[c.Path] = true
+		}
+		matches := func(pat string) bool {
+			for p := range have {
+				if matchesTilePat(pat, p) {
+					return true
+				}
+			}
+			return false
+		}
+		// Owner entries pointing at paths with no component are orphans (a
+		// moved/deleted tile) — clear or re-assign with bx owner.
 		var mx struct {
 			Owners map[string]string `json:"owners"`
 		}
 		if err := apiJSON("GET", "/api/xbin/access-matrix", nil, &mx); err == nil {
-			have := map[string]bool{}
-			for _, c := range comps {
-				have[c.Path] = true
-			}
 			for p, o := range mx.Owners {
 				if !have[p] {
 					warn("owner entry %q -> %s has no component (moved or deleted) — clear or re-assign with bx owner", p, o)
+				}
+			}
+		}
+		// Org shape: admin-less orgs are manageable only by ws-admins;
+		// member-less orgs are usually leftovers. Allowance entries that fail
+		// the grammar (hand-edited users.json) can never match an approval.
+		var ov struct {
+			Orgs []struct {
+				ID            string            `json:"id"`
+				Members       []map[string]any  `json:"members"`
+				ResolvedAllow []string          `json:"resolvedAllow"`
+				Tiles         map[string]string `json:"tiles"`
+			} `json:"orgs"`
+		}
+		if err := apiJSON("GET", "/api/xbin/orgs", nil, &ov); err == nil {
+			for _, o := range ov.Orgs {
+				if len(o.Members) == 0 {
+					warn("org %q has no members — leftover? (bx org rm, or add members)", o.ID)
+				} else {
+					hasAdmin := false
+					for _, m := range o.Members {
+						if a, _ := m["admin"].(bool); a {
+							hasAdmin = true
+						}
+					}
+					if !hasAdmin {
+						warn("org %q has no org admin — only workspace admins can manage it (bx org member %s <user> --admin)", o.ID, o.ID)
+					}
+				}
+				for _, e := range o.ResolvedAllow {
+					if msg := allowEntryProblem(e); msg != "" {
+						warn("org %q allowance %q: %s (hand-edited? it can never match an approval)", o.ID, e, msg)
+					}
+				}
+				for pat := range o.Tiles {
+					if !matches(pat) {
+						warn("org %q share %q matches no component", o.ID, pat)
+					}
+				}
+			}
+		}
+		// defaultTiles patterns that match nothing grant nothing.
+		var df struct {
+			DefaultTiles map[string]string `json:"defaultTiles"`
+		}
+		if err := apiJSON("GET", "/api/xbin/defaults", nil, &df); err == nil {
+			for pat := range df.DefaultTiles {
+				if !matches(pat) {
+					warn("defaultTiles pattern %q matches no component", pat)
 				}
 			}
 		}
@@ -153,6 +211,58 @@ func singleUIDMap(s string) bool {
 		}
 	}
 	return rows == 1
+}
+
+// matchesTilePat mirrors the server's tile-pattern semantics (exact, `*`,
+// `prefix/*`, single mid-string glob) for doctor's dead-pattern checks.
+func matchesTilePat(pat, path string) bool {
+	if pat == "*" || pat == path {
+		return true
+	}
+	if strings.HasSuffix(pat, "/*") {
+		prefix := strings.TrimSuffix(pat, "/*")
+		return path == prefix || strings.HasPrefix(path, prefix+"/")
+	}
+	if i := strings.IndexByte(pat, '*'); i >= 0 {
+		pre, suf := pat[:i], pat[i+1:]
+		return len(path) >= len(pre)+len(suf) && strings.HasPrefix(path, pre) && strings.HasSuffix(path, suf)
+	}
+	return false
+}
+
+// allowEntryProblem is an ADVISORY mirror of the server-side allowance
+// grammar (internal/users parseAllowEntry) for doctor: the API refuses bad
+// entries at write time, so anything caught here was hand-edited into
+// users.json. "" = looks fine.
+func allowEntryProblem(e string) string {
+	e = strings.TrimSpace(e)
+	if e == "" {
+		return "empty entry"
+	}
+	if e == "xbin" || strings.HasPrefix(e, "xbin:") || strings.HasPrefix(e, "cap:xbin") {
+		return "the xbin capability family is never delegable"
+	}
+	class, rest, okCut := strings.Cut(e, ":")
+	if !okCut || rest == "" {
+		return "not <class>:<value>"
+	}
+	switch class {
+	case "res", "gpu", "cap", "tile", "iface":
+		return ""
+	case "net":
+		if rest == "internet" || rest == "host" ||
+			strings.HasPrefix(rest, "lan:") || strings.HasPrefix(rest, "provider:") {
+			return ""
+		}
+		return "net entries are net:internet, net:host, net:lan:<glob> or net:provider:<tile-glob>"
+	case "ingress":
+		kind, val, _ := strings.Cut(rest, ":")
+		if (kind == "host" || kind == "zone" || kind == "listen") && val != "" {
+			return ""
+		}
+		return "ingress entries are ingress:host:/zone:/listen:<value>"
+	}
+	return "unknown class (res/gpu/cap/net/iface/ingress/tile)"
 }
 
 func lookPath(bin string) (string, error) {

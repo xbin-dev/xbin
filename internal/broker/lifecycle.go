@@ -16,14 +16,17 @@ import (
 // stops any running backend now, to free compute.
 
 // apiLifecycleSet handles POST /api/xbin/lifecycle {component, state}.
+// Lifecycle is the OWNER'S to set (D24/D31): workspace admins anywhere, and
+// a tile's user-owner / the owning org's admins on their own tiles — an org
+// admin must be able to stop their runaway tile without paging a ws-admin.
 func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
-	if !b.IsAdmin(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — lifecycle is the owner's to set"})
-		return
-	}
 	var body struct{ Component, State string }
 	if err := decodeJSON(r, &body); err != nil || body.Component == "" || body.State == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, state}"})
+		return
+	}
+	if p := auth.PrincipalOf(r); !b.IsAdmin(p) && !b.mayManageTile(p, body.Component) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "lifecycle is the owner's to set — the tile's owner, its org's admins, or a workspace admin"})
 		return
 	}
 	// A component whose source was removed (offloaded-full) may not be in the

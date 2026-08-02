@@ -106,6 +106,8 @@ export class BxShell extends LitElement {
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
     _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
+    _ownedTiles: { state: true }, // tiles this human OWNS (⚙ on their own tiles, D24)
+    _pendingN: { state: true },   // ⚑ badge: actionable pending approvals/requests
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -586,7 +588,8 @@ export class BxShell extends LitElement {
     this._loadSettings();
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
-      if (e.type === 'users') { this._load(); this._probeAdmin(); } // org/team/access changes
+      if (e.type === 'users') { this._load(); this._probeAdmin(); } // org/ownership/access changes
+      if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
     });
     this._loadStatuses();
@@ -1205,10 +1208,10 @@ export class BxShell extends LitElement {
   }
 
   // Probe once whether the signed-in human is an admin (raw fetch → cookie
-  // principal). Gates the per-tile ⚙ mini-admin; its APIs 403 otherwise anyway.
-  // Org admins (docs/auth.md, orgs & teams) get the ⚙ on THEIR org's tiles:
-  // the access + lifecycle sections work for them, admin-only sections just
-  // show their 403s.
+  // principal). Gates the per-tile ⚙ mini-admin; its APIs 403 otherwise
+  // anyway. Org admins get the ⚙ on THEIR org's tiles and user-owners on
+  // their own (D24): the access + lifecycle sections work for them,
+  // admin-only sections just show their 403s.
   async _probeAdmin() {
     try {
       const r = await fetch('/api/xbin/whoami');
@@ -1216,16 +1219,41 @@ export class BxShell extends LitElement {
         const d = await r.json();
         this._isAdmin = !!d.admin;
         this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
+        this._ownedTiles = new Set(d.owned ?? []);
         this._orgish = !!((d.orgs ?? []).length || (d.owned ?? []).length);
       }
     } catch { /* xbind restarting */ }
+    this._loadPendingCount();
   }
 
-  // _canAdminTile: the ⚙ mini-admin shows for workspace admins and for org
-  // admins on tiles their org OWNS (D24 — the /components list carries the
-  // owner ref).
+  // The ⚑ badge: ACTIONABLE pending items — requests this human may approve
+  // (D26/D33), their own tiles' requests still waiting (direction "mine"),
+  // and unbound interface slots in their view. Refetched on grants/users
+  // events, so a new request lights the badge without a reload.
+  async _loadPendingCount() {
+    try {
+      const [gr, br] = await Promise.all([
+        fetch('/api/xbin/grants'), fetch('/api/xbin/bindings'),
+      ]);
+      const g = gr.ok ? await gr.json() : null;
+      const b = br.ok ? await br.json() : null;
+      let n = 0;
+      const scoped = !!g?.scope;
+      for (const p of g?.pending ?? []) {
+        if (p.blocked) continue;
+        if (!scoped || p.approvable || p.direction === 'mine') n += 1;
+      }
+      n += (b?.pending ?? []).length;
+      this._pendingN = n;
+    } catch { /* xbind restarting; next event refetches */ }
+  }
+
+  // _canAdminTile: the ⚙ mini-admin shows for workspace admins, for org
+  // admins on tiles their org OWNS, and for the tile's USER-OWNER (D24 —
+  // the /components list carries the owner ref; whoami carries `owned`).
   _canAdminTile(path) {
     if (this._isAdmin) return true;
+    if (this._ownedTiles?.has(path)) return true;
     const owner = this._components.find((c) => c.path === path)?.owner ?? '';
     return owner.startsWith('org:') && !!this._adminOrgs?.has(owner.slice(4));
   }
@@ -1777,9 +1805,9 @@ export class BxShell extends LitElement {
               ${this._sideEmptyMsg()}
             </div>
             ${this._orgish || this._adminOrgs?.size ? html`
-              <button class="orgbtn" title="your organisations: memberships, owned tiles, sharing, approvals"
+              <button class="orgbtn" title="your organisations: memberships, owned tiles, sharing, approvals${this._pendingN ? ` — ${this._pendingN} pending` : ''}"
                 @click=${() => { if (!this._isOpen('tiles/organisations')) this._toggle('tiles/organisations'); }}>
-                ⚑ organisations${this._adminOrgs?.size ? html` <span class="n">${this._adminOrgs.size}</span>` : nothing}
+                ⚑ organisations${this._pendingN ? html` <span class="n">${this._pendingN}</span>` : nothing}
               </button>` : nothing}
             ${this._statusFooter()}
             ${this._buildFoot()}

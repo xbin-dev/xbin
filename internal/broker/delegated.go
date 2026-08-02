@@ -50,21 +50,69 @@ func (b *Broker) intraOrgTarget(org, target string) bool {
 	return isOrg && o == org
 }
 
-// orgAdminMayGrant is the D26 gate for POST/DELETE /grants when the caller
-// is not a workspace admin. DELETE (revoke) is allowed for any org-owned
-// tile's grant — narrowing is safe; POST needs intra-org or allowance cover.
+// targetOwnerOrg resolves the org that OWNS a grant target's property: the
+// target component itself, a res:<scope>/… scope's component, or the
+// component of a code:<comp> read. "" when the target is not org-owned
+// (capability classes never are).
+func (b *Broker) targetOwnerOrg(target string) string {
+	if b.Users == nil {
+		return ""
+	}
+	if strings.HasPrefix(target, "res:") {
+		if rt, _, ok := b.parseRes(target); ok && rt.Scope != "" {
+			if o, isOrg := b.Users.OwnerOrg(rt.Scope); isOrg {
+				return o
+			}
+		}
+		return ""
+	}
+	if c, ok := strings.CutPrefix(target, "code:"); ok {
+		if o, isOrg := b.Users.OwnerOrg(c); isOrg {
+			return o
+		}
+		return ""
+	}
+	if strings.Contains(target, ":") {
+		return "" // capability classes have no owner
+	}
+	if o, isOrg := b.Users.OwnerOrg(target); isOrg {
+		return o
+	}
+	return ""
+}
+
+// providerOrg returns the org id when p is a human admin of the org that owns
+// the grant TARGET (D33: sharing your own property is an ownership right —
+// the provider org consents to its consumers, no allowance needed).
+func (b *Broker) providerOrg(p auth.Principal, target string) string {
+	if b.Users == nil || p.Component != "" || p.User == nil {
+		return ""
+	}
+	org := b.targetOwnerOrg(target)
+	if org == "" || !p.Access.IsAdminOrg(org) {
+		return ""
+	}
+	return org
+}
+
+// orgAdminMayGrant is the D26/D33 gate for POST/DELETE /grants when the
+// caller is not a workspace admin. Two independent rights:
+//
+//   - CALLER side (D26): an admin of the org owning the requesting tile —
+//     revoke always (narrowing is safe); approve when the target is
+//     intra-org or covered by the org's allowance at the requested role.
+//   - PROVIDER side (D33): an admin of the org owning the TARGET — they may
+//     approve (consent to sharing their property) and revoke (withdraw it).
 func (b *Broker) orgAdminMayGrant(p auth.Principal, g registry.Grant, revoke bool) bool {
-	org := b.approverOrg(p, g.From)
-	if org == "" {
-		return false
+	if org := b.approverOrg(p, g.From); org != "" {
+		if revoke || b.intraOrgTarget(org, g.Target) {
+			return true
+		}
+		if b.Users.AllowanceCovers(org, g.Target, g.Role) {
+			return true
+		}
 	}
-	if revoke {
-		return true
-	}
-	if b.intraOrgTarget(org, g.Target) {
-		return true
-	}
-	return b.Users.AllowanceCovers(org, g.Target)
+	return b.providerOrg(p, g.Target) != ""
 }
 
 // bindingTargets normalizes one binding request into allowance-grammar
@@ -118,13 +166,20 @@ func (b *Broker) bindingTargets(comp, slot string, binding registry.Binding) (ta
 			intra = append(intra, providerPath(v))
 			targets = append(targets, "net:provider:"+providerPath(v))
 		default:
-			// http/stream interface to a provider tile.
+			// http/stream interface to a provider tile. The normalized target
+			// pins the provider (and instance when the ref names one) so
+			// allowances can scope to "this service, from that tile, dev
+			// instance only" (D32).
 			intra = append(intra, providerPath(v))
 			svc := iface.Service
 			if svc == "" {
 				svc = iface.Kind
 			}
-			targets = append(targets, "iface:"+svc)
+			t := "iface:" + svc + "@" + providerPath(v)
+			if i := strings.IndexByte(v, '#'); i >= 0 && i+1 < len(v) {
+				t += "#" + v[i+1:]
+			}
+			targets = append(targets, t)
 		}
 	}
 	return targets, intra, true
@@ -138,79 +193,174 @@ func providerPath(ref string) string {
 	return ref
 }
 
-// orgAdminMayBind is the D26 gate for POST/DELETE /bindings when the caller
-// is not a workspace admin: the component must be org-owned by an org p
-// administers; unbinding is always fine; binding requires every normalized
-// target to be intra-org (a same-org provider) or allowance-covered. For
-// net/iface targets paired with an intra-org provider, the provider being
-// same-org satisfies that ref without an allowance entry.
-func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding registry.Binding, unbind bool) bool {
-	org := b.approverOrg(p, comp)
-	if org == "" {
-		return false
+// providerRefOrg returns the org owning a provider tile ref ("" when not
+// org-owned or no store).
+func (b *Broker) providerRefOrg(ref string) string {
+	if b.Users == nil {
+		return ""
 	}
-	if unbind {
-		return true
+	if o, isOrg := b.Users.OwnerOrg(providerPath(ref)); isOrg {
+		return o
 	}
-	targets, intraRefs, ok := b.bindingTargets(comp, slot, binding)
-	if !ok {
-		return false
-	}
-	intraOK := map[string]bool{}
-	for _, ref := range intraRefs {
-		if o, isOrg := b.Users.OwnerOrg(ref); isOrg && o == org {
-			intraOK[ref] = true
-		}
-	}
-	for i, t := range targets {
-		if b.Users.AllowanceCovers(org, t) {
-			continue
-		}
-		// A provider-shaped target passes when its provider ref is same-org.
-		if strings.HasPrefix(t, "net:provider:") && intraOK[strings.TrimPrefix(t, "net:provider:")] {
-			continue
-		}
-		if strings.HasPrefix(t, "iface:") && i < len(binding) && intraOK[providerPath(binding[i].Ref)] {
-			continue
-		}
-		return false
-	}
-	return len(targets) > 0 || len(intraRefs) > 0 || unbind
+	return ""
 }
 
-// orgFilterGrants returns the grants/pending subset an org admin may see:
-// rows whose From is owned by one of their admin orgs, with approvable
-// pending marked (the organisations tile renders these).
-func (b *Broker) orgFilterGrants(p auth.Principal) (grants []registry.Grant, pending []PendingGrant, any bool) {
+// orgAdminMayBind is the D26/D33 gate for POST/DELETE /bindings when the
+// caller is not a workspace admin. Two independent rights:
+//
+//   - CALLER side (D26): the component is org-owned by an org p administers;
+//     unbinding is always fine; binding requires every normalized target to
+//     be intra-org (a same-org provider) or allowance-covered.
+//   - PROVIDER side (D33): every ref in the binding is a provider tile owned
+//     by an org p administers — the providing org consents to (or withdraws
+//     from) serving this consumer. Net-class (internet/host/lan) and ingress
+//     targets have no provider and can never be consented this way.
+func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding registry.Binding, unbind bool) bool {
 	if b.Users == nil || p.Component != "" || p.User == nil {
-		return nil, nil, false
+		return false
 	}
-	admin := p.Access.AdminOrgs()
-	if len(admin) == 0 {
-		return nil, nil, false
-	}
-	isMine := func(from string) bool {
-		org, ok := b.Users.OwnerOrg(from)
-		if !ok {
-			return false
+	if org := b.approverOrg(p, comp); org != "" {
+		if unbind {
+			return true
 		}
-		for _, a := range admin {
-			if a == org {
+		targets, intraRefs, ok := b.bindingTargets(comp, slot, binding)
+		if ok {
+			intraOK := map[string]bool{}
+			for _, ref := range intraRefs {
+				if o, isOrg := b.Users.OwnerOrg(ref); isOrg && o == org {
+					intraOK[ref] = true
+				}
+			}
+			pass := len(targets) > 0 || len(intraRefs) > 0
+			for i, t := range targets {
+				if b.Users.AllowanceCovers(org, t, "") {
+					continue
+				}
+				// A provider-shaped target passes when its provider ref is same-org.
+				if strings.HasPrefix(t, "net:provider:") && intraOK[strings.TrimPrefix(t, "net:provider:")] {
+					continue
+				}
+				if strings.HasPrefix(t, "iface:") && i < len(binding) && intraOK[providerPath(binding[i].Ref)] {
+					continue
+				}
+				pass = false
+				break
+			}
+			if pass {
 				return true
 			}
 		}
+	}
+	// Provider side: all refs must be tiles owned by orgs p administers.
+	if len(binding) == 0 {
 		return false
 	}
-	for _, g := range b.Reg.Workspace().Grants {
-		if isMine(g.From) {
-			grants = append(grants, g)
+	for _, ref := range binding {
+		if ref.Ref == "" || ref.Ref == "runtime" || ref.Ref == "internet" || ref.Ref == "host" ||
+			strings.HasPrefix(ref.Ref, "lan:") {
+			return false
+		}
+		org := b.providerRefOrg(ref.Ref)
+		if org == "" || !p.Access.IsAdminOrg(org) {
+			return false
 		}
 	}
-	for _, pg := range b.Pending() {
-		if isMine(pg.From) {
-			pg.Approvable = b.orgAdminMayGrant(p, pg.Grant, false)
-			pending = append(pending, pg)
+	return true
+}
+
+// grantRow is one grant in the org-scoped view, marked with the viewer's
+// relation to it: "consumer" (their org owns the requesting tile),
+// "provider" (their org owns the target property, D33), "both", or "mine"
+// (a tile the viewer can write — the requester's own view).
+type grantRow struct {
+	registry.Grant
+	Direction string `json:"direction,omitempty"`
+}
+
+// orgFilterGrants returns the grants/pending subset a non-ws-admin session
+// human may see (D26/D33 + requester visibility):
+//
+//   - CONSUMER rows: From is owned by an org they administer;
+//   - PROVIDER rows: the target's property is owned by an org they
+//     administer — the consumption of their tiles, visible and revocable;
+//   - MINE rows: From is a tile they can write — a requester sees their own
+//     tile's grants and pending requests (with who-can-approve hints)
+//     instead of a silent dead tile.
+//
+// ok is false only when the principal has no view at all (elements, or no
+// user store).
+func (b *Broker) orgFilterGrants(p auth.Principal) (grants []grantRow, pending []PendingGrant, ok bool) {
+	if b.Users == nil || p.Component != "" || p.User == nil {
+		return nil, nil, false
+	}
+	admin := map[string]bool{}
+	for _, a := range p.Access.AdminOrgs() {
+		admin[a] = true
+	}
+	direction := func(g registry.Grant) string {
+		consumer := false
+		if org, isOrg := b.Users.OwnerOrg(g.From); isOrg && admin[org] {
+			consumer = true
 		}
+		provider := false
+		if torg := b.targetOwnerOrg(g.Target); torg != "" && admin[torg] {
+			provider = true
+		}
+		switch {
+		case consumer && provider:
+			return "both"
+		case consumer:
+			return "consumer"
+		case provider:
+			return "provider"
+		case p.CanWriteTile(g.From):
+			return "mine"
+		}
+		return ""
+	}
+	grants = []grantRow{}
+	for _, g := range b.Reg.Workspace().Grants {
+		if d := direction(g); d != "" {
+			grants = append(grants, grantRow{Grant: g, Direction: d})
+		}
+	}
+	pending = []PendingGrant{}
+	for _, pg := range b.Pending() {
+		d := direction(pg.Grant)
+		if d == "" {
+			continue
+		}
+		pg.Direction = d
+		pg.Approvable = pg.Blocked == "" && b.orgAdminMayGrant(p, pg.Grant, false)
+		if !pg.Approvable {
+			pg.Approvers = b.approverHint(pg.Grant)
+		}
+		pending = append(pending, pg)
 	}
 	return grants, pending, true
+}
+
+// approverHint names who could approve a pending grant — rendered to the
+// requester ("pending — ask …") and next to non-approvable rows.
+func (b *Broker) approverHint(g registry.Grant) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	if b.Users != nil {
+		if org, isOrg := b.Users.OwnerOrg(g.From); isOrg {
+			if b.intraOrgTarget(org, g.Target) || b.Users.AllowanceCovers(org, g.Target, g.Role) {
+				add("org:" + org)
+			}
+		}
+		if torg := b.targetOwnerOrg(g.Target); torg != "" {
+			add("org:" + torg)
+		}
+	}
+	add("workspace-admin")
+	return out
 }

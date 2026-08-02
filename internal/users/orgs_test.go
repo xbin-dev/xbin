@@ -160,8 +160,12 @@ func TestOwnershipLifecycle(t *testing.T) {
 	if err := s.SetOwner("apps/c", "user:bob"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Delete("bob"); err != nil {
+	orphans, err := s.Delete("bob")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(orphans) != 1 || orphans[0] != "apps/c" {
+		t.Fatalf("delete must report the orphaned tiles, got %v", orphans)
 	}
 	if got := s.Owner("apps/c"); got != "" {
 		t.Fatalf("deleted user's tile must fall to workspace-owned, got %q", got)
@@ -174,10 +178,17 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 	s := newStore(t)
 	mustOrg(t, s, Org{ID: "dev", Members: []Member{{ID: "alice", Level: LevelTerminal, Admin: true}}})
 
-	// Write-time: grammar enforced, xbin family refused.
+	// Write-time: grammar enforced per class, xbin family refused — an entry
+	// that could never match a real target is refused rather than stored dead
+	// (D32).
 	bad := [][]string{
 		{"xbin"}, {"xbin:users"}, {"xbin:*"},
 		{"whatever"}, {""}, {"res:"},
+		{"cap:xbin"}, {"cap:xbin-caps"}, // scary-but-inert spellings
+		{"net:tailscale"}, {"net:internet:x.com"}, // not a net form
+		{"iface:api@"}, {"iface:api@x#"}, // dangling qualifiers
+		{"ingress:listen:99999"}, {"ingress:listen:30-20"},
+		{"tile:apps/*@no:role"},
 	}
 	for _, entries := range bad {
 		if err := s.SetOrgAllow("dev", entries); err == nil {
@@ -185,9 +196,12 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 		}
 	}
 	good := []string{
-		"res:*", "gpu:0", "cap:containers", "net:internet", "net:host",
+		"res:apps/*", "gpu:0", "cap:containers", "net:internet", "net:host",
 		"net:lan:10.0.0.0/8", "net:lan:192.168.*", "iface:llm", "ingress:host:*.dev.example.com",
 		"ingress:zone:*.z.example.com", "ingress:listen:20000-20999", "tile:apps/*",
+		// D32 granularity: role caps and provider/instance pinning.
+		"tile:tiles/wh@reader", "res:tiles/wh/*@writer", "iface:api@apps/warehouse#dev",
+		"tile:apps/bot-*", // mid-string glob is a real pattern now
 	}
 	if err := s.SetOrgAllow("dev", good); err != nil {
 		t.Fatalf("valid allow rejected: %v", err)
@@ -195,34 +209,123 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 
 	cover := []struct {
 		target string
+		role   string
 		want   bool
 	}{
-		{"res:apps/x/db", true},
-		{"gpu:0", true},
-		{"gpu:1", false},
-		{"cap:containers", true},
-		{"cap:net-admin", false},
-		{"net:internet", true},
-		{"net:host", true},
-		{"net:lan:10.0.0.0/8", true},     // exact binding value
-		{"net:lan:10.1.2.0/24", false},   // no CIDR-contains semantics — use a glob
-		{"net:lan:192.168.1.0/24", true}, // glob entry
-		{"iface:llm", true},
-		{"iface:mcp", false},
-		{"ingress:host:api.dev.example.com", true},
-		{"ingress:host:api.prod.example.com", false},
-		{"ingress:listen:20500", true},
-		{"ingress:listen:21000", false},
-		{"apps/other", true}, // tile:apps/*
-		{"tiles/x", false},
+		{"res:apps/x/db", "writer", true},
+		{"gpu:0", "", true},
+		{"gpu:1", "", false},
+		{"cap:containers", "admin", true},
+		{"cap:net-admin", "admin", false},
+		{"net:internet", "", true},
+		{"net:host", "", true},
+		{"net:lan:10.0.0.0/8", "", true},     // exact binding value
+		{"net:lan:10.1.2.0/24", "", false},   // no CIDR-contains semantics — use a glob
+		{"net:lan:192.168.1.0/24", "", true}, // glob entry
+		{"iface:llm", "", true},
+		{"iface:llm@apps/any#x", "", true}, // unpinned entry covers any provider
+		{"iface:mcp", "", false},
+		{"ingress:host:api.dev.example.com", "", true},
+		{"ingress:host:api.prod.example.com", "", false},
+		{"ingress:listen:20500", "", true},
+		{"ingress:listen:21000", "", false},
+		{"apps/other", "admin", true}, // tile:apps/* — uncapped covers any role
+		{"apps/bot-7", "reader", true},
+		{"tiles/x", "reader", false},
+		// Role caps: @reader delegates consuming, never admin (D32).
+		{"tiles/wh", "reader", true},
+		{"tiles/wh", "writer", false},
+		{"tiles/wh", "admin", false},
+		{"res:tiles/wh/db", "reader", true}, // @writer cap implies reader
+		{"res:tiles/wh/db", "admin", false},
+		// Provider/instance pinning: dev-only, that tile only.
+		{"iface:api@apps/warehouse#dev", "", true},
+		{"iface:api@apps/warehouse#prod", "", false},
+		{"iface:api@apps/other#dev", "", false},
+		{"iface:api", "", false}, // pinned entry never covers an unpinned target
 		// The floor: never coverable, no matter the entries.
-		{"xbin", false},
-		{"xbin:users", false},
+		{"xbin", "admin", false},
+		{"xbin:users", "reader", false},
 	}
 	for _, c := range cover {
-		if got := s.AllowanceCovers("dev", c.target); got != c.want {
-			t.Errorf("AllowanceCovers(%q) = %v, want %v", c.target, got, c.want)
+		if got := s.AllowanceCovers("dev", c.target, c.role); got != c.want {
+			t.Errorf("AllowanceCovers(%q, %q) = %v, want %v", c.target, c.role, got, c.want)
 		}
+	}
+}
+
+// --- D31: org-governed access, exact-entry overrides -------------------------
+
+func TestOrgGovernedAccess(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "fam", Members: []Member{
+		{ID: "alice", Level: LevelTerminal, Admin: true},
+		{ID: "bob", Level: LevelWrite},
+	}})
+	if err := s.SetOwner("apps/ha", "org:fam"); err != nil {
+		t.Fatal(err)
+	}
+	// Workspace plane must not leak into org tiles: bob gets a broad personal
+	// pattern and everyone gets a broad default — neither reaches apps/ha.
+	if _, err := s.Upsert(User{ID: "bob", Role: RoleUser,
+		Tiles: map[string]string{"apps/*": LevelTerminal}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultTiles(map[string]string{"apps/*": LevelRead}); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/ha"); got != LevelWrite {
+		t.Errorf("org tile ignores personal patterns: got %q, want write (member level)", got)
+	}
+	if got := acc(t, s, "carol").TileLevel("apps/ha"); got != "" {
+		t.Errorf("org tile ignores workspace defaults: carol got %q, want none", got)
+	}
+	if got := acc(t, s, "carol").TileLevel("apps/other"); got != LevelRead {
+		t.Errorf("defaults still reach non-org tiles: got %q", got)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/other"); got != LevelTerminal {
+		t.Errorf("patterns still reach non-org tiles: got %q", got)
+	}
+
+	// Exact entries are authoritative (override down, or exclude entirely).
+	if err := s.SetUserTile("bob", "apps/ha", LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/ha"); got != LevelRead {
+		t.Errorf("exact entry must override member level down: got %q", got)
+	}
+	if err := s.SetUserTile("bob", "apps/ha", LevelNone); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/ha"); got != "" {
+		t.Errorf("none must exclude: got %q", got)
+	}
+	// …but never demotes the shortcut tiers: org admins keep their org tiles.
+	if err := s.SetUserTile("alice", "apps/ha", LevelNone); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "alice").TileLevel("apps/ha"); got != LevelTerminal {
+		t.Errorf("org admin unaffected by exact none: got %q", got)
+	}
+	// Exact none also beats an org share reaching the same tile.
+	mustOrg(t, s, Org{ID: "guests", Members: []Member{{ID: "bob", Level: LevelRead}}})
+	if err := s.SetOrgTile("guests", "apps/ha", LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/ha"); got != "" {
+		t.Errorf("exact none beats org shares: got %q", got)
+	}
+	// Exact beats patterns on non-org tiles too.
+	if err := s.SetUserTile("bob", "apps/x", LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	if got := acc(t, s, "bob").TileLevel("apps/x"); got != LevelRead {
+		t.Errorf("exact entry authoritative on workspace tiles: got %q, want read", got)
+	}
+	// Explain mirrors the resolution.
+	ex := acc(t, s, "bob").Explain("apps/ha")
+	if len(ex) != 1 || ex[0].Source != "exact" || ex[0].Level != LevelNone {
+		t.Errorf("Explain must show the authoritative exact entry: %v", ex)
 	}
 }
 
@@ -265,7 +368,7 @@ func TestPermissionSets(t *testing.T) {
 			t.Errorf("ResolvedAllow missing %q: %v", want, ra)
 		}
 	}
-	if !s.AllowanceCovers("dev", "cap:containers") || !s.AllowanceCovers("dev", "gpu:3") {
+	if !s.AllowanceCovers("dev", "cap:containers", "") || !s.AllowanceCovers("dev", "gpu:3", "") {
 		t.Error("union must cover set + extra entries")
 	}
 

@@ -413,11 +413,16 @@ them:
 - **Set inheritance**: sets are flat (no set-includes-set) — composition is
   the org's `sets` list; nesting can come later if fleets demand it.
 
-## Post-ship review
+## Post-ship review → the D29-D33 fix wave
 
 A five-story UX review (solo / family / corporate / friend-group personas +
 a live-instance mechanics audit) ran the day this shipped:
 [`ownership-ux-review.md`](ownership-ux-review.md). Enforcement held under
-~40 adversarial probes; the P0 list there (create-as-org unreachable, stale
-⚙ access panel, allowance write-validation, static organisations tile) is
-the immediate follow-up work.
+~40 adversarial probes; the gaps became the same-day fix wave (DECISIONS
+D29-D33): create-as-org unblocked, org-governed access with authoritative
+exact entries (`none` excludes), allowance grammar validation +
+role/provider/instance qualifiers, provider-side consent + requester
+visibility + live pending events, backend-only vault reads, user
+attribution to backends, lifecycle for owners, doctor ownership checks,
+and the UI wave (bx-tile-admin rewrite, honest approve buttons, live
+organisations tile, real ⚑ badge, owner-picker semantics).

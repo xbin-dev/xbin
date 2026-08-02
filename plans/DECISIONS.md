@@ -585,3 +585,53 @@ Deviations and refinements made while implementing; all deliberate:
   purpose: future enterprise SSO/OIDC (company-wide workspaces) binds an IdP
   identity to the same User row under the same admin-decides rule, rather
   than introducing a second account model.
+
+- **D29 — Backends always get the driving human attributed.** (2026-08-02)
+  On every proxied component call with a signed-in user behind it — direct,
+  or riding the tile's own frontend (frame token) or terminal — xbind
+  injects `X-XBin-User: <id>` and `X-XBin-User-Level: <level on the
+  callee>`. Absent for automation/cron/bootstrap-token. Rationale: a frame
+  call runs at the tile's full self-role, so `read` level was effectively
+  "fully drive the tile" with the backend unable to tell Pat from Juno;
+  attribution lets tiles gate in-app (SDK: `Caller(r).UserCanWrite()`).
+  Inbound X-XBin-* stripping is unchanged, so the headers stay trustworthy.
+- **D30 — Vault values are readable by the tile's BACKEND only.** (2026-08-02)
+  `GET /vault/<c>/<key>` requires the instance token: admins and the tile's
+  own TERMINALS are write-only managers (list/set/rotate/delete), and the
+  tile's FRONTEND (frame token) cannot reach the vault API at all. Closes
+  the hole where anyone who could open or shell a tile could read its
+  secrets — org-conferred terminal on a credential-bearing tile no longer
+  leaks keys. Backends fetch secrets at runtime as before.
+- **D31 — Org tiles are governed by the org; exact entries are
+  authoritative.** (2026-08-02) Access resolution: admin/user-owner/org-admin
+  shortcut (terminal) → an EXACT per-user entry sets the level outright
+  (down as well as up; `none` = explicit exclusion) → otherwise union, but
+  personal pattern entries and workspace defaultTiles apply to
+  workspace/user-owned tiles ONLY — "your perms on an org tile are your
+  perms in the org". Consequences: an org can carve one sensitive tile out
+  (exact override/none), broad workspace patterns can't leak into org
+  property, and "set this user's level to X" actually results in X.
+  BREAKING vs the old union-only semantics (migration note).
+- **D32 — Allowance grammar: per-class validation + role/provider/instance
+  granularity.** (2026-08-02) Entries validate per class at write time (a
+  dead entry is refused, not stored to lie in resolvedAllow; cap:xbin*
+  spellings refused). New qualifiers: `res:<glob>@<role>` /
+  `tile:<pat>@<role>` cap the delegable role (bare = any role);
+  `iface:<svc>@<tile-glob>[#<inst-glob>]` pins an interface allowance to a
+  provider tile and instance — "the dev instance only, for this org" is
+  expressible; binding targets normalize with provider+instance to match.
+  matchTile additionally treats a mid-string `*` as a glob everywhere
+  (previously a silent never-match).
+- **D33 — Provider-side consent, and nobody is blind.** (2026-08-02)
+  Approval runs on BOTH edges: the consumer org (D26, within allowance) and
+  the org that OWNS the target property — its admins may approve (sharing
+  your own property is an ownership right, no allowance needed) and revoke
+  at any time; same for bindings when every ref is their provider.
+  Visibility: org-scoped /grants and /bindings include provider-direction
+  rows; every signed-in user sees their own writable tiles' rows and
+  pendings ("mine") with who-can-approve hints; a `grants` event fires when
+  NEW pending requests appear (watch-loop diff) so approver UIs and the
+  shell badge update live. Grant rows record approvedBy/approvedAt and the
+  audit log carries the full triple. Lifecycle joins the ownership rights
+  (owner/org-admin may disable/enable their tiles); org policy rows are
+  org-admin-readable.

@@ -32,11 +32,14 @@ const (
 
 // Per-tile access levels (plans/DECISIONS.md D16), monotone:
 // terminal ⊇ write ⊇ read. `read` = see the tile + its source; `write` =
-// edit/drive it; `terminal` = a shell on it.
+// edit/drive it; `terminal` = a shell on it. `none` is only meaningful as an
+// EXACT per-user entry (D31): an explicit exclusion that overrides what the
+// user would otherwise get (org level, shares, patterns, defaults).
 const (
 	LevelRead     = "read"
 	LevelWrite    = "write"
 	LevelTerminal = "terminal"
+	LevelNone     = "none"
 )
 
 // levelRank orders levels for the monotone comparison; unknown ranks 0 (none).
@@ -146,8 +149,8 @@ func ParseTiles(raw json.RawMessage, legacyTerminal bool) (map[string]string, er
 		return nil, fmt.Errorf("tiles: %w", err)
 	}
 	for k, v := range tiles {
-		if levelRank(v) == 0 {
-			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal)", k, v)
+		if levelRank(v) == 0 && v != LevelNone {
+			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal, or none to exclude)", k, v)
 		}
 	}
 	if tiles == nil {
@@ -160,7 +163,9 @@ func ParseTiles(raw json.RawMessage, legacyTerminal bool) (map[string]string, er
 func (u *User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 // matchTile reports whether allow-list entry t covers component path: exact,
-// `prefix/*` (the prefix itself or anything under it), or `*` (everything).
+// `prefix/*` (the prefix itself or anything under it), `*` (everything), or —
+// for any other '*' position — a single-glob match (`apps/bot-*`), so a
+// mid-string pattern is never a silent no-op (D32).
 func matchTile(t, path string) bool {
 	if t == "*" || t == path {
 		return true
@@ -169,14 +174,25 @@ func matchTile(t, path string) bool {
 		prefix := strings.TrimSuffix(t, "/*")
 		return path == prefix || strings.HasPrefix(path, prefix+"/")
 	}
+	if strings.Contains(t, "*") {
+		return globMatch(t, path)
+	}
 	return false
 }
 
-// TileLevel returns the user's access level for component `path`: the highest
-// level among matching Tiles entries ("" = none). Admins: terminal everywhere.
+// TileLevel returns the user's access level for component `path` ("" = none).
+// Admins: terminal everywhere. An EXACT entry is authoritative (D31): it sets
+// the level outright — including `none` as an explicit exclusion — while
+// pattern entries union upward as before.
 func (u *User) TileLevel(path string) string {
 	if u.IsAdmin() {
 		return LevelTerminal
+	}
+	if l, ok := u.Tiles[path]; ok {
+		if l == LevelNone {
+			return ""
+		}
+		return l
 	}
 	best := ""
 	for t, l := range u.Tiles {
@@ -407,8 +423,8 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		u.Tiles = map[string]string{}
 	}
 	for t, l := range u.Tiles {
-		if levelRank(l) == 0 {
-			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal)", t, l)
+		if levelRank(l) == 0 && l != LevelNone {
+			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal, or none to exclude)", t, l)
 		}
 	}
 	s.mu.Lock()
@@ -432,6 +448,8 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 	}
 	if existing != nil {
 		u.Created = existing.Created
+	} else {
+		u.Created = time.Now().Unix()
 	}
 	nu := u
 	s.byID[u.ID] = &nu
@@ -472,7 +490,11 @@ func (s *Store) GrantTile(id, path, level string) error {
 // OWNED tiles fall to workspace-owned (the entries are dropped — logged by
 // the caller, listed by `bx doctor`) rather than silently keeping a dangling
 // owner ref (plans/ownership.md lifecycle edges).
-func (s *Store) Delete(id string) error {
+// Delete removes a user: their org memberships strip, and tiles they owned
+// fall to workspace-owned — the returned list names those orphans so the
+// caller can SHOW what just changed hands (silent orphaning was a review
+// finding; the API surfaces this, doctor re-lists it).
+func (s *Store) Delete(id string) (orphaned []string, err error) {
 	id = normalizeID(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -491,14 +513,13 @@ func (s *Store) Delete(id string) error {
 		s.orgs[oid] = &no
 	}
 	ref := OwnerKindUser + ":" + id
-	var orphaned bool
-	for _, v := range s.owners {
+	for p, v := range s.owners {
 		if v == ref {
-			orphaned = true
-			break
+			orphaned = append(orphaned, p)
 		}
 	}
-	if orphaned {
+	if len(orphaned) > 0 {
+		sort.Strings(orphaned)
 		no := make(map[string]string, len(s.owners))
 		for k, v := range s.owners {
 			if v != ref {
@@ -507,7 +528,7 @@ func (s *Store) Delete(id string) error {
 		}
 		s.owners = no
 	}
-	return s.persistLocked()
+	return orphaned, s.persistLocked()
 }
 
 func (s *Store) persistLocked() error {
@@ -577,10 +598,10 @@ var (
 
 func validID(id string) error {
 	if !userIDRe.MatchString(id) {
-		return fmt.Errorf("invalid user id %q: 1–32 chars of a–z, 0–9, dot, dash, underscore, starting with a letter or digit", id)
+		return fmt.Errorf("invalid id %q: 1–32 chars of a–z, 0–9, dot, dash, underscore, starting with a letter or digit", id)
 	}
 	if reservedUserIDs[id] {
-		return fmt.Errorf("user id %q is reserved", id)
+		return fmt.Errorf("id %q is reserved", id)
 	}
 	return nil
 }

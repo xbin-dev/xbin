@@ -62,10 +62,18 @@ func TestTileLevels(t *testing.T) {
 	if !u.CanTerminal() || !u.CanTerminalTile("apps/chat") {
 		t.Fatal("terminal level ignored")
 	}
-	// Levels union — the HIGHEST matching entry wins, patterns can only widen.
+	// An EXACT entry is authoritative (D31): it overrides matching patterns —
+	// down as well as up — and `none` excludes outright.
 	both := &User{Role: RoleUser, Tiles: map[string]string{"apps/*": LevelTerminal, "apps/chat": LevelRead}}
-	if !both.CanTerminalTile("apps/chat") {
-		t.Fatal("highest matching level must win")
+	if got := both.TileLevel("apps/chat"); got != LevelRead {
+		t.Fatalf("exact entry must override the pattern: got %q, want read", got)
+	}
+	if !both.CanTerminalTile("apps/other") {
+		t.Fatal("patterns still union where no exact entry exists")
+	}
+	excl := &User{Role: RoleUser, Tiles: map[string]string{"apps/*": LevelWrite, "apps/chat": LevelNone}}
+	if excl.CanReadTile("apps/chat") {
+		t.Fatal("exact none must exclude")
 	}
 	star := &User{Role: RoleUser, Tiles: map[string]string{"*": LevelWrite}}
 	if !star.CanWriteTile("apps/anything") {

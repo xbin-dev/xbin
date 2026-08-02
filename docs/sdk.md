@@ -26,7 +26,10 @@ Your handler sees paths with the `/api/<component>` prefix already stripped.
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel}
+c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
+                             // level (D29) — frame calls from your own UI run
+                             // at full role even for read-level viewers
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
 xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact

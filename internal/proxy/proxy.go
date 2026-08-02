@@ -29,6 +29,14 @@ import (
 const (
 	HeaderFrom = "X-XBin-From"
 	HeaderRole = "X-XBin-Role"
+	// HeaderUser / HeaderUserLevel attribute the HUMAN driving the call (D29):
+	// set when a signed-in user is behind the request — directly (session) or
+	// riding an element principal (frame token, tile terminal). Absent for
+	// automation (instance tokens, cron) and the bootstrap owner token.
+	// Backends use these to gate in-app (read vs write UI, per-user state) —
+	// trustworthy because inbound X-XBin-* is stripped.
+	HeaderUser      = "X-XBin-User"
+	HeaderUserLevel = "X-XBin-User-Level"
 )
 
 // Policy decides whether principal p may call target, and at which role.
@@ -51,6 +59,11 @@ type Proxy struct {
 	Runner *runner.Runner
 	Hub    *events.Hub
 	Policy Policy
+
+	// UserLevel resolves the attributed user's access level on a tile for
+	// the X-XBin-User-Level header (D29). Installed by main from the user
+	// store; nil = header omitted.
+	UserLevel func(userID, tile string) string
 
 	trMu       sync.Mutex
 	transports map[string]*http.Transport // backend socket → pooled transport
@@ -164,6 +177,21 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
+	// Attribute the driving human (D29): frame/terminal principals carry the
+	// user id; session principals are the user. Backends can then tell WHO
+	// clicked — the tile's own UI at `read` is not a blank check anymore.
+	uid := p.UserID
+	if uid == "" && p.User != nil {
+		uid = p.User.ID
+	}
+	if uid != "" {
+		r.Header.Set(HeaderUser, uid)
+		if px.UserLevel != nil {
+			if l := px.UserLevel(uid, comp.Path); l != "" {
+				r.Header.Set(HeaderUserLevel, l)
+			}
+		}
+	}
 
 	if comp.Manifest.Runtime == "cgi" {
 		px.serveCGI(w, r, comp, endpoint)

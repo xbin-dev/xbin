@@ -45,7 +45,7 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	// the source, so a human must be able to READ `from` (otherwise a
 	// manager-style tile is a source-exfiltration route).
 	p := auth.PrincipalOf(r)
-	if ok, msg := b.canCreateAt(p, to); !ok {
+	if ok, msg := b.canCreateAt(p, to, ""); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}

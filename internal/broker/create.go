@@ -42,12 +42,16 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
-	if ok, msg := b.canCreateAt(p, o.Path); !ok {
+	// Owner resolves FIRST: creating AS an org is gated by the org's Create
+	// knob (checked inside resolveCreateOwner), not by personal path patterns
+	// — the path no longer encodes the org (D24/D25), so canCreateAt must
+	// know which authority applies.
+	owner, msg := b.resolveCreateOwner(p, body.Owner)
+	if msg != "" {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
-	owner, msg := b.resolveCreateOwner(p, body.Owner)
-	if msg != "" {
+	if ok, msg := b.canCreateAt(p, o.Path, owner); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}

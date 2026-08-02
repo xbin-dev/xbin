@@ -85,13 +85,36 @@ type CallerInfo struct {
 	From  string // "owner", a component path, or "xbin/cron"
 	Role  string // role the caller was granted on this component
 	Owner bool
+	// User is the signed-in HUMAN driving the call, when there is one —
+	// whether they called directly or through the tile's own frontend or
+	// terminal ("" = automation, cron, or the bootstrap owner token). Use it
+	// to gate in-app: a viewer-level user opening the tile's UI reaches this
+	// backend at full role otherwise (the frame is the tile acting as
+	// itself), so destructive actions should check UserLevel.
+	User string
+	// UserLevel is that user's access level on THIS tile:
+	// read | write | terminal ("" when User is empty).
+	UserLevel string
 }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
 // because xbind strips inbound X-XBin-* headers before injecting these.
 func Caller(r *http.Request) CallerInfo {
 	from := r.Header.Get("X-XBin-From")
-	return CallerInfo{From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner"}
+	return CallerInfo{
+		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
+		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
+	}
+}
+
+// UserCanWrite reports whether the driving user holds write (or terminal) on
+// this tile — the in-app gate for mutating actions. True for automation and
+// owner-token calls (no attributed user = the workspace plane itself).
+func (c CallerInfo) UserCanWrite() bool {
+	if c.User == "" {
+		return true
+	}
+	return c.UserLevel == "write" || c.UserLevel == "terminal"
 }
 
 // Ingress reports whether the request is anonymous PUBLIC traffic that

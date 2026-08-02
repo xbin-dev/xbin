@@ -97,7 +97,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 			target = "apps/" + path.Base(srcComp.Path) // instantiateWorkspace's default
 		}
 	}
-	if ok, msg := b.canCreateAt(p, target); !ok {
+	if ok, msg := b.canCreateAt(p, target, ""); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}

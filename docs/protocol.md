@@ -25,6 +25,13 @@ Identity headers **injected by xbind** on proxied component requests
 ```
 X-XBin-From: owner | <component-path> | xbin/cron | ingress
 X-XBin-Role: <role granted on the callee>
+X-XBin-User: <user id>                   (the signed-in HUMAN driving the
+                                          call, when there is one — direct,
+                                          or riding the tile's frontend/
+                                          terminal; absent for automation
+                                          and the bootstrap token, D29)
+X-XBin-User-Level: read|write|terminal   (that user's level on the callee;
+                                          set with X-XBin-User)
 X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 ```
 
@@ -169,7 +176,10 @@ POST   /users/<id>/invite         admin/xbin:users. (re)mint an invite link
                                    inviteUrl, inviteExpires}
 PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    overlay (+password reset)
-DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
+DELETE /users/<id>                admin/xbin:users. remove (revokes
+                                   sessions) → {ok, orphanedTiles: […]} —
+                                   tiles that fell to workspace-owned, so
+                                   the handover is explicit
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
                                    hasAdminUser, canDisable} — owner-token
                                    browser-login state (docs/auth.md)
@@ -216,13 +226,18 @@ GET    /access?tile=<path>        ws-admin, the tile's USER-OWNER, or an
 PUT    /access                    same gate (sharing is an ownership right,
                                    D24). set/clear one EXACT entry: {tile,
                                    kind:user|org, id, level:
-                                   read|write|terminal|""}
+                                   read|write|terminal|""}; kind user also
+                                   takes "none" = explicit EXCLUSION. Exact
+                                   user entries are AUTHORITATIVE (D31):
+                                   they override org level, shares, pattern
+                                   entries and defaults — down as well as up
 GET    /access-matrix             admin/xbin:users. users×components
                                    effective levels with provenance:
                                    {users, components, matrix:{user:{tile:
                                    {level, explain:[{level,source}]}}},
                                    owners} — sources: admin | owner |
-                                   org-admin:<org> | org-member:<org> |
+                                   org-admin:<org> | exact (authoritative,
+                                   D31) | org-member:<org> |
                                    org-share:<org>:<pat> | direct:<pat> |
                                    default:<pat>
 GET    /users-directory           admin/xbin:users, or any org admin. the
@@ -232,8 +247,10 @@ GET    /policy                    admin/xbin:users. workspace policy-ceiling
                                    rows {policy:[{tiles,deny?,mayCall?}]}
                                    (deny kinds net|gpu|xbin-caps|ingress)
 PUT    /policy                    admin/xbin:users. replace the rows
-GET    /orgs/<org>/policy         admin/xbin:users. that org's rows (apply
-                                   to tiles the org OWNS)
+GET    /orgs/<org>/policy         admin/xbin:users, or that org's admins
+                                   (read-only — the ceilings their
+                                   approvals can trip on). Rows apply to
+                                   tiles the org OWNS
 PUT    /orgs/<org>/policy         admin/xbin:users. replace them
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}} — visibility every
@@ -246,13 +263,17 @@ POST   /create                     owner/admin, a user whose canCreate
                                    management). body {path, runtime?,
                                    title?, expose?, owner?} → {path, files,
                                    owner?}. owner: "org:<id>" creates the
-                                   tile OWNED by that org (needs the org's
-                                   Create knob / org admin); default: the
-                                   human creator becomes user-owner,
-                                   admin/automation → workspace-owned. Same
-                                   scaffolder as `bx new`; never overwrites.
-                                   Clone/imports assign the same default
-                                   ownership.
+                                   tile OWNED by that org — gated by the
+                                   org's Create knob / org admin INSTEAD of
+                                   personal canCreate patterns (D25: the
+                                   path doesn't encode the org, so the org
+                                   knob is the authority; elements still
+                                   need the xbin:writer capability).
+                                   Default: the human creator becomes
+                                   user-owner, admin/automation →
+                                   workspace-owned. Same scaffolder as `bx
+                                   new`; never overwrites. Clone/imports
+                                   assign the same default ownership.
 POST   /clone                      same authority as /create (create
                                    patterns work; the deputy clamp applies)
                                    + the human must have READ on `from`
@@ -326,23 +347,45 @@ POST   /git/import                 same authority as /create on the
                                    pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
-GET    /grants                     admin — full table; a signed-in ORG
-                                   ADMIN gets the filtered view (rows whose
-                                   From is owned by their orgs, pending
-                                   marked approvable, {scope:"org"}). {grants: [{from,target,role}],
-                                   pending: [{from,target,role,blocked?}]} —
-                                   blocked names the policy row that makes a
-                                   request unapprovable (UIs grey it out)
-POST   /grants                     admin — any; an owning-org admin may
-                                   approve when the target is intra-org or
-                                   allowance-covered (D26; ceilings still
-                                   apply; xbin/xbin:* never). body {from,target,role} — approve/add.
+GET    /grants                     admin — full table {grants, pending}.
+                                   Any signed-in USER gets a filtered view
+                                   (D26/D33): rows their orgs own
+                                   (direction consumer), rows targeting
+                                   their orgs' property (provider), and
+                                   their own writable tiles' rows (mine —
+                                   requesters are never blind). Shape:
+                                   {grants: [{from,target,role,approvedBy?,
+                                   approvedAt?,direction?}], pending:
+                                   [{from,target,role,blocked?,approvable?,
+                                   direction?,approvers?}], scope:
+                                   "org"|"mine"} — blocked names the policy
+                                   row that makes a request unapprovable;
+                                   approvers hints who could (["org:<id>",
+                                   "workspace-admin"]). Elements: admin only
+POST   /grants                     admin — any. An org admin may approve on
+                                   TWO edges (D26/D33): their org owns the
+                                   REQUESTING tile and the target is
+                                   intra-org or allowance-covered at the
+                                   requested role; or their org owns the
+                                   TARGET property (provider consent — no
+                                   allowance needed). Ceilings still apply;
+                                   xbin/xbin:* never delegable. body
+                                   {from,target,role} — approve/add; the
+                                   stored row records approvedBy/approvedAt.
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.
-DELETE /grants                     admin. body {from,target,role} — revoke
+DELETE /grants                     admin; also both D26/D33 edges (an org
+                                   admin may always revoke their org's or
+                                   their property's rows — narrowing is
+                                   safe). body {from,target,role}
 
-GET    /bindings                   admin. Typed interface wiring (see
+GET    /bindings                   admin; signed-in users get a scoped view
+                                   (D26/D33): their orgs' tiles + tiles
+                                   they can write + rows whose refs point
+                                   at THEIR orgs' provider tiles (the
+                                   consumption of their property). Typed
+                                   interface wiring (see
                                    plans/interfaces.md; manifest fields in
                                    docs/elements.md).
                                    {bindings: {comp: {slot: provider|{ref,host,
@@ -354,7 +397,13 @@ GET    /bindings                   admin. Typed interface wiring (see
                                    providers — the bind-on-install prompt;
                                    expose:true rows are unpublished exposed
                                    endpoints (bind = publish, docs/ingress.md).
-POST   /bindings                   admin. body {component, slot, provider} or
+POST   /bindings                   admin; an org admin within D26 (their
+                                   org owns the component; targets
+                                   intra-org or allowance-covered — the
+                                   iface:svc@tile#instance grammar pins
+                                   provider/instance) or D33 (every ref is
+                                   a provider THEIR org owns — provider
+                                   consent). body {component, slot, provider} or
                                    {component, slot, providers:[…]} (the full
                                    set for a multi:true http slot). Refs are
                                    provider[#instance]; an instances-provide
@@ -370,7 +419,9 @@ POST   /bindings                   admin. body {component, slot, provider} or
                                    terminator tile), {listen} (stream; source
                                    "runtime"); binding = publishing. A stream
                                    INTERFACE slot binds "provider#expose-slot".
-DELETE /bindings                   admin. body {component, slot} — clear a binding
+DELETE /bindings                   admin / owning-org admin (always) /
+                                   provider-org admin (withdrawing
+                                   service). body {component, slot} — clear a binding
                                    (for an exposed slot: unpublish — the host
                                    404s, a stream port closes + live flows end)
 PUT    /iface-instances            self or admin. body {component?, instances:
@@ -412,7 +463,9 @@ GET    /ingress                    admin. The whole ingress picture: {exposes:
                                    binding + policy state, live routes, stream
                                    listener health, and the builtin listener.
 
-POST   /lifecycle                  admin. body {component, state} — component
+POST   /lifecycle                  admin, the tile's user-owner, or an
+                                   owning-org admin (D24: lifecycle is the
+                                   owner's). body {component, state} — component
                                    lifecycle (plans/lifecycle.md). state:
                                    enabled | disabled | offloaded | offloaded-full.
                                    A non-enabled backend is not spawned (the proxy
@@ -453,13 +506,18 @@ POST   /vault-rekey               admin. body {current, new} — change the
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init
                                    the barrier on first use). {created}
 POST   /vault-seal                admin. drop the key from memory
-GET    /vault/<component>          self or admin. {keys: […]} — list keys (admin
+GET    /vault/<component>          backend/terminal self, or admin. {keys:
+                                   […]} — list keys (admin
                                    may list any vault)
-GET    /vault/<component>/<key>    SELF ONLY. {value} — a secret's value is
-                                   readable only by the owning element; admin
-                                   gets 403 (it can list + set, not read)
-PUT    /vault/<component>/<key>    self or admin. body {value}
-DELETE /vault/<component>/<key>    self or admin.
+GET    /vault/<component>/<key>    BACKEND ONLY (instance token, D30).
+                                   {value} — a secret's value is readable
+                                   only by the owning tile's backend;
+                                   admins AND the tile's own terminals get
+                                   403 (they list + set, never read)
+PUT    /vault/<component>/<key>    backend/terminal self, or admin. body
+                                   {value} (write-only management — D30;
+                                   frame tokens can't reach the vault API)
+DELETE /vault/<component>/<key>    backend/terminal self, or admin.
                                    (all vault get/set → 503 when sealed)
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}

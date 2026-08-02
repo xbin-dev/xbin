@@ -12,6 +12,40 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **BREAKING — the ownership model grew teeth: org-governed access, exact
+  overrides, provider-side approvals, backend-only secrets, user
+  attribution.** ([migration note](changes/2026-08-02-ownership-fixes.md))
+  The fixes from the five-story UX review, in one wave:
+  - *Access resolution (D31):* an org-owned tile is governed by the org —
+    personal pattern grants and workspace defaults no longer leak into org
+    tiles; an **exact per-user entry is authoritative** (override down, or
+    `none` to exclude one member from one tile).
+  - *Create-as-org actually works:* a member with the org's Create knob can
+    create org-owned tiles with no personal canCreate pattern (the D25
+    promise, previously dead code) — manager tile, organisations tile, `bx
+    new --owner org:<id>`, raw POST /create.
+  - *Provider-side consent + nobody is blind (D33):* admins of the org that
+    owns a tile now SEE its consumers and may approve/withdraw grants and
+    bindings targeting their property; requesters see their own pending
+    requests with who-can-approve hints; the shell ⚑ badge counts real
+    pending approvals and updates live (new-pending events); grant rows
+    record who approved (`approvedBy`).
+  - *Allowance granularity (D32):* `tile:<pat>@<role>` / `res:<glob>@<role>`
+    cap the delegable role; `iface:<svc>@<tile>#<instance>` pins a provider
+    and instance (share the dev instance, not prod); entries validate per
+    class at write time instead of storing dead strings.
+  - *Vault (D30, BREAKING):* secret VALUES are readable by the tile's
+    backend only — admins and tile terminals list/set/rotate but never
+    read; tile frontends can't reach the vault API at all.
+  - *User attribution (D29):* backends receive `X-XBin-User` +
+    `X-XBin-User-Level` for the driving human; SDK `Caller(r)` carries
+    `User`/`UserLevel` + `UserCanWrite()` so tiles can gate in-app.
+  - Also: lifecycle is now the owner's (org admins can stop their runaway
+    tile), org admins can read their org's policy rows, deleting a user
+    reports the tiles that fell to workspace-owned, `bx doctor` learned
+    ownership checks, and `bx new --team` (dead teams-era flag) became
+    `--owner`.
+
 - **Invite links: onboard users without sharing passwords (D22).** Create a
   user with no password (admin tile, `bx user add --invite`, or plain
   `POST /users`) and you get a **single-use, 72h invite link** to send them —

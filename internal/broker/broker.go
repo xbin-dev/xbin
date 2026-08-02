@@ -9,12 +9,14 @@ package broker
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
@@ -48,6 +50,9 @@ type Broker struct {
 
 	statusMu sync.Mutex
 	statuses map[string]statusRec // component → last reported status (status.go)
+
+	// pendingSeen is the last-published pending-grant key set (RefreshPending).
+	pendingSeen map[string]bool
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -440,6 +445,38 @@ type PendingGrant struct {
 	// Approvable marks pending items the CALLER may approve — set on the
 	// org-admin filtered view (D26); ws-admins may approve anything unblocked.
 	Approvable bool `json:"approvable,omitempty"`
+	// Direction is the viewer's relation on the org-scoped view (D33):
+	// consumer | provider | both | mine (the requester's own tile).
+	Direction string `json:"direction,omitempty"`
+	// Approvers hints who COULD approve when the viewer can't — org:<id>
+	// entries and/or "workspace-admin" — so a pending request never renders
+	// as a dead end.
+	Approvers []string `json:"approvers,omitempty"`
+}
+
+// RefreshPending recomputes the pending set and publishes a `grants` event
+// when NEW requests appeared — wired to registry rescans (main's watch loop)
+// so approvers' UIs and the shell's pending badge learn about fresh requests,
+// not only about approvals. Removals don't publish (the approval/revoke
+// paths already do).
+func (b *Broker) RefreshPending() {
+	keys := map[string]bool{}
+	for _, pg := range b.Pending() {
+		keys[pg.From+"\x00"+pg.Target+"\x00"+pg.Role] = true
+	}
+	b.mu.Lock()
+	added := false
+	for k := range keys {
+		if !b.pendingSeen[k] {
+			added = true
+			break
+		}
+	}
+	b.pendingSeen = keys
+	b.mu.Unlock()
+	if added && b.Hub != nil {
+		b.Hub.Publish(events.Event{Type: "grants"})
+	}
 }
 
 // Pending computes unsatisfied cross-scope `uses` declarations.
@@ -472,10 +509,17 @@ func (b *Broker) Pending() []PendingGrant {
 func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	if !b.IsAdmin(p) {
-		// Org admins get the filtered view: rows for tiles their orgs own,
-		// with the pending items they may approve marked (D26).
+		// Every session human gets the filtered view (D26/D33): rows their
+		// orgs own (consumer), rows targeting their orgs' property
+		// (provider), and their own writable tiles' rows (mine) — with the
+		// pending items they may approve marked, and who-can-approve hints
+		// on the rest. Elements stay admin-only.
 		if grants, pending, ok := b.orgFilterGrants(p); ok {
-			server.WriteJSON(w, http.StatusOK, map[string]any{"grants": grants, "pending": pending, "scope": "org"})
+			scope := "mine"
+			if len(p.Access.AdminOrgs()) > 0 {
+				scope = "org"
+			}
+			server.WriteJSON(w, http.StatusOK, map[string]any{"grants": grants, "pending": pending, "scope": scope})
 			return
 		}
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
@@ -487,10 +531,16 @@ func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sameGrant compares the identifying triple — audit fields (approvedBy/At)
+// never affect row identity.
+func sameGrant(a, b registry.Grant) bool {
+	return a.From == b.From && a.Target == b.Target && a.Role == b.Role
+}
+
 func (b *Broker) apiGrantsAdd(w http.ResponseWriter, r *http.Request) {
 	if g, ok := b.grantMutation(w, r, func(ws *registry.WorkspaceManifest, g registry.Grant) {
 		for _, e := range ws.Grants {
-			if e == g {
+			if sameGrant(e, g) {
 				return
 			}
 		}
@@ -507,7 +557,7 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 	if g, ok := b.grantMutation(w, r, func(ws *registry.WorkspaceManifest, g registry.Grant) {
 		out := ws.Grants[:0]
 		for _, e := range ws.Grants {
-			if e != g {
+			if !sameGrant(e, g) {
 				out = append(out, e)
 			}
 		}
@@ -564,6 +614,21 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 			return registry.Grant{}, false
 		}
+	}
+	// Audit provenance (D33): stamp who approved, and log the full triple so
+	// the audit trail answers "who approved what", not just "who POSTed".
+	by := "owner"
+	switch {
+	case p.User != nil:
+		by = "user:" + p.User.ID
+	case p.Component != "":
+		by = p.Component
+	}
+	if r.Method == http.MethodPost {
+		g.ApprovedBy, g.ApprovedAt = by, time.Now().Unix()
+		slog.Info("grant approved", "from", g.From, "target", g.Target, "role", g.Role, "by", by)
+	} else {
+		slog.Info("grant revoked", "from", g.From, "target", g.Target, "role", g.Role, "by", by)
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

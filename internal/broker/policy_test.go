@@ -308,24 +308,30 @@ func TestCanCreateAtDeputyClamp(t *testing.T) {
 	}
 	acc := func(id string) *users.Access { a, _ := st.Access(id); return a }
 	cases := []struct {
-		name string
-		p    auth.Principal
-		path string
-		want bool
+		name  string
+		p     auth.Principal
+		path  string
+		owner string
+		want  bool
 	}{
-		{"owner", auth.Principal{Owner: true}, "apps/x", true},
-		{"session maker in-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/mk/x", true},
-		{"session maker out-of-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/x", false},
-		{"unattributed element w/ grant", auth.Principal{Component: "apps/email"}, "apps/anything", true},
-		{"element w/ grant, plain human", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/anything", false},
-		{"element w/ grant, maker human in-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/mk/x", true},
-		{"element w/ grant, maker human out-of-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/x", false},
-		{"element w/ grant, admin human", auth.Principal{Component: "apps/email", UserID: "admin2"}, "apps/anything", true},
-		{"element w/o grant", auth.Principal{Component: "apps/calendar", UserID: "maker"}, "apps/mk/x", false},
-		{"session plain", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", false},
+		{"owner", auth.Principal{Owner: true}, "apps/x", "", true},
+		{"session maker in-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/mk/x", "", true},
+		{"session maker out-of-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/x", "", false},
+		{"unattributed element w/ grant", auth.Principal{Component: "apps/email"}, "apps/anything", "", true},
+		{"element w/ grant, plain human", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/anything", "", false},
+		{"element w/ grant, maker human in-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/mk/x", "", true},
+		{"element w/ grant, maker human out-of-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/x", "", false},
+		{"element w/ grant, admin human", auth.Principal{Component: "apps/email", UserID: "admin2"}, "apps/anything", "", true},
+		{"element w/o grant", auth.Principal{Component: "apps/calendar", UserID: "maker"}, "apps/mk/x", "", false},
+		{"session plain", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "", false},
+		// Creating AS an org: the org Create knob (checked upstream in
+		// resolveCreateOwner) is the authority — personal patterns don't gate.
+		{"session plain, org-owned", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "org:sales", true},
+		{"element w/ grant, plain human, org-owned", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/x", "org:sales", true},
+		{"element w/o grant, org-owned", auth.Principal{Component: "apps/calendar", UserID: "plain"}, "apps/x", "org:sales", false},
 	}
 	for _, c := range cases {
-		if got, msg := b.canCreateAt(c.p, c.path); got != c.want {
+		if got, msg := b.canCreateAt(c.p, c.path, c.owner); got != c.want {
 			t.Errorf("%s: canCreateAt=%v (%s), want %v", c.name, got, msg, c.want)
 		}
 	}

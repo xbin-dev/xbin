@@ -125,7 +125,7 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Importing creates a tile at `path` — same authority as /create (create
 	// patterns work; the confused-deputy clamp applies to attributed humans).
-	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path); !ok {
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path, ""); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}

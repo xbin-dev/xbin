@@ -1,10 +1,11 @@
 /**
  * <bx-tile-admin> — the tile-scoped mini admin panel the shell pops from a
- * card's title bar (admins + the tile's ORG admins). One tile's slice of the
- * admin console: access (people/teams), lifecycle, runtime info, vault keys,
- * roles/grants, interface bindings, backups, and cron registrations — each a
- * fold-out section, loaded lazily and degrading independently (an org admin
- * gets the access section; workspace-admin-only sections say so).
+ * card's title bar (admins, the tile's USER-OWNER, and the owning org's
+ * admins). One tile's slice of the admin console: access (users/orgs, D24/
+ * D31), lifecycle, runtime info, vault keys, roles/grants, interface
+ * bindings, backups, and cron registrations — each a fold-out section,
+ * loaded lazily and degrading independently (an owner/org admin gets the
+ * access + lifecycle sections; workspace-admin-only sections say so).
  *
  * Runs in the ROOT page (workspace chrome), so it uses RAW fetch on purpose:
  * the cookie principal is the signed-in human, whereas xbin.fetch would
@@ -38,10 +39,9 @@ export class BxTileAdmin extends LitElement {
     _vault: { state: true },    // vault key names
     _backups: { state: true },  // versions
     _cron: { state: true },     // this tile's cron jobs
-    _access: { state: true },   // the tile's ACL view (/access — users/teams/base)
+    _access: { state: true },   // the tile's ACL view (/access — owner + user/org entries)
     _dir: { state: true },      // /users-directory for the add-entry picker
-    _orgTeams: { state: true }, // the tile's org's team ids (add-entry picker)
-    _accKind: { state: true },  // add-entry kind: user | team
+    _accKind: { state: true },  // add-entry kind: user | org
     _err: { state: true },
     _busy: { state: true },
   };
@@ -117,13 +117,8 @@ export class BxTileAdmin extends LitElement {
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
         api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
       ]);
-      // Pickers for the access section (best-effort; org admins may fetch both).
+      // Picker for the access section (best-effort; owners/org admins may fetch).
       api('/users-directory').then((d) => { this._dir = d.users ?? []; }).catch(() => {});
-      api('/orgs').then((d) => {
-        const org = (this._access && this._access.org) || null;
-        const o = (d.orgs ?? []).find((x) => x.id === org);
-        this._orgTeams = o ? (o.teams ?? []).map((t) => `${org}/${t.id}`) : [];
-      }).catch(() => {});
       this._ov = ov.forbidden ? { forbidden: true }
         : ((ov.components ?? []).find((c) => c.path === this.path) ?? {});
       const mine = (g) => g.from === this.path || g.target === this.path ||
@@ -215,10 +210,12 @@ export class BxTileAdmin extends LitElement {
       </form></div>`;
   }
 
-  // ---- access: the tile's people/teams ACL (docs/auth.md, orgs & teams) ----
-  // Exact entries are editable; pattern/base rows are provenance-only (they
-  // live on the user/team/org object). Org admins can use this section on
-  // their org's tiles even when the workspace-admin sections 403.
+  // ---- access: the tile's ACL (docs/auth.md, D24/D31) ----
+  // Exact entries are editable and AUTHORITATIVE for their user on this tile
+  // (they override org membership, patterns and defaults; `none` excludes);
+  // pattern rows are provenance-only (edited on the user/org object). The
+  // tile's owner and org admins can use this section even when the
+  // workspace-admin sections 403.
   _accessSec() {
     const a = this._access;
     if (!a) return html`<div class="sec muted">…</div>`;
@@ -226,18 +223,18 @@ export class BxTileAdmin extends LitElement {
     const entries = a.entries ?? [];
     const setEntry = (kind, id, level) => this._do(() =>
       api('/access', { method: 'PUT', ...jbody({ tile: this.path, kind, id, level }) }));
+    const levelsFor = (kind) => kind === 'user'
+      ? ['read', 'write', 'terminal', 'none'] : ['read', 'write', 'terminal'];
     return html`<div class="sec">
       <div style="margin-bottom:4px" class="muted">
-        ${a.org ? html`org <span class="mono">${a.org}</span>${a.orgAdmins?.length
-            ? html` · org admins: <span class="mono">${a.orgAdmins.join(', ')}</span>` : nothing}`
-          : 'workspace-plane tile (no org)'}
+        owner: <span class="mono">${a.owner || 'workspace'}</span>
       </div>
       <table>
         ${entries.map((e) => html`<tr>
-          <td><span class="pill">${e.kind}</span> <span class="mono">${e.id}</span></td>
+          <td><span class="pill">${e.kind === 'org' ? '🏢' : '👤'} ${e.kind}</span> <span class="mono">${e.id}</span></td>
           <td>${e.source === 'exact'
             ? html`<select ?disabled=${this._busy} @change=${(ev) => setEntry(e.kind, e.id, ev.target.value)}>
-                ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${e.level === l}>${l}</option>`)}
+                ${levelsFor(e.kind).map((l) => html`<option value=${l} ?selected=${e.level === l}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
               </select>`
             : html`<span class="pill">${e.level}</span>`}</td>
           <td class="muted" style="font-size:10px">${e.source}</td>
@@ -246,32 +243,33 @@ export class BxTileAdmin extends LitElement {
                 @click=${() => setEntry(e.kind, e.id, '')}>✕</button>`
             : nothing}</td>
         </tr>`)}
-        ${!entries.length ? html`<tr><td class="muted" colspan="4">no entries — admins only</td></tr>` : nothing}
+        ${!entries.length ? html`<tr><td class="muted" colspan="4">no entries — owner/admins only</td></tr>` : nothing}
       </table>
       <form class="row" @submit=${(e) => {
         e.preventDefault(); const f = e.target;
         const id = f.who.value.trim(); if (!id) return;
-        setEntry(this._accKind === 'team' ? 'team' : 'user', id, f.level.value); f.who.value = '';
+        setEntry(this._accKind === 'org' ? 'org' : 'user', id, f.level.value); f.who.value = '';
       }}>
         <select @change=${(e) => { this._accKind = e.target.value; }}>
-          <option value="user" ?selected=${this._accKind !== 'team'}>user</option>
-          ${a.org ? html`<option value="team" ?selected=${this._accKind === 'team'}>team</option>` : nothing}
+          <option value="user" ?selected=${this._accKind !== 'org'}>user</option>
+          <option value="org" ?selected=${this._accKind === 'org'}>org</option>
         </select>
-        ${this._accKind === 'team'
-          ? html`<select name="who">
-              ${(this._orgTeams ?? []).map((t) => html`<option value=${t}>${t}</option>`)}
-              ${!(this._orgTeams ?? []).length ? html`<option value="">no teams in ${a.org}</option>` : nothing}
-            </select>`
-          : html`<input name="who" list="acc-people" placeholder="user id" size="14">
-            <datalist id="acc-people">
-              ${(this._dir ?? []).map((u) => html`<option value=${u.id}>${u.name && u.name !== u.id ? u.name : ''}</option>`)}
-            </datalist>`}
-        <select name="level"><option>read</option><option selected>write</option><option>terminal</option></select>
+        <input name="who" list="acc-people" placeholder=${this._accKind === 'org' ? 'org id' : 'user id'} size="14">
+        <datalist id="acc-people">
+          ${this._accKind === 'org' ? nothing
+            : (this._dir ?? []).map((u) => html`<option value=${u.id}>${u.name && u.name !== u.id ? u.name : ''}</option>`)}
+        </datalist>
+        <select name="level">
+          <option>read</option><option selected>write</option><option>terminal</option>
+          ${this._accKind !== 'org' ? html`<option value="none">none (exclude)</option>` : nothing}
+        </select>
         <button class="act go" ?disabled=${this._busy}>add</button>
       </form>
       <div class="muted" style="font-size:10px; margin-top:4px">
         read = see the tile · write = use/edit it · terminal = a root shell on it.
-        Pattern/base rows are edited on the user/team/org (admin tile or bx).
+        An exact user entry is authoritative — it overrides org membership,
+        patterns and defaults; <i>none</i> excludes outright (D31). Pattern
+        rows are edited on the user/org (admin tile or bx).
       </div>
     </div>`;
   }

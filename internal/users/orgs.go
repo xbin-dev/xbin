@@ -457,11 +457,147 @@ func (s *Store) DeletePermissionSet(name string) error {
 
 // --- allowances (D26): grammar + evaluation ---------------------------------
 
-// allowPrefixes is the strict allowance grammar (plans/ownership.md): every
-// entry must use a known class, so a typo can't silently over-delegate.
-var allowPrefixes = []string{
-	"res:", "gpu:", "cap:", "net:", "iface:",
-	"ingress:host:", "ingress:zone:", "ingress:listen:", "tile:",
+// The allowance grammar (plans/ownership.md, D26/D32). Every entry parses to
+// a class + class-specific pattern, so a typo can't silently over- OR
+// under-delegate (write-time validation refuses entries that could never
+// match a real approval target):
+//
+//	res:<glob>[@<role>]          resource grants, optionally capped at a role
+//	gpu:<glob>                   gpu grants
+//	cap:<glob>                   capability grants (cap:net-admin, cap:containers)
+//	net:internet | net:host | net:lan:<glob> | net:provider:<tile-glob>
+//	iface:<svc>[@<tile-glob>[#<inst-glob>]]
+//	                             interface bindings — optionally pinned to a
+//	                             provider tile and a provider INSTANCE, so
+//	                             "the dev instance of the api, only" is
+//	                             expressible (D32)
+//	ingress:host:<glob> | ingress:zone:<glob> | ingress:listen:<port|lo-hi>
+//	tile:<pattern>[@<role>]      grants targeting whole tiles, optionally
+//	                             capped at a role (bare = any role — prefer
+//	                             @reader for consume-only delegation)
+type allowEntry struct {
+	class    string // res|gpu|cap|net|iface|ingress:host|ingress:zone|ingress:listen|tile
+	value    string // class-specific pattern
+	role     string // res/tile @role cap ("" = any role)
+	provider string // iface @provider tile-glob ("" = any provider)
+	instance string // iface #instance glob ("" = any instance)
+}
+
+// allowRoleRank orders the conventional roles for @role caps (bus aliases
+// normalize). Unknown roles rank 0 and only match exactly.
+func allowRoleRank(r string) int {
+	switch r {
+	case "subscriber":
+		r = "reader"
+	case "publisher":
+		r = "writer"
+	}
+	switch r {
+	case "reader":
+		return 1
+	case "writer":
+		return 2
+	case "admin":
+		return 3
+	}
+	return 0
+}
+
+// roleWithin reports whether a requested role fits under an entry's cap.
+func roleWithin(requested, cap string) bool {
+	if cap == "" {
+		return true // uncapped entry: any role
+	}
+	if requested == "" {
+		return false // capped entry never covers an unknown/absent role
+	}
+	rr, cr := allowRoleRank(requested), allowRoleRank(cap)
+	if rr == 0 || cr == 0 {
+		return requested == cap
+	}
+	return rr <= cr
+}
+
+// parseAllowEntry validates one entry against the grammar.
+func parseAllowEntry(e string) (allowEntry, error) {
+	e = strings.TrimSpace(e)
+	if e == "" {
+		return allowEntry{}, fmt.Errorf("empty entry")
+	}
+	if e == "xbin" || strings.HasPrefix(e, "xbin:") {
+		return allowEntry{}, fmt.Errorf("%q is never delegable — xbin capability grants make their holder a workspace admin", e)
+	}
+	class, rest, ok := strings.Cut(e, ":")
+	if !ok || rest == "" {
+		return allowEntry{}, fmt.Errorf("%q — entries are res:/gpu:/cap:/net:/iface:/ingress:host:/ingress:zone:/ingress:listen:/tile: followed by a value", e)
+	}
+	out := allowEntry{class: class, value: rest}
+	cutRole := func() {
+		if v, r, has := strings.Cut(out.value, "@"); has {
+			out.value, out.role = v, r
+		}
+	}
+	switch class {
+	case "res", "tile":
+		cutRole()
+		if out.value == "" {
+			return allowEntry{}, fmt.Errorf("%q — missing pattern", e)
+		}
+		if out.role != "" && allowRoleRank(out.role) == 0 {
+			// Manifest-declared custom roles are allowed, but must look like one.
+			if strings.ContainsAny(out.role, ":/@#*") {
+				return allowEntry{}, fmt.Errorf("%q — @%s is not a role", e, out.role)
+			}
+		}
+	case "gpu":
+		// any glob
+	case "cap":
+		if strings.HasPrefix(rest, "xbin") {
+			return allowEntry{}, fmt.Errorf("%q — the xbin capability family is never delegable (and no cap: target spells it)", e)
+		}
+	case "net":
+		switch {
+		case rest == "internet" || rest == "host":
+		case strings.HasPrefix(rest, "lan:") && len(rest) > 4:
+		case strings.HasPrefix(rest, "provider:") && len(rest) > 9:
+		default:
+			return allowEntry{}, fmt.Errorf("%q — net entries are net:internet, net:host, net:lan:<glob> or net:provider:<tile-glob>", e)
+		}
+	case "iface":
+		v := rest
+		if svc, prov, has := strings.Cut(v, "@"); has {
+			out.value = svc
+			if p, inst, hasInst := strings.Cut(prov, "#"); hasInst {
+				out.provider, out.instance = p, inst
+			} else {
+				out.provider = prov
+			}
+		}
+		if out.value == "" || (strings.Contains(rest, "@") && out.provider == "") ||
+			(strings.Contains(rest, "#") && out.instance == "") {
+			return allowEntry{}, fmt.Errorf("%q — iface entries are iface:<service>[@<tile-glob>[#<instance-glob>]]", e)
+		}
+	case "ingress":
+		kind, val, ok := strings.Cut(rest, ":")
+		if !ok || val == "" || (kind != "host" && kind != "zone" && kind != "listen") {
+			return allowEntry{}, fmt.Errorf("%q — ingress entries are ingress:host:<glob>, ingress:zone:<glob> or ingress:listen:<port|lo-hi>", e)
+		}
+		out.class, out.value = "ingress:"+kind, val
+		if kind == "listen" {
+			lo, hi, isRange := strings.Cut(val, "-")
+			if !isRange {
+				hi = lo
+			}
+			l, e1 := strconv.Atoi(strings.TrimSpace(lo))
+			h, e2 := strconv.Atoi(strings.TrimSpace(hi))
+			if e1 != nil || e2 != nil || l < 1 || h > 65535 || l > h {
+				return allowEntry{}, fmt.Errorf("%q — listen wants a port or lo-hi range", val)
+			}
+		}
+	default:
+		return allowEntry{}, fmt.Errorf("%q — entries are res:/gpu:/cap:/net:/iface:/ingress:host:/ingress:zone:/ingress:listen:/tile: followed by a value", e)
+	}
+	return out, nil
 }
 
 // ValidateAllow checks allowance entries against the grammar and the xbin
@@ -470,22 +606,8 @@ var allowPrefixes = []string{
 // admin who could self-approve it would transitively be one too (D26).
 func ValidateAllow(entries []string) error {
 	for i, e := range entries {
-		e = strings.TrimSpace(e)
-		if e == "" {
-			return fmt.Errorf("allow[%d]: empty entry", i)
-		}
-		if e == "xbin" || strings.HasPrefix(e, "xbin:") {
-			return fmt.Errorf("allow[%d]: %q is never delegable — xbin capability grants make their holder a workspace admin", i, e)
-		}
-		ok := false
-		for _, p := range allowPrefixes {
-			if strings.HasPrefix(e, p) && len(e) > len(p) {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			return fmt.Errorf("allow[%d]: %q — entries must be one of %s followed by a value/pattern", i, e, strings.Join(allowPrefixes, " "))
+		if _, err := parseAllowEntry(e); err != nil {
+			return fmt.Errorf("allow[%d]: %w", i, err)
 		}
 	}
 	return nil
@@ -521,44 +643,93 @@ func (s *Store) ResolvedAllow(orgID string) []string {
 }
 
 // AllowanceCovers reports whether an org's resolved allowance covers a
-// normalized approval target. The xbin floor is enforced here too
-// (defense-in-depth: even a hand-edited entry can't delegate it).
-func (s *Store) AllowanceCovers(orgID, target string) bool {
+// normalized approval target at the requested role ("" for the roleless
+// binding plane). The xbin floor is enforced here too (defense-in-depth:
+// even a hand-edited entry can't delegate it).
+func (s *Store) AllowanceCovers(orgID, target, role string) bool {
 	if target == "xbin" || strings.HasPrefix(target, "xbin:") {
 		return false
 	}
 	for _, e := range s.ResolvedAllow(orgID) {
-		if allowMatch(e, target) {
+		pe, err := parseAllowEntry(e)
+		if err != nil {
+			continue // hand-edited junk never matches
+		}
+		if allowMatch(pe, target, role) {
 			return true
 		}
 	}
 	return false
 }
 
-// allowMatch matches one allowance entry against a normalized target:
-//   - ingress:listen:LO-HI covers ingress:listen:<port> in range
-//   - tile:<pattern> covers bare component-path targets (matchTile rules)
-//   - otherwise a single-'*' glob (prefix/suffix), so res:*, cap:*,
-//     net:lan:10.*, ingress:host:*.dev.example.com all work
-func allowMatch(entry, target string) bool {
-	if lohi, ok := strings.CutPrefix(entry, "ingress:listen:"); ok && strings.Contains(lohi, "-") {
-		port, ok2 := strings.CutPrefix(target, "ingress:listen:")
-		if !ok2 {
+// allowMatch matches one parsed allowance entry against a normalized target
+// (+ requested role for the grant plane). Target forms per class:
+//
+//	tile entries      bare component paths (grant targets)
+//	res/gpu/cap/net   the prefixed target strings (res:apps/x/db, cap:…)
+//	iface entries     iface:<svc>@<provider>[#<instance>] (bindingTargets)
+//	ingress entries   ingress:host:<h> / :zone:<z> / :listen:<port>
+func allowMatch(e allowEntry, target, role string) bool {
+	switch e.class {
+	case "tile":
+		if strings.Contains(target, ":") {
+			return false // tile: entries cover bare component paths only
+		}
+		return matchTile(e.value, target) && roleWithin(role, e.role)
+	case "res", "gpu", "cap":
+		rest, ok := strings.CutPrefix(target, e.class+":")
+		if !ok {
 			return false
 		}
-		lo, hi, _ := strings.Cut(lohi, "-")
+		if e.class == "res" && !roleWithin(role, e.role) {
+			return false
+		}
+		return globMatch(e.value, rest)
+	case "net":
+		rest, ok := strings.CutPrefix(target, "net:")
+		return ok && globMatch(e.value, rest)
+	case "iface":
+		rest, ok := strings.CutPrefix(target, "iface:")
+		if !ok {
+			return false
+		}
+		svc, prov, inst := rest, "", ""
+		if s2, p, has := strings.Cut(rest, "@"); has {
+			svc = s2
+			if p2, i2, hasInst := strings.Cut(p, "#"); hasInst {
+				prov, inst = p2, i2
+			} else {
+				prov = p
+			}
+		}
+		if !globMatch(e.value, svc) {
+			return false
+		}
+		if e.provider != "" && (prov == "" || !matchTile(e.provider, prov)) {
+			return false
+		}
+		if e.instance != "" && (inst == "" || !globMatch(e.instance, inst)) {
+			return false
+		}
+		return true
+	case "ingress:host", "ingress:zone":
+		rest, ok := strings.CutPrefix(target, e.class+":")
+		return ok && globMatch(e.value, rest)
+	case "ingress:listen":
+		port, ok := strings.CutPrefix(target, "ingress:listen:")
+		if !ok {
+			return false
+		}
+		lo, hi, isRange := strings.Cut(e.value, "-")
+		if !isRange {
+			hi = lo
+		}
 		l, e1 := strconv.Atoi(strings.TrimSpace(lo))
 		h, e2 := strconv.Atoi(strings.TrimSpace(hi))
 		p, e3 := strconv.Atoi(strings.TrimSpace(port))
 		return e1 == nil && e2 == nil && e3 == nil && p >= l && p <= h
 	}
-	if pat, ok := strings.CutPrefix(entry, "tile:"); ok {
-		if strings.Contains(target, ":") {
-			return false // tile: entries cover bare component paths only
-		}
-		return matchTile(pat, target)
-	}
-	return globMatch(entry, target)
+	return false
 }
 
 // globMatch supports one '*' anywhere (exact match without it).
@@ -677,10 +848,20 @@ func (s *Store) Access(id string) (*Access, bool) {
 	return a, true
 }
 
-// TileLevel is the effective access level on one path (D24/D25/D27): max of
-// ownership (user-owner ⇒ terminal; org-owned ⇒ member level, org admins
-// terminal), org shares, the user's own entries, and workspace defaults.
-// Workspace admins: terminal everywhere.
+// TileLevel is the effective access level on one path (D24/D25/D27/D31).
+// Resolution, in order:
+//
+//  1. workspace admin / the tile's user-owner / an org admin of the owning
+//     org ⇒ terminal;
+//  2. an EXACT per-user entry is authoritative — it sets the level outright
+//     (including `none` = explicit exclusion), overriding org level, shares,
+//     patterns and defaults. Exact entries are the sanctioned per-tile
+//     override/share device (written via /access, owner-gated);
+//  3. otherwise levels union — but on an ORG-OWNED tile the user's access is
+//     their standing in the org (member level + shares the owners sanctioned),
+//     NOT the workspace plane: personal pattern entries and workspace
+//     defaults do not reach org tiles (D31 — "your perms on an org tile are
+//     your perms in the org").
 func (a *Access) TileLevel(path string) string {
 	if a == nil {
 		return ""
@@ -688,43 +869,54 @@ func (a *Access) TileLevel(path string) string {
 	if a.user.IsAdmin() {
 		return LevelTerminal
 	}
+	owner := a.owners[path]
+	if owner == OwnerKindUser+":"+a.user.ID {
+		return LevelTerminal // your tile is yours (D24)
+	}
+	orgOwner, isOrgOwned := strings.CutPrefix(owner, OwnerKindOrg+":")
+	if isOrgOwned {
+		for _, os := range a.orgs {
+			if os.id == orgOwner && os.member.Admin {
+				return LevelTerminal // org admins run the org's tiles
+			}
+		}
+	}
+	if l, ok := a.user.Tiles[path]; ok { // exact entry: authoritative (D31)
+		if l == LevelNone {
+			return ""
+		}
+		return l
+	}
 	best := ""
 	up := func(l string) {
 		if levelRank(l) > levelRank(best) {
 			best = l
 		}
 	}
-	switch owner := a.owners[path]; owner {
-	case "":
-	case OwnerKindUser + ":" + a.user.ID:
-		return LevelTerminal // your tile is yours (D24)
-	default:
-		if org, ok := strings.CutPrefix(owner, OwnerKindOrg+":"); ok {
-			for _, os := range a.orgs {
-				if os.id == org {
-					if os.member.Admin {
-						return LevelTerminal // org admins run the org's tiles
-					}
-					up(os.member.Level)
-				}
+	if isOrgOwned {
+		for _, os := range a.orgs {
+			if os.id == orgOwner {
+				up(os.member.Level)
 			}
 		}
 	}
-	for _, os := range a.orgs { // shares reach members of ANY org, org-owned or not
+	for _, os := range a.orgs { // org shares (owner-sanctioned per-tile/pattern)
 		for pat, l := range os.tiles {
 			if matchTile(pat, path) {
 				up(l)
 			}
 		}
 	}
-	for pat, l := range a.user.Tiles {
-		if matchTile(pat, path) {
-			up(l)
+	if !isOrgOwned { // the workspace plane stops at org boundaries (D31)
+		for pat, l := range a.user.Tiles {
+			if l != LevelNone && matchTile(pat, path) {
+				up(l)
+			}
 		}
-	}
-	for pat, l := range a.defaultTiles {
-		if matchTile(pat, path) {
-			up(l)
+		for pat, l := range a.defaultTiles {
+			if matchTile(pat, path) {
+				up(l)
+			}
 		}
 	}
 	return best
@@ -992,12 +1184,13 @@ func contains(list []string, v string) bool {
 // --- per-tile ACL editing + membership views (the /access and whoami APIs) --
 
 // SetUserTile sets — or with level "" removes — a user's EXACT tile entry.
-// This is the per-tile ACL editor's write path: unlike the monotone
-// GrantTile it can lower or clear (pattern entries are edited on the user
-// object itself, not here).
+// This is the per-tile ACL editor's write path: exact entries are
+// AUTHORITATIVE for their tile (D31) — they can lower, raise, or with level
+// `none` explicitly exclude (pattern entries are edited on the user object
+// itself, not here).
 func (s *Store) SetUserTile(id, path, level string) error {
-	if level != "" && levelRank(level) == 0 {
-		return fmt.Errorf("unknown level %q (want read|write|terminal, or empty to remove)", level)
+	if level != "" && level != LevelNone && levelRank(level) == 0 {
+		return fmt.Errorf("unknown level %q (want read|write|terminal, none to exclude, or empty to remove)", level)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1058,17 +1251,20 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 //	admin                workspace admin (terminal everywhere)
 //	owner                the user owns the tile (D24)
 //	org-admin:<org>      org admin of the owning org
+//	exact                an exact per-user entry — authoritative (D31);
+//	                     level `none` = explicit exclusion
 //	org-member:<org>     the member's org-wide level on an org-owned tile
 //	org-share:<org>:<pattern>  a tile shared to an org they belong to
-//	direct:<pattern>     the user's own tiles entry
-//	default:<pattern>    the workspace defaultTiles entry (D27)
+//	direct:<pattern>     the user's own pattern entry (non-org tiles only)
+//	default:<pattern>    the workspace defaultTiles entry (D27; non-org only)
 type Contribution struct {
 	Level  string `json:"level"`
 	Source string `json:"source"`
 }
 
-// Explain lists every contribution to the user's level on path, highest
-// first. The effective level is the first entry's (TileLevel agrees by
+// Explain lists the contributions that actually apply to the user's level on
+// path under the D31 resolution, highest first. The effective level is the
+// first entry's — with `none` meaning no access (TileLevel agrees by
 // construction; TestExplainMatchesTileLevel pins that).
 func (a *Access) Explain(path string) []Contribution {
 	if a == nil {
@@ -1077,22 +1273,26 @@ func (a *Access) Explain(path string) []Contribution {
 	if a.user.IsAdmin() {
 		return []Contribution{{Level: LevelTerminal, Source: "admin"}}
 	}
+	owner := a.owners[path]
+	if owner == OwnerKindUser+":"+a.user.ID {
+		return []Contribution{{Level: LevelTerminal, Source: "owner"}}
+	}
+	orgOwner, isOrgOwned := strings.CutPrefix(owner, OwnerKindOrg+":")
+	if isOrgOwned {
+		for _, os := range a.orgs {
+			if os.id == orgOwner && os.member.Admin {
+				return []Contribution{{Level: LevelTerminal, Source: "org-admin:" + orgOwner}}
+			}
+		}
+	}
+	if l, ok := a.user.Tiles[path]; ok { // authoritative — nothing else applies
+		return []Contribution{{Level: l, Source: "exact"}}
+	}
 	var out []Contribution
-	switch owner := a.owners[path]; owner {
-	case "":
-	case OwnerKindUser + ":" + a.user.ID:
-		out = append(out, Contribution{Level: LevelTerminal, Source: "owner"})
-	default:
-		if org, ok := strings.CutPrefix(owner, OwnerKindOrg+":"); ok {
-			for _, os := range a.orgs {
-				if os.id != org {
-					continue
-				}
-				if os.member.Admin {
-					out = append(out, Contribution{Level: LevelTerminal, Source: "org-admin:" + org})
-				} else {
-					out = append(out, Contribution{Level: os.member.Level, Source: "org-member:" + org})
-				}
+	if isOrgOwned {
+		for _, os := range a.orgs {
+			if os.id == orgOwner {
+				out = append(out, Contribution{Level: os.member.Level, Source: "org-member:" + orgOwner})
 			}
 		}
 	}
@@ -1103,14 +1303,16 @@ func (a *Access) Explain(path string) []Contribution {
 			}
 		}
 	}
-	for pat, l := range a.user.Tiles {
-		if matchTile(pat, path) {
-			out = append(out, Contribution{Level: l, Source: "direct:" + pat})
+	if !isOrgOwned {
+		for pat, l := range a.user.Tiles {
+			if l != LevelNone && matchTile(pat, path) {
+				out = append(out, Contribution{Level: l, Source: "direct:" + pat})
+			}
 		}
-	}
-	for pat, l := range a.defaultTiles {
-		if matchTile(pat, path) {
-			out = append(out, Contribution{Level: l, Source: "default:" + pat})
+		for pat, l := range a.defaultTiles {
+			if matchTile(pat, path) {
+				out = append(out, Contribution{Level: l, Source: "default:" + pat})
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

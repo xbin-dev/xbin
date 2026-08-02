@@ -160,11 +160,21 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 		return "", "", false
 	}
 	p := auth.PrincipalOf(r)
-	// Own vault always; otherwise an admin-capable principal (owner or a
-	// xbin:admin tile) may MANAGE any vault — list keys, set/rotate, delete
-	// (the admin console's password-manager function), but NOT read a secret's
-	// value (that's self-only, enforced in apiVaultGet). No *unprivileged*
-	// cross-element access at all.
+	// Who reaches a vault at all (D30): the element's own BACKEND (instance
+	// token) and its tile TERMINALS (management from the shell), plus
+	// admin-capable principals (owner or a xbin:admin tile) who may MANAGE
+	// any vault — list keys, set/rotate, delete (the admin console's
+	// password-manager function). Value READS are backend-only, enforced in
+	// apiVaultGet. A tile's FRONTEND (frame token) gets nothing: anyone who
+	// can merely open a tile must not see or edit its secrets — route secret
+	// use through the backend.
+	if p.Via == "frame" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{
+			"error": "the vault API is not reachable from a tile frontend — secrets are handled by the tile's backend (D30)",
+			"docs":  "/docs/auth.md",
+		})
+		return "", "", false
+	}
 	if p.Component != c.Path && !b.IsAdmin(p) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "vaults are private to their element; cross-vault access needs xbin:admin",
@@ -180,13 +190,14 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// A secret's VALUE is readable ONLY by the element it belongs to — not even
-	// admin/owner. The admin console can list keys and set/rotate secrets, but
-	// can't exfiltrate their values (docs/auth.md §vault). Listing keys (no
-	// key in the path) stays available to admins for management.
-	if key != "" && auth.PrincipalOf(r).Component != comp {
+	// A secret's VALUE is readable ONLY by the element's BACKEND (instance
+	// token) — not admin/owner, and not the tile's terminals either (D30):
+	// everyone else can list keys and set/rotate secrets (write-only
+	// management), but never exfiltrate values. This holds the line even
+	// when org membership confers terminal on a credential-bearing tile.
+	if p := auth.PrincipalOf(r); key != "" && (p.Component != comp || p.Via != "instance") {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "a secret's value is readable only by the element it belongs to; admin can list and set secrets, not read them",
+			"error": "a secret's value is readable only by the tile's backend; admins and tile terminals can list and set secrets, not read them (D30)",
 			"docs":  "/docs/auth.md",
 		})
 		return

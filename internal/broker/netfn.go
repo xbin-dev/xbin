@@ -288,19 +288,43 @@ func (b *Broker) HTTPInterfaces(comp string) map[string]any {
 // request/provide, for the admin "Interfaces" UX.
 func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
-	orgScope := map[string]bool{} // org-admin view: only their orgs' tiles
+	scoped := false                // non-ws-admin session view (D26/D33)
+	orgScope := map[string]bool{}  // consumer side: tiles their orgs own
+	mineScope := map[string]bool{} // requester side: tiles they can write
+	provOrgs := map[string]bool{}  // provider side: orgs whose providers they admin
 	if !b.IsAdmin(p) {
 		if b.Users != nil && p.Component == "" && p.User != nil {
+			scoped = true
 			for _, o := range p.Access.AdminOrgs() {
+				provOrgs[o] = true
 				for _, t := range b.Users.OwnedBy("org:" + o) {
 					orgScope[t] = true
 				}
 			}
+			for _, c := range b.Reg.Components() {
+				if !orgScope[c.Path] && p.CanWriteTile(c.Path) {
+					mineScope[c.Path] = true
+				}
+			}
 		}
-		if len(orgScope) == 0 {
+		if !scoped {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
 			return
 		}
+	}
+	inScope := func(comp string) bool { return orgScope[comp] || mineScope[comp] }
+	// Provider side (D33): a binding row is also visible when any of its refs
+	// points at a provider tile owned by an org the viewer administers — the
+	// consumption of their property.
+	providerVisible := func(slots map[string]registry.Binding) bool {
+		for _, binding := range slots {
+			for _, ref := range binding {
+				if o := b.providerRefOrg(ref.Ref); o != "" && provOrgs[o] {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	type ifaceInfo struct {
 		Component string                    `json:"component"`
@@ -312,24 +336,24 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		if len(c.Manifest.Interfaces) == 0 && len(c.Manifest.Provides) == 0 {
 			continue
 		}
-		if len(orgScope) > 0 && !orgScope[c.Path] {
+		if scoped && !inScope(c.Path) {
 			continue
 		}
 		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides})
 	}
 	bindings := b.Reg.Workspace().Bindings
 	pending := b.pendingBindings()
-	if len(orgScope) > 0 { // org-admin view: scope every table to their tiles
+	if scoped { // scope every table to the viewer's tiles (+ their providers' consumers)
 		fb := map[string]map[string]registry.Binding{}
 		for comp, slots := range bindings {
-			if orgScope[comp] {
+			if inScope(comp) || providerVisible(slots) {
 				fb[comp] = slots
 			}
 		}
 		bindings = fb
 		fp := pending[:0]
 		for _, pb := range pending {
-			if orgScope[pb.Component] {
+			if inScope(pb.Component) {
 				fp = append(fp, pb)
 			}
 		}

@@ -5,10 +5,15 @@
  * and 403s degrade to friendly notes.
  *
  *   everyone      my orgs (role), my tiles (owned, D24) with sharing (ACL),
+ *                 my tiles' pending requests with who-can-approve (D33),
  *                 where to create org tiles (the Tile Manager's Owner picker)
- *   org admins    members (role knobs), org tiles (ACL + transfer), and the
- *                 pending grants/bindings their allowance covers — one-click
- *                 approve (D26), with the resolved allowance shown read-only
+ *   org admins    members (role knobs), org tiles (ACL + transfer), the
+ *                 pending grants/bindings they may approve — one-click
+ *                 approve (D26/D33), consumers of their tiles (revocable),
+ *                 with the resolved allowance shown read-only
+ *
+ * Live: subscribes to the events hub (users + grants) and re-loads, so an
+ * open tile shows new requests/membership changes without a reload.
  */
 import { LitElement, html, css, nothing } from 'lit';
 
@@ -27,9 +32,10 @@ export class BxOrganisations extends LitElement {
     _who: { state: true },      // whoami (orgs, owned)
     _orgs: { state: true },     // manageable orgs (org admins; [] for members)
     _dir: { state: true },      // users-directory (org admins)
-    _grants: { state: true },   // org-scoped {grants, pending} (org admins)
-    _binds: { state: true },    // org-scoped {pending} bindings (org admins)
+    _grants: { state: true },   // scoped {grants, pending, scope} (D26/D33)
+    _binds: { state: true },    // scoped {bindings, pending} (D26/D33)
     _acl: { state: true },      // per-tile expanded ACL {tile, owner, entries}
+    _xfer: { state: true },     // transfer-in-progress {tile, to} (inline confirm)
     _err: { state: true },
     _note: { state: true },
   };
@@ -67,6 +73,19 @@ export class BxOrganisations extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._load();
+    // Live refresh: org mutations publish `users`, approvals AND newly
+    // surfaced requests publish `grants` — debounce bursts into one reload.
+    this._offEvents = window.xbin?.events.on((e) => {
+      if (e.type !== 'users' && e.type !== 'grants') return;
+      clearTimeout(this._reloadT);
+      this._reloadT = setTimeout(() => this._load(), 300);
+    });
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._offEvents?.();
+    clearTimeout(this._reloadT);
   }
 
   async _load() {
@@ -74,12 +93,14 @@ export class BxOrganisations extends LitElement {
       this._who = await api('/whoami');
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); return; }
-    // Admin-plane extras: each degrades independently (403 → absent section).
+    // Admin-plane extras degrade independently (403 → absent section);
+    // grants/bindings return a scoped view for EVERY signed-in user now
+    // (approver rows for org admins, "mine" rows for requesters, D33).
     this._orgs = (await api('/orgs').catch(() => ({ orgs: [] }))).orgs ?? [];
+    this._grants = await api('/grants').catch(() => null);
+    this._binds = await api('/bindings').catch(() => null);
     if (this._adminOrgIds().length || this._who?.admin) {
       this._dir = (await api('/users-directory').catch(() => ({ users: [] }))).users ?? [];
-      this._grants = await api('/grants').catch(() => null);
-      this._binds = await api('/bindings').catch(() => null);
     }
   }
 
@@ -119,7 +140,8 @@ export class BxOrganisations extends LitElement {
           <td>${e.kind}</td><td class="mono">${e.id}</td>
           <td>${e.source === 'exact' ? html`<select @change=${(ev) =>
               this._do(() => api('/access', jbody('PUT', { tile: a.tile, kind: e.kind, id: e.id, level: ev.target.value })), 'updated')}>
-              ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${e.level === l}>${l}</option>`)}
+              ${(e.kind === 'user' ? ['read', 'write', 'terminal', 'none'] : ['read', 'write', 'terminal'])
+                .map((l) => html`<option value=${l} ?selected=${e.level === l}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
             </select>` : e.level}</td>
           <td class="muted">${e.source}</td>
           <td>${e.source === 'exact' ? html`<button class="rm" @click=${() =>
@@ -136,22 +158,49 @@ export class BxOrganisations extends LitElement {
           ${(this._dir ?? []).map((u) => html`<option value=${u.id}></option>`)}
           ${myOrgs.map((o) => html`<option value=${o}></option>`)}
         </datalist>
-        <select id="acl-level">${['read', 'write', 'terminal'].map((l) => html`<option>${l}</option>`)}</select>
+        <select id="acl-level">${['read', 'write', 'terminal', 'none'].map((l) => html`<option value=${l}>${l === 'none' ? 'none (exclude)' : l}</option>`)}</select>
         <button class="go" @click=${() => {
           const g = (id) => this.renderRoot.getElementById(id).value;
           if (!g('acl-id')) return;
           this._do(() => api('/access', jbody('PUT', {
             tile: a.tile, kind: g('acl-kind'), id: g('acl-id'), level: g('acl-level') })), 'shared');
         }}>share</button>
-        <span class="muted" style="font-size:11px">read = see it · write = use/edit · terminal = shell on it</span>
+        <span class="muted" style="font-size:11px">read = see it · write = use/edit · terminal = shell on it ·
+          an exact user entry is authoritative (none = exclude, D31)</span>
       </div>
     </div>`;
   }
 
-  async _transfer(tile) {
-    const to = prompt(`Transfer ${tile} to (user:<id>, org:<id>, or "workspace"):`);
-    if (to == null) return;
-    await this._do(() => api('/owner', jbody('POST', { tile, to: to.trim() === 'workspace' ? '' : to.trim() })), 'transferred');
+  // Transfer runs through an inline confirm card (not a raw prompt): the
+  // consequence — org admins gain full control — deserves a beat of thought.
+  _transfer(tile) { this._xfer = { tile, to: '' }; }
+
+  _transferCard() {
+    const x = this._xfer;
+    if (!x) return nothing;
+    const myOrgs = (this._who?.orgs ?? []).map((o) => o.id);
+    return html`<div class="card" style="border-color: var(--bx-accent, #f5a623)">
+      <div class="row"><b>transfer</b> <span class="mono">${x.tile}</span></div>
+      <div class="row" style="margin:6px 0">
+        <input size="18" placeholder="user:&lt;id&gt;, org:&lt;id&gt;, workspace" .value=${x.to}
+          list="xfer-targets" @input=${(e) => { this._xfer = { ...x, to: e.target.value }; }}>
+        <datalist id="xfer-targets">
+          ${myOrgs.map((o) => html`<option value=${'org:' + o}></option>`)}
+          <option value="workspace"></option>
+        </datalist>
+        <button class="go" ?disabled=${!x.to.trim()} @click=${() => {
+          const to = x.to.trim() === 'workspace' ? '' : x.to.trim();
+          this._xfer = null;
+          this._do(() => api('/owner', jbody('POST', { tile: x.tile, to })), 'transferred');
+        }}>transfer</button>
+        <button @click=${() => { this._xfer = null; }}>cancel</button>
+      </div>
+      <p class="muted" style="font-size:11px; margin:2px 0 0">
+        Transferring to an org gives <b>every admin of that org</b> full control
+        of the tile — terminal, lifecycle, sharing. Secrets stay backend-only:
+        vault values are never readable from terminals (D30).
+      </p>
+    </div>`;
   }
 
   // ---- org admin: member management ----
@@ -188,25 +237,43 @@ export class BxOrganisations extends LitElement {
       </div>`;
   }
 
-  // ---- org admin: pending approvals (D26) ----
+  // askWho: "org:data admins · workspace admin" from the server's hints (D33).
+  _askWho(p) {
+    return (p.approvers ?? []).map((a) =>
+      a === 'workspace-admin' ? 'workspace admin' : `${a} admins`).join(' · ') || 'a workspace admin';
+  }
+
+  // ---- pending approvals (D26/D33) + my waiting requests ----
   _approvalsView() {
-    const pending = (this._grants?.pending ?? []).filter((p) => p.approvable);
-    const held = (this._grants?.pending ?? []).filter((p) => !p.approvable);
+    const all = this._grants?.pending ?? [];
+    const pending = all.filter((p) => p.approvable);
+    const mine = all.filter((p) => !p.approvable && p.direction === 'mine');
+    const held = all.filter((p) => !p.approvable && p.direction !== 'mine');
     const bindPending = this._binds?.pending ?? [];
-    if (!pending.length && !held.length && !bindPending.length) return nothing;
+    if (!pending.length && !mine.length && !held.length && !bindPending.length) return nothing;
+    const dir = (p) => p.direction ? html`<span class="pill" title="your relation: consumer = your org's tile asking · provider = targeting your org's property">${p.direction}</span>` : nothing;
     return html`
       <h3>pending approvals</h3>
       ${pending.length ? html`<div class="card">
         ${pending.map((p) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${p.from}</span> → <span class="mono">${p.target}</span>
-          <span class="pill">${p.role}</span>
+          <span class="pill">${p.role}</span> ${dir(p)}
           <span style="flex:1"></span>
           <button class="go" @click=${() => this._do(() =>
             api('/grants', jbody('POST', { from: p.from, target: p.target, role: p.role })), 'approved')}>approve</button>
         </div>`)}
       </div>` : nothing}
+      ${mine.length ? html`<div class="card">
+        ${mine.map((p) => html`<div class="row" style="margin:3px 0">
+          <span class="mono">${p.from}</span> → <span class="mono">${p.target}</span>
+          <span class="pill">${p.role}</span>
+          <span class="muted" style="font-size:11px">waiting for: ${this._askWho(p)}</span>
+        </div>`)}
+        <p class="muted" style="font-size:11px; margin:2px 0 0">Your tiles' requests — ask the named admins to approve.</p>
+      </div>` : nothing}
       ${held.length ? html`<p class="muted" style="font-size:11px">
-        ${held.length} more pending request(s) need a workspace admin — outside this org's allowance.</p>` : nothing}
+        ${held.length} more pending request(s) can't be approved here —
+        ${[...new Set(held.map((p) => this._askWho(p)))].join('; ')}.</p>` : nothing}
       ${bindPending.length ? html`<div class="card">
         ${bindPending.map((p) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${p.component}</span> · <span class="pill">${p.slot}</span>
@@ -220,6 +287,51 @@ export class BxOrganisations extends LitElement {
               this._do(() => api('/bindings', jbody('POST',
                 { component: p.component, slot: p.slot, provider: sel.value })), 'bound');
             }}>bind</button>` : html`<span class="muted">no provider available</span>`}
+        </div>`)}
+      </div>` : nothing}`;
+  }
+
+  // ---- provider view (D33): who consumes YOUR tiles ----
+  _consumersView() {
+    const rows = (this._grants?.grants ?? []).filter((g) =>
+      g.direction === 'provider' || g.direction === 'both');
+    // Binding rows wired INTO my orgs' provider tiles: the server includes
+    // them in the scoped view; pick the ones whose refs point at my tiles.
+    const myTiles = new Set([
+      ...(this._who?.owned ?? []),
+      ...(this._orgs ?? []).flatMap((o) => o.ownedTiles ?? []),
+    ]);
+    const refName = (v) => (typeof v === 'string' ? v : v?.ref ?? '').split('#')[0];
+    const boundIn = [];
+    for (const [comp, slots] of Object.entries(this._binds?.bindings ?? {})) {
+      if (myTiles.has(comp)) continue;
+      for (const [slot, b] of Object.entries(slots ?? {})) {
+        for (const ref of [].concat(b ?? [])) {
+          const prov = refName(ref);
+          if (myTiles.has(prov)) boundIn.push({ comp, slot, prov });
+        }
+      }
+    }
+    if (!rows.length && !boundIn.length) return nothing;
+    return html`
+      <h3>consumers of your tiles</h3>
+      <p class="muted" style="font-size:11px">Other tiles granted access to your
+        org's tiles — you can approve requests targeting your tiles and
+        withdraw access (D33).</p>
+      ${rows.length ? html`<div class="card">
+        ${rows.map((g) => html`<div class="row" style="margin:3px 0">
+          <span class="mono">${g.from}</span> → <span class="mono">${g.target}</span>
+          <span class="pill">${g.role}</span>
+          ${g.approvedBy ? html`<span class="muted" style="font-size:11px">approved by ${g.approvedBy}</span>` : nothing}
+          <span style="flex:1"></span>
+          <button class="rm" @click=${() => this._do(() =>
+            api('/grants', jbody('DELETE', { from: g.from, target: g.target, role: g.role })), 'revoked')}>revoke</button>
+        </div>`)}
+      </div>` : nothing}
+      ${boundIn.length ? html`<div class="card">
+        ${boundIn.map((b) => html`<div class="row" style="margin:3px 0">
+          <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
+          <span class="muted" style="font-size:11px">bound to your <span class="mono">${b.prov}</span></span>
         </div>`)}
       </div>` : nothing}`;
   }
@@ -242,7 +354,10 @@ export class BxOrganisations extends LitElement {
       ${myOrgs.length ? myOrgs.map((o) => html`
         <span class="pill ${o.admin ? 'on' : ''}" title="level ${o.level}${o.create ? ' · may create org tiles' : ''}${o.admin ? ' · org admin' : ''}">
           ${o.admin ? '★ ' : ''}${o.id} · ${o.level}${o.create ? ' +create' : ''}</span>`)
-        : html`<p class="muted">You're in no organisation yet — an org admin or workspace admin adds you.</p>`}
+        : who.admin
+          ? html`<p class="muted">No organisations exist yet — create them in the
+              admin console (user management → organisations).</p>`
+          : html`<p class="muted">You're in no organisation yet — an org admin or workspace admin adds you.</p>`}
       ${myOrgs.some((o) => o.create || o.admin) ? html`<p class="muted" style="font-size:11px">
         Create org-owned tiles from the <b>Tile Manager</b> — pick the org in its <i>Owner</i> field.</p>` : nothing}
 
@@ -256,6 +371,8 @@ export class BxOrganisations extends LitElement {
         </div>`)}` : nothing}
 
       ${this._approvalsView()}
+      ${this._consumersView()}
+      ${this._transferCard()}
 
       ${adminOrgs.map((o) => html`
         <h3>org ${o.id} <span class="muted" style="font-weight:400">${o.name !== o.id ? o.name : ''}</span></h3>
@@ -276,7 +393,7 @@ export class BxOrganisations extends LitElement {
 
       ${this._aclEditor()}
 
-      ${!myOrgs.length && !owned.length && !adminOrgs.length ? html`
+      ${!myOrgs.length && !owned.length && !adminOrgs.length && !who.admin ? html`
         <p class="muted" style="margin-top:10px">Nothing to manage yet. When you own tiles or join an
           organisation, this is where you'll share tiles, manage members, and approve requests.</p>` : nothing}
     `;

@@ -178,10 +178,16 @@ func cmdUser(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: bx user rm <id>")
 		}
-		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1], nil, nil); err != nil {
+		var out struct {
+			OrphanedTiles []string `json:"orphanedTiles"`
+		}
+		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1], nil, &out); err != nil {
 			return err
 		}
 		fmt.Println("removed", args[1])
+		for _, t := range out.OrphanedTiles {
+			fmt.Printf("  · %s fell to workspace-owned — re-assign with bx owner %s --transfer …\n", t, t)
+		}
 		return nil
 	}
 	return fmt.Errorf("unknown: bx user %s", strings.Join(args, " "))

@@ -64,7 +64,7 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		}
 		target = m.DefaultPath
 	}
-	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target); !ok {
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target, ""); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}

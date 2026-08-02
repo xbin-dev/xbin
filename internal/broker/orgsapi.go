@@ -558,21 +558,28 @@ func (b *Broker) apiUsersDirectory(w http.ResponseWriter, r *http.Request) {
 // --- policy rows (workspace-admin only) --------------------------------------
 
 func (b *Broker) apiPolicyGet(w http.ResponseWriter, r *http.Request) {
-	if !b.canManageUsers(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "policy is workspace-admin only"})
-		return
-	}
 	st := b.usersStore(w)
 	if st == nil {
 		return
 	}
+	p := auth.PrincipalOf(r)
 	if org := r.PathValue("org"); org != "" {
+		// Org rows are READABLE by that org's admins too — they need to see
+		// the ceilings their approvals can trip on (writes stay ws-admin).
+		if !b.canManageOrg(p, org) {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org policy is readable by its admins; edits are workspace-admin only"})
+			return
+		}
 		o, ok := st.Org(org)
 		if !ok {
 			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
 			return
 		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{"policy": o.Policy})
+		return
+	}
+	if !b.canManageUsers(p) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "policy is workspace-admin only"})
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"policy": st.Policy()})

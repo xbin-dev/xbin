@@ -397,12 +397,15 @@ func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	if err := st.Delete(r.PathValue("id")); err != nil {
+	orphaned, err := st.Delete(r.PathValue("id"))
+	if err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	b.usersEvent() // a deleted user's sessions/frame/terminal principals are gone — refresh panels
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	// orphanedTiles: what just fell to workspace-owned, so the handover is
+	// explicit rather than silent (re-assign with bx owner).
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "orphanedTiles": orphaned})
 }
 
 // attributedAdminUser reports whether the human behind a request is a

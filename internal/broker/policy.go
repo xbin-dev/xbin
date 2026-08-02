@@ -76,28 +76,39 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 }
 
 // canCreateAt is the shared tile-creation authority for the same five entry
-// points: workspace admins; humans whose (org/team-unioned) create patterns
-// cover the path; or an element holding the workspace-management capability
-// (xbin:writer). When a HUMAN is attributed on an element call (frame or
-// terminal principal), the human's own rights must cover the path too — the
+// points: workspace admins; humans whose create rights cover the request; or
+// an element holding the workspace-management capability (xbin:writer).
+//
+// Which create right applies depends on the requested OWNER (D24/D25): a
+// personal/workspace tile is gated by the user's own path patterns, but a
+// tile created AS AN ORG (`ownerRef == "org:<id>"`) is gated by the org's
+// Create knob — already verified by resolveCreateOwner, so the personal
+// pattern check is skipped for it (the path no longer encodes the org, so
+// path patterns are the wrong authority).
+//
+// When a HUMAN is attributed on an element call (frame or terminal
+// principal), the human's own rights must cover the request too — the
 // confused-deputy clamp: a manager-style tile can never be driven to create
 // beyond what its driver may create themselves. Unattributed automation
 // (instance tokens, the bootstrap owner) is unaffected.
-func (b *Broker) canCreateAt(p auth.Principal, path string) (bool, string) {
+func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (bool, string) {
 	if b.IsAdmin(p) {
 		return true, ""
 	}
-	if p.CanCreateTile(path) { // session humans: their own union rights
-		return true, ""
-	}
+	orgOwned := strings.HasPrefix(ownerRef, "org:")
 	if p.Component == "" {
-		return false, "creating components needs a create permission on this path (ask an admin for a create pattern or a team)"
+		if orgOwned || p.CanCreateTile(path) { // org: resolveCreateOwner checked CanCreateAs
+			return true, ""
+		}
+		return false, "creating components needs a create permission on this path (ask an admin for a create pattern, or create it owned by an org where you hold Create)"
 	}
+	// Element callers (frame/terminal/instance) need the workspace-management
+	// capability regardless of owner.
 	if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
 		return false, "creating components needs a create permission on this path (ask an admin), or the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
 	}
-	if p.UserID != "" && !b.attributedAccess(p.UserID).CanCreateTile(path) {
-		return false, "your account has no create permission on " + path + " — the tile's workspace-management grant doesn't extend your own rights (ask an admin for a create pattern or a team)"
+	if p.UserID != "" && !orgOwned && !b.attributedAccess(p.UserID).CanCreateTile(path) {
+		return false, "your account has no create permission on " + path + " — the tile's workspace-management grant doesn't extend your own rights (ask an admin for a create pattern, or create it owned by an org where you hold Create)"
 	}
 	return true, ""
 }

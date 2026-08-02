@@ -417,6 +417,14 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	}
 
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
+	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
+	px.UserLevel = func(uid, tile string) string {
+		acc, ok := userStore.Access(uid)
+		if !ok {
+			return ""
+		}
+		return acc.TileLevel(tile)
+	}
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
@@ -737,7 +745,8 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 			slog.Warn("rescan", "err", err)
 		}
 		brk.Provision()
-		reconcileIngress() // manifest exposes / bindings may have changed on disk
+		brk.RefreshPending() // new `uses` requests → notify approvers (D33)
+		reconcileIngress()   // manifest exposes / bindings may have changed on disk
 		for _, p := range deps.Reconcile(reg) {
 			slog.Debug("deps", "problem", p)
 		}

@@ -26,6 +26,16 @@ Callees never verify any of this themselves: xbind strips inbound
 `X-XBin-*` headers and injects the verified `X-XBin-From` and
 `X-XBin-Role`. If those headers are present, they're true.
 
+**The driving human is attributed too (D29).** When a signed-in user is
+behind a call — directly, or riding the tile's own frontend (frame token) or
+terminal — xbind additionally injects `X-XBin-User: <id>` and
+`X-XBin-User-Level: read|write|terminal` (the user's level on the *target*
+tile). Absent for automation, cron, and the bootstrap owner token. This is
+how a backend tells *who clicked*: a frame call from the tile's own UI runs
+at the tile's full self-role, so an app with mixed-trust viewers should gate
+mutating endpoints on the attributed level — the SDK's
+`xbin.Caller(r).UserCanWrite()` does exactly that.
+
 **The `ingress` principal** is structural, not a credential: it enters only
 on the separate ingress listeners (never the authenticated routes), reaches
 exactly ONE tile — the one whose owner-approved binding published the
@@ -143,13 +153,17 @@ Rules, all deliberate:
   `/proc`, logs, and child processes).
 - Storage: `data/vault/`, xbind-owned, mode 0600, gitignored always,
   excluded from `bx backup` unless `--with-vault`.
-- **A secret's value is readable only by the element it belongs to** — not even
-  the owner or an `xbin:admin` tile. Admins can **list keys** and **set / rotate
-  / delete** any vault via `bx vault` / the admin console (the password-manager
-  function), but the read (`GET …/vault/<comp>/<key>`) is self-only, so a
-  compromised admin tile can rotate secrets but can't exfiltrate them. (The
-  human with host access can still read `data/vault/` on disk with the
-  passphrase — this locks down the *API*, the exfiltration surface.)
+- **A secret's value is readable only by the element's BACKEND** (its
+  instance token) — not the owner, not an `xbin:admin` tile, and **not the
+  tile's own terminals or frontend** either (D30). Admins and tile terminals
+  can **list keys** and **set / rotate / delete** (write-only management —
+  the password-manager function); the tile's frontend (frame token) can't
+  reach the vault API at all — anyone who can merely *open* a tile must not
+  see or edit its secrets. So: a compromised admin tile can rotate secrets
+  but can't exfiltrate them, and org membership that confers `terminal` on a
+  credential-bearing tile doesn't leak its keys. (The human with host access
+  can still read `data/vault/` on disk with the passphrase — this locks down
+  the *API*, the exfiltration surface.)
 
 ### Encryption at rest (the barrier)
 
@@ -420,29 +434,76 @@ org-tile ACLs, transfers, exercising allowances). UI presets: **Admin**
 Tiles can also be **shared to an org** (an `org.Tiles` entry — all members
 get that level, wherever the tile lives).
 
-**Effective access** = max of: workspace-admin (terminal everywhere) ·
-owning-user (terminal) · org-member level / org-admin terminal on org-owned
-tiles · org shares · the user's own pattern entries (D16) · workspace
-`defaultTiles` (D27 — baseline visibility every user gets; the scaffold
-seeds welcome/apidocs read).
+**Effective access (D31 — "your perms on an org tile are your perms in the
+org").** Resolution order:
+
+1. workspace-admin / the tile's user-owner / an org admin of the owning org
+   → terminal;
+2. an **exact per-user entry is authoritative** — it sets the level outright,
+   *down as well as up*, and `none` is an explicit exclusion (this is the
+   per-tile override/share device, written via `PUT /access`, owner-gated);
+3. otherwise levels union — but an **org-owned tile is governed by the org**:
+   member level + shares its owners sanctioned. The user's own pattern
+   entries (D16) and workspace `defaultTiles` (D27) apply to workspace/user-
+   owned tiles only — they never leak access into org tiles, and adding a
+   broad workspace pattern can't cross an org boundary.
+
+`defaultTiles` remains the baseline visibility every user gets on the
+workspace plane (the scaffold seeds welcome/apidocs/organisations read).
 
 **Policy ceilings (D20, re-keyed).** Deny/mayCall rows still cap what any
 tile may be *granted* — workspace rows plus, for org-owned tiles, the owning
 org's rows and every attached permission set's rows (restrictive union; any
 deny wins; humans are never subject to ceilings).
 
-**Delegated approval (D26).** A ws-admin can give an org an **allowance** —
-target patterns its **admins** may approve on org-owned tiles themselves:
-`res:… gpu:… cap:… net:internet|host|lan:…|provider:… iface:<service>
-ingress:host:/zone:/listen:<range> tile:<pattern>`. Anything is delegable —
-a high-trust org can get `cap:containers` or publication rights — **except
-`xbin`/`xbin:*`**: an element granted `xbin@admin` *is* a workspace admin,
-so delegating it would make org admins ws-admins transitively (rejected at
-write, ignored at evaluation). Grants wholly inside one org's owned tiles
-(intra-org wiring) need no allowance. Every approval still runs the ceiling
-check and is audited as the actual approver; revokes/unbinds are always
-allowed for the owning org's admins. Element principals never approve —
-tiles request, humans decide.
+**Delegated approval (D26/D32).** A ws-admin can give an org an
+**allowance** — target patterns its **admins** may approve on org-owned
+tiles themselves:
+
+```
+res:<glob>[@<role>]   gpu:<glob>   cap:<glob>
+net:internet | net:host | net:lan:<glob> | net:provider:<tile-glob>
+iface:<service>[@<tile-glob>[#<instance-glob>]]
+ingress:host:<glob> | ingress:zone:<glob> | ingress:listen:<port|lo-hi>
+tile:<pattern>[@<role>]
+```
+
+Entries validate per class at write time — a typo can't silently over- OR
+under-delegate. The D32 qualifiers scope delegation precisely: `@<role>`
+caps the delegable role (`tile:apps/warehouse@reader` delegates *consuming*
+the warehouse, never admin on it; bare entries delegate any role — prefer
+the cap), and `iface:api@apps/warehouse#dev` pins an interface allowance to
+one provider tile and one *instance* — "the dev instance of the api, only"
+is expressible. Anything is delegable — a high-trust org can get
+`cap:containers` or publication rights — **except `xbin`/`xbin:*`**: an
+element granted `xbin@admin` *is* a workspace admin, so delegating it would
+make org admins ws-admins transitively (rejected at write, ignored at
+evaluation). Grants wholly inside one org's owned tiles (intra-org wiring)
+need no allowance. Every approval still runs the ceiling check and is
+recorded with the actual approver (`approvedBy`/`approvedAt` on the grant
+row + the audit log); revokes/unbinds are always allowed for the owning
+org's admins. Element principals never approve — tiles request, humans
+decide.
+
+**Provider-side consent & visibility (D33).** Approval rights run on BOTH
+edges of a grant. The consumer side is D26 above (the requesting tile's org,
+within its allowance). Independently, **admins of the org that OWNS the
+TARGET property** — the target tile, a `res:` scope's tile, a provider being
+bound — may approve the request (consenting to share their own property
+needs no allowance: sharing is an ownership right, the same D24 rule that
+lets a user-owner share their tile) and may revoke/withdraw at any time.
+They also *see* their consumption: the org-scoped `/grants` and `/bindings`
+views include rows targeting their property, marked `direction: provider`.
+And requesters are never blind: any signed-in user sees their own writable
+tiles' grants and pending requests (`direction: mine`) with
+who-can-approve hints — a tile waiting on an approval isn't a silent dead
+tile.
+
+**Everyday ownership rights.** The same owner set (user-owner / owning-org
+admins / ws-admin) also controls a tile's **lifecycle** (`POST /lifecycle` —
+disable your own runaway tile at 2am) and reads the org's **policy rows**
+(`GET /orgs/<org>/policy` — the ceilings your approvals can trip on; writes
+stay ws-admin).
 
 **Permission sets (D28).** Named, reusable `{allow, policy, termApi,
 termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per

@@ -96,6 +96,10 @@
         <select id="owner">
           <option value="">— me (personal) —</option>
         </select>
+        <p class="muted" style="font-size:11px;margin:4px 0 0">
+          Personal tiles: capability requests (net, containers, ports) need a
+          workspace admin. Org-owned: the org's admins can approve within
+          their allowance.</p>
       </div>
       <div class="actions">
         <button class="btn" id="create">Create</button>
@@ -197,20 +201,34 @@
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
     // Owner picker (docs/auth.md, D24/D25): whoami carries the driving
     // human's org memberships; orgs where they hold the Create knob (or org
-    // admin) are offered as the new tile's OWNER. Default: personal
-    // (user-owned).
+    // admin) are offered as the new tile's OWNER. "me" sends an explicit
+    // user:<id> — for ADMINS an empty owner means workspace-owned, so a
+    // separate "workspace" option carries that ("" from a non-admin already
+    // defaults to personal server-side, but explicit beats implicit).
     const ownerSel = document.getElementById('owner');
     const ownerField = document.getElementById('owner-field');
     (async () => {
       try {
         const who = await (await xbin.fetch('/api/xbin/whoami')).json();
-        const orgs = who.user?.orgs ?? who.orgs ?? [];
+        // who.user = the attributed human on an element call; a root-token
+        // driver has none (who.id would be this tile's path — not a user).
+        const me = who.user ?? (who.kind === 'user' ? who : {});
+        const orgs = me.orgs ?? [];
+        if (me.id) ownerSel.options[0].value = 'user:' + me.id;
         for (const o of orgs) {
           if (!(o.create || o.admin)) continue;
           const opt = document.createElement('option');
           opt.value = 'org:' + o.id;
           opt.textContent = `org ${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}`;
           ownerSel.appendChild(opt);
+        }
+        if (me.admin) {
+          const ws = document.createElement('option');
+          ws.value = '';
+          ws.textContent = '— workspace —';
+          ownerSel.appendChild(ws);
+          ws.selected = true; // admins default to workspace-owned (D24)
+          ownerField.hidden = false;
         }
         if (ownerSel.options.length > 1) ownerField.hidden = false;
       } catch { /* no orgs; field stays hidden */ }

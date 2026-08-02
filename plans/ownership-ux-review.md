@@ -8,6 +8,14 @@
 > writing it down. ~40 adversarial authz probes across the runs produced
 > **zero unauthorized 200s**; everything below is UX, visibility, and one
 > real enforcement-shape bug — not broken guardrails.
+>
+> **Status (same day):** the D29-D33 fix wave addressed P0 #1-4, P1 #5-12,
+> and P2 #13 (exact-entry narrowing + `none`), #14 (X-XBin-User
+> attribution), #16 partially (requester visibility + approver hints; a
+> full human request-access queue remains open), plus the vault
+> terminal/frame read hole found in review (now D30 backend-only). Still
+> open: user disable (#15), per-tile memory limits (#17), hostname-granular
+> egress (#18), SSO (#19), first-run hardening prompt and most P3 polish.
 
 **Headline:** the model and its enforcement held up everywhere it was
 attacked — intra-org vs cross-owner vs allowance-scoped approval, the

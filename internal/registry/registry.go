@@ -165,11 +165,16 @@ type ScopeManifest struct {
 	ImportMap map[string]string   `json:"importMap,omitempty"`
 }
 
-// Grant is one row of the workspace grant table: caller may call target at role.
+// Grant is one row of the workspace grant table: caller may call target at
+// role. ApprovedBy/ApprovedAt record who approved it and when (D33 audit —
+// "user:<id>", "owner", or the approving element's path); they are
+// provenance only and never part of row identity.
 type Grant struct {
-	From   string `json:"from"`
-	Target string `json:"target"`
-	Role   string `json:"role"`
+	From       string `json:"from"`
+	Target     string `json:"target"`
+	Role       string `json:"role"`
+	ApprovedBy string `json:"approvedBy,omitempty"`
+	ApprovedAt int64  `json:"approvedAt,omitempty"`
 }
 
 // WorkspaceManifest is the workspace-root xbin.json. It is machine-managed

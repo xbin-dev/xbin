@@ -11,8 +11,9 @@ not magic.
 bx ls                                  list components (runtime, exposed roles, manifest errors)
 bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
                                        --all = workspace-wide, else this terminal's tile
-bx new <path> [--runtime R] [--expose] [--title "Pretty Name"]
-                                       scaffold a component
+bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|org:O]
+                                       scaffold a component (org-owned needs
+                                       the org's Create knob, D25)
 bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
@@ -29,7 +30,9 @@ bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
 bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level]
-                                       per-tile access entries
+                                       per-tile access entries — exact entries
+                                       are authoritative (D31); user level
+                                       `none` = explicit exclude
 bx logs [-f] <component>               backend logs (tail -f style with -f)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests
@@ -43,7 +46,10 @@ bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P]
 bx unexpose <tile> <slot>              unpublish it
 bx ingress [routes]                    published endpoints + live routes/listeners
 bx vault status|unseal|seal|rekey      encryption-at-rest barrier
-bx vault ls|get|set|rm <component> [key] [value]
+bx vault ls|set|rm <component> [key] [value]
+                                       write-only management — values are
+                                       readable only by the tile's backend
+                                       (D30; `get` lists/403s for humans)
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (plans/lifecycle.md)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
@@ -89,7 +95,9 @@ nothing re-encrypted). `bx vault status` reports the mode
 docs/auth.md §vault.
 
 **`bx doctor`** — checks: xbind reachable; manifest parse errors; dangling
-`deps`; `expose` without `API.md`; roles without descriptions; go.work
+`deps`; `expose` without `API.md`; roles without descriptions; ownership/org
+sanity (orphaned owner entries, admin-less or member-less orgs, allowance
+entries that can never match, dead defaultTiles/share patterns); go.work
 ownership; host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
 

@@ -339,7 +339,7 @@ func cmdPermset(args []string) error {
 
 func cmdAccess(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx access <tile> [set user:<id>=<level>|org:<id>=<level> … | rm user:<id>|org:<id> …]")
+		return fmt.Errorf("usage: bx access <tile> [set user:<id>=<level>|org:<id>=<level> … | rm user:<id>|org:<id> …] — levels read|write|terminal, or none (user entries: explicit exclude; exact entries override org level/patterns, D31)")
 	}
 	tile := strings.Trim(args[0], "/")
 	if len(args) == 1 {

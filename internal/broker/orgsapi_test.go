@@ -287,10 +287,12 @@ func TestDelegatedGrantApproval(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"scope":"org"`) {
 		t.Fatalf("org-filtered grants view: %d %s", w.Code, w.Body.String())
 	}
-	// Outsiders still get 403.
+	// A plain user gets the requester ("mine") view — empty here, never a
+	// dead 403 (D33: requesters see their own tiles' rows).
 	dave := principalFor(t, st, "dave")
-	if w := call(t, b.apiGrantsList, dave, "GET", "/grants", "", nil); w.Code != 403 {
-		t.Fatalf("outsider grants list: %d", w.Code)
+	if w := call(t, b.apiGrantsList, dave, "GET", "/grants", "", nil); w.Code != 200 ||
+		!strings.Contains(w.Body.String(), `"scope":"mine"`) {
+		t.Fatalf("requester grants view: %d %s", w.Code, w.Body.String())
 	}
 }
 

@@ -1834,7 +1834,8 @@ export class BxAdmin extends LitElement {
           <input list="tile-targets" size="26" placeholder="path, prefix/* or *" .value=${r.target}
             @input=${(e) => upd(i, { target: e.target.value })}>
           <select @change=${(e) => upd(i, { level: e.target.value })}>
-            ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${r.level === l}>${l}</option>`)}
+            ${['read', 'write', 'terminal', 'none'].map((l) => html`<option value=${l} ?selected=${r.level === l}
+              title=${l === 'none' ? 'authoritative: overrides org membership, patterns and defaults (D31)' : ''}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
           </select>
           <button class="act rm" title="remove entry" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
         </div>`)}
@@ -1847,7 +1848,8 @@ export class BxAdmin extends LitElement {
             if (!this._err) this._dropDraft(ctx);
           }}>save</button>
           <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
-          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it</span>
+          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it ·
+            exact entries are authoritative (none = exclude, D31)</span>
         </div>
       </div>`;
   }
@@ -1891,6 +1893,7 @@ export class BxAdmin extends LitElement {
     switch (kind) {
       case 'admin': return 'workspace admin';
       case 'owner': return 'owns the tile (D24)';
+      case 'exact': return 'exact entry — authoritative (D31)';
       case 'org-admin': return `admin of owning org ${rest[0]}`;
       case 'org-member': return html`member level in owning org <span class="mono">${rest[0]}</span>`;
       case 'org-share': return html`shared to org <span class="mono">${rest[0]}</span> · <span class="mono">${rest.slice(1).join(':')}</span>`;
