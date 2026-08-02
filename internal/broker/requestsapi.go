@@ -153,7 +153,7 @@ func (b *Broker) apiRequestApprove(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if _, err := st.DeleteAccessRequest(body.User, body.Tile); err != nil {
+	if _, err := st.DeleteAccessRequest(body.User, body.Tile, false); err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -184,7 +184,9 @@ func (b *Broker) apiRequestDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "withdraw your own requests; dismissing others' needs the tile's manager (D36)"})
 		return
 	}
-	found, err := st.DeleteAccessRequest(body.User, body.Tile)
+	// A manager removing someone ELSE's request is a dismissal — it starts
+	// the re-file cooldown; withdrawing your own doesn't.
+	found, err := st.DeleteAccessRequest(body.User, body.Tile, body.User != uid)
 	if err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

@@ -81,6 +81,9 @@ func (p Principal) CanTerminalTile(path string) bool {
 	if p.IsAdmin() {
 		return true
 	}
+	if p.Component != "" {
+		return false // terminals are human-plane; elements never get one
+	}
 	if p.Access != nil {
 		return p.Access.CanTerminalTile(path)
 	}
@@ -90,6 +93,26 @@ func (p Principal) CanTerminalTile(path string) bool {
 func (p Principal) tileLevel(path, want string) bool {
 	if p.IsAdmin() {
 		return true
+	}
+	if p.Component != "" {
+		// Element principals: their OWN tile always (self-calls, own static).
+		// Beyond it, the ATTRIBUTED human's access decides — frame/terminal
+		// tokens carry the driving user (Access resolved at principal build);
+		// an owner-driven one (no user id: the bootstrap token's frames and
+		// terminals) keeps owner reach; an unattributed INSTANCE token stays
+		// self-only — backends reach siblings through grants (/api), never by
+		// reading their static files. (Previously ANY element passed these
+		// gates for ANY tile, so one tile's frame token could read every
+		// other tile's /c/ source — 2026-08-02 re-review finding.)
+		if path == p.Component {
+			return true
+		}
+		if p.UserID == "" {
+			return p.Via != "instance"
+		}
+		if p.Access == nil {
+			return false
+		}
 	}
 	if p.Access != nil {
 		switch want {
@@ -107,8 +130,7 @@ func (p Principal) tileLevel(path, want string) bool {
 			return p.User.CanReadTile(path)
 		}
 	}
-	// Element principals (frame/instance) are gated by grants, not this.
-	return p.Component != ""
+	return false
 }
 
 // CanCreateTile reports whether this principal may create a component at
@@ -414,15 +436,19 @@ func (a *Auth) lookupTerminal(token string) (termID, bool) {
 }
 
 // terminalPrincipal builds the element principal for a terminal token. Like a
-// frame token, one naming a user who no longer exists is rejected — deleting a
-// user kills their live shells' API access.
+// frame token, one naming a user who no longer exists (or is disabled) is
+// rejected — deleting/disabling a user kills their live shells' API access.
+// The user's Access rides along so per-tile gates beyond the terminal's own
+// tile follow the DRIVING human, not a blanket element pass.
 func (a *Auth) terminalPrincipal(id termID) (Principal, bool) {
+	p := Principal{Component: id.component, UserID: id.userID, Via: "terminal"}
 	if id.userID != "" {
 		if _, found := a.userSnapshot(id.userID); !found {
 			return Principal{}, false
 		}
+		p.Access = a.accessSnapshot(id.userID)
 	}
-	return Principal{Component: id.component, UserID: id.userID, Via: "terminal"}, true
+	return p, true
 }
 
 // --- frame tokens ---
@@ -482,12 +508,17 @@ func (a *Auth) framePrincipal(tok string) (Principal, bool) {
 	if !ok {
 		return Principal{}, false
 	}
+	p := Principal{Component: comp, UserID: uid, Via: "frame"}
 	if uid != "" {
 		if _, found := a.userSnapshot(uid); !found {
 			return Principal{}, false
 		}
+		// The driving user's Access rides along: per-tile gates for anything
+		// beyond the frame's own tile follow the human, so one tile's frame
+		// token can't read another tile's static files past the user's RBAC.
+		p.Access = a.accessSnapshot(uid)
 	}
-	return Principal{Component: comp, UserID: uid, Via: "frame"}, true
+	return p, true
 }
 
 // userSnapshot resolves a user for principal building. A DISABLED account

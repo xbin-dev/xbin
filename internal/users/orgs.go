@@ -786,7 +786,18 @@ func netSpecCovers(entry, target string) bool {
 		tpfx, ok2 := parsePrefixish(tHost)
 		return ok2 && epfx.Bits() <= tpfx.Bits() && epfx.Contains(tpfx.Addr())
 	}
-	return globMatch(strings.ToLower(eHost), strings.ToLower(tHost))
+	eh, th := strings.ToLower(eHost), strings.ToLower(tHost)
+	if globMatch(eh, th) {
+		return true
+	}
+	// `*.x.y` also covers the apex `x.y` — unlike TLS wildcards, an
+	// ALLOWANCE for a domain's subdomains obviously means the domain too
+	// (the apex-mismatch footgun would push admins straight back to
+	// unfiltered internet).
+	if rest, ok := strings.CutPrefix(eh, "*."); ok && rest == th {
+		return true
+	}
+	return false
 }
 
 // cutNetPort splits a trailing ":<digits>" port off a spec (IPv4/hostname

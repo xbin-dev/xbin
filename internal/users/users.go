@@ -259,8 +259,9 @@ func (u *User) Public() User {
 }
 
 // InvitePending reports an unredeemed, unexpired invite (admin-list display).
+// A disabled account's invite can't be redeemed, so it doesn't count.
 func (u *User) InvitePending() bool {
-	return u.InviteHash != "" && u.InviteExpires > timeNow()
+	return !u.Disabled && u.InviteHash != "" && u.InviteExpires > timeNow()
 }
 
 type Store struct {
@@ -276,7 +277,8 @@ type Store struct {
 	sets         map[string]*PermissionSet
 	policy       []PolicyRow
 	defaultTiles map[string]string
-	requests     []AccessRequest // pending human access requests (D36)
+	requests     []AccessRequest  // pending human access requests (D36)
+	dismissed    map[string]int64 // user\x00tile → cooldown expiry after a manager dismissal
 
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
@@ -313,6 +315,7 @@ func Open(dataDir string) (*Store, error) {
 		DefaultTiles       map[string]string         `json:"defaultTiles"`
 		Policy             []PolicyRow               `json:"policy"`
 		AccessRequests     []AccessRequest           `json:"accessRequests"`
+		RequestCooldowns   map[string]int64          `json:"requestCooldowns"`
 		TokenLoginDisabled bool                      `json:"tokenLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -329,6 +332,7 @@ func Open(dataDir string) (*Store, error) {
 	s.defaultTiles = doc.DefaultTiles
 	s.policy = doc.Policy
 	s.requests = doc.AccessRequests
+	s.dismissed = doc.RequestCooldowns
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	if s.owners == nil {
 		s.owners = map[string]string{}
@@ -581,6 +585,9 @@ func (s *Store) persistLocked() error {
 	}
 	if len(s.requests) > 0 {
 		doc["accessRequests"] = s.requests
+	}
+	if len(s.dismissed) > 0 {
+		doc["requestCooldowns"] = s.dismissed
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

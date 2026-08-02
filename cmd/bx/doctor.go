@@ -77,6 +77,10 @@ func cmdDoctor() error {
 		// moved/deleted tile) — clear or re-assign with bx owner.
 		var mx struct {
 			Owners map[string]string `json:"owners"`
+			Matrix map[string]map[string]struct {
+				Level   string                           `json:"level"`
+				Explain []struct{ Level, Source string } `json:"explain"`
+			} `json:"matrix"`
 		}
 		if err := apiJSON("GET", "/api/xbin/access-matrix", nil, &mx); err == nil {
 			for p, o := range mx.Owners {
@@ -103,7 +107,9 @@ func cmdDoctor() error {
 				} else {
 					hasAdmin := false
 					for _, m := range o.Members {
-						if a, _ := m["admin"].(bool); a {
+						a, _ := m["admin"].(bool)
+						susp, _ := m["suspended"].(bool)
+						if a && !susp { // a suspended admin administers nothing (D34)
 							hasAdmin = true
 						}
 					}
@@ -119,6 +125,36 @@ func cmdDoctor() error {
 				for pat := range o.Tiles {
 					if !matches(pat) {
 						warn("org %q share %q matches no component", o.ID, pat)
+					}
+				}
+				// Exact entries clamping BELOW a member's org level are usually
+				// stale approvals (D31: exact is authoritative) — the classic
+				// "I promoted the team, why is sam still read-only" ticket.
+				// Deliberate `none` exclusions don't warn.
+				lvl := map[string]string{}
+				for _, m := range o.Members {
+					id, _ := m["id"].(string)
+					l, _ := m["level"].(string)
+					if a, _ := m["admin"].(bool); a {
+						l = "terminal"
+					}
+					if susp, _ := m["suspended"].(bool); !susp {
+						lvl[id] = l
+					}
+				}
+				for tile, owner := range mx.Owners {
+					if owner != "org:"+o.ID {
+						continue
+					}
+					for user, row := range mx.Matrix {
+						c, ok := row[tile]
+						if !ok || c.Level == "none" || len(c.Explain) == 0 || c.Explain[0].Source != "exact" {
+							continue
+						}
+						if levelRankDoc(lvl[user]) > levelRankDoc(c.Level) {
+							warn("%s on %s: exact entry (%s) clamps their org level (%s) — `bx access %s rm user:%s` to follow the org (D31)",
+								user, tile, c.Level, lvl[user], tile, user)
+						}
 					}
 				}
 			}
@@ -251,10 +287,11 @@ func allowEntryProblem(e string) string {
 		return ""
 	case "net":
 		if rest == "internet" || rest == "host" ||
-			strings.HasPrefix(rest, "lan:") || strings.HasPrefix(rest, "provider:") {
+			strings.HasPrefix(rest, "internet:") || strings.HasPrefix(rest, "lan:") ||
+			strings.HasPrefix(rest, "provider:") {
 			return ""
 		}
-		return "net entries are net:internet, net:host, net:lan:<glob> or net:provider:<tile-glob>"
+		return "net entries are net:internet[:<spec>], net:host, net:lan:<glob> or net:provider:<tile-glob>"
 	case "ingress":
 		kind, val, _ := strings.Cut(rest, ":")
 		if (kind == "host" || kind == "zone" || kind == "listen") && val != "" {
@@ -263,6 +300,19 @@ func allowEntryProblem(e string) string {
 		return "ingress entries are ingress:host:/zone:/listen:<value>"
 	}
 	return "unknown class (res/gpu/cap/net/iface/ingress/tile)"
+}
+
+// levelRankDoc mirrors the server's level ordering for doctor's advisories.
+func levelRankDoc(l string) int {
+	switch l {
+	case "read":
+		return 1
+	case "write":
+		return 2
+	case "terminal":
+		return 3
+	}
+	return 0
 }
 
 func lookPath(bin string) (string, error) {

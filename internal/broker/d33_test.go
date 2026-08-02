@@ -258,6 +258,21 @@ func TestProviderSideBindingApproval(t *testing.T) {
 	if !b.orgAdminMayBind(dana, "apps/email", "api", registry.BindTo("apps/calendar"), false) {
 		t.Error("provider org admin must be able to consent to a binding to her tile")
 	}
+	// …and WITHDRAW an existing binding to it (DELETE carries no refs — the
+	// stored binding decides; 2026-08-02 re-review fix).
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Bindings = map[string]map[string]registry.Binding{
+			"apps/email": {"api": registry.BindTo("apps/calendar")},
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.orgAdminMayBind(dana, "apps/email", "api", nil, true) {
+		t.Error("provider org admin must be able to withdraw service")
+	}
+	if b.orgAdminMayBind(dave, "apps/email", "api", nil, true) {
+		t.Error("non-admin must not withdraw")
+	}
 	// …but not to someone else's, nor to net classes.
 	if b.orgAdminMayBind(dana, "apps/email", "net", registry.BindTo("internet"), false) {
 		t.Error("net classes have no provider to consent")

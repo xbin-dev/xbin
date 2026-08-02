@@ -522,6 +522,10 @@ func (b *Broker) apiAccessMatrix(w http.ResponseWriter, r *http.Request) {
 		for _, path := range paths {
 			if l := acc.TileLevel(path); l != "" {
 				row[path] = cell{Level: l, Explain: acc.Explain(path)}
+			} else if ex := acc.Explain(path); len(ex) > 0 && ex[0].Level == users.LevelNone {
+				// An exact `none` EXCLUSION is a deliberate row — render it,
+				// don't flatten it into "never granted" (D31 legibility).
+				row[path] = cell{Level: users.LevelNone, Explain: ex}
 			}
 		}
 		matrix[u.ID] = row

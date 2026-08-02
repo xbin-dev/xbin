@@ -26,8 +26,15 @@ type AccessRequest struct {
 // maxRequestsPerUser bounds one user's pending requests (spam/typo guard).
 const maxRequestsPerUser = 20
 
+// dismissCooldown is how long a manager's DISMISSAL blocks re-filing the
+// same (user, tile) request — "no" should stick for a while, not until the
+// requester's next click (withdrawing your own request sets no cooldown).
+const dismissCooldown = 24 * time.Hour
+
 // CreateAccessRequest files (or refreshes — same user+tile replaces) a
-// request. The requester must exist; the note is clamped.
+// request. The requester must exist; the note is clamped. Refused while an
+// exact `none` entry excludes the user (the owner already said no, D31) or
+// a recent dismissal is cooling down.
 func (s *Store) CreateAccessRequest(user, tile, level, note string) error {
 	user = normalizeID(user)
 	tile = strings.Trim(tile, "/")
@@ -42,8 +49,15 @@ func (s *Store) CreateAccessRequest(user, tile, level, note string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.byID[user]; !ok {
+	u, ok := s.byID[user]
+	if !ok {
 		return fmt.Errorf("no such user %q", user)
+	}
+	if u.Tiles[tile] == LevelNone {
+		return fmt.Errorf("you've been explicitly excluded from %s — asking again won't change that (talk to the tile's owner)", tile)
+	}
+	if until, ok := s.dismissed[user+"\x00"+tile]; ok && until > time.Now().Unix() {
+		return fmt.Errorf("a request for %s was recently declined — try again later", tile)
 	}
 	mine := 0
 	out := make([]AccessRequest, 0, len(s.requests)+1)
@@ -78,8 +92,10 @@ func (s *Store) AccessRequests() []AccessRequest {
 	return out
 }
 
-// DeleteAccessRequest removes one request (withdraw / dismiss / approved).
-func (s *Store) DeleteAccessRequest(user, tile string) (bool, error) {
+// DeleteAccessRequest removes one request. dismissed=true is a MANAGER
+// saying no — it starts the re-file cooldown; a requester's own withdrawal
+// (dismissed=false) doesn't.
+func (s *Store) DeleteAccessRequest(user, tile string, dismissed bool) (bool, error) {
 	user = normalizeID(user)
 	tile = strings.Trim(tile, "/")
 	s.mu.Lock()
@@ -97,5 +113,17 @@ func (s *Store) DeleteAccessRequest(user, tile string) (bool, error) {
 		return false, nil
 	}
 	s.requests = out
+	if dismissed {
+		if s.dismissed == nil {
+			s.dismissed = map[string]int64{}
+		}
+		now := time.Now().Unix()
+		for k, until := range s.dismissed { // prune expired while we're here
+			if until <= now {
+				delete(s.dismissed, k)
+			}
+		}
+		s.dismissed[user+"\x00"+tile] = now + int64(dismissCooldown/time.Second)
+	}
 	return true, s.persistLocked()
 }

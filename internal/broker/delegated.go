@@ -259,13 +259,21 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 			}
 		}
 	}
-	// Provider side: all refs must be tiles owned by orgs p administers.
-	if len(binding) == 0 {
+	// Provider side: all refs must be tiles owned by orgs p administers. For
+	// an UNBIND the request carries no refs — the provider is withdrawing
+	// service, so the refs that matter are the ones currently STORED for
+	// (comp, slot): "the provider may withdraw at any time" is half of D33's
+	// consent story.
+	refs := binding
+	if unbind && len(refs) == 0 {
+		refs = b.Reg.Workspace().Bindings[comp][slot]
+	}
+	if len(refs) == 0 {
 		return false
 	}
-	for _, ref := range binding {
+	for _, ref := range refs {
 		if ref.Ref == "" || ref.Ref == "runtime" || ref.Ref == "internet" || ref.Ref == "host" ||
-			strings.HasPrefix(ref.Ref, "lan:") {
+			strings.HasPrefix(ref.Ref, "lan:") || strings.HasPrefix(ref.Ref, "internet:") {
 			return false
 		}
 		org := b.providerRefOrg(ref.Ref)
@@ -367,6 +375,18 @@ func (b *Broker) approverHint(g registry.Grant) []string {
 		}
 		if torg := b.targetOwnerOrg(g.Target); torg != "" {
 			add("org:" + torg)
+		}
+		// A USER-owned requesting tile is otherwise ws-admin-only — but when
+		// the owner belongs to an org whose allowance would cover the target,
+		// the self-serve escape is transferring the tile there. Hint it so
+		// the requester learns the detour at the moment of frustration.
+		if owner := b.Users.Owner(g.From); strings.HasPrefix(owner, "user:") {
+			uid := strings.TrimPrefix(owner, "user:")
+			for _, m := range b.Users.UserOrgs(uid) {
+				if b.Users.AllowanceCovers(m.ID, g.Target, g.Role) {
+					add("transfer:org:" + m.ID)
+				}
+			}
 		}
 	}
 	add("workspace-admin")

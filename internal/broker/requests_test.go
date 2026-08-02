@@ -91,6 +91,33 @@ func TestAccessRequestLoop(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("withdraw: %d %s", w.Code, w.Body.String())
 	}
+	// A manager DISMISSAL starts a cooldown: dave re-files, carol dismisses,
+	// dave's immediate re-file refuses (his own earlier withdrawal didn't).
+	w = call(t, b.apiRequestCreate, dave, "POST", "/access-requests",
+		`{"tile":"apps/email","level":"terminal"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("re-request after withdraw: %d %s", w.Code, w.Body.String())
+	}
+	w = call(t, b.apiRequestDelete, carol, "DELETE", "/access-requests",
+		`{"user":"dave","tile":"apps/email"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("dismiss: %d %s", w.Code, w.Body.String())
+	}
+	w = call(t, b.apiRequestCreate, dave, "POST", "/access-requests",
+		`{"tile":"apps/email","level":"terminal"}`, nil)
+	if w.Code != 400 {
+		t.Fatalf("re-file after dismissal must cool down: %d %s", w.Code, w.Body.String())
+	}
+	// An exact `none` exclusion refuses outright with its own message.
+	if err := st.SetUserTile("dave", "apps/calendar", "none"); err != nil {
+		t.Fatal(err)
+	}
+	w = call(t, b.apiRequestCreate, dave, "POST", "/access-requests",
+		`{"tile":"apps/calendar","level":"read"}`, nil)
+	if w.Code != 400 {
+		t.Fatalf("excluded user's request must refuse: %d %s", w.Code, w.Body.String())
+	}
+
 	// Elements can't file.
 	el := principalFor(t, st, "dave")
 	el.Component = "apps/email"

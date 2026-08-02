@@ -52,7 +52,11 @@ matters and can't be forged by another element's JS: the cookie proves the
 human, the injected short-lived token attributes the request to the
 component whose document it is. Consequence for your frontend code: **use
 `xbin.fetch()` for anything beyond your own API.** A raw `fetch` to another
-element 403s.
+element 403s. Per-tile READ gates (the `/c/` static plane) follow the
+DRIVING USER's access on element principals — an element reaches its own
+tile's files always, but one tile's frame token cannot read another tile's
+source past its user's RBAC, and an unattributed backend token is
+self-only.
 
 ## Roles and grants
 

@@ -20,6 +20,20 @@
 > prompt, and the invite paper-cuts. Still open: per-tile/org memory limits
 > (#17 — deliberately deferred, org-wide limits will come with it) and SSO
 > (#19).
+>
+> **Re-review (same day, five fresh story agents on live instances):** all
+> four story verdicts flipped — solo "fully served", family "genuinely
+> well-served", corporate "go", friend-group "Max is out of the loop";
+> ~70 adversarial probes across both mechanics passes, zero unauthorized
+> 200s. The re-review's own findings were fixed the same day: a
+> pre-existing /c/ static read bypass via element frame tokens (SECURITY —
+> the one escalation-worthy find), provider-side binding withdraw
+> (documented but unreachable), apex-covering hostname globs, request
+> dismissal cooldowns + `none`-exclusion refusals, transfer hints, doctor's
+> D35/D34 blind spots and an exact-clamp advisory, matrix `none` cells.
+> Remaining backlog: self-service password change (the family story's last
+> recurring admin-password chore), effective-access introspection for
+> members, memory limits, SSO.
 
 **Headline:** the model and its enforcement held up everywhere it was
 attacked — intra-org vs cross-owner vs allowance-scoped approval, the

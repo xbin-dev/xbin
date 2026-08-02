@@ -263,7 +263,9 @@ POST   /access-requests           signed-in users. file {tile, level:
                                    read|write|terminal, note?} (≤20
                                    pending each; same-tile refiles
                                    replace; refuses levels you already
-                                   hold). A signed-in human navigating to
+                                   hold, tiles you're explicitly excluded
+                                   from (exact `none`), and re-files
+                                   within 24h of a manager's dismissal). A signed-in human navigating to
                                    an unreadable /c/ tile gets this as a
                                    page (owner named + one-click request)
                                    instead of a bare 403
@@ -271,9 +273,9 @@ POST   /access-requests/approve   the tile's manager set. {user, tile,
                                    level?} — writes the exact ACL entry
                                    (level defaults to the requested one)
                                    and removes the request
-DELETE /access-requests           {user?, tile} — withdraw your own;
-                                   dismissing others' needs the tile's
-                                   manager set
+DELETE /access-requests           {user?, tile} — withdraw your own (no
+                                   cooldown); a MANAGER dismissing someone
+                                   else's starts the 24h re-file cooldown
 GET    /users-directory           admin/xbin:users, or any org admin. the
                                    minimal people list for pickers:
                                    {users:[{id,name}]} — identity only
@@ -395,7 +397,10 @@ GET    /grants                     admin — full table {grants, pending}.
                                    "org"|"mine"} — blocked names the policy
                                    row that makes a request unapprovable;
                                    approvers hints who could (["org:<id>",
-                                   "workspace-admin"]). Elements: admin only
+                                   "workspace-admin"], plus
+                                   "transfer:org:<id>" when transferring a
+                                   USER-owned requesting tile to that org
+                                   would put it under its allowance). Elements: admin only
 POST   /grants                     admin — any. An org admin may approve on
                                    TWO edges (D26/D33): their org owns the
                                    REQUESTING tile and the target is

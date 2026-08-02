@@ -363,7 +363,7 @@ func cmdAccess(args []string) error {
 		}
 		fmt.Println("owner:", out.Owner)
 		if len(out.Entries) == 0 {
-			fmt.Println("no entries — owner/admins only")
+			fmt.Println("no entries — owner/admins only (any pending requests follow)")
 		}
 		for _, e := range out.Entries {
 			fmt.Printf("%-5s %-24s %-9s %s\n", e.Kind, e.ID, e.Level, e.Source)

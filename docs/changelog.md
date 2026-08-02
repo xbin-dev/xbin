@@ -12,6 +12,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **Re-review fix batch (incl. one security fix).** A second five-story
+  review of the shipped model confirmed every prior finding fixed and
+  surfaced a short list, all addressed:
+  - *SECURITY:* per-tile read RBAC now binds **element principals** on the
+    `/c/` static plane — previously any tile's frame token could read every
+    other tile's source/manifest regardless of the driving user's access
+    (pre-existing, not from the recent waves). Elements read their own tile
+    always; beyond it the attributed user's access decides; unattributed
+    backend tokens are self-only.
+  - Provider-org admins can now actually **withdraw** a consumer's binding
+    to their tile (DELETE carried no refs, so the documented D33 withdraw
+    lever never matched; the stored binding decides now).
+  - Allowance hostname globs cover the apex: `net:internet:*.stripe.com`
+    also matches `stripe.com` (the TLS-wildcard footgun pushed admins back
+    to unfiltered internet).
+  - Request dismissals stick: a manager's dismissal starts a 24h re-file
+    cooldown, and users excluded by an exact `none` entry get told so
+    instead of re-filing forever. Withdrawing your own request stays free.
+  - Pending-request hints now include the self-serve detour
+    (`transfer:org:<id>`) when moving a personal tile into your org would
+    put it under the org's allowance.
+  - `bx doctor`: recognizes D35 `net:internet:<spec>` allowances (was a
+    false positive), treats suspended org admins as absent, and flags exact
+    entries that clamp below a member's org level (stale approvals). The
+    access map renders exact `none` exclusions instead of flattening them
+    into "never granted"; disabled users no longer show "invited".
+
 - **Disable, suspend, ask-for-access, and hostname-granular egress
   (D34-D36).** The second wave of review follow-ups, all additive:
   - *Account disable (D34):* `bx user set <id> --disable` (admin tile
