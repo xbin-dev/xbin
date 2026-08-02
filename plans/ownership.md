@@ -412,3 +412,12 @@ them:
   untouched — grants govern them).
 - **Set inheritance**: sets are flat (no set-includes-set) — composition is
   the org's `sets` list; nesting can come later if fleets demand it.
+
+## Post-ship review
+
+A five-story UX review (solo / family / corporate / friend-group personas +
+a live-instance mechanics audit) ran the day this shipped:
+[`ownership-ux-review.md`](ownership-ux-review.md). Enforcement held under
+~40 adversarial probes; the P0 list there (create-as-org unreachable, stale
+⚙ access panel, allowance write-validation, static organisations tile) is
+the immediate follow-up work.
