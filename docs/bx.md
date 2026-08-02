@@ -18,8 +18,10 @@ bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
 bx builtin updates | update <id> [--replace|--merge]
                                        offer/apply newer embedded scaffold + tiles
-bx user ls | add <id> [flags] | set <id> [flags] | rm <id>
-                                       manage users (admin/xbin:users)
+bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | rm <id>
+                                       manage users (admin/xbin:users); add with
+                                       an empty password (or --invite) prints a
+                                       single-use invite link (D22)
 bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)
 bx org member <org> [<user> --level L [--create] [--admin] | rm <user>]
 bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)

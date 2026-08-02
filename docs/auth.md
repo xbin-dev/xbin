@@ -377,6 +377,26 @@ The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
 Passwords are Argon2id-hashed in `data/users.json` (0600); sessions are
 server-side (delete/edit revokes immediately) and drop on restart.
 
+## Accounts, invites — and no self-signup (D22)
+
+Accounts are **only ever created by an admin** (`POST /users`, `bx user add`,
+the admin tile) — there is no self-registration surface at all. Credential
+delivery has two shapes:
+
+- **Admin-set password** — as before; tell the person out of band.
+- **Invite link** — create the user *without* a password and the API returns a
+  **single-use, 72h** link (`/login?invite=…`; token hashed at rest). The
+  invitee opens it, sets their own password, and is signed in. Re-minting
+  (`POST /users/<id>/invite`, `bx user invite`) invalidates the previous link
+  and doubles as reset-by-link; redemption is login-throttled.
+
+The account row is deliberately **credential-agnostic**: a user is an ID plus
+however their credential arrives — an admin-set password, an invite-redeemed
+one, and in the future an **SSO/OIDC identity** (enterprise/Google-Workspace
+sign-in for company-wide workspaces) would bind to the same row via the same
+no-self-signup rule (the IdP asserts identity; a workspace admin — or a
+domain allow-rule they configure — still decides who gets an account).
+
 ## Ownership, organizations & delegated approval
 
 The multi-user grouping model (plans/ownership.md, DECISIONS D24–D28).

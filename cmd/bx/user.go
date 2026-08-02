@@ -23,7 +23,7 @@ import (
 // terminals the live tile-API token / internet egress (D17).
 func cmdUser(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx user ls | add <id> [flags] | set <id> [flags] | rm <id>")
+		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite] | set <id> [flags] | invite <id> | rm <id>")
 	}
 	switch args[0] {
 	case "ls":
@@ -108,6 +108,8 @@ func cmdUser(args []string) error {
 				body["termNet"] = false
 			case "--password":
 				wantPw = true
+			case "--invite":
+				wantPw = false // create credential-less → the server mints an invite link
 			case "--name":
 				i++
 				body["name"] = args[i]
@@ -139,23 +141,37 @@ func cmdUser(args []string) error {
 			}
 		}
 		if wantPw {
-			pw, err := readPassphrase(fmt.Sprintf("password for %s: ", id))
+			pw, err := readPassphrase(fmt.Sprintf("password for %s (empty → invite link): ", id))
 			if err != nil {
 				return err
 			}
-			if pw == "" {
-				return fmt.Errorf("password required")
-			}
-			body["password"] = pw
+			body["password"] = pw // empty = invite flow (D22)
 		}
 		method, path := "POST", "/api/xbin/users"
 		if args[0] == "set" {
 			method, path = "PATCH", "/api/xbin/users/"+id
 		}
-		if err := apiJSON(method, path, body, nil); err != nil {
+		var out struct {
+			InviteURL string `json:"inviteUrl"`
+		}
+		if err := apiJSON(method, path, body, &out); err != nil {
 			return err
 		}
 		fmt.Printf("%s %s\n", map[string]string{"add": "created", "set": "updated"}[args[0]], id)
+		printInvite(out.InviteURL)
+		return nil
+
+	case "invite":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx user invite <id>")
+		}
+		var out struct {
+			InviteURL string `json:"inviteUrl"`
+		}
+		if err := apiJSON("POST", "/api/xbin/users/"+args[1]+"/invite", nil, &out); err != nil {
+			return err
+		}
+		printInvite(out.InviteURL)
 		return nil
 
 	case "rm":
@@ -169,4 +185,14 @@ func cmdUser(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown: bx user %s", strings.Join(args, " "))
+}
+
+// printInvite shows a freshly minted invite link (single-use, 72h; the admin
+// delivers it — there is no self-signup).
+func printInvite(url string) {
+	if url == "" {
+		return
+	}
+	base, _ := transport()
+	fmt.Printf("invite link (single-use, 72h — send it to them):\n  %s%s\n", base, url)
 }

@@ -103,5 +103,56 @@ button:hover{background:#e0912a}
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
   <button>Sign in</button>
-  <div class="note">Admins can also use the one-time token URL from the server logs.</div>
+  <div class="note">Got an invite link? Open it to set your password. Operators can sign in with the owner-token URL from the server logs.</div>
 </form></body></html>`
+
+// invitePageHTML is the set-your-password page an invite link opens (D22).
+// Same styling as the login page; {{USER}}/{{TOKEN}}/{{ERR}} are substituted
+// server-side (HTML-escaped). There is no self-signup — this page only ever
+// finishes an admin-created account.
+const invitePageHTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xbin — welcome</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
+.card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
+  padding:26px 28px;width:300px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:14px}
+h1{font-size:15px;margin:0 0 4px}
+p{font-size:12.5px;color:#868f9a;margin:0 0 8px}
+label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:#868f9a;margin:10px 0 3px}
+input{width:100%;box-sizing:border-box;border:1px solid #363c45;border-radius:6px;padding:7px 9px;
+  font:14px inherit;color:#d4d9e0;background:#2b3038}
+input:focus{outline:2px solid rgba(245,166,35,.45)}
+button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;border-radius:6px;
+  padding:8px;font:700 14px inherit;cursor:pointer}
+button:hover{background:#e0912a}
+.err{margin-top:10px;font-size:12px;color:#ef5350}
+</style></head><body>
+<form class="card" method="post" action="/login/invite">
+  <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
+  <h1>Welcome, {{USER}}</h1>
+  <p>Choose a password to finish setting up your account. This link works once.</p>
+  <input type="hidden" name="invite" value="{{TOKEN}}">
+  <label for="p">Password (min 8 characters)</label>
+  <input id="p" name="password" type="password" autocomplete="new-password" minlength="8" autofocus required>
+  <label for="p2">Repeat password</label>
+  <input id="p2" name="password2" type="password" autocomplete="new-password" minlength="8" required>
+  <button>Set password &amp; sign in</button>
+  {{ERR}}
+</form></body></html>`
+
+// inviteBadHTML: an invalid/expired/used invite — deliberately generic.
+const inviteBadHTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xbin — invite</title>
+<style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#1b1e24;color:#d4d9e0;font:14px/1.6 -apple-system,"Segoe UI",system-ui,sans-serif}
+.card{background:#23272e;border:1px solid #363c45;border-radius:10px;padding:26px 28px;width:320px}
+a{color:#f5a623}</style></head><body>
+<div class="card"><b>This invite link is invalid, expired, or already used.</b><br>
+Ask your workspace admin for a fresh one, or <a href="/login">sign in</a> if you already set a password.</div>
+</body></html>`

@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -71,7 +72,12 @@ type User struct {
 	TermAPI  bool   `json:"termApi,omitempty"`
 	TermNet  bool   `json:"termNet,omitempty"`
 	PassHash string `json:"passHash,omitempty"`
-	Created  int64  `json:"created"`
+	// InviteHash/InviteExpires carry a pending invite (D22): the sha256 of a
+	// single-use set-your-password token, admin-minted (no self-signup).
+	// Stripped by Public(); surfaced outward only as invitePending.
+	InviteHash    string `json:"inviteHash,omitempty"`
+	InviteExpires int64  `json:"inviteExpires,omitempty"`
+	Created       int64  `json:"created"`
 }
 
 // UnmarshalJSON accepts both the current shape (tiles as a path→level map) and
@@ -81,16 +87,18 @@ type User struct {
 // next save (D15-style).
 func (u *User) UnmarshalJSON(b []byte) error {
 	var raw struct {
-		ID        string          `json:"id"`
-		Name      string          `json:"name"`
-		Role      string          `json:"role"`
-		Tiles     json.RawMessage `json:"tiles"`
-		Terminal  bool            `json:"terminal"` // legacy global flag
-		CanCreate []string        `json:"canCreate"`
-		TermAPI   bool            `json:"termApi"`
-		TermNet   bool            `json:"termNet"`
-		PassHash  string          `json:"passHash"`
-		Created   int64           `json:"created"`
+		ID            string          `json:"id"`
+		Name          string          `json:"name"`
+		Role          string          `json:"role"`
+		Tiles         json.RawMessage `json:"tiles"`
+		Terminal      bool            `json:"terminal"` // legacy global flag
+		CanCreate     []string        `json:"canCreate"`
+		TermAPI       bool            `json:"termApi"`
+		TermNet       bool            `json:"termNet"`
+		PassHash      string          `json:"passHash"`
+		InviteHash    string          `json:"inviteHash"`
+		InviteExpires int64           `json:"inviteExpires"`
+		Created       int64           `json:"created"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
@@ -102,7 +110,8 @@ func (u *User) UnmarshalJSON(b []byte) error {
 	*u = User{
 		ID: raw.ID, Name: raw.Name, Role: raw.Role, Tiles: tiles,
 		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
-		PassHash: raw.PassHash, Created: raw.Created,
+		PassHash: raw.PassHash, InviteHash: raw.InviteHash,
+		InviteExpires: raw.InviteExpires, Created: raw.Created,
 	}
 	return nil
 }
@@ -218,11 +227,17 @@ func (u *User) CanTerminal() bool {
 	return false
 }
 
-// Public is the outward form (no hash).
+// Public is the outward form (no hashes — password or invite).
 func (u *User) Public() User {
 	c := *u
 	c.PassHash = ""
+	c.InviteHash = ""
 	return c
+}
+
+// InvitePending reports an unredeemed, unexpired invite (admin-list display).
+func (u *User) InvitePending() bool {
+	return u.InviteHash != "" && u.InviteExpires > timeNow()
 }
 
 type Store struct {
@@ -602,3 +617,6 @@ func verifyPassword(password, encoded string) bool {
 	got := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
+
+// timeNow is a seam for tests (frozen-clock expiry checks).
+var timeNow = func() int64 { return time.Now().Unix() }

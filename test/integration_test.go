@@ -732,6 +732,58 @@ func TestMultiUser(t *testing.T) {
 		t.Errorf("carol implicit org-admin access: %d, want 200", code)
 	}
 
+	// Invite flow (D22): create erin credential-less -> the API returns a
+	// single-use link; the set-password page serves; redeeming signs her in;
+	// the link dies after use. No self-signup: only admins mint these.
+	var inv struct {
+		InviteURL string `json:"inviteUrl"`
+	}
+	{
+		rq, _ := http.NewRequest("POST", base+"/api/xbin/users", strings.NewReader(`{"id":"erin","role":"user"}`))
+		rq.Header.Set("Authorization", "Bearer "+rootTok)
+		rq.Header.Set("Content-Type", "application/json")
+		r, err := http.DefaultClient.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		if r.StatusCode != 200 {
+			t.Fatalf("invite create: %d %s", r.StatusCode, b)
+		}
+		if err := json.Unmarshal(b, &inv); err != nil || inv.InviteURL == "" {
+			t.Fatalf("no inviteUrl in %s", b)
+		}
+	}
+	if r, err := http.Get(base + inv.InviteURL); err != nil || r.StatusCode != 200 {
+		t.Fatalf("invite page: %v %v", err, r.StatusCode)
+	} else {
+		r.Body.Close()
+	}
+	// Redeem: POST the form; expect the session redirect.
+	tok := inv.InviteURL[strings.Index(inv.InviteURL, "invite=")+len("invite="):]
+	form := "invite=" + tok + "&password=erin-pass-99&password2=erin-pass-99"
+	noRedir := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	rr, err := noRedir.Post(base+"/login/invite", "application/x-www-form-urlencoded", strings.NewReader(form))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr.Body.Close()
+	if rr.StatusCode != 302 || len(rr.Cookies()) == 0 {
+		t.Fatalf("invite redeem: %d cookies=%d", rr.StatusCode, len(rr.Cookies()))
+	}
+	// The password works; the link is dead.
+	if _, ok := login("erin", "erin-pass-99"); !ok {
+		t.Fatal("erin login after redeem failed")
+	}
+	rr2, _ := noRedir.Post(base+"/login/invite", "application/x-www-form-urlencoded", strings.NewReader(form))
+	if rr2 != nil {
+		rr2.Body.Close()
+		if rr2.StatusCode == 302 {
+			t.Fatal("invite must be single-use")
+		}
+	}
+
 	// Delegated approval (D26): before the allowance carol can't approve a
 	// gpu grant on the org tile; after the ws-admin sets it, she can.
 	if c, _ := carolDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"gpu:0","role":"egress"}`); c != 403 {

@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **Invite links: onboard users without sharing passwords (D22).** Create a
+  user with no password (admin tile, `bx user add --invite`, or plain
+  `POST /users`) and you get a **single-use, 72h invite link** to send them —
+  they set their own password on a themed page and are signed in.
+  `bx user invite <id>` / the users-tab **invite** button re-mint (and
+  invalidate) links for existing users — credential delivery and
+  reset-by-link in one. Tokens are hashed at rest and redemption is
+  login-throttled. **No self-signup**: accounts still only come from admins.
+  The login page's stale "one-time token URL" note was fixed too.
+
 - **The ownership UX: organisations tile, admin-console rework, owner
   pickers.** A new pre-installed **`tiles/organisations`** tile is the
   delegated surface: members see their orgs, owned tiles and sharing; org

@@ -573,3 +573,15 @@ Deviations and refinements made while implementing; all deliberate:
   denies); term flags confer to members of attached orgs (replacing the
   group mechanism teams provided). ws-admin-only; deleting an attached set
   is refused (detach first). Multi-org management = edit one set.
+
+- **D22 — Invite tokens: admin-minted credential delivery, no self-signup.**
+  (2026-08-02) `POST /users` without a password creates a credential-less
+  account and mints a single-use, 72h invite link (`/login?invite=…`); the
+  invitee sets their own password on a themed page and is signed in. Tokens
+  are 24 random bytes, sha256-hashed at rest; re-minting or redemption
+  invalidates them; redemption is login-throttled and enforces the password
+  floor. There is NO self-registration surface — accounts only come from
+  admins (manual add or invite). The account row stays credential-agnostic on
+  purpose: future enterprise SSO/OIDC (company-wide workspaces) binds an IdP
+  identity to the same User row under the same admin-decides rule, rather
+  than introducing a second account model.

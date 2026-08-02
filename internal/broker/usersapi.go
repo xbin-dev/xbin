@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -20,6 +21,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("GET /users", b.apiUsersList)
 	srv.RegisterAPI("POST /users", b.apiUsersCreate)
 	srv.RegisterAPI("PATCH /users/{id}", b.apiUsersUpdate)
+	srv.RegisterAPI("POST /users/{id}/invite", b.apiUsersInvite)
 	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
@@ -185,7 +187,17 @@ func (b *Broker) apiUsersList(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"users": st.List()})
+	type userOut struct {
+		users.User
+		InvitePending bool `json:"invitePending,omitempty"`
+	}
+	list := st.List()
+	out := make([]userOut, 0, len(list))
+	for _, u := range list {
+		full, _ := st.Get(u.ID)
+		out = append(out, userOut{User: u, InvitePending: full != nil && full.InvitePending()})
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"users": out})
 }
 
 type userBody struct {
@@ -232,13 +244,11 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, name?, role?, tiles?, terminal?, password}"})
 		return
 	}
-	if body.Password == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "password required for a new user"})
-		return
-	}
-	if msg := weakPassword(body.Password); msg != "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
-		return
+	if body.Password != "" {
+		if msg := weakPassword(body.Password); msg != "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
 	}
 	if _, exists := st.Get(body.ID); exists {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
@@ -249,18 +259,60 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	u, err := st.Upsert(users.User{
+	nu := users.User{
 		ID: body.ID, Name: firstNonEmpty(body.Name, body.ID), Role: body.Role,
 		Tiles: tiles, CanCreate: body.CanCreate,
 		TermAPI: body.TermAPI != nil && *body.TermAPI,
 		TermNet: body.TermNet != nil && *body.TermNet,
-	}, body.Password)
+	}
+	// No password → invite flow (D22): create the account credential-less and
+	// mint a single-use set-your-password link the admin delivers. There is no
+	// self-signup — accounts only ever come from here.
+	var u *users.User
+	var invite string
+	if body.Password == "" {
+		if u, err = st.UpsertInvited(nu); err == nil {
+			invite, err = st.CreateInvite(u.ID, 0)
+		}
+	} else {
+		u, err = st.Upsert(nu, body.Password)
+	}
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
-	server.WriteJSON(w, http.StatusOK, u.Public())
+	out := map[string]any{"user": u.Public()}
+	if invite != "" {
+		out["invite"] = invite
+		out["inviteUrl"] = "/login?invite=" + invite
+		out["inviteExpires"] = time.Now().Add(users.InviteTTL).Unix()
+	}
+	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// apiUsersInvite (re)mints a single-use invite link for an existing user —
+// credential delivery and "reset by link" in one (D22). The current password,
+// if any, keeps working until the invite is redeemed; re-minting invalidates
+// any previous link. Admin/xbin:users only — there is no self-service invite.
+func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	tok, err := st.CreateInvite(r.PathValue("id"), 0)
+	if err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	b.usersEvent()
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"invite": tok, "inviteUrl": "/login?invite=" + tok,
+		"inviteExpires": time.Now().Add(users.InviteTTL).Unix(),
+	})
 }
 
 func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {

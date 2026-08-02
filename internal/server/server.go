@@ -72,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /login", s.handleLogin)
 	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /login/invite", s.handleInviteRedeem)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.Handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,8 +198,65 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	if tok := r.URL.Query().Get("invite"); tok != "" {
+		s.serveInvitePage(w, tok, "")
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(loginPageHTML))
+}
+
+// serveInvitePage renders the set-your-password page for an invite link
+// (D22). The token is only VERIFIED here — consumption happens on POST.
+func (s *Server) serveInvitePage(w http.ResponseWriter, tok, errMsg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if s.Auth.Users == nil {
+		http.Error(w, "invalid or expired invite", http.StatusForbidden)
+		return
+	}
+	u, ok := s.Auth.Users.InviteUser(tok)
+	if !ok {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(inviteBadHTML))
+		return
+	}
+	page := strings.ReplaceAll(invitePageHTML, "{{USER}}", htmlEscape(u.ID))
+	page = strings.ReplaceAll(page, "{{TOKEN}}", htmlEscape(tok))
+	errHTML := ""
+	if errMsg != "" {
+		errHTML = `<div class="err">` + htmlEscape(errMsg) + `</div>`
+	}
+	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
+	_, _ = w.Write([]byte(page))
+}
+
+// handleInviteRedeem consumes an invite: sets the invitee's first password
+// and signs them in (D22). Throttled like login; single-use; no self-signup —
+// the account already exists, admin-created.
+func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
+	if !s.loginThrottle.allow(clientIP(r)) {
+		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
+		return
+	}
+	_ = r.ParseForm()
+	tok, pass := r.FormValue("invite"), r.FormValue("password")
+	if s.Auth.Users == nil || tok == "" {
+		http.Error(w, "invalid or expired invite", http.StatusForbidden)
+		return
+	}
+	if pass != r.FormValue("password2") {
+		s.serveInvitePage(w, tok, "passwords don't match")
+		return
+	}
+	u, err := s.Auth.Users.RedeemInvite(tok, pass)
+	if err != nil {
+		s.loginThrottle.fail(clientIP(r))
+		s.serveInvitePage(w, tok, err.Error())
+		return
+	}
+	s.loginThrottle.ok(clientIP(r))
+	setSessionCookie(w, r, s.Auth.NewSession(u.ID))
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {

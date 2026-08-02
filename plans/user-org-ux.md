@@ -4,8 +4,9 @@
 > [`plans/ownership.md`](ownership.md) (D24–D27). That rewrite subsumes this
 > plan's D23 (creator sharing — now an ownership right), most of M2's sharing
 > work, and several gaps below (org-UI duplication, seeded admin tiles,
-> members-see-nothing). Still live from this plan: **M1 onboarding** (D22
-> invite tokens, login-page fixes, first-run hardening), member self-service
+> members-see-nothing). Still live from this plan: **M1 onboarding** (~~D22
+> invite tokens~~ SHIPPED 2026-08-02, login-page copy fixed; first-run
+> hardening prompt remains), member self-service
 > password change, user disable, and the M3 console polish.
 
 Pre-open-source audit of the multi-user experience. **Finding in one line: the

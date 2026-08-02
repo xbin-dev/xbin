@@ -62,6 +62,7 @@ export class BxAdmin extends LitElement {
     _orgs: { state: true },     // orgs & teams (docs/auth.md)
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _permsets: { state: true }, // {sets, attachedTo} (D28)
+    _invite: { state: true },   // last minted invite link {id, url} (D22)
     _defaults: { state: true }, // defaultTiles map (D27)
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
@@ -1594,10 +1595,11 @@ export class BxAdmin extends LitElement {
   // with the click-through row editors (_tilesEditor/_patternsEditor).
   async _createUser(f) {
     try {
-      await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const d = await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
           termApi: f.termApi.checked, termNet: f.termNet.checked,
           password: f.password.value }) });
+      if (d?.inviteUrl) this._invite = { id: f.id.value.trim(), url: location.origin + d.inviteUrl };
       f.reset(); this._err = ''; this._refresh(); // only clear the form on success
     } catch (e) { this._err = String(e.message ?? e); }
   }
@@ -1682,6 +1684,31 @@ export class BxAdmin extends LitElement {
     return out;
   }
 
+  async _mintInvite(id) {
+    try {
+      const d = await api(`/users/${encodeURIComponent(id)}/invite`, { method: 'POST' });
+      this._invite = { id, url: location.origin + d.inviteUrl };
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    this._refresh();
+  }
+
+  // The one-time invite link box: shown after creating a user without a
+  // password or minting a re-invite — copy it and send it however you like
+  // (no self-signup: links only ever come from an admin).
+  _inviteBox() {
+    const inv = this._invite;
+    if (!inv) return nothing;
+    return html`<div style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-green,#43a047);
+        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b style="font-size:12px">invite link for ${inv.id}</b>
+      <input class="mono" size="46" readonly .value=${inv.url} @focus=${(e) => e.target.select()}>
+      <button class="act" @click=${() => navigator.clipboard?.writeText(inv.url)}>copy</button>
+      <span class="muted" style="font-size:10.5px">single-use · expires in 72h · send it to them yourself</span>
+      <button class="act" @click=${() => { this._invite = null; }}>✕</button>
+    </div>`;
+  }
+
   _usersView() {
     const users = this._users ?? [];
     return html`
@@ -1695,7 +1722,7 @@ export class BxAdmin extends LitElement {
           return html`<tr>
           <td class="mono">${u.id}</td>
           <td>${u.name}</td>
-          <td><span class="pill">${u.role}</span></td>
+          <td><span class="pill">${u.role}</span>${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
           <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
             : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
               ${(u.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
@@ -1712,6 +1739,8 @@ export class BxAdmin extends LitElement {
               <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(u.canCreate ?? [])])}>create…</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? '− api' : '+ api'}</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? '− net' : '+ net'}</button>`}
+            <button class="act" title="mint a single-use set-password link (re-minting invalidates the old one)"
+              @click=${() => this._mintInvite(u.id)}>invite</button>
             <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
             <button class="act rm" @click=${() => this._delUser(u.id)}>del</button>
           </td>
@@ -1732,10 +1761,14 @@ export class BxAdmin extends LitElement {
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termNet"> term-net</label>
-        <input name="password" type="password" placeholder="password (min 8)" size="12" minlength="8" required>
+        <input name="password" type="password" placeholder="password (empty → invite link)" size="16" minlength="8">
         <button class="act go">create</button>
       </form>
+      ${this._inviteBox()}
       <p class="muted" style="font-size:11px;margin-top:6px">
+        Leave the password empty to get a single-use <b>invite link</b> instead —
+        the new user sets their own password when opening it (there is no
+        self-signup; accounts only come from here).
         Grant tile access with the <b>tiles…</b> editor after creating (levels:
         <b>read</b> = see the tile + its source · <b>write</b> = edit/drive it ·
         <b>terminal</b> = a root shell in its directory — trusted users only).

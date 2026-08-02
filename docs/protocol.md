@@ -43,6 +43,10 @@ always trustworthy.
 GET  /healthz                    200 "ok", unauthenticated (liveness)
 GET  /login                      login page; ?token=<root> sets the admin cookie
 POST /login                      {username,password} form → session cookie (throttled)
+GET  /login?invite=<tok>         invite set-password page (D22; single-use link)
+POST /login/invite               {invite,password,password2} form → redeems the
+                                 invite (sets the password, consumes the link),
+                                 signs the user in (throttled)
 POST /logout                     revoke the session
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the
@@ -145,12 +149,24 @@ GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, canCreate, termApi,
                                    termNet}] — levels read|write|terminal
                                    (docs/auth.md, D16)
-POST   /users                     admin/xbin:users. create {id,name,role,
-                                   tiles:{path:level}, canCreate?, termApi?,
-                                   termNet?, password}
-                                   (id: [a-z0-9._-], immutable; password ≥ 8;
-                                   the legacy body — tiles array + terminal
-                                   bool — is still accepted and migrated)
+POST   /users                     admin/xbin:users. create a user: {id,
+                                   name?, role?, tiles?, canCreate?, termApi?,
+                                   termNet?, password?}. WITH password →
+                                   ready to sign in; WITHOUT → credential-less
+                                   account + a single-use invite link the
+                                   admin delivers: {user, invite, inviteUrl:
+                                   /login?invite=…, inviteExpires} (72h, D22).
+                                   There is NO self-signup — accounts only
+                                   come from here. (id: [a-z0-9._-],
+                                   immutable; password ≥ 8; the legacy body —
+                                   tiles array + terminal bool — is still
+                                   accepted and migrated)
+POST   /users/<id>/invite         admin/xbin:users. (re)mint an invite link
+                                   for an existing user — credential delivery
+                                   or reset-by-link; re-minting invalidates
+                                   the previous link; the current password
+                                   keeps working until redemption. → {invite,
+                                   inviteUrl, inviteExpires}
 PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    overlay (+password reset)
 DELETE /users/<id>                admin/xbin:users. remove (revokes sessions)
