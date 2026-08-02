@@ -5,7 +5,7 @@
 # it pins a RELEASED version and delegates to that release's real installer
 # (deploy/install.sh in the tagged tree), which preflight-checks the kernel,
 # builds from source, and sets up the systemd service. Audit both:
-#   https://github.com/xbin-dev/xbin/blob/v0.1.0/deploy/install.sh
+#   https://github.com/xbin-dev/xbin/blob/v0.2.0/deploy/install.sh
 #
 #   curl -fsSL https://xbin.dev/install.sh | sudo bash              # system service
 #   curl -fsSL https://xbin.dev/install.sh | bash -s -- --user      # your user, no root
@@ -13,7 +13,7 @@
 #   XBIN_VERSION=v0.2.0 curl -fsSL https://xbin.dev/install.sh | sudo bash
 set -eu
 
-CURRENT=v0.1.0
+CURRENT=v0.2.0
 VERSION="${XBIN_VERSION:-$CURRENT}"
 URL="https://raw.githubusercontent.com/xbin-dev/xbin/${VERSION}/deploy/install.sh"
 
