@@ -686,7 +686,10 @@ func TestMultiUser(t *testing.T) {
 	if code := as(danaC, "/c/apps/acmedash/"); code != 200 {
 		t.Errorf("dana org tile: %d, want 200", code)
 	}
-	if code := as(danaC, "/c/apps/welcome/"); code != 403 {
+	if code := as(danaC, "/c/apps/welcome/"); code != 200 {
+		t.Errorf("dana welcome via defaultTiles (D27): %d, want 200", code)
+	}
+	if code := as(danaC, "/c/tiles/manager/"); code != 403 {
 		t.Errorf("dana unrelated tile: %d, want 403", code)
 	}
 	if c, b := getBody(danaC, "", "/api/xbin/whoami"); c != 200 || !strings.Contains(b, `"acme"`) || !strings.Contains(b, `"level":"write"`) {

@@ -1,0 +1,6 @@
+{
+  // Organisations: the delegated (non-workspace-admin) management tile. It
+  // deliberately declares NO uses — every call is a raw fetch, so the caller
+  // is the signed-in USER (cookie principal) and the server's ownership/
+  // org-admin gates decide per person. Nothing here runs with tile privilege.
+}

@@ -100,6 +100,7 @@ type componentInfo struct {
 	Uses        any      `json:"uses,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
 	ManifestErr string   `json:"manifestError,omitempty"`
+	Owner       string   `json:"owner,omitempty"` // "user:<id>" | "org:<id>" | "" (D24)
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +115,9 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+		}
+		if s.OwnerOf != nil {
+			ci.Owner = s.OwnerOf(c.Path)
 		}
 		if st := s.Reg.LifecycleState(c.Path); st != registry.StateEnabled {
 			ci.State = st

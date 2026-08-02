@@ -34,7 +34,6 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
-import './bx-org-admin.js';
 import '/vendor/bx-dialog.js';
 
 // Fixed snappable grid. Tiles are absolutely positioned + sized in multiples of
@@ -107,7 +106,6 @@ export class BxShell extends LitElement {
     _sys: { state: true },        // status footer data (admin-only; null = hidden)
     _isAdmin: { state: true },    // shows the per-tile ⚙ mini-admin (probed via /whoami)
     _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
-    _orgsOpen: { state: true },   // the orgs & teams management popover
     _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -224,8 +222,6 @@ export class BxShell extends LitElement {
       border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
     }
     /* orgs & teams management popover (org admins + ws admins) — centered. */
-    .admin-pop.orgs-pop { left: 50%; top: 9vh; transform: translateX(-50%);
-      width: min(560px, 92vw); max-height: 80vh; }
     .orgbtn {
       display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px;
       border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
@@ -557,7 +553,6 @@ export class BxShell extends LitElement {
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._isAdmin = false;
     this._adminOrgs = new Set();
-    this._orgsOpen = false;
     this._adminFor = null;
     this._adminPos = { x: 0, y: 0 };
     this._dialogs = [];
@@ -669,8 +664,12 @@ export class BxShell extends LitElement {
   // saved layout has been consulted and found empty. Lay them out two per row.
   _ensureScreen() {
     if (!this._layoutLoaded || this._screens.length) return;
+    // Seed only tiles this user can actually read (the components list is
+    // server-filtered) — a non-admin shouldn't land on tiles/admin's 403.
+    const readable = new Set(this._components.map((c) => c.path));
+    const seeds = this._seeds.filter((s) => readable.size === 0 || readable.has(s.path));
     const perRow = 2;
-    const tiles = this._seeds.map((s, i) => ({
+    const tiles = seeds.map((s, i) => ({
       path: s.path,
       x: (i % perRow) * DEF_W, y: Math.floor(i / perRow) * DEF_H,
       w: DEF_W, h: DEF_H,
@@ -1217,23 +1216,18 @@ export class BxShell extends LitElement {
         const d = await r.json();
         this._isAdmin = !!d.admin;
         this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
+        this._orgish = !!((d.orgs ?? []).length || (d.owned ?? []).length);
       }
     } catch { /* xbind restarting */ }
   }
 
-  // _orgOf mirrors the server's positional org binding (plans/orgs.md):
-  // o/<org>/… or <seg>/o/<org>/….
-  _orgOf(path) {
-    const s = String(path).split('/');
-    if (s.length >= 2 && s[0] === 'o' && s[1]) return s[1];
-    if (s.length >= 3 && s[1] === 'o' && s[2]) return s[2];
-    return null;
-  }
-
+  // _canAdminTile: the ⚙ mini-admin shows for workspace admins and for org
+  // admins on tiles their org OWNS (D24 — the /components list carries the
+  // owner ref).
   _canAdminTile(path) {
     if (this._isAdmin) return true;
-    const org = this._orgOf(path);
-    return !!(org && this._adminOrgs?.has(org));
+    const owner = this._components.find((c) => c.path === path)?.owner ?? '';
+    return owner.startsWith('org:') && !!this._adminOrgs?.has(owner.slice(4));
   }
 
   _openAdmin(e, path) {
@@ -1782,10 +1776,10 @@ export class BxShell extends LitElement {
               })}
               ${this._sideEmptyMsg()}
             </div>
-            ${this._adminOrgs?.size ? html`
-              <button class="orgbtn" title="manage the orgs you administer (members, teams, access)"
-                @click=${() => { this._orgsOpen = !this._orgsOpen; }}>
-                ⚑ orgs &amp; teams <span class="n">${this._adminOrgs.size}</span>
+            ${this._orgish || this._adminOrgs?.size ? html`
+              <button class="orgbtn" title="your organisations: memberships, owned tiles, sharing, approvals"
+                @click=${() => { if (!this._isOpen('tiles/organisations')) this._toggle('tiles/organisations'); }}>
+                ⚑ organisations${this._adminOrgs?.size ? html` <span class="n">${this._adminOrgs.size}</span>` : nothing}
               </button>` : nothing}
             ${this._statusFooter()}
             ${this._buildFoot()}
@@ -1813,11 +1807,6 @@ export class BxShell extends LitElement {
           <bx-tile-admin .path=${this._adminFor}></bx-tile-admin>
         </div>` : nothing}
 
-      ${this._orgsOpen ? html`
-        <div class="admin-pop-backdrop" @click=${() => { this._orgsOpen = false; }}></div>
-        <div class="admin-pop orgs-pop">
-          <bx-org-admin ?wsadmin=${this._isAdmin}></bx-org-admin>
-        </div>` : nothing}
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
       ${repeat(this._dialogs, (d) => d.id, (d) => html`

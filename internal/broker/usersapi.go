@@ -69,6 +69,11 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["canCreate"] = p.User.CanCreate
 		out["termApi"] = p.CanTermAPI()
 		out["termNet"] = p.CanTermNet()
+		if b.Users != nil { // tiles this user OWNS (D24) — the self-service view
+			if owned := b.Users.OwnedBy(users.OwnerKindUser + ":" + p.User.ID); len(owned) > 0 {
+				out["owned"] = owned
+			}
+		}
 		if orgs := b.userOrgsView(p.User); len(orgs) > 0 { // plans/orgs.md
 			out["orgs"] = orgs
 		}

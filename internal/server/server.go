@@ -36,6 +36,10 @@ type Server struct {
 	// BusFilter authorizes bus events per subscriber (installed by the broker).
 	BusFilter func(p auth.Principal, e events.Event) bool
 
+	// OwnerOf reports a component's owner ref (D24; installed by the broker
+	// so /components can carry it — "" when unowned or single-user mode).
+	OwnerOf func(path string) string
+
 	// IsAdmin reports whether a principal may use admin-capable endpoints
 	// (owner, or an element granted xbin:admin). Installed by the broker;
 	// nil ⇒ owner-only.

@@ -254,6 +254,13 @@ func Open(dataDir string) (*Store, error) {
 	}
 	b, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
+		// Fresh store: seed the workspace defaults (D27) so the first users
+		// ever created can see the welcome/docs/organisations tiles without
+		// per-user grants. Persisted with the first mutation.
+		s.defaultTiles = map[string]string{
+			"apps/welcome": LevelRead, "tiles/apidocs": LevelRead,
+			"tiles/organisations": LevelRead,
+		}
 		return s, nil
 	}
 	if err != nil {

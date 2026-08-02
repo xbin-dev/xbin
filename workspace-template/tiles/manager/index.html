@@ -91,10 +91,10 @@
                  pattern="[a-z0-9][a-z0-9\-/]*" required>
         </div>
       </div>
-      <div class="field" id="team-field" hidden>
-        <label for="team">Create in team</label>
-        <select id="team">
-          <option value="">— none (personal) —</option>
+      <div class="field" id="owner-field" hidden>
+        <label for="owner">Owner</label>
+        <select id="owner">
+          <option value="">— me (personal) —</option>
         </select>
       </div>
       <div class="actions">
@@ -190,48 +190,38 @@
     const slug = document.getElementById('slug');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('create');
-    const teamField = document.getElementById('team-field');
-    const teamSel = document.getElementById('team');
     const pathPrefix = document.getElementById('path-prefix');
     let slugTouched = false;
     const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     pretty.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(pretty.value); });
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
-    // Create-in-team (docs/auth.md, orgs & teams): whoami carries the driving
-    // human's org/team memberships (`user.orgs`; org admins see all their
-    // org's teams). Picking a team pins the path prefix under the org's
-    // namespace — the team's first create pattern when it names one, else
-    // apps/o/<org>/ — and the team gets its configured level on the result.
-    const teamPrefix = {}; // "<org>/<team>" → path prefix
+    // Owner picker (docs/auth.md, D24/D25): whoami carries the driving
+    // human's org memberships; orgs where they hold the Create knob (or org
+    // admin) are offered as the new tile's OWNER. Default: personal
+    // (user-owned).
+    const ownerSel = document.getElementById('owner');
+    const ownerField = document.getElementById('owner-field');
     (async () => {
       try {
         const who = await (await xbin.fetch('/api/xbin/whoami')).json();
         const orgs = who.user?.orgs ?? who.orgs ?? [];
         for (const o of orgs) {
-          for (const t of (o.teams ?? [])) {
-            const ref = `${o.id}/${t.id}`;
-            const pat = (t.canCreate ?? []).find((p) => p.endsWith('/*')
-              && (p.includes(`/o/${o.id}/`) || p.startsWith(`o/${o.id}/`)));
-            teamPrefix[ref] = pat ? pat.slice(0, -1) : `apps/o/${o.id}/`;
-            const opt = document.createElement('option');
-            opt.value = ref;
-            opt.textContent = `${ref}${t.name && t.name !== t.id ? ` — ${t.name}` : ''}`;
-            teamSel.appendChild(opt);
-          }
+          if (!(o.create || o.admin)) continue;
+          const opt = document.createElement('option');
+          opt.value = 'org:' + o.id;
+          opt.textContent = `org ${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}`;
+          ownerSel.appendChild(opt);
         }
-        if (teamSel.options.length > 1) teamField.hidden = false;
-      } catch { /* no teams; field stays hidden */ }
+        if (ownerSel.options.length > 1) ownerField.hidden = false;
+      } catch { /* no orgs; field stays hidden */ }
     })();
-    teamSel.addEventListener('change', () => {
-      pathPrefix.textContent = teamPrefix[teamSel.value] ?? 'apps/';
-    });
     document.getElementById('f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const path = pathPrefix.textContent + slug.value.replace(/^\/+|\/+$/g, '');
       btn.disabled = true; msg.className = 'msg'; msg.textContent = 'creating…';
       try {
         const body = { path, title: pretty.value.trim() };
-        if (teamSel.value) body.team = teamSel.value;
+        if (ownerSel.value) body.owner = ownerSel.value;
         const r = await xbin.fetch('/api/xbin/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

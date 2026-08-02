@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **The ownership UX: organisations tile, admin-console rework, owner
+  pickers.** A new pre-installed **`tiles/organisations`** tile is the
+  delegated surface: members see their orgs, owned tiles and sharing; org
+  admins manage members, org-tile ACLs/transfers, and one-click-approve the
+  pending grants/bindings their allowance covers (with the resolved allowance
+  shown). The admin console's user-management group is now *users ·
+  organisations · permission sets · access map* — member role editors with
+  Admin/Developer/Viewer presets, a permission-set editor, an allowance/owned-
+  tiles view per org, a workspace **defaults** editor, and owner-based
+  provenance in the access map. The Tile Manager's create form gained an
+  **Owner** picker (me / orgs where you may create); `/components` now carries
+  each tile's owner; the shell's ⚑ button opens the organisations tile (the
+  old org popover is gone) and first-screen seeding is filtered to tiles the
+  user can read. New `bx owner`, `bx permset`, and reworked `bx org
+  member/sets/allow` commands; a fresh workspace seeds `defaultTiles`
+  (welcome/apidocs/organisations → read).
+
 - **BREAKING: ownership replaces teams & positional org paths.** Components
   now have an **owner** (a user or an org, transferable) recorded outside the
   workspace; org membership is a flat `{level, create, admin}` role applied

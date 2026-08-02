@@ -231,6 +231,12 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPrefs(srv)
 	b.registerStatus(srv)
 	srv.BusFilter = b.busFilter
+	srv.OwnerOf = func(path string) string {
+		if b.Users == nil {
+			return ""
+		}
+		return b.Users.Owner(path)
+	}
 	srv.IsAdmin = b.IsAdmin
 	srv.Interfaces = b.HTTPInterfaces
 }

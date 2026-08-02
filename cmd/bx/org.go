@@ -3,28 +3,30 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// cmdOrg / cmdAccess — organizations & per-tile access (plans/ownership.md,
-// docs/auth.md). bx authenticates with the owner token, so everything here
-// runs with workspace-admin capability from a shell.
+// cmdOrg / cmdOwner / cmdPermset / cmdAccess — ownership & organizations
+// (plans/ownership.md, docs/auth.md D24–D28). bx authenticates with the owner
+// token, so everything here runs with workspace-admin capability from a shell.
 //
 //	bx org ls
-//	bx org add <id> [--name "…"] [--base read|write] [--admin a,b] [--member a,b]
-//	bx org set <id> [--name "…"] [--base read|write|none]
-//	                [--admin +u|-u]… [--member +u|-u]…
+//	bx org add <id> [--name "…"]
+//	bx org set <id> [--name "…"] [--sets +s|-s]… [--allow +t|-t]…
+//	bx org member <org> [<user> [--level read|write|terminal] [--create[=false]]
+//	                     [--admin[=false]] | rm <user>]
 //	bx org rm  <id>
-//	bx org policy [<org>]                     show ceiling rows (no org = workspace)
-//	bx org policy [<org>] --set '<rows json>' replace them, e.g.
-//	    --set '[{"tiles":"*","deny":["net"]},{"tiles":"apps/o/x/*","mayCall":["apps/o/x/*"]}]'
+//	bx org policy [<org>] [--set '<rows json>']
+//	bx owner <tile> [--transfer user:<id>|org:<id>|workspace]
+//	bx permset ls | set <name> [--allow a,b] [--policy '<json>']
+//	                 [--term-api[=false]] [--term-net[=false]] | rm <name>
 
 func cmdOrg(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | rm <id> | policy [<org>] [--set '<json>']")
+		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | rm <id> | policy [<org>] [--set '<json>']")
 	}
 	switch args[0] {
 	case "ls":
@@ -33,79 +35,144 @@ func cmdOrg(args []string) error {
 			return err
 		}
 		for _, o := range orgs {
-			base := o.BasePermission
-			if base == "" {
-				base = "-"
+			var mem []string
+			for _, m := range o.Members {
+				tag := m.ID + ":" + string(m.Level[0])
+				if m.Admin {
+					tag += "★"
+				} else if m.Create {
+					tag += "+"
+				}
+				mem = append(mem, tag)
 			}
-			var teams []string
-			for _, t := range o.Teams {
-				teams = append(teams, t.ID)
+			fmt.Printf("%-14s members:[%s] sets:%s owned:%d  %s\n",
+				o.ID, strings.Join(mem, " "), strings.Join(o.Sets, ","), len(o.OwnedTiles), o.Name)
+			if len(o.ResolvedAllow) > 0 {
+				fmt.Printf("               may self-approve: %s\n", strings.Join(o.ResolvedAllow, " "))
 			}
-			fmt.Printf("%-14s base:%-6s admins:%-20s members:%d teams:%s  %s\n",
-				o.ID, base, strings.Join(o.Admins, ","), len(o.Members), strings.Join(teams, ","), o.Name)
 		}
 		return nil
 
-	case "add", "set":
+	case "add":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: bx org %s <id> [flags]", args[0])
+			return fmt.Errorf("usage: bx org add <id> [--name \"…\"]")
+		}
+		body := map[string]any{"id": args[1]}
+		for i := 2; i < len(args); i++ {
+			if args[i] == "--name" {
+				i++
+				body["name"] = args[i]
+			}
+		}
+		if err := apiJSON("POST", "/api/xbin/orgs", body, nil); err != nil {
+			return err
+		}
+		fmt.Println("created org", args[1])
+		return nil
+
+	case "set":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx org set <id> [--name \"…\"] [--sets +s|-s] [--allow +t|-t]")
 		}
 		id := args[1]
 		body := map[string]any{}
-		var adminMods, memberMods []string
+		var setMods, allowMods []string
 		for i := 2; i < len(args); i++ {
 			switch args[i] {
 			case "--name":
 				i++
 				body["name"] = args[i]
-			case "--base":
+			case "--sets":
 				i++
-				v := args[i]
-				if v == "none" {
-					v = ""
-				}
-				body["basePermission"] = v
-			case "--admin":
+				setMods = append(setMods, splitList(args[i])...)
+			case "--allow":
 				i++
-				adminMods = append(adminMods, splitList(args[i])...)
-			case "--member":
-				i++
-				memberMods = append(memberMods, splitList(args[i])...)
+				allowMods = append(allowMods, splitList(args[i])...)
 			default:
 				return fmt.Errorf("unknown flag %s", args[i])
 			}
 		}
-		if args[0] == "add" {
-			body["id"] = id
-			if len(adminMods) > 0 {
-				body["admins"] = stripPlus(adminMods)
-			}
-			if len(memberMods) > 0 {
-				body["members"] = stripPlus(memberMods)
-			}
-			if err := apiJSON("POST", "/api/xbin/orgs", body, nil); err != nil {
-				return err
-			}
-			fmt.Println("created org", id)
-			return nil
-		}
-		// set: +u/-u mods apply against the current lists.
-		if len(adminMods) > 0 || len(memberMods) > 0 {
+		if len(setMods) > 0 || len(allowMods) > 0 {
 			cur, err := findOrg(id)
 			if err != nil {
 				return err
 			}
-			if len(adminMods) > 0 {
-				body["admins"] = applyMods(cur.Admins, adminMods)
+			if len(setMods) > 0 {
+				body["sets"] = applyMods(cur.Sets, setMods)
 			}
-			if len(memberMods) > 0 {
-				body["members"] = applyMods(cur.Members, memberMods)
+			if len(allowMods) > 0 {
+				body["allow"] = applyMods(cur.Allow, allowMods)
 			}
 		}
 		if err := apiJSON("PATCH", "/api/xbin/orgs/"+id, body, nil); err != nil {
 			return err
 		}
 		fmt.Println("updated", id)
+		return nil
+
+	case "member":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx org member <org> [<user> [--level L] [--create[=false]] [--admin[=false]] | rm <user>]")
+		}
+		org, err := findOrg(args[1])
+		if err != nil {
+			return err
+		}
+		rest := args[2:]
+		if len(rest) == 0 { // list
+			for _, m := range org.Members {
+				fmt.Printf("%-16s level:%-9s create:%-5v admin:%v\n", m.ID, m.Level, m.Create, m.Admin)
+			}
+			return nil
+		}
+		members := org.Members
+		if rest[0] == "rm" {
+			if len(rest) < 2 {
+				return fmt.Errorf("usage: bx org member <org> rm <user>")
+			}
+			out := members[:0]
+			for _, m := range members {
+				if m.ID != rest[1] {
+					out = append(out, m)
+				}
+			}
+			members = out
+		} else {
+			user := rest[0]
+			// Start from the existing entry (or a fresh read-level one).
+			entry := memberDoc{ID: user, Level: users.LevelRead}
+			idx := -1
+			for i, m := range members {
+				if m.ID == user {
+					entry, idx = m, i
+				}
+			}
+			for i := 1; i < len(rest); i++ {
+				switch f, v, _ := strings.Cut(rest[i], "="); f {
+				case "--level":
+					if v == "" {
+						i++
+						v = rest[i]
+					}
+					entry.Level = v
+				case "--create":
+					entry.Create = v != "false"
+				case "--admin":
+					entry.Admin = v != "false"
+				default:
+					return fmt.Errorf("unknown flag %s", rest[i])
+				}
+			}
+			if idx >= 0 {
+				members[idx] = entry
+			} else {
+				members = append(members, entry)
+			}
+		}
+		if err := apiJSON("PATCH", "/api/xbin/orgs/"+args[1], map[string]any{"members": members}, nil); err != nil {
+			return err
+		}
+		fmt.Println("ok")
 		return nil
 
 	case "rm":
@@ -160,6 +227,116 @@ func cmdOrg(args []string) error {
 	}
 	return fmt.Errorf("unknown: bx org %s", strings.Join(args, " "))
 }
+
+// cmdOwner shows or transfers a tile's owner (D24).
+func cmdOwner(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: bx owner <tile> [--transfer user:<id>|org:<id>|workspace]")
+	}
+	tile := strings.Trim(args[0], "/")
+	if len(args) >= 3 && args[1] == "--transfer" {
+		to := args[2]
+		if to == "workspace" {
+			to = ""
+		}
+		if err := apiJSON("POST", "/api/xbin/owner", map[string]any{"tile": tile, "to": to}, nil); err != nil {
+			return err
+		}
+		if to == "" {
+			to = "workspace"
+		}
+		fmt.Println(tile, "→", to)
+		return nil
+	}
+	var out struct {
+		Owner string `json:"owner"`
+	}
+	if err := apiJSON("GET", "/api/xbin/owner?tile="+tile, nil, &out); err != nil {
+		return err
+	}
+	if out.Owner == "" {
+		out.Owner = "workspace"
+	}
+	fmt.Println(out.Owner)
+	return nil
+}
+
+// cmdPermset manages the reusable org-permission bundles (D28, ws-admin).
+func cmdPermset(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: bx permset ls | set <name> [--allow a,b] [--policy '<json>'] [--term-api[=false]] [--term-net[=false]] | rm <name>")
+	}
+	switch args[0] {
+	case "ls":
+		var out struct {
+			Sets       map[string]users.PermissionSet `json:"sets"`
+			AttachedTo map[string][]string            `json:"attachedTo"`
+		}
+		if err := apiJSON("GET", "/api/xbin/permission-sets", nil, &out); err != nil {
+			return err
+		}
+		for name, ps := range out.Sets {
+			flags := ""
+			if ps.TermAPI {
+				flags += " term-api"
+			}
+			if ps.TermNet {
+				flags += " term-net"
+			}
+			fmt.Printf("%-16s allow:[%s]%s attached:[%s] policy-rows:%s\n",
+				name, strings.Join(ps.Allow, " "), flags,
+				strings.Join(out.AttachedTo[name], ","), strconv.Itoa(len(ps.Policy)))
+		}
+		return nil
+	case "set":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx permset set <name> [flags]")
+		}
+		body := map[string]any{}
+		for i := 2; i < len(args); i++ {
+			switch f, v, _ := strings.Cut(args[i], "="); f {
+			case "--allow":
+				if v == "" {
+					i++
+					v = args[i]
+				}
+				body["allow"] = splitList(v)
+			case "--policy":
+				if v == "" {
+					i++
+					v = args[i]
+				}
+				var rows []map[string]any
+				if err := json.Unmarshal([]byte(v), &rows); err != nil {
+					return fmt.Errorf("--policy wants a JSON array: %w", err)
+				}
+				body["policy"] = rows
+			case "--term-api":
+				body["termApi"] = v != "false"
+			case "--term-net":
+				body["termNet"] = v != "false"
+			default:
+				return fmt.Errorf("unknown flag %s", args[i])
+			}
+		}
+		if err := apiJSON("PUT", "/api/xbin/permission-sets/"+args[1], body, nil); err != nil {
+			return err
+		}
+		fmt.Println("ok")
+		return nil
+	case "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx permset rm <name>")
+		}
+		if err := apiJSON("DELETE", "/api/xbin/permission-sets/"+args[1], nil, nil); err != nil {
+			return err
+		}
+		fmt.Println("removed", args[1])
+		return nil
+	}
+	return fmt.Errorf("unknown: bx permset %s", args[0])
+}
+
 func cmdAccess(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: bx access <tile> [set user:<id>=<level>|org:<id>=<level> … | rm user:<id>|org:<id> …]")
@@ -167,20 +344,18 @@ func cmdAccess(args []string) error {
 	tile := strings.Trim(args[0], "/")
 	if len(args) == 1 {
 		var out struct {
-			Org       string `json:"org"`
-			OrgAdmins []string
-			Entries   []struct{ Kind, ID, Level, Source string }
+			Owner   string `json:"owner"`
+			Entries []struct{ Kind, ID, Level, Source string }
 		}
 		if err := apiJSON("GET", "/api/xbin/access?tile="+tile, nil, &out); err != nil {
 			return err
 		}
-		if out.Org != "" {
-			fmt.Printf("org: %s (admins: %s)\n", out.Org, strings.Join(out.OrgAdmins, ","))
-		} else {
-			fmt.Println("org: - (workspace-plane tile)")
+		if out.Owner == "" {
+			out.Owner = "workspace"
 		}
+		fmt.Println("owner:", out.Owner)
 		if len(out.Entries) == 0 {
-			fmt.Println("no entries — admins only")
+			fmt.Println("no entries — owner/admins only")
 			return nil
 		}
 		for _, e := range out.Entries {
@@ -214,22 +389,22 @@ func cmdAccess(args []string) error {
 
 // --- shared helpers ---------------------------------------------------------
 
+type memberDoc struct {
+	ID     string `json:"id"`
+	Level  string `json:"level"`
+	Create bool   `json:"create,omitempty"`
+	Admin  bool   `json:"admin,omitempty"`
+}
+
 type orgDoc struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Admins         []string `json:"admins"`
-	Members        []string `json:"members"`
-	BasePermission string   `json:"basePermission"`
-	Teams          []struct {
-		ID        string            `json:"id"`
-		Name      string            `json:"name"`
-		Members   []string          `json:"members"`
-		Tiles     map[string]string `json:"tiles"`
-		CanCreate []string          `json:"canCreate"`
-		NewTiles  string            `json:"newTiles"`
-		TermAPI   bool              `json:"termApi"`
-		TermNet   bool              `json:"termNet"`
-	} `json:"teams"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Members       []memberDoc       `json:"members"`
+	Tiles         map[string]string `json:"tiles"`
+	Sets          []string          `json:"sets"`
+	Allow         []string          `json:"allow"`
+	ResolvedAllow []string          `json:"resolvedAllow"`
+	OwnedTiles    []string          `json:"ownedTiles"`
 }
 
 func fetchOrgs() ([]orgDoc, error) {
@@ -265,33 +440,30 @@ func splitList(s string) []string {
 	return out
 }
 
-// applyMods applies +user/-user modifications (a bare name means add).
+// applyMods applies +item/-item modifications (a bare name means add).
 func applyMods(cur, mods []string) []string {
-	set := map[string]bool{}
-	for _, c := range cur {
-		set[c] = true
-	}
+	out := append([]string(nil), cur...)
 	for _, m := range mods {
-		switch {
-		case strings.HasPrefix(m, "-"):
-			delete(set, strings.TrimPrefix(m, "-"))
-		default:
-			set[strings.TrimPrefix(m, "+")] = true
+		if strings.HasPrefix(m, "-") {
+			v := strings.TrimPrefix(m, "-")
+			keep := out[:0]
+			for _, e := range out {
+				if e != v {
+					keep = append(keep, e)
+				}
+			}
+			out = keep
+			continue
 		}
-	}
-	out := make([]string, 0, len(set))
-	for u := range set {
-		out = append(out, u)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func stripPlus(mods []string) []string {
-	out := make([]string, 0, len(mods))
-	for _, m := range mods {
-		if m = strings.TrimPrefix(m, "+"); !strings.HasPrefix(m, "-") && m != "" {
-			out = append(out, m)
+		v := strings.TrimPrefix(m, "+")
+		dup := false
+		for _, e := range out {
+			if e == v {
+				dup = true
+			}
+		}
+		if !dup {
+			out = append(out, v)
 		}
 	}
 	return out

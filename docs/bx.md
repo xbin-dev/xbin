@@ -20,10 +20,13 @@ bx builtin updates | update <id> [--replace|--merge]
                                        offer/apply newer embedded scaffold + tiles
 bx user ls | add <id> [flags] | set <id> [flags] | rm <id>
                                        manage users (admin/xbin:users)
-bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md)
+bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)
+bx org member <org> [<user> --level L [--create] [--admin] | rm <user>]
+bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
 bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
-bx team ls|add|set|rm <org>/<team>     teams (union grants within their org)
-bx access <tile> [set|rm user:…|team:…=level]
+bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
+bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
+bx access <tile> [set|rm user:…|org:…=level]
                                        per-tile access entries
 bx logs [-f] <component>               backend logs (tail -f style with -f)
 bx api <component>                     roles + API.md — how to integrate with it

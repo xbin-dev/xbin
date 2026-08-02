@@ -43,6 +43,10 @@ func main() {
 		err = cmdUser(os.Args[2:])
 	case "org":
 		err = cmdOrg(os.Args[2:])
+	case "owner":
+		err = cmdOwner(os.Args[2:])
+	case "permset":
+		err = cmdPermset(os.Args[2:])
 	case "access":
 		err = cmdAccess(os.Args[2:])
 	case "logs":
@@ -113,8 +117,12 @@ func usage() {
   bx grants                             grant table + pending requests
   bx grant <caller> <target>:<role>     approve/add a grant
   bx grant --revoke <caller> <target>:<role>
-  bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md)
+  bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md, D24-D28)
+  bx org member <org> [<user> --level L [--create] [--admin] | rm <user>]
+  bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
+  bx owner <tile> [--transfer user:U|org:O|workspace]  tile ownership
+  bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets
   bx access <tile> [set|rm user:…|org:…] per-tile access entries (owner/admin)
   bx iface                              interface requests, providers, bindings
   bx bind <component> <slot>=<provider> wire an interface to a provider
