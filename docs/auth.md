@@ -427,6 +427,17 @@ knob): that one membership confers nothing while set — org-tile level,
 org shares, create, adminship, set-conferred term flags — and reinstating
 is unchecking the box. Org-level moderation without touching the account.
 
+**Self-service credentials (D38).** Signed-in users rotate their own
+password (`POST /account/password`, the shell's my-account section) after
+proving the current one. Org admins may re-mint invite links for NON-ADMIN
+members of their orgs — delegated reset-by-link; admin accounts stay
+ws-admin-only to reset.
+
+**Shared screens (D37).** A ws-admin-curated default screen seeds every new
+user's first screen; org screens are member-visible layouts with an `edit`
+knob (admins | write | members) governing who may rearrange — server-
+enforced on save, read-only in the shell for everyone else.
+
 And the people-plane request loop: any signed-in user can **ask for access**
 (`POST /access-requests`, `bx access <tile> request`, or simply navigating
 to a tile they can't read — the 403 is a request-access page naming the

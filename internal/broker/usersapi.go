@@ -23,6 +23,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("PATCH /users/{id}", b.apiUsersUpdate)
 	srv.RegisterAPI("POST /users/{id}/invite", b.apiUsersInvite)
 	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
+	srv.RegisterAPI("POST /account/password", b.apiAccountPassword)
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
 	b.registerOrgs(srv)
@@ -313,17 +314,61 @@ func inviteLink(r *http.Request, tok string) string {
 	return scheme + "://" + r.Host + "/login?invite=" + tok
 }
 
-// apiUsersInvite (re)mints a single-use invite link for an existing user —
-// credential delivery and "reset by link" in one (D22). The current password,
-// if any, keeps working until the invite is redeemed; re-minting invalidates
-// any previous link. Admin/xbin:users only — there is no self-service invite.
-func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
-	if !b.requireUsersCap(w, r) {
-		return
-	}
+// apiAccountPassword is the self-service password change (D38): a signed-in
+// user rotates their OWN credential after proving the current one. Not
+// admin-gated, not usable by elements.
+func (b *Broker) apiAccountPassword(w http.ResponseWriter, r *http.Request) {
 	st := b.usersStore(w)
 	if st == nil {
 		return
+	}
+	p := auth.PrincipalOf(r)
+	if p.Component != "" || p.User == nil {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "password change is for signed-in users (the bootstrap token has no password)"})
+		return
+	}
+	var body struct{ Current, New string }
+	if err := decodeJSON(r, &body); err != nil || body.New == "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {current, new}"})
+		return
+	}
+	if err := st.ChangePassword(p.User.ID, body.Current, body.New); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// apiUsersInvite (re)mints a single-use invite link for an existing user —
+// credential delivery and "reset by link" in one (D22). The current password,
+// if any, keeps working until the invite is redeemed; re-minting invalidates
+// any previous link. Admin/xbin:users — plus, as delegated reset-by-link
+// (D38), a signed-in ORG ADMIN for a NON-ADMIN member of their org ("the kid
+// forgot their password" shouldn't need the workspace admin; resetting an
+// admin user always does).
+func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	p := auth.PrincipalOf(r)
+	if !b.canManageUsers(p) {
+		allowed := false
+		if p.Component == "" && p.User != nil {
+			if target, ok := st.Get(r.PathValue("id")); ok && !target.IsAdmin() {
+				for _, om := range p.Access.AdminOrgs() {
+					if o, found := st.Org(om); found {
+						if m, isMember := o.Member(target.ID); isMember && !m.Suspended {
+							allowed = true
+						}
+					}
+				}
+			}
+		}
+		if !allowed {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "invites are minted by admins — or by an org admin for a non-admin member of their org (reset-by-link, D38)"})
+			return
+		}
 	}
 	tok, err := st.CreateInvite(r.PathValue("id"), 0)
 	if err != nil {

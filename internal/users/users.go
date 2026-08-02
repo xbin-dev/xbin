@@ -424,6 +424,33 @@ func (s *Store) Verify(id, password string) (*User, bool) {
 	return u, true
 }
 
+// ChangePassword is the SELF-SERVICE rotation (D38): verifies the current
+// password before setting the new one — an admin session alone can't
+// silently swap a user's credential through this path (admins use the reset
+// flows).
+func (s *Store) ChangePassword(id, current, next string) error {
+	if len([]rune(next)) < MinPasswordLen {
+		return fmt.Errorf("password too short (min %d characters)", MinPasswordLen)
+	}
+	if _, ok := s.Verify(id, current); !ok {
+		return fmt.Errorf("current password is wrong")
+	}
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.byID[normalizeID(id)]
+	if u == nil {
+		return fmt.Errorf("no such user %q", id)
+	}
+	nu := *u
+	nu.PassHash = hashPassword(next, salt)
+	s.byID[nu.ID] = &nu
+	return s.persistLocked()
+}
+
 // Upsert creates or replaces a user. If password is non-empty it is (re)hashed;
 // if empty on an existing user the current hash is kept.
 func (s *Store) Upsert(u User, password string) (*User, error) {

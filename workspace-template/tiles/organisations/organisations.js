@@ -37,6 +37,10 @@ export class BxOrganisations extends LitElement {
     _reqs: { state: true },     // human access requests, scoped mine/manage (D36)
     _acl: { state: true },      // per-tile expanded ACL {tile, owner, entries}
     _xfer: { state: true },     // transfer-in-progress {tile, to} (inline confirm)
+    _policies: { state: true }, // org → ceiling rows (read-only; ws-admin-set)
+    _overrides: { state: true },// exact per-user entries on org tiles (clamp/exclude view)
+    _screens: { state: true },  // org screens (D37): [{id,org,name,edit,canEdit}]
+    _invite: { state: true },   // reset-by-link result {id, link} (copy field)
     _err: { state: true },
     _note: { state: true },
   };
@@ -101,9 +105,34 @@ export class BxOrganisations extends LitElement {
     this._grants = await api('/grants').catch(() => null);
     this._binds = await api('/bindings').catch(() => null);
     this._reqs = (await api('/access-requests').catch(() => ({ requests: [] }))).requests ?? [];
+    this._screens = (await api('/screens').catch(() => ({ org: [] }))).org ?? [];
     if (this._adminOrgIds().length || this._who?.admin) {
       this._dir = (await api('/users-directory').catch(() => ({ users: [] }))).users ?? [];
+      await this._loadAdminDepth();
     }
+  }
+
+  // Org-admin depth (D31/D33 legibility): the ceilings this org's approvals
+  // can trip on, and the exact per-user entries sitting on its tiles — the
+  // clamp/exclude picture that otherwise only doctor sees.
+  async _loadAdminDepth() {
+    const rank = { read: 1, write: 2, terminal: 3 };
+    const pol = {}; const ov = [];
+    for (const o of this._orgs ?? []) {
+      pol[o.id] = (await api('/orgs/' + encodeURIComponent(o.id) + '/policy').catch(() => ({ policy: [] }))).policy ?? [];
+      const lvl = {};
+      for (const m of o.members ?? []) if (!m.suspended) lvl[m.id] = m.admin ? 'terminal' : m.level;
+      for (const t of o.ownedTiles ?? []) {
+        const a = await api('/access?tile=' + encodeURIComponent(t)).catch(() => null);
+        for (const e of a?.entries ?? []) {
+          if (e.kind !== 'user' || e.source !== 'exact') continue;
+          ov.push({ org: o.id, tile: t, user: e.id, level: e.level,
+            excluded: e.level === 'none',
+            clamps: e.level !== 'none' && (rank[lvl[e.id]] ?? 0) > (rank[e.level] ?? 0) });
+        }
+      }
+    }
+    this._policies = pol; this._overrides = ov;
   }
 
   _adminOrgIds() {
@@ -213,9 +242,20 @@ export class BxOrganisations extends LitElement {
     const addable = (this._dir ?? []).filter((u) => !memberIds.has(u.id));
     return html`
       <table>
-        <tr><th>member</th><th>level</th><th>create</th><th>admin</th><th>suspended</th><th></th></tr>
+        <tr><th>member</th><th>preset</th><th>level</th><th>create</th><th>admin</th><th>suspended</th><th></th></tr>
         ${(o.members ?? []).map((m) => html`<tr style=${m.suspended ? 'opacity:.55' : ''}>
           <td class="mono">${m.id}${m.suspended ? html` <span class="pill">suspended</span>` : nothing}</td>
+          <td><select title="apply a role preset (sets the three knobs at once)"
+            @change=${(e) => { const p = e.target.value; e.target.value = ''; if (!p) return;
+              const knobs = p === 'admin' ? { level: 'terminal', create: true, admin: true }
+                : p === 'developer' ? { level: 'terminal', create: true, admin: false }
+                : { level: 'read', create: false, admin: false };
+              save((o.members ?? []).map((x) => x.id === m.id ? { ...x, ...knobs } : x), p + ' preset applied'); }}>
+            <option value="">preset…</option>
+            <option value="admin">Admin</option>
+            <option value="developer">Developer</option>
+            <option value="viewer">Viewer</option>
+          </select></td>
           <td><select @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, level: e.target.value } : x), 'updated')}>
             ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${m.level === l}>${l}</option>`)}
           </select></td>
@@ -227,7 +267,10 @@ export class BxOrganisations extends LitElement {
             title="pause this membership — it confers nothing while suspended, but keeps its knobs for reinstatement (D34)"
             @change=${(e) => save((o.members ?? []).map((x) => x.id === m.id ? { ...x, suspended: e.target.checked } : x),
               e.target.checked ? 'suspended' : 'reinstated')}></td>
-          <td><button class="rm" @click=${() => save((o.members ?? []).filter((x) => x.id !== m.id), 'removed')}>remove</button></td>
+          <td style="white-space:nowrap">
+            <button title="mint a single-use password-reset link (D38; refuses for admin accounts)"
+              @click=${() => this._resetByLink(m.id)}>reset link</button>
+            <button class="rm" @click=${() => save((o.members ?? []).filter((x) => x.id !== m.id), 'removed')}>remove</button></td>
         </tr>`)}
       </table>
       <div class="row" style="margin-top:5px">
@@ -240,7 +283,84 @@ export class BxOrganisations extends LitElement {
           if (!sel.value) return;
           save([...(o.members ?? []), { id: sel.value, level: 'terminal', create: true }], 'added');
         }}>add as developer</button>
+        <span class="muted" style="font-size:11px">New people are invited by a workspace admin.</span>
       </div>`;
+  }
+
+  async _resetByLink(id) {
+    try {
+      const d = await api('/users/' + encodeURIComponent(id) + '/invite', { method: 'POST' });
+      this._invite = { id, link: d.inviteLink || location.origin + d.inviteUrl };
+      this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  _inviteBox() {
+    const inv = this._invite;
+    if (!inv) return nothing;
+    return html`<div class="card" style="border-color: var(--bx-green, #43a047)">
+      <div class="row"><b style="font-size:12px">reset link for ${inv.id}</b>
+        <input class="mono" size="42" readonly .value=${inv.link} @focus=${(e) => e.target.select()}>
+        <button @click=${() => navigator.clipboard?.writeText(inv.link)}>copy</button>
+        <span class="muted" style="font-size:10.5px">single-use · 72h · their current password
+          works until they redeem it</span>
+        <button @click=${() => { this._invite = null; }}>✕</button></div>
+    </div>`;
+  }
+
+  // Ceilings (read-only): the policy rows this org's approvals still run
+  // under — visible so a refused approval isn't a mystery (D20/D33).
+  _ceilingsView(o) {
+    const rows = this._policies?.[o.id] ?? [];
+    if (!rows.length) return nothing;
+    return html`<div class="card">
+      <b style="font-size:12px">ceilings</b>
+      <span class="muted" style="font-size:11px">(set by a workspace admin — approvals can't cross these)</span>
+      ${rows.map((r) => html`<div class="row" style="margin:2px 0">
+        <span class="pill mono">${r.tiles}</span>
+        ${(r.deny ?? []).map((d) => html`<span class="pill" style="color:var(--bx-red,#e5484d)">deny ${d}</span>`)}
+        ${(r.mayCall ?? []).length ? html`<span class="muted" style="font-size:11px">may call only:
+          ${r.mayCall.map((m) => html`<span class="pill mono">${m}</span>`)}</span>` : nothing}
+      </div>`)}
+    </div>`;
+  }
+
+  // Exact-entry overrides on org tiles: authoritative rows (D31) that clamp
+  // or exclude — the "why is sam still read-only" answer, in prose.
+  _overridesView(o) {
+    const rows = (this._overrides ?? []).filter((x) => x.org === o.id);
+    if (!rows.length) return nothing;
+    return html`<div class="card">
+      <b style="font-size:12px">per-user overrides on org tiles</b>
+      ${rows.map((x) => html`<div class="row" style="margin:2px 0">
+        <span class="mono">${x.user}</span> · <span class="mono">${x.tile}</span>
+        <span class="pill">${x.level}</span>
+        ${x.excluded ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title="an exact none entry — deliberate exclusion (D31)">excluded</span>` : nothing}
+        ${x.clamps ? html`<span class="pill" style="color:var(--bx-amber,#f2a71b)"
+          title="this exact entry is BELOW the member's org level and overrides it (D31) — remove it in the tile's sharing editor to follow the org">clamps org level</span>` : nothing}
+      </div>`)}
+    </div>`;
+  }
+
+  // Org screens (D37): shared layouts for every member; the edit knob picks
+  // who may rearrange. Created from the shell ("share this screen to org…").
+  _screensView(o) {
+    const rows = (this._screens ?? []).filter((x) => x.org === o.id);
+    if (!rows.length) return nothing;
+    return html`<div class="card">
+      <b style="font-size:12px">org screens</b>
+      ${rows.map((x) => html`<div class="row" style="margin:2px 0">
+        <span class="mono">${x.name}</span>
+        <span class="muted" style="font-size:11px">editable by</span>
+        <select @change=${(e) => this._do(() => api('/screens/org',
+            jbody('PUT', { id: x.id, org: x.org, edit: e.target.value, tiles: x.tiles ?? [] })), 'updated')}>
+          ${['admins', 'write', 'members'].map((v) => html`<option value=${v} ?selected=${x.edit === v}>${v === 'write' ? 'write-level members' : v === 'members' ? 'all members' : 'org admins'}</option>`)}
+        </select>
+        <span style="flex:1"></span>
+        <button class="rm" @click=${() => this._do(() =>
+          api('/screens/org', jbody('DELETE', { id: x.id, org: x.org })), 'deleted')}>delete</button>
+      </div>`)}
+    </div>`;
   }
 
   // askWho: "org:data admins · workspace admin" from the server's hints (D33).
@@ -422,6 +542,7 @@ export class BxOrganisations extends LitElement {
       ${this._requestsView()}
       ${this._consumersView()}
       ${this._transferCard()}
+      ${this._inviteBox()}
 
       ${adminOrgs.map((o) => html`
         <h3>org ${o.id} <span class="muted" style="font-weight:400">${o.name !== o.id ? o.name : ''}</span></h3>
@@ -431,6 +552,9 @@ export class BxOrganisations extends LitElement {
           : html`<p class="muted" style="font-size:11px">no allowances — grants/bindings for this
             org's tiles go through a workspace admin.</p>`}
         <div class="card">${this._memberEditor(o)}</div>
+        ${this._ceilingsView(o)}
+        ${this._overridesView(o)}
+        ${this._screensView(o)}
         ${(o.ownedTiles ?? []).length ? html`<div class="card">
           <b style="font-size:12px">org tiles</b>
           ${o.ownedTiles.map((t) => html`<div class="row" style="margin:2px 0">

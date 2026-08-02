@@ -12,6 +12,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **Org screens, a first-screen editor, sidebar that knows whose tile is
+  whose, and self-service passwords (D37/D38).** The sidebar now groups
+  tiles into *mine / each org / workspace* with an org filter (tree view
+  preserved inside groups). Ws-admins can save any screen as the
+  **workspace default** every new user starts from — no more hand-editing
+  root/index.html — and org admins can share screens to their org: **org
+  screens** appear as tabs for every member, with an edit knob choosing
+  who may rearrange (admins / write-level / all members; everyone else
+  views read-only). Users change their own password from the new
+  my-account section (POST /account/password), and org admins can reset a
+  non-admin member's password by re-minting their invite link — the
+  forgotten-kid-password case no longer needs the workspace admin. Admin
+  console polish: successes render green (not in the error slot), the
+  rotated owner token and invite links land in copy-fields instead of
+  prompt() dialogs, and secrets/resets use inline forms. The organisations
+  tile gained org-admin deep visibility: ceiling rows (read-only),
+  member presets, per-member override badges ("clamps org level" /
+  "excluded"), and org-screen management.
+
 - **Re-review fix batch (incl. one security fix).** A second five-story
   review of the shipped model confirmed every prior finding fixed and
   surfaced a short list, all addressed:

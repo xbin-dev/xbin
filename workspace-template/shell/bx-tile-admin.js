@@ -42,6 +42,7 @@ export class BxTileAdmin extends LitElement {
     _access: { state: true },   // the tile's ACL view (/access — owner + user/org entries)
     _dir: { state: true },      // /users-directory for the add-entry picker
     _accKind: { state: true },  // add-entry kind: user | org
+    _secEdit: { state: true },  // vault key being re-set inline (name | null)
     _err: { state: true },
     _busy: { state: true },
   };
@@ -192,10 +193,17 @@ export class BxTileAdmin extends LitElement {
     return html`<div class="sec">
       <table>${keys.length ? keys.map((k) => html`<tr>
           <td class="mono">${k}</td>
-          <td class="mono muted">••••••</td>
+          <td class="mono muted">${this._secEdit === k ? html`
+            <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
+                const nv = e.target.nv.value;
+                this._secEdit = null;
+                if (nv) this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'PUT', ...jbody({ value: nv }) })); }}>
+              <input name="nv" type="password" size="14" placeholder="new value (write-only)" autofocus>
+              <button class="act" type="submit">save</button>
+              <button class="act" type="button" @click=${() => { this._secEdit = null; }}>cancel</button>
+            </form>` : '••••••'}</td>
           <td style="text-align:right; white-space:nowrap">
-            <button class="act" @click=${() => { const nv = prompt(`Set a new value for ${k} (its value is private to the tile)`);
-              if (nv) this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'PUT', ...jbody({ value: nv }) })); }}>set</button>
+            ${this._secEdit === k ? nothing : html`<button class="act" @click=${() => { this._secEdit = k; }}>set</button>`}
             <button class="act rm" @click=${() => confirm(`Delete secret ${k}?`) &&
               this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'DELETE' }))}>✕</button>
           </td></tr>`) : html`<tr><td class="muted">no secrets</td></tr>`}</table>

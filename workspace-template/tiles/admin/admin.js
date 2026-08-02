@@ -63,6 +63,10 @@ export class BxAdmin extends LitElement {
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _permsets: { state: true }, // {sets, attachedTo} (D28)
     _invite: { state: true },   // last minted invite link {id, url} (D22)
+    _token: { state: true },    // freshly rotated owner token (copy-field box)
+    _pwEdit: { state: true },   // user id whose password is being reset inline
+    _secretEdit: { state: true }, // {comp, key} vault secret being re-set inline
+    _notice: { state: true },   // green success line (never the red .err slot)
     _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
@@ -127,6 +131,7 @@ export class BxAdmin extends LitElement {
     .caret.o { transform: rotate(90deg); }
     .body { padding: 12px 14px; }
     .err { color: var(--bx-red, #e5484d); font-size: 12px; margin: 4px 0; }
+    .notice { color: var(--bx-green, #43a047); font-size: 12px; margin: 4px 0; }
     .alertbar { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
     .al { padding: 6px 10px; border-radius: 6px; font-size: 12px; color: #fff; }
     .al b { margin-right: 4px; }
@@ -710,6 +715,7 @@ export class BxAdmin extends LitElement {
       </div>` : nothing}
       <div class="body">
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
+        ${this._notice ? html`<div class="notice">${this._notice}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
           : tab === 'orgs' ? this._orgsView()
           : tab === 'permsets' ? this._permSetsView()
@@ -1038,9 +1044,17 @@ export class BxAdmin extends LitElement {
         <table>
           ${v.keys.map((k) => html`<tr>
               <td class="mono" style="width:30%">${k}</td>
-              <td class="secret">••••••••</td>
+              <td class="secret">${this._secretEdit?.comp === v.component && this._secretEdit?.key === k ? html`
+                <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
+                    const nv = e.target.nv.value; this._secretEdit = null;
+                    if (nv) this._setSecret(v.component, k, nv); }}>
+                  <input name="nv" type="password" size="16" placeholder="new value (can't read the old one)" autofocus>
+                  <button class="act" type="submit">save</button>
+                  <button class="act" type="button" @click=${() => { this._secretEdit = null; }}>cancel</button>
+                </form>` : '••••••••'}</td>
               <td style="text-align:right; white-space:nowrap">
-                <button class="act" @click=${() => { const nv = prompt(`Set a new value for ${v.component} / ${k} (can't read the current one)`); if (nv) this._setSecret(v.component, k, nv); }}>set</button>
+                ${this._secretEdit?.comp === v.component && this._secretEdit?.key === k ? nothing
+                  : html`<button class="act" @click=${() => { this._secretEdit = { comp: v.component, key: k }; }}>set</button>`}
                 <button class="act rm" @click=${() => this._delSecret(v.component, k)}>del</button>
               </td></tr>`)}
         </table>`)}
@@ -1611,14 +1625,14 @@ export class BxAdmin extends LitElement {
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
     this._refresh();
   }
-  async _resetPw(id) {
-    const pw = prompt(`New password for ${id} (min 8 chars):`);
+  async _resetPw(id, pw) {
     if (!pw) return;
     if (pw.length < 8) { this._err = 'password too short (min 8 characters)'; return; }
     try {
       await this._patchUser(id, { password: pw });
-      this._err = `password reset for ${id}`;
-    } catch (e) { this._err = String(e.message ?? e); }
+      this._err = ''; this._notice = `password reset for ${id}`;
+      setTimeout(() => { this._notice = ''; }, 3000);
+    } catch (e) { this._err = String(e.message ?? e); this._notice = ''; }
   }
   async _setDisabled(u) {
     if (!u.disabled && !confirm(`Disable ${u.id}? Their sessions and terminals stop working now; everything is kept for re-enable.`)) return;
@@ -1673,15 +1687,32 @@ export class BxAdmin extends LitElement {
         token (and any leaked copy, e.g. in pre-2026-07-09 agent transcripts)
         stops working immediately. Update host-side
         <span class="mono">XBIN_TOKEN</span> afterwards.</span>
-      </div>`;
+      </div>
+      ${this._tokenBox()}`;
   }
 
   async _rotateToken() {
     if (!confirm('Rotate the owner token? The current token stops working immediately (bearer + cookie). Host-side bx/automation must switch to the new one.')) return;
     try {
       const d = await api('/auth-rotate-token', { method: 'POST' });
-      prompt('New owner token — copy it now (also written to <workspace>/.xbin/token):', d.token);
+      this._token = d.token; // rendered in a copy-field box (like invites)
+      this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  // The rotated-token box: a copy field that stays until dismissed — a
+  // prompt() you can accidentally dismiss is no place for a credential.
+  _tokenBox() {
+    if (!this._token) return nothing;
+    return html`<div style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-green,#43a047);
+        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b style="font-size:12px">new owner token</b>
+      <input class="mono" size="40" readonly .value=${this._token} @focus=${(e) => e.target.select()}>
+      <button class="act" @click=${() => navigator.clipboard?.writeText(this._token)}>copy</button>
+      <span class="muted" style="font-size:10.5px">also written to &lt;workspace&gt;/.xbin/token —
+        update host-side XBIN_TOKEN</span>
+      <button class="act" @click=${() => { this._token = null; }}>✕</button>
+    </div>`;
   }
 
   // _userOrgPills summarizes a user's org memberships for the users table.
@@ -1697,8 +1728,9 @@ export class BxAdmin extends LitElement {
   async _mintInvite(id) {
     try {
       const d = await api(`/users/${encodeURIComponent(id)}/invite`, { method: 'POST' });
-      this._invite = { id, url: location.origin + d.inviteUrl };
-      this._err = '';
+      this._invite = { id, url: d.inviteLink || location.origin + d.inviteUrl };
+      this._err = ''; this._notice = `invite link minted for ${id}`;
+      setTimeout(() => { this._notice = ''; }, 3000);
     } catch (e) { this._err = String(e.message ?? e); }
     this._refresh();
   }
@@ -1785,7 +1817,15 @@ export class BxAdmin extends LitElement {
               <button class="act" @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? '− net' : '+ net'}</button>`}
             <button class="act" title="mint a single-use set-password link (re-minting invalidates the old one)"
               @click=${() => this._mintInvite(u.id)}>invite</button>
-            <button class="act" @click=${() => this._resetPw(u.id)}>pw</button>
+            ${this._pwEdit === u.id ? html`
+              <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
+                  const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>
+                <input name="pw" type="password" size="12" placeholder="new password (min 8)" autofocus>
+                <button class="act" type="submit">set</button>
+                <button class="act" type="button" @click=${() => { this._pwEdit = null; }}>✕</button>
+              </form>` : html`
+              <button class="act" title="reset password inline (or use invite for reset-by-link)"
+                @click=${() => { this._pwEdit = u.id; }}>pw</button>`}
             <button class="act ${u.disabled ? '' : 'rm'}" title=${u.disabled
               ? 'restore the account — same password, tiles, memberships'
               : 'pause the account: sign-in, sessions and invites all refuse; nothing is lost (D34)'}

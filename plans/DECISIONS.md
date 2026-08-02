@@ -670,3 +670,20 @@ Deviations and refinements made while implementing; all deliberate:
   now gets a request-access page naming the owner instead of a bare 403 —
   the tile's existence isn't secret to someone holding its link. Requests
   ride `users` events (badges/queues update live) and die with the user.
+
+- **D37 — Shared screens: a workspace default + org screens.** (2026-08-02)
+  Personal screens stay per-user prefs. New workspace layer
+  (data/screens.json): a ws-admin-curated DEFAULT screen new users seed
+  from (replacing hand-editing root/index.html; the <bx-frame> pins remain
+  the fallback), and ORG SCREENS — layouts owned by an org, tabs for every
+  member, with an `edit` knob (admins | write | members) choosing who may
+  rearrange. Creation/rename/knob/delete are org-admin acts; tile edits
+  follow the knob; suspended members see nothing. Layout JSON is opaque to
+  the server (64K cap); changes publish `users` events so shells refresh.
+- **D38 — Self-service password change + org-admin reset-by-link.**
+  (2026-08-02) `POST /account/password {current,new}`: a signed-in user
+  rotates their own credential after proving the current one (admins keep
+  the reset flows; the bootstrap token has no password). And the family
+  story's last admin-password chore: an ORG ADMIN may re-mint an invite
+  link (`POST /users/<id>/invite`) for a NON-ADMIN member of their org —
+  delegated reset-by-link; resetting an admin user stays ws-admin-only.

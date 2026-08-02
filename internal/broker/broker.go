@@ -232,6 +232,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTiles(srv)
 	b.registerTemplates(srv)
 	b.registerUsers(srv)
+	b.registerScreens(srv)
 	b.registerLogs(srv)
 	b.registerPrefs(srv)
 	b.registerStatus(srv)

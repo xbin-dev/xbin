@@ -169,7 +169,24 @@ POST   /users                     admin/xbin:users. create a user: {id,
                                    immutable; password ≥ 8; the legacy body —
                                    tiles array + terminal bool — is still
                                    accepted and migrated)
-POST   /users/<id>/invite         admin/xbin:users. (re)mint an invite link
+POST   /account/password          signed-in users. {current, new} — self-
+                                   service rotation; verifies the current
+                                   password (D38)
+GET    /screens                   signed-in. {default: {tiles}|null, org:
+                                   [{id,org,name,edit,tiles,canEdit}]} —
+                                   the ws default screen + your orgs'
+                                   screens (D37)
+PUT    /screens/default           ws-admin. {tiles} — the seed screen new
+                                   users start from
+PUT    /screens/org               {id?,org,name?,edit?,tiles} — create
+                                   (org admin) / edit tiles (per the
+                                   screen's edit knob: admins|write|
+                                   members) / meta changes (org admin)
+DELETE /screens/org               org admin. {id, org}
+POST   /users/<id>/invite         admin/xbin:users — or an ORG ADMIN for a
+                                   non-admin member of their org
+                                   (delegated reset-by-link, D38).
+                                   (re)mint an invite link
                                    for an existing user — credential delivery
                                    or reset-by-link; re-minting invalidates
                                    the previous link; the current password

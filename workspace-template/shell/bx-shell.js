@@ -124,6 +124,9 @@ export class BxShell extends LitElement {
     _drawer: { state: true },       // mobile: sidebar drawer open
     _sideQ: { state: true },        // sidebar component/tab filter
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
+    _who: { state: true },        // whoami (id/name/role — my-account + owner sections)
+    _orgScreens: { state: true }, // shared org screens (D37): [{id,org,name,edit,tiles,canEdit}]
+    _menuMsg: { state: true },    // settings-menu feedback line {ok, text}
   };
 
   static styles = css`
@@ -388,6 +391,27 @@ export class BxShell extends LitElement {
       color: var(--bx-accent, #f5a623);
       background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent);
     }
+    .group.owner { cursor: pointer; user-select: none; color: var(--bx-text, #33414e);
+      border-top: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 60%, transparent); margin-top: 4px; }
+    .group.owner .tri { flex: none; font-size: 9px; width: 10px; }
+    .side-owner { display: flex; align-items: center; gap: 4px; padding: 0 8px 5px; }
+    .side-owner select { flex: 1; min-width: 0; font: inherit; font-size: 11px; padding: 2px 5px;
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
+      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
+    .tab .ob { font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--bx-accent, #f5a623); border: 1px solid color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent);
+      border-radius: 999px; padding: 0 5px; }
+    .tab .ro { font-size: 10px; color: var(--bx-muted, #8794a1); }
+    .wsmenu input { font: inherit; font-size: 11.5px; padding: 3px 7px;
+      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
+      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
+    .wsmenu .menu-msg.ok { color: var(--bx-green, #43a047); font-size: 11px; }
+    .wsmenu .menu-msg.bad { color: var(--bx-red, #e5484d); font-size: 11px; }
+    .wsmenu button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); border-radius: 5px;
+      padding: 3px 8px; cursor: pointer; }
+    .wsmenu button.act:hover { background: var(--bx-panel-2, #f7f8fa); }
+
     .group {
       display: flex; align-items: baseline; gap: 6px; padding: 10px 12px 3px;
       font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
@@ -576,6 +600,12 @@ export class BxShell extends LitElement {
     // window; the detail carries the VERIFIED component + a reply closure.
     this._onSpawn = (e) => this._spawn(e.detail);
     this._onSpawnClose = (e) => this._closeSpawn(e.detail.id);
+    this._who = null;
+    this._myId = null;
+    this._orgScreens = [];   // shared org screens (D37)
+    this._wsDefault = null;  // ws-admin-curated default screen tiles (D37)
+    this._menuMsg = null;
+    this._orgSaveT = null;
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -589,7 +619,7 @@ export class BxShell extends LitElement {
     this._loadSettings();
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
-      if (e.type === 'users') { this._load(); this._probeAdmin(); } // org/ownership/access changes
+      if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
       if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
     });
@@ -640,8 +670,44 @@ export class BxShell extends LitElement {
     adopt();
   }
 
+  // ---- shared screens (D37): the ws default seed + org screens ----
+  // RAW fetch — the cookie principal is the signed-in user (xbin.fetch would
+  // downgrade to the chrome element and see nothing).
+  async _loadShared() {
+    if (this._orgSaveT) return; // an org-screen edit is in flight — don't clobber it
+    try {
+      const r = await fetch('/api/xbin/screens');
+      if (r.ok) {
+        const d = await r.json();
+        this._orgScreens = (d.org ?? []).map((x) => ({ ...x, tiles: gridMigrate(x.tiles ?? []) }));
+        this._wsDefault = Array.isArray(d.default?.tiles) ? d.default.tiles : null;
+        // The active org screen vanished (deleted / membership lost) → first tab.
+        if (!this._screens.some((x) => x.id === this._active)
+            && !this._orgScreens.some((x) => x.id === this._active) && this._screens.length) {
+          this._active = (this._visibleScreens()[0] ?? this._screens[0]).id;
+        }
+      }
+    } catch { /* offline / restarting */ }
+  }
+
+  get _activeOrgScreen() { return (this._orgScreens ?? []).find((x) => x.id === this._active) ?? null; }
+
+  _saveOrgScreen(id) {
+    clearTimeout(this._orgSaveT);
+    this._orgSaveT = setTimeout(() => {
+      this._orgSaveT = null;
+      const x = (this._orgScreens ?? []).find((o) => o.id === id);
+      if (!x) return;
+      fetch('/api/xbin/screens/org', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: x.id, org: x.org, tiles: x.tiles }),
+      }).catch(() => { /* best-effort; the next edit retries */ });
+    }, 500);
+  }
+
   // ---- persistence ----
   async _loadLayout() {
+    await this._loadShared(); // the ws default may seed the first screen
     try {
       const r = await window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`);
       if (r?.ok) {
@@ -671,13 +737,21 @@ export class BxShell extends LitElement {
     // Seed only tiles this user can actually read (the components list is
     // server-filtered) — a non-admin shouldn't land on tiles/admin's 403.
     const readable = new Set(this._components.map((c) => c.path));
-    const seeds = this._seeds.filter((s) => readable.size === 0 || readable.has(s.path));
-    const perRow = 2;
-    const tiles = seeds.map((s, i) => ({
-      path: s.path,
-      x: (i % perRow) * DEF_W, y: Math.floor(i / perRow) * DEF_H,
-      w: DEF_W, h: DEF_H,
-    }));
+    // The ws-admin-curated default screen (D37) wins over the root/index.html
+    // <bx-frame> pins; both filter to what this user may read.
+    const def = (this._wsDefault ?? []).filter((t) => t.path && (readable.size === 0 || readable.has(t.path)));
+    let tiles;
+    if (def.length) {
+      tiles = gridMigrate(def.map((t) => ({ ...t })));
+    } else {
+      const seeds = this._seeds.filter((s) => readable.size === 0 || readable.has(s.path));
+      const perRow = 2;
+      tiles = seeds.map((s, i) => ({
+        path: s.path,
+        x: (i % perRow) * DEF_W, y: Math.floor(i / perRow) * DEF_H,
+        w: DEF_W, h: DEF_H,
+      }));
+    }
     this._screens = [{ id: uid(), name: 'Home', tiles }];
     this._active = this._screens[0].id;
     this._save();
@@ -694,12 +768,24 @@ export class BxShell extends LitElement {
   }
 
   // ---- active screen helpers ----
-  get _screen() { return this._screens.find((s) => s.id === this._active); }
+  get _screen() {
+    return this._screens.find((s) => s.id === this._active) ?? this._activeOrgScreen ?? undefined;
+  }
   get _tiles() { return this._screen?.tiles ?? []; }
 
   // Replace the active screen's tiles via fn(copy) → new array, then persist
-  // (debounced, so rapid changes like drag/resize coalesce).
+  // (debounced, so rapid changes like drag/resize coalesce). An ORG screen
+  // (D37) writes to the shared store instead — and only when this member may
+  // edit it (the server enforces regardless).
   _mutateTiles(fn) {
+    const os = this._activeOrgScreen;
+    if (os) {
+      if (!os.canEdit) return; // read-only for this member
+      const tiles = fn(os.tiles.map((t) => ({ ...t })));
+      this._orgScreens = this._orgScreens.map((x) => x.id === os.id ? { ...x, tiles } : x);
+      this._saveOrgScreen(os.id);
+      return;
+    }
     if (!this._screen) return;
     const tiles = fn(this._tiles.map((t) => ({ ...t })));
     this._screens = this._screens.map((s) => s.id === this._active ? { ...s, tiles } : s);
@@ -732,22 +818,51 @@ export class BxShell extends LitElement {
     if (changed) { this._screens = screens; this._save(); }
   }
 
-  get _groups() {
+  // Owner-based sidebar sections (D24): "mine" (tiles you own), one per org,
+  // and "workspace" for the rest — the directory tree lives WITHIN each
+  // section. Collapses to a flat tree when only one section exists (a solo
+  // workspace shouldn't grow headers).
+  _ownerSections() {
     const filed = new Set((this._side.folders ?? []).flatMap((f) => f.items));
-    const g = new Map();
+    const secs = new Map(); // key → {key, label, comps}
+    const sec = (key, label) => {
+      if (!secs.has(key)) secs.set(key, { key, label, comps: [] });
+      return secs.get(key);
+    };
+    if (this._myId) sec('mine', 'mine');
+    for (const o of (this._who?.orgs ?? [])) sec('org:' + o.id, o.id);
     for (const c of this._components) {
       if (c.path === 'root') continue; // framing root inside root recurses
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
       if (this._offloaded(c)) continue; // archived — restore from the admin console
       if (filed.has(c.path)) continue; // shown under its folder instead
-      // Org tiles group under their org (o/<org>), wherever the marker sits
-      // in the path; everything else under its top-level dir as before.
-      const org = this._orgOf(c.path);
-      const top = org ? `o/${org}` : (c.path.includes('/') ? c.path.split('/')[0] : 'workspace');
+      const owner = c.owner ?? '';
+      if (this._myId && owner === 'user:' + this._myId) sec('mine', 'mine').comps.push(c);
+      else if (owner.startsWith('org:')) sec(owner, owner.slice(4)).comps.push(c);
+      else sec('workspace', 'workspace').comps.push(c);
+    }
+    return [...secs.values()].filter((x) => x.comps.length);
+  }
+
+  // The directory-tree grouping (top-level dir) within one section.
+  _groupComps(comps) {
+    const g = new Map();
+    for (const c of comps) {
+      const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
       if (!g.has(top)) g.set(top, []);
       g.get(top).push(c);
     }
     return [...g.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  get _groups() { // flat view over every section (empty-state + filtering checks)
+    return this._groupComps(this._ownerSections().flatMap((x) => x.comps));
+  }
+
+  _toggleOwnerSec(key) {
+    const cur = { ...(this._side.ownerCollapsed ?? {}) };
+    cur[key] = !cur[key];
+    this._saveSide({ ownerCollapsed: cur });
   }
 
   // _sideLabel shortens an item's label for its group: org tiles drop
@@ -1218,6 +1333,8 @@ export class BxShell extends LitElement {
       const r = await fetch('/api/xbin/whoami');
       if (r.ok) {
         const d = await r.json();
+        this._who = d;
+        this._myId = d.kind === 'user' ? d.id : null;
         this._isAdmin = !!d.admin;
         this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
         this._ownedTiles = new Set(d.owned ?? []);
@@ -1281,6 +1398,90 @@ export class BxShell extends LitElement {
     this._adminFor = path;
   }
 
+  // Screen sharing (D37): a ws-admin pins the CURRENT personal screen as the
+  // workspace default (what new users seed from); an org admin shares it to
+  // an org they administer (members get it as a tab).
+  _screenShareMenu() {
+    if (this._activeOrgScreen || !this._screen) return nothing;
+    const orgs = [...(this._adminOrgs ?? [])];
+    if (!this._isAdmin && !orgs.length) return nothing;
+    return html`
+      <div class="hd" style="margin-top:10px">this screen</div>
+      ${this._isAdmin ? html`<div class="row" style="margin-bottom:4px">
+        <span title="new users' first screen seeds from this layout (D37)">workspace default</span>
+        <button class="act" @click=${() => this._saveWsDefault()}>save current</button>
+      </div>` : nothing}
+      ${orgs.length ? html`<div class="row">
+        <select id="share-org">${orgs.map((o) => html`<option value=${o}>${o}</option>`)}</select>
+        <button class="act" title="members of the org see it as a shared tab (read-only unless you widen its edit setting in the organisations tile)"
+          @click=${() => this._shareToOrg(this.renderRoot.getElementById('share-org')?.value)}>share screen to org</button>
+      </div>` : nothing}`;
+  }
+
+  async _saveWsDefault() {
+    try {
+      const r = await fetch('/api/xbin/screens/default', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tiles: this._tiles }),
+      });
+      const d = await r.json().catch(() => ({}));
+      this._menuMsg = r.ok ? { ok: true, text: 'saved — new users seed from this screen' }
+        : { ok: false, text: d.error ?? `failed (${r.status})` };
+    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
+    setTimeout(() => { this._menuMsg = null; }, 4000);
+  }
+
+  async _shareToOrg(org) {
+    if (!org) return;
+    try {
+      const r = await fetch('/api/xbin/screens/org', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org, name: this._screen?.name || org, tiles: this._tiles }),
+      });
+      const d = await r.json().catch(() => ({}));
+      this._menuMsg = r.ok ? { ok: true, text: `shared to ${org} — appears as a tab for its members` }
+        : { ok: false, text: d.error ?? `failed (${r.status})` };
+      if (r.ok) this._loadShared();
+    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
+    setTimeout(() => { this._menuMsg = null; }, 4000);
+  }
+
+  // My account (D38): identity + self-service password change.
+  _accountMenu() {
+    if (this._who?.kind !== 'user') return nothing;
+    const w = this._who;
+    return html`
+      <div class="hd" style="margin-top:10px">my account — ${w.id}${w.name && w.name !== w.id ? ` (${w.name})` : ''} · ${w.role}</div>
+      <form style="display:flex; flex-direction:column; gap:4px"
+            @submit=${(e) => this._changePassword(e)}>
+        <input name="cur" type="password" placeholder="current password" autocomplete="current-password" required>
+        <input name="nw" type="password" placeholder="new password (min 8)" minlength="8" autocomplete="new-password" required>
+        <input name="nw2" type="password" placeholder="repeat new password" minlength="8" autocomplete="new-password" required>
+        <button class="act" type="submit">change password</button>
+      </form>`;
+  }
+
+  async _changePassword(e) {
+    e.preventDefault();
+    const f = e.target;
+    if (f.nw.value !== f.nw2.value) {
+      this._menuMsg = { ok: false, text: "new passwords don't match" };
+      setTimeout(() => { this._menuMsg = null; }, 4000);
+      return;
+    }
+    try {
+      const r = await fetch('/api/xbin/account/password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: f.cur.value, new: f.nw.value }),
+      });
+      const d = await r.json().catch(() => ({}));
+      this._menuMsg = r.ok ? { ok: true, text: 'password changed' }
+        : { ok: false, text: d.error ?? `failed (${r.status})` };
+      if (r.ok) f.reset();
+    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
+    setTimeout(() => { this._menuMsg = null; }, 4000);
+  }
+
   _bar(label, frac, detail) {
     const pct = frac == null ? null : Math.max(0, Math.min(1, frac));
     return html`
@@ -1337,6 +1538,39 @@ export class BxShell extends LitElement {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+  }
+
+  // The owner-sectioned component tree. One section (solo/plain workspace) →
+  // render the flat prefix groups exactly as before; more → collapsible
+  // owner headers (mine / each org / workspace) with the tree inside, plus
+  // the owner filter applied. A live search forces sections open.
+  _sectionsTemplate() {
+    const sections = this._ownerSections();
+    const filter = this._side.ownerFilter ?? '';
+    const groupsOf = (comps) => this._groupComps(comps)
+      .map(([top, cs]) => [top, cs.filter((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path)))])
+      .filter(([, cs]) => cs.length);
+    const tree = (comps, indent) => groupsOf(comps).map(([top, cs]) => html`
+      <div class="group" style=${indent ? 'padding-left:22px' : nothing}>${top} <span class="n">${cs.length}</span></div>
+      ${cs.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path), indent ? 1 : 0))}`);
+    if (sections.length <= 1) return sections.map((x) => tree(x.comps, false));
+    return sections
+      .filter((x) => !filter || x.key === filter)
+      .map((x) => {
+        const collapsed = !!this._side.ownerCollapsed?.[x.key] && !this._sideQ.trim();
+        const shown = groupsOf(x.comps);
+        if (!shown.length) return nothing;
+        const n = shown.reduce((m, [, cs]) => m + cs.length, 0);
+        const label = x.key === 'mine' ? 'mine' : x.key === 'workspace' ? 'workspace' : x.label;
+        return html`
+          <div class="group owner" title="tiles owned by ${x.key === 'mine' ? 'you' : x.key === 'workspace' ? 'the workspace' : 'org ' + x.label} — click to fold"
+               @click=${() => this._toggleOwnerSec(x.key)}>
+            <span class="tri">${collapsed ? '▸' : '▾'}</span>
+            ${x.key === 'mine' ? '👤 ' : x.key !== 'workspace' ? '⚑ ' : ''}${label}
+            <span class="n">${n}</span>
+          </div>
+          ${collapsed ? nothing : tree(x.comps, true)}`;
+      });
   }
 
   // One sidebar row for a component — used by folders and prefix groups alike.
@@ -1499,6 +1733,7 @@ export class BxShell extends LitElement {
 
   _gridDragStart(ev, path) {
     if (this._mobile) return; // tiles are stacked (no free grid) on mobile
+    if (this._activeOrgScreen && !this._activeOrgScreen.canEdit) return; // read-only org screen
     if (ev.button !== 0 || ev.target.closest('button, select, .rz')) return;
     ev.preventDefault();
     const el = this._gtile(path);
@@ -1523,6 +1758,7 @@ export class BxShell extends LitElement {
 
   _gridResizeStart(ev, path) {
     if (this._mobile || ev.button !== 0) return;
+    if (this._activeOrgScreen && !this._activeOrgScreen.canEdit) return; // read-only org screen
     ev.preventDefault(); ev.stopPropagation();
     const el = this._gtile(path);
     if (!el) return;
@@ -1762,6 +1998,9 @@ export class BxShell extends LitElement {
                   <button class="step" title="reset" style="width:auto; padding:0 6px"
                           @click=${() => this._saveSettings({ fontSize: 13 })}>reset</button>` : nothing}
               </span></div>
+            ${this._screenShareMenu()}
+            ${this._accountMenu()}
+            ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
           </div>` : nothing}
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>
         <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red,#e5484d)"></span>sign out</a>
@@ -1783,6 +2022,18 @@ export class BxShell extends LitElement {
             ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
             ${this._visibleScreens().length > 1
               ? html`<button class="x" @click=${(e) => this._closeScreen(s.id, e)}>✕</button>` : nothing}
+          </div>`;
+        })}
+        ${(this._orgScreens ?? []).map((s) => {
+          const tst = this._worstStatus((s.tiles ?? []).map((t) => t.path));
+          return html`
+          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}"
+               @click=${() => this._switchScreen(s.id)}
+               title="org screen — shared with ${s.org}${s.canEdit ? ' (you can rearrange it)' : ' (read-only for you)'}; managed in the organisations tile">
+            <span>${s.name}</span>
+            <span class="ob">${s.org}</span>
+            ${s.canEdit ? nothing : html`<span class="ro" title="read-only for you">🔒</span>`}
+            ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
           </div>`;
         })}
         <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
@@ -1816,14 +2067,18 @@ export class BxShell extends LitElement {
               ${this._sideQ ? html`<button class="qx" title="clear"
                      @click=${() => { this._sideQ = ''; }}>✕</button>` : nothing}
             </div>
+            ${this._ownerSections().length > 1 ? html`<div class="side-owner">
+              <select title="show tiles by owner" .value=${this._side.ownerFilter ?? ''}
+                      @change=${(e) => this._saveSide({ ownerFilter: e.target.value })}>
+                <option value="">all owners</option>
+                ${this._ownerSections().map((x) => html`
+                  <option value=${x.key} ?selected=${(this._side.ownerFilter ?? '') === x.key}>
+                    ${x.key === 'mine' ? 'mine' : x.key === 'workspace' ? 'workspace' : 'org: ' + x.label}</option>`)}
+              </select>
+            </div>` : nothing}
             <div class="side-scroll">
               ${this._childFolders(null).map((f) => this._folderTemplate(f, 0))}
-              ${this._groups.map(([top, comps]) => {
-                const shown = comps.filter((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path)));
-                return shown.length ? html`
-                  <div class="group">${top} <span class="n">${shown.length}</span></div>
-                  ${shown.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path)))}` : nothing;
-              })}
+              ${this._sectionsTemplate()}
               ${this._sideEmptyMsg()}
             </div>
             ${this._orgish || this._adminOrgs?.size ? html`
