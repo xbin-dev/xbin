@@ -279,6 +279,7 @@
       <a class="lnk" href="#compose">Composition</a>
       <a class="lnk" href="#terminals">Terminals</a>
       <a class="lnk" href="#who">Who it's for</a>
+      <a class="lnk" href="#people">Multi-user</a>
       <a class="lnk" href="#security">Security</a>
       <a class="lnk" href="#install">Install</a>
     </div>
@@ -547,12 +548,58 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
           A buildless frontend (no npm). The shell itself is just a tile you can hack.</p></div>
       <div class="card"><span class="tag">IT admins</span>
         <h3>Multi-user, with real RBAC</h3>
-        <p>Users, orgs, teams, and per-tile access levels. An audit log. Ingress with TLS. Every app
-          boxed off from the others and from the host — least privilege by default.</p></div>
+        <p>Users, orgs, per-tile ownership and access levels — with approvals delegated to org
+          admins, so you set policy instead of clicking every request. An audit log that records
+          who approved what. Least privilege by default.</p></div>
       <div class="card"><span class="tag">Technical business</span>
         <h3>Own your internal tools</h3>
         <p>No per-seat SaaS, no vendor lock-in. Let agents build the internal dashboards and
           integrations — then run them on your own infrastructure, versioned and auditable.</p></div>
+    </div>
+  </div>
+</section>
+
+
+<section id="people">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Users &amp; orgs</span>
+      <h2>Share the box, not the blast radius.</h2>
+      <p class="lede">xbin is multi-user the way a good team repo is multi-owner: every tile has an
+        <b>owner</b> — you, or an org — and everything else follows from that. Admins set policy once;
+        org admins run their own day-to-day, down to the 2am approval.</p>
+    </div>
+    <div class="aud">
+      <div class="card"><span class="tag">Accounts</span>
+        <h3>Invited, never self-signed-up</h3>
+        <p>Admins create accounts and hand out <b>single-use invite links</b> — the invitee sets their
+          own password and lands on a curated first screen. Pause an account (or one org membership)
+          without losing a single grant; re-enable restores it exactly.</p></div>
+      <div class="card"><span class="tag">Orgs</span>
+        <h3>Roles that mean what they say</h3>
+        <p>Flat orgs with per-member <b>viewer / developer / admin</b> presets. Org members get org
+          tiles at their level; org admins manage members, sharing, lifecycle and wiring — real
+          authority inside the org, none outside it.</p></div>
+      <div class="card"><span class="tag">Ownership</span>
+        <h3>Tiles move like property</h3>
+        <p>Transfer a tile to an org and its governance moves with it — every transfer shows a
+          <b>preview first</b>: what you'll still be able to do, which bindings die under the new
+          owner's policy, who gains control. No silent surprises.</p></div>
+      <div class="card"><span class="tag">Delegation</span>
+        <h3>The 2am loop without the admin</h3>
+        <p>Workspace admins grant orgs <b>allowances</b> — as precise as "internet, but only
+          <span class="mono">*.stripe.com</span>" or "the <span class="mono">dev</span> instance of that
+          API". Org admins approve inside those bounds; requests outside them wait, visibly, for you.</p></div>
+      <div class="card"><span class="tag">Access</span>
+        <h3>Ask in-product, not in chat</h3>
+        <p>Hit a tile you can't read and the page itself offers <b>request access</b> — the owner sees
+          the queue, approves at a level, done. The sidebar groups tiles by <b>mine / each org /
+          workspace</b>, and org screens give every member a shared, curated layout.</p></div>
+      <div class="card"><span class="tag">Secrets</span>
+        <h3>Readable by the backend, full stop</h3>
+        <p>A tile's secrets can be written and rotated by admins and terminals — but <b>read only by
+          the tile's own running backend</b>. Org membership, shells, even a compromised admin tile
+          can rotate keys; none of them can exfiltrate them.</p></div>
     </div>
   </div>
 </section>

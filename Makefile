@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check vendor dev-reset
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check vendor dev-reset website
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -84,3 +84,11 @@ fmt-check:
 
 vendor:
 	./hack/vendor.sh
+
+# Assemble the static xbin.dev site into website/dist (index.html is fully
+# self-contained — no build step, matching the workspace's buildless ethos).
+website:
+	@rm -rf website/dist
+	@mkdir -p website/dist
+	@cp website/index.html website/install.sh website/dist/
+	@echo ">> website/dist ready: $$(ls website/dist | tr '\n' ' ')"
