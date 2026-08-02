@@ -47,11 +47,15 @@ import maps).
 
 Your API identity is **this component** (plans/terminal-tokens.md):
 `XBIN_TOKEN` is a per-session token resolving to this tile's element
-principal — admin of *this* component (its API, vault, resources) plus
-whatever `uses`/bindings the owner approved for it. It is **not** the owner:
-admin endpoints, other tiles' admin surfaces, and grant approval all 403.
-Approving grants is a human step in the browser. Same rules as the running
-component — see §Auth.
+principal — admin of *this* component (its API, resources, vault keys —
+though vault VALUES are readable only by the running backend, D30: from the
+terminal you `bx vault set`/`ls`, never `get`) plus whatever
+`uses`/bindings the owner approved for it. It is **not** the owner: admin
+endpoints, other tiles' admin surfaces, and grant approval all 403.
+Approving grants is a human step — but not a blind one: your pending `uses`
+are visible to you and to the owning org's admins with who-can-approve
+hints, so declare what you need and it will be seen (docs/auth.md D33).
+Same rules as the running component — see §Auth.
 
 **Terminal scope:** a terminal opened on a component can write **only that
 component's own directory and `$HOME`** — the **entire rest of the workspace is
@@ -183,7 +187,11 @@ Full manifest reference (all fields optional):
     { "target": "res:apps/thing/db",      "role": "writer" }    // a resource
   ],
   "interfaces": {               // typed deps the OWNER binds (see §Interfaces):
-    "net": { "kind": "net" },                       // outbound network (see §Sandbox)
+    "net": { "kind": "net" },                       // outbound network (see §Sandbox);
+                                                    //   owner binds internet | host |
+                                                    //   lan:<cidr> | internet:<host|cidr>
+                                                    //   [:port][,…] (filtered, D35) |
+                                                    //   a provider tile
     "llm": { "kind": "http", "service": "openai" }  // a service endpoint
   },
   "expose": {                   // what others may be granted on YOU
@@ -325,7 +333,12 @@ func main() {
 	xbin.Serve(mux)                                         // socket + SIGTERM drain
 }
 
-c := xbin.Caller(r)              // verified {From, Role, Owner} — trustworthy
+c := xbin.Caller(r)              // verified {From, Role, Owner, User, UserLevel}
+c.UserCanWrite()                 // gate mutating endpoints on the DRIVING user:
+                                 //   your own UI's calls run at full role even
+                                 //   for read-level viewers (D29) — check this
+                                 //   before destructive actions in multi-user
+                                 //   workspaces
 resp, _ := xbin.Client().Get("http://xbin/api/apps/calendar/events") // outbound
 kv := xbin.KV(xbin.Resource("kvx"))   // Get/GetJSON/Put/PutJSON/Delete/List
 db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_journal_mode=WAL") // sqlite: a
@@ -336,7 +349,9 @@ _ = xbin.Publish(xbin.Resource("bus"), "changed", payload)
 ```
 
 node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
-`os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` headers,
+`os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` (and
+`X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
+D29) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 cgi: any executable; CGI/1.1 env + `XBIN_FROM`/`XBIN_ROLE`; response on
@@ -580,7 +595,10 @@ it. Declare `interfaces`/`provides`/`exposes`; leave **binding to the owner**
   didn't receive in those headers.
 - Role convention: `reader` / `writer` / `admin`, implication downward.
   On bus resources, `subscriber`/`publisher` alias reader/writer.
-- **Vault** = per-element private secrets: `bx vault set apps/thing key`
+- **Vault** = per-element private secrets, write-only outside the backend
+  (D30): terminals and admins `set`/`ls`/`rm`, only the RUNNING BACKEND
+  reads values (`xbin.Secret`) — so never write code that shells out to
+  read a secret; fetch it in the backend. `bx vault set apps/thing key`
   (value via stdin keeps it out of history); code reads its own via
   `xbin.Secret`. No cross-element vault access exists — wrap shared
   secrets behind a role-guarded API instead. Never put secrets in source,
@@ -617,7 +635,7 @@ bx logs [-f] <component>
 bx api <component>                      # roles + API.md of anything
 bx grants
 bx grant [--revoke] <caller> <target>:<role>
-bx vault ls|get|set|rm <component> [key] [value]
+bx vault ls|set|rm <component> [key] [value]   (values: backend-only, D30)
 bx cron ls
 ```
 

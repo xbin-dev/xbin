@@ -62,7 +62,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // has zero IP egress ("internet" never covers LAN/RFC1918). "provides" are
   // slots it offers others (e.g. a firewall/VPN tile provides a "net" interface
   // that other components route their egress through). Kinds: net (L3 egress;
-  // bind to "internet"/"host"/"lan:<cidr>"/a provider tile), http (a service
+  // bind to "internet"/"host"/"lan:<cidr>"/a filtered
+  // "internet:<host|ip|cidr>[:port][,…]" (egress restricted to the named
+  // destinations, hostnames DNS-pinned — D35)/a provider tile), http (a service
   // endpoint, "service": "<contract>"), stream (a raw TCP dependency — bind
   // to a sibling's exposed stream slot, "provider#slot"; injected as
   // XBIN_IFACE_<slot>_ADDR), lan-ingress (an inbound link into a router/VPN

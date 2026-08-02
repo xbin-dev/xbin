@@ -326,9 +326,10 @@ bx grants                                # list everything, incl. pending</pre>
           so it never lands in shell history:</p>
           <pre>bx vault set apps/email imap-pass     # then type/paste the value
 bx vault ls apps/email
-bx vault get apps/email imap-pass
 bx vault rm  apps/email imap-pass</pre>
-          <p>The element reads its own vault at runtime:</p>
+          <p>Values are write-only from shells and admin surfaces — ONLY the
+          tile's running backend reads them (D30), so a leaked terminal or a
+          curious admin tile can rotate secrets but never exfiltrate them:</p>
           <pre>pass, err := xbin.Secret("imap-pass")   // Go; own vault only</pre>
           <p>node / python fetch the same thing over the gateway
           (<code>/api/xbin/&hellip;</code> — see docs/protocol.md).</p>`,
