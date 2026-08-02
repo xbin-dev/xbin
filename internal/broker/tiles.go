@@ -158,6 +158,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, mode}", "docs": "/docs/protocol.md"})
 		return
 	}
+	body.ID = b.updater.ResolveID(body.ID) // accept bare names (tiles/organisations)
 	var (
 		files []string
 		err   error

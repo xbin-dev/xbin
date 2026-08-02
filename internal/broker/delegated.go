@@ -115,70 +115,77 @@ func (b *Broker) orgAdminMayGrant(p auth.Principal, g registry.Grant, revoke boo
 	return b.providerOrg(p, g.Target) != ""
 }
 
-// bindingTargets normalizes one binding request into allowance-grammar
-// targets that must ALL be covered (or intra-org). Returns nil, false when
-// the slot can't be resolved (unknown component/slot) — the caller falls
-// back to the ws-admin-only refusal.
-func (b *Broker) bindingTargets(comp, slot string, binding registry.Binding) (targets []string, intra []string, ok bool) {
+// pairedTarget is one normalized approval target with the binding REF it
+// came from ("" for builtin sources — net classes, the runtime listener).
+// Explicit pairing lets consent rules reason per-ref (an ingress host is
+// consented by the org that owns its terminator, D41) without index-guessing
+// across the flattened target list.
+type pairedTarget struct {
+	target string
+	ref    string
+}
+
+// bindingTargetsPaired normalizes one binding request into (target, ref)
+// pairs. ok=false when the slot can't be resolved.
+func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Binding) ([]pairedTarget, bool) {
 	c, found := b.Reg.Component(comp)
 	if !found {
-		return nil, nil, false
+		return nil, false
 	}
-	if def, isExpose := c.Manifest.Exposes[slot]; isExpose {
-		_ = def
+	var out []pairedTarget
+	if _, isExpose := c.Manifest.Exposes[slot]; isExpose {
 		for _, ref := range binding {
+			src := ""
+			if ref.Ref != "" && ref.Ref != "runtime" {
+				src = providerPath(ref.Ref)
+			}
 			if ref.Host != "" {
-				targets = append(targets, "ingress:host:"+ref.Host)
+				out = append(out, pairedTarget{"ingress:host:" + ref.Host, src})
 			}
 			if ref.Zone != "" {
-				targets = append(targets, "ingress:zone:"+ref.Zone)
+				out = append(out, pairedTarget{"ingress:zone:" + ref.Zone, src})
 			}
 			if ref.Listen != "" {
 				port := ref.Listen
 				if i := strings.LastIndexByte(port, ':'); i >= 0 {
 					port = port[i+1:]
 				}
-				targets = append(targets, "ingress:listen:"+port)
+				out = append(out, pairedTarget{"ingress:listen:" + port, src})
 			}
-			// The ingress SOURCE (builtin listener or a terminator tile) rides
-			// along: a same-org terminator is intra-org; the builtin listener
-			// ("runtime") is covered by the host/zone/listen entries above.
-			if ref.Ref != "" && ref.Ref != "runtime" {
-				intra = append(intra, providerPath(ref.Ref))
+			if src != "" && ref.Host == "" && ref.Zone == "" && ref.Listen == "" {
+				out = append(out, pairedTarget{"", src}) // bare terminator ref
 			}
 		}
-		return targets, intra, true
+		return out, true
 	}
 	iface, isIface := c.Manifest.Interfaces[slot]
 	if !isIface {
-		return nil, nil, false
+		return nil, false
 	}
 	for _, ref := range binding {
 		v := ref.Ref
 		switch {
 		case iface.Kind == "net" && (v == "internet" || v == "host"):
-			targets = append(targets, "net:"+v)
+			out = append(out, pairedTarget{"net:" + v, ""})
 		case iface.Kind == "net" && strings.HasPrefix(v, "internet:"):
 			// Filtered internet (D35): every spec must be covered, so an
 			// allowance can carve "these hosts / this subnet only".
 			for _, spec := range strings.Split(strings.TrimPrefix(v, "internet:"), ",") {
 				if spec = strings.TrimSpace(spec); spec != "" {
-					targets = append(targets, "net:internet:"+spec)
+					out = append(out, pairedTarget{"net:internet:" + spec, ""})
 				}
 			}
 		case iface.Kind == "net" && strings.HasPrefix(v, "lan:"):
-			targets = append(targets, "net:"+v)
+			out = append(out, pairedTarget{"net:" + v, ""})
 		case iface.Kind == "net":
 			// A provider tile: same-org providers are intra-org wiring;
 			// otherwise the allowance must name net:provider:<tile>.
-			intra = append(intra, providerPath(v))
-			targets = append(targets, "net:provider:"+providerPath(v))
+			out = append(out, pairedTarget{"net:provider:" + providerPath(v), providerPath(v)})
 		default:
 			// http/stream interface to a provider tile. The normalized target
 			// pins the provider (and instance when the ref names one) so
 			// allowances can scope to "this service, from that tile, dev
 			// instance only" (D32).
-			intra = append(intra, providerPath(v))
 			svc := iface.Service
 			if svc == "" {
 				svc = iface.Kind
@@ -187,7 +194,27 @@ func (b *Broker) bindingTargets(comp, slot string, binding registry.Binding) (ta
 			if i := strings.IndexByte(v, '#'); i >= 0 && i+1 < len(v) {
 				t += "#" + v[i+1:]
 			}
-			targets = append(targets, t)
+			out = append(out, pairedTarget{t, providerPath(v)})
+		}
+	}
+	return out, true
+}
+
+// bindingTargets is the flattened legacy view (targets + provider refs) —
+// transfer previews consume it; the approval gates use the paired form.
+func (b *Broker) bindingTargets(comp, slot string, binding registry.Binding) (targets []string, intra []string, ok bool) {
+	pts, ok := b.bindingTargetsPaired(comp, slot, binding)
+	if !ok {
+		return nil, nil, false
+	}
+	seen := map[string]bool{}
+	for _, pt := range pts {
+		if pt.target != "" {
+			targets = append(targets, pt.target)
+		}
+		if pt.ref != "" && !seen[pt.ref] {
+			seen[pt.ref] = true
+			intra = append(intra, pt.ref)
 		}
 	}
 	return targets, intra, true
@@ -227,29 +254,50 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 	if b.Users == nil || p.Component != "" || p.User == nil {
 		return false
 	}
+	// adminOwnsRef: the ref is a tile owned by an org p administers — the
+	// basis for provider consent (D33) and terminator-domain consent (D41).
+	adminOwnsRef := func(ref string) bool {
+		if ref == "" {
+			return false
+		}
+		o, isOrg := b.Users.OwnerOrg(ref)
+		return isOrg && p.Access.IsAdminOrg(o)
+	}
 	if org := b.approverOrg(p, comp); org != "" {
 		if unbind {
 			return true
 		}
-		targets, intraRefs, ok := b.bindingTargets(comp, slot, binding)
+		pts, ok := b.bindingTargetsPaired(comp, slot, binding)
 		if ok {
-			intraOK := map[string]bool{}
-			for _, ref := range intraRefs {
-				if o, isOrg := b.Users.OwnerOrg(ref); isOrg && o == org {
-					intraOK[ref] = true
+			pass := len(pts) > 0
+			for _, pt := range pts {
+				if pt.target == "" { // bare terminator/provider ref
+					if o, isOrg := b.Users.OwnerOrg(pt.ref); isOrg && o == org {
+						continue
+					}
+					pass = false
+					break
 				}
-			}
-			pass := len(targets) > 0 || len(intraRefs) > 0
-			for i, t := range targets {
-				if b.Users.AllowanceCovers(org, t, "") {
+				if b.Users.AllowanceCovers(org, pt.target, "") {
 					continue
 				}
-				// A provider-shaped target passes when its provider ref is same-org.
-				if strings.HasPrefix(t, "net:provider:") && intraOK[strings.TrimPrefix(t, "net:provider:")] {
-					continue
+				// Provider-shaped targets pass when the provider ref is same-org
+				// wiring (net providers, http/stream ifaces).
+				if pt.ref != "" && (strings.HasPrefix(pt.target, "net:provider:") || strings.HasPrefix(pt.target, "iface:")) {
+					if o, isOrg := b.Users.OwnerOrg(pt.ref); isOrg && o == org {
+						continue
+					}
 				}
-				if strings.HasPrefix(t, "iface:") && i < len(binding) && intraOK[providerPath(binding[i].Ref)] {
-					continue
+				// Terminator-domain consent (D41): an ingress HOST/ZONE routed
+				// through a terminator tile owned by an org p administers is
+				// org property flowing through org property — the terminator's
+				// owner controls those domains. Host PORTS (ingress:listen:)
+				// and the builtin "runtime" listener stay workspace
+				// infrastructure: allowance or ws-admin only.
+				if strings.HasPrefix(pt.target, "ingress:host:") || strings.HasPrefix(pt.target, "ingress:zone:") {
+					if adminOwnsRef(pt.ref) {
+						continue
+					}
 				}
 				pass = false
 				break
@@ -259,11 +307,13 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 			}
 		}
 	}
-	// Provider side: all refs must be tiles owned by orgs p administers. For
-	// an UNBIND the request carries no refs — the provider is withdrawing
-	// service, so the refs that matter are the ones currently STORED for
-	// (comp, slot): "the provider may withdraw at any time" is half of D33's
-	// consent story.
+	// Provider side (D33/D41): every ref must be a tile owned by orgs p
+	// administers — the providing (or terminating) org consents to serving
+	// this consumer, wherever the consumer lives. For an UNBIND the request
+	// carries no refs — the provider is withdrawing service, so the refs that
+	// matter are the ones currently STORED for (comp, slot). Host/zone routed
+	// through the consented terminator ride along; ingress:listen: (host
+	// ports) never does — that stays workspace infrastructure.
 	refs := binding
 	if unbind && len(refs) == 0 {
 		refs = b.Reg.Workspace().Bindings[comp][slot]
@@ -276,9 +326,15 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 			strings.HasPrefix(ref.Ref, "lan:") || strings.HasPrefix(ref.Ref, "internet:") {
 			return false
 		}
-		org := b.providerRefOrg(ref.Ref)
-		if org == "" || !p.Access.IsAdminOrg(org) {
+		if !adminOwnsRef(providerPath(ref.Ref)) {
 			return false
+		}
+	}
+	if pts, ok := b.bindingTargetsPaired(comp, slot, refs); ok {
+		for _, pt := range pts {
+			if strings.HasPrefix(pt.target, "ingress:listen:") {
+				return false
+			}
 		}
 	}
 	return true

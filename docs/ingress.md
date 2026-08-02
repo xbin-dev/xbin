@@ -163,3 +163,16 @@ hairpin (or DNS) at all.
 host→tile routes, stream listener state with active-connection counts, and
 the builtin listener's status. First public hit builds/spawns the backend
 like any request; `bx logs <tile>` as usual.
+
+## Who may publish (org-terminator consent, D41)
+
+Publishing runs through the D26/D33 approval model: ws-admins anywhere;
+org admins within their allowance (`ingress:host:/zone:/listen:` entries) —
+and, since D41, by TERMINATOR OWNERSHIP: when the binding routes through a
+terminator tile owned by an org you administer, its host/zone targets are
+consented without any allowance — the org that runs the terminator controls
+the domains it serves. That works from both ends: an org publishing its own
+tile through its own terminator, and a terminator-owning org approving an
+outside tile's publish through it. Host PORTS (`listen:`) and the builtin
+runtime listener are workspace infrastructure and always need the
+allowance or a ws-admin.

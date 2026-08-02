@@ -470,9 +470,11 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    org owns the component; targets
                                    intra-org or allowance-covered — the
                                    iface:svc@tile#instance grammar pins
-                                   provider/instance) or D33 (every ref is
-                                   a provider THEIR org owns — provider
-                                   consent). body {component, slot, provider} or
+                                   provider/instance), D33 (every ref is a
+                                   provider THEIR org owns — provider
+                                   consent), or D41 (expose host/zone
+                                   routed through a terminator tile their
+                                   org owns; listen/runtime never). body {component, slot, provider} or
                                    {component, slot, providers:[…]} (the full
                                    set for a multi:true http slot). Refs are
                                    provider[#instance]; an instances-provide

@@ -365,7 +365,37 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	// scaffold/tiles to existing workspaces without trampling customizations.
 	{
 		tileSet, _ := builtins.Load(xbin.BuiltinTilesFS())
-		brk.SetUpdater(builtins.NewUpdater(reg.Root, tileSet, xbin.TemplateFS()))
+		updater := builtins.NewUpdater(reg.Root, tileSet, xbin.TemplateFS())
+		brk.SetUpdater(updater)
+		// Backfill ESSENTIAL builtin tiles into workspaces created before they
+		// existed (newer chrome targets them — the shell's ⚑ opens
+		// tiles/organisations). Ledgered in data/backfills.json: a deliberate
+		// delete sticks across restarts. On first-seen PRESENT units the
+		// ledger records them untouched, so fresh workspaces never reinstall.
+		if installed, err := updater.BackfillEssentials(filepath.Join(ws, "data", "backfills.json")); err != nil {
+			slog.Warn("essential-builtin backfill", "err", err)
+		} else if len(installed) > 0 {
+			slog.Info("backfilled essential builtin tiles", "tiles", installed)
+			_ = reg.Rescan()
+			// Members should be able to SEE the new chrome tile: extend the
+			// workspace defaults only where the admin already runs a defaults
+			// regime (fresh-store seeding is untouched; empty defaults on an
+			// old workspace stay empty — access changes are the admin's call).
+			if dt := userStore.DefaultTiles(); len(dt) > 0 {
+				changed := false
+				for _, t := range installed {
+					if _, ok := dt[t]; !ok {
+						dt[t] = users.LevelRead
+						changed = true
+					}
+				}
+				if changed {
+					if err := userStore.SetDefaultTiles(dt); err != nil {
+						slog.Warn("backfill defaults", "err", err)
+					}
+				}
+			}
+		}
 	}
 	// After a broker-driven structure change (tile import), reconcile deps and
 	// regenerate go.work immediately so the new tile is usable at once.

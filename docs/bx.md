@@ -18,7 +18,9 @@ bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
 bx builtin updates | update <id> [--replace|--merge]
-                                       offer/apply newer embedded scaffold + tiles
+                                       offer/apply newer embedded scaffold + tiles;
+                                       also lists/installs MISSING essential tiles
+                                       (upgraded workspaces predating them, D41)
 bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a

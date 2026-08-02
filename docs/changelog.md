@@ -26,6 +26,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   another (unreadable) tile's source from a non-admin terminal, that was
   the leak: ask for `read` on it.
 
+- **Upgrades backfill essential tiles, and terminator owners control their
+  domains (D41).** Workspaces created before `tiles/organisations` existed
+  now get it installed at boot (the shell's ⚑ button targets it) — once:
+  the backfill is ledgered in `data/backfills.json`, so deleting the tile
+  afterwards sticks. `bx builtin updates` lists missing essential tiles
+  and `bx builtin update tiles/organisations` installs one (bare names
+  resolve). Workspaces already using defaultTiles get a read entry for the
+  new tile; others are left for the admin to decide. And ingress consent
+  now follows terminator ownership: an org admin can publish org tiles
+  through the org's own terminator — and approve outside tiles publishing
+  through it — without any allowance; host ports and the builtin listener
+  still need one.
+
 - **BREAKING — transfers grew a preview, side effects, and a tighter
   receive rule (D39).** ([migration note](changes/2026-08-02-transfer-create-bound.md))
   Every transfer surface (organisations tile, new admin-console owner

@@ -45,6 +45,83 @@ type origin struct {
 	Units map[string]*UnitState `json:"units"`
 }
 
+// EssentialScaffold lists scaffold components whose ABSENCE is never
+// deliberate on upgrade: newer xbind versions grew chrome that targets them
+// (the shell's ⚑ button opens tiles/organisations), so older workspaces get
+// them backfilled at boot (BackfillEssentials) and `bx builtin updates`
+// lists them as MISSING rather than skipping them.
+var EssentialScaffold = []string{"tiles/organisations"}
+
+func essentialScaffold(name string) bool {
+	for _, e := range EssentialScaffold {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveID resolves a unit id that may omit its kind prefix: "tiles/x"
+// tries "scaffold:tiles/x" then "tile:tiles/x". Exact ids pass through.
+func (u *Updater) ResolveID(id string) string {
+	if strings.Contains(id, ":") {
+		return id
+	}
+	for _, pre := range []string{"scaffold:", "tile:"} {
+		if _, ok := u.defByID(pre + id); ok {
+			return pre + id
+		}
+	}
+	return id
+}
+
+// BackfillEssentials installs missing essential scaffold units, ledgered at
+// ledgerPath so a later DELIBERATE delete sticks across restarts: a unit in
+// the ledger is never reinstalled. Present units are ledgered without being
+// touched (so their later deletion also reads as deliberate). Returns the
+// units it installed.
+func (u *Updater) BackfillEssentials(ledgerPath string) ([]string, error) {
+	var l struct {
+		Done []string `json:"done"`
+	}
+	if b, err := os.ReadFile(ledgerPath); err == nil {
+		_ = json.Unmarshal(b, &l)
+	}
+	done := map[string]bool{}
+	for _, d := range l.Done {
+		done[d] = true
+	}
+	var installed []string
+	changed := false
+	for _, name := range EssentialScaffold {
+		if done[name] {
+			continue
+		}
+		if _, ok := u.defByID("scaffold:" + name); !ok {
+			continue // embed lacks it (stripped build) — nothing to offer
+		}
+		if !u.installed(name) {
+			if _, err := u.ApplyReplace("scaffold:" + name); err != nil {
+				return installed, fmt.Errorf("backfill %s: %w", name, err)
+			}
+			installed = append(installed, name)
+		}
+		l.Done = append(l.Done, name)
+		done[name] = true
+		changed = true
+	}
+	if changed {
+		if err := os.MkdirAll(filepath.Dir(ledgerPath), 0o755); err != nil {
+			return installed, err
+		}
+		b, _ := json.MarshalIndent(l, "", "  ")
+		if err := os.WriteFile(ledgerPath, b, 0o644); err != nil {
+			return installed, err
+		}
+	}
+	return installed, nil
+}
+
 // Updater manages builtin update tracking for one workspace.
 type Updater struct {
 	root       string
@@ -276,6 +353,9 @@ type UnitUpdate struct {
 	Clean       int          `json:"clean"`
 	Conflicts   int          `json:"conflicts"`
 	HasUpdate   bool         `json:"hasUpdate"`
+	// Missing marks an ESSENTIAL scaffold unit that is not installed at all
+	// (an upgraded workspace predating it) — install with mode "replace".
+	Missing bool `json:"missing,omitempty"`
 }
 
 // Updates scans every installed managed builtin and returns those with an
@@ -290,6 +370,12 @@ func (u *Updater) Updates() ([]*UnitUpdate, error) {
 			installPath = state.InstallPath
 		}
 		if !u.installed(installPath) {
+			if def.Kind == "scaffold" && essentialScaffold(def.Name) {
+				out = append(out, &UnitUpdate{
+					ID: def.ID, Kind: def.Kind, Name: def.Name, InstallPath: installPath,
+					ToVersion: def.Version, Missing: true, HasUpdate: true,
+				})
+			}
 			continue
 		}
 		uu, err := u.compare(def, installPath, state)

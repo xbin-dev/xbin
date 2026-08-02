@@ -24,6 +24,7 @@ func cmdBuiltin(args []string) error {
 			Adopted     bool   `json:"adopted"`
 			Clean       int    `json:"clean"`
 			Conflicts   int    `json:"conflicts"`
+			Missing     bool   `json:"missing"`
 		}
 		if err := apiJSON("GET", "/api/xbin/builtins/updates", nil, &ups); err != nil {
 			return err
@@ -33,6 +34,10 @@ func cmdBuiltin(args []string) error {
 			return nil
 		}
 		for _, u := range ups {
+			if u.Missing {
+				fmt.Printf("%-22s MISSING — this workspace predates it; install: bx builtin update %s\n", u.ID, u.ID)
+				continue
+			}
 			note := fmt.Sprintf("%d clean", u.Clean)
 			if u.Conflicts > 0 {
 				note += fmt.Sprintf(", %d conflict", u.Conflicts)

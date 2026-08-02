@@ -723,3 +723,21 @@ Deviations and refinements made while implementing; all deliberate:
   lock constraint documented in sandbox.Bind still applies there). The old
   HiddenTiles deny-list path remains as the fallback when no TermView is
   wired (tests, exotic embeddings).
+
+- **D41 — Essential-builtin backfill + org-terminator ingress consent.**
+  (2026-08-02) Two upgrade/delegation gaps: (a) workspaces created before a
+  builtin tile existed never got it, though newer chrome targets it (the
+  shell's ⚑ opens tiles/organisations) — boot now backfills ESSENTIAL
+  scaffold units, ledgered in data/backfills.json so a deliberate delete
+  sticks (present units are ledgered untouched); `bx builtin updates`
+  lists missing essentials and `update` installs them (bare names
+  resolve). Only workspaces already running a defaults regime get the new
+  tile added to defaultTiles — empty defaults stay empty. (b) Ingress
+  consent follows terminator OWNERSHIP: an ingress host/zone routed
+  through a terminator tile owned by an org the approver administers is
+  consented without an allowance — org property flowing through org
+  property, on both the caller side (org owns publisher + terminator) and
+  the provider side (the terminator's org consents to outside publishers,
+  mirroring D33). Host ports (ingress:listen:) and the builtin runtime
+  listener remain workspace infrastructure — allowance or ws-admin. The
+  binding normalizer now pairs each target with its ref explicitly.

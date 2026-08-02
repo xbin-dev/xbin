@@ -550,6 +550,9 @@ needs no allowance: sharing is an ownership right, the same D24 rule that
 lets a user-owner share their tile) and may revoke/withdraw at any time.
 They also *see* their consumption: the org-scoped `/grants` and `/bindings`
 views include rows targeting their property, marked `direction: provider`.
+Terminator tiles follow the same logic (D41): hosts/zones routed through an
+org-owned terminator are consented by that org's admins — never host ports
+or the builtin listener.
 And requesters are never blind: any signed-in user sees their own writable
 tiles' grants and pending requests (`direction: mine`) with
 who-can-approve hints — a tile waiting on an approval isn't a silent dead
