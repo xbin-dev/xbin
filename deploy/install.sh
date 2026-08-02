@@ -3,23 +3,29 @@
 #
 #   system-wide:  curl -fsSL https://xbin.dev/install.sh | sudo bash
 #   user-only:    curl -fsSL https://xbin.dev/install.sh | bash -s -- --user
+#   undecided:    curl -fsSL https://xbin.dev/install.sh | bash
+#                 (shows BOTH plans, explains the difference, offers to sudo)
 #
 # Two modes:
 #   --system  (default as root)     system service, dedicated `xbin` user,
 #                                   /opt/xbin, subuid delegation, packages
 #                                   installed via your distro's manager.
-#   --user    (default as non-root) no root anywhere: runs as YOU, installs to
+#   --user    (only as non-root)    no root anywhere: runs as YOU, installs to
 #                                   ~/.local/opt/xbin, a systemd *user* unit
 #                                   (+ linger so it survives logout). Missing
 #                                   distro packages or subuid ranges are
 #                                   reported with the exact root command to
 #                                   run, then the installer stops untouched.
 #
+# Run WITHOUT a mode flag as non-root and it explains both modes, prints both
+# numbered plans (system-mode probes are read-only, re-verified after sudo),
+# and asks: [s]ystem via sudo from here, [u]ser-only, or quit.
+#
 # Before touching anything it prints a numbered plan of exactly what it will
 # do on THIS run (steps already in place are listed as such) and asks once.
 # Idempotent: re-run to upgrade in place. Flags: --check-only (preflight +
-# plan, no changes), --yes (skip the prompt), --help. Everything below is
-# overridable via the environment (see "Config").
+# plan, no changes), --yes (skip the prompt; needs an explicit mode), --help.
+# Everything below is overridable via the environment (see "Config").
 set -euo pipefail
 
 # ---- Args -----------------------------------------------------------------
@@ -31,7 +37,7 @@ for a in "$@"; do case "$a" in
   --user) MODE=user ;;
   --check-only|--check) CHECK_ONLY=1 ;;
   --yes|-y) ASSUME_YES=1 ;;
-  -h|--help) sed -n '2,22p' "$0" 2>/dev/null || true; exit 0 ;;
+  -h|--help) sed -n '2,28p' "$0" 2>/dev/null || true; exit 0 ;;
   *) printf 'error: unknown argument: %s\n' "$a" >&2; exit 1 ;;
 esac; done
 
@@ -80,11 +86,13 @@ case "$(uname -s)" in
 esac
 
 EUID_NOW="$(id -u)"
+# Root without a flag = system mode, exactly as before. Non-root without a
+# flag no longer guesses: it explains both modes, shows both plans, and asks
+# (see the chooser in Main). --system as non-root shows the read-only system
+# plan and offers to sudo from here rather than dying immediately.
+CHOOSER=0
 if [ -z "$MODE" ]; then
-  if [ "$EUID_NOW" = 0 ]; then MODE=system; else MODE=user; fi
-fi
-if [ "$MODE" = system ] && [ "$EUID_NOW" != 0 ]; then
-  die "--system needs root:  curl -fsSL <url> | sudo bash   (or: sudo bash install.sh --system). For a no-root install under your own account, use --user."
+  if [ "$EUID_NOW" = 0 ]; then MODE=system; else CHOOSER=1; fi
 fi
 if [ "$MODE" = user ] && [ "$EUID_NOW" = 0 ]; then
   die "--user as root is a confusion trap (a root-owned \"user\" install). Run it as your normal account, or use --system for the system-wide service."
@@ -100,26 +108,32 @@ sc() { if [ "$MODE" = user ]; then systemctl --user "$@"; else systemctl "$@"; f
 
 # ---- Config (override via env) --------------------------------------------
 RUN_USER="$(id -un)"
-if [ "$MODE" = system ]; then
-  PREFIX="${XBIN_PREFIX:-/opt/xbin}"
-  XBIN_USER="${XBIN_USER:-xbin}"
-  BUILD_DIR="${XBIN_BUILD_DIR:-/var/tmp/xbin-build}"
-  UNIT_PATH=/etc/systemd/system/xbin.service
-  ENV_FILE=/etc/xbin/xbin.env
-  BX_LINK=/usr/local/bin/bx
-  GO_PREFIX=/usr/local
-  JOURNAL_HINT="journalctl -u xbin"
-else
-  PREFIX="${XBIN_PREFIX:-$HOME/.local/opt/xbin}"
-  XBIN_USER="$RUN_USER"
-  BUILD_DIR="${XBIN_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/xbin-build}"
-  UNIT_PATH="$HOME/.config/systemd/user/xbin.service"
-  ENV_FILE="$HOME/.config/xbin/xbin.env"
-  BX_LINK="$HOME/.local/bin/bx"
-  GO_PREFIX="$HOME/.local"
-  JOURNAL_HINT="journalctl --user -u xbin"
-fi
-WORKSPACE="${XBIN_WORKSPACE:-$PREFIX/workspace}"
+# Mode-dependent config, derivable more than once: the no-flag chooser builds
+# BOTH plans (system read-only, then user) before a mode is picked.
+set_mode_config() {
+  if [ "$MODE" = system ]; then
+    PREFIX="${XBIN_PREFIX:-/opt/xbin}"
+    XBIN_USER="${XBIN_USER_OVERRIDE:-xbin}"
+    BUILD_DIR="${XBIN_BUILD_DIR:-/var/tmp/xbin-build}"
+    UNIT_PATH=/etc/systemd/system/xbin.service
+    ENV_FILE=/etc/xbin/xbin.env
+    BX_LINK=/usr/local/bin/bx
+    GO_PREFIX=/usr/local
+    JOURNAL_HINT="journalctl -u xbin"
+  else
+    PREFIX="${XBIN_PREFIX:-$HOME/.local/opt/xbin}"
+    XBIN_USER="$RUN_USER"
+    BUILD_DIR="${XBIN_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/xbin-build}"
+    UNIT_PATH="$HOME/.config/systemd/user/xbin.service"
+    ENV_FILE="$HOME/.config/xbin/xbin.env"
+    BX_LINK="$HOME/.local/bin/bx"
+    GO_PREFIX="$HOME/.local"
+    JOURNAL_HINT="journalctl --user -u xbin"
+  fi
+  WORKSPACE="${XBIN_WORKSPACE:-$PREFIX/workspace}"
+}
+XBIN_USER_OVERRIDE="${XBIN_USER:-}"
+set_mode_config
 LISTEN="${XBIN_LISTEN:-127.0.0.1:8642}"
 REPO_URL="${XBIN_REPO_URL:-https://github.com/xbin-dev/xbin}"
 REF="${XBIN_REF:-master}"
@@ -229,7 +243,13 @@ preflight() {
     fi
   fi
 
-  [ "$PREFLIGHT_FATAL" = 1 ] && die "preflight failed — fix the items above and re-run"
+  if [ "$PREFLIGHT_FATAL" = 1 ]; then
+    if [ "${PREVIEW:-0}" = 1 ]; then
+      warn "user-mode preflight has blockers (✗ above) — fix them, or pick the system install (it can)"
+      return 0
+    fi
+    die "preflight failed — fix the items above and re-run"
+  fi
   ok "preflight OK"
 }
 
@@ -736,19 +756,133 @@ run_plan() {
 # subids, vault choice, dependency packages) is done — just rebuild and swap.
 # XBIN_FULL_INSTALL=1 forces the full path (e.g. to re-run vault config).
 UPGRADE=0
-if [ "${XBIN_FULL_INSTALL:-0}" != 1 ] && [ -x "$PREFIX/bin/xbind" ] && [ -f "$UNIT_PATH" ]; then
-  UPGRADE=1
+
+# prepare_mode <mode>: derive config, detect upgrade, resolve source, and
+# build the plan — all read-only, so it runs for BOTH modes in the chooser.
+prepare_mode() {
+  MODE=$1
+  set_mode_config
+  UPGRADE=0
+  if [ "${XBIN_FULL_INSTALL:-0}" != 1 ] && [ -x "$PREFIX/bin/xbind" ] && [ -f "$UNIT_PATH" ]; then
+    UPGRADE=1
+  fi
+  SRC=; SRC_KIND=
+  resolve_source
+  STEPS=(); INPLACE=()
+  build_plan
+}
+
+banner() {
+  echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
+  if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
+  [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
+  return 0
+}
+
+# explain_modes: shown when no mode was chosen — the difference in six lines.
+explain_modes() {
+  echo
+  info "${B}Two ways to install${R}"
+  echo "  ${B}system${R} (sudo)  A dedicated ${B}xbin${R} system user owns the service and workspace"
+  echo "                 under /opt/xbin — better separation from your account, and the"
+  echo "                 usual choice for a shared or long-lived box. Needs root."
+  echo "  ${B}user${R}   (no root, ever)  Everything lives under YOUR account in ~/.local and"
+  echo "                 the service runs as you (systemd --user + lingering). Anything"
+  echo "                 that would need root is printed as an exact command instead."
+}
+
+SYSTEM_PLAN_NOTE="      (probes ran read-only without root; after sudo, preflight and this plan are re-verified, re-printed, and confirmed before anything changes)"
+
+# sudo_reexec: escalate to an explicit --system run from inside the script,
+# forwarding the original arguments and only XBIN_* environment (no blanket
+# sudo -E). Piped stdin has no script file to re-run — print the command.
+sudo_reexec() {
+  if [ -f "$0" ] && [ -r "$0" ]; then
+    local envs=() kv
+    while IFS= read -r kv; do envs+=("$kv"); done < <(env | grep -E '^XBIN_[A-Za-z0-9_]+=' || true)
+    echo
+    info "escalating:  sudo bash $0 --system $*"
+    exec sudo env "${envs[@]}" bash "$0" --system "$@"
+  fi
+  echo
+  info "this run came from a pipe, so there is no script file to sudo — re-run:"
+  echo "    curl -fsSL https://xbin.dev/install.sh | sudo bash"
+  exit 0
+}
+
+if [ "$CHOOSER" = 0 ]; then
+  # Explicit mode (or root default = system): the single-mode flow.
+  if [ "$MODE" = system ] && [ "$EUID_NOW" != 0 ]; then
+    # --system without root: show the read-only system plan, then offer sudo.
+    prepare_mode system
+    banner
+    print_plan
+    echo "$SYSTEM_PLAN_NOTE"
+    if [ "$CHECK_ONLY" = 1 ]; then echo; info "check-only: no changes made"; exit 0; fi
+    echo
+    if have_tty && confirm "Continue system-wide via sudo now?"; then
+      sudo_reexec "$@"
+    fi
+    die "--system needs root:  curl -fsSL https://xbin.dev/install.sh | sudo bash   (or: sudo bash install.sh --system). For a no-root install under your own account, use --user."
+  fi
+  prepare_mode "$MODE"
+  banner
+  preflight
+  print_plan
+  if [ "$CHECK_ONLY" = 1 ]; then echo; info "check-only: no changes made"; exit 0; fi
+  echo
+  confirm "Proceed?" || die "aborted"
+  run_plan
+  show_summary
+  exit 0
 fi
 
-echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
-[ "$BUILD_FROM_SOURCE" = 1 ] && echo "  building from source ($REPO_URL@$REF)" || echo "  using prebuilt artifacts"
-[ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
+# ---- No mode chosen (non-root): explain, show BOTH plans, ask ---------------
+echo "${B}xbin installer${R}  →  run as $RUN_USER (no mode chosen)"
+if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
+explain_modes
+
+# User-mode preflight first (read-only; records blockers instead of dying so
+# the system option stays available — root can install what's missing).
+MODE=user; set_mode_config
+PREVIEW=1
 preflight
-resolve_source
-build_plan
+PREVIEW=0
+USER_FATAL=$PREFLIGHT_FATAL
+
+# System plan from read-only probes (getent, /etc/subuid, sysctls, unit
+# files, installed tools are all world-readable — root-only verification is
+# re-run after sudo).
+prepare_mode system
 print_plan
+echo "$SYSTEM_PLAN_NOTE"
+
+# User plan last, leaving user-mode state active for the [u] choice.
+prepare_mode user
+print_plan
+
 if [ "$CHECK_ONLY" = 1 ]; then echo; info "check-only: no changes made"; exit 0; fi
+
+if [ "$ASSUME_YES" = 1 ] || ! have_tty; then
+  echo
+  info "a mode must be chosen explicitly (no terminal to ask on, or --yes given without --system/--user):"
+  echo "    system:  curl -fsSL https://xbin.dev/install.sh | sudo bash"
+  echo "    user:    curl -fsSL https://xbin.dev/install.sh | bash -s -- --user"
+  exit 1
+fi
+
 echo
-confirm "Proceed?" || die "aborted"
-run_plan
-show_summary
+CHOICE=$(ask "Install [s]ystem-wide via sudo, [u]ser-only, or [q]uit? " q)
+case "$CHOICE" in
+  s|S|system)
+    sudo_reexec "$@" ;;
+  u|U|user)
+    [ "$USER_FATAL" = 1 ] && die "user-mode preflight failed — run the commands above as root first, or pick the system install"
+    echo
+    confirm "Proceed?" || die "aborted"
+    run_plan
+    show_summary ;;
+  *)
+    info "nothing installed. Re-run any time:  bash install.sh [--system|--user]"
+    exit 0 ;;
+esac

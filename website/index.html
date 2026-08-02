@@ -305,7 +305,8 @@
         <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
       </div>
       <p class="modehint">system service — or entirely under your own account, no root:
-        <code>&hellip; | bash -s -- --user</code></p>
+        <code>&hellip; | bash -s -- --user</code>. Run it without sudo and it shows
+        both plans and asks which you want.</p>
       <div class="cta">
         <a class="btn amber" href="#install">Get started</a>
         <a class="btn" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">★ Star on GitHub</a>
@@ -659,7 +660,8 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
       <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
     </div>
-    <p class="modehint">installs the system service. Prefer no root? User mode runs it under your own account:</p>
+    <p class="modehint">installs the system service. Prefer no root? User mode runs it under your own account
+      (or run without sudo at all: it explains both modes, shows both plans, and offers to sudo from there):</p>
     <div class="bigcmd">
       <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | bash -s -- --user</span>
       <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | bash -s -- --user">copy</button>

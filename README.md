@@ -118,6 +118,11 @@ curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install
 curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | bash -s -- --user
 ```
 
+Run it with no mode flag (and no sudo) and it explains the difference — system
+mode creates a dedicated `xbin` user for better separation — shows **both**
+numbered plans (system-mode probes run read-only), and asks: escalate to the
+system install via sudo right there, do the user install, or quit.
+
 Before touching anything, the installer prints a **numbered plan of exactly
 what this run will do** — the user it will create or reuse, the packages it
 will install, the subuid range it will delegate, the unit path, the build

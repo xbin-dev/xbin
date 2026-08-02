@@ -62,6 +62,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   offloaded tile is refused (restore first); placed tiles stay on screens,
   rendering their disabled state.
 
+- **The installer chooses with you, not for you.** Run without sudo and
+  without a mode flag and it explains system vs user mode (system creates
+  a dedicated `xbin` user for better separation), prints BOTH numbered
+  plans — the system plan from read-only probes, re-verified after
+  escalation — and asks: [s]udo into the system install from right there,
+  [u]ser-only, or quit. `--system` without root now shows the full
+  read-only plan and offers to sudo instead of dying; `--yes` never
+  guesses a mode.
+
 - **Publishing from the bind dialogs actually works now, and org admins
   got a wiring surface.** The root page's bind panel (and the
   organisations tile's pending-binds card) rendered exposed endpoints
