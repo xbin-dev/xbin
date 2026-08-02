@@ -117,6 +117,7 @@ export class BxShell extends LitElement {
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
     _settings: { state: true },     // per-user workspace settings {fontSize}
     _settingsOpen: { state: true }, // the 🔧 settings dropdown
+    _showHidden: { state: true },   // sidebar: reveal hidden (state=hidden) tiles (D42)
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
     _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-report)
     _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
@@ -368,6 +369,14 @@ export class BxShell extends LitElement {
       cursor: pointer; font-size: 11px; padding: 2px 4px; }
     .qx:hover { color: var(--bx-red, #e5484d); }
     /* a screen (tab) parked in the folder tree */
+    .item.hid { opacity: .55; }
+    .item .hidb { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--bx-muted, #8794a1); border: 1px solid var(--bx-border, #2a2f36);
+      border-radius: 3px; padding: 0 4px; }
+    .hidtoggle { display: block; width: calc(100% - 16px); margin: 4px 8px; padding: 3px 6px;
+      font-size: 10.5px; color: var(--bx-muted, #8794a1); background: none;
+      border: 1px dashed var(--bx-border, #2a2f36); border-radius: 4px; cursor: pointer; }
+    .hidtoggle:hover { color: var(--bx-text, #dde3ea); }
     .item.screen { color: var(--bx-muted, #8794a1); }
     .item.screen .sic { flex: none; color: var(--bx-accent, #f5a623); font-size: 11px; }
     .item.screen .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -806,6 +815,14 @@ export class BxShell extends LitElement {
   // closed if open. (offloaded / offloaded-full.)
   _offloaded(c) { return c?.state === 'offloaded' || c?.state === 'offloaded-full'; }
 
+  // Hidden tiles (D42): disabled + filtered out of the sidebar unless the
+  // show-hidden toggle is on. Screens are left alone — a placed tile stays
+  // placed and renders its disabled state.
+  _hidden(c) { return c?.state === 'hidden'; }
+  get _hiddenCount() {
+    return this._components.filter((c) => c.path !== 'root' && !c.template && this._hidden(c)).length;
+  }
+
   _pruneOffloaded() {
     const off = new Set(this._components.filter((c) => this._offloaded(c)).map((c) => c.path));
     if (!off.size) return;
@@ -835,6 +852,7 @@ export class BxShell extends LitElement {
       if (c.path === 'root') continue; // framing root inside root recurses
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
       if (this._offloaded(c)) continue; // archived — restore from the admin console
+      if (this._hidden(c) && !this._showHidden) continue; // D42: behind the show-hidden toggle
       if (filed.has(c.path)) continue; // shown under its folder instead
       const owner = c.owner ?? '';
       if (this._myId && owner === 'user:' + this._myId) sec('mine', 'mine').comps.push(c);
@@ -1601,7 +1619,7 @@ export class BxShell extends LitElement {
     const title = st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
       : (c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path);
     return html`
-      <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''}"
+      <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''} ${this._hidden(c) ? 'hid' : ''}"
            draggable="true"
            style=${depth ? `padding-left:${12 + depth * 12}px` : nothing}
            title=${title}
@@ -1616,6 +1634,7 @@ export class BxShell extends LitElement {
         <span>${label ?? (c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path)}</span>
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
+        ${this._hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
         <span class="rt">${c.runtime || ''}</span>
       </div>`;
   }
@@ -2100,6 +2119,10 @@ export class BxShell extends LitElement {
             <div class="side-scroll">
               ${this._childFolders(null).map((f) => this._folderTemplate(f, 0))}
               ${this._sectionsTemplate()}
+              ${this._hiddenCount ? html`<button class="hidtoggle"
+                  title="hidden tiles are disabled; manage via the tile ⚙ or admin console"
+                  @click=${() => { this._showHidden = !this._showHidden; }}>
+                ${this._showHidden ? 'hide' : 'show'} hidden (${this._hiddenCount})</button>` : nothing}
               ${this._sideEmptyMsg()}
             </div>
             ${this._orgish || this._adminOrgs?.size ? html`

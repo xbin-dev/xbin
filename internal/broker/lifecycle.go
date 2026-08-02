@@ -53,6 +53,14 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		}
 	case registry.StateDisabled:
 		// no data movement
+	case registry.StateHidden:
+		// Disabled + filtered out of sidebars/listings (D42). No data
+		// movement — but never from an offloaded state: overwriting the
+		// marker would orphan the archived data.
+		if registry.IsOffloaded(cur) {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "restore the component before hiding it (it is " + cur + ")"})
+			return
+		}
 	case registry.StateOffloaded:
 		if err := b.offload(body.Component, false); err != nil {
 			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
@@ -66,7 +74,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		}
 		filesChanged = true
 	default:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be one of: enabled, disabled, offloaded, offloaded-full"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be one of: enabled, disabled, hidden, offloaded, offloaded-full"})
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)

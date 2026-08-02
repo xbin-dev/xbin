@@ -324,6 +324,7 @@ func (b *Binding) UnmarshalJSON(data []byte) error {
 const (
 	StateEnabled       = "enabled"
 	StateDisabled      = "disabled"
+	StateHidden        = "hidden"         // disabled + filtered out of sidebars/listings (D42)
 	StateOffloaded     = "offloaded"      // resource data archived + removed
 	StateOffloadedFull = "offloaded-full" // + source/term-env archived + removed
 )

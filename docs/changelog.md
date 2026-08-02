@@ -50,6 +50,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   ask once; `--check-only` stops after preflight + plan. The website
   shows both commands.
 
+- **Hidden tiles (D42).** Tiles can now be hidden: a lifecycle state that
+  is exactly `disabled` (backend stopped, refuses to spawn) plus removal
+  from sidebars and listings. The workspace sidebar, the admin console's
+  components table and access map, and the organisations tile's org-tiles
+  list all filter hidden tiles behind a "show hidden (N)" toggle, render
+  them dimmed with a badge when shown, and offer hide/unhide wherever
+  lifecycle controls live (the ⚙ panel too). Same D24 gate as the rest of
+  lifecycle: the tile's owner, its org's admins, or a ws-admin. `bx hide` /
+  `bx unhide`; /components rows now carry the lifecycle `state`. Hiding an
+  offloaded tile is refused (restore first); placed tiles stay on screens,
+  rendering their disabled state.
+
 - **Publishing from the bind dialogs actually works now, and org admins
   got a wiring surface.** The root page's bind panel (and the
   organisations tile's pending-binds card) rendered exposed endpoints

@@ -75,6 +75,7 @@ export class BxAdmin extends LitElement {
     _ownerEdit: { state: true }, // owner reassignment {tile, to, rep?, perr?} (D39)
     _mapSel: { state: true },   // selected matrix cell {user, tile} → derivation panel
     _mapTileQ: { state: true }, // access-map filter: tile path / owner substring
+    _showHidden: { state: true }, // reveal hidden (state=hidden) tiles in lists (D42)
     _mapUserQ: { state: true }, // access-map filter: user id/name substring
     _mapLayout: { state: true }, // 'auto' (default) | 'matrix' | 'list'
     _mapOpen: { state: true },  // set of tiles expanded in the by-tile list view
@@ -919,7 +920,8 @@ export class BxAdmin extends LitElement {
     const cats = [...new Set(all.map((k) => this._catOf(k.path)))].sort();
     const rows = all.filter((k) => this._catActive(this._catOf(k.path)) &&
       this._match(k.path, k.runtime, (k.uses ?? []).map((u) => u.target).join(' ')));
-    const live = rows.filter((k) => !this._isOffloaded(k));
+    const hiddenN = rows.filter((k) => k.state === 'hidden').length;
+    const live = rows.filter((k) => !this._isOffloaded(k) && (this._showHidden || k.state !== 'hidden'));
     const off = rows.filter((k) => this._isOffloaded(k));
     return html`
       ${this._vaultBanner()}
@@ -930,6 +932,9 @@ export class BxAdmin extends LitElement {
         <div class="stat ${c.pending ? 'warn' : ''}"><div class="n">${c.pending}</div><div class="l">pending</div></div>
       </div>
       ${this._filterBar('filter tiles by path, runtime or use…', cats, rows.length, all.length)}
+      ${hiddenN ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center;margin:2px 0 6px">
+        <input type="checkbox" .checked=${!!this._showHidden}
+          @change=${(e) => { this._showHidden = e.target.checked; }}> show hidden (${hiddenN})</label>` : nothing}
       <table>
         <tr><th></th><th>component</th><th>runtime</th><th>state</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
         ${live.map((k) => this._compRow(k, bk[k.path]))}
@@ -1021,7 +1026,9 @@ export class BxAdmin extends LitElement {
     const st = k.state || 'enabled';
     const disabled = st !== 'enabled';
     return html`${disabled ? html`<span class="pill st-failed" title="not running">${st}</span> ` : nothing}
-      <a class="link" @click=${() => this._setLifecycle(k.path, disabled ? 'enabled' : 'disabled')}>${disabled ? 'enable' : 'disable'}</a>`;
+      <a class="link" @click=${() => this._setLifecycle(k.path, disabled ? 'enabled' : 'disabled')}>${st === 'hidden' ? 'unhide' : disabled ? 'enable' : 'disable'}</a>
+      ${st !== 'hidden' ? html` · <a class="link" title="disabled + removed from sidebars until unhidden (D42)"
+        @click=${() => this._setLifecycle(k.path, 'hidden')}>hide</a>` : nothing}`;
   }
 
   async _setLifecycle(path, state) {
@@ -1982,7 +1989,12 @@ export class BxAdmin extends LitElement {
   // ---- access map: how permissions actually apply (visual) ----
   async _loadMap(force = false) {
     if (this._matrix && !force) return;
-    try { this._matrix = await api('/access-matrix'); } catch (e) { this._err = String(e.message ?? e); }
+    try {
+      this._matrix = await api('/access-matrix');
+      // Lifecycle states for the map's hidden-tile filtering (D42).
+      const comps = await api('/components').catch(() => []);
+      this._compState = Object.fromEntries((comps ?? []).map((c) => [c.path, c.state || 'enabled']));
+    } catch (e) { this._err = String(e.message ?? e); }
   }
 
   _lvChip(level) {
@@ -2067,9 +2079,14 @@ export class BxAdmin extends LitElement {
   }
 
   // _mapGroups: tiles grouped by OWNER (D24), filtered by the tile/owner query.
+  _mapHiddenCount(m) {
+    return (m.components ?? []).filter((p) => this._compState?.[p] === 'hidden').length;
+  }
+
   _mapGroups(m, tq) {
     const groups = new Map();
     for (const tile of (m?.components ?? [])) {
+      if (!this._showHidden && this._compState?.[tile] === 'hidden') continue; // D42
       const owner = m?.owners?.[tile] ?? '';
       if (tq && !tile.toLowerCase().includes(tq) &&
           !(owner || 'workspace').toLowerCase().includes(tq)) continue;
@@ -2198,6 +2215,9 @@ export class BxAdmin extends LitElement {
           </select>
           <span class="muted" style="font-size:11px">${nTiles} tile${nTiles === 1 ? '' : 's'} ·
             ${cols.length}/${allCols.length} user${allCols.length === 1 ? '' : 's'}</span>
+          ${this._mapHiddenCount(m) ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+            <input type="checkbox" .checked=${!!this._showHidden}
+              @change=${(e) => { this._showHidden = e.target.checked; }}> show hidden (${this._mapHiddenCount(m)})</label>` : nothing}
         </div>
         ${!cols.length ? html`<p class="muted">no users match the filter</p>`
           : layout === 'list' ? this._mapList(m, grouped, cols)

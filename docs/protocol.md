@@ -120,7 +120,9 @@ GET    /auth-overview              admin. components(+roles/uses/vault), grants,
                                    pending, counts — powers the admin console
 GET    /vaults                     admin. [{component, keys}] across all vaults
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
-GET    /components                 any. [{path, scope, runtime, hasIndex, roles, uses, deps, manifestError}]
+GET    /components                 any. [{path, scope, runtime, hasIndex,
+                                   state? (lifecycle; absent = enabled),
+                                   roles, uses, deps, manifestError}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile. {token}
 
@@ -537,7 +539,10 @@ GET    /ingress                    admin. The whole ingress picture: {exposes:
 POST   /lifecycle                  admin, the tile's user-owner, or an
                                    owning-org admin (D24: lifecycle is the
                                    owner's). body {component, state} — component
-                                   lifecycle (plans/lifecycle.md). state:
+                                   lifecycle (plans/lifecycle.md). state
+                                   also takes `hidden` — disabled + kept
+                                   out of sidebars/listings until unhidden
+                                   (D42; refused while offloaded). state:
                                    enabled | disabled | offloaded | offloaded-full.
                                    A non-enabled backend is not spawned (the proxy
                                    returns 409 + an X-XBin-Lifecycle header);

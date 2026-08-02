@@ -60,6 +60,7 @@ bx vault ls|set|rm <component> [key] [value]
                                        (D30; `get` lists/403s for humans)
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (plans/lifecycle.md)
+bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
 bx backup <component>                  snapshot to the bound @archive provider
 bx backups <component>                 list archived versions

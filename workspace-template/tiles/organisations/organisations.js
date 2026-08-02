@@ -29,6 +29,7 @@ const jbody = (method, body) => ({
 
 export class BxOrganisations extends LitElement {
   static properties = {
+    _showHidden: { state: true }, // reveal hidden org tiles (D42)
     _who: { state: true },      // whoami (orgs, owned)
     _orgs: { state: true },     // manageable orgs (org admins; [] for members)
     _dir: { state: true },      // users-directory (org admins)
@@ -93,6 +94,14 @@ export class BxOrganisations extends LitElement {
     clearTimeout(this._reloadT);
   }
 
+  async _setLifecycle(tile, state) {
+    await this._do(() => api('/lifecycle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ component: tile, state }),
+    }));
+    this._load();
+  }
+
   async _load() {
     try {
       this._who = await api('/whoami');
@@ -106,6 +115,9 @@ export class BxOrganisations extends LitElement {
     this._binds = await api('/bindings').catch(() => null);
     this._reqs = (await api('/access-requests').catch(() => ({ requests: [] }))).requests ?? [];
     this._screens = (await api('/screens').catch(() => ({ org: [] }))).org ?? [];
+    // Lifecycle states for the org-tiles list (hidden badges/toggle, D42).
+    const comps = await api('/components').catch(() => []);
+    this._compState = Object.fromEntries((comps ?? []).map((c) => [c.path, c.state || 'enabled']));
     if (this._adminOrgIds().length || this._who?.admin) {
       this._dir = (await api('/users-directory').catch(() => ({ users: [] }))).users ?? [];
       await this._loadAdminDepth();
@@ -634,11 +646,24 @@ export class BxOrganisations extends LitElement {
         ${this._screensView(o)}
         ${(o.ownedTiles ?? []).length ? html`<div class="card">
           <b style="font-size:12px">org tiles</b>
-          ${o.ownedTiles.map((t) => html`<div class="row" style="margin:2px 0">
-            <span class="mono">${t}</span>
-            <button @click=${() => this._openAcl(t)}>sharing…</button>
-            <button @click=${() => this._transfer(t)}>transfer…</button>
-          </div>`)}
+          ${(() => {
+            const hid = (t) => this._compState?.[t] === 'hidden';
+            const hiddenN = o.ownedTiles.filter(hid).length;
+            const shown = o.ownedTiles.filter((t) => this._showHidden || !hid(t));
+            return html`
+              ${hiddenN ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+                <input type="checkbox" .checked=${!!this._showHidden}
+                  @change=${(e) => { this._showHidden = e.target.checked; }}> show hidden (${hiddenN})</label>` : nothing}
+              ${shown.map((t) => html`<div class="row" style="margin:2px 0${hid(t) ? ';opacity:.55' : ''}">
+                <span class="mono">${t}</span>
+                ${hid(t) ? html`<span class="pill">hidden</span>` : nothing}
+                <button @click=${() => this._openAcl(t)}>sharing…</button>
+                <button @click=${() => this._transfer(t)}>transfer…</button>
+                ${hid(t)
+                  ? html`<button title="re-enable and return to sidebars" @click=${() => this._setLifecycle(t, 'enabled')}>unhide</button>`
+                  : html`<button title="disable + remove from sidebars until unhidden (D42)" @click=${() => this._setLifecycle(t, 'hidden')}>hide</button>`}
+              </div>`)}`;
+          })()}
         </div>` : nothing}`)}
 
       ${this._aclEditor()}

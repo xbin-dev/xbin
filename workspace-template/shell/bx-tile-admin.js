@@ -157,14 +157,17 @@ export class BxTileAdmin extends LitElement {
   _lifecycle() {
     if (this._ov?.forbidden) return html`<div class="sec muted">workspace-admin only</div>`;
     const st = this._ov?.state ?? 'enabled';
+    const set = (state) => this._do(() => api('/lifecycle', { method: 'POST', ...jbody({ component: this.path, state }) }));
     return html`<div class="sec">
       <span class="pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>
       <span class="row">
         ${st !== 'enabled' ? html`<button class="act go" ?disabled=${this._busy}
-          @click=${() => this._do(() => api('/lifecycle', { method: 'POST', ...jbody({ component: this.path, state: 'enabled' }) }))}>enable</button>` : nothing}
+          @click=${() => set('enabled')}>${st === 'hidden' ? 'unhide' : 'enable'}</button>` : nothing}
         ${st === 'enabled' ? html`<button class="act rm" ?disabled=${this._busy}
-          @click=${() => confirm(`Disable ${this.path}? Its backend stops now.`) &&
-            this._do(() => api('/lifecycle', { method: 'POST', ...jbody({ component: this.path, state: 'disabled' }) }))}>disable</button>` : nothing}
+          @click=${() => confirm(`Disable ${this.path}? Its backend stops now.`) && set('disabled')}>disable</button>` : nothing}
+        ${st !== 'hidden' && st !== 'offloaded' && st !== 'offloaded-full' ? html`<button class="act rm" ?disabled=${this._busy}
+          title="disabled + removed from sidebars until unhidden (D42)"
+          @click=${() => confirm(`Hide ${this.path}? It is disabled and drops out of sidebars until unhidden.`) && set('hidden')}>hide</button>` : nothing}
         <span class="muted" style="font-size:10.5px">offload lives in the admin tile</span>
       </span></div>`;
   }

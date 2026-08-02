@@ -741,3 +741,11 @@ Deviations and refinements made while implementing; all deliberate:
   mirroring D33). Host ports (ingress:listen:) and the builtin runtime
   listener remain workspace infrastructure — allowance or ws-admin. The
   binding normalizer now pairs each target with its ref explicitly.
+
+- **D42 — Hidden tiles.** (2026-08-03) A lifecycle state `hidden` =
+  disabled (identical enforcement: backend stopped, spawn refused) + kept
+  out of sidebars and listings until unhidden. Same owner-plane gate as
+  the rest of lifecycle (D24). UIs filter behind show-hidden toggles and
+  badge revealed rows; screens are left alone (a placed hidden tile
+  renders its disabled state — hiding is about listings, not layouts).
+  Refused while offloaded so the archived-data marker is never clobbered.

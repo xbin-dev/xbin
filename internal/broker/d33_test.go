@@ -296,3 +296,50 @@ func TestProviderSideBindingApproval(t *testing.T) {
 	}
 	_ = carol
 }
+
+// Hidden (D42): a lifecycle state enforcement-identical to disabled, gated
+// like all lifecycle (owner/org-admin/ws-admin), refused from offloaded.
+func TestHiddenLifecycle(t *testing.T) {
+	b, st := orgFixture(t) // sales owns apps/email; carol=admin, alice=read member
+	set := func(p auth.Principal, comp, state string) *int {
+		w := call(t, b.apiLifecycleSet, p, "POST", "/lifecycle",
+			`{"component":"`+comp+`","state":"`+state+`"}`, nil)
+		return &w.Code
+	}
+	carol := principalFor(t, st, "carol")
+	if got := *set(carol, "apps/email", "hidden"); got != 200 {
+		t.Fatalf("org admin hide: %d", got)
+	}
+	if got := b.Reg.LifecycleState("apps/email"); got != registry.StateHidden {
+		t.Fatalf("state = %q, want hidden", got)
+	}
+	// Enforcement parity with disabled: any non-enabled state refuses spawn
+	// (the proxy/runner gates check state != enabled; pin the invariant).
+	if registry.IsOffloaded(registry.StateHidden) {
+		t.Fatal("hidden must not read as offloaded")
+	}
+	// Members and outsiders can't hide.
+	if got := *set(principalFor(t, st, "alice"), "apps/email", "hidden"); got != 403 {
+		t.Fatalf("member hide: %d", got)
+	}
+	if got := *set(principalFor(t, st, "dave"), "apps/calendar", "hidden"); got != 403 {
+		t.Fatalf("outsider hide: %d", got)
+	}
+	// Unhide = enabled (entry drops back to the implicit default).
+	if got := *set(carol, "apps/email", "enabled"); got != 200 {
+		t.Fatalf("unhide: %d", got)
+	}
+	if got := b.Reg.LifecycleState("apps/email"); got != registry.StateEnabled {
+		t.Fatalf("state after unhide = %q", got)
+	}
+	// Never from offloaded — the marker guards archived data.
+	root := auth.Principal{Owner: true}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Lifecycle = map[string]string{"apps/email": registry.StateOffloaded}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := *set(root, "apps/email", "hidden"); got != 400 {
+		t.Fatalf("hide from offloaded must refuse: %d", got)
+	}
+}

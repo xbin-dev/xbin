@@ -79,6 +79,10 @@ func main() {
 		err = cmdLifecycle(os.Args[2:], "enabled")
 	case "disable":
 		err = cmdLifecycle(os.Args[2:], "disabled")
+	case "hide":
+		err = cmdLifecycle(os.Args[2:], "hidden")
+	case "unhide":
+		err = cmdLifecycle(os.Args[2:], "enabled")
 	case "offload":
 		err = cmdOffload(os.Args[2:])
 	case "backup":
@@ -134,6 +138,7 @@ func usage() {
   bx unexpose <tile> <slot>             unpublish
   bx ingress [routes]                   published endpoints + live routing
   bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
+  bx hide|unhide <component>            hidden = disabled + out of sidebars (D42)
   bx offload <component> [--full]       archive + free local bytes
   bx backup <component>                 back up now to the bound archiver
   bx backups <component>                list archived versions
@@ -776,7 +781,7 @@ func cmdRestore(args []string) error {
 // cmdLifecycle sets a component's lifecycle state (plans/lifecycle.md).
 func cmdLifecycle(args []string, state string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: bx %s <component>", map[string]string{"enabled": "enable", "disabled": "disable"}[state])
+		return fmt.Errorf("usage: bx %s <component>", map[string]string{"enabled": "enable", "disabled": "disable", "hidden": "hide"}[state])
 	}
 	if err := apiJSON("POST", "/api/xbin/lifecycle", map[string]string{"component": args[0], "state": state}, nil); err != nil {
 		return err
