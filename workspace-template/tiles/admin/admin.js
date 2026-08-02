@@ -74,6 +74,10 @@ export class BxAdmin extends LitElement {
     _matrix: { state: true },   // /access-matrix payload (access-map tab)
     _ownerEdit: { state: true }, // owner reassignment {tile, to, rep?, perr?} (D39)
     _mapSel: { state: true },   // selected matrix cell {user, tile} → derivation panel
+    _mapTileQ: { state: true }, // access-map filter: tile path / owner substring
+    _mapUserQ: { state: true }, // access-map filter: user id/name substring
+    _mapLayout: { state: true }, // 'auto' (default) | 'matrix' | 'list'
+    _mapOpen: { state: true },  // set of tiles expanded in the by-tile list view
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
@@ -312,6 +316,13 @@ export class BxAdmin extends LitElement {
     .matrix .mcell { text-align: center; padding: 2px 5px; border-radius: 4px; }
     .matrix .mcell.has { cursor: pointer; }
     .matrix .mcell.has:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .matrix .mown { padding: 2px 10px 2px 4px; white-space: nowrap; }
+    .maprow { display: flex; align-items: center; gap: 6px; padding: 3px 4px;
+              border-bottom: 1px solid var(--bx-border, #e4e8ed); font-size: 11.5px; }
+    .maprow .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .maprow:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .mapsub { margin: 0 0 6px 18px; font-size: 11px; }
+    .mapsub td { padding: 1px 8px 1px 0; }
     .matrix .mcell.msel { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
       outline-offset: -2px; }
     .flow-deny { color: var(--bx-red, #e5484d); }
@@ -2042,21 +2053,115 @@ export class BxAdmin extends LitElement {
       </div>`;
   }
 
-  _mapView() {
-    const m = this._matrix;
-    const cols = (m?.users ?? []).filter((u) => u.role !== 'admin');
-    const admins = (m?.users ?? []).filter((u) => u.role === 'admin').map((u) => u.id);
-    // Tiles grouped by OWNER (D24): org-owned together, then top-level dirs.
+  // _ownerCell: the owner pill + the D39 transfer entry point — a labeled
+  // button, not an icon (review feedback: ⇄ alone wasn't discoverable).
+  _ownerCell(m, tile) {
+    const owner = m?.owners?.[tile] ?? '';
+    const icon = owner.startsWith('user:') ? '👤 ' : owner.startsWith('org:') ? '🏢 ' : '';
+    return html`<span class="pill mono" title="owner (D24)">${icon}${owner || 'workspace'}</span>
+      <button class="act" title="reassign this tile's owner — previews impact first (D39)"
+        @click=${() => {
+          this._ownerEdit = this._ownerEdit?.tile === tile ? null
+            : { tile, to: owner };
+        }}>transfer</button>`;
+  }
+
+  // _mapGroups: tiles grouped by OWNER (D24), filtered by the tile/owner query.
+  _mapGroups(m, tq) {
     const groups = new Map();
     for (const tile of (m?.components ?? [])) {
       const owner = m?.owners?.[tile] ?? '';
+      if (tq && !tile.toLowerCase().includes(tq) &&
+          !(owner || 'workspace').toLowerCase().includes(tq)) continue;
       const key = owner.startsWith('org:') ? `org ${owner.slice(4)}`
         : owner.startsWith('user:') ? `user ${owner.slice(5)}`
         : (tile.includes('/') ? tile.split('/')[0] : 'workspace');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(tile);
     }
-    const grouped = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  // The wide users×tiles matrix — the classic view for small workspaces.
+  _mapMatrix(m, grouped, cols) {
+    return html`
+      <div style="overflow-x:auto">
+        <table class="matrix">
+          <tr><th style="text-align:left"></th><th style="text-align:left">owner</th>
+            ${cols.map((u) => html`<th class="mono" title=${u.name}>${u.id}</th>`)}</tr>
+          ${grouped.map(([grp, tiles]) => html`
+            <tr><td class="mgrp" colspan=${cols.length + 2}>${grp}</td></tr>
+            ${tiles.map((tile) => html`<tr>
+              <td class="mono mtile">${tile}</td>
+              <td class="mown">${this._ownerCell(m, tile)}</td>
+              ${cols.map((u) => {
+                const c = m.matrix?.[u.id]?.[tile];
+                const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
+                return html`<td class="mcell ${sel ? 'msel' : ''} ${c ? 'has' : ''}"
+                  @click=${() => { this._mapSel = c ? { user: u.id, tile } : null; }}>${this._lvChip(c?.level)}</td>`;
+              })}
+            </tr>
+            ${this._ownerEdit?.tile === tile ? html`<tr>
+              <td colspan=${cols.length + 2}>${this._ownerEditor(m)}</td>
+            </tr>` : nothing}`)}`)}
+        </table>
+      </div>`;
+  }
+
+  // The by-tile list — the many-users layout: one row per tile (owner +
+  // transfer + who-has-access summary), expandable to that tile's users with
+  // levels + provenance. Cells still click through to the derivation panel.
+  _mapList(m, grouped, cols) {
+    const open = this._mapOpen ?? new Set();
+    const toggle = (tile) => {
+      const next = new Set(open);
+      next.has(tile) ? next.delete(tile) : next.add(tile);
+      this._mapOpen = next;
+    };
+    return html`${grouped.map(([grp, tiles]) => html`
+      <div class="mgrp" style="padding:8px 4px 2px">${grp}</div>
+      ${tiles.map((tile) => {
+        const withAccess = cols.filter((u) => m.matrix?.[u.id]?.[tile]);
+        const isOpen = open.has(tile);
+        return html`
+          <div class="maprow">
+            <button class="act" style="width:20px" title=${isOpen ? 'collapse' : 'who has access'}
+              @click=${() => toggle(tile)}>${isOpen ? '▾' : '▸'}</button>
+            <span class="mono" style="flex:1">${tile}</span>
+            ${this._ownerCell(m, tile)}
+            <span class="muted" style="white-space:nowrap; cursor:pointer" @click=${() => toggle(tile)}>
+              ${withAccess.length} user${withAccess.length === 1 ? '' : 's'}</span>
+          </div>
+          ${this._ownerEdit?.tile === tile ? this._ownerEditor(m) : nothing}
+          ${isOpen ? html`<table class="mapsub">
+            ${withAccess.length ? withAccess.map((u) => {
+              const c = m.matrix[u.id][tile];
+              const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
+              return html`<tr class=${sel ? 'msel' : ''} style="cursor:pointer"
+                  @click=${() => { this._mapSel = { user: u.id, tile }; }}>
+                <td class="mono">${u.id}</td>
+                <td>${this._lvChip(c.level)} ${c.level}</td>
+                <td class="muted">${this._srcLabel(c.explain?.[0]?.source ?? '')}</td>
+              </tr>`;
+            }) : html`<tr><td class="muted">no regular users reach this tile</td></tr>`}
+          </table>` : nothing}`;
+      })}`)}`;
+  }
+
+  _mapView() {
+    const m = this._matrix;
+    const allCols = (m?.users ?? []).filter((u) => u.role !== 'admin');
+    const admins = (m?.users ?? []).filter((u) => u.role === 'admin').map((u) => u.id);
+    const tq = (this._mapTileQ ?? '').trim().toLowerCase();
+    const uq = (this._mapUserQ ?? '').trim().toLowerCase();
+    const cols = uq ? allCols.filter((u) =>
+      u.id.toLowerCase().includes(uq) || (u.name ?? '').toLowerCase().includes(uq)) : allCols;
+    const grouped = this._mapGroups(m, tq);
+    const nTiles = grouped.reduce((n, [, ts]) => n + ts.length, 0);
+    // The wide matrix stops scaling past ~10 user columns; big (or force-
+    // toggled) workspaces get the by-tile list instead.
+    const layout = this._mapLayout === 'matrix' || this._mapLayout === 'list'
+      ? this._mapLayout : (cols.length > 10 ? 'list' : 'matrix');
     return html`
       <h4>structure</h4>
       <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
@@ -2068,40 +2173,35 @@ export class BxAdmin extends LitElement {
       <h4 style="margin-top:14px">effective access</h4>
       <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
         The resolved model, straight from the server: what each user can do on
-        each tile. <span class="lv lv-read">r</span> read ·
+        each tile, and who OWNS it (transfer = reassign, with an impact
+        preview). <span class="lv lv-read">r</span> read ·
         <span class="lv lv-write">w</span> write ·
         <span class="lv lv-terminal">t</span> terminal (root shell) ·
-        <span class="lv lv-none">·</span> none. Click a cell to see WHY.
+        <span class="lv lv-none">·</span> none.
+        ${layout === 'matrix' ? 'Click a cell to see WHY.'
+          : 'Expand a tile to see who reaches it; click a row for the full derivation.'}
         Workspace admins (${admins.length ? admins.join(', ') : 'root token only'})
         hold terminal everywhere and are omitted; chrome (root/shell) is always
         viewable and outside the model.</p>
-      ${!m ? html`<p class="muted">loading…</p>` : !cols.length
+      ${!m ? html`<p class="muted">loading…</p>` : !allCols.length
         ? html`<p class="muted">No regular users yet — add some in the users tab.</p>`
         : html`
-        <div style="overflow-x:auto">
-          <table class="matrix">
-            <tr><th style="text-align:left"></th>${cols.map((u) => html`<th class="mono" title=${u.name}>${u.id}</th>`)}</tr>
-            ${grouped.map(([grp, tiles]) => html`
-              <tr><td class="mgrp" colspan=${cols.length + 1}>${grp}</td></tr>
-              ${tiles.map((tile) => html`<tr>
-                <td class="mono mtile">${tile}
-                  <button class="act" title="change owner (transfer, D39)" style="font-size:9px; padding:0 4px"
-                    @click=${() => {
-                      this._ownerEdit = this._ownerEdit?.tile === tile ? null
-                        : { tile, to: m?.owners?.[tile] ?? '' };
-                    }}>⇄</button></td>
-                ${cols.map((u) => {
-                  const c = m.matrix?.[u.id]?.[tile];
-                  const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
-                  return html`<td class="mcell ${sel ? 'msel' : ''} ${c ? 'has' : ''}"
-                    @click=${() => { this._mapSel = c ? { user: u.id, tile } : null; }}>${this._lvChip(c?.level)}</td>`;
-                })}
-              </tr>
-              ${this._ownerEdit?.tile === tile ? html`<tr>
-                <td colspan=${cols.length + 1}>${this._ownerEditor(m)}</td>
-              </tr>` : nothing}`)}`)}
-          </table>
+        <div class="row" style="margin:6px 0; flex-wrap:wrap">
+          <input placeholder="filter tiles / owner…" .value=${this._mapTileQ ?? ''}
+            @input=${(e) => { this._mapTileQ = e.target.value; }} style="width:170px">
+          <input placeholder="filter users…" .value=${this._mapUserQ ?? ''}
+            @input=${(e) => { this._mapUserQ = e.target.value; }} style="width:130px">
+          <select title="layout" @change=${(e) => { this._mapLayout = e.target.value; }}>
+            ${[['auto', `auto (${cols.length > 10 ? 'by-tile list' : 'matrix'})`],
+               ['matrix', 'matrix'], ['list', 'by-tile list']].map(([v, l]) =>
+              html`<option value=${v} ?selected=${(this._mapLayout ?? 'auto') === v}>${l}</option>`)}
+          </select>
+          <span class="muted" style="font-size:11px">${nTiles} tile${nTiles === 1 ? '' : 's'} ·
+            ${cols.length}/${allCols.length} user${allCols.length === 1 ? '' : 's'}</span>
         </div>
+        ${!cols.length ? html`<p class="muted">no users match the filter</p>`
+          : layout === 'list' ? this._mapList(m, grouped, cols)
+          : this._mapMatrix(m, grouped, cols)}
         ${this._mapDetail()}`}
     `;
   }
