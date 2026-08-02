@@ -949,6 +949,31 @@ func (s *Store) Access(id string) (*Access, bool) {
 	return a, true
 }
 
+// WithOwner returns a copy of the snapshot in which path is owned by ref —
+// the D39 transfer preview's "what would MY level be afterwards?". The
+// underlying maps are COW; only the one entry is overlaid.
+func (a *Access) WithOwner(path, ref string) *Access {
+	if a == nil {
+		return nil
+	}
+	kind, id, err := ParseOwner(ref)
+	if err != nil {
+		return a
+	}
+	c := *a
+	no := make(map[string]string, len(a.owners)+1)
+	for k, v := range a.owners {
+		no[k] = v
+	}
+	if kind == "" {
+		delete(no, path)
+	} else {
+		no[path] = kind + ":" + id
+	}
+	c.owners = no
+	return &c
+}
+
 // TileLevel is the effective access level on one path (D24/D25/D27/D31).
 // Resolution, in order:
 //
@@ -1171,6 +1196,27 @@ type Ceiling struct {
 func (s *Store) Ceiling(path string) Ceiling {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.ceilingLocked(path, s.owners[path])
+}
+
+// CeilingFor is Ceiling computed AS IF path were owned by ownerRef — the
+// transfer preview's question ("what would govern this tile over there?",
+// D39). Pure; owners are untouched.
+func (s *Store) CeilingFor(path, ownerRef string) Ceiling {
+	kind, id, err := ParseOwner(ownerRef)
+	if err != nil {
+		kind, id = "", ""
+	}
+	ref := ""
+	if kind != "" {
+		ref = kind + ":" + id
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ceilingLocked(path, ref)
+}
+
+func (s *Store) ceilingLocked(path, ownerRef string) Ceiling {
 	var rows []PolicyRow
 	add := func(rs []PolicyRow) {
 		for _, r := range rs {
@@ -1180,7 +1226,7 @@ func (s *Store) Ceiling(path string) Ceiling {
 		}
 	}
 	add(s.policy)
-	if org, ok := strings.CutPrefix(s.owners[path], OwnerKindOrg+":"); ok {
+	if org, ok := strings.CutPrefix(ownerRef, OwnerKindOrg+":"); ok {
 		if o := s.orgs[org]; o != nil {
 			for _, n := range o.Sets {
 				if ps := s.sets[n]; ps != nil {

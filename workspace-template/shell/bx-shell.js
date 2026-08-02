@@ -975,11 +975,29 @@ export class BxShell extends LitElement {
   _ctxDo(fn) { this._ctx = null; fn(); }
 
   // New-tile dialog: names a static tile under apps/, creates it, opens it on
-  // the current screen. Re-opens with an inline error on failure.
-  _newTileDialog(name = '', message = 'Creates a static tile under apps/ and opens it here.') {
+  // the current screen. Owner picker (D24/D39): me / orgs where the caller
+  // holds Create or admin / workspace (ws-admin only, their default) — same
+  // semantics as the manager tile's picker. Re-opens with an inline error on
+  // failure, preserving the picked owner.
+  _ownerOptions() {
+    const opts = [];
+    if (this._myId) opts.push({ value: 'user:' + this._myId, label: '— me (personal) —' });
+    for (const o of (this._who?.orgs ?? [])) {
+      if (o.create || o.admin) opts.push({ value: 'org:' + o.id, label: 'org: ' + (o.name || o.id) });
+    }
+    if (this._isAdmin) opts.push({ value: '', label: '— workspace —' });
+    return opts;
+  }
+  _newTileDialog(name = '', message = '', owner = null) {
+    const opts = this._ownerOptions();
+    const def = owner ?? (this._isAdmin ? '' : (this._myId ? 'user:' + this._myId : ''));
+    const fields = [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }];
+    if (opts.length > 1) fields.push({ name: 'owner', label: 'Owner', type: 'select', value: def, options: opts });
     this._create = {
-      title: 'Create a new tile', message,
-      fields: [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }],
+      title: 'Create a new tile',
+      message: message || ('Creates a static tile under apps/ and opens it here.'
+        + (opts.length > 1 ? ' Personal tiles: capability requests (net, containers, ports) need a workspace admin. Org-owned: the org’s admins can approve within their allowance.' : '')),
+      fields,
       buttons: [{ label: 'Cancel', value: null }, { label: 'Create', value: 'create', primary: true }],
     };
   }
@@ -987,22 +1005,25 @@ export class BxShell extends LitElement {
     this._create = null;
     if (button !== 'create') return;
     const name = (values.name || '').trim();
+    const owner = values.owner ?? null;
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.'); return; }
+    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.', owner); return; }
     const path = 'apps/' + slug;
     try {
       // Chrome runs as the owner cookie — raw fetch (xbin.fetch would attach a
       // frame token and downgrade). Needs owner/xbin:writer, which the owner is.
+      const body = { path, title: name };
+      if (owner) body.owner = owner; // "" (workspace) = the admin default, omit
       const r = await fetch('/api/xbin/create', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, title: name }),
+        body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? r.status);
       await this._load();                    // pick up the new component
       if (!this._isOpen(path)) this._toggle(path); // place it on this screen
     } catch (e) {
-      this._newTileDialog(name, String(e.message ?? e));
+      this._newTileDialog(name, String(e.message ?? e), owner);
     }
   }
 

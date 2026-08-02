@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -237,23 +240,100 @@ func cmdOrg(args []string) error {
 }
 
 // cmdOwner shows or transfers a tile's owner (D24).
+// ownerReport is the D39 transfer impact report (plans/transfer.md §2/§3).
+type ownerReport struct {
+	Allowed     bool   `json:"allowed"`
+	Error       string `json:"error"`
+	CallerLevel struct {
+		Before string `json:"before"`
+		After  string `json:"after"`
+	} `json:"callerLevel"`
+	DeadBindings []struct{ Slot, Reason string } `json:"deadBindings"`
+	DeadGrants   []struct {
+		Target, Role, Reason string
+	} `json:"deadGrants"`
+	PlaneChanges []string `json:"planeChanges"`
+	Unbound      []string `json:"unbound"`
+}
+
+func printOwnerReport(r ownerReport) {
+	orNone := func(s string) string {
+		if s == "" {
+			return "none"
+		}
+		return s
+	}
+	if r.CallerLevel.Before != r.CallerLevel.After {
+		fmt.Printf("  your access: %s → %s\n", orNone(r.CallerLevel.Before), orNone(r.CallerLevel.After))
+	}
+	for _, b := range r.DeadBindings {
+		fmt.Printf("  ✗ binding %s will be UNBOUND: %s\n", b.Slot, b.Reason)
+	}
+	for _, g := range r.DeadGrants {
+		fmt.Printf("  ✗ grant %s:%s becomes inert: %s\n", g.Target, g.Role, g.Reason)
+	}
+	for _, s := range r.PlaneChanges {
+		fmt.Printf("  · %s\n", s)
+	}
+	for _, s := range r.Unbound {
+		fmt.Printf("  unbound: %s\n", s)
+	}
+	if r.CallerLevel.Before == r.CallerLevel.After &&
+		len(r.DeadBindings) == 0 && len(r.DeadGrants) == 0 && len(r.PlaneChanges) == 0 && len(r.Unbound) == 0 {
+		fmt.Println("  no impact — access, bindings and grants carry over unchanged")
+	}
+}
+
+func ownerPreview(tile, to string) (ownerReport, error) {
+	var rep ownerReport
+	err := apiJSON("GET", "/api/xbin/owner/preview?tile="+url.QueryEscape(tile)+"&to="+url.QueryEscape(to), nil, &rep)
+	return rep, err
+}
+
 func cmdOwner(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx owner <tile> [--transfer user:<id>|org:<id>|workspace]")
+		return fmt.Errorf("usage: bx owner <tile> [--preview user:<id>|org:<id>|workspace | --transfer <to> [--yes]]")
 	}
 	tile := strings.Trim(args[0], "/")
-	if len(args) >= 3 && args[1] == "--transfer" {
+	if len(args) >= 3 && (args[1] == "--transfer" || args[1] == "--preview") {
 		to := args[2]
 		if to == "workspace" {
 			to = ""
 		}
-		if err := apiJSON("POST", "/api/xbin/owner", map[string]any{"tile": tile, "to": to}, nil); err != nil {
+		display := args[2]
+		// Preview first, always (D39): the impact report is the point.
+		rep, err := ownerPreview(tile, to)
+		if err != nil {
 			return err
 		}
-		if to == "" {
-			to = "workspace"
+		if !rep.Allowed {
+			msg := rep.Error
+			if msg == "" {
+				msg = "not allowed"
+			}
+			return fmt.Errorf("transfer %s → %s: %s", tile, display, msg)
 		}
-		fmt.Println(tile, "→", to)
+		fmt.Printf("%s → %s would:\n", tile, display)
+		printOwnerReport(rep)
+		if args[1] == "--preview" {
+			return nil
+		}
+		yes := len(args) >= 4 && args[3] == "--yes"
+		if !yes {
+			fmt.Print("proceed? [y/N]: ")
+			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+			if l := strings.ToLower(strings.TrimSpace(line)); l != "y" && l != "yes" {
+				return fmt.Errorf("aborted")
+			}
+		}
+		var done ownerReport
+		if err := apiJSON("POST", "/api/xbin/owner", map[string]any{"tile": tile, "to": to}, &done); err != nil {
+			return err
+		}
+		fmt.Println(tile, "→", display)
+		if len(done.Unbound) > 0 || len(done.DeadGrants) > 0 {
+			printOwnerReport(done)
+		}
 		return nil
 	}
 	var out struct {

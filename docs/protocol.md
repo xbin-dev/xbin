@@ -244,10 +244,23 @@ DELETE /permission-sets/<name>    admin/xbin:users; refused while attached
                                    to any org
 GET    /owner?tile=<path>         any principal that can READ the tile.
                                    {tile, owner: "user:<id>"|"org:<id>"|""}
-POST   /owner                     transfer (D24): {tile, to}. ws-admin →
-                                   anywhere; the user-owner → an org they
-                                   belong to; an owning-org admin → another
-                                   org they admin or a member of the org
+GET    /owner/preview             ?tile=&to= — transfer impact report
+                                   (D39, never mutates): {allowed,
+                                   callerLevel:{before,after},
+                                   deadBindings, deadGrants, planeChanges}
+                                   — what dies under the NEW owner's
+                                   ceilings and what happens to YOUR level
+POST   /owner                     transfer (D24/D39): {tile, to}. GIVE:
+                                   ws-admin / the user-owner / an
+                                   owning-org admin. RECEIVE into org:X
+                                   needs X's Create knob ("transfer into ≡
+                                   create in"); user:<self> with the GIVE
+                                   right; user:<other> and workspace are
+                                   ws-admin acts. Side effects: fully
+                                   ceiling-dead binding slots are UNBOUND,
+                                   affected backends restart, and the
+                                   response carries the executed report
+                                   (+unbound)
 GET    /access?tile=<path>        ws-admin, the tile's USER-OWNER, or an
                                    owning-org admin. {tile, owner, entries:
                                    [{kind:user|org, id, level, source:

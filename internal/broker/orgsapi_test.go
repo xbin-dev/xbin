@@ -140,7 +140,8 @@ func TestOwnerTransferAuthz(t *testing.T) {
 	alice := principalFor(t, st, "alice")
 	carol := principalFor(t, st, "carol")
 
-	// A user-owner may transfer to an org they belong to.
+	// A user-owner with the org's CREATE knob may transfer into it (D39:
+	// the transfer-in bound is the create bound).
 	w := call(t, b.apiOwnerTransfer, bob, "POST", "/owner", `{"tile":"apps/calendar","to":"org:sales"}`, nil)
 	if w.Code != 200 {
 		t.Fatalf("owner → own org transfer: %d %s", w.Code, w.Body.String())
@@ -150,20 +151,29 @@ func TestOwnerTransferAuthz(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatalf("member transfer must refuse: %d", w.Code)
 	}
-	// The org admin may hand it to a member.
+	// The org admin may take it THEMSELVES; handing it to another user is a
+	// ws-admin act now (D39 tightened the old to-any-member rule).
 	w = call(t, b.apiOwnerTransfer, carol, "POST", "/owner", `{"tile":"apps/calendar","to":"user:bob"}`, nil)
-	if w.Code != 200 {
-		t.Fatalf("org admin → member transfer: %d %s", w.Code, w.Body.String())
+	if w.Code != 403 {
+		t.Fatalf("org admin → other member must refuse (D39): %d %s", w.Code, w.Body.String())
 	}
-	// bob (owner again) may NOT hand it to another user directly.
-	w = call(t, b.apiOwnerTransfer, bob, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
+	w = call(t, b.apiOwnerTransfer, carol, "POST", "/owner", `{"tile":"apps/calendar","to":"user:carol"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("org admin → self: %d %s", w.Code, w.Body.String())
+	}
+	// carol (owner now) may NOT hand it to another user directly.
+	w = call(t, b.apiOwnerTransfer, carol, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
 	if w.Code != 403 {
 		t.Fatalf("user → user transfer is ws-admin only: %d", w.Code)
 	}
-	// ws-admin can do anything.
+	// A user-owner WITHOUT the create knob can't transfer into the org.
 	w = call(t, b.apiOwnerTransfer, auth.Principal{Owner: true}, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
 	if w.Code != 200 {
 		t.Fatalf("ws-admin transfer: %d %s", w.Code, w.Body.String())
+	}
+	w = call(t, b.apiOwnerTransfer, alice, "POST", "/owner", `{"tile":"apps/calendar","to":"org:sales"}`, nil)
+	if w.Code != 403 {
+		t.Fatalf("no-Create member → org must refuse (D39): %d %s", w.Code, w.Body.String())
 	}
 }
 

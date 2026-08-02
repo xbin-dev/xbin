@@ -687,3 +687,19 @@ Deviations and refinements made while implementing; all deliberate:
   story's last admin-password chore: an ORG ADMIN may re-mint an invite
   link (`POST /users/<id>/invite`) for a NON-ADMIN member of their org —
   delegated reset-by-link; resetting an admin user stays ws-admin-only.
+
+- **D39 — Transfers are first-class: create-bound receive, preview, active
+  re-evaluation.** (2026-08-02, spec: plans/transfer.md) Transfer authz
+  splits into GIVE (unchanged D24: ws-admin / user-owner / owning-org
+  admin) × RECEIVE, where receiving INTO an org requires that org's
+  **Create** knob — "may I transfer into X" ≡ "may I create in X"
+  (BREAKING vs membership-only; migration note). `GET /owner/preview`
+  reports impacts before every confirm: the caller's own level
+  before/after (owner-terminal can drop to org-member level, D31),
+  bindings/grants that die under the new owner's ceilings, and
+  approval-plane shifts. The transfer itself then keeps state honest:
+  slots whose every ref is ceiling-dead are UNBOUND (not left to
+  silently resurrect), spawn-materialized access re-materializes via
+  backend restarts (the tile + displaced net providers), and grant rows
+  stay stored (inert-but-visible is the auditable choice). UIs confirm
+  with the report; bx prompts with it.

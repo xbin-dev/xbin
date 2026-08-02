@@ -34,6 +34,7 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("PUT /permission-sets/{name}", b.apiPermSetPut)
 	srv.RegisterAPI("DELETE /permission-sets/{name}", b.apiPermSetDelete)
 	srv.RegisterAPI("GET /owner", b.apiOwnerGet)
+	srv.RegisterAPI("GET /owner/preview", b.apiOwnerPreview)
 	srv.RegisterAPI("POST /owner", b.apiOwnerTransfer)
 	srv.RegisterAPI("GET /access", b.apiAccessGet)
 	srv.RegisterAPI("PUT /access", b.apiAccessPut)
@@ -304,10 +305,12 @@ func (b *Broker) apiOwnerGet(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]string{"tile": tile, "owner": st.Owner(tile)})
 }
 
-// POST /owner {tile, to} — transfer (D24). ws-admin: anywhere. A user-owner:
-// to an org they belong to (user→user / →workspace is a ws-admin act). An
-// org admin of the owning org: to another org they admin, or to a member of
-// the org.
+// POST /owner {tile, to} — transfer (D24/D39). Authorization decomposes
+// into GIVE (ws-admin / the user-owner / the owning org's admins) and
+// RECEIVE ("may I transfer INTO X" = "may I create in X": org targets need
+// the Create knob; user:<other>/workspace are ws-admin acts). After the
+// move the §3 side effects run: hard-dead binding slots unbind, affected
+// backends restart, and the response carries the executed impact report.
 func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 	st := b.usersStore(w)
 	if st == nil {
@@ -322,53 +325,26 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
-	toKind, toID, err := users.ParseOwner(body.To)
-	if err != nil {
+	if _, _, err := users.ParseOwner(body.To); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	p := auth.PrincipalOf(r)
-	if !b.canManageUsers(p) {
-		uid := humanID(p)
-		allowed := false
-		if uid != "" {
-			owner := st.Owner(body.Tile)
-			switch {
-			case owner == users.OwnerKindUser+":"+uid:
-				if toKind == users.OwnerKindOrg {
-					for _, m := range st.UserOrgs(uid) {
-						if m.ID == toID {
-							allowed = true
-							break
-						}
-					}
-				}
-			default:
-				if org, isOrg := strings.CutPrefix(owner, users.OwnerKindOrg+":"); isOrg && p.Access.IsAdminOrg(org) {
-					switch toKind {
-					case users.OwnerKindOrg:
-						allowed = p.Access.IsAdminOrg(toID) // org→org: adminship of both
-					case users.OwnerKindUser:
-						if o, found := st.Org(org); found {
-							_, allowed = o.Member(toID) // org→user: a member of the org
-						}
-					}
-				}
-			}
-		}
-		if !allowed {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{
-				"error": "not allowed: owners may transfer to their orgs; org admins within/between their orgs; anything else is workspace-admin", "docs": "/docs/auth.md"})
-			return
-		}
+	if msg := b.transferAllowed(p, st, body.Tile, body.To); msg != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
 	}
+	// The impact report is computed BEFORE the move (callerLevel "before"
+	// needs the pre-state); the new ceiling is owner-parameterized, so it is
+	// identical either side of SetOwner.
+	rep := b.transferPreview(p, st, body.Tile, body.To)
 	if err := st.SetOwner(body.Tile, body.To); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	slog.Info("owner transfer", "tile", body.Tile, "to", body.To)
-	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"tile": body.Tile, "owner": body.To})
+	rep.Unbound = b.executeTransferEffects(body.Tile, rep)
+	slog.Info("owner transfer", "tile", body.Tile, "to", body.To, "by", humanID(p), "unbound", rep.Unbound)
+	server.WriteJSON(w, http.StatusOK, rep)
 }
 
 // --- per-tile ACL (/access) --------------------------------------------------

@@ -72,6 +72,7 @@ export class BxAdmin extends LitElement {
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
     _matrix: { state: true },   // /access-matrix payload (access-map tab)
+    _ownerEdit: { state: true }, // owner reassignment {tile, to, rep?, perr?} (D39)
     _mapSel: { state: true },   // selected matrix cell {user, tile} → derivation panel
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
@@ -2083,18 +2084,80 @@ export class BxAdmin extends LitElement {
             ${grouped.map(([grp, tiles]) => html`
               <tr><td class="mgrp" colspan=${cols.length + 1}>${grp}</td></tr>
               ${tiles.map((tile) => html`<tr>
-                <td class="mono mtile">${tile}</td>
+                <td class="mono mtile">${tile}
+                  <button class="act" title="change owner (transfer, D39)" style="font-size:9px; padding:0 4px"
+                    @click=${() => {
+                      this._ownerEdit = this._ownerEdit?.tile === tile ? null
+                        : { tile, to: m?.owners?.[tile] ?? '' };
+                    }}>⇄</button></td>
                 ${cols.map((u) => {
                   const c = m.matrix?.[u.id]?.[tile];
                   const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
                   return html`<td class="mcell ${sel ? 'msel' : ''} ${c ? 'has' : ''}"
                     @click=${() => { this._mapSel = c ? { user: u.id, tile } : null; }}>${this._lvChip(c?.level)}</td>`;
                 })}
-              </tr>`)}`)}
+              </tr>
+              ${this._ownerEdit?.tile === tile ? html`<tr>
+                <td colspan=${cols.length + 1}>${this._ownerEditor(m)}</td>
+              </tr>` : nothing}`)}`)}
           </table>
         </div>
         ${this._mapDetail()}`}
     `;
+  }
+
+  // ---- owner reassignment (D39, plans/transfer.md): picker → preview → confirm ----
+  _xferReport(rep) {
+    if (!rep) return nothing;
+    const lv = rep.callerLevel;
+    return html`<div style="margin-top:5px; font-size:11.5px">
+      ${lv && lv.before !== lv.after ? html`<div>your access: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
+      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red,#e5484d)">
+        binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
+      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red,#e5484d)">
+        grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
+      ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
+      ${(rep.unbound ?? []).length ? html`<div>unbound: ${rep.unbound.map((s) => html`<span class="pill mono">${s}</span>`)}</div>` : nothing}
+    </div>`;
+  }
+
+  _ownerEditor(m) {
+    const oe = this._ownerEdit;
+    if (!oe) return nothing;
+    const cur = m?.owners?.[oe.tile] ?? '';
+    const opts = [{ value: '', label: '— workspace —' },
+      ...(this._users ?? []).map((u) => ({ value: 'user:' + u.id, label: 'user: ' + u.id })),
+      ...(this._orgs ?? []).map((o) => ({ value: 'org:' + o.id, label: 'org: ' + o.id }))];
+    const pick = (to) => { this._ownerEdit = { tile: oe.tile, to, rep: null, perr: null }; };
+    return html`<div style="padding:6px 8px; border:1px solid var(--bx-accent,#f5a623); border-radius:6px; margin:2px 0">
+      <div class="row">owner of <span class="mono">${oe.tile}</span>:
+        <span class="mono">${cur || 'workspace'}</span> →
+        <select @change=${(e) => pick(e.target.value)}>
+          ${opts.map((o) => html`<option value=${o.value} ?selected=${oe.to === o.value}>${o.label}</option>`)}
+        </select>
+        <button class="act" ?disabled=${oe.to === cur} @click=${async () => {
+          try {
+            const rep = await api(`/owner/preview?tile=${encodeURIComponent(oe.tile)}&to=${encodeURIComponent(oe.to)}`);
+            this._ownerEdit = { ...oe, rep, perr: null };
+          } catch (e) { this._ownerEdit = { ...oe, rep: null, perr: String(e.message ?? e) }; }
+        }}>preview</button>
+        ${oe.rep ? html`<button class="go" @click=${async () => {
+          try {
+            const done = await api('/owner', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tile: oe.tile, to: oe.to }) });
+            this._ownerEdit = null;
+            this._err = '';
+            this._notice = `${oe.tile} → ${oe.to || 'workspace'}`
+              + ((done?.unbound ?? []).length ? ` — unbound: ${done.unbound.join(', ')}` : '');
+            setTimeout(() => { this._notice = ''; }, 6000);
+            this._loadMap(true);
+          } catch (e) { this._ownerEdit = { ...oe, perr: String(e.message ?? e) }; }
+        }}>transfer</button>` : nothing}
+        <button @click=${() => { this._ownerEdit = null; }}>cancel</button>
+      </div>
+      ${oe.perr ? html`<div class="err" style="margin-top:4px">${oe.perr}</div>` : nothing}
+      ${this._xferReport(oe.rep)}
+    </div>`;
   }
 
   // ---- ownership & organisations (docs/auth.md; plans/ownership.md D24–D28) ----

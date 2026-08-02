@@ -555,6 +555,14 @@ tiles' grants and pending requests (`direction: mine`) with
 who-can-approve hints — a tile waiting on an approval isn't a silent dead
 tile.
 
+**Transfers (D39).** Moving a tile between owners changes which ceilings,
+allowances and org levels govern it — so every transfer surface previews
+the impact first (`GET /owner/preview`): your own access can DROP
+(owner-terminal → your org level), and bindings whose targets the new
+owner's ceilings deny are unbound on transfer with backends restarted so
+enforcement bites immediately. Receiving a tile into an org requires that
+org's Create knob — transferring in is creating, capability-wise.
+
 **Everyday ownership rights.** The same owner set (user-owner / owning-org
 admins / ws-admin) also controls a tile's **lifecycle** (`POST /lifecycle` —
 disable your own runaway tile at 2am) and reads the org's **policy rows**

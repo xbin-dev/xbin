@@ -202,30 +202,54 @@ export class BxOrganisations extends LitElement {
     </div>`;
   }
 
-  // Transfer runs through an inline confirm card (not a raw prompt): the
-  // consequence — org admins gain full control — deserves a beat of thought.
-  _transfer(tile) { this._xfer = { tile, to: '' }; }
+  // Transfer runs preview-first (D39, plans/transfer.md): pick a target →
+  // the impact report (your access after, bindings that will be UNBOUND,
+  // grants going inert) renders in the confirm → transfer. The static
+  // consequence line stays as the fallback when preview isn't available.
+  _transfer(tile) { this._xfer = { tile, to: '', rep: null, perr: null }; }
+
+  _xferReport(rep) {
+    if (!rep) return nothing;
+    const lv = rep.callerLevel;
+    return html`<div style="margin-top:5px; font-size:11.5px">
+      ${lv && lv.before !== lv.after ? html`<div>your access will drop: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
+      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red,#e5484d)">
+        binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
+      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red,#e5484d)">
+        grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
+      ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
+    </div>`;
+  }
 
   _transferCard() {
     const x = this._xfer;
     if (!x) return nothing;
-    const myOrgs = (this._who?.orgs ?? []).map((o) => o.id);
+    // Suggest only orgs the D39 receive rule accepts: Create or admin.
+    const myOrgs = (this._who?.orgs ?? []).filter((o) => o.create || o.admin).map((o) => o.id);
+    const to = x.to.trim() === 'workspace' ? '' : x.to.trim();
     return html`<div class="card" style="border-color: var(--bx-accent, #f5a623)">
       <div class="row"><b>transfer</b> <span class="mono">${x.tile}</span></div>
       <div class="row" style="margin:6px 0">
         <input size="18" placeholder="user:&lt;id&gt;, org:&lt;id&gt;, workspace" .value=${x.to}
-          list="xfer-targets" @input=${(e) => { this._xfer = { ...x, to: e.target.value }; }}>
+          list="xfer-targets" @input=${(e) => { this._xfer = { ...x, to: e.target.value, rep: null, perr: null }; }}>
         <datalist id="xfer-targets">
           ${myOrgs.map((o) => html`<option value=${'org:' + o}></option>`)}
           <option value="workspace"></option>
         </datalist>
-        <button class="go" ?disabled=${!x.to.trim()} @click=${() => {
-          const to = x.to.trim() === 'workspace' ? '' : x.to.trim();
+        ${!x.rep ? html`<button class="go" ?disabled=${!x.to.trim()} @click=${async () => {
+          try {
+            const rep = await api(`/owner/preview?tile=${encodeURIComponent(x.tile)}&to=${encodeURIComponent(to)}`);
+            if (rep.allowed === false) { this._xfer = { ...x, rep: null, perr: rep.error || 'not allowed' }; return; }
+            this._xfer = { ...x, rep, perr: null };
+          } catch (e) { this._xfer = { ...x, rep: null, perr: String(e.message ?? e) }; }
+        }}>preview…</button>` : html`<button class="go" @click=${() => {
           this._xfer = null;
           this._do(() => api('/owner', jbody('POST', { tile: x.tile, to })), 'transferred');
-        }}>transfer</button>
+        }}>confirm transfer</button>`}
         <button @click=${() => { this._xfer = null; }}>cancel</button>
       </div>
+      ${x.perr ? html`<div class="err">${x.perr}</div>` : nothing}
+      ${this._xferReport(x.rep)}
       <p class="muted" style="font-size:11px; margin:2px 0 0">
         Transferring to an org gives <b>every admin of that org</b> full control
         of the tile — terminal, lifecycle, sharing. Secrets stay backend-only:

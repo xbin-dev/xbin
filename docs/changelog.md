@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **BREAKING — transfers grew a preview, side effects, and a tighter
+  receive rule (D39).** ([migration note](changes/2026-08-02-transfer-create-bound.md))
+  Every transfer surface (organisations tile, new admin-console owner
+  editor, `bx owner --transfer`) now shows an impact report before the
+  confirm: your own post-transfer access level, bindings/grants that die
+  under the new owner's ceilings, and approval-plane changes. The
+  transfer then unbinds fully-dead binding slots and restarts affected
+  backends, so a tile moved into a net-denying org loses egress NOW, not
+  at some future restart. Receiving a tile INTO an org now requires that
+  org's **Create** knob (previously any member could) — transferring in
+  is creating, capability-wise. The shell's right-click "Create a new
+  tile" dialog gained the owner picker (me / your create-orgs /
+  workspace for admins).
+
 - **Org screens, a first-screen editor, sidebar that knows whose tile is
   whose, and self-service passwords (D37/D38).** The sidebar now groups
   tiles into *mine / each org / workspace* with an org filter (tree view

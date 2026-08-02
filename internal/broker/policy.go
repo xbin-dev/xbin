@@ -30,7 +30,13 @@ func (b *Broker) ceilingBlockMsg(from, target string) string {
 	if b.Users == nil || from == "" {
 		return ""
 	}
-	c := b.Users.Ceiling(from)
+	return b.ceilingBlockWith(b.Users.Ceiling(from), from, target)
+}
+
+// ceilingBlockWith is ceilingBlockMsg against an EXPLICIT ceiling — the
+// transfer preview evaluates a tile's rows/targets under the ceiling it
+// WOULD have after a move (users.CeilingFor, D39).
+func (b *Broker) ceilingBlockWith(c users.Ceiling, from, target string) string {
 	deny := func(kind string) string {
 		if row, ok := c.DenyRow(kind); ok {
 			return fmt.Sprintf("a policy row for tiles matching %q denies %s (workspace/org policy — see /docs/auth.md)", row.Tiles, kind)
