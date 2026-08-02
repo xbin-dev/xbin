@@ -399,8 +399,7 @@ export class BxOrganisations extends LitElement {
     const pending = all.filter((p) => p.approvable);
     const mine = all.filter((p) => !p.approvable && p.direction === 'mine');
     const held = all.filter((p) => !p.approvable && p.direction !== 'mine');
-    const bindPending = this._binds?.pending ?? [];
-    if (!pending.length && !mine.length && !held.length && !bindPending.length) return nothing;
+    if (!pending.length && !mine.length && !held.length) return nothing;
     const dir = (p) => p.direction ? html`<span class="pill" title="your relation: consumer = your org's tile asking · provider = targeting your org's property">${p.direction}</span>` : nothing;
     return html`
       <h3>pending approvals</h3>
@@ -423,22 +422,75 @@ export class BxOrganisations extends LitElement {
       </div>` : nothing}
       ${held.length ? html`<p class="muted" style="font-size:11px">
         ${held.length} more pending request(s) can't be approved here —
-        ${[...new Set(held.map((p) => this._askWho(p)))].join('; ')}.</p>` : nothing}
+        ${[...new Set(held.map((p) => this._askWho(p)))].join('; ')}.</p>` : nothing}`;
+  }
+
+  // ---- wiring & ingress (D26/D41): the org admin's bindings surface ----
+  // Pending slots for org tiles get the picker — and, for EXPOSED endpoints,
+  // the route editor the bind call requires (http: host or zone; stream: an
+  // optional listen). Existing bindings unbind here too (always allowed for
+  // org admins; the slot then reappears above to re-route).
+  _wiringView() {
+    const bindPending = this._binds?.pending ?? [];
+    const orgTiles = new Set((this._orgs ?? []).flatMap((o) => o.ownedTiles ?? []));
+    const bound = [];
+    for (const [comp, slots] of Object.entries(this._binds?.bindings ?? {})) {
+      if (!orgTiles.has(comp)) continue;
+      for (const [slot, refs] of Object.entries(slots ?? {})) {
+        for (const ref of [].concat(refs ?? [])) {
+          const o = (ref && typeof ref === 'object') ? ref : { ref };
+          const route = o.host ?? o.zone ?? o.listen ?? '';
+          bound.push({ comp, slot, ref: o.ref ?? '', route });
+        }
+      }
+    }
+    if (!bindPending.length && !bound.length) return nothing;
+    const routeId = (p, f) => `bp-${p.component}-${p.slot}-${f}`;
+    return html`
+      <h3>wiring &amp; ingress</h3>
       ${bindPending.length ? html`<div class="card">
-        ${bindPending.map((p) => html`<div class="row" style="margin:3px 0">
+        ${bindPending.map((p) => html`<div class="row" style="margin:3px 0; flex-wrap:wrap">
           <span class="mono">${p.component}</span> · <span class="pill">${p.slot}</span>
-          <span class="muted">${p.service ? `${p.kind}:${p.service}` : p.kind}</span>
+          <span class="muted">${p.expose ? `publish ${p.kind}` : p.service ? `${p.kind}:${p.service}` : p.kind}</span>
           ${(p.options ?? []).length ? html`
             <select id="bp-${p.component}-${p.slot}">
               ${p.options.map((op) => html`<option value=${op.id}>${op.label}</option>`)}
             </select>
-            <button class="go" @click=${(e) => {
+            ${p.expose && p.kind === 'http' ? html`
+              <select id=${routeId(p, 'mode')} title="exact hostname, or a delegated wildcard zone">
+                <option value="host">host</option><option value="zone">zone</option>
+              </select>
+              <input id=${routeId(p, 'val')} size="22" placeholder="app.example.com or *.zone…">` : nothing}
+            ${p.expose && p.kind !== 'http' ? html`
+              <input id=${routeId(p, 'listen')} size="10" placeholder=":8443 (opt)">` : nothing}
+            <button class="go" @click=${() => {
+              const get = (f) => this.renderRoot.getElementById(routeId(p, f))?.value?.trim() ?? '';
               const sel = this.renderRoot.getElementById(`bp-${p.component}-${p.slot}`);
-              this._do(() => api('/bindings', jbody('POST',
-                { component: p.component, slot: p.slot, provider: sel.value })), 'bound');
-            }}>bind</button>` : html`<span class="muted">no provider available</span>`}
+              const body = { component: p.component, slot: p.slot, provider: sel.value };
+              if (p.expose && p.kind === 'http') {
+                const v = get('val');
+                if (!v) { this._err = 'an http publish needs a hostname (host) or wildcard zone'; return; }
+                if (get('mode') === 'zone') body.zone = v; else body.host = v;
+              } else if (p.expose && get('listen')) {
+                body.listen = get('listen');
+              }
+              this._do(() => api('/bindings', jbody('POST', body)), p.expose ? 'published' : 'bound');
+            }}>${p.expose ? 'publish' : 'bind'}</button>` : html`<span class="muted">no provider available</span>`}
         </div>`)}
-      </div>` : nothing}`;
+      </div>` : nothing}
+      ${bound.length ? html`<div class="card">
+        <b style="font-size:12px">active bindings on org tiles</b>
+        ${bound.map((b) => html`<div class="row" style="margin:2px 0">
+          <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
+          <span class="muted">→ ${b.ref}${b.route ? ` (${b.route})` : ''}</span>
+          <span style="flex:1"></span>
+          <button class="rm" title="unbind — the slot reappears above to re-route" @click=${() => this._do(() =>
+            api('/bindings', jbody('DELETE', { component: b.comp, slot: b.slot })), 'unbound')}>unbind</button>
+        </div>`)}
+      </div>` : nothing}
+      <p class="muted" style="font-size:11px; margin:2px 0 0">
+        Publishing through your org's own terminator needs no allowance (D41);
+        host ports and the builtin listener do.</p>`;
   }
 
   // ---- human access requests (D36) ----
@@ -563,6 +615,7 @@ export class BxOrganisations extends LitElement {
         </div>`)}` : nothing}
 
       ${this._approvalsView()}
+      ${this._wiringView()}
       ${this._requestsView()}
       ${this._consumersView()}
       ${this._transferCard()}

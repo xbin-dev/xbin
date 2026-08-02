@@ -39,6 +39,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   through it — without any allowance; host ports and the builtin listener
   still need one.
 
+- **Publishing from the bind dialogs actually works now, and org admins
+  got a wiring surface.** The root page's bind panel (and the
+  organisations tile's pending-binds card) rendered exposed endpoints
+  with just a provider picker — no way to enter the hostname/zone/port,
+  so "publish" always died with a silent 400. Expose rows now carry the
+  route editor (host or zone for http, listen for stream), the button
+  stays disabled until the route is filled, and every server refusal
+  renders inline. The organisations tile gained a **wiring & ingress**
+  card: pending slots for org tiles with the full editor, active
+  bindings with their routes and one-click unbind — publishing through
+  your org's own terminator needs no allowance (D41); host ports and
+  the builtin listener still do.
+
 - **BREAKING — transfers grew a preview, side effects, and a tighter
   receive rule (D39).** ([migration note](changes/2026-08-02-transfer-create-bound.md))
   Every transfer surface (organisations tile, new admin-console owner
