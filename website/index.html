@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xbin — a self-hosted, sandboxed, self-modifying browser workspace</title>
-<meta name="description" content="xbin turns a Linux box into a multi-user workspace of tiles. Open a terminal in any app, sandbox it, run agents, and publish it — all from the browser, on hardware you own. MIT / Apache-2.0.">
+<title>xbin—a self-hosted, sandboxed, self-modifying browser workspace</title>
+<meta name="description" content="xbin turns a Linux box into a multi-user workspace of tiles. Open a terminal in any app, sandbox it, run agents, and publish it—all from the browser, on hardware you own. MIT / Apache-2.0.">
 <meta name="color-scheme" content="dark">
-<meta property="og:title" content="xbin — a browser workspace you own, and rewrite from inside it">
+<meta property="og:title" content="xbin—a browser workspace you own, and rewrite from inside it">
 <meta property="og:description" content="Self-hosted. Sandboxed. Self-modifying. One unprivileged daemon, a workspace of tiles, rootless isolation, and browser terminals.">
 </head>
 <body>
 <style>
-  /* ===== xbin.dev — built in the product's own palette (theme.css) ===== */
+  /* ===== xbin.dev—built in the product's own palette (theme.css) ===== */
   :root{
     --bg:#16181d; --steel:#1b1e24; --panel:#23272e; --panel2:#2b3038;
     --border:#363c45; --border2:#454d59;
@@ -204,6 +204,7 @@
   .wnode.world{color:var(--muted);border-style:dashed}
   .wnode .wdot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none}
   .wlink{flex:1;min-width:18px;height:1px;background:linear-gradient(90deg,var(--border2),var(--border2));position:relative}
+  .wlink:has(b){min-width:96px}
   .wlink::after{content:"";position:absolute;right:-1px;top:-3px;border:4px solid transparent;border-left-color:var(--border2)}
   .wlink.rev::after{right:auto;left:-1px;border-left-color:transparent;border-right-color:var(--border2)}
   .wlink b{position:absolute;left:50%;top:-9px;transform:translateX(-50%);font:9.5px var(--mono);color:var(--dim);background:var(--bg);padding:0 6px;font-weight:400;letter-spacing:.04em;white-space:nowrap}
@@ -291,9 +292,9 @@
   <div class="hero-in">
     <div>
       <span class="eyebrow">Self-hosted · Sandboxed · Self-modifying</span>
-      <h1>A browser workspace you <span class="amber">own</span> — and rewrite from inside it.</h1>
+      <h1>A browser workspace you <span class="amber">own</span>—and rewrite from inside it.</h1>
       <p class="sub">xbin turns one Linux box into a multi-user workspace of tiles. Every tile is a
-        folder you can open a terminal into, run agents in, sandbox, and publish — all from the
+        folder you can open a terminal into, run agents in, sandbox, and publish—all from the
         browser, on hardware you control.</p>
       <div class="install">
         <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
@@ -369,7 +370,7 @@
       <div class="pillar">
         <div class="ic">🧱</div>
         <h3>Sandboxed</h3>
-        <p>Every tile runs in its own rootless sandbox — user, mount, pid and net namespaces,
+        <p>Every tile runs in its own rootless sandbox—user, mount, pid and net namespaces,
           seccomp and landlock. Grants are default-deny; secrets live encrypted in a vault.</p>
       </div>
       <div class="pillar">
@@ -393,11 +394,11 @@
     <div class="how">
       <div class="steps">
         <div class="step"><span class="n">1</span><div><h4>A tile is a directory</h4>
-          <p>An <code>index.html</code> and/or a backend (Go, Node, Python — or none). <code>mv</code> renames it, <code>cp -r</code> forks it, <code>rm -r</code> deletes it.</p></div></div>
+          <p>An <code>index.html</code> and/or a backend (Go, Node, Python—or none). <code>mv</code> renames it, <code>cp -r</code> forks it, <code>rm -r</code> deletes it.</p></div></div>
         <div class="step"><span class="n">2</span><div><h4>Terminals, in the browser</h4>
-          <p>Attach a sandboxed shell to any tile to edit, build, and run agents — no SSH, no local checkout.</p></div></div>
+          <p>Attach a sandboxed shell to any tile to edit, build, and run agents—no SSH, no local checkout.</p></div></div>
         <div class="step"><span class="n">3</span><div><h4>Grants are default-deny</h4>
-          <p>A tile reaches nothing — not the network, not another tile — until you approve a grant. Secrets come from its own vault.</p></div></div>
+          <p>A tile reaches nothing—not the network, not another tile—until you approve a grant. Secrets come from its own vault.</p></div></div>
         <div class="step"><span class="n">4</span><div><h4>Expose it, on your terms</h4>
           <p><code>bx expose</code> publishes a tile behind your own TLS or Tailscale. Anonymous callers are path-confined.</p></div></div>
       </div>
@@ -424,7 +425,7 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <span class="eyebrow">Composition</span>
       <h2>Small tiles, typed wires.</h2>
       <p class="lede">Tiles don't hardcode each other. A tile declares <b>typed interface slots</b> —
-        "I need an LLM", "I need MCP servers", "I need somewhere to archive" — and the owner binds each
+        "I need an LLM", "I need MCP servers", "I need somewhere to archive"—and the owner binds each
         slot to any tile that speaks that contract. Same mechanism for the network, in both directions.</p>
     </div>
     <div class="cmp">
@@ -434,9 +435,9 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
             no shared secrets, no ambient authority.</p></div></div>
         <div class="step"><span class="n">◇</span><div><h4>Typed slots, swappable providers</h4>
           <p>An agent's <code>llm</code> slot binds to a gateway tile; its <code>mcp</code> slot (multi)
-            binds to <em>several</em> MCP servers at once. Rebind later — the code never changes.</p></div></div>
+            binds to <em>several</em> MCP servers at once. Rebind later—the code never changes.</p></div></div>
         <div class="step"><span class="n">⬆</span><div><h4>Egress is composition too</h4>
-          <p>A tile has <b>zero network</b> until its <code>net</code> slot is bound — to the internet,
+          <p>A tile has <b>zero network</b> until its <code>net</code> slot is bound—to the internet,
             a LAN, or <em>through another tile</em>: a WireGuard/firewall tile that provides <code>net</code>. Chains compose.</p></div></div>
         <div class="step"><span class="n">⬇</span><div><h4>Ingress the same way</h4>
           <p>An <code>exposes</code> endpoint goes public only when bound to an ingress terminator —
@@ -444,11 +445,11 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       </div>
       <div class="wires" aria-label="example wiring of apps/agent">
         <div class="wire"><span class="wnode slot">agent · llm</span><span class="wlink"><b>http:llm</b></span><span class="wnode"><span class="wdot"></span>tiles/llm-gw</span></div>
-        <div class="wnote">one key, every model — swap the gateway, not the agent</div>
+        <div class="wnote">one key, every model—swap the gateway, not the agent</div>
         <div class="wire"><span class="wnode slot">agent · mcp ×2</span><span class="wlink"><b>http:mcp</b></span><span class="wnode"><span class="wdot"></span>github-mcp&nbsp;+&nbsp;search-mcp</span></div>
         <div class="wire"><span class="wnode slot">agent · archive</span><span class="wlink"><b>http:archive</b></span><span class="wnode"><span class="wdot"></span>tiles/s3-archiver</span><span class="wlink"></span><span class="wnode world">s3://backups</span></div>
         <div class="wire"><span class="wnode slot">agent · net</span><span class="wlink"><b>net</b></span><span class="wnode"><span class="wdot"></span>tiles/wg-vpn</span><span class="wlink"></span><span class="wnode world">internet</span></div>
-        <div class="wnote">all egress rides the VPN tile — the agent can't bypass it</div>
+        <div class="wnote">all egress rides the VPN tile—the agent can't bypass it</div>
         <div class="wire"><span class="wnode world">https://agent.example.com</span><span class="wlink"><b>ingress</b></span><span class="wnode"><span class="wdot"></span>tiles/traefik</span><span class="wlink"></span><span class="wnode slot">agent · /hook/*</span></div>
       </div>
     </div>
@@ -473,7 +474,7 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       </div>
     </div>
     <p class="bindcap">Install a tile and its unbound slots appear in the shell like this.
-      <b>Binding is the owner's click</b> — a tile (or an agent inside one) can request a capability,
+      <b>Binding is the owner's click</b>—a tile (or an agent inside one) can request a capability,
       but it can't wire itself to anything. Until you bind, it has nothing.</p>
   </div>
 </section>
@@ -484,7 +485,7 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <span class="eyebrow">App terminals</span>
       <h2>Bring your own agent.</h2>
       <p class="lede">Every tile opens a real shell in the browser. xbin has <b>zero opinion about your
-        harness</b> — run whatever you already use. Every workspace ships an <span class="mono">AGENTS.md</span> /
+        harness</b>—run whatever you already use. Every workspace ships an <span class="mono">AGENTS.md</span> /
         <span class="mono">CLAUDE.md</span> contract, so any agent lands with the full mental model.</p>
     </div>
     <div class="trm">
@@ -493,11 +494,11 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
           <span>Claude Code</span><span>OpenCode</span><span>Codex</span><span>Hermes</span><span>aider</span><span class="any">…or just vim</span>
         </div>
         <p style="color:var(--muted);font-size:14.5px;max-width:52ch">The terminal is where tiles get built
-          and rebuilt — but it's a <b style="color:var(--text)">sandbox with a job</b>, not a root shell.
+          and rebuilt—but it's a <b style="color:var(--text)">sandbox with a job</b>, not a root shell.
           It can ship this tile; it can't wander the box. A rogue agent's blast radius is one tile's
           directory, and the base system it "installs into" is an overlay that never touches the real image.</p>
         <p style="color:var(--muted);font-size:14.5px;max-width:52ch">Your <span class="mono">$HOME</span> follows
-          you: one per-user homedir shared across all your terminals — dotfiles, harness config, and keys set up
+          you: one per-user homedir shared across all your terminals—dotfiles, harness config, and keys set up
           once, available on every tile.</p>
       </div>
       <div class="twin" aria-label="a tile terminal running an agent">
@@ -508,25 +509,25 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
           <span class="tg">net: <b>internet</b> ▾</span>
           <span class="tg">api <b>✓</b></span>
         </div>
-        <div class="term"><span class="m"># any harness — the workspace doesn't care</span>
+        <div class="term"><span class="m"># any harness—the workspace doesn't care</span>
 <span class="a">~/apps/dashboard $</span> head -1 $XBIN_WORKSPACE/AGENTS.md
-<span class="m"># AGENTS.md — building in this xbin workspace</span>
+<span class="m"># AGENTS.md—building in this xbin workspace</span>
 <span class="a">~/apps/dashboard $</span> claude "wire the archive slot to S3"
 <span class="m">● read AGENTS.md · edit backend/main.go</span> <span class="b">+24 −3</span> <span class="m">· build</span> <span class="g">✓</span>
 <span class="a">~/apps/dashboard $</span> sudo apt install ripgrep
-<span class="m">→ lands in this terminal's overlay — the base image stays read-only</span>
+<span class="m">→ lands in this terminal's overlay—the base image stays read-only</span>
 <span class="a">~/apps/dashboard $</span> cat ../billing/backend/main.go
 <span class="m">→ read-only (and only because you can read that tile)</span>
 <span class="a">~/apps/dashboard $</span> <span class="cursor"></span></div>
       </div>
     </div>
     <div class="seclist trm-facts">
-      <div class="row"><span class="k">▸</span><div><b>Read-only base image</b><span>Each terminal stacks a throwaway overlay on the shared base — <span class="mono">apt install</span> anything; the image never changes.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>One home, all your terminals</b><span><span class="mono">$HOME</span> is your per-user directory — persistent, shared across your sessions, never the host's home.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>This tile read-write, the rest read-only</b><span>Only the tile the terminal was opened on is writable. Sibling tiles are readable for patterns and APIs — and only the ones your account can read.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span> — flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em>, never the owner — and you can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>Runtime state stays with the backend</b><span>The tile's live resources — its database, its resource filesystem — are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Read-only base image</b><span>Each terminal stacks a throwaway overlay on the shared base—<span class="mono">apt install</span> anything; the image never changes.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>One home, all your terminals</b><span><span class="mono">$HOME</span> is your per-user directory—persistent, shared across your sessions, never the host's home.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>This tile read-write, the rest read-only</b><span>Only the tile the terminal was opened on is writable. Sibling tiles are readable for patterns and APIs—and only the ones your account can read.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span>—flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em>, never the owner—and you can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Runtime state stays with the backend</b><span>The tile's live resources—its database, its resource filesystem—are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
     </div>
   </div>
 </section>
@@ -540,21 +541,21 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
     <div class="aud">
       <div class="card"><span class="tag">Homelab &amp; self-hosters</span>
         <h3>Everything in one place, on your box</h3>
-        <p>A workspace of tiles — dashboards, notes, a calendar, a media tool, an agent. One binary,
+        <p>A workspace of tiles—dashboards, notes, a calendar, a media tool, an agent. One binary,
           backups built in, reachable over Tailscale. No docker-compose sprawl.</p></div>
       <div class="card"><span class="tag">Linux enthusiasts</span>
         <h3>Real isolation you can inspect</h3>
-        <p>Rootless user namespaces, cgroups v2, seccomp, landlock — not a container wrapper.
+        <p>Rootless user namespaces, cgroups v2, seccomp, landlock—not a container wrapper.
           A buildless frontend (no npm). The shell itself is just a tile you can hack.</p></div>
       <div class="card"><span class="tag">IT admins</span>
         <h3>Multi-user, with real RBAC</h3>
-        <p>Users, orgs, per-tile ownership and access levels — with approvals delegated to org
+        <p>Users, orgs, per-tile ownership and access levels—with approvals delegated to org
           admins, so you set policy instead of clicking every request. An audit log that records
           who approved what. Least privilege by default.</p></div>
       <div class="card"><span class="tag">Technical business</span>
         <h3>Own your internal tools</h3>
         <p>No per-seat SaaS, no vendor lock-in. Let agents build the internal dashboards and
-          integrations — then run them on your own infrastructure, versioned and auditable.</p></div>
+          integrations—then run them on your own infrastructure, versioned and auditable.</p></div>
     </div>
   </div>
 </section>
@@ -566,38 +567,38 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <span class="eyebrow">Users &amp; orgs</span>
       <h2>Share the box, not the blast radius.</h2>
       <p class="lede">xbin is multi-user the way a good team repo is multi-owner: every tile has an
-        <b>owner</b> — you, or an org — and everything else follows from that. Admins set policy once;
+        <b>owner</b>—you, or an org—and everything else follows from that. Admins set policy once;
         org admins run their own day-to-day, down to the 2am approval.</p>
     </div>
     <div class="aud">
       <div class="card"><span class="tag">Accounts</span>
         <h3>Invited, never self-signed-up</h3>
-        <p>Admins create accounts and hand out <b>single-use invite links</b> — the invitee sets their
+        <p>Admins create accounts and hand out <b>single-use invite links</b>—the invitee sets their
           own password and lands on a curated first screen. Pause an account (or one org membership)
           without losing a single grant; re-enable restores it exactly.</p></div>
       <div class="card"><span class="tag">Orgs</span>
         <h3>Roles that mean what they say</h3>
         <p>Flat orgs with per-member <b>viewer / developer / admin</b> presets. Org members get org
-          tiles at their level; org admins manage members, sharing, lifecycle and wiring — real
+          tiles at their level; org admins manage members, sharing, lifecycle and wiring—real
           authority inside the org, none outside it.</p></div>
       <div class="card"><span class="tag">Ownership</span>
         <h3>Tiles move like property</h3>
-        <p>Transfer a tile to an org and its governance moves with it — every transfer shows a
+        <p>Transfer a tile to an org and its governance moves with it—every transfer shows a
           <b>preview first</b>: what you'll still be able to do, which bindings die under the new
           owner's policy, who gains control. No silent surprises.</p></div>
       <div class="card"><span class="tag">Delegation</span>
         <h3>The 2am loop without the admin</h3>
-        <p>Workspace admins grant orgs <b>allowances</b> — as precise as "internet, but only
+        <p>Workspace admins grant orgs <b>allowances</b>—as precise as "internet, but only
           <span class="mono">*.stripe.com</span>" or "the <span class="mono">dev</span> instance of that
           API". Org admins approve inside those bounds; requests outside them wait, visibly, for you.</p></div>
       <div class="card"><span class="tag">Access</span>
         <h3>Ask in-product, not in chat</h3>
-        <p>Hit a tile you can't read and the page itself offers <b>request access</b> — the owner sees
+        <p>Hit a tile you can't read and the page itself offers <b>request access</b>—the owner sees
           the queue, approves at a level, done. The sidebar groups tiles by <b>mine / each org /
           workspace</b>, and org screens give every member a shared, curated layout.</p></div>
       <div class="card"><span class="tag">Secrets</span>
         <h3>Readable by the backend, full stop</h3>
-        <p>A tile's secrets can be written and rotated by admins and terminals — but <b>read only by
+        <p>A tile's secrets can be written and rotated by admins and terminals—but <b>read only by
           the tile's own running backend</b>. Org membership, shells, even a compromised admin tile
           can rotate keys; none of them can exfiltrate them.</p></div>
     </div>
@@ -613,12 +614,12 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
         kernel, and it's on for every tile from the start.</p>
     </div>
     <div class="seclist">
-      <div class="row"><span class="k">▸</span><div><b>Per-tile rootless sandboxes</b><span>User, mount, pid, IPC, UTS and net namespaces per backend — mapped to a delegated sub-uid range, never host root.</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Per-tile rootless sandboxes</b><span>User, mount, pid, IPC, UTS and net namespaces per backend—mapped to a delegated sub-uid range, never host root.</span></div></div>
       <div class="row"><span class="k">▸</span><div><b>seccomp + landlock</b><span>A syscall block-list and a filesystem allow-list on every tile; the mount family and friends are denied unless a tile is explicitly a container host.</span></div></div>
       <div class="row"><span class="k">▸</span><div><b>Default-deny grants</b><span>An element principal reaches no other tile, resource, or network until the owner approves an explicit grant. Inbound identity headers are stripped.</span></div></div>
       <div class="row"><span class="k">▸</span><div><b>Encrypted vault</b><span>Per-component secrets and stateful resources are encrypted at rest; the workspace can start sealed and be unsealed after login.</span></div></div>
       <div class="row"><span class="k">▸</span><div><b>Git per component + backups</b><span>Every tile is its own repo; scheduled backups and one-click restore are built in.</span></div></div>
-      <div class="row"><span class="k">▸</span><div><b>Bound network egress</b><span>Tiles have zero IP egress until you bind a net interface — internet, host, a LAN CIDR, or through another tile (a firewall/VPN).</span></div></div>
+      <div class="row"><span class="k">▸</span><div><b>Bound network egress</b><span>Tiles have zero IP egress until you bind a net interface—internet, host, a LAN CIDR, or through another tile (a firewall/VPN).</span></div></div>
     </div>
   </div>
 </section>
@@ -681,7 +682,7 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   }
 
   // Hero scene: a dashboard tile opens its own terminal, an agent edits it, and
-  // the dashboard updates — looping. Respects prefers-reduced-motion.
+  // the dashboard updates—looping. Respects prefers-reduced-motion.
   const term = document.getElementById('term');
   const tpane = document.getElementById('tpane');
   const tbtn = document.getElementById('tbtn');
