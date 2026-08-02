@@ -300,6 +300,32 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		}
 		return hide
 	}
+	// D40: restricted terminals mount an ALLOW-LIST view — only readable
+	// components are bound, and the workspace root files are replaced with
+	// redacted copies (xbin.json filtered to readable rows — the full file
+	// is the whole grants/bindings topology incl. public hostnames; go.work
+	// covering only readable modules so builds don't chase absent dirs).
+	tm.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
+		var readable []string
+		for _, c := range reg.Components() {
+			if p.CanReadTile(c.Path) {
+				readable = append(readable, c.Path)
+			}
+		}
+		canRead := func(path string) bool { return p.CanReadTile(path) }
+		files := map[string][]byte{
+			"xbin.json": registry.RedactedManifestJSON(reg.Workspace(), canRead),
+		}
+		if gw := deps.GoWorkFor(reg, deps.SDKPath(), canRead); gw != "" {
+			files["go.work"] = []byte(gw)
+		}
+		for _, name := range []string{"AGENTS.md", ".gitignore"} {
+			if b, err := os.ReadFile(filepath.Join(reg.Root, name)); err == nil {
+				files[name] = b
+			}
+		}
+		return readable, files
+	}
 
 	webFS, docsFS := xbin.WebFS(), xbin.DocsFS()
 	if dev {

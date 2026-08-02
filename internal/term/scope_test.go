@@ -3,6 +3,7 @@ package term
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -143,5 +144,95 @@ func TestScopedBindsNoHome(t *testing.T) {
 	}
 	if !rw[filepath.Join(root, "apps/x")] {
 		t.Errorf("component still rw")
+	}
+}
+
+// D40: the allow-list view plan — no masks at all; the staged view RO at the
+// workspace root; only readable components bound (RO), own component + $HOME
+// rw; extras appended.
+func TestScopedBindsView(t *testing.T) {
+	root := t.TempDir()
+	home := HomeDir(root, "alice")
+	for _, d := range []string{"apps/mine", "apps/friend", "apps/secret", filepath.Join("homes", "alice")} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view := t.TempDir()
+	extra := []sandbox.Bind{{Src: "/sdk", Dst: "/sdk", RO: true}}
+	sb := scopedBindsView(root, "apps/mine", home, view, []string{"apps/mine", "apps/friend"}, extra)
+
+	if n := len(masked(sb)); n != 0 {
+		t.Fatalf("allow-list plan must carry no masks, got %d", n)
+	}
+	rw, ro := rwRO(sb)
+	// The view covers the root read-only; the REAL root is never bound.
+	viewAtRoot := false
+	for _, b := range sb {
+		if b.Dst == root && b.Src == view && b.RO {
+			viewAtRoot = true
+		}
+		if b.Src == root {
+			t.Fatalf("the real workspace root must not be bound: %+v", b)
+		}
+	}
+	if !viewAtRoot {
+		t.Fatal("staged view must be bound RO at the workspace root")
+	}
+	if !ro[filepath.Join(root, "apps/friend")] {
+		t.Error("readable sibling must be bound read-only")
+	}
+	if !rw[filepath.Join(root, "apps/mine")] {
+		t.Error("own component must be read-write")
+	}
+	if !rw[home] {
+		t.Error("own $HOME must be read-write")
+	}
+	if !ro["/sdk"] {
+		t.Error("SDK extra bind lost")
+	}
+	// The unreadable tile appears in NO bind — not even as a mask.
+	for _, b := range sb {
+		if strings.Contains(b.Src, "apps/secret") || strings.Contains(b.Dst, "apps/secret") {
+			t.Errorf("unreadable tile must not appear in the plan: %+v", b)
+		}
+	}
+}
+
+// stageView writes the redacted root files, the CLAUDE.md symlink, and every
+// nested-bind mountpoint (the view mounts read-only — nothing can mkdir later).
+func TestStageView(t *testing.T) {
+	root := t.TempDir()
+	m := &Manager{Root: root}
+	if err := os.MkdirAll(filepath.Join(root, ".xbin", "term"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"xbin.json":  []byte(`{"schema":1}`),
+		"go.work":    []byte("go 1.24\n"),
+		"AGENTS.md":  []byte("# agents"),
+		".gitignore": []byte("data/\n"),
+		"../evil":    []byte("nope"), // path tricks are dropped
+	}
+	dir, err := m.stageView("apps/mine", "alice", []string{"apps/mine", "apps/friend"}, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	for _, f := range []string{"xbin.json", "go.work", "AGENTS.md", ".gitignore"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("staged file %s missing: %v", f, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "evil")); err == nil {
+		t.Error("path-trick file must be dropped")
+	}
+	if target, err := os.Readlink(filepath.Join(dir, "CLAUDE.md")); err != nil || target != "AGENTS.md" {
+		t.Errorf("CLAUDE.md symlink: %q %v", target, err)
+	}
+	for _, d := range []string{".xbin", "homes/alice", "apps/mine", "apps/friend"} {
+		if fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(d))); err != nil || !fi.IsDir() {
+			t.Errorf("mountpoint %s missing", d)
+		}
 	}
 }

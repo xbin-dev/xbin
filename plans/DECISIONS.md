@@ -703,3 +703,23 @@ Deviations and refinements made while implementing; all deliberate:
   backend restarts (the tile + displaced net providers), and grant rows
   stay stored (inert-but-visible is the auditable choice). UIs confirm
   with the report; bx prompts with it.
+
+- **D40 — Restricted terminals mount an allow-list view.** (2026-08-02)
+  Non-admin terminals no longer get the whole workspace bound read-only with
+  per-tile tmpfs masks (deny-list) — production showed two leaks: masked
+  tiles' NAMES enumerate in `ls`/mountinfo, and the real root files are
+  readable, `cat ../../xbin.json` handing any one-tile user the entire
+  grants/bindings topology incl. public hostnames. Instead xbind stages a
+  per-session VIEW dir (.xbin/term/view-*, removed on close) holding
+  redacted root files — xbin.json filtered to rows whose every referenced
+  component is readable, go.work filtered to readable modules (builds must
+  not chase absent dirs), AGENTS.md/.gitignore copies, a CLAUDE.md symlink,
+  an empty .xbin marker (bx root detection), and pre-created mountpoints
+  (the view mounts read-only) — binds it at the workspace root, then binds
+  ONLY the readable components (RO), the session's own component (RW), and
+  the user's $HOME (RW). No masks; .xbin/data/homes and the resenc
+  mount-table names simply don't exist inside. Admin terminals keep the
+  full-view+masks plan (their view is the workspace, and the recursive-bind
+  lock constraint documented in sandbox.Bind still applies there). The old
+  HiddenTiles deny-list path remains as the fallback when no TermView is
+  wired (tests, exotic embeddings).

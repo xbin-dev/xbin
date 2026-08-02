@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-02
 
+- **SECURITY — restricted terminals now mount an allow-list view (D40).**
+  A production check showed a non-admin tile terminal could enumerate
+  unreadable siblings' NAMES (each deny-mask is a visible tmpfs) and read
+  the workspace root `xbin.json` — the entire grants/bindings topology,
+  public hostnames included. Restricted terminals now get a staged view:
+  only readable tiles are mounted (unreadable ones are absent, names and
+  all), `xbin.json` is redacted to rows referencing only readable
+  components, `go.work` is filtered to readable modules (so builds don't
+  chase absent dirs), and `.xbin`/`data`/other homes simply don't exist
+  inside — no masks, no resenc names in the mount table. Admin terminals
+  keep the full read-only view. If your agent tooling relied on reading
+  another (unreadable) tile's source from a non-admin terminal, that was
+  the leak: ask for `read` on it.
+
 - **BREAKING — transfers grew a preview, side effects, and a tighter
   receive rule (D39).** ([migration note](changes/2026-08-02-transfer-create-bound.md))
   Every transfer surface (organisations tile, new admin-console owner

@@ -126,8 +126,20 @@ type Manager struct {
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every
 	// tile below read level. Wired by main from the registry; nil ⇒ terminals
-	// see all source (fine for the single-admin workspace).
+	// see all source (fine for the single-admin workspace). Superseded by
+	// TermView when set — kept as the fallback plan.
 	HiddenTiles func(p auth.Principal) []string
+
+	// TermView builds a RESTRICTED session's ALLOW-LIST workspace view (D40):
+	// the component paths the principal may read, plus the redacted root-file
+	// contents the staged view serves in place of the real ones (xbin.json
+	// filtered to readable rows, go.work covering only readable modules,
+	// AGENTS.md/.gitignore copies). When set, restricted terminals mount a
+	// staged view dir at the workspace root and bind ONLY those components —
+	// unreadable tiles vanish entirely, names included, and the workspace's
+	// real root files (the full grants/bindings topology) never enter the
+	// sandbox. nil ⇒ the old deny-list masking via HiddenTiles.
+	TermView func(p auth.Principal) (readable []string, rootFiles map[string][]byte)
 
 	// Cgroup, when set (main wires it under cgroup delegation), puts each
 	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a
@@ -214,8 +226,12 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			api: apiAccess, restricted: !p.IsAdmin(),
 		}
 		o.api, o.net = clampTermScopes(p, o.api, o.net)
-		if o.restricted && m.HiddenTiles != nil {
-			o.hide = m.HiddenTiles(p)
+		if o.restricted {
+			if m.TermView != nil { // D40 allow-list view
+				o.readable, o.rootFiles = m.TermView(p)
+			} else if m.HiddenTiles != nil { // deny-list fallback
+				o.hide = m.HiddenTiles(p)
+			}
 		}
 		s, err = m.create(o)
 		if err != nil {
@@ -263,14 +279,16 @@ func (m *Manager) List() []map[string]any {
 
 // openOpts carries a new session's parameters from the WS gate to the spawn.
 type openOpts struct {
-	cwd        string   // workspace-relative component path
-	net        string   // network scope (already clamped)
-	gpu        string   // GPU request (owner plane)
-	homeKey    string   // whose $HOME the session mounts
-	userID     string   // creating user, for token attribution ("" = token principal)
-	api        bool     // mint a live tile-API token (already clamped)
-	restricted bool     // non-admin: D18 kernel lockdown + D17 masks/limits
-	hide       []string // component dirs masked out of the mount (D17a)
+	cwd        string            // workspace-relative component path
+	net        string            // network scope (already clamped)
+	gpu        string            // GPU request (owner plane)
+	homeKey    string            // whose $HOME the session mounts
+	userID     string            // creating user, for token attribution ("" = token principal)
+	api        bool              // mint a live tile-API token (already clamped)
+	restricted bool              // non-admin: D18 kernel lockdown + D17 masks/limits
+	hide       []string          // component dirs masked out of the mount (D17a fallback)
+	readable   []string          // allow-list view: components bound into the mount (D40)
+	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
 }
 
 // clampTermScopes applies the non-admin terminal defaults (D17 b+c): no live
@@ -575,6 +593,73 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 
 func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
+// stageView materializes a restricted session's workspace-root VIEW dir
+// (D40) under .xbin/term/ (xbind-owned, never bound into any sandbox): the
+// redacted root files, a CLAUDE.md → AGENTS.md symlink when AGENTS.md is
+// present, an empty .xbin/ (bx locates the workspace by xbin.json + .xbin),
+// and a pre-created mountpoint dir for every nested bind — the view is bound
+// READ-ONLY at the workspace root, so mountpoints can't be created later.
+// Caller removes the dir when the session ends.
+func (m *Manager) stageView(rel, homeKey string, readable []string, rootFiles map[string][]byte) (string, error) {
+	dir := filepath.Join(m.Root, ".xbin", "term", "view-"+util.RandomToken(8))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	fail := func(err error) (string, error) { os.RemoveAll(dir); return "", err }
+	for name, content := range rootFiles {
+		if filepath.Base(name) != name { // root files only — no path tricks
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			return fail(err)
+		}
+	}
+	if _, ok := rootFiles["AGENTS.md"]; ok {
+		if err := os.Symlink("AGENTS.md", filepath.Join(dir, "CLAUDE.md")); err != nil && !os.IsExist(err) {
+			return fail(err)
+		}
+	}
+	mountpoints := append([]string{".xbin", filepath.Join("homes", homeKey), rel}, readable...)
+	for _, p := range mountpoints {
+		p = strings.Trim(filepath.ToSlash(p), "/")
+		if p == "" || strings.HasPrefix(p, "..") {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(p)), 0o755); err != nil {
+			return fail(err)
+		}
+	}
+	return dir, nil
+}
+
+// scopedBindsView is the D40 ALLOW-LIST plan for restricted terminals: the
+// staged view dir READ-ONLY at the workspace root (redacted root files, and
+// only the mountpoint dirs that need covering), then exactly the binds the
+// principal is entitled to — each readable component RO, the session's own
+// component RW, the user's $HOME RW — plus the read-only extras (SDK). No
+// masks: unreadable tiles don't exist here, names included, and neither do
+// .xbin/data contents or the resenc mount-table names the recursive
+// real-root bind used to carry.
+func scopedBindsView(root, rel, homeDir, viewDir string, readable []string, extra []sandbox.Bind) []sandbox.Bind {
+	binds := []sandbox.Bind{{Src: viewDir, Dst: root, RO: true}}
+	for _, r := range readable {
+		r = strings.Trim(filepath.ToSlash(r), "/")
+		if r == "" || r == rel {
+			continue // own component binds RW below
+		}
+		src := filepath.Join(root, filepath.FromSlash(r))
+		if pathIsDir(src) {
+			binds = append(binds, sandbox.Bind{Src: src, Dst: src, RO: true})
+		}
+	}
+	comp := filepath.Join(root, filepath.FromSlash(rel))
+	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // own component: rw
+	if pathIsDir(homeDir) {
+		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // own $HOME: rw
+	}
+	return append(binds, extra...)
+}
+
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
 // workspace read-only except the session user's $HOME (homes/<user>) and this
 // component's own dir (see scopedBinds) — the editing plane scoped to this
@@ -586,6 +671,20 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // component fall back to an ephemeral upper. netMode picks the network scope.
 func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
 	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds, o.hide)
+	viewDir := ""
+	if o.restricted && rel != "" && o.rootFiles != nil { // D40 allow-list view
+		vd, err := m.stageView(rel, o.homeKey, o.readable, o.rootFiles)
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("stage terminal view: %w", err)
+		}
+		viewDir = vd
+		binds = scopedBindsView(m.Root, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
+	}
+	dropView := func() {
+		if viewDir != "" {
+			_ = os.RemoveAll(viewDir)
+		}
+	}
 	env := m.sandboxEnv(rel, o.net, homeDir, token)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
@@ -639,6 +738,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			// than corrupt its apt/dpkg state on a different base (the startup
 			// gate normally prevents reaching here). Reset the terminal to upgrade.
 			m.releaseEnv(envKey)
+			dropView()
 			return nil, nil, nil, "", fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
 		}
 		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
@@ -662,6 +762,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
+		dropView()
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -694,7 +795,11 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		}
 		return rl
 	}
-	return cmd, h.Cleanup, post, envKey, nil
+	cleanup := func() {
+		h.Cleanup()
+		dropView()
+	}
+	return cmd, cleanup, post, envKey, nil
 }
 
 // hostForward maps the xbind listen port on the relay gateway IP to xbind on

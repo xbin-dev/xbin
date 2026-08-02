@@ -74,3 +74,39 @@ func TestMissingModules(t *testing.T) {
 		t.Fatalf("missingModules = %v, want [./apps/c]", m)
 	}
 }
+
+// D40: GoWorkFor filters the rendered go.work to the components a restricted
+// terminal may read — no leaked names, no `use` of dirs absent from the
+// allow-list mount.
+func TestGoWorkFor(t *testing.T) {
+	root := t.TempDir()
+	mk := func(p, content string) {
+		t.Helper()
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("xbin.json", `{"schema":1}`)
+	mk("apps/mine/xbin.json", `{"runtime":"go"}`)
+	mk("apps/mine/go.mod", "module mine\ngo 1.24\n")
+	mk("apps/secret/xbin.json", `{"runtime":"go"}`)
+	mk("apps/secret/backend/go.mod", "module secret\ngo 1.24\n")
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := GoWorkFor(reg, "/opt/xbin/sdk", func(p string) bool { return p == "apps/mine" })
+	if !strings.Contains(got, "./apps/mine") || strings.Contains(got, "secret") {
+		t.Fatalf("filtered go.work wrong:\n%s", got)
+	}
+	if !strings.Contains(got, "/opt/xbin/sdk") {
+		t.Error("sdk replace must survive")
+	}
+	if GoWorkFor(reg, "", func(string) bool { return false }) != "" {
+		t.Error("nothing readable and no sdk → empty")
+	}
+}

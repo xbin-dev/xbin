@@ -42,12 +42,13 @@ Terminals are the editing plane — a real shell, scoped to its tile, in a
 component's directory. (The **root terminal** — a shell on the workspace root —
 is **disabled**; workspace-wide work happens in the browser UI or a host shell.)
 
-A **component terminal** mounts the workspace **read-only except `$HOME` and
-that component's own directory** — so you can read every other tile's *source*
-(needed to integrate against its API) but edit only your own tile and `$HOME`.
-On top of that, the platform's secrets and other users' data are **masked out
-entirely** (an empty overlay hides them, even though the root is bound
-read-only):
+How a component terminal sees the workspace depends on who opened it (D40):
+
+An **admin's component terminal** mounts the workspace **read-only except
+`$HOME` and that component's own directory** — read every tile's *source*
+(needed to integrate against its API), edit only your own tile and `$HOME`.
+The platform's secrets and other users' data are **masked out entirely** (an
+empty overlay hides them, even though the root is bound read-only):
 
 - **`.xbin/`** — the owner token and the frame-token secret. Without this mask
   a shell could `cat .xbin/token` and become owner, defeating the tile-scoped
@@ -58,21 +59,40 @@ read-only):
 - **`homes/`** — every *other* user's `$HOME` (their agent credentials, shell
   history). Your own `$HOME` remains read-write.
 
-This holds for **every** terminal, including one on a tile you own. So a rogue
-agent in a component terminal can touch **only its own component and `$HOME`**,
-and can read code but not secrets.
+A **non-admin's component terminal** gets an **allow-list view** instead of
+masks (D40): the workspace root is a small staged directory containing only
+redacted root files, and the ONLY things bound into it are the components the
+user can `read` (read-only), their own component (read-write), and their own
+`$HOME`. Consequences, each closing a leak the deny-list masking had:
 
-The masks hide the secrets' *contents*; the mount table may still hint at
-their *existence*. The workspace's per-resource encrypted stores are each a
-gocryptfs mount under `.xbin/resenc/…` named after the owning tile. The
-read-only workspace bind is **recursive**, so those submounts are cloned into
-the terminal; the `.xbin` mask then shadows them (their contents are
-unreadable), and on current kernels they drop out of the terminal's
-`/proc/self/mountinfo` as well — but that shadow-hiding isn't guaranteed
-across kernels, so treat the resource *names* as potentially visible in the
-mount table. This is a benign disclosure: a tile terminal can already `ls`
-every tile's source (the workspace is bound read-only precisely so a tile can
-integrate against another's API), so a resource path in `mount` names nothing
+- **Unreadable tiles don't exist** — not their contents, not their *names*
+  (`ls apps/` lists only what you may read; the mount table carries no
+  per-tile masks to enumerate).
+- **`xbin.json` is redacted**: schema + import map, plus only the grants and
+  binding rows whose every referenced component you can read. The real file
+  is the workspace's entire topology — grant edges, wiring, public
+  hostnames — and never enters the sandbox.
+- **`go.work` is filtered** to readable modules (so `go build` never chases
+  directories that aren't there), and `AGENTS.md`/`.gitignore` are copies.
+- `.xbin/`, `data/`, other homes: simply **not mounted** (an empty `.xbin`
+  marker exists so `bx` can locate the workspace root), and the resenc
+  mount-table names the recursive bind used to carry are gone with it.
+
+Either way it holds for **every** terminal, including one on a tile you own:
+a rogue agent in a component terminal can touch **only its own component and
+`$HOME`**, and can read code but not secrets.
+
+For ADMIN terminals the masks hide the secrets' *contents*; the mount table
+may still hint at their *existence*. The workspace's per-resource encrypted
+stores are each a gocryptfs mount under `.xbin/resenc/…` named after the
+owning tile. The admin view's read-only workspace bind is **recursive**, so
+those submounts are cloned into the terminal; the `.xbin` mask then shadows
+them (their contents are unreadable), and on current kernels they drop out of
+the terminal's `/proc/self/mountinfo` as well — but that shadow-hiding isn't
+guaranteed across kernels, so treat the resource *names* as potentially
+visible in an ADMIN terminal's mount table. This is a benign disclosure
+there: an admin terminal can already `ls` every tile's source, so a resource
+path in `mount` names nothing
 `ls` doesn't. Truly removing the names would require moving resource storage
 outside the workspace tree — the mount can't be pruned in place, because a
 rootless user namespace **locks every inherited mount**: you can neither
@@ -135,9 +155,10 @@ tier — while still running `apt`:
   `mount`. A seccomp filter denying the namespace-creating syscalls backs this up
   on kernels where the knob doesn't take (see `plans/DECISIONS.md` D18).
 - **Source visibility cut to the allow-list.** An admin's terminal sees every
-  tile's source read-only; a non-admin's masks out each tile below their
-  `read` level (docs/auth.md) — the same rule the tile list applies, enforced
-  at the mount level. Sealed covers: nothing can be re-mounted over them.
+  tile's source read-only; a non-admin's mounts ONLY the tiles at/above their
+  `read` level (the D40 allow-list view — unreadable tiles are absent, names
+  included, and the root files are redacted copies) — the same rule the tile
+  list applies, enforced at the mount level.
 - **Code-only and airgapped by default.** Without the user's `termApi` grant
   the session is minted with **no** tile-API token (the `?api=1` toggle is
   clamped); without `termNet`, no internet egress (`?net=` is clamped to

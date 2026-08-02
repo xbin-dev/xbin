@@ -58,13 +58,15 @@ hints, so declare what you need and it will be seen (docs/auth.md D33).
 Same rules as the running component — see §Auth.
 
 **Terminal scope:** a terminal opened on a component can write **only that
-component's own directory and `$HOME`** — the **entire rest of the workspace is
-read-only** (other components' source, workspace files like `xbin.json`/
-`AGENTS.md`/`go.work`). So you can read siblings for deps/patterns and API
-integration, but can't touch anything outside your component; a rogue agent
-can't break the environment. The platform's secrets are **not even readable**:
-`.xbin/` (tokens), `data/` (vault, resource state), and other users' `homes/`
-are masked out — use the resource/vault APIs, not the raw files.
+component's own directory and `$HOME`** — everything else it sees is
+read-only. What it SEES follows the driving user's access (D40): tiles you
+hold `read` on are mounted read-only (read siblings for deps/patterns and
+API integration); tiles below your read level are simply absent — contents
+AND names. Workspace root files (`xbin.json`, `go.work`) are redacted/
+filtered to what you can read. The platform's secrets are **not even
+present**: `.xbin/` (tokens), `data/` (vault, resource state), and other
+users' `homes/` are not mounted — use the resource/vault APIs, not raw
+files. A rogue agent can't break the environment or map what it can't read.
 **Each component is its own git repo**, so `cd` into it and `git commit` works
 even though the root is read-only. To edit a *different* component, open a
 terminal on it. There is **no root terminal** (disabled): workspace-wide work —

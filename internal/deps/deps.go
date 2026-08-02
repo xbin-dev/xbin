@@ -118,20 +118,11 @@ func cleanStale(c *registry.Component, want map[string]string) {
 // is stale and would break builds, so we reclaim it. This keeps go.work
 // self-healing against the toolchain editing it out from under us.
 func GoWork(reg *registry.Registry, sdkPath string) error {
-	var mods []string
-	for _, c := range reg.Components() {
-		switch {
-		case fileExists(filepath.Join(c.Dir, "go.mod")):
-			mods = append(mods, "./"+c.Path) // canonical: module at the component root
-		case fileExists(filepath.Join(c.Dir, "backend", "go.mod")):
-			mods = append(mods, "./"+c.Path+"/backend") // module in backend/ (also supported)
-		}
-	}
+	mods := goModules(reg, nil)
 	workPath := filepath.Join(reg.Root, "go.work")
 	if len(mods) == 0 && sdkPath == "" {
 		return nil // nothing Go in the workspace; leave whatever exists alone
 	}
-	sort.Strings(mods)
 	desired := renderGoWork(mods, sdkPath)
 
 	cur, err := os.ReadFile(workPath)
@@ -150,6 +141,38 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 		}
 	}
 	return os.WriteFile(workPath, []byte(desired), 0o644)
+}
+
+// goModules lists the workspace's Go module use-paths, sorted; include
+// (nil = all) filters by component path.
+func goModules(reg *registry.Registry, include func(path string) bool) []string {
+	var mods []string
+	for _, c := range reg.Components() {
+		if include != nil && !include(c.Path) {
+			continue
+		}
+		switch {
+		case fileExists(filepath.Join(c.Dir, "go.mod")):
+			mods = append(mods, "./"+c.Path) // canonical: module at the component root
+		case fileExists(filepath.Join(c.Dir, "backend", "go.mod")):
+			mods = append(mods, "./"+c.Path+"/backend") // module in backend/ (also supported)
+		}
+	}
+	sort.Strings(mods)
+	return mods
+}
+
+// GoWorkFor renders a go.work covering only the components include admits —
+// the content a RESTRICTED terminal's view stages (D40): a full go.work would
+// both leak unreadable tiles' names and break `go build` by using directories
+// that don't exist in the allow-list mount. "" when there is nothing Go to
+// declare.
+func GoWorkFor(reg *registry.Registry, sdkPath string, include func(path string) bool) string {
+	mods := goModules(reg, include)
+	if len(mods) == 0 && sdkPath == "" {
+		return ""
+	}
+	return renderGoWork(mods, sdkPath)
 }
 
 func renderGoWork(mods []string, sdkPath string) string {
