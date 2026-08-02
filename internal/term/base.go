@@ -157,6 +157,14 @@ func (m *Manager) CheckBaseImages() error {
 		if !e.IsDir() {
 			continue
 		}
+		// view-* dirs are D40 per-session STAGED VIEWS, not env layers — a
+		// daemon restart orphans any live sessions' views, and treating them
+		// as layers pinned to a phantom base crash-looped a production boot
+		// (2026-08-02). Sweep them here: anything present at boot is dead.
+		if strings.HasPrefix(e.Name(), "view-") {
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+			continue
+		}
 		ver := "v0"
 		if b, err := os.ReadFile(filepath.Join(dir, e.Name(), "base")); err == nil {
 			if v := strings.TrimSpace(string(b)); v != "" {
