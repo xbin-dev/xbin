@@ -1,5 +1,13 @@
 # User / Org / Team UX — audit & fix plan
 
+> **Update (2026-08-02):** the org/team *model* is being rewritten —
+> [`plans/ownership.md`](ownership.md) (D24–D27). That rewrite subsumes this
+> plan's D23 (creator sharing — now an ownership right), most of M2's sharing
+> work, and several gaps below (org-UI duplication, seeded admin tiles,
+> members-see-nothing). Still live from this plan: **M1 onboarding** (D22
+> invite tokens, login-page fixes, first-run hardening), member self-service
+> password change, user disable, and the M3 console polish.
+
 Pre-open-source audit of the multi-user experience. **Finding in one line: the
 model and its enforcement are sound and complete — org/team caps (D19–D21),
 Argon2id + login throttle + session TTLs, deleted-user session/grant

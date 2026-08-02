@@ -1,5 +1,12 @@
 # Orgs & teams — design
 
+> **SUPERSEDED (2026-08-02)** by [`plans/ownership.md`](ownership.md): teams
+> and positional `o/<org>/` paths are being replaced by NPM-style per-tile
+> **ownership** (user- or org-owned, transferable), flat org roles, and
+> ws-admin-delegated **allowances** for self-approving system-resource grants
+> (D24–D27). No released workspace used this model, so it is removed rather
+> than migrated. Kept for the D19–D21 rationale it documents.
+
 GitHub-shaped grouping layered on the flat multi-user store
 (plans/multi-user.md): users grouped into **teams** inside **orgs**, per-tile
 access assigned to teams/users, tiles created *in a team* picking up team
