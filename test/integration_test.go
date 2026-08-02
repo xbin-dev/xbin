@@ -636,11 +636,12 @@ func TestMultiUser(t *testing.T) {
 		t.Error("root token saw bob's per-user prefs (isolation broken)")
 	}
 
-	// --- Orgs & teams end to end (plans/orgs.md, D19–D21) -------------------
-	// Root builds org acme (admin carol) with team core (member dana), creates
-	// a tile IN the team, and the whole chain holds: dana sees exactly the team
-	// tile, carol delegates inside the org but hits the security caps, the
-	// policy ceiling blocks a grant, reserved paths are refused.
+	// --- Ownership, orgs & delegated approval end to end (plans/ownership.md,
+	// D24–D28). Root builds org acme (carol admin, dana developer), creates an
+	// org-OWNED tile, and the chain holds: dana sees exactly the org tile,
+	// carol manages members/ACLs but hits the ws-admin caps, a ws-admin-set
+	// allowance lets carol approve a grant herself, and the policy ceiling
+	// still beats everything.
 	rootDo := func(method, path, body string) (int, string) {
 		var rd io.Reader
 		if body != "" {
@@ -662,40 +663,38 @@ func TestMultiUser(t *testing.T) {
 	if c := root("POST", "/api/xbin/users", `{"id":"dana","role":"user","password":"dana-pw44"}`); c != 200 {
 		t.Fatalf("create dana: %d", c)
 	}
-	if c, b := rootDo("POST", "/api/xbin/orgs", `{"id":"acme","admins":["carol"],"members":["dana"]}`); c != 200 {
+	if c, b := rootDo("POST", "/api/xbin/orgs", `{"id":"acme"}`); c != 200 {
 		t.Fatalf("create org: %d %s", c, b)
 	}
-	if c, b := rootDo("POST", "/api/xbin/orgs/acme/teams", `{"id":"core","members":["dana"],"newTiles":"write"}`); c != 200 {
-		t.Fatalf("create team: %d %s", c, b)
+	if c, b := rootDo("PATCH", "/api/xbin/orgs/acme",
+		`{"members":[{"id":"carol","level":"terminal","create":true,"admin":true},{"id":"dana","level":"write","create":true}]}`); c != 200 {
+		t.Fatalf("org members: %d %s", c, b)
 	}
-	if c, b := rootDo("POST", "/api/xbin/create", `{"path":"apps/o/acme/dash","team":"acme/core"}`); c != 200 || !strings.Contains(b, `"teamLevel":"write"`) {
-		t.Fatalf("create-in-team: %d %s", c, b)
+	if c, b := rootDo("POST", "/api/xbin/create", `{"path":"apps/acmedash","owner":"org:acme"}`); c != 200 || !strings.Contains(b, `"owner":"org:acme"`) {
+		t.Fatalf("create org-owned tile: %d %s", c, b)
 	}
-	if c, b := rootDo("POST", "/api/xbin/create", `{"path":"apps/o/ghost/x"}`); c != 400 || !strings.Contains(b, "no such org") {
-		t.Fatalf("unknown-org path: %d %s", c, b)
-	}
-	if c, b := rootDo("POST", "/api/xbin/create", `{"path":"apps/u/dana/x"}`); c != 400 || !strings.Contains(b, "reserved") {
-		t.Fatalf("reserved u path: %d %s", c, b)
+	if c, b := rootDo("POST", "/api/xbin/create", `{"path":"apps/ghosty","owner":"org:ghost"}`); c != 403 || !strings.Contains(b, "no such org") {
+		t.Fatalf("unknown-org owner: %d %s", c, b)
 	}
 
-	// dana (team member): the team tile is visible, everything else isn't;
-	// whoami reports the membership.
+	// dana (developer): the org tile is visible at her org level, everything
+	// else isn't; whoami reports the membership shape.
 	danaC, ok := login("dana", "dana-pw44")
 	if !ok {
 		t.Fatal("dana login failed")
 	}
-	if code := as(danaC, "/c/apps/o/acme/dash/"); code != 200 {
-		t.Errorf("dana team tile: %d, want 200", code)
+	if code := as(danaC, "/c/apps/acmedash/"); code != 200 {
+		t.Errorf("dana org tile: %d, want 200", code)
 	}
 	if code := as(danaC, "/c/apps/welcome/"); code != 403 {
 		t.Errorf("dana unrelated tile: %d, want 403", code)
 	}
-	if c, b := getBody(danaC, "", "/api/xbin/whoami"); c != 200 || !strings.Contains(b, `"acme"`) || !strings.Contains(b, `"core"`) {
+	if c, b := getBody(danaC, "", "/api/xbin/whoami"); c != 200 || !strings.Contains(b, `"acme"`) || !strings.Contains(b, `"level":"write"`) {
 		t.Errorf("dana whoami orgs: %d %s", c, b)
 	}
 
-	// carol (org admin of acme): manages the org's teams and per-tile access,
-	// but the workspace-security knobs and out-of-org tiles refuse.
+	// carol (org admin of acme): member management and org-owned ACLs work,
+	// the workspace-security knobs and out-of-org tiles refuse.
 	carolDo := func(method, path, body string) (int, string) {
 		rq, _ := http.NewRequest(method, base+path, strings.NewReader(body))
 		rq.AddCookie(carolC)
@@ -710,31 +709,47 @@ func TestMultiUser(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		return r.StatusCode, string(b)
 	}
-	if c, b := carolDo("PATCH", "/api/xbin/orgs/acme/teams/core", `{"newTiles":"terminal"}`); c != 200 {
-		t.Errorf("carol team patch: %d %s", c, b)
+	if c, b := carolDo("PATCH", "/api/xbin/orgs/acme",
+		`{"members":[{"id":"carol","level":"terminal","create":true,"admin":true},{"id":"dana","level":"terminal","create":true}]}`); c != 200 {
+		t.Errorf("carol member patch: %d %s", c, b)
 	}
-	if c, _ := carolDo("PATCH", "/api/xbin/orgs/acme/teams/core", `{"termNet":true}`); c != 403 {
-		t.Errorf("carol term flag: %d, want 403", c)
+	if c, _ := carolDo("PATCH", "/api/xbin/orgs/acme", `{"allow":["net:internet"]}`); c != 403 {
+		t.Errorf("carol allowance self-serve: %d, want 403", c)
 	}
 	if c, _ := carolDo("PUT", "/api/xbin/orgs/acme/policy", `{"policy":[]}`); c != 403 {
 		t.Errorf("carol policy: %d, want 403", c)
 	}
-	if c, b := carolDo("PUT", "/api/xbin/access", `{"tile":"apps/o/acme/dash","kind":"user","id":"dana","level":"terminal"}`); c != 200 {
-		t.Errorf("carol in-org access put: %d %s", c, b)
+	if c, b := carolDo("PUT", "/api/xbin/access", `{"tile":"apps/acmedash","kind":"user","id":"dana","level":"terminal"}`); c != 200 {
+		t.Errorf("carol org-owned access put: %d %s", c, b)
 	}
 	if c, _ := carolDo("PUT", "/api/xbin/access", `{"tile":"apps/welcome","kind":"user","id":"dana","level":"read"}`); c != 403 {
 		t.Errorf("carol out-of-org access put: %d, want 403", c)
 	}
-	if code := as(carolC, "/c/apps/o/acme/dash/"); code != 200 {
+	if code := as(carolC, "/c/apps/acmedash/"); code != 200 {
 		t.Errorf("carol implicit org-admin access: %d, want 200", code)
 	}
 
-	// Policy ceiling: a mayCall row over the org's tiles makes an uncovered
-	// grant unapprovable (evaluation-side coverage is unit-tested).
-	if c, b := rootDo("PUT", "/api/xbin/orgs/acme/policy", `{"policy":[{"tiles":"*","mayCall":["apps/o/acme/*"]}]}`); c != 200 {
+	// Delegated approval (D26): before the allowance carol can't approve a
+	// gpu grant on the org tile; after the ws-admin sets it, she can.
+	if c, _ := carolDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"gpu:0","role":"egress"}`); c != 403 {
+		t.Errorf("carol uncovered grant approve: %d, want 403", c)
+	}
+	if c, b := rootDo("PATCH", "/api/xbin/orgs/acme", `{"allow":["gpu:*"]}`); c != 200 {
+		t.Fatalf("root sets allowance: %d %s", c, b)
+	}
+	if c, b := carolDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"gpu:0","role":"egress"}`); c != 200 {
+		t.Errorf("carol allowance-covered approve: %d %s", c, b)
+	}
+	if c, _ := carolDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"xbin","role":"admin"}`); c != 403 {
+		t.Errorf("carol xbin approve must never pass: %d", c)
+	}
+
+	// Policy ceiling: a mayCall row over the org's OWNED tiles makes an
+	// uncovered grant unapprovable — for the ws-admin too (deny beats allow).
+	if c, b := rootDo("PUT", "/api/xbin/orgs/acme/policy", `{"policy":[{"tiles":"*","mayCall":["apps/acme*"]}]}`); c != 200 {
 		t.Fatalf("set org policy: %d %s", c, b)
 	}
-	if c, b := rootDo("POST", "/api/xbin/grants", `{"from":"apps/o/acme/dash","target":"apps/welcome","role":"reader"}`); c != 400 || !strings.Contains(b, "allow-lists call targets") {
+	if c, b := rootDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"apps/welcome","role":"reader"}`); c != 400 || !strings.Contains(b, "allow-lists call targets") {
 		t.Errorf("ceiling grant reject: %d %s", c, b)
 	}
 }

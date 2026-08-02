@@ -43,8 +43,6 @@ func main() {
 		err = cmdUser(os.Args[2:])
 	case "org":
 		err = cmdOrg(os.Args[2:])
-	case "team":
-		err = cmdTeam(os.Args[2:])
 	case "access":
 		err = cmdAccess(os.Args[2:])
 	case "logs":
@@ -117,8 +115,7 @@ func usage() {
   bx grant --revoke <caller> <target>:<role>
   bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md)
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
-  bx team ls|add|set|rm <org>/<team>    teams (union grants within their org)
-  bx access <tile> [set|rm user:…|team:…] per-tile access entries
+  bx access <tile> [set|rm user:…|org:…] per-tile access entries (owner/admin)
   bx iface                              interface requests, providers, bindings
   bx bind <component> <slot>=<provider> wire an interface to a provider
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>

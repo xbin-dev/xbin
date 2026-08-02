@@ -163,6 +163,10 @@ func TestNetBindingCeiling(t *testing.T) {
 	if _, err := st.UpsertOrg(users.Org{ID: "sales"}); err != nil {
 		t.Fatal(err)
 	}
+	// Org rows key off OWNERSHIP now (D24/D25) — the path carries no org.
+	if err := st.SetOwner("apps/o/sales/bot", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
 
 	if nb := b.netBinding("apps/o/sales/bot"); nb != "internet" {
 		t.Fatalf("baseline binding = %q, want internet", nb)
@@ -184,48 +188,54 @@ func TestNetBindingCeiling(t *testing.T) {
 	}
 }
 
-// Create-in-team: membership/org rules, and the team + creator auto-grants.
-func TestResolveCreateTeam(t *testing.T) {
+// resolveCreateOwner (D24/D25): humans default to user-owned; org owner
+// needs the Create knob (or org/ws admin); user:<other> is ws-admin only.
+func TestResolveCreateOwner(t *testing.T) {
 	b := testBroker(t)
 	st := testUsers(t, b)
-	for _, id := range []string{"alice", "bob", "carol"} {
-		if _, err := st.Upsert(users.User{ID: id, Role: users.RoleUser}, "password"); err != nil {
+	for _, u := range []users.User{
+		{ID: "alice", Role: users.RoleUser},
+		{ID: "bob", Role: users.RoleUser},
+		{ID: "carol", Role: users.RoleUser},
+		{ID: "boss", Role: users.RoleAdmin},
+	} {
+		if _, err := st.Upsert(u, "password"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.UpsertOrg(users.Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.UpsertTeam("sales", users.Team{ID: "backend", Members: []string{"bob"}, NewTiles: users.LevelTerminal}); err != nil {
+	if _, err := st.UpsertOrg(users.Org{ID: "sales", Members: []users.Member{
+		{ID: "carol", Level: users.LevelTerminal, Admin: true},
+		{ID: "bob", Level: users.LevelWrite, Create: true},
+		{ID: "alice", Level: users.LevelRead},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 
 	cases := []struct {
-		name string
-		p    auth.Principal
-		ref  string
-		path string
-		want string // "" = allowed, else substring of the refusal
+		name      string
+		p         auth.Principal
+		requested string
+		wantRef   string
+		refuse    string // substring of the refusal, "" = allowed
 	}{
-		{"member", auth.Principal{UserID: "bob"}, "sales/backend", "apps/o/sales/crm", ""},
-		{"org admin", auth.Principal{UserID: "carol"}, "sales/backend", "apps/o/sales/crm", ""},
-		{"ws admin", auth.Principal{Owner: true}, "sales/backend", "apps/o/sales/crm", ""},
-		{"non-member", auth.Principal{UserID: "alice"}, "sales/backend", "apps/o/sales/crm", "membership"},
-		{"path outside org", auth.Principal{UserID: "bob"}, "sales/backend", "apps/crm", "not inside org"},
-		{"bad ref", auth.Principal{UserID: "bob"}, "backend", "apps/o/sales/crm", "<org>/<team>"},
-		{"unknown team", auth.Principal{UserID: "bob"}, "sales/frontend", "apps/o/sales/crm", "no such team"},
+		{"human default", auth.Principal{UserID: "bob"}, "", "user:bob", ""},
+		{"admin default", auth.Principal{Owner: true}, "", "", ""},
+		{"org by create-knob", auth.Principal{UserID: "bob"}, "org:sales", "org:sales", ""},
+		{"org by org-admin", auth.Principal{UserID: "carol"}, "org:sales", "org:sales", ""},
+		{"org refused for viewer", auth.Principal{UserID: "alice"}, "org:sales", "", "Create permission"},
+		{"unknown org", auth.Principal{UserID: "bob"}, "org:nope", "", "no such org"},
+		{"self user ref", auth.Principal{UserID: "bob"}, "user:bob", "user:bob", ""},
+		{"other user ref", auth.Principal{UserID: "bob"}, "user:alice", "", "workspace-admin"},
+		{"bad ref", auth.Principal{UserID: "bob"}, "gang:x", "", "owner must be"},
 	}
 	for _, c := range cases {
-		team, org, msg := b.resolveCreateTeam(c.p, c.ref, c.path)
-		if c.want == "" && (msg != "" || team == nil || org != "sales") {
-			t.Errorf("%s: unexpected refusal %q", c.name, msg)
+		ref, msg := b.resolveCreateOwner(c.p, c.requested)
+		if c.refuse == "" && (msg != "" || ref != c.wantRef) {
+			t.Errorf("%s: got ref=%q msg=%q, want ref=%q", c.name, ref, msg, c.wantRef)
 		}
-		if c.want != "" && !strings.Contains(msg, c.want) {
-			t.Errorf("%s: msg %q, want containing %q", c.name, msg, c.want)
+		if c.refuse != "" && !strings.Contains(msg, c.refuse) {
+			t.Errorf("%s: msg %q, want containing %q", c.name, msg, c.refuse)
 		}
-	}
-	if team, _, _ := b.resolveCreateTeam(auth.Principal{UserID: "bob"}, "sales/backend", "apps/o/sales/crm"); team.NewTiles != users.LevelTerminal {
-		t.Fatal("resolved team must carry its NewTiles level")
 	}
 }
 
@@ -255,27 +265,24 @@ func TestGrantApprovalCeilingReject(t *testing.T) {
 	}
 }
 
-// Reserved-segment validation runs on every creating entry point.
-func TestValidateNewPathGate(t *testing.T) {
+// ValidateNewTile: the owner ref must exist; paths carry no reserved org
+// segments anymore (D24 abolished positional naming).
+func TestValidateNewTileOwner(t *testing.T) {
 	b := testBroker(t)
 	st := testUsers(t, b)
 	if _, err := st.UpsertOrg(users.Org{ID: "sales"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.validateNewPath("apps/o/sales/x"); err != nil {
-		t.Fatalf("valid org path refused: %v", err)
+	if err := st.ValidateNewTile("org:sales"); err != nil {
+		t.Fatalf("existing org refused: %v", err)
 	}
-	if err := b.validateNewPath("apps/o/nope/x"); err == nil {
+	if err := st.ValidateNewTile("org:nope"); err == nil {
 		t.Fatal("unknown org must be refused")
 	}
-	if err := b.validateNewPath("apps/u/bob/x"); err == nil {
-		t.Fatal("u segment must be reserved")
+	if err := st.ValidateNewTile(""); err != nil {
+		t.Fatal("workspace-owned is always valid")
 	}
-	// Nil store (single-user mode): no restriction.
-	b.Users = nil
-	if err := b.validateNewPath("apps/u/bob/x"); err != nil {
-		t.Fatal("nil store must not restrict")
-	}
+	_ = b
 }
 
 // canCreateAt: the confused-deputy clamp — an element's workspace-management

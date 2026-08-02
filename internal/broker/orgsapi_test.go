@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,8 +15,9 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// orgFixture: broker + store with alice (member), bob (team member),
-// carol (org admin of sales), dave (outsider), root2 (workspace admin).
+// orgFixture: broker + store with carol (org admin of sales), bob (developer:
+// terminal+create), alice (viewer), dave (outsider), root2 (ws admin). The
+// fixture's apps/email tile is owned by sales; apps/calendar stays workspace.
 func orgFixture(t *testing.T) (*Broker, *users.Store) {
 	t.Helper()
 	b := testBroker(t)
@@ -27,320 +30,347 @@ func orgFixture(t *testing.T) (*Broker, *users.Store) {
 	if _, err := st.Upsert(users.User{ID: "root2", Role: users.RoleAdmin}, "password"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.UpsertOrg(users.Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
+	if _, err := st.UpsertOrg(users.Org{ID: "sales", Members: []users.Member{
+		{ID: "carol", Level: users.LevelTerminal, Create: true, Admin: true},
+		{ID: "bob", Level: users.LevelTerminal, Create: true},
+		{ID: "alice", Level: users.LevelRead},
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.UpsertTeam("sales", users.Team{ID: "backend", Members: []string{"bob"},
-		Tiles: map[string]string{"apps/o/sales/*": users.LevelWrite}}); err != nil {
+	if err := st.SetOwner("apps/email", "org:sales"); err != nil {
 		t.Fatal(err)
 	}
 	return b, st
 }
 
-// sessionPrincipal builds what FromRequest builds for a signed-in human.
-func sessionPrincipal(t *testing.T, st *users.Store, id string) auth.Principal {
+func principalFor(t *testing.T, st *users.Store, id string) auth.Principal {
 	t.Helper()
 	u, ok := st.Get(id)
 	if !ok {
-		t.Fatalf("no user %s", id)
+		t.Fatalf("no user %q", id)
 	}
-	acc, _ := st.Access(id)
-	return auth.Principal{UserID: id, User: u, Access: acc, Via: "session"}
+	a, _ := st.Access(id)
+	return auth.Principal{UserID: id, User: u, Access: a}
 }
 
-func call(t *testing.T, h http.HandlerFunc, p auth.Principal, method, target, body string, pathVals map[string]string) *httptest.ResponseRecorder {
+func call(t *testing.T, h http.HandlerFunc, p auth.Principal, method, url, body string, pathVals map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(method, target, strings.NewReader(body))
-	r = r.WithContext(auth.WithPrincipal(context.Background(), p))
+	var rd *strings.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	} else {
+		rd = strings.NewReader("")
+	}
+	r := httptest.NewRequest(method, url, rd)
 	for k, v := range pathVals {
 		r.SetPathValue(k, v)
 	}
+	r = r.WithContext(auth.WithPrincipal(context.Background(), p))
 	w := httptest.NewRecorder()
 	h(w, r)
 	return w
 }
 
+// --- org management gates (D25/D26/D28) --------------------------------------
+
 func TestOrgAPIGates(t *testing.T) {
 	b, st := orgFixture(t)
-	carol := func() auth.Principal { return sessionPrincipal(t, st, "carol") }
-	alice := func() auth.Principal { return sessionPrincipal(t, st, "alice") }
-	admin := auth.Principal{Owner: true}
+	carol := principalFor(t, st, "carol") // org admin
+	bob := principalFor(t, st, "bob")     // developer
+	root := auth.Principal{Owner: true}
 
-	// Org admin can rename their org and manage teams…
-	if w := call(t, b.apiOrgUpdate, carol(), "PATCH", "/x", `{"name":"Sales Dept"}`, map[string]string{"org": "sales"}); w.Code != 200 {
-		t.Fatalf("org admin rename: %d %s", w.Code, w.Body.String())
+	// Org admin edits members.
+	w := call(t, b.apiOrgUpdate, carol, "PATCH", "/orgs/sales",
+		`{"members":[{"id":"carol","level":"terminal","create":true,"admin":true},{"id":"dave","level":"read"}]}`,
+		map[string]string{"org": "sales"})
+	if w.Code != 200 {
+		t.Fatalf("org admin member edit: %d %s", w.Code, w.Body.String())
 	}
-	if w := call(t, b.apiTeamUpsert, carol(), "POST", "/x", `{"id":"frontend","members":["alice"]}`, map[string]string{"org": "sales"}); w.Code != 200 {
-		t.Fatalf("org admin team create: %d %s", w.Code, w.Body.String())
+	// A non-admin member cannot.
+	w = call(t, b.apiOrgUpdate, bob, "PATCH", "/orgs/sales", `{"name":"x"}`, map[string]string{"org": "sales"})
+	if w.Code != 403 {
+		t.Fatalf("developer must not manage the org: %d", w.Code)
 	}
-	if w := call(t, b.apiTeamUpsert, carol(), "PATCH", "/x", `{"members":["alice","bob"]}`, map[string]string{"org": "sales", "team": "backend"}); w.Code != 200 {
-		t.Fatalf("org admin team patch: %d %s", w.Code, w.Body.String())
+	// Sets/allow are ws-admin only — even for the org admin.
+	w = call(t, b.apiOrgUpdate, carol, "PATCH", "/orgs/sales", `{"allow":["net:internet"]}`, map[string]string{"org": "sales"})
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "workspace-admin only") {
+		t.Fatalf("org admin must not self-serve allowances: %d %s", w.Code, w.Body.String())
 	}
-	// …but not the workspace-security knobs (term flags, policy, create/delete).
-	if w := call(t, b.apiTeamUpsert, carol(), "PATCH", "/x", `{"termNet":true}`, map[string]string{"org": "sales", "team": "backend"}); w.Code != 403 {
-		t.Fatalf("org admin term flag must 403, got %d", w.Code)
+	w = call(t, b.apiOrgUpdate, root, "PATCH", "/orgs/sales", `{"allow":["net:internet"]}`, map[string]string{"org": "sales"})
+	if w.Code != 200 {
+		t.Fatalf("ws admin sets allowance: %d %s", w.Code, w.Body.String())
 	}
-	if w := call(t, b.apiPolicyPut, carol(), "PUT", "/x", `{"policy":[]}`, map[string]string{"org": "sales"}); w.Code != 403 {
-		t.Fatalf("org admin policy must 403, got %d", w.Code)
+	// xbin can never enter an allowance.
+	w = call(t, b.apiOrgUpdate, root, "PATCH", "/orgs/sales", `{"allow":["xbin:users"]}`, map[string]string{"org": "sales"})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "never delegable") {
+		t.Fatalf("xbin allowance must be rejected at write: %d %s", w.Code, w.Body.String())
 	}
-	if w := call(t, b.apiOrgCreate, carol(), "POST", "/x", `{"id":"eng"}`, nil); w.Code != 403 {
-		t.Fatalf("org admin org-create must 403, got %d", w.Code)
-	}
-	if w := call(t, b.apiOrgDelete, carol(), "DELETE", "/x", ``, map[string]string{"org": "sales"}); w.Code != 403 {
-		t.Fatalf("org admin org-delete must 403, got %d", w.Code)
-	}
-
-	// A plain member manages nothing.
-	if w := call(t, b.apiOrgUpdate, alice(), "PATCH", "/x", `{"name":"nope"}`, map[string]string{"org": "sales"}); w.Code != 403 {
-		t.Fatalf("member org patch must 403, got %d", w.Code)
-	}
-
-	// A frame principal riding carol's user id gets the ELEMENT's power, not
-	// carol's org-adminship (plans/auth.md: no privilege inheritance).
-	frame := auth.Principal{Component: "apps/email", UserID: "carol", Via: "frame"}
-	if w := call(t, b.apiOrgUpdate, frame, "PATCH", "/x", `{"name":"nope"}`, map[string]string{"org": "sales"}); w.Code != 403 {
-		t.Fatalf("frame principal must not inherit org-admin, got %d", w.Code)
+	// Org delete refused while owning tiles.
+	w = call(t, b.apiOrgDelete, root, "DELETE", "/orgs/sales", "", map[string]string{"org": "sales"})
+	if w.Code != 409 {
+		t.Fatalf("delete while owning tiles: %d %s", w.Code, w.Body.String())
 	}
 
-	// Workspace admin: everything, including term flags and policy.
-	if w := call(t, b.apiTeamUpsert, admin, "PATCH", "/x", `{"termNet":true}`, map[string]string{"org": "sales", "team": "backend"}); w.Code != 200 {
-		t.Fatalf("ws admin term flag: %d %s", w.Code, w.Body.String())
+	// Permission sets: ws-admin only, delete-refusal while attached.
+	w = call(t, b.apiPermSetPut, carol, "PUT", "/permission-sets/dev", `{"allow":["cap:containers"]}`, map[string]string{"name": "dev"})
+	if w.Code != 403 {
+		t.Fatalf("org admin must not edit sets: %d", w.Code)
 	}
-	if w := call(t, b.apiPolicyPut, admin, "PUT", "/x", `{"policy":[{"tiles":"*","deny":["net"]}]}`, map[string]string{"org": "sales"}); w.Code != 200 {
-		t.Fatalf("ws admin org policy: %d %s", w.Code, w.Body.String())
+	w = call(t, b.apiPermSetPut, root, "PUT", "/permission-sets/dev", `{"allow":["cap:containers"]}`, map[string]string{"name": "dev"})
+	if w.Code != 200 {
+		t.Fatalf("ws admin set put: %d %s", w.Code, w.Body.String())
 	}
-	if w := call(t, b.apiPolicyGet, admin, "GET", "/x", ``, map[string]string{"org": "sales"}); w.Code != 200 || !strings.Contains(w.Body.String(), "net") {
-		t.Fatalf("policy get: %d %s", w.Code, w.Body.String())
+	if err := st.SetOrgSets("sales", []string{"dev"}); err != nil {
+		t.Fatal(err)
 	}
-
-	// GET /orgs: ws admin sees all; carol sees hers; alice sees none.
-	if w := call(t, b.apiOrgsList, admin, "GET", "/x", ``, nil); !strings.Contains(w.Body.String(), "\"sales\"") {
-		t.Fatalf("admin orgs list: %s", w.Body.String())
-	}
-	if w := call(t, b.apiOrgsList, carol(), "GET", "/x", ``, nil); !strings.Contains(w.Body.String(), "\"sales\"") {
-		t.Fatalf("org admin orgs list: %s", w.Body.String())
-	}
-	if w := call(t, b.apiOrgsList, alice(), "GET", "/x", ``, nil); strings.Contains(w.Body.String(), "\"sales\"") {
-		t.Fatalf("member orgs list should be empty: %s", w.Body.String())
+	w = call(t, b.apiPermSetDelete, root, "DELETE", "/permission-sets/dev", "", map[string]string{"name": "dev"})
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "attached") {
+		t.Fatalf("attached set delete must refuse: %d %s", w.Code, w.Body.String())
 	}
 }
 
-func TestAccessAPI(t *testing.T) {
+// --- ownership transfer authz (D24) ------------------------------------------
+
+func TestOwnerTransferAuthz(t *testing.T) {
 	b, st := orgFixture(t)
-	admin := auth.Principal{Owner: true}
-	carol := func() auth.Principal { return sessionPrincipal(t, st, "carol") }
-
-	// Seed: exact user entry + team pattern + base permission.
-	if err := st.SetUserTile("dave", "apps/o/sales/crm", users.LevelRead); err != nil {
+	if err := st.SetOwner("apps/calendar", "user:bob"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.UpsertOrg(users.Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}, BasePermission: users.LevelRead}); err != nil {
-		t.Fatal(err)
-	}
+	bob := principalFor(t, st, "bob")
+	alice := principalFor(t, st, "alice")
+	carol := principalFor(t, st, "carol")
 
-	w := call(t, b.apiAccessGet, admin, "GET", "/x?tile=apps/o/sales/crm", ``, nil)
+	// A user-owner may transfer to an org they belong to.
+	w := call(t, b.apiOwnerTransfer, bob, "POST", "/owner", `{"tile":"apps/calendar","to":"org:sales"}`, nil)
 	if w.Code != 200 {
+		t.Fatalf("owner → own org transfer: %d %s", w.Code, w.Body.String())
+	}
+	// Now org-owned: a plain member may NOT transfer it back.
+	w = call(t, b.apiOwnerTransfer, alice, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
+	if w.Code != 403 {
+		t.Fatalf("member transfer must refuse: %d", w.Code)
+	}
+	// The org admin may hand it to a member.
+	w = call(t, b.apiOwnerTransfer, carol, "POST", "/owner", `{"tile":"apps/calendar","to":"user:bob"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("org admin → member transfer: %d %s", w.Code, w.Body.String())
+	}
+	// bob (owner again) may NOT hand it to another user directly.
+	w = call(t, b.apiOwnerTransfer, bob, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
+	if w.Code != 403 {
+		t.Fatalf("user → user transfer is ws-admin only: %d", w.Code)
+	}
+	// ws-admin can do anything.
+	w = call(t, b.apiOwnerTransfer, auth.Principal{Owner: true}, "POST", "/owner", `{"tile":"apps/calendar","to":"user:alice"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("ws-admin transfer: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// --- per-tile ACL gates (D24: sharing is an ownership right) ------------------
+
+func TestAccessAPIGates(t *testing.T) {
+	b, st := orgFixture(t)
+	if err := st.SetOwner("apps/calendar", "user:bob"); err != nil {
+		t.Fatal(err)
+	}
+	bob := principalFor(t, st, "bob")
+	alice := principalFor(t, st, "alice")
+	carol := principalFor(t, st, "carol")
+
+	// The user-owner shares their own tile (user + org entries).
+	for _, body := range []string{
+		`{"tile":"apps/calendar","kind":"user","id":"alice","level":"write"}`,
+		`{"tile":"apps/calendar","kind":"org","id":"sales","level":"read"}`,
+	} {
+		if w := call(t, b.apiAccessPut, bob, "PUT", "/access", body, nil); w.Code != 200 {
+			t.Fatalf("owner share: %d %s", w.Code, w.Body.String())
+		}
+	}
+	// The share took effect.
+	if a, _ := st.Access("alice"); !a.CanWriteTile("apps/calendar") {
+		t.Fatal("user share must confer write")
+	}
+	if a, _ := st.Access("dave"); a.CanReadTile("apps/calendar") {
+		t.Fatal("dave is in no org — org share must not reach him")
+	}
+	// A non-owner cannot edit the ACL...
+	w := call(t, b.apiAccessPut, alice, "PUT", "/access", `{"tile":"apps/calendar","kind":"user","id":"alice","level":"terminal"}`, nil)
+	if w.Code != 403 {
+		t.Fatalf("non-owner ACL edit must refuse: %d", w.Code)
+	}
+	// ...and neither can an org admin of an org that does NOT own the tile.
+	w = call(t, b.apiAccessPut, carol, "PUT", "/access", `{"tile":"apps/calendar","kind":"user","id":"carol","level":"terminal"}`, nil)
+	if w.Code != 403 {
+		t.Fatalf("unrelated org admin must refuse: %d", w.Code)
+	}
+	// Org admin CAN manage an org-owned tile's ACL (apps/email is sales').
+	w = call(t, b.apiAccessPut, carol, "PUT", "/access", `{"tile":"apps/email","kind":"user","id":"dave","level":"read"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("org admin on org-owned tile: %d %s", w.Code, w.Body.String())
+	}
+	// GET /access shows owner + entries to the owner.
+	w = call(t, b.apiAccessGet, bob, "GET", "/access?tile=apps/calendar", "", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"owner":"user:bob"`) {
 		t.Fatalf("access get: %d %s", w.Code, w.Body.String())
 	}
-	var got struct {
-		Org     string `json:"org"`
-		Entries []struct{ Kind, ID, Level, Source string }
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	find := func(kind, id string) (string, string) {
-		for _, e := range got.Entries {
-			if e.Kind == kind && e.ID == id {
-				return e.Level, e.Source
-			}
-		}
-		return "", ""
-	}
-	if got.Org != "sales" {
-		t.Fatalf("org = %q", got.Org)
-	}
-	if l, s := find("user", "dave"); l != "read" || s != "exact" {
-		t.Fatalf("dave row: %q %q", l, s)
-	}
-	if l, s := find("team", "sales/backend"); l != "write" || s != "pattern:apps/o/sales/*" {
-		t.Fatalf("team row: %q %q", l, s)
-	}
-	if l, s := find("org", "sales"); l != "read" || s != "base" {
-		t.Fatalf("base row: %q %q", l, s)
-	}
-
-	// PUT: org admin sets a team exact entry on an org tile.
-	if w := call(t, b.apiAccessPut, carol(), "PUT", "/x", `{"tile":"apps/o/sales/crm","kind":"team","id":"sales/backend","level":"terminal"}`, nil); w.Code != 200 {
-		t.Fatalf("access put: %d %s", w.Code, w.Body.String())
-	}
-	o, _ := st.Org("sales")
-	if o.Team("backend").Tiles["apps/o/sales/crm"] != users.LevelTerminal {
-		t.Fatal("team exact entry not written")
-	}
-	// Remove it again (level "").
-	if w := call(t, b.apiAccessPut, carol(), "PUT", "/x", `{"tile":"apps/o/sales/crm","kind":"team","id":"sales/backend","level":""}`, nil); w.Code != 200 {
-		t.Fatalf("access remove: %d %s", w.Code, w.Body.String())
-	}
-	o, _ = st.Org("sales")
-	if _, ok := o.Team("backend").Tiles["apps/o/sales/crm"]; ok {
-		t.Fatal("team exact entry not removed")
-	}
-
-	// Org admin cannot touch tiles outside their org.
-	if w := call(t, b.apiAccessPut, carol(), "PUT", "/x", `{"tile":"apps/chat","kind":"user","id":"alice","level":"read"}`, nil); w.Code != 403 {
-		t.Fatalf("out-of-org access put must 403, got %d", w.Code)
-	}
-	if w := call(t, b.apiAccessGet, carol(), "GET", "/x?tile=apps/chat", ``, nil); w.Code != 403 {
-		t.Fatalf("out-of-org access get must 403, got %d", w.Code)
-	}
-	// A team can never be assigned outside its org (would be inert anyway).
-	if w := call(t, b.apiAccessPut, admin, "PUT", "/x", `{"tile":"apps/chat","kind":"team","id":"sales/backend","level":"read"}`, nil); w.Code != 400 {
-		t.Fatalf("cross-org team assignment must 400, got %d", w.Code)
-	}
 }
 
-func TestWhoamiOrgs(t *testing.T) {
+// --- D26: delegated grant/binding approval -----------------------------------
+
+func TestDelegatedGrantApproval(t *testing.T) {
 	b, st := orgFixture(t)
-	w := call(t, b.apiWhoami, sessionPrincipal(t, st, "bob"), "GET", "/x", ``, nil)
-	var got struct {
-		Orgs []struct {
-			ID    string `json:"id"`
-			Admin bool   `json:"admin"`
-			Teams []struct{ ID string }
-		} `json:"orgs"`
+	carol := principalFor(t, st, "carol")
+	bob := principalFor(t, st, "bob")
+
+	grant := func(p auth.Principal, body string) *httptest.ResponseRecorder {
+		return call(t, b.apiGrantsAdd, p, "POST", "/grants", body, nil)
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+
+	// Not allowed yet: no allowance covers gpu.
+	w := grant(carol, `{"from":"apps/email","target":"gpu:0","role":"egress"}`)
+	if w.Code != 403 {
+		t.Fatalf("uncovered target must refuse: %d %s", w.Code, w.Body.String())
+	}
+	// Attach an allowance (ws-admin path) → approvable by the org admin.
+	if err := st.SetOrgAllow("sales", []string{"gpu:*", "cap:containers"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Orgs) != 1 || got.Orgs[0].ID != "sales" || got.Orgs[0].Admin ||
-		len(got.Orgs[0].Teams) != 1 || got.Orgs[0].Teams[0].ID != "backend" {
-		t.Fatalf("whoami orgs: %s", w.Body.String())
-	}
-	w = call(t, b.apiWhoami, sessionPrincipal(t, st, "carol"), "GET", "/x", ``, nil)
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Orgs) != 1 || !got.Orgs[0].Admin {
-		t.Fatalf("whoami org admin flag: %s", w.Body.String())
-	}
-}
-
-// whoami's driving-user view is scoped by tile trust: plain tiles get
-// identity only, org tiles their own org's slice, xbin-capable tiles the
-// full membership list — and an xbin-caps policy deny downgrades that tier.
-func TestWhoamiDriverViewScoping(t *testing.T) {
-	b, st := orgFixture(t)
-	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
-		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: "xbin", Role: "writer"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.UpsertOrg(users.Org{ID: "eng", Members: []string{"bob"}}); err != nil {
-		t.Fatal(err)
-	}
-	// A sales org tile must exist as the org-tile case's component identity —
-	// components need not be registered for whoami (Component is the path).
-	whoami := func(comp string) map[string]any {
-		w := call(t, b.apiWhoami, auth.Principal{Component: comp, UserID: "bob", Via: "frame"}, "GET", "/x", ``, nil)
-		var got map[string]any
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-			t.Fatal(err)
-		}
-		return got
-	}
-	orgsOf := func(g map[string]any) []any {
-		u, _ := g["user"].(map[string]any)
-		if u == nil {
-			t.Fatalf("no user view: %v", g)
-		}
-		orgs, _ := u["orgs"].([]any)
-		return orgs
-	}
-
-	// Plain tile: id+name, no orgs, no admin flag.
-	g := whoami("apps/calendar")
-	u := g["user"].(map[string]any)
-	if u["id"] != "bob" || u["orgs"] != nil || u["admin"] != nil {
-		t.Fatalf("plain tile must see identity only, got %v", u)
-	}
-
-	// The tile's own org: exactly that org's slice.
-	orgs := orgsOf(whoami("apps/o/sales/crm"))
-	if len(orgs) != 1 || orgs[0].(map[string]any)["id"] != "sales" {
-		t.Fatalf("org tile must see its own org only, got %v", orgs)
-	}
-
-	// xbin-capable tile: everything (bob is in sales and eng).
-	orgs = orgsOf(whoami("apps/email"))
-	if len(orgs) != 2 {
-		t.Fatalf("capable tile must see all memberships, got %v", orgs)
-	}
-
-	// A policy row denying xbin-caps strips the tier back down.
-	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "apps/email", Deny: []string{users.PolicyDenyXbinCaps}}}); err != nil {
-		t.Fatal(err)
-	}
-	g = whoami("apps/email")
-	u = g["user"].(map[string]any)
-	if u["orgs"] != nil || u["admin"] != nil {
-		t.Fatalf("xbin-caps-denied tile must lose the full view, got %v", u)
-	}
-}
-
-// The access matrix resolves every user × tile with provenance; the
-// directory is reachable by org admins but carries identity only.
-func TestAccessMatrixAndDirectory(t *testing.T) {
-	b, st := orgFixture(t)
-	if err := st.GrantTile("dave", "apps/calendar", users.LevelRead); err != nil {
-		t.Fatal(err)
-	}
-
-	w := call(t, b.apiAccessMatrix, auth.Principal{Owner: true}, "GET", "/x", ``, nil)
+	w = grant(carol, `{"from":"apps/email","target":"gpu:0","role":"egress"}`)
 	if w.Code != 200 {
-		t.Fatalf("matrix: %d %s", w.Code, w.Body.String())
+		t.Fatalf("allowance-covered approval by org admin: %d %s", w.Code, w.Body.String())
 	}
-	var m struct {
-		Users []struct{ ID, Role string }
-		Tiles []string
-		Cells map[string]map[string]struct {
-			Level string
-			Via   []struct{ Level, Source string }
-		}
+	// cap:containers approvable only because the allowance names it.
+	w = grant(carol, `{"from":"apps/email","target":"cap:containers","role":"writer"}`)
+	if w.Code != 200 {
+		t.Fatalf("cap allowance approval: %d %s", w.Code, w.Body.String())
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+	// A DEVELOPER (non-admin member) may not approve.
+	w = grant(bob, `{"from":"apps/email","target":"gpu:1","role":"egress"}`)
+	if w.Code != 403 {
+		t.Fatalf("non-admin member must not approve: %d", w.Code)
+	}
+	// Not for tiles the org doesn't own.
+	w = grant(carol, `{"from":"apps/calendar","target":"gpu:0","role":"egress"}`)
+	if w.Code != 403 {
+		t.Fatalf("non-org tile must refuse: %d", w.Code)
+	}
+	// xbin: never — even if hand-edited into the allowance (eval floor).
+	w = grant(carol, `{"from":"apps/email","target":"xbin","role":"admin"}`)
+	if w.Code != 403 {
+		t.Fatalf("xbin must never be org-approvable: %d", w.Code)
+	}
+	// Intra-org: both endpoints owned by sales → approvable with NO allowance.
+	if err := st.SetOrgAllow("sales", nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Users) != 5 || len(m.Tiles) == 0 {
-		t.Fatalf("matrix shape: %d users, %d tiles", len(m.Users), len(m.Tiles))
+	if err := st.SetOwner("apps/calendar", "org:sales"); err != nil {
+		t.Fatal(err)
 	}
-	for _, tile := range m.Tiles {
-		if tile == "root" || tile == "shell" {
-			t.Fatal("chrome must be excluded from the matrix")
-		}
+	w = grant(carol, `{"from":"apps/email","target":"apps/calendar","role":"reader"}`)
+	if w.Code != 200 {
+		t.Fatalf("intra-org grant: %d %s", w.Code, w.Body.String())
 	}
-	dc, ok := m.Cells["dave"]["apps/calendar"]
-	if !ok || dc.Level != "read" || len(dc.Via) == 0 || dc.Via[0].Source != "direct:apps/calendar" {
-		t.Fatalf("dave cell: %+v", dc)
+	// Ceiling still beats allowance: deny gpu, re-allow, then refuse.
+	if err := st.SetOrgAllow("sales", []string{"gpu:*"}); err != nil {
+		t.Fatal(err)
 	}
-	if rc, ok := m.Cells["root2"]["apps/calendar"]; !ok || rc.Level != "terminal" || rc.Via[0].Source != "admin" {
-		t.Fatalf("admin cell: %+v", rc)
+	if err := st.SetOrgPolicy("sales", []users.PolicyRow{{Tiles: "*", Deny: []string{users.PolicyDenyGPU}}}); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := m.Cells["alice"]["apps/calendar"]; ok {
-		t.Fatal("no-access cells must be absent")
+	w = grant(carol, `{"from":"apps/email","target":"gpu:2","role":"egress"}`)
+	if w.Code == 200 {
+		t.Fatalf("ceiling deny must beat the allowance: %d %s", w.Code, w.Body.String())
+	}
+	// The org-filtered pending/grants view exists for org admins.
+	w = call(t, b.apiGrantsList, carol, "GET", "/grants", "", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"scope":"org"`) {
+		t.Fatalf("org-filtered grants view: %d %s", w.Code, w.Body.String())
+	}
+	// Outsiders still get 403.
+	dave := principalFor(t, st, "dave")
+	if w := call(t, b.apiGrantsList, dave, "GET", "/grants", "", nil); w.Code != 403 {
+		t.Fatalf("outsider grants list: %d", w.Code)
+	}
+}
+
+func TestDelegatedBindingApproval(t *testing.T) {
+	b, st := orgFixture(t)
+	carol := principalFor(t, st, "carol")
+
+	// A sales-owned tile that requests a net interface (the fixture tiles
+	// don't declare one; an unknown slot correctly falls to ws-admin-only).
+	dir := filepath.Join(b.Reg.Root, "apps", "bot")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "xbin.json"),
+		[]byte(`{"runtime":"go","interfaces":{"net":{"kind":"net"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetOwner("apps/bot", "org:sales"); err != nil {
+		t.Fatal(err)
 	}
 
-	// Directory: org admin carol may enumerate; plain alice may not; the
-	// payload is identity-only.
-	w = call(t, b.apiUsersDirectory, sessionPrincipal(t, st, "carol"), "GET", "/x", ``, nil)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"dave"`) || strings.Contains(w.Body.String(), "role") {
-		t.Fatalf("directory for org admin: %d %s", w.Code, w.Body.String())
+	if b.orgAdminMayBind(carol, "apps/bot", "net", registry.BindTo("internet"), false) {
+		t.Fatal("net:internet must need an allowance")
 	}
-	if w := call(t, b.apiUsersDirectory, sessionPrincipal(t, st, "alice"), "GET", "/x", ``, nil); w.Code != 403 {
-		t.Fatalf("directory for plain member must 403, got %d", w.Code)
+	if err := st.SetOrgAllow("sales", []string{"net:internet"}); err != nil {
+		t.Fatal(err)
 	}
-	// Frame principals never inherit the driving human's org-adminship here either.
-	if w := call(t, b.apiUsersDirectory, auth.Principal{Component: "apps/email", UserID: "carol", Via: "frame"}, "GET", "/x", ``, nil); w.Code != 403 {
-		t.Fatalf("frame principal directory must 403, got %d", w.Code)
+	if !b.orgAdminMayBind(carol, "apps/bot", "net", registry.BindTo("internet"), false) {
+		t.Fatal("allowance-covered net bind must pass authz")
+	}
+	if b.orgAdminMayBind(carol, "apps/bot", "net", registry.BindTo("host"), false) {
+		t.Fatal("net:host not covered — must refuse")
+	}
+	// Unbind is always fine for the owning org's admin.
+	if !b.orgAdminMayBind(carol, "apps/bot", "net", nil, true) {
+		t.Fatal("unbind must pass")
+	}
+	// A slot the manifest doesn't declare: never org-approvable.
+	if b.orgAdminMayBind(carol, "apps/bot", "mystery", registry.BindTo("internet"), false) {
+		t.Fatal("unknown slot must refuse")
+	}
+	// Non-org tile: never.
+	if b.orgAdminMayBind(carol, "apps/calendar", "net", registry.BindTo("internet"), false) {
+		t.Fatal("non-org tile must refuse")
+	}
+}
+
+// --- directory + matrix gates -------------------------------------------------
+
+func TestDirectoryAndMatrixGates(t *testing.T) {
+	b, st := orgFixture(t)
+	carol := principalFor(t, st, "carol")
+	dave := principalFor(t, st, "dave")
+
+	if w := call(t, b.apiUsersDirectory, carol, "GET", "/users-directory", "", nil); w.Code != 200 {
+		t.Fatalf("org admin directory: %d", w.Code)
+	}
+	if w := call(t, b.apiUsersDirectory, dave, "GET", "/users-directory", "", nil); w.Code != 403 {
+		t.Fatalf("outsider directory must refuse: %d", w.Code)
+	}
+	// The directory never leaks role/tiles/hashes.
+	w := call(t, b.apiUsersDirectory, carol, "GET", "/users-directory", "", nil)
+	if strings.Contains(w.Body.String(), "passHash") || strings.Contains(w.Body.String(), `"role"`) {
+		t.Fatal("directory must be id+name only")
+	}
+	// Matrix is ws-admin only; carries owners for provenance.
+	if w := call(t, b.apiAccessMatrix, carol, "GET", "/access-matrix", "", nil); w.Code != 403 {
+		t.Fatalf("matrix must be ws-admin only: %d", w.Code)
+	}
+	w = call(t, b.apiAccessMatrix, auth.Principal{Owner: true}, "GET", "/access-matrix", "", nil)
+	if w.Code != 200 {
+		t.Fatalf("matrix: %d", w.Code)
+	}
+	var mx struct {
+		Owners map[string]string `json:"owners"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &mx); err != nil || mx.Owners["apps/email"] != "org:sales" {
+		t.Fatalf("matrix owners: %v %v", err, mx.Owners)
 	}
 }

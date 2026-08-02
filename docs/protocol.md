@@ -118,7 +118,8 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    disk / cgroup at-limit; system alerts to all,
                                    tile alerts to admins + that tile's users
 GET    /whoami                    any. caller identity + permissions; for
-                                   users also orgs:[{id,name,admin,teams}]
+                                   users also orgs:[{id,name,level,create,
+                                   admin}]
                                    (the self-service membership view). On
                                    element principals driven by a signed-in
                                    human, `user` reports the driver, SCOPED
@@ -163,72 +164,79 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
                                    disabling requires a signed-in admin user
                                    (Bearer owner token unaffected)
 
-GET    /orgs                      management view (docs/auth.md, orgs&teams):
+GET    /orgs                      management view (docs/auth.md, ownership):
                                    admin/xbin:users → all orgs; a signed-in
-                                   org admin → their orgs; others → [].
-                                   {orgs:[{id,name,admins,members,
-                                   basePermission,policy,teams:[…]}]}
-POST   /orgs                      admin/xbin:users. create {id, name?,
-                                   admins?, members?, basePermission?}
-                                   (id: [a-z0-9._-], immutable; o/u/workspace
+                                   org admin → their orgs. {orgs:[{id,name,
+                                   members:[{id,level,create,admin}],tiles,
+                                   sets,allow,policy,resolvedAllow,
+                                   ownedTiles}]}
+POST   /orgs                      admin/xbin:users. create {id, name?}
+                                   (id: [a-z0-9._-], immutable; "workspace"
                                    reserved)
-PATCH  /orgs/<org>                admin/xbin:users, or that org's admin.
-                                   overlay {name?, admins?, members?,
-                                   basePermission?} — members removed here
-                                   leave the org's teams too
-DELETE /orgs/<org>                admin/xbin:users only
-POST   /orgs/<org>/teams          org-manage (as PATCH /orgs/<org>). create
-                                   {id, name?, members?, tiles?, canCreate?,
-                                   newTiles?} — members must be org members;
-                                   termApi/termNet additionally need a
-                                   workspace admin
-PATCH  /orgs/<org>/teams/<team>   org-manage. overlay (same fields/rules)
-DELETE /orgs/<org>/teams/<team>   org-manage
-GET    /access?tile=<path>        admin/xbin:users, or the tile's org admin.
-                                   the tile's resolved ACL: {tile, org?,
-                                   orgAdmins?, entries:[{kind:user|team|org,
-                                   id, level, source: exact|pattern:<pat>|
-                                   base}]}
-PUT    /access                    same gate. set/clear one EXACT entry:
-                                   {tile, kind:user|team, id, level:
-                                   read|write|terminal|""} — team entries
-                                   only on the team's own org's tiles
-GET    /access-matrix             admin/xbin:users. the resolved users×tiles
-                                   effective-access matrix with provenance:
-                                   {users:[{id,name,role}], tiles:[…],
-                                   cells:{user:{tile:{level, via:[{level,
-                                   source}]}}}} — sources: admin |
-                                   org-admin:<org> | direct:<pat> |
-                                   team:<org>/<team>:<pat> | base:<org>;
-                                   cells only where a level resolves; chrome
-                                   (root/shell) and templates excluded
+PATCH  /orgs/<org>                admin/xbin:users, or that org's admin:
+                                   {name?, members?}. WS-ADMIN ONLY fields:
+                                   {sets?, allow?} — delegation is granted
+                                   from above (D26/D28); xbin/xbin:* never
+                                   valid in allow
+DELETE /orgs/<org>                admin/xbin:users; refused while the org
+                                   still OWNS tiles (transfer first)
+GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,
+                                   policy,termApi,termNet}}, attachedTo:
+                                   {name:[orgIds]}} (D28)
+PUT    /permission-sets/<name>    admin/xbin:users. replace one set (same
+                                   allow grammar/floor as org allow)
+DELETE /permission-sets/<name>    admin/xbin:users; refused while attached
+                                   to any org
+GET    /owner?tile=<path>         any principal that can READ the tile.
+                                   {tile, owner: "user:<id>"|"org:<id>"|""}
+POST   /owner                     transfer (D24): {tile, to}. ws-admin →
+                                   anywhere; the user-owner → an org they
+                                   belong to; an owning-org admin → another
+                                   org they admin or a member of the org
+GET    /access?tile=<path>        ws-admin, the tile's USER-OWNER, or an
+                                   owning-org admin. {tile, owner, entries:
+                                   [{kind:user|org, id, level, source:
+                                   exact|pattern:<pat>}]}
+PUT    /access                    same gate (sharing is an ownership right,
+                                   D24). set/clear one EXACT entry: {tile,
+                                   kind:user|org, id, level:
+                                   read|write|terminal|""}
+GET    /access-matrix             admin/xbin:users. users×components
+                                   effective levels with provenance:
+                                   {users, components, matrix:{user:{tile:
+                                   {level, explain:[{level,source}]}}},
+                                   owners} — sources: admin | owner |
+                                   org-admin:<org> | org-member:<org> |
+                                   org-share:<org>:<pat> | direct:<pat> |
+                                   default:<pat>
 GET    /users-directory           admin/xbin:users, or any org admin. the
                                    minimal people list for pickers:
-                                   {users:[{id,name}]} — identity only, no
-                                   roles/grants
+                                   {users:[{id,name}]} — identity only
 GET    /policy                    admin/xbin:users. workspace policy-ceiling
                                    rows {policy:[{tiles,deny?,mayCall?}]}
-                                   (deny kinds net|gpu|xbin-caps; docs/auth.md)
+                                   (deny kinds net|gpu|xbin-caps|ingress)
 PUT    /policy                    admin/xbin:users. replace the rows
-GET    /orgs/<org>/policy         admin/xbin:users. that org's rows
+GET    /orgs/<org>/policy         admin/xbin:users. that org's rows (apply
+                                   to tiles the org OWNS)
 PUT    /orgs/<org>/policy         admin/xbin:users. replace them
+GET    /defaults                  admin/xbin:users. {defaultTiles:
+                                   {pattern: level}} — visibility every
+                                   user gets (D27)
+PUT    /defaults                  admin/xbin:users. replace the map
 
 POST   /create                     owner/admin, a user whose canCreate
-                                   covers the path (creating auto-grants
-                                   them terminal on it — docs/auth.md), or
-                                   an element granted target "xbin" at role
-                                   writer (workspace management). body
-                                   {path, runtime?, title?, expose?, team?} →
-                                   {path, files, team?, teamLevel?}. Same
+                                   covers the path, or an element granted
+                                   target "xbin" at role writer (workspace
+                                   management). body {path, runtime?,
+                                   title?, expose?, owner?} → {path, files,
+                                   owner?}. owner: "org:<id>" creates the
+                                   tile OWNED by that org (needs the org's
+                                   Create knob / org admin); default: the
+                                   human creator becomes user-owner,
+                                   admin/automation → workspace-owned. Same
                                    scaffolder as `bx new`; never overwrites.
-                                   team: "<org>/<team>" creates IN that team
-                                   (path must be in the org; caller must be a
-                                   team member or org/workspace admin; the
-                                   team is auto-granted its newTiles level).
-                                   Paths: the segments `o`/`u` are reserved —
-                                   `o` only as the org marker (o/<org>/… or
-                                   <dir>/o/<org>/…) naming an existing org;
-                                   applies to clone/imports too.
+                                   Clone/imports assign the same default
+                                   ownership.
 POST   /clone                      same authority as /create (create
                                    patterns work; the deputy clamp applies)
                                    + the human must have READ on `from`
@@ -302,11 +310,17 @@ POST   /git/import                 same authority as /create on the
                                    pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
-GET    /grants                     admin. {grants: [{from,target,role}],
+GET    /grants                     admin — full table; a signed-in ORG
+                                   ADMIN gets the filtered view (rows whose
+                                   From is owned by their orgs, pending
+                                   marked approvable, {scope:"org"}). {grants: [{from,target,role}],
                                    pending: [{from,target,role,blocked?}]} —
                                    blocked names the policy row that makes a
                                    request unapprovable (UIs grey it out)
-POST   /grants                     admin. body {from,target,role} — approve/add.
+POST   /grants                     admin — any; an owning-org admin may
+                                   approve when the target is intra-org or
+                                   allowance-covered (D26; ceilings still
+                                   apply; xbin/xbin:* never). body {from,target,role} — approve/add.
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.

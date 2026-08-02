@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // cmdDoctor checks the workspace for the problems that actually happen:
@@ -60,43 +58,21 @@ func cmdDoctor() error {
 		}
 	}
 
-	// Org-path sanity (plans/orgs.md): tiles under an o/<org> marker whose org
-	// doesn't exist are workspace-plane (no team can reach them), and stray
-	// o/u segments block re-creation of the path. Team patterns that can never
-	// match their own org's paths are inert. Best-effort: needs /orgs (admin).
+	// Ownership sanity (plans/ownership.md D24): owner entries pointing at
+	// paths with no component are orphans (a moved/deleted tile) — clear or
+	// re-assign with bx owner. Best-effort: needs the admin access-matrix.
 	if comps != nil {
-		if orgs, err := fetchOrgs(); err == nil {
-			known := map[string]bool{}
-			for _, o := range orgs {
-				known[o.ID] = true
-			}
+		var mx struct {
+			Owners map[string]string `json:"owners"`
+		}
+		if err := apiJSON("GET", "/api/xbin/access-matrix", nil, &mx); err == nil {
+			have := map[string]bool{}
 			for _, c := range comps {
-				segs := strings.Split(c.Path, "/")
-				for i, seg := range segs {
-					switch seg {
-					case "u":
-						warn("%s: path segment \"u\" is reserved (future per-user tiles) — new tiles can't be created at such paths", c.Path)
-					case "o":
-						if i > 1 || i+1 >= len(segs) {
-							warn("%s: stray org marker \"o\" (only o/<org>/… or <dir>/o/<org>/… is org-owned)", c.Path)
-						} else if !known[segs[i+1]] {
-							warn("%s: org %q does not exist — the tile is workspace-plane until the org is created (bx org add %s)", c.Path, segs[i+1], segs[i+1])
-						}
-					}
-				}
+				have[c.Path] = true
 			}
-			for _, o := range orgs {
-				for _, t := range o.Teams {
-					for pat := range t.Tiles {
-						if teamPatternInert(o.ID, pat) {
-							warn("team %s/%s: tiles pattern %q can never match a path in org %q (team grants only apply inside their org) — inert", o.ID, t.ID, pat, o.ID)
-						}
-					}
-					for _, pat := range t.CanCreate {
-						if teamPatternInert(o.ID, pat) {
-							warn("team %s/%s: canCreate pattern %q can never match a path in org %q — inert", o.ID, t.ID, pat, o.ID)
-						}
-					}
+			for p, o := range mx.Owners {
+				if !have[p] {
+					warn("owner entry %q -> %s has no component (moved or deleted) — clear or re-assign with bx owner", p, o)
 				}
 			}
 		}
@@ -187,33 +163,4 @@ func lookPath(bin string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("not found")
-}
-
-// teamPatternInert reports whether a team tile/canCreate pattern can never
-// match any path inside the team's org — team grants evaluate only on the
-// org's own paths (the clamp in users.Access), so such an entry does nothing.
-// A pattern can still match org paths when it pins the org's marker
-// (o/<org>… anywhere in its literal prefix) or when its prefix is short
-// enough that the marker can still appear in matched paths (the marker lives
-// at segment 0 or 1).
-func teamPatternInert(org, pat string) bool {
-	if pat == "*" {
-		return false
-	}
-	p := strings.TrimSuffix(pat, "/*")
-	if o, ok := users.OrgOf(p); ok {
-		return o != org
-	}
-	if p == pat {
-		return true // exact path outside any org
-	}
-	segs := strings.Split(p, "/")
-	switch {
-	case len(segs) == 1:
-		return false // "<seg>/*" — a marker can still appear below
-	case len(segs) == 2 && segs[1] == "o":
-		return false // "<dir>/o/*" — the org id follows in matched paths
-	default:
-		return true
-	}
 }

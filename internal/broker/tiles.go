@@ -68,10 +68,6 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
-	if err := b.validateNewPath(target); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
-		return
-	}
 	if err := b.guardNewComponentTree(target); err != nil {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
@@ -105,6 +101,8 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
+	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
+	b.assignOwner(installed, owner)
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": installed, "files": files, "pendingGrants": pending,
 	})

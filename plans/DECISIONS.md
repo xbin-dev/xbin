@@ -529,3 +529,47 @@ Deviations and refinements made while implementing; all deliberate:
   two offload depths (data, or data+source+term-env).
 - **LC-5** — backups schedule on the existing cron engine as owner jobs; retention
   prunes versions.
+
+- **D24 — Component ownership (NPM-style), replacing positional org paths.**
+  (2026-08-02) Every component may have an owner — `user:<id>` or `org:<id>` —
+  stored in the xbind-owned users store (`data/users.json` `owners`), never in
+  the workspace (a tile terminal must not edit its own ownership). Absent =
+  workspace-owned. Assigned at every creating entry point (create/clone/
+  git-import/builtin-import/template-new; humans default to user-owned,
+  admins/automation to workspace-owned) and transferable (`POST /owner`;
+  owner→their orgs, owning-org admins within/between their orgs, ws-admin
+  anywhere). A user-owner holds implicit terminal and manages the tile's ACL —
+  subsumes the D16 creator auto-grant and the "creator sharing" question.
+  Supersedes D19's `o/<org>/` positional binding; the `o`/`u` path
+  reservations are dropped. Rationale: plans/ownership.md.
+- **D25 — Flat org roles; teams removed.** (2026-08-02) Org membership is
+  `{id, level: read|write|terminal, create, admin}` applied org-wide to
+  org-OWNED tiles (admins implicitly terminal); `create` gates create-as-org;
+  `admin` is org management. Sharing beyond membership is per-tile exact ACL
+  entries (`user:` or `org:` → level, `org.Tiles` mirroring `user.Tiles`).
+  Org policy-ceiling rows key off OWNERSHIP, not paths. Supersedes D19's
+  team semantics; D20 ceilings and D21's "element principals never manage
+  orgs / humans approve" rules carry forward unchanged.
+- **D26 — Org allowances: ws-admin-delegated approval, one floor.**
+  (2026-08-02) A per-org allowance (target patterns: res:/gpu:/cap:/net:…/
+  iface:/ingress:host|zone|listen/tile:) lets the org's ADMINS approve
+  grants and bindings on org-OWNED tiles themselves — anything is delegable
+  (net:host, cap:containers, publication) at the ws-admin's discretion,
+  EXCEPT the `xbin`/`xbin:*` capability family: an element granted xbin@admin
+  IS a workspace admin (broker.IsAdmin), so delegating it would make org
+  admins ws-admins transitively — rejected at write AND ignored at
+  evaluation. Intra-org wiring (both grant endpoints owned by the same org)
+  is org-admin approvable with no allowance. Ceilings still evaluate on
+  every approval — deny beats allow. Revokes/unbinds are always allowed for
+  the owning org's admins (narrowing is safe).
+- **D27 — defaultTiles: workspace-level visibility for every user.**
+  (2026-08-02) A ws-admin-managed pattern→level map applied to all users
+  (scaffold: welcome/apidocs → read) — how non-admins see anything on first
+  login without per-user grants. Humans only; elements stay grant-governed.
+- **D28 — Permission sets: reusable org-permission bundles by reference.**
+  (2026-08-02) Named `{allow, policy, termApi, termNet}` bundles attached to
+  orgs via `sets: […]` (multiple per org). Effective allowance = ∪(sets) ∪
+  org extras; ceiling rows compose restrictively (a set can impose fleet-wide
+  denies); term flags confer to members of attached orgs (replacing the
+  group mechanism teams provided). ws-admin-only; deleting an attached set
+  is refused (detach first). Multi-org management = edit one set.

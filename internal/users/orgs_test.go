@@ -5,445 +5,325 @@ import (
 	"testing"
 )
 
-func TestOrgOf(t *testing.T) {
-	cases := []struct {
-		path, org string
-		ok        bool
-	}{
-		{"o/sales/crm", "sales", true},
-		{"o/sales", "sales", true},
-		{"apps/o/sales/crm", "sales", true},
-		{"tiles/o/eng/dash", "eng", true},
-		{"apps/o/sales", "sales", true},
-		{"apps/chat", "", false},
-		{"lib/ui/button", "", false},
-		{"apps/foo/o/sales/x", "", false}, // marker too deep — not org-owned
-		{"o", "", false},
-		{"apps/o", "", false},
-		{"o/", "", false},
-		{"", "", false},
-	}
-	for _, c := range cases {
-		org, ok := OrgOf(c.path)
-		if org != c.org || ok != c.ok {
-			t.Errorf("OrgOf(%q) = %q,%v want %q,%v", c.path, org, ok, c.org, c.ok)
-		}
-	}
-}
-
-// fixture builds a store with users alice/bob/carol/dave, org "sales"
-// (admins: carol; members: alice, bob) with team "backend" (member bob).
-func fixture(t *testing.T) *Store {
+// newStore builds a store with two users (alice, bob) and one org (sales:
+// alice admin, bob developer-ish per test).
+func newStore(t *testing.T) *Store {
 	t.Helper()
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"alice", "bob", "carol", "dave"} {
+	for _, id := range []string{"alice", "bob", "carol"} {
 		if _, err := s.Upsert(User{ID: id, Role: RoleUser}, "password"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpsertTeam("sales", Team{
-		ID: "backend", Members: []string{"bob"},
-		// The lib/* entry escapes the org: team patterns only ever apply to
-		// paths INSIDE the team's org (pattern ∩ org clamp), so it is inert.
-		Tiles:     map[string]string{"apps/o/sales/*": LevelWrite, "lib/*": LevelTerminal},
-		CanCreate: []string{"apps/o/sales/*"},
-		TermNet:   true,
-	}); err != nil {
-		t.Fatal(err)
-	}
 	return s
 }
 
-func TestValidateNewTilePath(t *testing.T) {
-	s := fixture(t)
-	ok := []string{"apps/o/sales/crm", "o/sales/crm", "apps/chat", "lib/ui", "apps/uno", "docs/oak/x"}
-	for _, p := range ok {
-		if err := s.ValidateNewTilePath(p); err != nil {
-			t.Errorf("ValidateNewTilePath(%q) = %v, want nil", p, err)
-		}
-	}
-	bad := map[string]string{
-		"apps/o/nope/x":    "no such org",
-		"apps/u/alice/x":   "reserved",
-		"u/alice":          "reserved",
-		"a/b/o/sales/x":    "only valid",
-		"apps/o":           "followed by an org id",
-		"o":                "followed by an org id",
-		"apps/o/sales/o/x": "only valid",
-	}
-	for p, want := range bad {
-		err := s.ValidateNewTilePath(p)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("ValidateNewTilePath(%q) = %v, want error containing %q", p, err, want)
-		}
+func mustOrg(t *testing.T, s *Store, o Org) {
+	t.Helper()
+	if _, err := s.UpsertOrg(o); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestAccessUnion(t *testing.T) {
-	s := fixture(t)
-
-	// bob: team member — team grants apply inside the org only.
-	bob, ok := s.Access("bob")
+func acc(t *testing.T, s *Store, id string) *Access {
+	t.Helper()
+	a, ok := s.Access(id)
 	if !ok {
-		t.Fatal("no access for bob")
+		t.Fatalf("no access for %q", id)
 	}
-	if got := bob.TileLevel("apps/o/sales/crm"); got != LevelWrite {
-		t.Fatalf("bob on org tile = %q, want write", got)
-	}
-	if got := bob.TileLevel("lib/ui"); got != "" {
-		t.Fatalf("escaping team pattern must be inert outside the org, got %q", got)
-	}
-	if !bob.CanCreateTile("apps/o/sales/new") || bob.CanCreateTile("apps/new") {
-		t.Fatal("team canCreate must be org-clamped")
-	}
-	if !bob.TermNet() || bob.TermAPI() {
-		t.Fatal("term flags must union from teams")
-	}
-	// The escaping terminal entry still counts for the coarse pre-gate…
-	if !bob.CanTerminal() {
-		t.Fatal("terminal-level team entry should satisfy the coarse pre-gate")
-	}
-	// …but confers no terminal on any actual path outside the org.
-	if bob.CanTerminalTile("lib/ui") || bob.CanTerminalTile("apps/o/sales/crm") {
-		t.Fatal("no terminal on paths: outside org inert, inside org only write is granted")
-	}
-
-	// alice: plain member, no team, no base permission yet.
-	alice, _ := s.Access("alice")
-	if got := alice.TileLevel("apps/o/sales/crm"); got != "" {
-		t.Fatalf("member without base permission = %q, want none", got)
-	}
-	// Base permission floors every member on org tiles.
-	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}, BasePermission: LevelRead}); err != nil {
-		t.Fatal(err)
-	}
-	alice, _ = s.Access("alice")
-	if got := alice.TileLevel("apps/o/sales/crm"); got != LevelRead {
-		t.Fatalf("base permission = %q, want read", got)
-	}
-	if alice.TileLevel("apps/chat") != "" {
-		t.Fatal("base permission must not leak outside the org")
-	}
-
-	// carol: org admin — implicit terminal + create inside the org, nothing outside.
-	carol, _ := s.Access("carol")
-	if !carol.CanTerminalTile("apps/o/sales/crm") || !carol.CanCreateTile("apps/o/sales/x") || !carol.CanTerminal() {
-		t.Fatal("org admin should have implicit terminal+create on org tiles")
-	}
-	if carol.TileLevel("apps/chat") != "" || carol.CanCreateTile("apps/chat") {
-		t.Fatal("org admin power must not leak outside the org")
-	}
-	if !carol.IsAdminOrg("sales") || carol.IsAdminOrg("eng") || len(carol.AdminOrgs()) != 1 {
-		t.Fatal("AdminOrgs bookkeeping wrong")
-	}
-	if carol.TermAPI() || carol.TermNet() {
-		t.Fatal("org admin must not confer term flags")
-	}
-
-	// dave: outsider — nothing.
-	dave, _ := s.Access("dave")
-	if dave.TileLevel("apps/o/sales/crm") != "" || dave.CanTerminal() {
-		t.Fatal("non-member must get nothing")
-	}
-
-	// direct user entries still union in.
-	if err := s.GrantTile("dave", "apps/o/sales/crm", LevelTerminal); err != nil {
-		t.Fatal(err)
-	}
-	dave, _ = s.Access("dave")
-	if !dave.CanTerminalTile("apps/o/sales/crm") {
-		t.Fatal("direct grant must apply on org tiles too")
-	}
-
-	// nil-safety.
-	var nilA *Access
-	if nilA.TileLevel("x") != "" || nilA.CanTerminal() || nilA.CanCreateTile("x") || nilA.TermAPI() || nilA.TermNet() || nilA.IsAdminOrg("sales") {
-		t.Fatal("nil Access must answer no to everything")
-	}
+	return a
 }
 
-func TestWorkspaceAdminAccess(t *testing.T) {
-	s := fixture(t)
-	if _, err := s.Upsert(User{ID: "root2", Role: RoleAdmin}, "password"); err != nil {
+// --- resolver precedence (D24/D25/D27) --------------------------------------
+
+func TestTileLevelPrecedence(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "sales", Members: []Member{
+		{ID: "alice", Level: LevelTerminal, Create: true, Admin: true},
+		{ID: "bob", Level: LevelWrite},
+	}})
+	if err := s.SetOwner("apps/crm", "org:sales"); err != nil { // org-owned
 		t.Fatal(err)
 	}
-	a, _ := s.Access("root2")
-	if a.TileLevel("anything") != LevelTerminal || !a.CanCreateTile("x") || !a.TermAPI() || !a.TermNet() {
-		t.Fatal("workspace admin must have everything")
-	}
-}
-
-func TestCeiling(t *testing.T) {
-	s := fixture(t)
-	if err := s.SetPolicy([]PolicyRow{{Tiles: "*", Deny: []string{PolicyDenyNet}}}); err != nil {
+	if err := s.SetOwner("apps/mine", "user:bob"); err != nil { // user-owned
 		t.Fatal(err)
 	}
-	if err := s.SetOrgPolicy("sales", []PolicyRow{
-		{Tiles: "apps/o/sales/*", Deny: []string{PolicyDenyGPU}, MayCall: []string{"apps/o/sales/*", "res:apps/o/sales/*"}},
-	}); err != nil {
+	if err := s.SetOrgTile("sales", "apps/shared", LevelRead); err != nil { // shared TO org
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultTiles(map[string]string{"apps/welcome": LevelRead}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Org tile: both layers compose.
-	c := s.Ceiling("apps/o/sales/crm")
-	if !c.Denies(PolicyDenyNet) || !c.Denies(PolicyDenyGPU) || c.Denies(PolicyDenyXbinCaps) {
-		t.Fatal("deny composition wrong")
+	bob := acc(t, s, "bob")
+	cases := []struct{ path, want string }{
+		{"apps/mine", LevelTerminal}, // your own tile is yours (D24)
+		{"apps/crm", LevelWrite},     // org member level on org-owned
+		{"apps/shared", LevelRead},   // shared-to-org entry
+		{"apps/welcome", LevelRead},  // workspace default (D27)
+		{"apps/other", ""},           // nothing reaches it
 	}
-	if !c.MayCall("apps/o/sales/db") || !c.MayCall("res:apps/o/sales/db") {
-		t.Fatal("in-org targets must pass mayCall")
-	}
-	if c.MayCall("apps/chat") {
-		t.Fatal("out-of-list target must be blocked")
-	}
-	if row, blocked := c.MayCallBlocker("apps/chat"); !blocked || row.Tiles != "apps/o/sales/*" {
-		t.Fatal("MayCallBlocker should name the blocking row")
-	}
-
-	// Non-org tile: only the workspace row applies.
-	c = s.Ceiling("apps/chat")
-	if !c.Denies(PolicyDenyNet) || c.Denies(PolicyDenyGPU) || !c.MayCall("anything/at/all") {
-		t.Fatal("workspace-only composition wrong")
-	}
-
-	// Unmatched tile pattern ⇒ no ceiling.
-	if err := s.SetPolicy([]PolicyRow{{Tiles: "sales-only/*", Deny: []string{PolicyDenyNet}}}); err != nil {
-		t.Fatal(err)
-	}
-	if s.Ceiling("apps/chat").Denies(PolicyDenyNet) {
-		t.Fatal("non-matching row must not apply")
-	}
-
-	// Validation.
-	if err := s.SetPolicy([]PolicyRow{{Tiles: "", Deny: []string{PolicyDenyNet}}}); err == nil {
-		t.Fatal("empty tiles pattern must be rejected")
-	}
-	if err := s.SetPolicy([]PolicyRow{{Tiles: "*", Deny: []string{"nope"}}}); err == nil {
-		t.Fatal("unknown deny kind must be rejected")
-	}
-}
-
-func TestOrgTeamCRUD(t *testing.T) {
-	s := fixture(t)
-
-	// Team members must be org members.
-	if _, err := s.UpsertTeam("sales", Team{ID: "t2", Members: []string{"dave"}}); err == nil {
-		t.Fatal("non-member in team must be rejected")
-	}
-	// Unknown users rejected everywhere.
-	if _, err := s.UpsertOrg(Org{ID: "eng", Members: []string{"ghost"}}); err == nil {
-		t.Fatal("unknown member must be rejected")
-	}
-	// Reserved org ids.
-	for _, id := range []string{"o", "u", "workspace"} {
-		if _, err := s.UpsertOrg(Org{ID: id}); err == nil {
-			t.Fatalf("org id %q must be reserved", id)
+	for _, c := range cases {
+		if got := bob.TileLevel(c.path); got != c.want {
+			t.Errorf("bob level(%s) = %q, want %q", c.path, got, c.want)
 		}
 	}
-	// Unknown levels rejected.
-	if _, err := s.UpsertTeam("sales", Team{ID: "t3", Tiles: map[string]string{"x": "boss"}}); err == nil {
-		t.Fatal("unknown tile level must be rejected")
+	// Org ADMIN gets terminal on org-owned tiles regardless of level knob.
+	alice := acc(t, s, "alice")
+	if got := alice.TileLevel("apps/crm"); got != LevelTerminal {
+		t.Errorf("org admin level = %q, want terminal", got)
 	}
-	if _, err := s.UpsertTeam("sales", Team{ID: "t3", NewTiles: "boss"}); err == nil {
-		t.Fatal("unknown newTiles level must be rejected")
+	// carol: no membership — org-owned tile unreachable even with the share
+	// belonging to sales.
+	carol := acc(t, s, "carol")
+	if carol.CanReadTile("apps/crm") || carol.CanReadTile("apps/shared") {
+		t.Error("non-member must not reach org tiles or org shares")
 	}
-	// NewTiles defaults to write.
-	tm, err := s.UpsertTeam("sales", Team{ID: "t4"})
-	if err != nil || tm.NewTiles != LevelWrite {
-		t.Fatalf("newTiles default = %q err=%v, want write", tm.NewTiles, err)
+	if !carol.CanReadTile("apps/welcome") {
+		t.Error("defaults apply to every user")
 	}
+	// Explain agrees with TileLevel on the top contribution.
+	for _, path := range []string{"apps/mine", "apps/crm", "apps/shared", "apps/welcome"} {
+		ex := bob.Explain(path)
+		if lvl := bob.TileLevel(path); lvl != "" && (len(ex) == 0 || ex[0].Level != lvl) {
+			t.Errorf("Explain(%s) top %v != TileLevel %q", path, ex, lvl)
+		}
+	}
+}
 
-	// GrantTileTeam is monotone.
-	if err := s.GrantTileTeam("sales", "backend", "apps/o/sales/newtile", LevelWrite); err != nil {
-		t.Fatal(err)
+func TestCreateAs(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "sales", Members: []Member{
+		{ID: "alice", Level: LevelTerminal, Admin: true},
+		{ID: "bob", Level: LevelTerminal, Create: true},
+		{ID: "carol", Level: LevelRead},
+	}})
+	if !acc(t, s, "alice").CanCreateAs("sales") { // admin implies create
+		t.Error("org admin must create")
 	}
-	if err := s.GrantTileTeam("sales", "backend", "apps/o/sales/newtile", LevelRead); err != nil {
-		t.Fatal(err)
+	if !acc(t, s, "bob").CanCreateAs("sales") {
+		t.Error("Create knob must allow")
 	}
-	o, _ := s.Org("sales")
-	if o.Team("backend").Tiles["apps/o/sales/newtile"] != LevelWrite {
-		t.Fatal("GrantTileTeam must never lower")
+	if acc(t, s, "carol").CanCreateAs("sales") {
+		t.Error("viewer must not create")
 	}
+	if acc(t, s, "bob").CanCreateAs("other") {
+		t.Error("non-member must not create")
+	}
+	// Personal creation still runs on user patterns only.
+	if acc(t, s, "bob").CanCreateTile("apps/x") {
+		t.Error("no personal pattern → no personal create")
+	}
+}
 
-	// Org update preserves teams+policy and strips removed members from teams.
-	if err := s.SetOrgPolicy("sales", []PolicyRow{{Tiles: "*", Deny: []string{PolicyDenyNet}}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpsertOrg(Org{ID: "sales", Name: "Sales!", Admins: []string{"carol"}, Members: []string{"alice"}}); err != nil {
-		t.Fatal(err)
-	}
-	o, _ = s.Org("sales")
-	if o.Name != "Sales!" || len(o.Policy) != 1 || o.Team("backend") == nil {
-		t.Fatal("org update must preserve teams and policy")
-	}
-	if contains(o.Team("backend").Members, "bob") {
-		t.Fatal("member removed from org must leave its teams")
-	}
+// --- ownership lifecycle ------------------------------------------------------
 
-	// Deleting a user strips org/team membership.
-	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
+func TestOwnershipLifecycle(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "sales", Members: []Member{{ID: "alice", Level: LevelRead, Admin: true}}})
+	if err := s.SetOwner("apps/a", "user:bob"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpsertTeam("sales", Team{ID: "backend", Members: []string{"bob"}}); err != nil {
+	if err := s.SetOwner("apps/b", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOwner("apps/x", "user:ghost"); err == nil {
+		t.Fatal("unknown user must be rejected")
+	}
+	if err := s.SetOwner("apps/x", "org:ghost"); err == nil {
+		t.Fatal("unknown org must be rejected")
+	}
+	// Transfer: storage-level move; authz is the broker's.
+	if err := s.SetOwner("apps/a", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Owner("apps/a"); got != "org:sales" {
+		t.Fatalf("owner after transfer = %q", got)
+	}
+	// Org delete refused while owning tiles.
+	if err := s.DeleteOrg("sales"); err == nil || !strings.Contains(err.Error(), "owns") {
+		t.Fatalf("org delete must refuse while owning tiles, got %v", err)
+	}
+	if err := s.SetOwner("apps/a", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOwner("apps/b", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteOrg("sales"); err != nil {
+		t.Fatalf("org delete after transfer: %v", err)
+	}
+	// Deleting a user orphans their tiles to workspace-owned.
+	if err := s.SetOwner("apps/c", "user:bob"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Delete("bob"); err != nil {
 		t.Fatal(err)
 	}
-	o, _ = s.Org("sales")
-	if contains(o.Members, "bob") || contains(o.Team("backend").Members, "bob") {
-		t.Fatal("deleted user must be stripped from orgs and teams")
-	}
-	if err := s.Delete("carol"); err != nil {
-		t.Fatal(err)
-	}
-	o, _ = s.Org("sales")
-	if contains(o.Admins, "carol") {
-		t.Fatal("deleted user must be stripped from org admins")
-	}
-
-	// Team + org deletion.
-	if err := s.DeleteTeam("sales", "backend"); err != nil {
-		t.Fatal(err)
-	}
-	o, _ = s.Org("sales")
-	if o.Team("backend") != nil {
-		t.Fatal("team not deleted")
-	}
-	if err := s.DeleteOrg("sales"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := s.Org("sales"); ok {
-		t.Fatal("org not deleted")
+	if got := s.Owner("apps/c"); got != "" {
+		t.Fatalf("deleted user's tile must fall to workspace-owned, got %q", got)
 	}
 }
 
-func TestOrgPersistence(t *testing.T) {
-	s := fixture(t)
-	if err := s.SetPolicy([]PolicyRow{{Tiles: "*", Deny: []string{PolicyDenyNet}}}); err != nil {
-		t.Fatal(err)
-	}
-	s2, err := Open(strings.TrimSuffix(s.path, "/users.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, ok := s2.Org("sales")
-	if !ok || o.Team("backend") == nil || !contains(o.Admins, "carol") {
-		t.Fatal("org did not survive reopen")
-	}
-	if !s2.Ceiling("anything").Denies(PolicyDenyNet) {
-		t.Fatal("workspace policy did not survive reopen")
-	}
-	bob, ok := s2.Access("bob")
-	if !ok || bob.TileLevel("apps/o/sales/crm") != LevelWrite {
-		t.Fatal("access resolution wrong after reopen")
-	}
-}
+// --- allowances (D26) ---------------------------------------------------------
 
-func TestParseTeamRef(t *testing.T) {
-	org, team, err := ParseTeamRef("Sales/Backend")
-	if err != nil || org != "sales" || team != "backend" {
-		t.Fatalf("got %q %q %v", org, team, err)
+func TestAllowanceGrammarAndFloor(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "dev", Members: []Member{{ID: "alice", Level: LevelTerminal, Admin: true}}})
+
+	// Write-time: grammar enforced, xbin family refused.
+	bad := [][]string{
+		{"xbin"}, {"xbin:users"}, {"xbin:*"},
+		{"whatever"}, {""}, {"res:"},
 	}
-	for _, bad := range []string{"", "sales", "sales/", "/backend", "a/b/c"} {
-		if _, _, err := ParseTeamRef(bad); err == nil {
-			t.Errorf("ParseTeamRef(%q) should fail", bad)
+	for _, entries := range bad {
+		if err := s.SetOrgAllow("dev", entries); err == nil {
+			t.Errorf("allow %v must be rejected", entries)
+		}
+	}
+	good := []string{
+		"res:*", "gpu:0", "cap:containers", "net:internet", "net:host",
+		"net:lan:10.0.0.0/8", "net:lan:192.168.*", "iface:llm", "ingress:host:*.dev.example.com",
+		"ingress:zone:*.z.example.com", "ingress:listen:20000-20999", "tile:apps/*",
+	}
+	if err := s.SetOrgAllow("dev", good); err != nil {
+		t.Fatalf("valid allow rejected: %v", err)
+	}
+
+	cover := []struct {
+		target string
+		want   bool
+	}{
+		{"res:apps/x/db", true},
+		{"gpu:0", true},
+		{"gpu:1", false},
+		{"cap:containers", true},
+		{"cap:net-admin", false},
+		{"net:internet", true},
+		{"net:host", true},
+		{"net:lan:10.0.0.0/8", true},     // exact binding value
+		{"net:lan:10.1.2.0/24", false},   // no CIDR-contains semantics — use a glob
+		{"net:lan:192.168.1.0/24", true}, // glob entry
+		{"iface:llm", true},
+		{"iface:mcp", false},
+		{"ingress:host:api.dev.example.com", true},
+		{"ingress:host:api.prod.example.com", false},
+		{"ingress:listen:20500", true},
+		{"ingress:listen:21000", false},
+		{"apps/other", true}, // tile:apps/*
+		{"tiles/x", false},
+		// The floor: never coverable, no matter the entries.
+		{"xbin", false},
+		{"xbin:users", false},
+	}
+	for _, c := range cover {
+		if got := s.AllowanceCovers("dev", c.target); got != c.want {
+			t.Errorf("AllowanceCovers(%q) = %v, want %v", c.target, got, c.want)
 		}
 	}
 }
 
-// Creating inside an org requires membership (D19 amendment) — broad personal
-// patterns must not reach into org trees; and the org container itself is not
-// a valid tile path.
-func TestOrgCreateMembershipAndContainer(t *testing.T) {
-	s := fixture(t)
-	// dave: outsider with a broad personal create pattern.
-	if _, err := s.Upsert(User{ID: "dave", Role: RoleUser, CanCreate: []string{"apps/*"}}, "password"); err != nil {
+// --- permission sets (D28) ----------------------------------------------------
+
+func TestPermissionSets(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "dev", Members: []Member{{ID: "bob", Level: LevelWrite}}})
+
+	if err := s.UpsertPermissionSet("hightrust", PermissionSet{
+		Allow:   []string{"cap:containers", "net:internet"},
+		Policy:  []PolicyRow{{Tiles: "*", Deny: []string{PolicyDenyGPU}}},
+		TermNet: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	dave, _ := s.Access("dave")
-	if !dave.CanCreateTile("apps/newthing") {
-		t.Fatal("personal pattern must still work outside orgs")
+	if err := s.UpsertPermissionSet("bad", PermissionSet{Allow: []string{"xbin"}}); err == nil {
+		t.Fatal("set with xbin allow must be rejected")
 	}
-	if dave.CanCreateTile("apps/o/sales/newthing") {
-		t.Fatal("non-member must not create inside an org, whatever their patterns")
-	}
-	// alice: member with the same pattern — allowed inside her org.
-	if _, err := s.Upsert(User{ID: "alice", Role: RoleUser, CanCreate: []string{"apps/*"}}, "password"); err != nil {
+	if err := s.SetOrgSets("dev", []string{"hightrust"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}}); err != nil {
-		t.Fatal(err)
+	if err := s.SetOrgSets("dev", []string{"missing"}); err == nil {
+		t.Fatal("attaching an unknown set must fail")
 	}
-	alice, _ := s.Access("alice")
-	if !alice.CanCreateTile("apps/o/sales/newthing") {
-		t.Fatal("member's matching pattern must work inside their org")
+	if err := s.SetOrgAllow("dev", []string{"gpu:*"}); err != nil {
+		t.Fatal(err)
 	}
 
-	// Org containers are not tile paths.
-	for _, p := range []string{"o/sales", "apps/o/sales", "tiles/o/sales"} {
-		if err := s.ValidateNewTilePath(p); err == nil || !strings.Contains(err.Error(), "container") {
-			t.Errorf("ValidateNewTilePath(%q) = %v, want container error", p, err)
-		}
-	}
-	if err := s.ValidateNewTilePath("apps/o/sales/crm"); err != nil {
-		t.Errorf("below the container must stay valid: %v", err)
-	}
-}
-
-// Explain must list every contribution and agree with TileLevel.
-func TestExplainMatchesTileLevel(t *testing.T) {
-	s := fixture(t)
-	if _, err := s.UpsertOrg(Org{ID: "sales", Admins: []string{"carol"}, Members: []string{"alice", "bob"}, BasePermission: LevelRead}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.GrantTile("bob", "apps/o/sales/crm", LevelRead); err != nil {
-		t.Fatal(err)
-	}
-	paths := []string{"apps/o/sales/crm", "apps/o/sales/other", "apps/chat", "lib/ui", "o/sales/x"}
-	for _, id := range []string{"alice", "bob", "carol", "dave"} {
-		a, _ := s.Access(id)
-		for _, p := range paths {
-			cs := a.Explain(p)
-			eff := ""
-			if len(cs) > 0 {
-				eff = cs[0].Level
-			}
-			if got := a.TileLevel(p); got != eff {
-				t.Errorf("%s on %s: TileLevel=%q but Explain leads with %q (%v)", id, p, got, eff, cs)
+	// ResolvedAllow = set ∪ extras.
+	ra := s.ResolvedAllow("dev")
+	for _, want := range []string{"cap:containers", "net:internet", "gpu:*"} {
+		found := false
+		for _, e := range ra {
+			if e == want {
+				found = true
 			}
 		}
-	}
-	// Provenance shapes: bob on the org tile has team pattern + base + direct.
-	bob, _ := s.Access("bob")
-	cs := bob.Explain("apps/o/sales/crm")
-	want := map[string]bool{"team:sales/backend:apps/o/sales/*": false, "base:sales": false, "direct:apps/o/sales/crm": false}
-	for _, c := range cs {
-		if _, ok := want[c.Source]; ok {
-			want[c.Source] = true
+		if !found {
+			t.Errorf("ResolvedAllow missing %q: %v", want, ra)
 		}
 	}
-	for src, seen := range want {
-		if !seen {
-			t.Errorf("missing contribution %q in %v", src, cs)
-		}
+	if !s.AllowanceCovers("dev", "cap:containers") || !s.AllowanceCovers("dev", "gpu:3") {
+		t.Error("union must cover set + extra entries")
 	}
-	// Workspace admin: a single "admin" row.
-	if _, err := s.Upsert(User{ID: "root2", Role: RoleAdmin}, "password"); err != nil {
+
+	// Set-conferred term flags reach members.
+	if !acc(t, s, "bob").TermNet() {
+		t.Error("set TermNet must reach org members")
+	}
+	if acc(t, s, "bob").TermAPI() {
+		t.Error("TermAPI not conferred")
+	}
+	if acc(t, s, "carol").TermNet() {
+		t.Error("non-members unaffected")
+	}
+
+	// Set ceiling rows compose restrictively for org-OWNED tiles.
+	if err := s.SetOwner("apps/devtile", "org:dev"); err != nil {
 		t.Fatal(err)
 	}
-	ra, _ := s.Access("root2")
-	if cs := ra.Explain("anything"); len(cs) != 1 || cs[0].Source != "admin" {
-		t.Errorf("admin explain = %v", cs)
+	if !s.Ceiling("apps/devtile").Denies(PolicyDenyGPU) {
+		t.Error("attached set's deny row must apply to org-owned tiles")
 	}
-	// Org admin: the implicit terminal row leads.
-	carol, _ := s.Access("carol")
-	if cs := carol.Explain("apps/o/sales/crm"); len(cs) == 0 || cs[0].Source != "org-admin:sales" {
-		t.Errorf("org-admin explain = %v", cs)
+	if s.Ceiling("apps/elsewhere").Denies(PolicyDenyGPU) {
+		t.Error("set rows must NOT apply outside the org's owned tiles")
+	}
+
+	// Delete refused while attached; ok after detach.
+	if err := s.DeletePermissionSet("hightrust"); err == nil {
+		t.Fatal("delete of attached set must refuse")
+	}
+	if err := s.SetOrgSets("dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeletePermissionSet("hightrust"); err != nil {
+		t.Fatalf("delete after detach: %v", err)
+	}
+}
+
+// --- ceilings by ownership ----------------------------------------------------
+
+func TestCeilingByOwnership(t *testing.T) {
+	s := newStore(t)
+	mustOrg(t, s, Org{ID: "sales", Members: []Member{{ID: "alice", Level: LevelRead}}})
+	if err := s.SetPolicy([]PolicyRow{{Tiles: "apps/*", Deny: []string{PolicyDenyNet}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOrgPolicy("sales", []PolicyRow{{Tiles: "*", Deny: []string{PolicyDenyIngress}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOwner("apps/crm", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
+	c := s.Ceiling("apps/crm")
+	if !c.Denies(PolicyDenyNet) || !c.Denies(PolicyDenyIngress) {
+		t.Error("workspace + owner-org rows must both apply")
+	}
+	// A workspace-plane tile only gets workspace rows.
+	c2 := s.Ceiling("apps/other")
+	if !c2.Denies(PolicyDenyNet) || c2.Denies(PolicyDenyIngress) {
+		t.Error("org rows must key off ownership, not paths")
 	}
 }

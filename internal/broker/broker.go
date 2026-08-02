@@ -431,6 +431,9 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 type PendingGrant struct {
 	registry.Grant
 	Blocked string `json:"blocked,omitempty"`
+	// Approvable marks pending items the CALLER may approve — set on the
+	// org-admin filtered view (D26); ws-admins may approve anything unblocked.
+	Approvable bool `json:"approvable,omitempty"`
 }
 
 // Pending computes unsatisfied cross-scope `uses` declarations.
@@ -461,7 +464,14 @@ func (b *Broker) Pending() []PendingGrant {
 // --- grants API ---------------------------------------------------------
 
 func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
-	if !b.IsAdmin(auth.PrincipalOf(r)) {
+	p := auth.PrincipalOf(r)
+	if !b.IsAdmin(p) {
+		// Org admins get the filtered view: rows for tiles their orgs own,
+		// with the pending items they may approve marked (D26).
+		if grants, pending, ok := b.orgFilterGrants(p); ok {
+			server.WriteJSON(w, http.StatusOK, map[string]any{"grants": grants, "pending": pending, "scope": "org"})
+			return
+		}
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
 		return
 	}
@@ -518,14 +528,20 @@ func (b *Broker) grantRestart(g registry.Grant) {
 }
 
 func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {
-	if !b.IsAdmin(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — grants are approved by the owner or an admin-capable tile"})
-		return registry.Grant{}, false
-	}
+	p := auth.PrincipalOf(r)
 	var g registry.Grant
 	if err := decodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, target, role}"})
 		return registry.Grant{}, false
+	}
+	if !b.IsAdmin(p) {
+		// D26: an org admin may approve for tiles their org OWNS when the
+		// target is intra-org or allowance-covered (revokes always) — the
+		// ceiling check below still applies to every approver.
+		if !b.orgAdminMayGrant(p, g, r.Method == http.MethodDelete) {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — grants are approved by a workspace admin, or an org admin within their org's allowance (D26)", "docs": "/docs/auth.md"})
+			return registry.Grant{}, false
+		}
 	}
 	// Egress is no longer a grant — it's a `net` interface binding. Reject new
 	// net:* grants loudly (rather than storing a silent no-op); DELETE still

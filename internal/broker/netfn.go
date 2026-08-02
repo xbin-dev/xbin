@@ -287,9 +287,20 @@ func (b *Broker) HTTPInterfaces(comp string) map[string]any {
 // apiBindingsList returns the binding table plus the interfaces components
 // request/provide, for the admin "Interfaces" UX.
 func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
-	if !b.IsAdmin(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
-		return
+	p := auth.PrincipalOf(r)
+	orgScope := map[string]bool{} // org-admin view: only their orgs' tiles
+	if !b.IsAdmin(p) {
+		if b.Users != nil && p.Component == "" && p.User != nil {
+			for _, o := range p.Access.AdminOrgs() {
+				for _, t := range b.Users.OwnedBy("org:" + o) {
+					orgScope[t] = true
+				}
+			}
+		}
+		if len(orgScope) == 0 {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
+			return
+		}
 	}
 	type ifaceInfo struct {
 		Component string                    `json:"component"`
@@ -301,13 +312,34 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		if len(c.Manifest.Interfaces) == 0 && len(c.Manifest.Provides) == 0 {
 			continue
 		}
+		if len(orgScope) > 0 && !orgScope[c.Path] {
+			continue
+		}
 		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides})
 	}
+	bindings := b.Reg.Workspace().Bindings
+	pending := b.pendingBindings()
+	if len(orgScope) > 0 { // org-admin view: scope every table to their tiles
+		fb := map[string]map[string]registry.Binding{}
+		for comp, slots := range bindings {
+			if orgScope[comp] {
+				fb[comp] = slots
+			}
+		}
+		bindings = fb
+		fp := pending[:0]
+		for _, pb := range pending {
+			if orgScope[pb.Component] {
+				fp = append(fp, pb)
+			}
+		}
+		pending = fp
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"bindings":   b.Reg.Workspace().Bindings,
+		"bindings":   bindings,
 		"instances":  b.Reg.Workspace().IfaceInstances,
 		"components": comps,
-		"pending":    b.pendingBindings(),
+		"pending":    pending,
 	})
 }
 
@@ -446,10 +478,7 @@ func provideRole(def registry.Iface) string {
 // Restarts the component (its wiring changed) and, for a net provider, the
 // provider (its roster changed).
 func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
-	if !b.IsAdmin(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only — bindings are the owner's to wire"})
-		return
-	}
+	p := auth.PrincipalOf(r)
 	var body struct {
 		Component string   `json:"component"`
 		Slot      string   `json:"slot"`
@@ -473,6 +502,15 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		binding[0].Host = strings.ToLower(strings.TrimSpace(body.Host))
 		binding[0].Zone = strings.ToLower(strings.TrimSpace(body.Zone))
 		binding[0].Listen = strings.TrimSpace(body.Listen)
+	}
+	if !b.IsAdmin(p) {
+		// D26: an org admin may wire bindings for tiles their org OWNS when
+		// every normalized target is intra-org or allowance-covered (unbind
+		// always). Everyone else: workspace admin only.
+		if !b.orgAdminMayBind(p, body.Component, body.Slot, binding, del) {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — bindings are wired by a workspace admin, or an org admin within their org's allowance (D26)", "docs": "/docs/auth.md"})
+			return
+		}
 	}
 	if !del {
 		if err := b.validateBinding(body.Component, body.Slot, binding); err != nil {

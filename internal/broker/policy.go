@@ -75,18 +75,6 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 	return b.ceilingBlockMsg(from, target) == ""
 }
 
-// validateNewPath is the shared reserved-segment gate on every tile-creating
-// entry point (create / clone / git import / builtin import / template
-// instantiate): the `o` org marker must name an existing org, `u` is reserved
-// (plans/orgs.md). Existing on-disk paths are never rejected — bx doctor
-// warns instead.
-func (b *Broker) validateNewPath(path string) error {
-	if b.Users == nil {
-		return nil
-	}
-	return b.Users.ValidateNewTilePath(path)
-}
-
 // canCreateAt is the shared tile-creation authority for the same five entry
 // points: workspace admins; humans whose (org/team-unioned) create patterns
 // cover the path; or an element holding the workspace-management capability

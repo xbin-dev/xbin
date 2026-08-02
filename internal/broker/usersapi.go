@@ -116,7 +116,9 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 			du["orgs"] = orgs
 		}
 	default:
-		if org, inOrg := users.OrgOf(p.Component); inOrg {
+		// An ordinary element learns the driving user's membership only for
+		// the org that OWNS it (D24) — never the full membership map.
+		if org, inOrg := b.Users.OwnerOrg(p.Component); inOrg {
 			for _, m := range b.userOrgsView(u) {
 				if m.ID == org {
 					du["orgs"] = []users.OrgMembership{m}
@@ -144,8 +146,8 @@ func (b *Broker) elementXbinCapable(comp string) bool {
 }
 
 // userOrgsView is whoami's orgs field: memberships for a regular user; for a
-// workspace admin every org with every team (their effective reality — they
-// may act in all of them, e.g. create-in-team).
+// workspace admin every org, presented as an admin membership (their
+// effective reality — they may act in all of them, e.g. create-as-org).
 func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
 	if b.Users == nil {
 		return nil
@@ -155,11 +157,9 @@ func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
 	}
 	var out []users.OrgMembership
 	for _, o := range b.Users.Orgs() {
-		m := users.OrgMembership{ID: o.ID, Name: o.Name, Admin: true}
-		for _, t := range o.Teams {
-			m.Teams = append(m.Teams, users.TeamInfo{ID: t.ID, Name: t.Name, CanCreate: t.CanCreate})
-		}
-		out = append(out, m)
+		out = append(out, users.OrgMembership{
+			ID: o.ID, Name: o.Name, Level: users.LevelTerminal, Create: true, Admin: true,
+		})
 	}
 	return out
 }

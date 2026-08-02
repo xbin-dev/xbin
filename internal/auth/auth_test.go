@@ -134,10 +134,10 @@ func TestTokenLoginDisabledGating(t *testing.T) {
 	}
 }
 
-// A session principal must resolve org/team-aware access (plans/orgs.md): the
-// Can* gates answer through users.Access, so team grants apply without any
-// enforcement call site knowing what a team is.
-func TestSessionPrincipalTeamAccess(t *testing.T) {
+// A session principal carries the ownership-model Access snapshot (D24/D25):
+// org membership levels flow through the Can*Tile gates, ownership confers
+// terminal, and set-conferred term flags surface via CanTermNet.
+func TestSessionPrincipalOrgAccess(t *testing.T) {
 	a := testAuth(t)
 	st, err := users.Open(t.TempDir())
 	if err != nil {
@@ -147,15 +147,18 @@ func TestSessionPrincipalTeamAccess(t *testing.T) {
 	if _, err := st.Upsert(users.User{ID: "bob", Role: users.RoleUser}, "password"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.UpsertOrg(users.Org{ID: "sales", Members: []string{"bob"}}); err != nil {
+	if _, err := st.UpsertOrg(users.Org{ID: "sales", Members: []users.Member{
+		{ID: "bob", Level: users.LevelTerminal, Create: true},
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.UpsertTeam("sales", users.Team{
-		ID: "backend", Members: []string{"bob"},
-		Tiles:     map[string]string{"apps/o/sales/*": users.LevelTerminal},
-		CanCreate: []string{"apps/o/sales/*"},
-		TermNet:   true,
-	}); err != nil {
+	if err := st.SetOwner("apps/crm", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertPermissionSet("dev", users.PermissionSet{TermNet: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetOrgSets("sales", []string{"dev"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,20 +168,17 @@ func TestSessionPrincipalTeamAccess(t *testing.T) {
 	if !ok || p.UserID != "bob" || p.Access == nil {
 		t.Fatalf("session principal: %+v %v", p, ok)
 	}
-	if !p.CanReadTile("apps/o/sales/crm") || !p.CanWriteTile("apps/o/sales/crm") ||
-		!p.CanTerminalTile("apps/o/sales/crm") || !p.CanTerminal() {
-		t.Fatal("team grant must flow through the principal gates")
+	if !p.CanReadTile("apps/crm") || !p.CanWriteTile("apps/crm") ||
+		!p.CanTerminalTile("apps/crm") || !p.CanTerminal() {
+		t.Fatal("org member level must flow through the principal gates")
 	}
 	if p.CanReadTile("apps/chat") || p.CanCreateTile("apps/new") {
-		t.Fatal("team grant must stay inside the org")
-	}
-	if !p.CanCreateTile("apps/o/sales/new") {
-		t.Fatal("team canCreate must flow through CanCreateTile")
+		t.Fatal("org level must stay on org-owned tiles; no personal create patterns")
 	}
 	if !p.CanTermNet() || p.CanTermAPI() {
-		t.Fatal("term flags must union from teams")
+		t.Fatal("term flags must union from attached permission sets")
 	}
 	if p.IsAdmin() {
-		t.Fatal("team member is not an admin")
+		t.Fatal("org member is not a workspace admin")
 	}
 }

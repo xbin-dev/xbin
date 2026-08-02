@@ -377,150 +377,59 @@ The admin console's **Users** tab and `bx user ls|add|set|rm` drive these.
 Passwords are Argon2id-hashed in `data/users.json` (0600); sessions are
 server-side (delete/edit revokes immediately) and drop on restart.
 
-## Organizations & teams
+## Ownership, organizations & delegated approval
 
-GitHub-shaped grouping on top of the flat user model (plans/orgs.md,
-DECISIONS D19–D21). Everything lives in the identity store
-(`data/users.json`) — outside the workspace, so no terminal or tile can edit
-it.
+The multi-user grouping model (plans/ownership.md, DECISIONS D24–D28).
+Everything lives in the identity store (`data/users.json`) — outside the
+workspace, so no terminal or tile can edit it.
 
-**An org owns a path namespace, positionally.** The reserved `o` segment
-binds a tile to its org: `o/<org>/…` or `<dir>/o/<org>/…` — so
-`apps/o/sales/crm` belongs to org `sales`, readable straight off the path
-(reddit-style; `u/` is reserved the same way for future per-user tiles).
-Tiles outside any org marker are **workspace-plane** and behave exactly as
-before. Creating a path with `o`/`u` anywhere else — or naming an org that
-doesn't exist — is rejected on create/clone/import; pre-existing dirs keep
-working (`bx doctor` warns).
+**Ownership (D24).** Every component may have an owner: `user:<id>` or
+`org:<id>` (absent = workspace-owned, admin-managed). Ownership is assigned
+at creation (a human creator becomes the user-owner; `owner: "org:<id>"`
+creates an org-owned tile) and is transferable (`POST /owner`). A user-owner
+holds implicit `terminal` on their tile and manages its ACL — **sharing is an
+ownership right**: the ws-admin, the user-owner, and the owning org's admins
+may edit a tile's exact `user:`/`org:` ACL entries (`PUT /access`).
 
-**Teams grant by union (GitHub semantics).** A team is a named group of org
-members carrying its own `tiles` pattern→level map, `canCreate` patterns, and
-term-api/term-net flags. A member's effective level on a path is the
-**highest** of:
+**Orgs (D25).** An org is a flat member list — no teams. Each member carries
+`{level: read|write|terminal, create, admin}`: `level` applies org-wide to
+every tile the org **owns** (org admins get terminal implicitly); `create`
+gates creating new org-owned tiles; `admin` is org management (members,
+org-tile ACLs, transfers, exercising allowances). UI presets: **Admin**
+(terminal+create+admin), **Developer** (terminal+create), **Viewer** (read).
+Tiles can also be **shared to an org** (an `org.Tiles` entry — all members
+get that level, wherever the tile lives).
 
-1. their own `tiles` entries (any path, as before),
-2. each of their teams' entries — evaluated **only on paths inside the
-   team's org** (an entry escaping the org is inert; the pattern and the org
-   clamp intersect),
-3. the org's `basePermission` (`""|read|write`) — the floor every org member
-   gets on every org tile; terminal is never implicit,
-4. org-adminship: org admins hold implicit `terminal` + create on their
-   org's tiles.
+**Effective access** = max of: workspace-admin (terminal everywhere) ·
+owning-user (terminal) · org-member level / org-admin terminal on org-owned
+tiles · org shares · the user's own pattern entries (D16) · workspace
+`defaultTiles` (D27 — baseline visibility every user gets; the scaffold
+seeds welcome/apidocs read).
 
-Membership only ever widens access; there are no caps. Deleting a user
-strips them from every org and team; removing an org member removes them
-from that org's teams.
+**Policy ceilings (D20, re-keyed).** Deny/mayCall rows still cap what any
+tile may be *granted* — workspace rows plus, for org-owned tiles, the owning
+org's rows and every attached permission set's rows (restrictive union; any
+deny wins; humans are never subject to ceilings).
 
-Two deliberate asymmetries: **read/write via personal patterns stays
-global** (a workspace admin granting `apps/*: read` means it, org tiles
-included — the auditor case), but **creating inside an org requires
-membership**: a broad personal `canCreate` pattern never lets a non-member
-inject tiles into `apps/o/<org>/…`. The org container itself
-(`apps/o/<org>`) is not a valid tile path — tiles live strictly below it.
+**Delegated approval (D26).** A ws-admin can give an org an **allowance** —
+target patterns its **admins** may approve on org-owned tiles themselves:
+`res:… gpu:… cap:… net:internet|host|lan:…|provider:… iface:<service>
+ingress:host:/zone:/listen:<range> tile:<pattern>`. Anything is delegable —
+a high-trust org can get `cap:containers` or publication rights — **except
+`xbin`/`xbin:*`**: an element granted `xbin@admin` *is* a workspace admin,
+so delegating it would make org admins ws-admins transitively (rejected at
+write, ignored at evaluation). Grants wholly inside one org's owned tiles
+(intra-org wiring) need no allowance. Every approval still runs the ceiling
+check and is audited as the actual approver; revokes/unbinds are always
+allowed for the owning org's admins. Element principals never approve —
+tiles request, humans decide.
 
-**Moving an existing tile into an org.** A tile's org *is* its path, so
-adoption means getting the files under the marker: create the org, then
-`bx clone apps/thing apps/o/<org>/thing` (git history and self-references
-come along; secrets/resource data start empty — copy what you need, then
-disable/delete the original), or move the directory host-side and update
-any grants/bindings/lifecycle entries naming the old path. There is no
-one-step transfer yet. Creating the org *first* also adopts any
-pre-existing tiles already sitting under its marker path (`bx doctor`
-lists them while the org doesn't exist).
-
-**Create-in-team.** `POST /api/xbin/create` (and `bx new --team`, and the
-manager tile's picker) takes `team: "<org>/<team>"`: the path must be inside
-the org, the caller must be a team member (or an org/workspace admin), and
-the team is auto-granted its configured `newTiles` level (default `write`)
-on the result — the creator still personally gets `terminal` (D16). The
-per-tile view/editor of who has what is `GET/PUT /api/xbin/access`
-(`bx access <tile>`, or the shell's per-tile ⚙ → access).
-
-**Org policy — the runtime ceiling.** Pattern-keyed rows at workspace and
-org level constrain what the covered **tiles** (elements — never humans) may
-be granted:
-
-```jsonc
-{ "tiles": "apps/o/sales/*",          // which tiles the row covers
-  "deny":    ["net", "gpu", "xbin-caps", "ingress"], // strip capability classes outright
-  "mayCall": ["apps/o/sales/*", "res:apps/o/sales/*"] } // allow-list call targets
-```
-
-Rows compose restrictively (any deny wins; every `mayCall`-bearing matching
-row must cover the target). They are enforced at **approval** (the grant/
-binding APIs refuse, naming the row) *and* at **every evaluation** — across
-all three grant sources (explicit rows, interface bindings, same-scope
-auto-grants) — so a hand-edited `xbin.json` cannot bypass a ceiling, and a
-pre-existing net binding goes inert the moment a deny row covers its tile.
-`xbin-caps` also neuters a covered element's `xbin`/`xbin:users` capability
-grants (including tile adminship).
-
-`mayCall` governs a tile's **external** reach only: same-scope targets — an
-app's own resources (`res:<scope>/db`) and intra-app calls — are always
-exempt, so an allow-list can never sever a tile from its own database. The
-deny kinds apply regardless. Org rows are already scoped to the org's
-tiles, so `"tiles": "*"` is usually the pattern you want there.
-
-Reserved **capability** targets are never subject to `mayCall` (a path
-allow-list can't name them): `xbin`/`xbin:*` and the blanket `code` grant
-(whole-workspace source read — owner-level) fall under the `xbin-caps` deny
-class instead. The scoped `code:<component>` grant reads ONE component's
-source, so it is governed exactly like *calling* that component (same-scope
-exempt, otherwise `mayCall` must cover the component's path).
-
-The `ingress` deny kind makes covered tiles **unpublishable**
-(docs/ingress.md): exposed-endpoint bindings are refused with the row named,
-and any existing binding goes inert — the tile drops out of the route table,
-its host-port listeners close, and split-horizon stops answering its names.
-The `net` deny also severs lan-ingress legs (they're network links).
-
-**Org admins are security-capped delegation (D21).** Org admins manage their
-org's name, members, co-admins, base permission, teams, and per-tile access
-entries — clamped to the org. Workspace-admin-only: creating/deleting orgs,
-policy rows, team `termApi`/`termNet` (terminal-plane security), and
-anything outside the org's tree. Org admins act **as signed-in humans**:
-their surface is workspace chrome (the shell's per-tile ⚙ access panel) and
-the HTTP API — deliberately *not* the admin tile, because granting a
-non-admin that tile would hand them its frame token and thereby the tile's
-own `xbin` capabilities. A frame principal never inherits the driving user's
-org-adminship.
-
-**API** (documented in protocol.md; management gate = admin/`xbin:users`, or
-the org's admin where noted):
-
-```
-GET/POST       /api/xbin/orgs                     list (management view) / create
-PATCH/DELETE   /api/xbin/orgs/<org>               update (org admin ok) / delete
-POST/PATCH/DEL /api/xbin/orgs/<org>/teams[/<team>] team CRUD (org admin ok)
-GET/PUT        /api/xbin/access                   a tile's ACL view / set exact entry
-GET/PUT        /api/xbin/policy                   workspace ceiling rows
-GET/PUT        /api/xbin/orgs/<org>/policy        org ceiling rows
-```
-
-**Seeing how it all resolves.** The admin tile's **access map** tab renders
-the org/permission structure visually and the resolved users × tiles matrix
-(`GET /api/xbin/access-matrix`) — every cell click shows the full
-derivation: which direct entry, team pattern, base permission, or
-org-adminship contributes, and which one wins. Per-tile provenance is the
-⚙ → access panel (`GET /access`); per-user raw grants are the users tab.
-
-`whoami` reports a user's memberships (`orgs: [{id,name,admin,teams}]`). On
-element principals it also reports the attributed driving human — **scoped
-by the tile's trust**, so a low-trust or compromised tile can't harvest
-memberships: every tile sees `{id, name}` only; a tile inside an org
-additionally sees that one org's membership slice; a workspace-management
-tile (`xbin`/`xbin:users` capability — the manager, whose create-in-team
-picker runs on this) sees the admin flag and the full org list. A policy
-row denying `xbin-caps` downgrades the tile's view along with its
-capability. CLI: `bx org`, `bx team`, `bx access`, `bx org policy`,
-`bx new --team`.
-
-**Public-surface lockdown.** Only `/healthz` and `/login`/`/logout` are
-unauthenticated; everything else needs a valid principal. Login uses a
-per-IP throttle and a generic "invalid credentials" (never reveals whether a
-user exists). Nothing sensitive (vault values, tokens, grants, backend
-status/logs) is reachable by a non-admin. Expose a xbin port only behind
-Tailscale or a TLS proxy regardless — the outer boundary is the VM/host.
+**Permission sets (D28).** Named, reusable `{allow, policy, termApi,
+termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per
+org): effective allowance = union(sets)∪extras; set ceiling rows join the
+restrictive union; term flags confer to members of attached orgs. Ws-admin
+only; deleting an attached set is refused. Managing ten orgs = editing one
+set.
 
 ## Owner login mechanics
 

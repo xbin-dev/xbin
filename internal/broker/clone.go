@@ -64,10 +64,6 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved clone path: " + to})
 		return
 	}
-	if err := b.validateNewPath(to); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
-		return
-	}
 	// Nesting either way is a mess: not inside an existing component, not a
 	// subtree containing one, and no nesting with the clone source.
 	if err := b.guardNewComponentTree(to); err != nil {
@@ -148,6 +144,8 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
+	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
+	b.assignOwner(to, owner)
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": to, "from": from, "rewritten": rewritten, "pendingGrants": pending,
 	})

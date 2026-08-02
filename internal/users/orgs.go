@@ -1,11 +1,13 @@
-// Orgs & teams (plans/orgs.md, DECISIONS D19–D21): GitHub-shaped grouping
-// layered on the flat user store. An org OWNS a path namespace positionally —
-// the reserved `o` segment (`o/<org>/…` or `<seg>/o/<org>/…`) binds a tile to
-// its org, so "whose tile is this" is readable off the path with no ownership
-// table to drift. Teams live inside orgs and only ever WIDEN a member's
-// access (union, exactly like a user's own tile entries); org policy rows are
-// the runtime-plane ceiling on what the org's tiles may be granted (evaluated
-// here in Ceiling, asked at the broker chokepoints).
+// Ownership, orgs & delegated approvals (plans/ownership.md, D24–D28).
+//
+// Every component may have an OWNER — a user or an org — recorded here (never
+// in the workspace: a tile terminal must not be able to edit its own
+// ownership). Ownership is what permissions hang off: a user-owner holds
+// terminal on their tile and manages its ACL; an org-owned tile confers each
+// member's org-wide level. Orgs are flat member lists (no teams); allowances
+// (directly or via named permission sets) let workspace admins delegate
+// grant/binding approval to org admins for org-owned tiles; policy-ceiling
+// rows still cap what any tile may be granted (deny beats allow).
 //
 // This file is the whole semantic core: everything above it (auth.Principal,
 // the broker gates, the HTTP API) only asks questions answered here.
@@ -14,6 +16,7 @@ package users
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,127 +37,194 @@ var policyDenyKinds = map[string]bool{
 // PolicyRow is one pattern-keyed ceiling row (D20): for tiles covered by the
 // Tiles pattern, Deny strips capability classes outright, and MayCall (when
 // present) allow-lists grant targets (component paths / res:… ids). Rows
-// compose restrictively across the workspace and org level: any deny wins,
-// and every MayCall-bearing matching row must be satisfied.
+// compose restrictively across the workspace, permission-set and org level:
+// any deny wins, and every MayCall-bearing matching row must be satisfied.
 type PolicyRow struct {
 	Tiles   string   `json:"tiles"`
 	Deny    []string `json:"deny,omitempty"`
 	MayCall []string `json:"mayCall,omitempty"`
 }
 
-// Team is a named group of org members with union-only grants (D19): its
-// Tiles/CanCreate patterns confer access exactly like a user's own entries,
-// but only on paths inside the team's org (the evaluation clamp in Access).
-type Team struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Members []string `json:"members,omitempty"`
-	// Tiles maps path patterns to levels, like User.Tiles; entries take
-	// effect only on paths whose OrgOf is this team's org.
-	Tiles     map[string]string `json:"tiles,omitempty"`
-	CanCreate []string          `json:"canCreate,omitempty"`
-	// NewTiles is the level the team is auto-granted on a tile created "in
-	// the team" (create-in-team, D19). Defaults to write.
-	NewTiles string `json:"newTiles,omitempty"`
-	// TermAPI/TermNet confer the D17 terminal-plane grants on members (union
-	// with their user flags). Workspace-admin-set only — org admins cannot
-	// change them (D21).
-	TermAPI bool  `json:"termApi,omitempty"`
-	TermNet bool  `json:"termNet,omitempty"`
-	Created int64 `json:"created"`
+// Member is one org membership (D25): Level is the org-wide access level on
+// org-OWNED tiles; Create = may create new org-owned tiles; Admin = org
+// management (members, org tiles' ACLs, transfers, exercising allowances).
+// The UI presents presets — Admin (terminal+create+admin), Developer
+// (terminal+create), Viewer (read) — over these three knobs.
+type Member struct {
+	ID     string `json:"id"`
+	Level  string `json:"level"` // read|write|terminal
+	Create bool   `json:"create,omitempty"`
+	Admin  bool   `json:"admin,omitempty"`
 }
 
-// Org is one organization: members, delegated org-admins (D21), teams, an
-// optional base permission every member gets on org tiles, and the policy
-// ceiling for the org's tiles. Admins are implicitly members.
+// Org is one organization (D25): a flat member list, per-tile shares (tiles
+// shared TO the org), attached permission sets + per-org allowance extras
+// (D26/D28, ws-admin-managed), and the org's policy-ceiling rows applied to
+// tiles the org OWNS.
 type Org struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
-	Admins  []string `json:"admins,omitempty"`
-	Members []string `json:"members,omitempty"`
-	// BasePermission is ""|read|write — the floor every member holds on every
-	// org tile (GitHub base permissions). Terminal is never implicit.
-	BasePermission string      `json:"basePermission,omitempty"`
-	Policy         []PolicyRow `json:"policy,omitempty"` // workspace-admin-managed (D21)
-	Teams          []*Team     `json:"teams,omitempty"`
-	Created        int64       `json:"created"`
+	Members []Member `json:"members,omitempty"`
+	// Tiles maps path (or pattern) → level: tiles shared TO this org — every
+	// member gets the entry's level (mirror of User.Tiles).
+	Tiles map[string]string `json:"tiles,omitempty"`
+	// Sets / Allow are the delegated-approval configuration (ws-admin only):
+	// referenced permission sets plus per-org extra allowance entries.
+	Sets    []string    `json:"sets,omitempty"`
+	Allow   []string    `json:"allow,omitempty"`
+	Policy  []PolicyRow `json:"policy,omitempty"` // ceiling rows for org-OWNED tiles
+	Created int64       `json:"created"`
 }
 
-// Team returns the team with id, or nil.
-func (o *Org) Team(id string) *Team {
-	for _, t := range o.Teams {
-		if t.ID == id {
-			return t
+// Member returns the membership entry for a user, if any.
+func (o *Org) Member(userID string) (Member, bool) {
+	for _, m := range o.Members {
+		if m.ID == userID {
+			return m, true
 		}
 	}
-	return nil
+	return Member{}, false
 }
 
-// effMember reports org membership including implicit admin membership.
-func (o *Org) effMember(userID string) bool {
-	return contains(o.Members, userID) || contains(o.Admins, userID)
+// PermissionSet is a named, reusable bundle of org permissions (D28),
+// attached to orgs by reference: allowance entries, ceiling rows, and
+// member terminal-plane flags. Workspace-admin managed.
+type PermissionSet struct {
+	Allow   []string    `json:"allow,omitempty"`
+	Policy  []PolicyRow `json:"policy,omitempty"`
+	TermAPI bool        `json:"termApi,omitempty"`
+	TermNet bool        `json:"termNet,omitempty"`
+	Created int64       `json:"created,omitempty"`
 }
 
-// OrgOf reports the org a component path belongs to, bound positionally by
-// the reserved `o` segment: `o/<org>/…` or `<seg>/o/<org>/…` (so
-// `apps/o/sales/crm` → sales). Nothing else is org-owned.
-func OrgOf(path string) (string, bool) {
-	segs := strings.Split(path, "/")
-	if len(segs) >= 2 && segs[0] == "o" && segs[1] != "" {
-		return segs[1], true
+// --- ownership ---------------------------------------------------------------
+
+// Owner refs are "user:<id>" or "org:<id>"; "" means workspace-owned.
+const (
+	OwnerKindUser = "user"
+	OwnerKindOrg  = "org"
+)
+
+// ParseOwner splits an owner ref. "" is valid (workspace-owned).
+func ParseOwner(ref string) (kind, id string, err error) {
+	if ref == "" {
+		return "", "", nil
 	}
-	if len(segs) >= 3 && segs[1] == "o" && segs[2] != "" {
-		return segs[2], true
+	kind, id, ok := strings.Cut(ref, ":")
+	if !ok || id == "" || (kind != OwnerKindUser && kind != OwnerKindOrg) {
+		return "", "", fmt.Errorf("owner must be user:<id> or org:<id>, got %q", ref)
+	}
+	return kind, normalizeID(id), nil
+}
+
+// Owner returns a component's owner ref ("" = workspace-owned).
+func (s *Store) Owner(path string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.owners[path]
+}
+
+// OwnerOrg returns the org id when path is org-owned.
+func (s *Store) OwnerOrg(path string) (string, bool) {
+	k, id, _ := ParseOwner(s.Owner(path))
+	if k == OwnerKindOrg {
+		return id, true
 	}
 	return "", false
 }
 
-// ValidateNewTilePath gates tile-CREATION paths (create/clone/import — never
-// existing dirs): the segments `o` and `u` are reserved. `o` is valid only in
-// the two org-marker positions and only naming an existing org (no namespace
-// squatting before the org exists); `u` is reserved outright for future
-// per-user tiles. `bx doctor` warns about pre-existing paths that would no
-// longer validate.
-func (s *Store) ValidateNewTilePath(path string) error {
-	segs := strings.Split(path, "/")
-	for i, seg := range segs {
-		switch seg {
-		case "u":
-			return fmt.Errorf("path segment \"u\" is reserved (future per-user tiles)")
-		case "o":
-			if i > 1 {
-				return fmt.Errorf("the org marker \"o\" is only valid as o/<org>/… or <dir>/o/<org>/…")
-			}
-			if i+1 >= len(segs) || segs[i+1] == "" {
-				return fmt.Errorf("org marker \"o\" must be followed by an org id")
-			}
-			if _, ok := s.Org(segs[i+1]); !ok {
-				return fmt.Errorf("no such org %q — create the org first", segs[i+1])
-			}
-			if i+1 == len(segs)-1 {
-				// A tile AT the org container would block (or nest with)
-				// every tile of the org — tiles live strictly below it.
-				return fmt.Errorf("%s is org %q's container directory — create tiles under it (e.g. %s/<name>)", path, segs[i+1], path)
-			}
+// SetOwner records (or with "" clears) a component's owner. The referenced
+// user/org must exist. Transfer AUTHORIZATION is the broker's job — this is
+// the storage primitive.
+func (s *Store) SetOwner(path, ref string) error {
+	kind, id, err := ParseOwner(ref)
+	if err != nil {
+		return err
+	}
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return fmt.Errorf("component path required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch kind {
+	case OwnerKindUser:
+		if _, ok := s.byID[id]; !ok {
+			return fmt.Errorf("no such user %q", id)
 		}
+	case OwnerKindOrg:
+		if _, ok := s.orgs[id]; !ok {
+			return fmt.Errorf("no such org %q", id)
+		}
+	}
+	if s.owners == nil {
+		s.owners = map[string]string{}
+	}
+	no := make(map[string]string, len(s.owners)+1)
+	for k, v := range s.owners {
+		no[k] = v
+	}
+	if ref == "" {
+		delete(no, path)
+	} else {
+		no[path] = kind + ":" + id
+	}
+	s.owners = no
+	return s.persistLocked()
+}
+
+// Owners returns a copy of the full ownership table (admin views, doctor).
+func (s *Store) Owners() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.owners))
+	for k, v := range s.owners {
+		out[k] = v
+	}
+	return out
+}
+
+// OwnedBy lists paths owned by ref, sorted.
+func (s *Store) OwnedBy(ref string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []string
+	for p, o := range s.owners {
+		if o == ref {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ValidateNewTile gates creation: the owner ref must parse and exist. (The
+// old positional o/u path reservations are gone — paths carry no org
+// meaning, D24.)
+func (s *Store) ValidateNewTile(ownerRef string) error {
+	kind, id, err := ParseOwner(ownerRef)
+	if err != nil {
+		return err
+	}
+	if kind == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if kind == OwnerKindUser {
+		if _, ok := s.byID[id]; !ok {
+			return fmt.Errorf("no such user %q", id)
+		}
+	} else if _, ok := s.orgs[id]; !ok {
+		return fmt.Errorf("no such org %q — create the org first", id)
 	}
 	return nil
 }
 
-// ParseTeamRef splits the external "<org>/<team>" team reference.
-func ParseTeamRef(ref string) (org, team string, err error) {
-	org, team, ok := strings.Cut(ref, "/")
-	if !ok || org == "" || team == "" || strings.Contains(team, "/") {
-		return "", "", fmt.Errorf("team reference must be <org>/<team>, got %q", ref)
-	}
-	return normalizeID(org), normalizeID(team), nil
-}
+// reservedOrgIDs: "workspace" is the UI/API label for the non-org plane.
+var reservedOrgIDs = map[string]bool{"workspace": true}
 
-// reservedOrgIDs: `o`/`u` are the marker segments themselves; "workspace" is
-// the UI/API label for the non-org plane.
-var reservedOrgIDs = map[string]bool{"o": true, "u": true, "workspace": true}
-
-// --- org / team CRUD -------------------------------------------------------
+// --- org CRUD ----------------------------------------------------------------
 
 func (s *Store) Orgs() []Org {
 	s.mu.RLock()
@@ -178,15 +248,12 @@ func (s *Store) Org(id string) (*Org, bool) {
 	return &c, true
 }
 
-// UpsertOrg creates or updates an org's own fields (name, admins, members,
-// basePermission). Teams and Policy are managed by their own methods and
-// survive an update. A member removed here is also stripped from the org's
-// teams (GitHub semantics: leaving the org leaves its teams).
+// UpsertOrg creates or updates an org's name + members. The ws-admin-only
+// fields (Sets/Allow/Policy) and shares survive an update — they have their
+// own setters. Member ids must exist; levels validate; duplicates collapse
+// (highest wins on conflict is NOT attempted — last entry wins, deduped).
 func (s *Store) UpsertOrg(o Org) (*Org, error) {
 	o.ID = normalizeID(o.ID)
-	if o.BasePermission != "" && o.BasePermission != LevelRead && o.BasePermission != LevelWrite {
-		return nil, fmt.Errorf("basePermission must be empty, %q or %q (terminal is never org-wide)", LevelRead, LevelWrite)
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.orgs[o.ID]
@@ -198,24 +265,22 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 			return nil, fmt.Errorf("org id %q is reserved", o.ID)
 		}
 	}
-	var err error
-	if o.Admins, err = s.normUsersLocked(o.Admins); err != nil {
+	members, err := s.normMembersLocked(o.Members)
+	if err != nil {
 		return nil, err
 	}
-	if o.Members, err = s.normUsersLocked(o.Members); err != nil {
-		return nil, err
-	}
+	o.Members = members
 	if strings.TrimSpace(o.Name) == "" {
 		o.Name = o.ID
 	}
 	if existing != nil {
 		o.Created = existing.Created
+		o.Tiles = existing.Tiles
+		o.Sets = existing.Sets
+		o.Allow = existing.Allow
 		o.Policy = existing.Policy
-		o.Teams = teamsWithMembersOf(existing.Teams, &o)
 	} else {
 		o.Created = time.Now().Unix()
-		o.Policy = nil
-		o.Teams = nil
 	}
 	no := o
 	s.orgs[no.ID] = &no
@@ -226,121 +291,59 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 	return &c, nil
 }
 
-// teamsWithMembersOf rebuilds a team list keeping only members of org (COW —
-// the input teams are never mutated).
-func teamsWithMembersOf(teams []*Team, org *Org) []*Team {
-	out := make([]*Team, 0, len(teams))
-	for _, t := range teams {
-		nt := *t
-		nt.Members = filter(t.Members, org.effMember)
-		out = append(out, &nt)
-	}
-	return out
-}
-
+// DeleteOrg removes an org — refused while it still OWNS tiles (transfer
+// first; explicit beats silently orphaning an org's property, D24).
 func (s *Store) DeleteOrg(id string) error {
+	id = normalizeID(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.orgs, normalizeID(id))
+	ref := OwnerKindOrg + ":" + id
+	var owned []string
+	for p, o := range s.owners {
+		if o == ref {
+			owned = append(owned, p)
+		}
+	}
+	if len(owned) > 0 {
+		sort.Strings(owned)
+		return fmt.Errorf("org %q still owns %d tile(s) (%s…) — transfer them first", id, len(owned), owned[0])
+	}
+	delete(s.orgs, id)
 	return s.persistLocked()
 }
 
-// UpsertTeam creates or updates a team inside an org. Members must be org
-// members (admins count); tile levels and the NewTiles level are validated.
-func (s *Store) UpsertTeam(orgID string, t Team) (*Team, error) {
-	orgID, t.ID = normalizeID(orgID), normalizeID(t.ID)
-	for pat, l := range t.Tiles {
-		if levelRank(l) == 0 {
-			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal)", pat, l)
-		}
-	}
-	if t.NewTiles == "" {
-		t.NewTiles = LevelWrite
-	}
-	if levelRank(t.NewTiles) == 0 {
-		return nil, fmt.Errorf("newTiles: unknown level %q (want read|write|terminal)", t.NewTiles)
-	}
-	if t.Tiles == nil {
-		t.Tiles = map[string]string{}
-	}
+// SetOrgSets attaches permission sets to an org by name (ws-admin, D28).
+func (s *Store) SetOrgSets(orgID string, sets []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	org := s.orgs[orgID]
-	if org == nil {
-		return nil, fmt.Errorf("no such org %q", orgID)
-	}
-	existing := org.Team(t.ID)
-	if existing == nil {
-		if err := validID(t.ID); err != nil {
-			return nil, err
-		}
-	}
-	var err error
-	if t.Members, err = s.normUsersLocked(t.Members); err != nil {
-		return nil, err
-	}
-	for _, m := range t.Members {
-		if !org.effMember(m) {
-			return nil, fmt.Errorf("user %q is not a member of org %q", m, orgID)
-		}
-	}
-	if strings.TrimSpace(t.Name) == "" {
-		t.Name = t.ID
-	}
-	if existing != nil {
-		t.Created = existing.Created
-	} else {
-		t.Created = time.Now().Unix()
-	}
-	nt := t
-	no := *org
-	no.Teams = replaceTeam(org.Teams, &nt)
-	s.orgs[orgID] = &no
-	if err := s.persistLocked(); err != nil {
-		return nil, err
-	}
-	c := nt
-	return &c, nil
-}
-
-// replaceTeam returns a new sorted team list with t replacing/added (COW).
-func replaceTeam(teams []*Team, t *Team) []*Team {
-	out := make([]*Team, 0, len(teams)+1)
-	for _, e := range teams {
-		if e.ID != t.ID {
-			out = append(out, e)
-		}
-	}
-	out = append(out, t)
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
-func (s *Store) DeleteTeam(orgID, teamID string) error {
-	orgID, teamID = normalizeID(orgID), normalizeID(teamID)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	org := s.orgs[orgID]
+	org := s.orgs[normalizeID(orgID)]
 	if org == nil {
 		return fmt.Errorf("no such org %q", orgID)
 	}
-	no := *org
-	no.Teams = make([]*Team, 0, len(org.Teams))
-	for _, t := range org.Teams {
-		if t.ID != teamID {
-			no.Teams = append(no.Teams, t)
+	seen := map[string]bool{}
+	out := make([]string, 0, len(sets))
+	for _, n := range sets {
+		n = normalizeID(n)
+		if n == "" || seen[n] {
+			continue
 		}
+		if _, ok := s.sets[n]; !ok {
+			return fmt.Errorf("no such permission set %q", n)
+		}
+		seen[n] = true
+		out = append(out, n)
 	}
-	s.orgs[orgID] = &no
+	sort.Strings(out)
+	no := *org
+	no.Sets = out
+	s.orgs[no.ID] = &no
 	return s.persistLocked()
 }
 
-// GrantTileTeam raises a team's level on one tile (never lowers — same
-// monotone rule as GrantTile). Used by create-in-team: the team gets its
-// NewTiles level on the tile a member just created (D19).
-func (s *Store) GrantTileTeam(orgID, teamID, path, level string) error {
-	if levelRank(level) == 0 {
-		return fmt.Errorf("unknown level %q", level)
+// SetOrgAllow replaces an org's extra allowance entries (ws-admin, D26).
+func (s *Store) SetOrgAllow(orgID string, allow []string) error {
+	if err := ValidateAllow(allow); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -348,26 +351,227 @@ func (s *Store) GrantTileTeam(orgID, teamID, path, level string) error {
 	if org == nil {
 		return fmt.Errorf("no such org %q", orgID)
 	}
-	t := org.Team(normalizeID(teamID))
-	if t == nil {
-		return fmt.Errorf("no such team %q in org %q", teamID, orgID)
-	}
-	if levelRank(t.Tiles[path]) >= levelRank(level) {
-		return nil // already at or above
-	}
-	nt := *t
-	nt.Tiles = make(map[string]string, len(t.Tiles)+1)
-	for k, v := range t.Tiles {
-		nt.Tiles[k] = v
-	}
-	nt.Tiles[path] = level
 	no := *org
-	no.Teams = replaceTeam(org.Teams, &nt)
+	no.Allow = append([]string(nil), allow...)
 	s.orgs[no.ID] = &no
 	return s.persistLocked()
 }
 
-// --- policy rows ------------------------------------------------------------
+// SetOrgTile sets — or with level "" removes — a tile SHARE to an org (the
+// per-tile ACL's org entries; mirror of SetUserTile).
+func (s *Store) SetOrgTile(orgID, path, level string) error {
+	if level != "" && levelRank(level) == 0 {
+		return fmt.Errorf("unknown level %q (want read|write|terminal, or empty to remove)", level)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	org := s.orgs[normalizeID(orgID)]
+	if org == nil {
+		return fmt.Errorf("no such org %q", orgID)
+	}
+	no := *org
+	no.Tiles = withEntry(org.Tiles, path, level)
+	s.orgs[no.ID] = &no
+	return s.persistLocked()
+}
+
+// normMembersLocked validates + dedups a member list (caller holds s.mu).
+func (s *Store) normMembersLocked(members []Member) ([]Member, error) {
+	seen := map[string]bool{}
+	out := make([]Member, 0, len(members))
+	for _, m := range members {
+		m.ID = normalizeID(m.ID)
+		if m.ID == "" || seen[m.ID] {
+			continue
+		}
+		if _, ok := s.byID[m.ID]; !ok {
+			return nil, fmt.Errorf("no such user %q", m.ID)
+		}
+		if m.Level == "" {
+			m.Level = LevelRead
+		}
+		if levelRank(m.Level) == 0 {
+			return nil, fmt.Errorf("member %q: unknown level %q (want read|write|terminal)", m.ID, m.Level)
+		}
+		seen[m.ID] = true
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// --- permission sets (D28) ---------------------------------------------------
+
+func (s *Store) PermissionSets() map[string]PermissionSet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]PermissionSet, len(s.sets))
+	for n, ps := range s.sets {
+		out[n] = *ps
+	}
+	return out
+}
+
+// UpsertPermissionSet creates or replaces a named set (ws-admin only at the
+// API). Allowance grammar + policy rows validate; the xbin floor applies.
+func (s *Store) UpsertPermissionSet(name string, ps PermissionSet) error {
+	name = normalizeID(name)
+	if err := validID(name); err != nil {
+		return fmt.Errorf("permission set name: %w", err)
+	}
+	if err := ValidateAllow(ps.Allow); err != nil {
+		return err
+	}
+	if err := validatePolicy(ps.Policy); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sets == nil {
+		s.sets = map[string]*PermissionSet{}
+	}
+	if old, ok := s.sets[name]; ok {
+		ps.Created = old.Created
+	} else {
+		ps.Created = time.Now().Unix()
+	}
+	np := ps
+	s.sets[name] = &np
+	return s.persistLocked()
+}
+
+// DeletePermissionSet removes a set — refused while any org references it
+// (detach first; explicit beats silently changing orgs' capabilities).
+func (s *Store) DeletePermissionSet(name string) error {
+	name = normalizeID(name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, o := range s.orgs {
+		if contains(o.Sets, name) {
+			return fmt.Errorf("permission set %q is attached to org %q — detach it first", name, o.ID)
+		}
+	}
+	delete(s.sets, name)
+	return s.persistLocked()
+}
+
+// --- allowances (D26): grammar + evaluation ---------------------------------
+
+// allowPrefixes is the strict allowance grammar (plans/ownership.md): every
+// entry must use a known class, so a typo can't silently over-delegate.
+var allowPrefixes = []string{
+	"res:", "gpu:", "cap:", "net:", "iface:",
+	"ingress:host:", "ingress:zone:", "ingress:listen:", "tile:",
+}
+
+// ValidateAllow checks allowance entries against the grammar and the xbin
+// floor: the workspace-governance capability family (xbin, xbin:*) is never
+// delegable — an element granted xbin@admin IS a workspace admin, so an org
+// admin who could self-approve it would transitively be one too (D26).
+func ValidateAllow(entries []string) error {
+	for i, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			return fmt.Errorf("allow[%d]: empty entry", i)
+		}
+		if e == "xbin" || strings.HasPrefix(e, "xbin:") {
+			return fmt.Errorf("allow[%d]: %q is never delegable — xbin capability grants make their holder a workspace admin", i, e)
+		}
+		ok := false
+		for _, p := range allowPrefixes {
+			if strings.HasPrefix(e, p) && len(e) > len(p) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("allow[%d]: %q — entries must be one of %s followed by a value/pattern", i, e, strings.Join(allowPrefixes, " "))
+		}
+	}
+	return nil
+}
+
+// ResolvedAllow is an org's effective allowance: the union of every attached
+// permission set's entries plus the org's own extras, deduped + sorted.
+func (s *Store) ResolvedAllow(orgID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	org := s.orgs[normalizeID(orgID)]
+	if org == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(es []string) {
+		for _, e := range es {
+			if !seen[e] {
+				seen[e] = true
+				out = append(out, e)
+			}
+		}
+	}
+	for _, n := range org.Sets {
+		if ps := s.sets[n]; ps != nil {
+			add(ps.Allow)
+		}
+	}
+	add(org.Allow)
+	sort.Strings(out)
+	return out
+}
+
+// AllowanceCovers reports whether an org's resolved allowance covers a
+// normalized approval target. The xbin floor is enforced here too
+// (defense-in-depth: even a hand-edited entry can't delegate it).
+func (s *Store) AllowanceCovers(orgID, target string) bool {
+	if target == "xbin" || strings.HasPrefix(target, "xbin:") {
+		return false
+	}
+	for _, e := range s.ResolvedAllow(orgID) {
+		if allowMatch(e, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// allowMatch matches one allowance entry against a normalized target:
+//   - ingress:listen:LO-HI covers ingress:listen:<port> in range
+//   - tile:<pattern> covers bare component-path targets (matchTile rules)
+//   - otherwise a single-'*' glob (prefix/suffix), so res:*, cap:*,
+//     net:lan:10.*, ingress:host:*.dev.example.com all work
+func allowMatch(entry, target string) bool {
+	if lohi, ok := strings.CutPrefix(entry, "ingress:listen:"); ok && strings.Contains(lohi, "-") {
+		port, ok2 := strings.CutPrefix(target, "ingress:listen:")
+		if !ok2 {
+			return false
+		}
+		lo, hi, _ := strings.Cut(lohi, "-")
+		l, e1 := strconv.Atoi(strings.TrimSpace(lo))
+		h, e2 := strconv.Atoi(strings.TrimSpace(hi))
+		p, e3 := strconv.Atoi(strings.TrimSpace(port))
+		return e1 == nil && e2 == nil && e3 == nil && p >= l && p <= h
+	}
+	if pat, ok := strings.CutPrefix(entry, "tile:"); ok {
+		if strings.Contains(target, ":") {
+			return false // tile: entries cover bare component paths only
+		}
+		return matchTile(pat, target)
+	}
+	return globMatch(entry, target)
+}
+
+// globMatch supports one '*' anywhere (exact match without it).
+func globMatch(pat, s string) bool {
+	i := strings.IndexByte(pat, '*')
+	if i < 0 {
+		return pat == s
+	}
+	pre, suf := pat[:i], pat[i+1:]
+	return len(s) >= len(pre)+len(suf) && strings.HasPrefix(s, pre) && strings.HasSuffix(s, suf)
+}
+
+// --- policy rows -------------------------------------------------------------
 
 func validatePolicy(rows []PolicyRow) error {
 	for i, r := range rows {
@@ -406,7 +610,7 @@ func (s *Store) SetPolicy(rows []PolicyRow) error {
 	return s.persistLocked()
 }
 
-// SetOrgPolicy replaces one org's ceiling rows (workspace-admin data, D21).
+// SetOrgPolicy replaces one org's ceiling rows (workspace-admin data).
 func (s *Store) SetOrgPolicy(orgID string, rows []PolicyRow) error {
 	if err := validatePolicy(rows); err != nil {
 		return err
@@ -425,24 +629,25 @@ func (s *Store) SetOrgPolicy(orgID string, rows []PolicyRow) error {
 
 // --- Access: the one per-user resolver --------------------------------------
 
-// accessTeam is the slice of a team one user gets: the team's grants plus the
-// org clamp they evaluate under.
-type accessTeam struct {
-	org, id          string
-	tiles            map[string]string
-	canCreate        []string
-	termAPI, termNet bool
+// orgShare is the slice of one org a member sees: their membership plus the
+// org's shared-tile entries.
+type orgShare struct {
+	id     string
+	member Member
+	tiles  map[string]string // shared TO the org (COW, read-only)
 }
 
-// Access is a per-request snapshot of everything one user may do: their own
-// entries unioned with their teams' (org-clamped), org base permissions, and
-// implicit org-admin power (D19/D21). Reads shared COW maps — treat as
+// Access is a per-request snapshot of everything one user may do: ownership-
+// derived levels, org-wide member levels, org shares, their own entries, and
+// the workspace defaults (D24/D25/D27). Reads shared COW maps — treat as
 // read-only. Nil-safe: a nil *Access answers no to everything.
 type Access struct {
-	user       *User
-	memberOrgs map[string]string // org id → basePermission ("" = none); admins included
-	adminOrgs  map[string]bool
-	teams      []accessTeam
+	user         *User
+	owners       map[string]string // path → owner ref (COW snapshot)
+	orgs         []orgShare
+	defaultTiles map[string]string
+	setAPI       bool // termApi conferred by any attached set of any org (D28)
+	setNet       bool
 }
 
 // Access resolves the snapshot for one user ("" or unknown → nil, false).
@@ -454,31 +659,28 @@ func (s *Store) Access(id string) (*Access, bool) {
 		return nil, false
 	}
 	uc := *u
-	a := &Access{user: &uc, memberOrgs: map[string]string{}, adminOrgs: map[string]bool{}}
+	a := &Access{user: &uc, owners: s.owners, defaultTiles: s.defaultTiles}
 	for _, o := range s.orgs {
-		if !o.effMember(uc.ID) {
-			continue // eval clamp: stray team entries of non-members are inert
+		m, ok := o.Member(uc.ID)
+		if !ok {
+			continue
 		}
-		a.memberOrgs[o.ID] = o.BasePermission
-		if contains(o.Admins, uc.ID) {
-			a.adminOrgs[o.ID] = true
-		}
-		for _, t := range o.Teams {
-			if contains(t.Members, uc.ID) {
-				a.teams = append(a.teams, accessTeam{
-					org: o.ID, id: t.ID, tiles: t.Tiles, canCreate: t.CanCreate,
-					termAPI: t.TermAPI, termNet: t.TermNet,
-				})
+		a.orgs = append(a.orgs, orgShare{id: o.ID, member: m, tiles: o.Tiles})
+		for _, n := range o.Sets {
+			if ps := s.sets[n]; ps != nil {
+				a.setAPI = a.setAPI || ps.TermAPI
+				a.setNet = a.setNet || ps.TermNet
 			}
 		}
 	}
+	sort.Slice(a.orgs, func(i, j int) bool { return a.orgs[i].id < a.orgs[j].id })
 	return a, true
 }
 
-// TileLevel is the effective access level on one path: max over the user's
-// direct entries, their teams' entries (only inside the team's org), the org
-// base permission, and implicit org-admin terminal (D21) — workspace admins
-// have terminal everywhere.
+// TileLevel is the effective access level on one path (D24/D25/D27): max of
+// ownership (user-owner ⇒ terminal; org-owned ⇒ member level, org admins
+// terminal), org shares, the user's own entries, and workspace defaults.
+// Workspace admins: terminal everywhere.
 func (a *Access) TileLevel(path string) string {
 	if a == nil {
 		return ""
@@ -492,27 +694,37 @@ func (a *Access) TileLevel(path string) string {
 			best = l
 		}
 	}
+	switch owner := a.owners[path]; owner {
+	case "":
+	case OwnerKindUser + ":" + a.user.ID:
+		return LevelTerminal // your tile is yours (D24)
+	default:
+		if org, ok := strings.CutPrefix(owner, OwnerKindOrg+":"); ok {
+			for _, os := range a.orgs {
+				if os.id == org {
+					if os.member.Admin {
+						return LevelTerminal // org admins run the org's tiles
+					}
+					up(os.member.Level)
+				}
+			}
+		}
+	}
+	for _, os := range a.orgs { // shares reach members of ANY org, org-owned or not
+		for pat, l := range os.tiles {
+			if matchTile(pat, path) {
+				up(l)
+			}
+		}
+	}
 	for pat, l := range a.user.Tiles {
 		if matchTile(pat, path) {
 			up(l)
 		}
 	}
-	if org, ok := OrgOf(path); ok {
-		if a.adminOrgs[org] {
-			return LevelTerminal // org admin: full control of the org's tiles
-		}
-		if base, member := a.memberOrgs[org]; member && base != "" {
-			up(base)
-		}
-		for _, t := range a.teams {
-			if t.org != org {
-				continue // the evaluation clamp: teams never reach outside their org
-			}
-			for pat, l := range t.tiles {
-				if matchTile(pat, path) {
-					up(l)
-				}
-			}
+	for pat, l := range a.defaultTiles {
+		if matchTile(pat, path) {
+			up(l)
 		}
 	}
 	return best
@@ -528,42 +740,16 @@ func (a *Access) CanTerminalTile(path string) bool {
 	return levelRank(a.TileLevel(path)) >= levelRank(LevelTerminal)
 }
 
-// CanCreateTile: the user's own patterns, their teams' (org-clamped), or
-// implicit org-admin create inside the org. Creating INSIDE an org
-// additionally requires membership of that org (D19 amendment): a broad
-// personal pattern like apps/* must not let a non-member inject tiles into
-// apps/o/<org>/… — unlike read/write access, where workspace-admin-granted
-// personal patterns deliberately stay global (the auditor case).
+// CanCreateTile gates PERSONAL (user-owned) creation: the user's own
+// CanCreate patterns (admins anywhere). Creating AS an org is CanCreateAs —
+// the path no longer encodes the org (D24), so the create request names the
+// owner instead.
 func (a *Access) CanCreateTile(path string) bool {
 	if a == nil {
 		return false
 	}
 	if a.user.IsAdmin() {
 		return true
-	}
-	if org, ok := OrgOf(path); ok {
-		if a.adminOrgs[org] {
-			return true
-		}
-		if _, member := a.memberOrgs[org]; !member {
-			return false // non-members never create in an org, whatever their patterns
-		}
-		for _, pat := range a.user.CanCreate {
-			if matchTile(pat, path) {
-				return true
-			}
-		}
-		for _, t := range a.teams {
-			if t.org != org {
-				continue
-			}
-			for _, pat := range t.canCreate {
-				if matchTile(pat, path) {
-					return true
-				}
-			}
-		}
-		return false
 	}
 	for _, pat := range a.user.CanCreate {
 		if matchTile(pat, path) {
@@ -573,17 +759,44 @@ func (a *Access) CanCreateTile(path string) bool {
 	return false
 }
 
+// CanCreateAs reports whether this user may create tiles OWNED BY org (D25:
+// the member's Create knob; org admins implicitly).
+func (a *Access) CanCreateAs(org string) bool {
+	if a == nil {
+		return false
+	}
+	if a.user.IsAdmin() {
+		return true
+	}
+	for _, os := range a.orgs {
+		if os.id == org {
+			return os.member.Create || os.member.Admin
+		}
+	}
+	return false
+}
+
 // CanTerminal is the coarse "may open any terminal at all" pre-gate: any
-// terminal-level entry (direct or team) or any org-adminship qualifies.
+// terminal-level source qualifies — own entries, an owned tile, org level,
+// org-adminship, or a terminal-level share.
 func (a *Access) CanTerminal() bool {
 	if a == nil {
 		return false
 	}
-	if a.user.CanTerminal() || len(a.adminOrgs) > 0 {
+	if a.user.CanTerminal() {
 		return true
 	}
-	for _, t := range a.teams {
-		for _, l := range t.tiles {
+	me := OwnerKindUser + ":" + a.user.ID
+	for _, ref := range a.owners {
+		if ref == me {
+			return true
+		}
+	}
+	for _, os := range a.orgs {
+		if os.member.Admin || levelRank(os.member.Level) >= levelRank(LevelTerminal) {
+			return true
+		}
+		for _, l := range os.tiles {
 			if levelRank(l) >= levelRank(LevelTerminal) {
 				return true
 			}
@@ -592,48 +805,59 @@ func (a *Access) CanTerminal() bool {
 	return false
 }
 
-// TermAPI / TermNet: the D17 terminal-plane grants, unioned across the user
-// flag and every team the user is in.
+// TermAPI / TermNet: the D17 terminal-plane grants — the user flag, or a
+// flag conferred by a permission set attached to any of their orgs (D28).
 func (a *Access) TermAPI() bool {
 	if a == nil {
 		return false
 	}
-	if a.user.IsAdmin() || a.user.TermAPI {
-		return true
-	}
-	for _, t := range a.teams {
-		if t.termAPI {
-			return true
-		}
-	}
-	return false
+	return a.user.IsAdmin() || a.user.TermAPI || a.setAPI
 }
 func (a *Access) TermNet() bool {
 	if a == nil {
 		return false
 	}
-	if a.user.IsAdmin() || a.user.TermNet {
-		return true
+	return a.user.IsAdmin() || a.user.TermNet || a.setNet
+}
+
+// IsAdminOrg reports org-adminship (the D25 member knob).
+func (a *Access) IsAdminOrg(org string) bool {
+	if a == nil {
+		return false
 	}
-	for _, t := range a.teams {
-		if t.termNet {
-			return true
+	for _, os := range a.orgs {
+		if os.id == org {
+			return os.member.Admin
 		}
 	}
 	return false
 }
-
-// IsAdminOrg reports delegated org-adminship (D21).
-func (a *Access) IsAdminOrg(org string) bool { return a != nil && a.adminOrgs[org] }
 
 // AdminOrgs lists the orgs this user administers, sorted.
 func (a *Access) AdminOrgs() []string {
 	if a == nil {
 		return nil
 	}
-	out := make([]string, 0, len(a.adminOrgs))
-	for o := range a.adminOrgs {
-		out = append(out, o)
+	var out []string
+	for _, os := range a.orgs {
+		if os.member.Admin {
+			out = append(out, os.id)
+		}
+	}
+	return out
+}
+
+// Owned lists the tiles this user owns directly, sorted.
+func (a *Access) Owned() []string {
+	if a == nil {
+		return nil
+	}
+	me := OwnerKindUser + ":" + a.user.ID
+	var out []string
+	for p, ref := range a.owners {
+		if ref == me {
+			out = append(out, p)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -642,29 +866,35 @@ func (a *Access) AdminOrgs() []string {
 // --- Ceiling: the runtime-plane policy evaluation ---------------------------
 
 // Ceiling is the composed policy ceiling over one tile: the workspace rows
-// plus the tile's-org rows that cover it. It constrains ELEMENTS (what the
-// tile may be granted) — human principals are never subject to it.
+// plus — when the tile is org-owned — the org's rows and every attached
+// permission set's rows that cover it (restrictive union, D20/D28). It
+// constrains ELEMENTS (what the tile may be granted) — human principals are
+// never subject to it.
 type Ceiling struct {
 	rows []PolicyRow
 }
 
-// Ceiling collects the rows covering path (workspace + its org's).
+// Ceiling collects the rows covering path (workspace + owner org's + sets').
 func (s *Store) Ceiling(path string) Ceiling {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var rows []PolicyRow
-	for _, r := range s.policy {
-		if matchTile(r.Tiles, path) {
-			rows = append(rows, r)
+	add := func(rs []PolicyRow) {
+		for _, r := range rs {
+			if matchTile(r.Tiles, path) {
+				rows = append(rows, r)
+			}
 		}
 	}
-	if org, ok := OrgOf(path); ok {
+	add(s.policy)
+	if org, ok := strings.CutPrefix(s.owners[path], OwnerKindOrg+":"); ok {
 		if o := s.orgs[org]; o != nil {
-			for _, r := range o.Policy {
-				if matchTile(r.Tiles, path) {
-					rows = append(rows, r)
+			for _, n := range o.Sets {
+				if ps := s.sets[n]; ps != nil {
+					add(ps.Policy)
 				}
 			}
+			add(o.Policy)
 		}
 	}
 	return Ceiling{rows: rows}
@@ -715,6 +945,39 @@ func (c Ceiling) MayCall(target string) bool {
 	return !blocked
 }
 
+// --- default tiles (D27) -----------------------------------------------------
+
+// DefaultTiles returns the workspace-level pattern→level map every user gets.
+func (s *Store) DefaultTiles() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.defaultTiles))
+	for k, v := range s.defaultTiles {
+		out[k] = v
+	}
+	return out
+}
+
+// SetDefaultTiles replaces the workspace defaults (ws-admin).
+func (s *Store) SetDefaultTiles(m map[string]string) error {
+	for pat, l := range m {
+		if strings.TrimSpace(pat) == "" {
+			return fmt.Errorf("defaultTiles: empty pattern")
+		}
+		if levelRank(l) == 0 {
+			return fmt.Errorf("defaultTiles[%q]: unknown level %q (want read|write|terminal)", pat, l)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	nm := make(map[string]string, len(m))
+	for k, v := range m {
+		nm[k] = v
+	}
+	s.defaultTiles = nm
+	return s.persistLocked()
+}
+
 // --- small helpers -----------------------------------------------------------
 
 func contains(list []string, v string) bool {
@@ -724,36 +987,6 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
-}
-
-func filter(list []string, keep func(string) bool) []string {
-	out := make([]string, 0, len(list))
-	for _, e := range list {
-		if keep(e) {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// normUsersLocked normalizes, dedups, sorts and existence-checks a user-id
-// list (caller holds s.mu).
-func (s *Store) normUsersLocked(ids []string) ([]string, error) {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		id = normalizeID(id)
-		if id == "" || seen[id] {
-			continue
-		}
-		if _, ok := s.byID[id]; !ok {
-			return nil, fmt.Errorf("no such user %q", id)
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out, nil
 }
 
 // --- per-tile ACL editing + membership views (the /access and whoami APIs) --
@@ -778,29 +1011,6 @@ func (s *Store) SetUserTile(id, path, level string) error {
 	return s.persistLocked()
 }
 
-// SetTeamTile is SetUserTile for a team's exact entry.
-func (s *Store) SetTeamTile(orgID, teamID, path, level string) error {
-	if level != "" && levelRank(level) == 0 {
-		return fmt.Errorf("unknown level %q (want read|write|terminal, or empty to remove)", level)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	org := s.orgs[normalizeID(orgID)]
-	if org == nil {
-		return fmt.Errorf("no such org %q", orgID)
-	}
-	t := org.Team(normalizeID(teamID))
-	if t == nil {
-		return fmt.Errorf("no such team %q in org %q", teamID, orgID)
-	}
-	nt := *t
-	nt.Tiles = withEntry(t.Tiles, path, level)
-	no := *org
-	no.Teams = replaceTeam(org.Teams, &nt)
-	s.orgs[no.ID] = &no
-	return s.persistLocked()
-}
-
 // withEntry returns a copy of m with path set to level ("" = removed).
 func withEntry(m map[string]string, path, level string) map[string]string {
 	out := make(map[string]string, len(m)+1)
@@ -815,42 +1025,26 @@ func withEntry(m map[string]string, path, level string) map[string]string {
 	return out
 }
 
-// TeamInfo / OrgMembership are the whoami-facing membership views. CanCreate
-// rides along in the SELF view only, so create-in-team pickers can pin the
-// right path prefix.
-type TeamInfo struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	CanCreate []string `json:"canCreate,omitempty"`
-}
+// OrgMembership is the whoami-facing self-service view of one membership.
 type OrgMembership struct {
-	ID    string     `json:"id"`
-	Name  string     `json:"name"`
-	Admin bool       `json:"admin"`
-	Teams []TeamInfo `json:"teams,omitempty"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Level  string `json:"level"`
+	Create bool   `json:"create,omitempty"`
+	Admin  bool   `json:"admin,omitempty"`
 }
 
-// UserOrgs lists the orgs a user belongs to (admins included), with the teams
-// they're in — the self-service view whoami serves. Org ADMINS see all of
-// their org's teams (they may act in any of them, e.g. create-in-team), with
-// membership still deciding for plain members.
+// UserOrgs lists the orgs a user belongs to with their role — whoami's
+// `orgs` field, and what owner pickers build from.
 func (s *Store) UserOrgs(id string) []OrgMembership {
 	id = normalizeID(id)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []OrgMembership
 	for _, o := range s.orgs {
-		if !o.effMember(id) {
-			continue
+		if m, ok := o.Member(id); ok {
+			out = append(out, OrgMembership{ID: o.ID, Name: o.Name, Level: m.Level, Create: m.Create, Admin: m.Admin})
 		}
-		admin := contains(o.Admins, id)
-		m := OrgMembership{ID: o.ID, Name: o.Name, Admin: admin}
-		for _, t := range o.Teams {
-			if admin || contains(t.Members, id) {
-				m.Teams = append(m.Teams, TeamInfo{ID: t.ID, Name: t.Name, CanCreate: t.CanCreate})
-			}
-		}
-		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -861,11 +1055,13 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 // Contribution is one source feeding a user's effective level on a path —
 // the raw material for access-map views. Source forms:
 //
-//	admin                        workspace admin (terminal everywhere)
-//	org-admin:<org>              implicit terminal on the org's tiles (D21)
-//	direct:<pattern>             the user's own tiles entry
-//	team:<org>/<team>:<pattern>  a team entry (org-clamped)
-//	base:<org>                   the org basePermission floor
+//	admin                workspace admin (terminal everywhere)
+//	owner                the user owns the tile (D24)
+//	org-admin:<org>      org admin of the owning org
+//	org-member:<org>     the member's org-wide level on an org-owned tile
+//	org-share:<org>:<pattern>  a tile shared to an org they belong to
+//	direct:<pattern>     the user's own tiles entry
+//	default:<pattern>    the workspace defaultTiles entry (D27)
 type Contribution struct {
 	Level  string `json:"level"`
 	Source string `json:"source"`
@@ -882,27 +1078,39 @@ func (a *Access) Explain(path string) []Contribution {
 		return []Contribution{{Level: LevelTerminal, Source: "admin"}}
 	}
 	var out []Contribution
+	switch owner := a.owners[path]; owner {
+	case "":
+	case OwnerKindUser + ":" + a.user.ID:
+		out = append(out, Contribution{Level: LevelTerminal, Source: "owner"})
+	default:
+		if org, ok := strings.CutPrefix(owner, OwnerKindOrg+":"); ok {
+			for _, os := range a.orgs {
+				if os.id != org {
+					continue
+				}
+				if os.member.Admin {
+					out = append(out, Contribution{Level: LevelTerminal, Source: "org-admin:" + org})
+				} else {
+					out = append(out, Contribution{Level: os.member.Level, Source: "org-member:" + org})
+				}
+			}
+		}
+	}
+	for _, os := range a.orgs {
+		for pat, l := range os.tiles {
+			if matchTile(pat, path) {
+				out = append(out, Contribution{Level: l, Source: "org-share:" + os.id + ":" + pat})
+			}
+		}
+	}
 	for pat, l := range a.user.Tiles {
 		if matchTile(pat, path) {
 			out = append(out, Contribution{Level: l, Source: "direct:" + pat})
 		}
 	}
-	if org, ok := OrgOf(path); ok {
-		if a.adminOrgs[org] {
-			out = append(out, Contribution{Level: LevelTerminal, Source: "org-admin:" + org})
-		}
-		if base, member := a.memberOrgs[org]; member && base != "" {
-			out = append(out, Contribution{Level: base, Source: "base:" + org})
-		}
-		for _, t := range a.teams {
-			if t.org != org {
-				continue
-			}
-			for pat, l := range t.tiles {
-				if matchTile(pat, path) {
-					out = append(out, Contribution{Level: l, Source: "team:" + org + "/" + t.id + ":" + pat})
-				}
-			}
+	for pat, l := range a.defaultTiles {
+		if matchTile(pat, path) {
+			out = append(out, Contribution{Level: l, Source: "default:" + pat})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

@@ -133,10 +133,6 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved import path: " + path})
 		return
 	}
-	if err := b.validateNewPath(path); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
-		return
-	}
 	if err := b.guardNewComponentTree(path); err != nil {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
@@ -209,6 +205,8 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
+	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
+	b.assignOwner(path, owner)
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending,
 	})

@@ -230,10 +230,14 @@ type Store struct {
 	mu   sync.RWMutex
 	byID map[string]*User
 
-	// orgs and policy are the org/team layer and the workspace-level policy
-	// ceiling rows (orgs.go; plans/orgs.md).
-	orgs   map[string]*Org
-	policy []PolicyRow
+	// The ownership/org layer (orgs.go; plans/ownership.md): orgs, the
+	// component-ownership table, named permission sets, workspace-level
+	// policy ceiling rows, and the default tile visibility every user gets.
+	orgs         map[string]*Org
+	owners       map[string]string // component path → "user:<id>" | "org:<id>"
+	sets         map[string]*PermissionSet
+	policy       []PolicyRow
+	defaultTiles map[string]string
 
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
@@ -244,7 +248,10 @@ type Store struct {
 
 // Open loads (or starts empty) the user store under dataDir.
 func Open(dataDir string) (*Store, error) {
-	s := &Store{path: filepath.Join(dataDir, "users.json"), byID: map[string]*User{}, orgs: map[string]*Org{}}
+	s := &Store{
+		path: filepath.Join(dataDir, "users.json"), byID: map[string]*User{},
+		orgs: map[string]*Org{}, owners: map[string]string{}, sets: map[string]*PermissionSet{},
+	}
 	b, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
 		return s, nil
@@ -253,10 +260,13 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	var doc struct {
-		Users              []*User     `json:"users"`
-		Orgs               []*Org      `json:"orgs"`
-		Policy             []PolicyRow `json:"policy"`
-		TokenLoginDisabled bool        `json:"tokenLoginDisabled"`
+		Users              []*User                   `json:"users"`
+		Orgs               []*Org                    `json:"orgs"`
+		Owners             map[string]string         `json:"owners"`
+		PermissionSets     map[string]*PermissionSet `json:"permissionSets"`
+		DefaultTiles       map[string]string         `json:"defaultTiles"`
+		Policy             []PolicyRow               `json:"policy"`
+		TokenLoginDisabled bool                      `json:"tokenLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -267,8 +277,17 @@ func Open(dataDir string) (*Store, error) {
 	for _, o := range doc.Orgs {
 		s.orgs[o.ID] = o
 	}
+	s.owners = doc.Owners
+	s.sets = doc.PermissionSets
+	s.defaultTiles = doc.DefaultTiles
 	s.policy = doc.Policy
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
+	if s.owners == nil {
+		s.owners = map[string]string{}
+	}
+	if s.sets == nil {
+		s.sets = map[string]*PermissionSet{}
+	}
 	return s, nil
 }
 
@@ -427,28 +446,44 @@ func (s *Store) GrantTile(id, path, level string) error {
 	return s.persistLocked()
 }
 
-// Delete removes a user and strips them from every org (admins, members) and
-// team — the same cleanup GitHub does when an account leaves.
+// Delete removes a user: strips them from every org's member list, and their
+// OWNED tiles fall to workspace-owned (the entries are dropped — logged by
+// the caller, listed by `bx doctor`) rather than silently keeping a dangling
+// owner ref (plans/ownership.md lifecycle edges).
 func (s *Store) Delete(id string) error {
 	id = normalizeID(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.byID, id)
-	other := func(m string) bool { return m != id }
 	for oid, o := range s.orgs {
-		if !o.effMember(id) {
+		if _, ok := o.Member(id); !ok {
 			continue
 		}
 		no := *o
-		no.Admins = filter(o.Admins, other)
-		no.Members = filter(o.Members, other)
-		no.Teams = make([]*Team, 0, len(o.Teams))
-		for _, t := range o.Teams {
-			nt := *t
-			nt.Members = filter(t.Members, other)
-			no.Teams = append(no.Teams, &nt)
+		no.Members = make([]Member, 0, len(o.Members))
+		for _, m := range o.Members {
+			if m.ID != id {
+				no.Members = append(no.Members, m)
+			}
 		}
 		s.orgs[oid] = &no
+	}
+	ref := OwnerKindUser + ":" + id
+	var orphaned bool
+	for _, v := range s.owners {
+		if v == ref {
+			orphaned = true
+			break
+		}
+	}
+	if orphaned {
+		no := make(map[string]string, len(s.owners))
+		for k, v := range s.owners {
+			if v != ref {
+				no[k] = v
+			}
+		}
+		s.owners = no
 	}
 	return s.persistLocked()
 }
@@ -467,6 +502,15 @@ func (s *Store) persistLocked() error {
 		}
 		sort.Slice(orgs, func(i, j int) bool { return orgs[i].ID < orgs[j].ID })
 		doc["orgs"] = orgs
+	}
+	if len(s.owners) > 0 {
+		doc["owners"] = s.owners
+	}
+	if len(s.sets) > 0 {
+		doc["permissionSets"] = s.sets
+	}
+	if len(s.defaultTiles) > 0 {
+		doc["defaultTiles"] = s.defaultTiles
 	}
 	if len(s.policy) > 0 {
 		doc["policy"] = s.policy

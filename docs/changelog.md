@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-02
+
+- **BREAKING: ownership replaces teams & positional org paths.** Components
+  now have an **owner** (a user or an org, transferable) recorded outside the
+  workspace; org membership is a flat `{level, create, admin}` role applied
+  org-wide to org-owned tiles; sharing a tile is an ownership right (exact
+  `user:`/`org:` ACL entries); workspace admins can delegate grant/binding
+  approval to org admins via **allowances** and reusable **permission sets**
+  (`cap:containers`, `net:*`, `gpu:*`, ingress publication — everything except
+  the `xbin` capability family); `defaultTiles` gives every user baseline
+  visibility. Teams, `basePermission` and the `o/<org>/` path convention are
+  removed — no released workspace used them, so there is no data migration.
+  See [changes/2026-08-02-ownership.md](changes/2026-08-02-ownership.md),
+  docs/protocol.md, and plans/ownership.md (D24–D28).
+
 ## 2026-08-01
 
 - **`bx` works from the host without fiddling with tokens.** Run on the host
