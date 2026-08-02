@@ -7,7 +7,8 @@
 # builds from source, and sets up the systemd service. Audit both:
 #   https://github.com/xbin-dev/xbin/blob/v0.1.0/deploy/install.sh
 #
-#   curl -fsSL https://xbin.dev/install.sh | sudo bash
+#   curl -fsSL https://xbin.dev/install.sh | sudo bash              # system service
+#   curl -fsSL https://xbin.dev/install.sh | bash -s -- --user      # your user, no root
 #   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --check-only
 #   XBIN_VERSION=v0.2.0 curl -fsSL https://xbin.dev/install.sh | sudo bash
 set -eu

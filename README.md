@@ -106,11 +106,33 @@ under every sandbox and terminal; refresh it by rebuilding the OCI image
 
 ## Deployment on a VM
 
-To stand xbin up on a Linux VM (or bare-metal host) you control, one command:
+To stand xbin up on a Linux VM (or bare-metal host) you control, one command —
+in either of two modes:
 
 ```sh
+# system-wide: a system service under a dedicated `xbin` user in /opt/xbin
 curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | sudo bash
+
+# user-only: no root anywhere — runs as YOU, in ~/.local/opt/xbin, as a
+# systemd *user* unit (with lingering so it survives logout)
+curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | bash -s -- --user
 ```
+
+Before touching anything, the installer prints a **numbered plan of exactly
+what this run will do** — the user it will create or reuse, the packages it
+will install, the subuid range it will delegate, the unit path, the build
+steps, the workspace dir — with steps already in place listed as skipped,
+then asks once (`--yes` skips the prompt; `--check-only` stops after the
+preflight report + plan without asking).
+
+In **user mode** nothing escalates: anything that would need root — missing
+distro packages (`uidmap`, `fuse3`, podman, …), a missing `/etc/subuid`
+range for your user, an AppArmor userns restriction — is detected in
+preflight and reported with the exact one-line root command to run, and the
+installer stops before changing anything. Most distros pre-provision subids
+for normal users, so on a typical box it just works. If lingering can't be
+enabled without root it says so (the service then runs while you're logged
+in) and prints the `sudo loginctl enable-linger` line.
 
 It's interactive, idempotent (re-run to upgrade), and does the whole job:
 
@@ -128,7 +150,9 @@ It's interactive, idempotent (re-run to upgrade), and does the whole job:
 - **Installs and starts** the service, waits for `/healthz`, and prints your
   one-time login URL.
 
-What it leaves on disk:
+What it leaves on disk (system mode — user mode uses `~/.local/opt/xbin`,
+`~/.config/systemd/user/xbin.service`, `~/.config/xbin/xbin.env`, and links
+`bx` into `~/.local/bin`):
 
 ```
 /opt/xbin/bin/{xbind,bx,fuse-overlayfs,gocryptfs}   # owned by the xbin user

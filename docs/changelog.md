@@ -39,6 +39,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   through it — without any allowance; host ports and the builtin listener
   still need one.
 
+- **The installer grew a user-only mode and a plan-before-approve flow.**
+  `curl … | bash -s -- --user` installs xbin entirely under your own
+  account: `~/.local/opt/xbin`, a systemd *user* unit with lingering, no
+  root anywhere — anything that would need root (missing distro packages,
+  a missing subuid range, an AppArmor userns restriction) is caught in
+  preflight and reported with the exact one-line root command, before
+  anything is touched. Both modes now print a numbered plan of exactly
+  what this run will do (steps already in place listed as skipped) and
+  ask once; `--check-only` stops after preflight + plan. The website
+  shows both commands.
+
 - **Publishing from the bind dialogs actually works now, and org admins
   got a wiring surface.** The root page's bind panel (and the
   organisations tile's pending-binds card) rendered exposed endpoints
