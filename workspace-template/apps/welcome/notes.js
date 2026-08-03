@@ -663,6 +663,70 @@ $XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
     ],
   },
   {
+    id: 'ingress', title: 'going public', color: 'teal',
+    teaser: 'declare an exposed endpoint; binding it IS publishing',
+    intro: html`
+      <p>Everything so far stays inside the workspace. To face the internet, a
+      tile declares an <strong>exposed endpoint</strong> in its manifest — and
+      declaring is inert. It becomes reachable only when the owner
+      <strong>binds</strong> the slot to an ingress source with a route:
+      binding = publishing, unbinding = unpublishing. Until then, default-deny,
+      like everything else here.</p>`,
+    docs: 'ingress.md',
+    children: [
+      {
+        id: 'ingress-declare', title: 'declaring an endpoint', color: 'teal',
+        teaser: 'exposes + a public paths allowlist (default-deny)',
+        body: html`
+          <pre>"exposes": {
+  "web": { "kind": "http", "paths": ["/", "/api/public/*"] }
+}</pre>
+          <p><code>paths</code> is the <strong>public allowlist</strong> — exact
+          paths or <code>/*</code> subtrees; anything else 404s at the edge.
+          <code>kind: "stream"</code> publishes a raw TCP/UDP port instead
+          (<code>"port": 25565</code> — game servers, mail).</p>
+          <p>Non-public paths keep working normally for granted tiles and the
+          owner — the allowlist only shapes what <em>strangers</em> reach.</p>`,
+      },
+      {
+        id: 'ingress-publish', title: 'publishing (= binding)', color: 'teal',
+        teaser: 'bind to the builtin listener or a terminator tile, with a route',
+        body: html`
+          <pre>bx expose apps/blog web=runtime --host blog.example.com
+bx expose apps/cms  web=apps/traefik --zone '*.sites.example.com'
+bx expose apps/mc   game=runtime --listen :25565</pre>
+          <p>Sources: <code>runtime</code> is xbind's own separate public
+          listener (never the console port — public traffic can't reach your
+          login page), or a <strong>terminator tile</strong> you run (traefik,
+          caddy) that owns TLS and fronting. A <em>zone</em> binding delegates a
+          wildcard to multi-site tiles: they register hostnames at runtime, but
+          only inside their zone.</p>
+          <p>The bind dialogs carry the route editor (host / zone / port), and
+          route conflicts are refused workspace-wide. Who may publish: the
+          workspace admin; org admins within an <code>ingress:</code> allowance
+          — or freely through a terminator <strong>their own org owns</strong>
+          (routing org property through org property). Host ports always stay
+          admin/allowance territory.</p>`,
+      },
+      {
+        id: 'ingress-caller', title: 'the anonymous caller', color: 'teal',
+        teaser: 'From: ingress — no role, your app owns its own auth',
+        body: html`
+          <p>Public requests reach your backend as
+          <code>X-XBin-From: ingress</code> — a structural identity, not a
+          credential: no role, no session cookie (stripped at the edge), no
+          reach into <code>/api/xbin</code> or sibling tiles. xbind guarantees
+          exactly <em>external, anonymous, this tile, these paths</em> —
+          any login/auth beyond that is your app's job.</p>
+          <p>The hostname it arrived on rides in
+          <code>X-XBin-Ingress-Host</code> (trustworthy — inbound copies are
+          stripped), so one backend can serve many published sites. And a tile
+          calling its <em>own</em> public hostname from inside hairpins through
+          the ingress path — no NAT surprises on LAN-only boxes.</p>`,
+      },
+    ],
+  },
+  {
     id: 'people', title: 'sharing & people', color: 'purple',
     teaser: 'tiles have owners; orgs share them; asking for access is one click',
     intro: html`
