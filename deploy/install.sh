@@ -136,6 +136,76 @@ set_mode_config() {
 XBIN_USER_OVERRIDE="${XBIN_USER:-}"
 set_mode_config
 LISTEN="${XBIN_LISTEN:-127.0.0.1:8642}"
+
+# ---- Existing-install detection (read-only, no root needed) ----------------
+# The binary, unit files, and unit ExecStart are world-readable, so even a
+# non-root run knows whether this box already runs xbin — the chooser then
+# leads with "upgrade" instead of presenting two fresh installs, and a user
+# instance next to a system one moves off its port instead of colliding.
+SYS_INSTALLED=0 SYS_VERSION= SYS_RUNNING=no SYS_LISTEN=
+USR_INSTALLED=0
+detect_existing() {
+  local p="${XBIN_PREFIX:-/opt/xbin}"
+  if [ -x "$p/bin/xbind" ] || [ -f /etc/systemd/system/xbin.service ]; then
+    SYS_INSTALLED=1
+    SYS_VERSION="$("$p/bin/xbind" version 2>/dev/null | awk '{print $NF}')" || SYS_VERSION=
+    systemctl is-active --quiet xbin 2>/dev/null && SYS_RUNNING=yes
+    # Its listen address: env file when readable (root), else the unit's
+    # ExecStart (world-readable), else the default.
+    [ -r /etc/xbin/xbin.env ] && SYS_LISTEN="$(sed -n 's/^XBIN_LISTEN=//p' /etc/xbin/xbin.env | tail -1)"
+    [ -n "$SYS_LISTEN" ] || SYS_LISTEN="$(sed -n 's/.*--listen \([^ ]*\).*/\1/p' /etc/systemd/system/xbin.service 2>/dev/null | tail -1)"
+    [ -n "$SYS_LISTEN" ] || SYS_LISTEN=127.0.0.1:8642
+  fi
+  local up="${XBIN_PREFIX:-$HOME/.local/opt/xbin}"
+  if [ -x "$up/bin/xbind" ] || [ -f "$HOME/.config/systemd/user/xbin.service" ]; then
+    USR_INSTALLED=1
+  fi
+}
+detect_existing
+
+# port_in_use host port — connect probe (definitive for loopback), then an
+# ss listener scan for sockets that don't accept immediately.
+port_in_use() {
+  ( : <"/dev/tcp/$1/$2" ) 2>/dev/null && return 0
+  have ss && ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$2\$"
+}
+
+# resolve_listen: runs per-mode AFTER upgrade detection. Upgrades preserve
+# the existing unit's --listen (a bumped port must survive re-runs); a fresh
+# USER install auto-moves off a busy default port (the system install case)
+# and says so; an explicitly requested busy port is a recorded blocker, not
+# a doomed install.
+LISTEN_NOTE= LISTEN_BLOCKED=
+resolve_listen() {
+  LISTEN_NOTE= LISTEN_BLOCKED=
+  if [ -n "${XBIN_LISTEN:-}" ]; then
+    LISTEN="$XBIN_LISTEN"
+    if [ "$UPGRADE" = 0 ] && port_in_use "${LISTEN%:*}" "${LISTEN##*:}"; then
+      LISTEN_BLOCKED="XBIN_LISTEN=$LISTEN is already in use$([ "$SYS_INSTALLED" = 1 ] && [ "$LISTEN" = "$SYS_LISTEN" ] && printf ' (by the system-wide xbin install)' || true) — pick a free port"
+    fi
+    return 0
+  fi
+  LISTEN=127.0.0.1:8642
+  if [ "$UPGRADE" = 1 ] && [ -f "$UNIT_PATH" ]; then
+    local cur; cur="$(sed -n 's/.*--listen \([^ ]*\).*/\1/p' "$UNIT_PATH" | tail -1)"
+    [ -n "$cur" ] && LISTEN="$cur"
+    return 0
+  fi
+  if [ "$MODE" = user ]; then
+    local host="${LISTEN%:*}" port="${LISTEN##*:}" tries=0
+    while port_in_use "$host" "$port" && [ "$tries" -lt 10 ]; do
+      port=$((port+1)); tries=$((tries+1))
+    done
+    if [ "$host:$port" != "$LISTEN" ]; then
+      LISTEN="$host:$port"
+      if [ "$SYS_INSTALLED" = 1 ]; then
+        LISTEN_NOTE="listen on $LISTEN — ${SYS_LISTEN:-127.0.0.1:8642} is taken by the system install"
+      else
+        LISTEN_NOTE="listen on $LISTEN — 8642 is already in use"
+      fi
+    fi
+  fi
+}
 REPO_URL="${XBIN_REPO_URL:-https://github.com/xbin-dev/xbin}"
 REF="${XBIN_REF:-master}"
 SUBID_START="${XBIN_SUBID_START:-100000}"
@@ -640,6 +710,7 @@ show_summary() {
   fi
   echo "    workspace: $WORKSPACE   (auto-initialized on first boot)"
   echo "    listen  : $LISTEN   (loopback — not reachable from the network yet)"
+  [ -n "$LISTEN_NOTE" ] && echo "              ($LISTEN_NOTE)"
   echo
   if [ -n "$login" ]; then
     echo "  ${B}Log in:${R}  $login"
@@ -731,13 +802,13 @@ build_plan() {
   if [ "$MODE" = system ] && { [ "$PKG" = apt ] || have needrestart || [ -d /etc/needrestart ]; }; then
     plan install_needrestart_dropin "exclude xbin.service from needrestart auto-restart (/etc/needrestart/conf.d/xbin.conf)"
   fi
-  plan start_service "enable + start the unit, wait for /healthz on $LISTEN"
+  plan start_service "enable + start the unit, wait for /healthz on $LISTEN${LISTEN_NOTE:+ ($LISTEN_NOTE)}"
 }
 
 print_plan() {
   echo
   local i=0 s
-  info "${B}This will ($MODE mode):${R}"
+  info "${B}This will ($MODE mode$([ "$UPGRADE" = 1 ] && printf ' %s' '— upgrade the existing install')):${R}"
   for s in "${STEPS[@]}"; do
     i=$((i+1))
     printf '  %2d. %s\n' "$i" "${s#*::}"
@@ -748,6 +819,8 @@ print_plan() {
     for d in "${INPLACE[@]}"; do printf '      · %s\n' "$d"; done
   fi
   echo "  then: print the one-time login URL ($JOURNAL_HINT)"
+  [ -n "$LISTEN_BLOCKED" ] && fail "$LISTEN_BLOCKED"
+  return 0
 }
 
 run_plan() {
@@ -774,6 +847,7 @@ prepare_mode() {
   if [ "${XBIN_FULL_INSTALL:-0}" != 1 ] && [ -x "$PREFIX/bin/xbind" ] && [ -f "$UNIT_PATH" ]; then
     UPGRADE=1
   fi
+  resolve_listen
   SRC=; SRC_KIND=
   resolve_source
   STEPS=(); INPLACE=()
@@ -784,6 +858,11 @@ banner() {
   echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
   if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
   [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
+  if [ "$MODE" = system ] && [ "$EUID_NOW" = 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    local sh_home; sh_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+    [ -n "$sh_home" ] && [ -f "$sh_home/.config/systemd/user/xbin.service" ] && \
+      echo "  note: a user-mode xbin also exists for $SUDO_USER (separate instance; this system install won't touch it)"
+  fi
   return 0
 }
 
@@ -838,6 +917,7 @@ if [ "$CHOOSER" = 0 ]; then
   preflight
   print_plan
   if [ "$CHECK_ONLY" = 1 ]; then echo; info "check-only: no changes made"; exit 0; fi
+  [ -n "$LISTEN_BLOCKED" ] && die "$LISTEN_BLOCKED"
   echo
   confirm "Proceed?" || die "aborted"
   run_plan
@@ -848,6 +928,12 @@ fi
 # ---- No mode chosen (non-root): explain, show BOTH plans, ask ---------------
 echo "${B}xbin installer${R}  →  run as $RUN_USER (no mode chosen)"
 if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
+if [ "$SYS_INSTALLED" = 1 ]; then
+  echo
+  info "${B}A system-wide xbin is already installed${R}${SYS_VERSION:+ ($SYS_VERSION)} — running: $SYS_RUNNING, listening on ${SYS_LISTEN:-127.0.0.1:8642}"
+  echo "  the usual move is upgrading it; a user-mode install would be a SEPARATE second instance"
+  echo "  (own workspace, own port$([ -n "$SYS_LISTEN" ] && printf ' — %s stays with the system install' "$SYS_LISTEN"))"
+fi
 explain_modes
 
 # User-mode preflight first (read-only; records blockers instead of dying so
@@ -880,12 +966,17 @@ if [ "$ASSUME_YES" = 1 ] || ! have_tty; then
 fi
 
 echo
-CHOICE=$(ask "Install [s]ystem-wide via sudo, [u]ser-only, or [q]uit? " q)
+if [ "$SYS_INSTALLED" = 1 ]; then
+  CHOICE=$(ask "Upgrade the [s]ystem install via sudo (Enter), add a separate [u]ser-only instance, or [q]uit? " s)
+else
+  CHOICE=$(ask "Install [s]ystem-wide via sudo, [u]ser-only, or [q]uit? " q)
+fi
 case "$CHOICE" in
   s|S|system)
     sudo_reexec "$@" ;;
   u|U|user)
     [ "$USER_FATAL" = 1 ] && die "user-mode preflight failed — run the commands above as root first, or pick the system install"
+    [ -n "$LISTEN_BLOCKED" ] && die "$LISTEN_BLOCKED"
     echo
     confirm "Proceed?" || die "aborted"
     run_plan

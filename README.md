@@ -150,6 +150,14 @@ for normal users, so on a typical box it just works. If lingering can't be
 enabled without root it says so (the service then runs while you're logged
 in) and prints the `sudo loginctl enable-linger` line.
 
+On a box that **already runs a system-wide xbin**, a no-flag run detects it
+(read-only, no root needed) and leads with upgrading it — plain Enter at the
+chooser upgrades via sudo; user mode is offered as a *separate second
+instance* with its own workspace and its own port (the installer auto-picks
+the next free one, e.g. `127.0.0.1:8643`, and says so in the plan and the
+final summary). An explicitly requested `XBIN_LISTEN` that is already in use
+fails the plan up front instead of installing a service that can't bind.
+
 It's interactive, idempotent (re-run to upgrade), and does the whole job:
 
 - **Preflights** the kernel features rootless sandboxing needs — unprivileged

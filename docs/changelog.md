@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **The installer knows when xbin is already there.** A no-flag non-root
+  run on a box with a system-wide install now leads with that fact
+  (version, running state, listen address) and makes upgrading the
+  default — plain Enter at the chooser sudo-upgrades; user mode is
+  offered as a separate second instance. Side-by-side installs stop
+  colliding on the port: a fresh user instance auto-moves to the next
+  free port when 8642 is taken (stated in the plan and the summary),
+  upgrades preserve the existing unit's port, and an explicitly
+  requested busy `XBIN_LISTEN` fails the plan up front.
+
 - **Ubuntu 26.04 LTS everywhere**: the base rootfs image (terminal +
   backend sandboxes; existing terminal env layers stay pinned to their
   old base, which upgrades preserve as `rootfs-<version>`) and the macOS
