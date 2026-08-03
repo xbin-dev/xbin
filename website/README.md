@@ -29,7 +29,7 @@ from the GitHub tags API (no auth, no jq; `XBIN_VERSION=vX.Y.Z` pins one,
 resolution failure exits with the pin instructions), fetches that tag's
 `deploy/install.sh`, and runs it with `XBIN_REF` pinned to the same tag —
 so a piped install always builds a *released* tree, never master.
-Arguments pass through (`… | sudo bash -s -- --check-only`).
+Arguments pass through (`… | sh -s -- --check-only`).
 
 **Release flow** (each release): tag `vX.Y.Z` on master and push the tag.
 That's it — the bootstrap picks it up on the next run. Only when the

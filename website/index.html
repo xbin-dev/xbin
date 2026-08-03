@@ -301,12 +301,12 @@
         folder you can open a terminal into, run agents in, sandbox, and publish. All from the
         browser, on hardware you control.</p>
       <div class="install">
-        <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
-        <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
+        <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
+        <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
       </div>
-      <p class="modehint">system service — or entirely under your own account, no root:
-        <code>&hellip; | bash -s -- --user</code>. Run it without sudo and it shows
-        both plans and asks which you want.</p>
+      <p class="modehint">no sudo needed up front: it explains the two modes, prints the full
+        install plan for each, and asks — escalating itself only if you pick system-wide.
+        Works on Linux and macOS (Lima VM).</p>
       <div class="cta">
         <a class="btn amber" href="#install">Get started</a>
         <a class="btn" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">★ Star on GitHub</a>
@@ -657,18 +657,18 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
     <p class="lede">On any Linux box with unprivileged user namespaces. The installer preflight-checks
       the kernel, builds from source, and starts the daemon on loopback.</p>
     <div class="bigcmd">
-      <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sudo bash</span>
-      <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sudo bash">copy</button>
+      <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
+      <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
     </div>
-    <p class="modehint">installs the system service. Prefer no root? User mode runs it under your own account
-      (or run without sudo at all: it explains both modes, shows both plans, and offers to sudo from there):</p>
-    <div class="bigcmd">
-      <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | bash -s -- --user</span>
-      <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | bash -s -- --user">copy</button>
-    </div>
-    <p class="modehint">either way it prints its full numbered plan and asks before touching anything.
-      On macOS the same command (no sudo) sets up a lightweight Linux VM via Lima and
-      installs inside — you pick the VM size at install time.</p>
+    <p class="modehint">nothing runs as root up front: the installer explains the two modes
+      (a dedicated <code>xbin</code> system user, or everything under your own account),
+      prints the full numbered plan for each, and asks — escalating itself via sudo only
+      if you pick system-wide. On macOS the same command sets up a lightweight Linux VM
+      via Lima and installs inside; you pick the VM size at install time.</p>
+    <p class="modehint">already decided? skip the chooser:
+      <code>&hellip; | sudo bash</code> installs the system service directly;
+      <code>&hellip; | bash -s -- --user</code> goes straight to user mode.
+      Either still prints its plan and asks before touching anything.</p>
     <div class="reach">
       <span>tailscale serve 127.0.0.1:8642</span>
       <span>or point Caddy / Traefik at it</span>
