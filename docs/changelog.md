@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-04
 
+- **`code`/`code:<comp>` grants now open the `/c/` static plane for element
+  principals.** The 2026-08-02 element read clamp had made backend instance
+  tokens self-only on `/c/`, so a code-granted tooling tile could no longer
+  fetch sibling source over plain HTTP (only via `/api/xbin/code/*`). With an
+  approved `code:<comp>` (or blanket `code`) grant, `/c/<comp>/<file>` reads
+  now work for the granted element too; HTML served this way never carries
+  the target tile's frame token.
+
+- **Resource sizes no longer re-walk trees on every poll.** `GET /runtime`
+  measured walk-heavy resources inline — a full recursive walk of every
+  filesystem/blob tree (for an encrypted container store, hundreds of
+  thousands of cipher files) and a full kv bucket iteration, per 2s admin
+  poll. Sizes are now TTL-cached (30s) and refreshed by a single background
+  measurer; `/runtime` never blocks on a walk. A just-declared resource
+  briefly shows "measuring…". sqlite (one stat), cron and bus counts stay
+  live.
+
 - **Admin resources tab: workspace totals + per-type resource tabs.** The
   live-stats view now opens with four workspace-total charts (CPU, memory,
   I/O, IOPS summed across tiles, ~3 min of history) with a "by org" toggle

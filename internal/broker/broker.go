@@ -38,6 +38,7 @@ type Broker struct {
 
 	mu        sync.Mutex
 	busEv     sync.Map // bus resource id → *atomic.Int64 published-event count
+	resUsageC sync.Map // resource id → *resUsageEntry (walk-heavy sizes, TTL-cached)
 	kv        *kvStore
 	cron      *cronRunner
 	uids      *uidAllocator         // nil = tier 1
@@ -246,6 +247,10 @@ func (b *Broker) Register(srv *server.Server) {
 	}
 	srv.IsAdmin = b.IsAdmin
 	srv.Interfaces = b.HTTPInterfaces
+	// The code[:<comp>] capability also opens the /c/ static plane: a
+	// code-granted backend reads sibling source either way (the 2026-08-02
+	// read-gate clamp had made instance tokens self-only even WITH the grant).
+	srv.CodeReadGrant = b.codeGrantAllows
 }
 
 // --- resource identity -------------------------------------------------

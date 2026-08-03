@@ -3,7 +3,9 @@ package broker
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -30,5 +32,43 @@ func TestScopeDiskUsageCountsCiphertext(t *testing.T) {
 	got := b.scopeDiskUsage()[key]
 	if got != 4096+1024 {
 		t.Fatalf("scopeDiskUsage[%s] = %d, want %d (plaintext + ciphertext)", key, got, 5120)
+	}
+}
+
+// Walk-heavy resource sizes are TTL-cached with ONE background refresher —
+// the admin tab polls /runtime every 2s, and without this every poll
+// re-walked every filesystem/blob tree and kv bucket.
+func TestCachedUsage(t *testing.T) {
+	b := testBroker(t)
+	var computes atomic.Int64
+	compute := func() (int64, string) {
+		computes.Add(1)
+		return 4096, "1 file"
+	}
+	// First call kicks the background measure and reports the placeholder.
+	if _, detail := b.cachedUsage("res:x/fs", compute); detail != "measuring…" {
+		t.Fatalf("first call detail = %q, want measuring…", detail)
+	}
+	// The refresh lands shortly; then values serve from cache.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		size, detail := b.cachedUsage("res:x/fs", compute)
+		if detail == "1 file" {
+			if size != 4096 {
+				t.Fatalf("cached size = %d, want 4096", size)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background measure never landed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Fresh entries must not recompute on every poll.
+	for i := 0; i < 20; i++ {
+		b.cachedUsage("res:x/fs", compute)
+	}
+	if n := computes.Load(); n != 1 {
+		t.Fatalf("compute ran %d times within the TTL, want 1", n)
 	}
 }

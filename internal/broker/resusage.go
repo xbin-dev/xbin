@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -23,6 +24,37 @@ type ResourceInfo struct {
 	Size   int64  `json:"size"`             // bytes on disk (0 for ephemeral)
 	Detail string `json:"detail"`           // "N keys" | "N files" | "N jobs" | "ephemeral"
 	Events int64  `json:"events,omitempty"` // bus: events published since start (cumulative — the admin UI derives events/min)
+}
+
+// resUsageTTL bounds how often a walk-heavy resource (filesystem/blob tree
+// walk, kv bucket iteration) is re-measured. The admin tab polls /runtime
+// every 2s; without this every poll re-walked every tree — for an encrypted
+// container store, hundreds of thousands of cipher files per tick.
+const resUsageTTL = 30 * time.Second
+
+// resUsageEntry is one cached measurement. Immutable after publication —
+// refreshes Store a fresh entry; running gates one refresher at a time.
+type resUsageEntry struct {
+	size    int64
+	detail  string
+	at      time.Time
+	running atomic.Bool
+}
+
+// cachedUsage serves the last measurement and, when stale, kicks ONE
+// background recompute — /runtime never blocks on a tree walk. A resource
+// never measured yet reports "measuring…" until the first walk lands
+// (visible for at most one 2s poll in the admin tab).
+func (b *Broker) cachedUsage(id string, compute func() (int64, string)) (int64, string) {
+	v, _ := b.resUsageC.LoadOrStore(id, &resUsageEntry{detail: "measuring…"})
+	e := v.(*resUsageEntry)
+	if time.Since(e.at) > resUsageTTL && e.running.CompareAndSwap(false, true) {
+		go func() {
+			size, detail := compute()
+			b.resUsageC.Store(id, &resUsageEntry{size: size, detail: detail, at: time.Now()})
+		}()
+	}
+	return e.size, e.detail
 }
 
 // ResourceUsage enumerates every declared resource with its storage footprint,
@@ -47,19 +79,23 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 	ri := ResourceInfo{ID: id, Scope: scope, Name: name, Type: typ}
 	switch typ {
 	case "sqlite":
+		// single stat, cheap — always live
 		ri.Size, _ = b.fileResSize(scope, name, "sqlite")
 	case "filesystem":
-		size, files := b.fileResSize(scope, name, "filesystem")
-		ri.Size = size
-		ri.Detail = plural(files, "file")
+		ri.Size, ri.Detail = b.cachedUsage(id, func() (int64, string) {
+			size, files := b.fileResSize(scope, name, "filesystem")
+			return size, plural(files, "file")
+		})
 	case "blob":
-		size, files := b.fileResSize(scope, name, "blob")
-		ri.Size = size
-		ri.Detail = plural(files, "file")
+		ri.Size, ri.Detail = b.cachedUsage(id, func() (int64, string) {
+			size, files := b.fileResSize(scope, name, "blob")
+			return size, plural(files, "file")
+		})
 	case "kv":
-		keys, size := b.kvUsage(id)
-		ri.Size = size
-		ri.Detail = plural(keys, "key")
+		ri.Size, ri.Detail = b.cachedUsage(id, func() (int64, string) {
+			keys, size := b.kvUsage(id)
+			return size, plural(keys, "key")
+		})
 	case "cron":
 		ri.Detail = plural(b.cronCount(id), "job")
 	case "bus":
