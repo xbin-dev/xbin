@@ -666,7 +666,9 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | bash -s -- --user</span>
       <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | bash -s -- --user">copy</button>
     </div>
-    <p class="modehint">either way it prints its full numbered plan and asks before touching anything.</p>
+    <p class="modehint">either way it prints its full numbered plan and asks before touching anything.
+      On macOS the same command (no sudo) sets up a lightweight Linux VM via Lima and
+      installs inside — you pick the VM size at install time.</p>
     <div class="reach">
       <span>tailscale serve 127.0.0.1:8642</span>
       <span>or point Caddy / Traefik at it</span>

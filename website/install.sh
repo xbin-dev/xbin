@@ -4,12 +4,15 @@
 # This file stays tiny on purpose so you can read what you pipe into sudo —
 # and it is 100% STATIC across releases: it resolves the latest tagged
 # release from GitHub at run time and delegates to that release's real
-# installer (deploy/install.sh in the tagged tree), which preflight-checks
-# the kernel, builds from source, and sets up the systemd service. Audit:
-#   https://github.com/xbin-dev/xbin/tags → deploy/install.sh at the tag
+# installer in the tagged tree — deploy/install.sh on Linux (preflight-checks
+# the kernel, builds from source, sets up the systemd service), or
+# deploy/install-macos.sh on a Mac (sets up a Lima Linux VM you size, and
+# installs inside it). Audit:
+#   https://github.com/xbin-dev/xbin/tags → deploy/install*.sh at the tag
 #
-#   curl -fsSL https://xbin.dev/install.sh | sudo bash              # system service
-#   curl -fsSL https://xbin.dev/install.sh | bash -s -- --user      # your user, no root
+#   curl -fsSL https://xbin.dev/install.sh | sudo bash              # Linux: system service
+#   curl -fsSL https://xbin.dev/install.sh | bash -s -- --user      # Linux: your user, no root
+#   curl -fsSL https://xbin.dev/install.sh | sh                     # macOS: Lima VM (no sudo)
 #   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --check-only
 #   XBIN_VERSION=v0.2.0 curl -fsSL https://xbin.dev/install.sh | sudo bash   # pin one
 set -eu
@@ -38,7 +41,15 @@ if [ -z "$VERSION" ]; then
   echo "       releases: https://github.com/xbin-dev/xbin/tags" >&2
   exit 1
 fi
-URL="https://raw.githubusercontent.com/xbin-dev/xbin/${VERSION}/deploy/install.sh"
+# macOS gets the Lima-VM installer; everything else the Linux one (which
+# explains itself on unsupported platforms).
+SCRIPT=deploy/install.sh
+RUNNER=bash
+if [ "$(uname -s)" = Darwin ]; then
+  SCRIPT=deploy/install-macos.sh
+  RUNNER=sh
+fi
+URL="https://raw.githubusercontent.com/xbin-dev/xbin/${VERSION}/${SCRIPT}"
 
 echo "xbin bootstrap"
 echo "  release:   ${VERSION}"
@@ -58,8 +69,10 @@ if ! fetch "$URL" >"$tmp" || ! [ -s "$tmp" ]; then
   exit 1
 fi
 
-# Pin the source checkout the installer builds to the same release.
+# Pin the source checkout the installer builds to the same release; the mac
+# installer also needs the release name itself (it pins the in-VM install).
 XBIN_REF="$VERSION"
-export XBIN_REF
+XBIN_VERSION="$VERSION"
+export XBIN_REF XBIN_VERSION
 
-bash "$tmp" "$@"
+"$RUNNER" "$tmp" "$@"

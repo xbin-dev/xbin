@@ -62,6 +62,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   offloaded tile is refused (restore first); placed tiles stay on screens,
   rendering their disabled state.
 
+- **macOS installs, for real.** `curl -fsSL https://xbin.dev/install.sh |
+  sh` on a Mac now sets up a lightweight Linux VM via Lima (Apple's vz
+  runtime; qemu fallback pre-macOS 13) sized by you at install time
+  (defaults 32 GiB thin disk / 4 GiB RAM / 4 CPUs), runs the regular Linux
+  installer in system mode inside it pinned to the same release, forwards
+  the UI to the Mac's loopback :8642, and prints the one-time login URL —
+  with the same numbered plan-before-approve contract as the Linux
+  installer. Requires Homebrew for Lima (never installs Homebrew itself);
+  re-running upgrades xbin inside the existing VM; `limactl delete xbin`
+  uninstalls. The Linux installer's macOS refusal now points at the
+  one-liner instead of a bare "get a VM".
+
 - **The installer chooses with you, not for you.** Run without sudo and
   without a mode flag and it explains system vs user mode (system creates
   a dedicated `xbin` user for better separation), prints BOTH numbered

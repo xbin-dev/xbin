@@ -123,6 +123,17 @@ mode creates a dedicated `xbin` user for better separation — shows **both**
 numbered plans (system-mode probes run read-only), and asks: escalate to the
 system install via sudo right there, do the user install, or quit.
 
+**On a Mac**, the same one-liner (via `https://xbin.dev/install.sh`, no sudo)
+runs [`deploy/install-macos.sh`](deploy/install-macos.sh) instead: it sets up
+a lightweight Linux VM with [Lima](https://lima-vm.dev) — you pick the VM
+size at install time (defaults: 32 GiB thin-provisioned disk, 4 GiB RAM,
+4 CPUs; `XBIN_VM_DISK`/`XBIN_VM_MEM`/`XBIN_VM_CPUS` override) — then runs
+the regular Linux installer in system mode *inside* the VM, pinned to the
+same release, and forwards the UI to `http://127.0.0.1:8642` on the Mac
+(loopback-only). Same plan-before-approve contract; it requires Homebrew
+(to install Lima) but never installs Homebrew itself. Re-run to upgrade;
+`limactl delete xbin` removes everything.
+
 Before touching anything, the installer prints a **numbered plan of exactly
 what this run will do** — the user it will create or reuse, the packages it
 will install, the subuid range it will delegate, the unit path, the build

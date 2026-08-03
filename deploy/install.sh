@@ -70,15 +70,16 @@ confirm() { # confirm "prompt" -> 0 yes / 1 no
 case "$(uname -s)" in
   Linux) ;;
   Darwin)
-    printf '%serror:%s xbin cannot run on macOS.\n\n' "$RED" "$R" >&2
+    printf '%serror:%s this is the LINUX installer — but your Mac is covered.\n\n' "$RED" "$R" >&2
     {
-      echo "  xbin's per-tile sandboxing is built directly on Linux kernel primitives"
-      echo "  (user/mount/pid/net namespaces, seccomp, Landlock). macOS has no"
-      echo "  equivalent, and xbin has no non-sandboxed mode — a Linux server or VM"
-      echo "  is required. Easy paths from this Mac:"
-      echo "    • a local Linux VM (UTM / Lima / OrbStack — an Ubuntu 24.04 VM works well)"
-      echo "    • any cloud or home server"
-      echo "  Install there, then open the UI from this Mac over Tailscale or an SSH tunnel."
+      echo "  xbin's per-tile sandboxing is built on Linux kernel primitives (namespaces,"
+      echo "  seccomp, Landlock), so on macOS it runs inside a lightweight Linux VM."
+      echo "  The one-liner sets that up for you — Lima VM, sized by you, xbin inside,"
+      echo "  UI forwarded to http://127.0.0.1:8642 on the Mac:"
+      echo ""
+      echo "    curl -fsSL https://xbin.dev/install.sh | sh"
+      echo ""
+      echo "  (It prints its full plan and asks before touching anything.)"
     } >&2
     exit 1 ;;
   *)
