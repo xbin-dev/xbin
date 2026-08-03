@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Container stores work on encrypted resources.** A `filesystem` resource
+  of a `cap:containers` scope now mounts in gocryptfs *single-tenant mode*
+  (an xbin patchset on the pinned gocryptfs, `hack/gocryptfs-patches/`):
+  ownership/mode/whiteouts/file-caps are virtualized into encrypted xattrs
+  and in-mount permission checks are skipped, so podman's layer store —
+  0555 dirs, sub-uid chowns, `security.capability` — round-trips on the
+  encrypted mount. No new manifest surface and no on-disk format change;
+  the mode follows the `cap:containers` grant automatically. Container
+  tiles also get a cgroup2 view at `/sys/fs/cgroup` (libpod requires one)
+  and can drop their self-mount workaround. Host requirement:
+  `user_allow_other` in `/etc/fuse.conf` (system installs enable it;
+  `bx doctor` checks). See [resources.md](/docs/resources.md).
+
 - **The installer knows when xbin is already there.** A no-flag non-root
   run on a box with a system-wide install now leads with that fact
   (version, running state, listen address) and makes upgrading the

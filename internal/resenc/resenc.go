@@ -36,12 +36,17 @@ type Manager struct {
 
 	mu     sync.Mutex
 	mounts map[string]string // key(scopeKey,name) → mount dir
+	modes  map[string]bool   // key → mounted in single-tenant mode
+	// stSupport caches whether the binary understands -xbin-single-tenant
+	// (our patched build does; a stock/distro gocryptfs does not).
+	stSupport *bool
 }
 
 // New builds a Manager. bin is the gocryptfs path (see Resolve); derive is the
 // barrier's DeriveKey (returns ErrSealed when sealed).
 func New(root, bin string, derive func(string) ([]byte, error)) *Manager {
-	return &Manager{root: root, bin: bin, derive: derive, mounts: map[string]string{}}
+	return &Manager{root: root, bin: bin, derive: derive,
+		mounts: map[string]string{}, modes: map[string]bool{}}
 }
 
 // Resolve finds the gocryptfs binary: $XBIN_GOCRYPTFS, a copy bundled next to
@@ -115,24 +120,48 @@ func (m *Manager) password(resID string) (string, error) {
 // Ensure initializes (if needed) and mounts a resource's decrypted view,
 // returning the mount dir. resID is the key-derivation label. Requires the vault
 // unsealed (derive must succeed).
-func (m *Manager) Ensure(resID, scopeKey, name string) (string, error) {
+//
+// singleTenant mounts with -xbin-single-tenant (our gocryptfs patch,
+// hack/gocryptfs-patches/): ownership/mode/special files are virtualized into
+// encrypted xattrs and in-mount permission checks are skipped, which is what
+// a container layer store needs (sub-uid chowns, 0555 layer dirs, whiteouts)
+// and is safe exactly because a resenc mount serves one scope's sandboxes —
+// the broker requests it only for filesystem resources of cap:containers
+// scopes (docs/resources.md). The on-disk format is identical either way; a
+// mode change (cap granted/revoked) just remounts.
+func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (string, error) {
 	if m.bin == "" {
 		return "", fmt.Errorf("gocryptfs not available")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	k := mkey(scopeKey, name)
 	cipher := m.CipherDir(scopeKey, name)
 	mount := m.MountDir(scopeKey, name)
 	if isMounted(mount) {
-		m.mounts[mkey(scopeKey, name)] = mount
-		return mount, nil
+		if m.modes[k] == singleTenant {
+			m.mounts[k] = mount
+			return mount, nil
+		}
+		// Mounted in the other mode (cap:containers granted/revoked since):
+		// remount. The broker stops the scope's backends around cap changes,
+		// so the mount should be free; a straggler surfaces as EBUSY here.
+		if err := fusermountU(mount, false); err != nil {
+			return "", fmt.Errorf("remount %s for mode change: %w", resID, err)
+		}
+		delete(m.mounts, k)
+		delete(m.modes, k)
 	}
 	if err := os.MkdirAll(cipher, 0o700); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(mount, 0o700); err != nil {
 		return "", err
+	}
+
+	if singleTenant && !m.SupportsSingleTenant() {
+		return "", fmt.Errorf("this gocryptfs (%s) lacks -xbin-single-tenant, which container-store resources need — rebuild it (make build / hack/build-gocryptfs.sh), or point XBIN_GOCRYPTFS at the xbin-built binary", m.bin)
 	}
 
 	pw, err := m.password(resID)
@@ -145,11 +174,37 @@ func (m *Manager) Ensure(resID, scopeKey, name string) (string, error) {
 			return "", fmt.Errorf("gocryptfs init %s: %w", resID, err)
 		}
 	}
-	if err := m.run(pw, "-q", "-passfile", "/dev/stdin", cipher, mount); err != nil {
+	args := []string{"-q", "-passfile", "/dev/stdin"}
+	if singleTenant {
+		args = append(args, "-xbin-single-tenant")
+	}
+	args = append(args, cipher, mount)
+	if err := m.run(pw, args...); err != nil {
+		if singleTenant && strings.Contains(err.Error(), "user_allow_other") {
+			// fusermount3 gates -allow_other (implied by single-tenant mode)
+			// behind /etc/fuse.conf for non-root; the system installer
+			// enables it, user installs need it enabled once by root.
+			err = fmt.Errorf("%w — container-store mounts need the line `user_allow_other` in /etc/fuse.conf (root: `echo user_allow_other >> /etc/fuse.conf`)", err)
+		}
 		return "", fmt.Errorf("gocryptfs mount %s: %w", resID, err)
 	}
-	m.mounts[mkey(scopeKey, name)] = mount
+	m.mounts[k] = mount
+	m.modes[k] = singleTenant
 	return mount, nil
+}
+
+// SupportsSingleTenant reports whether the gocryptfs binary carries the xbin
+// single-tenant patch (probed once via its long help text).
+func (m *Manager) SupportsSingleTenant() bool {
+	if m.bin == "" {
+		return false
+	}
+	if m.stSupport == nil {
+		out, _ := exec.Command(m.bin, "-hh").CombinedOutput()
+		ok := strings.Contains(string(out), "xbin-single-tenant")
+		m.stSupport = &ok
+	}
+	return *m.stSupport
 }
 
 // Unmount unmounts one resource's decrypted view (the ciphertext stays).
@@ -157,6 +212,7 @@ func (m *Manager) Unmount(scopeKey, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.mounts, mkey(scopeKey, name))
+	delete(m.modes, mkey(scopeKey, name))
 	mount := m.MountDir(scopeKey, name)
 	if !isMounted(mount) {
 		return nil
@@ -173,6 +229,7 @@ func (m *Manager) UnmountAll() {
 			_ = fusermountU(mount, false)
 		}
 		delete(m.mounts, k)
+		delete(m.modes, k)
 	}
 }
 

@@ -1,0 +1,851 @@
+From: xbin <xbin@xbin.dev>
+Subject: [PATCH] xbin single-tenant mode (-xbin-single-tenant)
+
+Adds a mount mode for mounts that serve exactly one security domain (one
+container-host tile's store, mounted into exactly one sandbox): ownership,
+mode and special-file identity are virtualized into an encrypted xattr on
+the cipher object (chown/chmod/mknod always succeed and round-trip), the
+cipher tree stays uniformly daemon-owned 0700/0600, in-mount permission
+checks are skipped (reaching the mountpoint IS the access decision), and
+-allow_other is implied so sub-uid processes are not kernel-refused.
+security.capability is served (encrypted) so file caps survive a store
+round-trip; RENAME_WHITEOUT is decomposed into rename + virtual whiteout.
+
+Written against gocryptfs v2.6.1 for xbin's resenc container stores
+(docs/resources.md); no on-disk format change — the identity xattr is an
+overlay, trees mount fine with or without the flag.
+
+Known fidelity gap: Linux forbids user.* xattrs on symlinks, so symlink
+ownership is not virtualized (lchown on a symlink is a no-op).
+---
+diff --git a/cli_args.go b/cli_args.go
+index e690e15..28858c6 100644
+--- a/cli_args.go
++++ b/cli_args.go
+@@ -31,7 +31,7 @@ type argContainer struct {
+ 	longnames, allow_other, reverse, aessiv, nonempty, raw64,
+ 	noprealloc, speed, hkdf, serialize_reads, hh, info,
+ 	sharedstorage, fsck, one_file_system, deterministic_names,
+-	xchacha bool
++	xchacha, xbin_single_tenant bool
+ 	// Mount options with opposites
+ 	dev, nodev, suid, nosuid, exec, noexec, rw, ro, kernel_cache, acl bool
+ 	masterkey, mountpoint, cipherdir, cpuprofile,
+@@ -188,6 +188,10 @@ func parseCliOpts(osArgs []string) (args argContainer) {
+ 	flagSet.BoolVar(&args.one_file_system, "one-file-system", false, "Don't cross filesystem boundaries")
+ 	flagSet.BoolVar(&args.deterministic_names, "deterministic-names", false, "Disable diriv file name randomisation")
+ 	flagSet.BoolVar(&args.xchacha, "xchacha", false, "Use XChaCha20-Poly1305 file content encryption")
++	flagSet.BoolVar(&args.xbin_single_tenant, "xbin-single-tenant", false,
++		"Single-tenant mount (xbin patch): virtualize ownership/mode/special "+
++			"files into encrypted xattrs, skip in-mount permission checks, "+
++			"imply -allow_other. For mounts serving exactly one security domain.")
+ 
+ 	// Mount options with opposites
+ 	flagSet.BoolVar(&args.dev, "dev", false, "Allow device files")
+@@ -309,6 +313,10 @@ func parseCliOpts(osArgs []string) (args argContainer) {
+ 		tlog.Fatal.Printf("-longnamemax: value %d is outside allowed range 62 ... 255", args.longnamemax)
+ 		os.Exit(exitcodes.Usage)
+ 	}
++	if args.xbin_single_tenant && (args.reverse || args.plaintextnames) {
++		tlog.Fatal.Printf("The option -xbin-single-tenant cannot be used with -reverse or -plaintextnames")
++		os.Exit(exitcodes.Usage)
++	}
+ 
+ 	return args
+ }
+diff --git a/internal/fusefrontend/args.go b/internal/fusefrontend/args.go
+index 64a5923..de56cb6 100644
+--- a/internal/fusefrontend/args.go
++++ b/internal/fusefrontend/args.go
+@@ -51,4 +51,8 @@ type Args struct {
+ 	OneFileSystem bool
+ 	// DeterministicNames disables gocryptfs.diriv files
+ 	DeterministicNames bool
++	// SingleTenant enables xbin single-tenant mode: ownership/mode/rdev are
++	// virtualized into an encrypted xattr, in-mount permission checks are
++	// skipped, and -allow_other is implied. See virtnode.go.
++	SingleTenant bool
+ }
+diff --git a/internal/fusefrontend/file.go b/internal/fusefrontend/file.go
+index afee158..24e68e9 100644
+--- a/internal/fusefrontend/file.go
++++ b/internal/fusefrontend/file.go
+@@ -443,6 +443,16 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
+ 	if f.rootNode.args.ForceOwner != nil {
+ 		a.Owner = *f.rootNode.args.ForceOwner
+ 	}
++	// Single-tenant mode: present the virtualized identity (after the size
++	// translation, which keys off the real regular-file type)
++	if f.rootNode.args.SingleTenant {
++		if v := f.rootNode.loadVirtFd(f.intFd()); v != nil {
++			a.Mode = v.Mode
++			a.Owner.Uid = v.Uid
++			a.Owner.Gid = v.Gid
++			a.Rdev = v.Rdev
++		}
++	}
+ 
+ 	return 0
+ }
+diff --git a/internal/fusefrontend/file_setattr.go b/internal/fusefrontend/file_setattr.go
+index fe4bc47..eb03530 100644
+--- a/internal/fusefrontend/file_setattr.go
++++ b/internal/fusefrontend/file_setattr.go
+@@ -29,30 +29,38 @@ func (f *File) setAttr(ctx context.Context, in *fuse.SetAttrIn) (errno syscall.E
+ 	f.fileTableEntry.ContentLock.Lock()
+ 	defer f.fileTableEntry.ContentLock.Unlock()
+ 
+-	// fchmod(2)
+-	if mode, ok := in.GetMode(); ok {
+-		errno = fs.ToErrno(syscall.Fchmod(f.intFd(), mode))
+-		if errno != 0 {
++	if f.rootNode.args.SingleTenant {
++		// Single-tenant mode: chmod/chown update the virtualized identity,
++		// the cipher file is never touched (virtnode.go)
++		if errno = setattrVirtFd(f.rootNode, f.intFd(), in); errno != 0 {
+ 			return errno
+ 		}
+-	}
++	} else {
++		// fchmod(2)
++		if mode, ok := in.GetMode(); ok {
++			errno = fs.ToErrno(syscall.Fchmod(f.intFd(), mode))
++			if errno != 0 {
++				return errno
++			}
++		}
+ 
+-	// fchown(2)
+-	uid32, uOk := in.GetUID()
+-	gid32, gOk := in.GetGID()
+-	if uOk || gOk {
+-		uid := -1
+-		gid := -1
++		// fchown(2)
++		uid32, uOk := in.GetUID()
++		gid32, gOk := in.GetGID()
++		if uOk || gOk {
++			uid := -1
++			gid := -1
+ 
+-		if uOk {
+-			uid = int(uid32)
+-		}
+-		if gOk {
+-			gid = int(gid32)
+-		}
+-		errno = fs.ToErrno(syscall.Fchown(f.intFd(), uid, gid))
+-		if errno != 0 {
+-			return errno
++			if uOk {
++				uid = int(uid32)
++			}
++			if gOk {
++				gid = int(gid32)
++			}
++			errno = fs.ToErrno(syscall.Fchown(f.intFd(), uid, gid))
++			if errno != 0 {
++				return errno
++			}
+ 		}
+ 	}
+ 
+diff --git a/internal/fusefrontend/node.go b/internal/fusefrontend/node.go
+index 95be48d..eb46a57 100644
+--- a/internal/fusefrontend/node.go
++++ b/internal/fusefrontend/node.go
+@@ -34,6 +34,10 @@ func (n *Node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (ch
+ 		return nil, fs.ToErrno(err)
+ 	}
+ 
++	// Single-tenant mode: present the virtualized identity (before newChild
++	// so the inode type matches what getattr will report)
++	n.virtOverlayAt(dirfd, cName, st)
++
+ 	// Create new inode and fill `out`
+ 	ch = n.newChild(ctx, st, out)
+ 
+@@ -111,6 +115,9 @@ func (n *Node) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut)
+ 		return fs.ToErrno(err)
+ 	}
+ 
++	// Single-tenant mode: present the virtualized identity
++	n.virtOverlayAt(dirfd, cName, st)
++
+ 	// Fix inode number
+ 	rn.inoMap.TranslateStat(st)
+ 	out.Attr.FromStat(st)
+@@ -126,6 +133,11 @@ out:
+ }
+ 
+ func (n *Node) Access(ctx context.Context, mode uint32) syscall.Errno {
++	// Single-tenant mode skips in-mount permission checks: being able to
++	// reach the mountpoint IS the access decision (virtnode.go).
++	if n.rootNode().args.SingleTenant {
++		return 0
++	}
+ 	dirfd, cName, errno := n.prepareAtSyscallMyself()
+ 	if errno != 0 {
+ 		return errno
+@@ -188,34 +200,42 @@ func (n *Node) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn,
+ 	}
+ 	defer syscall.Close(dirfd)
+ 
+-	// chmod(2)
+-	//
+-	// gocryptfs.diriv & gocryptfs.longname.[sha256].name files do NOT get chmod'ed
+-	// or chown'ed with their parent file/dir for simplicity.
+-	// See nametransform/perms.go for details.
+-	if mode, ok := in.GetMode(); ok {
+-		errno = fs.ToErrno(syscallcompat.FchmodatNofollow(dirfd, cName, mode))
+-		if errno != 0 {
++	if n.rootNode().args.SingleTenant {
++		// Single-tenant mode: chmod/chown update the virtualized identity,
++		// the cipher tree is never touched (virtnode.go)
++		if errno = n.setattrVirtAt(dirfd, cName, in); errno != 0 {
+ 			return errno
+ 		}
+-	}
+-
+-	// chown(2)
+-	uid32, uOk := in.GetUID()
+-	gid32, gOk := in.GetGID()
+-	if uOk || gOk {
+-		uid := -1
+-		gid := -1
+-
+-		if uOk {
+-			uid = int(uid32)
+-		}
+-		if gOk {
+-			gid = int(gid32)
++	} else {
++		// chmod(2)
++		//
++		// gocryptfs.diriv & gocryptfs.longname.[sha256].name files do NOT get chmod'ed
++		// or chown'ed with their parent file/dir for simplicity.
++		// See nametransform/perms.go for details.
++		if mode, ok := in.GetMode(); ok {
++			errno = fs.ToErrno(syscallcompat.FchmodatNofollow(dirfd, cName, mode))
++			if errno != 0 {
++				return errno
++			}
+ 		}
+-		errno = fs.ToErrno(syscallcompat.Fchownat(dirfd, cName, uid, gid, unix.AT_SYMLINK_NOFOLLOW))
+-		if errno != 0 {
+-			return errno
++
++		// chown(2)
++		uid32, uOk := in.GetUID()
++		gid32, gOk := in.GetGID()
++		if uOk || gOk {
++			uid := -1
++			gid := -1
++
++			if uOk {
++				uid = int(uid32)
++			}
++			if gOk {
++				gid = int(gid32)
++			}
++			errno = fs.ToErrno(syscallcompat.Fchownat(dirfd, cName, uid, gid, unix.AT_SYMLINK_NOFOLLOW))
++			if errno != 0 {
++				return errno
++			}
+ 		}
+ 	}
+ 
+@@ -280,33 +300,48 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
+ 	}
+ 	defer syscall.Close(dirfd)
+ 
++	// Single-tenant mode: capture the caller before the PreserveOwner logic
++	// nulls the context
++	caller := toFuseCtx(ctx)
++
+ 	// Make sure context is nil if we don't want to preserve the owner
+ 	rn := n.rootNode()
+ 	if !rn.args.PreserveOwner {
+ 		ctx = nil
+ 	}
+ 
+-	// Create ".name" file to store long file name (except in PlaintextNames mode)
+ 	var err error
+-	ctx2 := toFuseCtx(ctx)
+-	if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
+-		err := rn.nameTransform.WriteLongNameAt(dirfd, cName, name)
++	if rn.args.SingleTenant {
++		// Device nodes, FIFOs and sockets are empty regular cipher files
++		// whose virtual type+rdev live in the identity xattr (virtnode.go).
++		// An unprivileged daemon could not mknod arbitrary devices anyway.
++		err = n.createVirtSpecialAt(caller, dirfd, cName, name, mode, rdev)
+ 		if err != nil {
+ 			errno = fs.ToErrno(err)
+ 			return
+ 		}
+-		// Create "gocryptfs.longfile." device node
+-		err = syscallcompat.MknodatUser(dirfd, cName, mode, int(rdev), ctx2)
++	} else {
++		// Create ".name" file to store long file name (except in PlaintextNames mode)
++		ctx2 := toFuseCtx(ctx)
++		if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
++			err := rn.nameTransform.WriteLongNameAt(dirfd, cName, name)
++			if err != nil {
++				errno = fs.ToErrno(err)
++				return
++			}
++			// Create "gocryptfs.longfile." device node
++			err = syscallcompat.MknodatUser(dirfd, cName, mode, int(rdev), ctx2)
++			if err != nil {
++				nametransform.DeleteLongNameAt(dirfd, cName)
++			}
++		} else {
++			// Create regular device node
++			err = syscallcompat.MknodatUser(dirfd, cName, mode, int(rdev), ctx2)
++		}
+ 		if err != nil {
+-			nametransform.DeleteLongNameAt(dirfd, cName)
++			errno = fs.ToErrno(err)
++			return
+ 		}
+-	} else {
+-		// Create regular device node
+-		err = syscallcompat.MknodatUser(dirfd, cName, mode, int(rdev), ctx2)
+-	}
+-	if err != nil {
+-		errno = fs.ToErrno(err)
+-		return
+ 	}
+ 
+ 	st, err := syscallcompat.Fstatat2(dirfd, cName, unix.AT_SYMLINK_NOFOLLOW)
+@@ -315,6 +350,9 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
+ 		return
+ 	}
+ 
++	// Single-tenant mode: report the virtual identity, not the cipher file
++	n.virtOverlayAt(dirfd, cName, st)
++
+ 	inode = n.newChild(ctx, st, out)
+ 
+ 	if rn.args.ForceOwner != nil {
+@@ -370,6 +408,9 @@ func (n *Node) Link(ctx context.Context, target fs.InodeEmbedder, name string, o
+ 		errno = fs.ToErrno(err)
+ 		return
+ 	}
++	// Single-tenant mode: hard links share the inode and therefore the
++	// stored virtual identity — overlay it here too
++	n.virtOverlayAt(dirfd, cName, st)
+ 	inode = n.newChild(ctx, st, out)
+ 	n.translateSize(dirfd, cName, &out.Attr)
+ 	return inode, 0
+@@ -469,6 +510,14 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ 	if rn.args.PlaintextNames {
+ 		return fs.ToErrno(syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(flags)))
+ 	}
++	// Single-tenant mode: a kernel-level RENAME_WHITEOUT would mknod a real
++	// char device on the cipher tree, which an unprivileged daemon cannot.
++	// Rename without the flag, then leave a virtualized whiteout at the old
++	// name (below, after the rename succeeded).
++	renameFlags := flags
++	if rn.args.SingleTenant {
++		renameFlags &^= syscallcompat.RENAME_WHITEOUT
++	}
+ 	// Long destination file name: create .name file
+ 	nameFileAlreadyThere := false
+ 	var err error
+@@ -485,7 +534,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ 	}
+ 	// Actual rename
+ 	tlog.Debug.Printf("Renameat %d/%s -> %d/%s\n", dirfd, cName, dirfd2, cName2)
+-	err = syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(flags))
++	err = syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(renameFlags))
+ 	if (flags&syscallcompat.RENAME_NOREPLACE == 0) && (err == syscall.ENOTEMPTY || err == syscall.EEXIST) {
+ 		// If an empty directory is overwritten we will always get an error as
+ 		// the "empty" directory will still contain gocryptfs.diriv.
+@@ -494,7 +543,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ 		// again.
+ 		tlog.Debug.Printf("Rename: Handling ENOTEMPTY")
+ 		if n2.Rmdir(ctx, newName) == 0 {
+-			err = syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(flags))
++			err = syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(renameFlags))
+ 		}
+ 	}
+ 	if err != nil {
+@@ -507,6 +556,15 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ 	if flags&syscallcompat.RENAME_EXCHANGE != 0 || flags&syscallcompat.RENAME_WHITEOUT != 0 {
+ 		// These flags mean that there is now a new file at cName and we
+ 		// should NOT delete its longname file.
++		if rn.args.SingleTenant && flags&syscallcompat.RENAME_WHITEOUT != 0 {
++			// Leave the virtualized whiteout (char 0:0) at the old name.
++			// The old .name file (if any) is kept — it now describes the
++			// whiteout, which has the same plaintext name.
++			if err := n.createVirtSpecialAt(toFuseCtx(ctx), dirfd, cName, name, syscall.S_IFCHR, 0); err != nil {
++				tlog.Warn.Printf("Rename: virtual whiteout at %q failed: %v", cName, err)
++				return fs.ToErrno(err)
++			}
++		}
+ 		return 0
+ 	}
+ 	if nametransform.IsLongContent(cName) {
+diff --git a/internal/fusefrontend/node_dir_ops.go b/internal/fusefrontend/node_dir_ops.go
+index 11ff83d..94fdc3b 100644
+--- a/internal/fusefrontend/node_dir_ops.go
++++ b/internal/fusefrontend/node_dir_ops.go
+@@ -77,6 +77,8 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
+ 	defer syscall.Close(dirfd)
+ 
+ 	rn := n.rootNode()
++	// Single-tenant mode: capture the caller for the virtual identity
++	caller := toFuseCtx(ctx)
+ 	var context *fuse.Context
+ 	if rn.args.PreserveOwner {
+ 		context = toFuseCtx(ctx)
+@@ -106,6 +108,11 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
+ 	// race-conditions between getting and setting the mode).
+ 	origMode := mode
+ 	mode = mode | 0700
++	// Single-tenant mode: the cipher dir is always exactly daemon-0700; the
++	// mode the tenant asked for goes into the virtual identity below
++	if rn.args.SingleTenant {
++		mode = 0700
++	}
+ 
+ 	// Handle long file name
+ 	if nametransform.IsLongContent(cName) {
+@@ -142,8 +149,17 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
+ 		return nil, fs.ToErrno(err)
+ 	}
+ 
+-	// Fix permissions
+-	if origMode != mode {
++	if rn.args.SingleTenant {
++		// Store the virtual identity (creator + requested mode); the cipher
++		// dir stays 0700. Identity is not optional in this mode.
++		v := newVirt(caller, origMode&^uint32(syscall.S_IFMT)|syscall.S_IFDIR, 0)
++		if err := rn.saveVirtFd(fd, v); err != nil {
++			tlog.Warn.Printf("Mkdir %q: storing virtual identity failed: %v", cName, err)
++			return nil, fs.ToErrno(err)
++		}
++		applyVirt(&st, v)
++	} else if origMode != mode {
++		// Fix permissions
+ 		// Preserve SGID bit if it was set due to inheritance.
+ 		origMode = uint32(st.Mode&^0777) | origMode
+ 		err = syscall.Fchmod(fd, origMode)
+diff --git a/internal/fusefrontend/node_open_create.go b/internal/fusefrontend/node_open_create.go
+index 9598559..72e09fb 100644
+--- a/internal/fusefrontend/node_open_create.go
++++ b/internal/fusefrontend/node_open_create.go
+@@ -66,12 +66,21 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+ 
+ 	var err error
+ 	fd := -1
++	// Single-tenant mode: capture the caller before the PreserveOwner logic
++	// nulls the context
++	caller := toFuseCtx(ctx)
+ 	// Make sure context is nil if we don't want to preserve the owner
+ 	rn := n.rootNode()
+ 	if !rn.args.PreserveOwner {
+ 		ctx = nil
+ 	}
+ 	newFlags := rn.mangleOpenFlags(flags)
++	// Single-tenant mode: the cipher file is always daemon-owned 0600; the
++	// mode the tenant asked for goes into the virtual identity (virtnode.go)
++	cMode := mode
++	if rn.args.SingleTenant {
++		cMode = 0600
++	}
+ 	// Handle long file name
+ 	ctx2 := toFuseCtx(ctx)
+ 	if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
+@@ -81,13 +90,13 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+ 			return nil, nil, 0, fs.ToErrno(err)
+ 		}
+ 		// Create content
+-		fd, err = syscallcompat.OpenatUser(dirfd, cName, newFlags|syscall.O_CREAT|syscall.O_EXCL, mode, ctx2)
++		fd, err = syscallcompat.OpenatUser(dirfd, cName, newFlags|syscall.O_CREAT|syscall.O_EXCL, cMode, ctx2)
+ 		if err != nil {
+ 			nametransform.DeleteLongNameAt(dirfd, cName)
+ 		}
+ 	} else {
+ 		// Create content, normal (short) file name
+-		fd, err = syscallcompat.OpenatUser(dirfd, cName, newFlags|syscall.O_CREAT|syscall.O_EXCL, mode, ctx2)
++		fd, err = syscallcompat.OpenatUser(dirfd, cName, newFlags|syscall.O_CREAT|syscall.O_EXCL, cMode, ctx2)
+ 	}
+ 	if err != nil {
+ 		// xfstests generic/488 triggers this
+@@ -99,10 +108,27 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+ 		return nil, nil, 0, fs.ToErrno(err)
+ 	}
+ 
++	// Single-tenant mode: store the virtual identity (creator + requested
++	// mode). A create without identity would silently degrade to daemon
++	// ownership, so failure here fails the whole create.
++	var v *virtStat
++	if rn.args.SingleTenant {
++		v = newVirt(caller, mode&^uint32(syscall.S_IFMT)|syscall.S_IFREG, 0)
++		if err := rn.saveVirtFd(fd, v); err != nil {
++			syscall.Close(fd)
++			_ = syscallcompat.Unlinkat(dirfd, cName, 0)
++			if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
++				nametransform.DeleteLongNameAt(dirfd, cName)
++			}
++			return nil, nil, 0, fs.ToErrno(err)
++		}
++	}
++
+ 	fh, st, errno := NewFile(fd, cName, rn)
+ 	if errno != 0 {
+ 		return
+ 	}
++	applyVirt(st, v)
+ 
+ 	inode = n.newChild(ctx, st, out)
+ 
+diff --git a/internal/fusefrontend/node_xattr.go b/internal/fusefrontend/node_xattr.go
+index 44bc502..7f08ac6 100644
+--- a/internal/fusefrontend/node_xattr.go
++++ b/internal/fusefrontend/node_xattr.go
+@@ -38,7 +38,9 @@ func (n *Node) Getxattr(ctx context.Context, attr string, dest []byte) (uint32,
+ 	// If we are not mounted with -suid, reading the capability xattr does not
+ 	// make a lot of sense, so reject the request and gain a massive speedup.
+ 	// See https://github.com/rfjakob/gocryptfs/issues/515 .
+-	if !rn.args.Suid && attr == xattrCapability {
++	// Single-tenant mode serves it: file capabilities in container image
++	// layers must survive a store round-trip.
++	if !rn.args.Suid && !rn.args.SingleTenant && attr == xattrCapability {
+ 		// Returning EOPNOTSUPP is what we did till
+ 		// ca9e912a28b901387e1dbb85f6c531119f2d5ef2 "fusefrontend: drop xattr user namespace restriction"
+ 		// and it did not cause trouble. Seems cleaner than saying ENODATA.
+@@ -141,6 +143,11 @@ func (n *Node) Listxattr(ctx context.Context, dest []byte) (uint32, syscall.Errn
+ 		if !strings.HasPrefix(curName, xattrStorePrefix) {
+ 			continue
+ 		}
++		// The single-tenant virtual identity is infrastructure, not a
++		// user-visible xattr (and would fail name decryption below)
++		if curName == stXattrName {
++			continue
++		}
+ 		name, err := rn.decryptXattrName(curName)
+ 		if err != nil {
+ 			tlog.Warn.Printf("ListXAttr: invalid xattr name %q: %v", curName, err)
+diff --git a/internal/fusefrontend/virtnode.go b/internal/fusefrontend/virtnode.go
+new file mode 100644
+index 0000000..da2b42d
+--- /dev/null
++++ b/internal/fusefrontend/virtnode.go
+@@ -0,0 +1,248 @@
++package fusefrontend
++
++// xbin single-tenant mode (-xbin-single-tenant)
++//
++// A single-tenant mount serves exactly one security domain (for example one
++// container host's layer store), so in-mount permission enforcement protects
++// nothing: whoever can reach the mountpoint owns all of it. What DOES matter
++// is that ownership/mode/special-file metadata written by the tenant
++// round-trips exactly — container image layers carry files owned by arbitrary
++// sub-uids, 0555 directories, device nodes and whiteouts, and an unprivileged
++// gocryptfs daemon cannot (and must not) mirror any of that onto the cipher
++// tree it owns.
++//
++// This mode therefore virtualizes the identity plane:
++//
++//   - uid/gid/mode/rdev live in an encrypted xattr (stXattrName) on the
++//     cipher object; chown/chmod/mknod always succeed and the stored values
++//     are merged over the real stat on the way out;
++//   - the cipher tree stays uniformly daemon-owned — 0700 directories and
++//     0600 files — so the daemon's own I/O can never hit EACCES/EPERM;
++//   - device nodes, FIFOs, sockets and whiteouts are empty regular cipher
++//     files whose virtual type+rdev live in the xattr (the kernel serves
++//     their I/O itself, FUSE never sees an OPEN for them);
++//   - permission checks inside the mount are skipped (Access always
++//     succeeds, no default_permissions): reaching the mountpoint IS the
++//     access decision;
++//   - -allow_other is implied so the tenant's sub-uid processes are not
++//     kernel-refused.
++//
++// Known fidelity gap: Linux forbids user.* xattrs on symlinks, so symlink
++// ownership is not virtualized — lchown on a symlink is accepted as a no-op
++// and symlinks appear daemon-owned.
++//
++// On-disk compatibility: no config feature flag. The xattr is an overlay —
++// mounting a single-tenant tree without the flag (or vice versa) simply
++// ignores/lacks the virtual identities and falls back to real attributes.
++
++import (
++	"encoding/json"
++	"fmt"
++	"syscall"
++
++	"golang.org/x/sys/unix"
++
++	"github.com/hanwen/go-fuse/v2/fs"
++	"github.com/hanwen/go-fuse/v2/fuse"
++
++	"github.com/rfjakob/gocryptfs/v2/internal/nametransform"
++	"github.com/rfjakob/gocryptfs/v2/internal/syscallcompat"
++	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
++)
++
++// stXattrName is the cipher-side xattr holding the virtualized stat data.
++// The dotted suffix cannot collide with encrypted xattr names
++// ("user.gocryptfs." + base64url, which never contains a dot). The value is
++// encrypted with the regular xattr-value machinery, so the identity plane is
++// as opaque at rest as file contents. Hidden from Listxattr.
++const stXattrName = "user.gocryptfs.xbin.stat"
++
++// virtStat is the virtualized identity of one file: what the tenant chowned/
++// chmodded/mknoded, merged over the real stat on the way out. Mode carries
++// the full st_mode (type bits + permissions).
++type virtStat struct {
++	Uid  uint32 `json:"u"`
++	Gid  uint32 `json:"g"`
++	Mode uint32 `json:"m"`
++	Rdev uint32 `json:"r,omitempty"`
++}
++
++// virtFromStat seeds a virtual identity from the real stat — used the first
++// time a file that predates single-tenant mode is chowned/chmodded.
++func virtFromStat(st *syscall.Stat_t) *virtStat {
++	return &virtStat{Uid: st.Uid, Gid: st.Gid, Mode: st.Mode, Rdev: uint32(st.Rdev)}
++}
++
++// applyVirt merges the stored virtual identity (if any) over the real stat.
++// Size, times, nlink and inode identity stay real.
++func applyVirt(st *syscall.Stat_t, v *virtStat) {
++	if v == nil {
++		return
++	}
++	st.Uid = v.Uid
++	st.Gid = v.Gid
++	st.Mode = v.Mode
++	st.Rdev = uint64(v.Rdev)
++}
++
++// decodeVirt decrypts and parses a stored identity. Unreadable/corrupt data
++// degrades to nil (real attributes) rather than erroring the whole stat.
++func (rn *RootNode) decodeVirt(cData []byte) *virtStat {
++	data, err := rn.decryptXattrValue(cData)
++	if err != nil {
++		tlog.Warn.Printf("single-tenant: undecryptable %s value: %v", stXattrName, err)
++		return nil
++	}
++	var v virtStat
++	if err := json.Unmarshal(data, &v); err != nil {
++		tlog.Warn.Printf("single-tenant: malformed %s value: %v", stXattrName, err)
++		return nil
++	}
++	return &v
++}
++
++func (rn *RootNode) encodeVirt(v *virtStat) []byte {
++	data, err := json.Marshal(v)
++	if err != nil {
++		// cannot happen for a struct of integers
++		tlog.Warn.Printf("single-tenant: marshal: %v", err)
++		return nil
++	}
++	return rn.encryptXattrValue(data)
++}
++
++// loadVirtAt reads the virtual identity of dirfd/cName; nil when absent.
++// Symlinks can't carry user.* xattrs, so they always return nil here.
++func (rn *RootNode) loadVirtAt(dirfd int, cName string) *virtStat {
++	procPath := fmt.Sprintf("/proc/self/fd/%d/%s", dirfd, cName)
++	cData, err := syscallcompat.Lgetxattr(procPath, stXattrName)
++	if err != nil {
++		return nil
++	}
++	return rn.decodeVirt(cData)
++}
++
++func (rn *RootNode) loadVirtFd(fd int) *virtStat {
++	cData, err := syscallcompat.Fgetxattr(fd, stXattrName)
++	if err != nil {
++		return nil
++	}
++	return rn.decodeVirt(cData)
++}
++
++func (rn *RootNode) saveVirtAt(dirfd int, cName string, v *virtStat) error {
++	procPath := fmt.Sprintf("/proc/self/fd/%d/%s", dirfd, cName)
++	return unix.Lsetxattr(procPath, stXattrName, rn.encodeVirt(v), 0)
++}
++
++func (rn *RootNode) saveVirtFd(fd int, v *virtStat) error {
++	return unix.Fsetxattr(fd, stXattrName, rn.encodeVirt(v), 0)
++}
++
++// virtOverlayAt merges the stored identity into st. No-op unless mounted
++// -xbin-single-tenant. Call after every Fstatat on a cipher path whose result
++// reaches the kernel.
++func (n *Node) virtOverlayAt(dirfd int, cName string, st *syscall.Stat_t) {
++	rn := n.rootNode()
++	if !rn.args.SingleTenant {
++		return
++	}
++	applyVirt(st, rn.loadVirtAt(dirfd, cName))
++}
++
++// newVirt builds the identity for a freshly created object: the mode the
++// tenant asked for (with the type normalized by the caller) owned by the
++// calling process. caller may be nil (owner stays 0:0 — does not happen for
++// real FUSE requests, which always carry a Caller).
++func newVirt(caller *fuse.Context, mode, rdev uint32) *virtStat {
++	v := &virtStat{Mode: mode, Rdev: rdev}
++	if caller != nil {
++		v.Uid = caller.Uid
++		v.Gid = caller.Gid
++	}
++	return v
++}
++
++// applySetattrVirt folds the chmod/chown parts of a SETATTR into the stored
++// identity (seeded from the real stat when there is none yet). Returns nil
++// when the request carries no mode/uid/gid change.
++func applySetattrVirt(in *fuse.SetAttrIn, cur *virtStat, st *syscall.Stat_t) *virtStat {
++	mode, mOk := in.GetMode()
++	uid, uOk := in.GetUID()
++	gid, gOk := in.GetGID()
++	if !mOk && !uOk && !gOk {
++		return nil
++	}
++	v := cur
++	if v == nil {
++		v = virtFromStat(st)
++	}
++	if mOk {
++		// chmod never changes the file type
++		v.Mode = v.Mode&syscall.S_IFMT | mode&^syscall.S_IFMT
++	}
++	if uOk {
++		v.Uid = uid
++	}
++	if gOk {
++		v.Gid = gid
++	}
++	return v
++}
++
++// setattrVirtAt virtualizes the chmod/chown parts of a path-based SETATTR:
++// the stored identity is updated, the cipher object is never touched.
++// Symlink chown is accepted as a no-op (documented fidelity gap).
++func (n *Node) setattrVirtAt(dirfd int, cName string, in *fuse.SetAttrIn) syscall.Errno {
++	rn := n.rootNode()
++	st, err := syscallcompat.Fstatat2(dirfd, cName, unix.AT_SYMLINK_NOFOLLOW)
++	if err != nil {
++		return fs.ToErrno(err)
++	}
++	if st.Mode&syscall.S_IFMT == syscall.S_IFLNK {
++		return 0
++	}
++	v := applySetattrVirt(in, rn.loadVirtAt(dirfd, cName), st)
++	if v == nil {
++		return 0
++	}
++	return fs.ToErrno(rn.saveVirtAt(dirfd, cName, v))
++}
++
++// setattrVirtFd is setattrVirtAt for an open file handle.
++func setattrVirtFd(rn *RootNode, fd int, in *fuse.SetAttrIn) syscall.Errno {
++	var st syscall.Stat_t
++	if err := syscall.Fstat(fd, &st); err != nil {
++		return fs.ToErrno(err)
++	}
++	v := applySetattrVirt(in, rn.loadVirtFd(fd), &st)
++	if v == nil {
++		return 0
++	}
++	return fs.ToErrno(rn.saveVirtFd(fd, v))
++}
++
++// createVirtSpecialAt creates the cipher-side representation of a special
++// file (device node, FIFO, socket, overlay whiteout): an empty regular
++// cipher file plus the virtual identity. Long-name bookkeeping mirrors
++// Mknod; an already-existing .name file (whiteout landing on a name that
++// just had its file renamed away) is fine.
++func (n *Node) createVirtSpecialAt(caller *fuse.Context, dirfd int, cName, name string, mode, rdev uint32) error {
++	rn := n.rootNode()
++	if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
++		err := rn.nameTransform.WriteLongNameAt(dirfd, cName, name)
++		if err != nil && err != syscall.EEXIST {
++			return err
++		}
++	}
++	fd, err := syscallcompat.Openat(dirfd, cName,
++		syscall.O_WRONLY|syscall.O_CREAT|syscall.O_EXCL|syscall.O_NOFOLLOW, 0600)
++	if err != nil {
++		return err
++	}
++	defer syscall.Close(fd)
++	if mode&syscall.S_IFMT == 0 {
++		mode |= syscall.S_IFREG
++	}
++	return rn.saveVirtFd(fd, newVirt(caller, mode, rdev))
++}
+diff --git a/mount.go b/mount.go
+index 5c0f064..5661c3d 100644
+--- a/mount.go
++++ b/mount.go
+@@ -269,6 +269,13 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
+ 	if args._forceOwner != nil {
+ 		args.allow_other = true
+ 	}
++	// xbin single-tenant mode implies allow_other: the tenant's sub-uid
++	// processes must not be kernel-refused. Permission checks stay OFF
++	// (no default_permissions — see initGoFuse): the mount's visibility
++	// is the access boundary.
++	if args.xbin_single_tenant {
++		args.allow_other = true
++	}
+ 	frontendArgs := fusefrontend.Args{
+ 		Cipherdir:          args.cipherdir,
+ 		PlaintextNames:     args.plaintextnames,
+@@ -284,12 +291,17 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
+ 		SharedStorage:      args.sharedstorage,
+ 		OneFileSystem:      args.one_file_system,
+ 		DeterministicNames: args.deterministic_names,
++		SingleTenant:       args.xbin_single_tenant,
+ 	}
+ 	// confFile is nil when "-zerokey" or "-masterkey" was used
+ 	if confFile != nil {
+ 		// Settings from the config file override command line args
+ 		frontendArgs.PlaintextNames = confFile.IsFeatureFlagSet(configfile.FlagPlaintextNames)
+ 		frontendArgs.DeterministicNames = !confFile.IsFeatureFlagSet(configfile.FlagDirIV)
++		if frontendArgs.SingleTenant && frontendArgs.PlaintextNames {
++			tlog.Fatal.Printf("-xbin-single-tenant cannot be used on a -plaintextnames filesystem")
++			os.Exit(exitcodes.Usage)
++		}
+ 		// Things that don't have to be in frontendArgs are only in args
+ 		args.longnamemax = confFile.LongNameMax
+ 		args.raw64 = confFile.IsFeatureFlagSet(configfile.FlagRaw64)
+@@ -324,6 +336,14 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
+ 	if args.allow_other && os.Getuid() == 0 && args._forceOwner == nil {
+ 		frontendArgs.PreserveOwner = true
+ 	}
++	// Single-tenant mode: ownership is virtualized — the daemon must NEVER
++	// impersonate callers on the cipher tree (the setgroups/setreuid dance
++	// fails in user namespaces and would recreate exactly the EACCES/EPERM
++	// class this mode exists to remove). The cipher tree is uniformly
++	// daemon-owned; caller identity goes into the encrypted identity xattr.
++	if args.xbin_single_tenant {
++		frontendArgs.PreserveOwner = false
++	}
+ 
+ 	// Init crypto backend
+ 	cCore := cryptocore.New(masterkey, cryptoBackend, IVBits, args.hkdf)
+@@ -415,8 +435,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+ 		tlog.Info.Printf(tlog.ColorYellow + "The option \"-allow_other\" is set. Make sure the file " +
+ 			"permissions protect your data from unwanted access." + tlog.ColorReset)
+ 		mOpts.AllowOther = true
+-		// Make the kernel check the file permissions for us
+-		opts["default_permissions"] = ""
++		if !args.xbin_single_tenant {
++			// Make the kernel check the file permissions for us
++			opts["default_permissions"] = ""
++		}
++		// In single-tenant mode the virtualized modes are deliberately NOT
++		// enforced: whoever can reach the mountpoint owns all of it.
+ 	}
+ 	if args.acl {
+ 		mOpts.EnableAcl = true

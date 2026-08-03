@@ -165,6 +165,41 @@ os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
 db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_journal_mode=WAL")
 ```
 
+### Container stores (cap:containers scopes)
+
+A container layer store is the one workload a normal encrypted mount can't
+host: podman writes `0555` layer directories and then creates inside them,
+chowns files to arbitrary sub-uids, and expects whiteouts and file
+capabilities to round-trip — all things an unprivileged FUSE daemon doing the
+real I/O must refuse. So **filesystem resources of a scope holding
+`cap:containers` mount in gocryptfs *single-tenant mode*** (an xbin patch,
+`hack/gocryptfs-patches/`), automatically:
+
+- **Ownership, mode, and special files are virtualized**: chown/chmod/mknod
+  always succeed; uid/gid/mode/rdev live in an *encrypted* xattr on the cipher
+  file, so identity metadata is as opaque at rest as contents. Device nodes,
+  FIFOs and whiteouts are stored as empty cipher files with their virtual
+  type. `security.capability` round-trips (encrypted) so file caps in image
+  layers survive.
+- **No permission checks inside the mount.** The mount serves exactly this
+  scope's sandboxes — which already share the resource read-write — so
+  reaching it *is* the access decision. Nothing outside the sandbox can see
+  the decrypted view (the mountpoint sits under xbind's 0700 runtime dir).
+- **Same on-disk format.** Granting or revoking `cap:containers` just
+  remounts the store in the other mode; existing files keep working (files
+  written pre-grant appear with their real attributes).
+
+Requirements (checked by `bx doctor`): the xbin-built gocryptfs (`make build`
+applies the patchset — a stock binary refuses with a pointed error, never a
+silently broken store) and `user_allow_other` in `/etc/fuse.conf` (the system
+installer enables it; user-mode installs need root to add it once).
+
+Known limits: symlink ownership is not preserved (Linux forbids user xattrs
+on symlinks — extraction still succeeds; `podman diff`/commit see them
+daemon-owned), and creating *real* device nodes stays kernel-refused for
+rootless podman on any filesystem — extraction skips them, same as on a plain
+directory.
+
 ## sqlite — a filesystem resource pointed at a db file
 
 A convenience over `filesystem` for the common "I just want one sqlite db" case:

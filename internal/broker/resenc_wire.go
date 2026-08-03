@@ -42,6 +42,44 @@ func fileBackedType(t string) bool {
 // resLabel is the stable key-derivation / mount identity for a resource.
 func resLabel(scopeKey, name string) string { return scopeKey + "/" + name }
 
+// resSingleTenant decides whether a file-backed resource is mounted in
+// gocryptfs single-tenant mode (hack/gocryptfs-patches/): filesystem
+// resources of a scope hosting a cap:containers component. A container layer
+// store needs full uid/mode/whiteout round-trip, which a normal unprivileged
+// gocryptfs mount structurally cannot give (the daemon is the I/O actor);
+// single-tenant mode virtualizes that identity into encrypted xattrs and
+// skips in-mount permission checks — sound here because a scoped resenc
+// mount serves exactly that scope's sandboxes, which already share the
+// resource rw. Conservative on purpose: never workspace-level resources,
+// never sqlite/blob.
+func (b *Broker) resSingleTenant(scope, rtype string) bool {
+	if rtype != "filesystem" || scope == "" {
+		return false
+	}
+	for _, c := range b.Reg.Components() {
+		if c.Scope == scope && b.ContainersFor(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// resType looks up a declared resource's type ("" when unknown).
+func (b *Broker) resType(scope, name string) string {
+	if scope == "" {
+		if r, ok := b.Reg.Workspace().Resources[name]; ok {
+			return r.Type
+		}
+		return ""
+	}
+	if sm, ok := b.Reg.Scopes()[scope]; ok {
+		if r, ok := sm.Resources[name]; ok {
+			return r.Type
+		}
+	}
+	return ""
+}
+
 // fsReady reports whether a file-backed resource can be served right now:
 // gocryptfs present, a vault configured + unsealed, and its mount up.
 func (b *Broker) fsReady(scopeKey, name string) bool {
@@ -98,9 +136,9 @@ func (b *Broker) MountEncrypted() {
 		b.barrier == nil || !b.barrier.Initialized() || b.barrier.Sealed() {
 		return
 	}
-	b.forEachFileRes(func(scope, name, _ string) {
+	b.forEachFileRes(func(scope, name, rtype string) {
 		scopeKey := util.ScopeKey(scope)
-		if _, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name); err != nil {
+		if _, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name, b.resSingleTenant(scope, rtype)); err != nil {
 			slog.Error("resource encryption: mount failed", "res", resLabel(scopeKey, name), "err", err)
 		}
 	})

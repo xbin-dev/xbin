@@ -101,9 +101,13 @@ userland:
   xbind documents for its own sandbox.
 - **Persistent storage**: a `filesystem` resource, with Podman's `--root`
   pointed at it, so images/containers survive restarts and don't sit in the
-  throwaway tmpfs upper (which is RAM). The `vfs` storage driver is the robust
-  default (no FUSE-on-FUSE-on-gocryptfs stacking); `fuse-overlayfs` is faster
-  where it works.
+  throwaway tmpfs upper (which is RAM). The resource stays encrypted: a
+  cap:containers scope's filesystem resources mount in gocryptfs
+  single-tenant mode (D43, docs/resources.md — ownership/mode/whiteouts
+  virtualized into encrypted xattrs), which is what lets the layer store's
+  0555 dirs, sub-uid chowns and file caps round-trip on resenc. The `vfs`
+  storage driver is the robust default (no FUSE-on-FUSE-on-gocryptfs
+  stacking); `fuse-overlayfs` is faster where it works.
 - **Container networking**: a bound `net` interface. Podman's rootless network
   (pasta/slirp4netns) NATs the containers' egress out through the tile's own
   egress relay. `net=host` is the simplest, most robust option for a dev box
@@ -134,9 +138,11 @@ owner's public key and routes `ssh -p<port> <container>@host` to
 
 ## Touchpoints
 
-`internal/sandbox` (`Spec.Containers`, the init branch, `containerDeny`/
-`installContainerSeccomp`) · `internal/runner` (`ContainerCaps` hook) ·
+`internal/sandbox` (`Spec.Containers`, the init branch — caps, seccomp floor,
+cgroup2 view at /sys/fs/cgroup) · `internal/runner` (`ContainerCaps` hook) ·
 `internal/broker` (`ContainersCap`/`ContainersFor`, ceiling classification,
-grant restart) · `cmd/xbind` (wire `run.ContainerCaps`) ·
-`builtin-tiles/devbox` (the worked example) · `workspace-template/AGENTS.md`
-(how to build a container-host tile).
+grant restart + store remount, `resSingleTenant`) · `internal/resenc`
+(single-tenant Ensure + support probe) · `hack/gocryptfs-patches/` (the
+gocryptfs single-tenant mode itself, D43) · `cmd/xbind` (wire
+`run.ContainerCaps`) · `builtin-tiles/devbox` (the worked example) ·
+`workspace-template/AGENTS.md` (how to build a container-host tile).

@@ -386,6 +386,12 @@ preflight_user() {
   if [ "$watches" -lt 65536 ]; then
     warn "fs.inotify.max_user_watches=$watches is low — recommended (root): echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/99-xbin.conf && sudo sysctl --system"
   fi
+
+  # user_allow_other: only needed once a tile gets cap:containers (its store
+  # mounts with -allow_other); root-only, so user mode just points at it.
+  if [ "$MODE" = user ] && ! grep -q '^user_allow_other$' /etc/fuse.conf 2>/dev/null; then
+    warn "container tiles (cap:containers) will need user_allow_other in /etc/fuse.conf — run once as root: echo user_allow_other | sudo tee -a /etc/fuse.conf"
+  fi
 }
 
 # ---- Dependencies ---------------------------------------------------------
@@ -487,6 +493,13 @@ setup_subids() { # system mode (user mode: verified in preflight)
 setup_kernel() { # system mode
   modprobe fuse 2>/dev/null || true; modprobe tun 2>/dev/null || true
   printf 'fuse\ntun\n' >/etc/modules-load.d/xbin.conf
+  # Container-store resources mount gocryptfs with -allow_other (single-tenant
+  # mode; docs/resources.md) — fusermount3 gates that behind user_allow_other
+  # for the non-root xbin user.
+  if ! grep -q '^user_allow_other$' /etc/fuse.conf 2>/dev/null; then
+    printf 'user_allow_other\n' >>/etc/fuse.conf
+    ok "enabled user_allow_other in /etc/fuse.conf (container-store mounts)"
+  fi
   # Big workspaces exhaust the default inotify budget; bx doctor checks this.
   printf 'fs.inotify.max_user_watches=524288\n' >/etc/sysctl.d/99-xbin.conf
   # Ubuntu 23.10+/24.04 gate unprivileged user namespaces behind an AppArmor

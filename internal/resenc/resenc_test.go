@@ -40,7 +40,7 @@ func TestEnsureRoundTripAndLeak(t *testing.T) {
 	m, _ := testManager(t)
 	t.Cleanup(m.UnmountAll)
 
-	mnt, err := m.Ensure("res:apps/thing/store", "apps_thing", "store")
+	mnt, err := m.Ensure("res:apps/thing/store", "apps_thing", "store", false)
 	if err != nil {
 		t.Skipf("gocryptfs mount failed (no userns/FUSE perms here?): %v", err)
 	}
@@ -79,7 +79,7 @@ func TestEnsureRoundTripAndLeak(t *testing.T) {
 	if m.Mounted("apps_thing", "store") {
 		t.Fatal("still mounted after Unmount")
 	}
-	mnt2, err := m.Ensure("res:apps/thing/store", "apps_thing", "store")
+	mnt2, err := m.Ensure("res:apps/thing/store", "apps_thing", "store", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,4 +115,19 @@ func grepNames(t *testing.T, dir, needle string) bool {
 		return nil
 	})
 	return found
+}
+
+// The vendored gocryptfs must carry the xbin single-tenant patch — a stock
+// binary would leave container-store resources permanently held. Probing is
+// pure exec (no FUSE), so this runs everywhere bin/gocryptfs exists.
+func TestSingleTenantSupport(t *testing.T) {
+	m, _ := testManager(t)
+	if !m.SupportsSingleTenant() {
+		t.Fatal("bin/gocryptfs lacks -xbin-single-tenant — hack/gocryptfs-patches not applied? (rebuild: make gocryptfs)")
+	}
+	// And an unsupported binary must refuse a single-tenant Ensure loudly.
+	stock := New(t.TempDir(), "/bin/false", func(string) ([]byte, error) { return make([]byte, 32), nil })
+	if _, err := stock.Ensure("res:x", "s", "n", true); err == nil {
+		t.Fatal("Ensure(singleTenant) with an unsupported binary must error")
+	}
 }

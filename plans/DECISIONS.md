@@ -749,3 +749,30 @@ Deviations and refinements made while implementing; all deliberate:
   badge revealed rows; screens are left alone (a placed hidden tile
   renders its disabled state — hiding is about listings, not layouts).
   Refused while offloaded so the archived-data marker is never clobbered.
+
+- **D43 — Encrypted container stores: gocryptfs single-tenant mode, no
+  plaintext opt-out.** (2026-08-03) Podman's layer store structurally
+  cannot live on a stock unprivileged gocryptfs mount — the daemon is the
+  physical I/O actor, so 0555 layer dirs EACCES its own mkdir, sub-uid
+  chowns EPERM, and without allow_other sub-uid processes are
+  kernel-refused. A `"plain": true` unencrypted escape hatch was built and
+  reverted the same day: an opt-out that silently removes a resource from
+  the encrypted/seal plane is a shortcut in security-impactful code, and
+  "the store survives a stolen disk" is exactly resenc's contract. The
+  real fix ships as a patchset on the pinned gocryptfs
+  (hack/gocryptfs-patches/, applied by the build, probed at mount time):
+  `-xbin-single-tenant` virtualizes uid/gid/mode/rdev into encrypted
+  xattrs (chown/chmod/mknod always succeed and round-trip; whiteouts,
+  FIFOs and security.capability included), keeps the cipher tree
+  uniformly daemon-owned 0700/0600, skips in-mount permission checks, and
+  implies allow_other — sound because a resenc mount is single-tenant by
+  construction (it serves exactly one scope's sandboxes, which already
+  share the resource rw; the 0700 runtime dir is the visibility
+  boundary). The broker requests the mode only for `filesystem` resources
+  of scopes holding cap:containers, follows the grant (a policy-ceiling
+  strip flips the mount back), and remounts on grant change — same
+  on-disk format either way. PreserveOwner is forced off in this mode
+  (the daemon must never impersonate callers). Known gap, accepted:
+  symlink ownership is not virtualized (user xattrs are forbidden on
+  symlinks). Companion (kept from the reverted commit): cap:containers
+  sandboxes get a cgroup2 view at /sys/fs/cgroup via cgroupns unshare.

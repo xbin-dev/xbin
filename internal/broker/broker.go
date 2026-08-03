@@ -582,6 +582,12 @@ func (b *Broker) grantRestart(g registry.Grant) {
 		g.Target == NetAdminCap || g.Target == ContainersCap {
 		b.OnGrantChange(g.From)
 	}
+	// cap:containers flips the tile's filesystem resources to (or from)
+	// single-tenant mounts — remount now that the backend is stopped, so the
+	// mode change doesn't wait for the next unseal/provision (resenc_wire.go).
+	if g.Target == ContainersCap {
+		b.MountEncrypted()
+	}
 }
 
 func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {

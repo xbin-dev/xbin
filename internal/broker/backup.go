@@ -292,7 +292,8 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
 	scopeKey := util.ScopeKey(scope)
 	name, rel, _ := strings.Cut(rest, "/")
-	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name)
+	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
+		b.resSingleTenant(scope, b.resType(scope, name)))
 	if err != nil {
 		return "", err
 	}

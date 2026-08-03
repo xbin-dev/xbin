@@ -29,11 +29,13 @@ $(FUSE_OVERLAYFS): hack/build-fuse-overlayfs.sh
 	./hack/build-fuse-overlayfs.sh $(CURDIR)/bin
 fuse-overlayfs: $(FUSE_OVERLAYFS)
 
-# Our own static gocryptfs (built from source, cached). xbind mounts each
-# *encrypted* file-backed resource with it, keyed by the vault barrier, so a
-# stolen disk/backup yields only ciphertext (plans/vault-data.md). Sits in bin/
-# next to xbind, which finds it automatically.
-$(GOCRYPTFS): hack/build-gocryptfs.sh
+# Our own static gocryptfs (built from source + hack/gocryptfs-patches,
+# cached). xbind mounts each *encrypted* file-backed resource with it, keyed
+# by the vault barrier, so a stolen disk/backup yields only ciphertext
+# (plans/vault-data.md); the patchset adds the single-tenant mode container
+# stores need (docs/resources.md). Sits in bin/ next to xbind, which finds it
+# automatically.
+$(GOCRYPTFS): hack/build-gocryptfs.sh $(wildcard hack/gocryptfs-patches/*.patch)
 	./hack/build-gocryptfs.sh $(CURDIR)/bin
 gocryptfs: $(GOCRYPTFS)
 

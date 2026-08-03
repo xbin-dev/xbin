@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/resenc"
 )
 
 // cmdDoctor checks the workspace for the problems that actually happen:
@@ -195,6 +198,38 @@ func cmdDoctor() error {
 		}
 	}
 
+	// Container-store readiness: cap:containers tiles keep their filesystem
+	// resources on gocryptfs single-tenant mounts (docs/resources.md), which
+	// need (a) the xbin-patched gocryptfs and (b) `user_allow_other` in
+	// /etc/fuse.conf (fusermount3 gates the implied -allow_other for
+	// non-root). Best-effort: the grants list needs admin credentials.
+	var gl struct {
+		Grants []struct{ From, Target string } `json:"grants"`
+	}
+	if err := apiJSON("GET", "/api/xbin/grants", nil, &gl); err == nil {
+		hasContainers := false
+		for _, g := range gl.Grants {
+			if g.Target == "cap:containers" {
+				hasContainers = true
+				break
+			}
+		}
+		if hasContainers {
+			if bin := resenc.Resolve(); bin == "" {
+				warn("cap:containers tile(s) but no gocryptfs found — their stores cannot mount (make build / XBIN_GOCRYPTFS)")
+			} else if out, _ := exec.Command(bin, "-hh").CombinedOutput(); !strings.Contains(string(out), "xbin-single-tenant") {
+				warn("gocryptfs at %s lacks the single-tenant mode container stores need — rebuild it (make gocryptfs applies hack/gocryptfs-patches)", bin)
+			} else {
+				ok("gocryptfs supports single-tenant container stores")
+			}
+			if b, err := os.ReadFile("/etc/fuse.conf"); err != nil || !fuseConfAllowsOther(string(b)) {
+				warn("container-store mounts need `user_allow_other` in /etc/fuse.conf (root: `echo user_allow_other >> /etc/fuse.conf`; the system installer does this)")
+			} else {
+				ok("/etc/fuse.conf allows user allow_other")
+			}
+		}
+	}
+
 	// inotify budget (the #1 support issue per plans/deployment.md).
 	if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_watches"); err == nil {
 		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
@@ -228,6 +263,17 @@ func cmdDoctor() error {
 		return nil
 	}
 	return fmt.Errorf("%d problem(s)", problems)
+}
+
+// fuseConfAllowsOther reports whether a fuse.conf enables user_allow_other
+// (an uncommented line; fusermount3 parses it the same way).
+func fuseConfAllowsOther(conf string) bool {
+	for _, line := range strings.Split(conf, "\n") {
+		if strings.TrimSpace(line) == "user_allow_other" {
+			return true
+		}
+	}
+	return false
 }
 
 // singleUIDMap reports whether a /proc/self/uid_map maps only container-root
