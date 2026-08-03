@@ -30,7 +30,10 @@ make dev            # xbind from source against ./devws — isolated, auth ON
 make dev-noauth     # frictionless: every request is admin (plaintext vault)
 make test           # unit tests — fast, no network
 make integration    # end-to-end; compiles real Go backends (network on first
-                    # run for module downloads)
+                    # run for module downloads). Includes the container-store
+                    # fs suites (test/containerfs/): those need bin/gocryptfs
+                    # (`make gocryptfs`) + unprivileged userns, and skip with
+                    # instructions when missing
 make fmt-check vet  # CI mirrors exactly these
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked)
 ```
