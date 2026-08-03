@@ -20,6 +20,14 @@ Written against gocryptfs v2.6.1 for xbin's resenc container stores
 (docs/resources.md); no on-disk format change — the identity xattr is an
 overlay, trees mount fine with or without the flag.
 
+Sole-writer also lets the kernel do the heavy caching: single-tenant
+mounts opt into the FUSE writeback cache (with the companion go-fuse
+patch, hack/gofuse-patches/ — small writes batch into large aligned
+WRITE requests instead of one round trip each, and shared writable mmap
+starts working) and stretch the attr/entry/negative-dentry timeouts to
+60s. Setattrs that change nothing (tar extraction re-chmods/re-chowns
+exactly what create already set) skip the encrypted xattr rewrite.
+
 The caches are dropped when an inode loses its last directory entry
 (unlink, rmdir, replacing rename) and are never trusted for symlinks:
 backing filesystems reuse inode numbers (ext4/xfs immediately), and a
@@ -723,10 +731,10 @@ index 8464c5f..85fe98e 100644
  func NewRootNode(args Args, c *contentenc.ContentEnc, n *nametransform.NameTransform) *RootNode {
 diff --git a/internal/fusefrontend/virtnode.go b/internal/fusefrontend/virtnode.go
 new file mode 100644
-index 0000000..de4ca83
+index 0000000..975ed9d
 --- /dev/null
 +++ b/internal/fusefrontend/virtnode.go
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,353 @@
 +package fusefrontend
 +
 +// xbin single-tenant mode (-xbin-single-tenant)
@@ -1000,8 +1008,15 @@ index 0000000..de4ca83
 +	}
 +	qi := inomap.QInoFromStat(st)
 +	cur := rn.virtFor(qi, func() *virtStat { return rn.loadVirtAt(dirfd, cName) })
++	var old virtStat
++	had := cur != nil
++	if had {
++		old = *cur // applySetattrVirt mutates cur in place
++	}
 +	v := applySetattrVirt(in, cur, st)
-+	if v == nil {
++	if v == nil || (had && *v == old) {
++		// No identity change (tar extraction re-chmods/re-chowns to what
++		// create already set) — skip the encrypted xattr rewrite.
 +		return 0
 +	}
 +	if errno := fs.ToErrno(rn.saveVirtAt(dirfd, cName, v)); errno != 0 {
@@ -1019,8 +1034,14 @@ index 0000000..de4ca83
 +	}
 +	qi := inomap.QInoFromStat(&st)
 +	cur := rn.virtFor(qi, func() *virtStat { return rn.loadVirtFd(fd) })
++	var old virtStat
++	had := cur != nil
++	if had {
++		old = *cur // applySetattrVirt mutates cur in place
++	}
 +	v := applySetattrVirt(in, cur, &st)
-+	if v == nil {
++	if v == nil || (had && *v == old) {
++		// Same elision as setattrVirtAt: identity unchanged, nothing to write.
 +		return 0
 +	}
 +	if errno := fs.ToErrno(rn.saveVirtFd(fd, v)); errno != 0 {
@@ -1068,7 +1089,7 @@ index 0000000..de4ca83
 +	return nil
 +}
 diff --git a/mount.go b/mount.go
-index 5c0f064..5661c3d 100644
+index 5c0f064..779c3c0 100644
 --- a/mount.go
 +++ b/mount.go
 @@ -269,6 +269,13 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
@@ -1118,7 +1139,38 @@ index 5c0f064..5661c3d 100644
  
  	// Init crypto backend
  	cCore := cryptocore.New(masterkey, cryptoBackend, IVBits, args.hkdf)
-@@ -415,8 +435,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -372,6 +392,16 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+ 		fuseOpts = &fs.Options{
+ 			FirstAutomaticIno: 1000,
+ 		}
++	} else if args.xbin_single_tenant {
++		// Single-tenant: the daemon is the sole writer, so nothing changes
++		// behind the kernel's back — long dentry/attr caching is sound and
++		// absorbs the re-stat storms of container image work.
++		long := 60 * time.Second
++		fuseOpts = &fs.Options{
++			NegativeTimeout: &long,
++			AttrTimeout:     &long,
++			EntryTimeout:    &long,
++		}
+ 	} else {
+ 		fuseOpts = &fs.Options{
+ 			// These options are to be compatible with libfuse defaults,
+@@ -395,7 +425,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+ 		// have it >128kiB. We cannot handle more than 128kiB, so we tell
+ 		// the kernel to limit the size explicitly.
+ 		MaxWrite: fuse.MAX_KERNEL_WRITE,
+-		Debug:    args.fusedebug,
++		// Single-tenant: writeback cache lets the kernel batch small
++		// writes into few large FUSE requests and enables shared writable
++		// mmap. Sole-writer (nothing touches the cipher tree behind this
++		// mount) makes the kernel-cached view trustworthy.
++		EnableWritebackCache: args.xbin_single_tenant,
++		Debug:                args.fusedebug,
+ 		// The kernel usually submits multiple read requests in parallel,
+ 		// which means we serve them in any order. Out-of-order reads are
+ 		// expensive on some backing network filesystems
+@@ -415,8 +450,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		tlog.Info.Printf(tlog.ColorYellow + "The option \"-allow_other\" is set. Make sure the file " +
  			"permissions protect your data from unwanted access." + tlog.ColorReset)
  		mOpts.AllowOther = true

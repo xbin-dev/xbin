@@ -1,0 +1,51 @@
+From: xbin <xbin@xbin.dev>
+Subject: [PATCH] opt-in FUSE writeback cache (MountOptions.EnableWritebackCache)
+
+Adds the missing opt-in for FUSE_WRITEBACK_CACHE: the kernel buffers
+writes in the page cache and flushes them as large aligned WRITE
+requests instead of forwarding every write() synchronously, and shared
+writable mmap starts working. go-fuse has carried the capability
+constant for years but never wired a way to request it.
+
+Used by xbin's patched gocryptfs in -xbin-single-tenant mode, where the
+daemon is the sole writer of the backing tree, making kernel-trusted
+write caching sound (hack/gocryptfs-patches/). Measured on that stack:
+4096 16-byte writes on one fd reach the daemon as a single WRITE.
+
+Written against go-fuse v2.8.0.
+---
+diff -ruN a/fuse/api.go b/fuse/api.go
+--- a/fuse/api.go	2026-08-03 22:31:00.336654005 +0200
++++ b/fuse/api.go	2026-08-03 22:31:00.345639826 +0200
+@@ -278,6 +278,17 @@
+ 	// kernel to issue a new Readlink call.
+ 	EnableSymlinkCaching bool
+ 
++	// EnableWritebackCache requests the FUSE writeback cache
++	// (FUSE_WRITEBACK_CACHE): the kernel buffers writes in the page cache
++	// and flushes them in large, aligned requests, instead of forwarding
++	// every write() call synchronously. This also makes shared writable
++	// mmap work. Caveats: WRITE requests arrive from kernel writeback
++	// (batched, possibly out of order, with kernel — not caller —
++	// context), and the kernel maintains size/mtime/ctime between
++	// flushes, so the daemon's attributes for dirty files lag. Only safe
++	// when nothing modifies the backing files behind the mount's back.
++	EnableWritebackCache bool
++
+ 	// If set, ask kernel not to do automatic data cache invalidation.
+ 	// The filesystem is fully responsible for invalidating data cache.
+ 	ExplicitDataCacheControl bool
+diff -ruN a/fuse/opcode.go b/fuse/opcode.go
+--- a/fuse/opcode.go	2026-08-03 22:31:00.337647579 +0200
++++ b/fuse/opcode.go	2026-08-03 22:31:00.346369671 +0200
+@@ -111,6 +111,10 @@
+ 	if server.opts.EnableAcl {
+ 		kernelFlags |= CAP_POSIX_ACL
+ 	}
++	if server.opts.EnableWritebackCache {
++		// Only if the kernel offers it (v3.15+).
++		kernelFlags |= input.Flags64() & CAP_WRITEBACK_CACHE
++	}
+ 	if server.opts.SyncRead {
+ 		// Clear CAP_ASYNC_READ
+ 		kernelFlags &= ^uint64(CAP_ASYNC_READ)

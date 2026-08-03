@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Container stores: FUSE writeback cache.** Single-tenant (container-store)
+  mounts now opt into the kernel's writeback cache, via an xbin patch on
+  go-fuse (`hack/gofuse-patches/` — upstream carries the capability flag but
+  never wired an opt-in). Small writes batch in the page cache and reach the
+  encryption daemon as few large requests (measured: 4096 sixteen-byte
+  writes on one fd arrive as a single 64KiB WRITE), and **shared writable
+  mmap now works** on these mounts — notably fixing tools that mmap their
+  state, e.g. SQLite in WAL mode. Chunked-write workloads measure ~25%
+  faster; image-commit speed is unchanged (its cost is per-file FUSE round
+  trips, not data writes). Sound because a single-tenant mount's backing
+  tree has exactly one writer — the mount itself. Attr/entry/negative-dentry
+  kernel caching is also stretched to 60s on these mounts (same argument),
+  and no-op chmod/chowns (tar extraction re-applying what create already
+  set) skip the encrypted identity-xattr rewrite. Rebuild gocryptfs
+  (`make gocryptfs`) to pick it up.
+
 - **Fixed: container-store image builds could die with `Permission denied`
   mid-install.** The per-inode identity/capability caching added earlier
   today had no invalidation when a file was deleted. On backing

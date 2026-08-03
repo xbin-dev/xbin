@@ -35,7 +35,7 @@ fuse-overlayfs: $(FUSE_OVERLAYFS)
 # (plans/vault-data.md); the patchset adds the single-tenant mode container
 # stores need (docs/resources.md). Sits in bin/ next to xbind, which finds it
 # automatically.
-$(GOCRYPTFS): hack/build-gocryptfs.sh $(wildcard hack/gocryptfs-patches/*.patch)
+$(GOCRYPTFS): hack/build-gocryptfs.sh $(wildcard hack/gocryptfs-patches/*.patch) $(wildcard hack/gofuse-patches/*.patch)
 	./hack/build-gocryptfs.sh $(CURDIR)/bin
 gocryptfs: $(GOCRYPTFS)
 

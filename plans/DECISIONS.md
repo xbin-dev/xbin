@@ -804,3 +804,29 @@ Deviations and refinements made while implementing; all deliberate:
   (reintroduces the small-file collapse the caches fixed); trusting
   filesystem generation numbers (not visible through the syscalls the
   daemon can afford per-op).
+
+- **D45 — Kernel writeback cache for single-tenant mounts (go-fuse
+  patched).** (2026-08-03) Per-op FUSE round trips dominate container-store
+  performance; the daemon-side caches (D43/D44) fixed the read path, but
+  every small write still cost a round trip. The kernel's writeback cache
+  is the mechanism built for exactly this — batch dirty pages, flush as
+  few large WRITEs — and it is sound here for the same reason as the other
+  caches: a single-tenant mount's backing tree has exactly one writer, so
+  the kernel-cached view cannot go stale. go-fuse has carried
+  CAP_WRITEBACK_CACHE for years without an opt-in, so we ship a second
+  patchset (hack/gofuse-patches/, applied by build-gocryptfs.sh with a
+  local `replace`) adding MountOptions.EnableWritebackCache; gocryptfs
+  sets it only under -xbin-single-tenant. Verified: protocol-level 4096:1
+  write batching, a cold-remount data-integrity suite (mixed sizes,
+  unaligned RMW, appends, truncate-over-dirty-pages, fsync, shared
+  writable mmap — which FUSE refuses without writeback and now works,
+  fixing e.g. SQLite WAL on resource mounts), the full containerfs
+  integration battery, and a real podman build. Measured honestly:
+  chunked small writes ~25% faster; open-append-close cycles pay a small
+  flush-on-close cost; image COMMIT unchanged (bounded by per-file
+  lookup/create/setattr round trips, which no data cache batches — the
+  commit lever remains a tmpfs scratch build store, unimplemented).
+  Companions on the same sole-writer argument: 60s attr/entry/negative
+  kernel cache timeouts, and no-op setattr elision (skip the encrypted
+  identity rewrite when chmod/chown changes nothing, as tar extraction
+  does constantly).
