@@ -247,10 +247,6 @@ func (b *Broker) Register(srv *server.Server) {
 	}
 	srv.IsAdmin = b.IsAdmin
 	srv.Interfaces = b.HTTPInterfaces
-	// The code[:<comp>] capability also opens the /c/ static plane: a
-	// code-granted backend reads sibling source either way (the 2026-08-02
-	// read-gate clamp had made instance tokens self-only even WITH the grant).
-	srv.CodeReadGrant = b.codeGrantAllows
 }
 
 // --- resource identity -------------------------------------------------
