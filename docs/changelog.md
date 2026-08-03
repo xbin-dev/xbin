@@ -10,6 +10,15 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-03
+
+- **Ubuntu 26.04 LTS everywhere**: the base rootfs image (terminal +
+  backend sandboxes; existing terminal env layers stay pinned to their
+  old base, which upgrades preserve as `rootfs-<version>`) and the macOS
+  Lima VM image both move from 24.04 to the current LTS. Bonus for
+  container-host tiles: 26.04's podman ships netavark, so bridged
+  container networking works out of the box.
+
 ## 2026-08-02
 
 - **SECURITY — restricted terminals now mount an allow-list view (D40).**

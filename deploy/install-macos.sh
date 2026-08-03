@@ -72,7 +72,7 @@ case "$ARCH" in
   x86_64) LIMA_ARCH=x86_64;  IMG_ARCH=amd64 ;;
   *) die "unsupported architecture: $ARCH" ;;
 esac
-IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-${IMG_ARCH}.img"
+IMG_URL="https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-${IMG_ARCH}.img"
 
 # Apple's Virtualization framework (vz) needs macOS 13+; older Macs fall back
 # to qemu (an extra brew package).
@@ -136,7 +136,7 @@ if [ "$UPGRADE" = 1 ]; then
   step "start the existing Lima VM 'xbin' if stopped (limactl start xbin)"
   step "re-run the xbin Linux installer inside it, pinned to ${VERSION} (system mode, in-place upgrade)"
 else
-  step "create Lima VM 'xbin': Ubuntu 24.04 (${IMG_ARCH}), ${VMTYPE} runtime, disk ${VM_DISK} (thin), ${VM_MEM} RAM, ${VM_CPUS} cpus, no Mac directories shared into it"
+  step "create Lima VM 'xbin': Ubuntu 26.04 (${IMG_ARCH}), ${VMTYPE} runtime, disk ${VM_DISK} (thin), ${VM_MEM} RAM, ${VM_CPUS} cpus, no Mac directories shared into it"
   step "forward the VM's 127.0.0.1:8642 to this Mac's 127.0.0.1:8642 (loopback-only, not on your network)"
   step "inside the VM: run the xbin Linux installer in system mode pinned to ${VERSION} (builds from source — expect 10-20 minutes on first run; follow along: limactl shell xbin sudo tail -f /var/log/cloud-init-output.log)"
 fi

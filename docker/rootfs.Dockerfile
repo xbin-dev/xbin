@@ -9,7 +9,7 @@
 # Build + unpack with hack/build-rootfs.sh (docker build → docker export → dir).
 # Customize by FROM-ing this image and adding layers, then point --rootfs at the
 # unpacked result — there is no -slim/-fat split to maintain (we only overlay).
-FROM docker.io/library/ubuntu:24.04
+FROM docker.io/library/ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
