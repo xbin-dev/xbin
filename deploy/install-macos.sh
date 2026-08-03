@@ -195,17 +195,38 @@ provision:
     script: |
       #!/bin/bash
       set -eu
+      # Lima runs mode:system provisioning on EVERY boot — only install on
+      # the first one; upgrades go through the installer's limactl path.
+      [ -x /opt/xbin/bin/xbind ] && exit 0
       curl -fsSL '${INSTALL_URL}' | XBIN_ASSUME_YES=1 XBIN_REF='${VERSION}' bash -s -- --system --yes
 EOF
   # First boot provisions + builds xbin from source inside the VM.
   limactl start --name=xbin --tty=false --timeout=40m "$tmpl"
 fi
 
+# Lima reports READY even when provisioning FAILED (it logs a warning and
+# moves on) — verify the install actually landed before waiting on health.
+if ! limactl shell xbin -- test -x /opt/xbin/bin/xbind 2>/dev/null; then
+  fail "provisioning did not complete — the in-VM installer failed. Last log lines:"
+  limactl shell xbin -- sudo tail -n 40 /var/log/cloud-init-output.log 2>/dev/null || true
+  echo
+  echo "  full log : limactl shell xbin -- sudo less /var/log/cloud-init-output.log"
+  echo "  retry    : limactl shell xbin -- sudo bash -c \"curl -fsSL ${INSTALL_URL} | XBIN_ASSUME_YES=1 XBIN_REF=${VERSION} bash -s -- --system --yes\""
+  echo "  clean up : limactl delete xbin   (then re-run this installer)"
+  exit 1
+fi
+
 run "waiting for xbin on http://127.0.0.1:8642"
 n=0
 until curl -fsS http://127.0.0.1:8642/healthz >/dev/null 2>&1; do
   n=$((n+1))
-  [ "$n" -ge 120 ] && { warn "not healthy yet — check inside the VM: limactl shell xbin sudo journalctl -u xbin -n 80"; break; }
+  if [ "$n" -ge 120 ]; then
+    echo
+    fail "xbin did not become healthy — recent service log from the VM:"
+    limactl shell xbin -- sudo journalctl -u xbin -n 40 --no-pager 2>/dev/null || true
+    echo "  follow : limactl shell xbin -- sudo journalctl -u xbin -f"
+    exit 1
+  fi
   printf '.'; sleep 2
 done
 echo

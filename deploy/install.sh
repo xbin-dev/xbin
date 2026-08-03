@@ -381,6 +381,13 @@ fetch_source() {
 build_artifacts() {
   [ "$BUILD_FROM_SOURCE" = 1 ] || { info "using prebuilt artifacts"; return 0; }
   export PATH="$GO_PREFIX/go/bin:$PATH"
+  # Hermetic Go caches: provisioners (cloud-init, systemd-run) hand us an
+  # environment WITHOUT HOME, and Go then refuses with "neither GOMODCACHE
+  # nor GOPATH is set" — the exact failure that broke the first real-Mac
+  # Lima install. Pin everything under the build dir; no invoker env needed.
+  export HOME="${HOME:-$BUILD_DIR/home}"
+  export GOPATH="$BUILD_DIR/go" GOMODCACHE="$BUILD_DIR/go/pkg/mod" GOCACHE="$BUILD_DIR/go-cache"
+  mkdir -p "$HOME" "$GOPATH" "$GOCACHE"
   make -C "$SRC" build DOCKER="$ENGINE"
   rm -rf "$BUILD_DIR/rootfs"
   make -C "$SRC" rootfs DOCKER="$ENGINE" ROOTFS="$BUILD_DIR/rootfs"
