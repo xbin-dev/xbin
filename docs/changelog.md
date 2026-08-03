@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **`XBIN_GOCRYPTFS_NOWRITEBACK=1`** (set in xbind's environment) reverts
+  single-tenant mounts to pre-writeback kernel caching — an A/B and
+  mitigation switch for suspected writeback interactions; mounts pick it
+  up on the next remount (restart).
+
 - **Container stores: FUSE writeback cache.** Single-tenant (container-store)
   mounts now opt into the kernel's writeback cache, via an xbin patch on
   go-fuse (`hack/gofuse-patches/` — upstream carries the capability flag but

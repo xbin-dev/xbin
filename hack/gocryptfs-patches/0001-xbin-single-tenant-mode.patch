@@ -1089,7 +1089,7 @@ index 0000000..975ed9d
 +	return nil
 +}
 diff --git a/mount.go b/mount.go
-index 5c0f064..779c3c0 100644
+index 5c0f064..d89b26b 100644
 --- a/mount.go
 +++ b/mount.go
 @@ -269,6 +269,13 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
@@ -1139,14 +1139,16 @@ index 5c0f064..779c3c0 100644
  
  	// Init crypto backend
  	cCore := cryptocore.New(masterkey, cryptoBackend, IVBits, args.hkdf)
-@@ -372,6 +392,16 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -372,6 +392,18 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		fuseOpts = &fs.Options{
  			FirstAutomaticIno: 1000,
  		}
-+	} else if args.xbin_single_tenant {
++	} else if args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_NOWRITEBACK") == "" {
 +		// Single-tenant: the daemon is the sole writer, so nothing changes
 +		// behind the kernel's back — long dentry/attr caching is sound and
 +		// absorbs the re-stat storms of container image work.
++		// XBIN_GOCRYPTFS_NOWRITEBACK=1 reverts to stock kernel caching
++		// (and write-through) for A/B-ing suspected cache interactions.
 +		long := 60 * time.Second
 +		fuseOpts = &fs.Options{
 +			NegativeTimeout: &long,
@@ -1156,7 +1158,7 @@ index 5c0f064..779c3c0 100644
  	} else {
  		fuseOpts = &fs.Options{
  			// These options are to be compatible with libfuse defaults,
-@@ -395,7 +425,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -395,7 +427,13 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		// have it >128kiB. We cannot handle more than 128kiB, so we tell
  		// the kernel to limit the size explicitly.
  		MaxWrite: fuse.MAX_KERNEL_WRITE,
@@ -1165,12 +1167,13 @@ index 5c0f064..779c3c0 100644
 +		// writes into few large FUSE requests and enables shared writable
 +		// mmap. Sole-writer (nothing touches the cipher tree behind this
 +		// mount) makes the kernel-cached view trustworthy.
-+		EnableWritebackCache: args.xbin_single_tenant,
++		// XBIN_GOCRYPTFS_NOWRITEBACK=1 disables it (A/B / mitigation).
++		EnableWritebackCache: args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_NOWRITEBACK") == "",
 +		Debug:                args.fusedebug,
  		// The kernel usually submits multiple read requests in parallel,
  		// which means we serve them in any order. Out-of-order reads are
  		// expensive on some backing network filesystems
-@@ -415,8 +450,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -415,8 +453,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		tlog.Info.Printf(tlog.ColorYellow + "The option \"-allow_other\" is set. Make sure the file " +
  			"permissions protect your data from unwanted access." + tlog.ColorReset)
  		mOpts.AllowOther = true
