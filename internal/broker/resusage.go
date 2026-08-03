@@ -16,12 +16,12 @@ import (
 
 // ResourceInfo is a provisioned resource plus its on-disk usage.
 type ResourceInfo struct {
-	ID     string `json:"id"`     // res:<scope>/<name>
-	Scope  string `json:"scope"`  // "" = workspace
-	Name   string `json:"name"`   //
-	Type   string `json:"type"`   // kv|sqlite|blob|bus|cron
-	Size   int64  `json:"size"`   // bytes on disk (0 for ephemeral)
-	Detail string `json:"detail"` // "N keys" | "N files" | "N jobs" | "ephemeral"
+	ID     string `json:"id"`               // res:<scope>/<name>
+	Scope  string `json:"scope"`            // "" = workspace
+	Name   string `json:"name"`             //
+	Type   string `json:"type"`             // kv|sqlite|blob|bus|cron
+	Size   int64  `json:"size"`             // bytes on disk (0 for ephemeral)
+	Detail string `json:"detail"`           // "N keys" | "N files" | "N jobs" | "ephemeral"
 	Events int64  `json:"events,omitempty"` // bus: events published since start (cumulative — the admin UI derives events/min)
 }
 
