@@ -26,9 +26,20 @@
  *
  * It also reports the document's height to the embedding <bx-frame> so
  * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
+ *
+ * Isolation (plans/auth.md §6): non-chrome tiles run in a SANDBOXED opaque
+ * origin — no parent/sibling DOM, no localStorage/IDB/cookies, and the
+ * ambient session cookie is worthless on requests out of a tile frame. The
+ * frame token below is the tile's ONLY credential; xbin.fetch/xbin.ws attach
+ * it, and the token alone authenticates (no cookie required). location.origin
+ * here is "null", so all postMessage targets are '*': identity on both sides
+ * is verified by comparing event.source windows, never origins.
  */
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
+
+// postMessage targetOrigin for talking to our embedder (see header comment).
+const PARENT = '*';
 
 const self = meta('xbin-component');
 let frameToken = meta('xbin-frame-token');
@@ -136,7 +147,7 @@ if (embedded) {
     const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
     if (Math.abs(h - last) <= 1) return; // hysteresis: avoid resize loops
     last = h;
-    window.parent.postMessage({ type: 'xbin:resize', component: self, height: h }, location.origin);
+    window.parent.postMessage({ type: 'xbin:resize', component: self, height: h }, PARENT);
   };
   new ResizeObserver(report).observe(document.documentElement);
   addEventListener('load', report);
@@ -171,7 +182,7 @@ async function dialog(spec = {}) {
     return new Promise((resolve) => {
       const id = nextId();
       pending.set(id, resolve);
-      window.parent.postMessage({ type: 'xbin:dialog', id, spec }, location.origin);
+      window.parent.postMessage({ type: 'xbin:dialog', id, spec }, PARENT);
     });
   }
   await import('/vendor/bx-dialog.js');
@@ -195,10 +206,10 @@ function openWindow(spec = {}) {
   if (!embedded) { console.warn('xbin.window needs the workspace shell'); return { id: null, close() {}, closed: Promise.resolve() }; }
   const id = nextId();
   const closed = new Promise((resolve) => pending.set(id, resolve));
-  window.parent.postMessage({ type: 'xbin:window', id, spec }, location.origin);
+  window.parent.postMessage({ type: 'xbin:window', id, spec }, PARENT);
   return {
     id,
-    close() { window.parent.postMessage({ type: 'xbin:window-close', id }, location.origin); },
+    close() { window.parent.postMessage({ type: 'xbin:window-close', id }, PARENT); },
     closed,
   };
 }

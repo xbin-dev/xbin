@@ -14,7 +14,22 @@ Every route except `/healthz` and `/login` requires a principal
 | Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
 | Owner/instance bearer | `Authorization: Bearer <token>` | owner, or the element the instance token belongs to |
 | Terminal bearer | `Authorization: Bearer <token>` (`$XBIN_TOKEN` in a terminal) | the tile the terminal is opened on (element principal; per-session, revoked at session end) |
-| Frame token | `X-XBin-Frame-Token` header, or `?frame=` on WS URLs | element frontend (requires the owner cookie too) |
+| Frame token | `X-XBin-Frame-Token` header, or `?frame=` on WS/document URLs | element frontend — **standalone** (no cookie needed; sandboxed tile frames hold nothing else) |
+
+**Browser-plane isolation (ND8):** the cookie proves the human, and humans
+act only from *chrome* (the shell, plus manifest `chrome: true` components).
+Non-chrome tile documents are served with `Content-Security-Policy: sandbox
+allow-scripts allow-forms allow-modals` and framed sandboxed by `bx-frame`
+(plus `credentialless` where supported) — an opaque origin with no DOM access
+either way, no storage, no ambient cookie. Server-side, any request carrying
+the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
+(or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
+`/ws/*` (form-POST CSRF) — has the **cookie dropped** before principal
+resolution: a tile that omits its frame token cannot ride the human's
+session. Requests with `Origin: null` (opaque-origin fetches) get
+`Access-Control-Allow-Origin: null` and preflight answers — required for
+tile `fetch()` to function at all, and safe because tile requests carry no
+ambient credentials.
 
 The gateway unix socket (`$XBIN_GATEWAY`, `.xbin/run/gateway.sock`) serves
 this same API; element backends use it with their instance bearer token.
@@ -60,7 +75,23 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  <head> injection (import map, component
                                  meta, frame token, xbin-client.js) unless
                                  manifest inject:false. Cache-Control: no-store.
-GET  /vendor/<file>              core elements + vendored libs (lit, xterm…)
+                                 Auth: any principal that may read the tile
+                                 (cookie RBAC; frame token for the tile
+                                 itself); a tile's SUBRESOURCE loads
+                                 (Sec-Fetch-Dest: script/style/image/font/
+                                 media/worker, never documents or fetch;
+                                 never .html) are also authorized
+                                 credential-less by the opaque-origin
+                                 fingerprint (Sec-Fetch-Site: cross-site/
+                                 same-site — sandboxed frames strip cookies
+                                 AND the Referer, so that is the only signal;
+                                 spoofable by non-browser clients — tile
+                                 source is not where secrets live).
+                                 Non-chrome HTML responses carry CSP sandbox;
+                                 all responses X-Content-Type-Options: nosniff.
+GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
+                                 UNAUTHENTICATED — shipped xbind code, and
+                                 sandboxed tile frames load it credential-less
 GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
 ANY  /api/<component-path>/<p>   → component backend (see below)
@@ -133,9 +164,15 @@ GET    /vaults                     admin. [{component, keys}] across all vaults
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    state? (lifecycle; absent = enabled),
-                                   roles, uses, deps, manifestError}]
+                                   roles, uses, deps, manifestError,
+                                   chrome? (trusted chrome — bx-frame does
+                                   not sandbox these)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
-GET    /frame-token?component=<p>  a principal that may use the tile. {token}
+GET    /frame-token?component=<p>  a principal that may use the tile: humans
+                                   (cookie) any tile they can read; a tile
+                                   frontend its OWN component — including
+                                   cookie-less (sandboxed frames renew with
+                                   their token alone). {token}
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
@@ -708,7 +745,8 @@ xbind restart kills them (run `tmux` inside if you care).
 
 ### `/ws/events` — event stream
 
-Auth: cookie (owner) or `?frame=<frame-token>` (element). JSON text frames:
+Auth: cookie (owner) or `?frame=<frame-token>` (element; standalone — no
+cookie required). JSON text frames:
 
 ```jsonc
 {"type":"reload","component":"apps/thing"}          // source changed
@@ -730,11 +768,14 @@ do).
 
 ## Tile ↔ shell messaging (window.postMessage)
 
-Tiles are same-origin iframes; a small `postMessage` protocol between a tile's
-`xbin-client.js` and its embedding `<bx-frame>` (relayed to `<bx-shell>`) backs
-the height, dialog, and pop-out-window features. Every message is
-`{ type: "xbin:…", … }` and is only honored from the frame's *own* iframe
-(`event.source` match) — the sender window is the verified component identity.
+Tiles are sandboxed opaque-origin iframes (ND8); a small `postMessage`
+protocol between a tile's `xbin-client.js` and its embedding `<bx-frame>`
+(relayed to `<bx-shell>`) backs the height, dialog, and pop-out-window
+features. Every message is `{ type: "xbin:…", … }` and is only honored from
+the frame's *own* iframe (`event.source` match) — the sender window is the
+verified component identity. Because an opaque origin matches no origin
+string, `targetOrigin` is `*` in both directions; confidentiality relies on
+the messages being addressed to specific windows, never broadcast.
 
 ```
 tile → frame   xbin:resize   {component, height}     auto-height (informational)

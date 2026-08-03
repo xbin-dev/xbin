@@ -146,8 +146,9 @@ const NOTES = [
 await xbin.fetch('/api/apps/calendar/events')  // another app — needs a grant</pre>
           <p>A raw <code>fetch()</code> to another element returns
           <strong>403 by design</strong>: without the frame token the call
-          can't be attributed, and unattributed calls are denied. This is a
-          feature, not a bug to work around.</p>
+          carries no identity at all — your frame is a sandboxed opaque
+          origin, so the ambient session cookie neither reaches it nor would
+          be honored from it. This is a feature, not a bug to work around.</p>
           <p>Live updates come over the bus, not polling:</p>
           <pre>xbin.bus.on('res:apps/thing/bus/', (topic, data) => { /* re-render */ })</pre>`,
       },
@@ -211,9 +212,9 @@ bx ls                   # what exists in this workspace</pre>
             <li><strong>Users</strong> — signed-in people with per-tile levels
               (read / write / terminal) and org memberships. Humans, not
               code.</li>
-            <li><strong>Element frontend</strong> — session cookie
-              <em>plus</em> a frame token that <code>xbin.fetch</code>
-              attaches, attributing the call to that component.</li>
+            <li><strong>Element frontend</strong> — a frame token that
+              <code>xbin.fetch</code> attaches. Its only credential: tile
+              frames are sandboxed, so no session cookie rides along.</li>
             <li><strong>Element backend / terminal</strong> — a tile-scoped
               token: the component acting as itself.
               <strong>Default-deny</strong>: no grant, no call. A terminal is

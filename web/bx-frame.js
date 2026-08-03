@@ -1,6 +1,6 @@
 /**
  * <bx-frame src="apps/calendar"> — the core xbin element: renders a
- * component's index.html in a same-origin iframe, carries the always-visible
+ * component's index.html in an iframe, carries the always-visible
  * 7×7 edit button, live-reloads on source changes, shows build errors as an
  * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
  * the component's source directory) plus a code browser / git-review panel
@@ -12,6 +12,14 @@
  *   height  — fixed CSS height; omit for auto-height (the framed document
  *             reports its size via xbin-client.js)
  *   no-edit — hide the edit button
+ *
+ * Browser-plane isolation (plans/auth.md §6): non-chrome components load in a
+ * SANDBOXED iframe (opaque origin: no DOM access either way, no storage, no
+ * ambient cookie — the tile's only credential is its injected frame token).
+ * Chrome components (root, shell, manifest chrome:true) run unsandboxed and
+ * act as the signed-in human. Where the browser supports it, sandboxed frames
+ * are also credentialless (no cookies even on the navigation, so the document
+ * load authenticates with a bootstrap frame token in the URL).
  *
  * The edit button opens a floating terminal window: anchored at the frame's
  * top-right corner when opened, draggable by its title bar, resizable by the
@@ -32,6 +40,28 @@ import '/vendor/bx-logs.js';
 let zTop = 2000;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// Sandbox tokens for tile frames: scripts + forms + modals, never
+// allow-same-origin (that plus allow-scripts would void the sandbox).
+const SANDBOX = 'allow-scripts allow-forms allow-modals';
+
+// <iframe credentialless> (Chromium 110+): loads the frame in an ephemeral
+// credential context — no ambient cookie even on the document navigation.
+const CREDENTIALLESS = 'credentialless' in HTMLIFrameElement.prototype;
+
+// Chrome components run UNSandboxed — they act as the signed-in human
+// (the shell itself, and manifest-flagged trusted chrome like
+// tiles/organisations). Fetched once; frames await it before creating their
+// iframe so the sandbox attribute applies to the FIRST load (changing it
+// later would not re-sandbox a loaded document).
+let _chromeSet;
+function chromeSet() {
+  _chromeSet ??= fetch('/api/xbin/components')
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => new Set(list.filter((c) => c.chrome).map((c) => c.path)))
+    .catch(() => new Set());
+  return _chromeSet;
+}
 
 // Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
 let _gpuInv;
@@ -66,6 +96,7 @@ export class BxFrame extends LitElement {
     _autoHeight: { state: true },
     _layout: { state: true },  // 'term' | 'code' | 'split'
     _codeW: { state: true },   // code panel width % in split
+    _frame: { state: true },   // {url, sandboxed, credentialless} | null
   };
 
   static styles = css`
@@ -196,6 +227,7 @@ export class BxFrame extends LitElement {
     this._autoHeight = false;
     this._pop = null; // {x, y, w, h} — owned imperatively after open
     this._offEvents = null;
+    this._frame = null; // {url, sandboxed, credentialless} — null until resolved
     this._onMsg = (e) => this._message(e);
   }
 
@@ -206,6 +238,28 @@ export class BxFrame extends LitElement {
     this._offEvents = onEvent((e) => this._event(e));
     window.addEventListener('message', this._onMsg);
     this._restoreTerm();
+    this._prepareFrame();
+  }
+
+  // Resolve how this frame must load (sandboxed? credentialless?) before the
+  // iframe exists. Credentialless navigations carry no cookie, so they
+  // authenticate with a bootstrap frame token in the URL (?frame= is consumed
+  // by xbind, never forwarded) — minted here, in chrome context, where the
+  // cookie principal may mint for any tile the human can read.
+  async _prepareFrame() {
+    const sandboxed = !(await chromeSet()).has(this.src);
+    let url = this._url(), credentialless = false;
+    if (sandboxed && CREDENTIALLESS) {
+      const tok = await fetch(`/api/xbin/frame-token?component=${encodeURIComponent(this.src)}`)
+        .then((r) => (r.ok ? r.json() : null)).then((d) => d?.token || '').catch(() => '');
+      if (tok) {
+        url += `?frame=${encodeURIComponent(tok)}`;
+        credentialless = true;
+      }
+      // No token (e.g. nested inside another tile): load WITHOUT
+      // credentialless so the navigation can still authenticate by cookie.
+    }
+    this._frame = { url, sandboxed, credentialless };
   }
 
   // Persist terminal session ids + window state per component, and save whenever
@@ -291,6 +345,11 @@ export class BxFrame extends LitElement {
 
   _reload() {
     this._buildError = null;
+    // Sandboxed frames are opaque origins — we can't reach contentWindow —
+    // so reload by re-navigation (re-minting the bootstrap token when
+    // credentialless, since the old one may have expired).
+    if (this._frame?.credentialless) { this._prepareFrame(); return; }
+    if (this._frame?.sandboxed) { const f = this._iframe; if (f) f.src = this._url(); return; }
     try { this._iframe?.contentWindow?.location.reload(); }
     catch { if (this._iframe) this._iframe.src = this._url(); }
   }
@@ -318,7 +377,10 @@ export class BxFrame extends LitElement {
           kind: d.type.slice('xbin:'.length), // 'dialog' | 'window'
           id: d.id, from: this.src, spec: d.spec || {},
           reply: (result) => this._iframe?.contentWindow?.postMessage(
-            { type: 'xbin:reply', id: d.id, result }, location.origin),
+            // targetOrigin '*' : a sandboxed tile is an opaque origin, so no
+            // origin string ever matches it. Delivery is confined to THIS
+            // iframe's window regardless; xbin-client verifies e.source.
+            { type: 'xbin:reply', id: d.id, result }, '*'),
         },
       }));
     } else if (d.type === 'xbin:window-close') {
@@ -528,7 +590,10 @@ export class BxFrame extends LitElement {
       : `--bx-frame-height: ${this.height || this.style.height}`;
     return html`
       <div class="frame-wrap" style=${style ?? nothing}>
-        <iframe src=${this._url()} title=${this.src}></iframe>
+        ${this._frame ? html`
+          <iframe src=${this._frame.url} title=${this.src}
+                  sandbox=${this._frame.sandboxed ? SANDBOX : nothing}
+                  credentialless=${this._frame.credentialless ? '' : nothing}></iframe>` : nothing}
         ${this._buildError !== null ? html`
           <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`

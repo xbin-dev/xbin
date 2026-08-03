@@ -101,6 +101,9 @@ type componentInfo struct {
 	Deps        []string `json:"deps,omitempty"`
 	ManifestErr string   `json:"manifestError,omitempty"`
 	Owner       string   `json:"owner,omitempty"` // "user:<id>" | "org:<id>" | "" (D24)
+	// Chrome marks trusted workspace chrome (plans/auth.md §6): bx-frame does
+	// NOT sandbox these frames — they act as the signed-in human.
+	Chrome bool `json:"chrome,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +118,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+			Chrome: isChrome(c.Path) || c.Manifest.Chrome,
 		}
 		if s.OwnerOf != nil {
 			ci.Owner = s.OwnerOf(c.Path)
@@ -145,6 +149,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	ci := componentInfo{
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+		Chrome: isChrome(c.Path) || c.Manifest.Chrome,
 	}
 	if c.Manifest.Expose != nil {
 		ci.Roles = c.Manifest.Expose.Roles
@@ -161,7 +166,9 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 
 // apiFrameToken refreshes a frame token. Allowed for a principal that may use
 // the tile (admin/owner any; a user only tiles on their allow-list; a tile
-// frontend only its own component). The token is re-bound to the caller's user.
+// frontend only its own component — including a COOKIE-LESS one, since a
+// sandboxed frame holds nothing but its token). The token is re-bound to the
+// caller's user.
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)

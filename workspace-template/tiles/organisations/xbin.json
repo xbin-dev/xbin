@@ -3,4 +3,10 @@
   // deliberately declares NO uses — every call is a raw fetch, so the caller
   // is the signed-in USER (cookie principal) and the server's ownership/
   // org-admin gates decide per person. Nothing here runs with tile privilege.
+  //
+  // chrome: trusted workspace chrome (plans/auth.md §6) — its frames are NOT
+  // sandboxed, so the ambient session cookie keeps authenticating the human.
+  // Without this flag a tile frame is an opaque origin and raw fetch would
+  // 401. Only ever set on components you trust as fully as the shell itself.
+  "chrome": true,
 }

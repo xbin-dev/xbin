@@ -17,6 +17,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 type Server struct {
@@ -79,8 +80,12 @@ func (s *Server) Handler() http.Handler {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
 	})))
 
-	mux.Handle("/c/", s.authed(http.HandlerFunc(s.handleComponentStatic)))
-	mux.Handle("GET /vendor/", s.authed(http.HandlerFunc(s.handleVendor)))
+	mux.Handle("/c/", s.authedStatic(http.HandlerFunc(s.handleComponentStatic)))
+	// /vendor/ is UNAUTHENTICATED on purpose: it's xbind's own shipped code
+	// (core elements, vendored libs — public by nature), and sandboxed/
+	// credential-less tile frames must load xbin-client.js, lit, and
+	// theme.css as bare subresources, which carry no credentials by design.
+	mux.Handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	mux.Handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
 
 	mux.Handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
@@ -91,16 +96,86 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
-	return logRequests(mux)
+	return logRequests(nullOriginCORS(mux))
+}
+
+// nullOriginCORS lets sandboxed tile frames talk to their APIs at all. A
+// fetch() from an opaque origin sends Origin: null, and without CORS headers
+// the browser blocks the response (and preflights any request carrying the
+// frame-token header) — so without this, xbin.fetch fails outright in every
+// sandboxed tile. Granting ACAO:null is safe here: tile requests carry no
+// ambient credentials (the cookie is dropped from tile contexts; a genuinely
+// cross-site caller's cookie isn't sent under SameSite=Lax), so the frame
+// token remains the only way to read anything — as designed (ND8).
+func nullOriginCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Origin") != "null" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Origin", "null")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader)
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // authed requires any valid principal and stores it in the request context.
 // An unauthenticated browser navigation is redirected to the login page; API
 // clients get a 401.
+//
+// Browser-plane isolation (plans/auth.md §6): the session cookie proves the
+// HUMAN, and humans act from chrome (the shell, chrome-flagged components) —
+// never from inside a tile frame. A request showing the opaque-origin tile
+// fingerprint (Fetch Metadata) has its cookie dropped before resolution, so
+// a tile omitting its frame token cannot ride the ambient cookie into other
+// tiles' APIs or admin endpoints.
 func (s *Server) authed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.TileContext(r) {
+			r = auth.WithoutCookie(r)
+		}
 		p, ok := s.Auth.FromRequest(r)
 		if !ok {
+			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
+			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
+	})
+}
+
+// authedStatic is authed for the /c/ static plane, with one addition: a
+// credential-less request carrying the opaque-origin Fetch-Metadata
+// fingerprint of a sandboxed tile subresource load (module scripts, CSS,
+// images — no cookie, no Referer, no attachable headers) is let through
+// with an empty principal; handleComponentStatic re-checks the same
+// tileSubresource rule as the authorization. Chrome trees always require a
+// real principal.
+func (s *Server) authedStatic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.TileContext(r) {
+			r = auth.WithoutCookie(r)
+		}
+		p, ok := s.Auth.FromRequest(r)
+		if !ok {
+			rel := strings.TrimPrefix(r.URL.Path, "/c/")
+			_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
+			if err == nil {
+				if owner := s.owningComponent(cleaned); !isChrome(owner) && tileSubresource(r) {
+					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
+					return
+				}
+			}
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return

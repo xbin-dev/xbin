@@ -104,7 +104,8 @@ reloads the frame. No manifests, no backends.
   slow-client eviction.
 
 **Frontend (`web/`)**
-- `bx-frame.js` (Lit): renders sandboxless same-origin `<iframe src="/c/<src>/">`;
+- `bx-frame.js` (Lit): renders `<iframe src="/c/<src>/">` — sandboxed (opaque
+  origin) for non-chrome components since ND8, unsandboxed for chrome;
   7×7 px edit button (top-right, 35 % → 100 % opacity on hover); listens to
   `/ws/events` (one shared socket via module singleton) and reloads iframe on its
   component's `reload`. Height: fixed/CSS by default; auto-size only when the frame's

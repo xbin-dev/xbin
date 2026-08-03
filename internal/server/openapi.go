@@ -53,8 +53,11 @@ Every route needs a **principal**, established by one of:
   element an *instance token* belongs to (backends, over the gateway unix
   socket), or the tile a *terminal token* belongs to (shells — per-session,
   tile-scoped).
-- **Frame token** ` + "`X-XBin-Frame-Token`" + ` (with the owner cookie) → an
-  element *frontend*.
+- **Frame token** ` + "`X-XBin-Frame-Token`" + ` → an element *frontend*.
+  Standalone: no cookie required (sandboxed tile frames hold nothing else),
+  and a cookie-bearing request showing the tile fingerprint
+  (` + "`Sec-Fetch-Site: cross-site`" + ` on a non-navigation) has the cookie
+  dropped before resolution — tiles cannot ride the human's session.
 
 xbind strips inbound ` + "`X-XBin-*`" + ` identity headers and re-injects verified
 ` + "`X-XBin-From` / `X-XBin-Role`" + ` on proxied component calls.
@@ -84,11 +87,11 @@ func endpoints() []ep {
 		{"GET", "/openapi.json", "Identity", "This API description", "authenticated",
 			"The OpenAPI 3.1 document for the built-in API (this document).", nil, nil, "OpenAPI document"},
 		{"GET", "/components", "Components", "List components", "authenticated",
-			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, and manifest errors.", nil, nil, "array of component summaries"},
+			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, manifest errors, and the chrome flag (trusted chrome runs unsandboxed — bx-frame reads this).", nil, nil, "array of component summaries"},
 		{"GET", "/components/{path}", "Components", "Component detail + API.md", "authenticated",
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
-			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
+			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this). Humans: any tile they may read; a tile frontend: its OWN component only — cookie-less renewal included (sandboxed frames hold no other credential).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
 		{"GET", "/status", "Runtime", "Terminals + component counts + host/traffic gauges", "admin", "host = cpu jiffies, memory, workspace disk; traffic = cumulative request/byte counters (clients delta two polls for rates). Powers the shell's status footer.", nil, nil, "{components, terminals, host, traffic}"},
 		{"GET", "/gpus", "Runtime", "Host NVIDIA GPUs (for gpu:* grants / terminal picker)", "admin", "", nil, nil, "{gpus:[{index,uuid,name,node}]}"},
 		{"GET", "/backends", "Runtime", "Per-component backend state", "admin",
@@ -272,7 +275,7 @@ func OpenAPI() oapi {
 			"securitySchemes": oapi{
 				"bearerAuth": oapi{"type": "http", "scheme": "bearer", "description": "Owner or element instance token."},
 				"cookieAuth": oapi{"type": "apiKey", "in": "cookie", "name": "xbin_session", "description": "Browser owner session."},
-				"frameToken": oapi{"type": "apiKey", "in": "header", "name": "X-XBin-Frame-Token", "description": "Element frontend (with the owner cookie)."},
+				"frameToken": oapi{"type": "apiKey", "in": "header", "name": "X-XBin-Frame-Token", "description": "Element frontend (standalone — no cookie required)."},
 			},
 			"schemas": oapi{
 				"Error": oapi{"type": "object", "properties": oapi{

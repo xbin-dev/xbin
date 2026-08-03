@@ -39,7 +39,7 @@ grants, policy ceilings — consumes the same two verified facts.
 | **Owner** | root token: `Authorization: Bearer`, or as a login cookie | `owner` | until rotated |
 | **Human user** | username/password → server-side session cookie | `user:<id>` | 12 h idle / 30 d absolute |
 | **Element backend** | per-generation instance token over the gateway socket | `apps/email` | dies with the process generation |
-| **Element frontend** | owner/user cookie **+ HMAC frame token** | `apps/email` | 15 min, auto-refreshed |
+| **Element frontend** | **HMAC frame token** (standalone; tile frames are sandboxed, no cookie) | `apps/email` | 15 min, auto-refreshed |
 | **Terminal shell** | per-session tile-scoped token (`$XBIN_TOKEN`) | `apps/email` — the tile, never the human | dies with the session |
 | **Scheduler** | internal | `xbin/cron` | per tick |
 | **Public visitor** | none — structural (published endpoints only) | `ingress` | per request |
@@ -115,32 +115,39 @@ space to keep in sync with the filesystem.
 
 ## Element frontends: frame tokens
 
-Everything is same-origin in the browser, so without extra machinery any
-element's JS could ride the human's cookie into any other element's API.
-The fix (ND2): the cookie proves the **human**, and a **frame token**
-attributes the request to the **element** whose document made it.
+Everything is same-origin in the browser, so element JS is confined
+architecturally instead (ND8): every non-chrome tile document runs in a
+**sandboxed opaque origin** (iframe `sandbox` + CSP `sandbox` header) — no
+parent/sibling DOM, no storage, no ambient cookie. The **frame token** is
+therefore the tile's *only* credential, and it authenticates standalone.
 
 - Minted at the single sanctioned HTML-injection point (D4) into every
   served component page as a `<meta>` tag: HMAC-SHA256 over
   `(component, user, expiry)`, 15-minute TTL, refreshed every 10 minutes by
-  `xbin-client.js` via `GET /api/xbin/frame-token`. `xbin.fetch()` attaches
-  it; a raw `fetch` to a sibling element 403s.
+  `xbin-client.js` via `GET /api/xbin/frame-token` (cookie-less renewal for
+  the tile's own component — a sandboxed frame holds nothing else).
+  `xbin.fetch()` attaches it; a raw `fetch` to a sibling element 403s.
 - **Present-but-invalid is rejected, never downgraded.** A request carrying
   a bad or expired frame token does not fall back to the cookie principal —
   otherwise an element could shed its attribution by corrupting its own
   token and act as the human.
-- **Cross-user replay is rejected**: the token's embedded user must match
-  the session that presents it, so one user's captured frame token is
-  useless with another's cookie.
+- **Cross-user replay is rejected** when a session is present: the token's
+  embedded user must match the session that presents it, so one user's
+  captured frame token is useless with another's cookie.
+- **The ambient cookie is dead inside tiles**: a Fetch-Metadata gate drops
+  the session cookie from requests showing the opaque-origin fingerprint
+  (`Sec-Fetch-Site: cross-site` non-navigations; non-GET navigations to
+  `/api/*`/`/ws/*`), so a tile omitting its token can't ride the human's
+  session. Humans act from **chrome** — root/shell plus manifest
+  `chrome: true` (host-set only).
 - A frame token naming a **deleted user** is rejected, and WebSockets pass
   the token as a `?frame=` query parameter (headers are impossible there) —
   consumed by xbind and never forwarded to the callee, where it could be
   replayed.
 
-This is **attribution, not isolation**: element frontends share one origin,
-so a hostile element's JS still executes in the same browser context. The
-grant system is the seatbelt and audit trail; the outer boundary is the
-host (see the honesty section of [/docs/auth.md](/docs/auth.md)).
+The residual gap is a shared renderer *process* (a browser exploit, not tile
+JS, could cross); separate origins remain the roadmap for that. See the
+honesty section of [/docs/auth.md](/docs/auth.md).
 
 ## Terminals: tile-scoped tokens
 

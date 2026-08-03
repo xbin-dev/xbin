@@ -4,8 +4,12 @@
 //     (browser) or Authorization: Bearer (bx, curl, terminals).
 //   - Element instance: a running backend generation, authenticated by a
 //     per-generation instance token minted by the runner.
-//   - Element frontend: owner cookie + frame token (minted into served HTML
-//     at the D4 injection point) attributing the request to a component.
+//   - Element frontend: a frame token (minted into served HTML at the D4
+//     injection point) attributing the request to a component. Since
+//     browser-plane isolation (plans/auth.md §6) the token ALONE suffices:
+//     sandboxed tile frames live in opaque origins with no ambient cookie,
+//     and requests that still carry the cookie out of a tile context get it
+//     dropped (TileContext).
 //   - Terminal: a per-session bearer scoping a tile terminal's shell to that
 //     tile's element principal (plans/terminal-tokens.md) — the shell acts as
 //     the tile, not as the human who opened it.
@@ -553,6 +557,8 @@ func (a *Auth) accessSnapshot(uid string) *users.Access {
 //  2. Bearer instance token → element backend.
 //  3. Owner cookie + frame token header → element frontend (attributed).
 //  4. Owner cookie alone → owner (non-element pages: xbind UI, direct nav).
+//  5. Frame token ALONE → the element frontend (plans/auth.md §6: sandboxed
+//     tile frames have no ambient cookie; the token is their only credential).
 func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 	// A frame token attributes the request to (component, user); it's honored
 	// in every mode. Present-but-invalid is rejected, never downgraded.
@@ -600,9 +606,16 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 		return Principal{}, false
 	}
 
-	// Cookie: either the root token (bootstrap/admin) or a session id.
+	// Cookie: either the root token (bootstrap/admin) or a session id. Without
+	// a cookie, a frame token alone still authenticates the TILE — sandboxed
+	// tile frames (opaque origin, no storage/cookie access) hold nothing else.
+	// The token proves attribution by its HMAC; its embedded user id rides
+	// along for attribution and per-tile static-file clamping only.
 	cookie, err := r.Cookie(CookieName)
 	if err != nil {
+		if p, ok, present := frame(); present {
+			return p, ok
+		}
 		return Principal{}, false
 	}
 	var base Principal
@@ -643,4 +656,59 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 
 func subtleEqual(a, b string) bool {
 	return len(a) == len(b) && hmac.Equal([]byte(a), []byte(b))
+}
+
+// TileContext reports Fetch-Metadata evidence that a cookie-bearing request
+// originates from a sandboxed tile frame (an opaque origin — same-origin with
+// nothing, so everything it initiates computes cross-site) rather than from
+// unsandboxed chrome (the shell, chrome-flagged components), where the cookie
+// is legitimate. The cookie is worthless inside a tile by design
+// (plans/auth.md §6): a hostile tile omitting its frame token and raw-fetching
+// the ambient cookie must NOT authenticate as the human.
+//
+// The signals are unforgeable: an unsandboxed context cannot produce
+// Sec-Fetch-Site: cross-site toward its own origin, and a sandboxed one
+// cannot shed it. Browsers that send no Fetch Metadata (pre-2023) fail open —
+// the cookie is honored; the sandbox CSP header still confines their DOM.
+//
+// Navigations (Sec-Fetch-Mode: navigate) keep the cookie: external links into
+// the workspace are cross-site top-level GETs that legitimately carry Lax
+// cookies, and tile iframe navigations authenticate the HTML load (which then
+// mints the frame's own token). The exception is a non-GET navigation to an
+// API/WS path — a form-POST CSRF riding the cookie out of a tile — which is
+// never a legitimate browser flow.
+func TileContext(r *http.Request) bool {
+	if r.Header.Get("Authorization") != "" {
+		return false // bearer tooling (bx, terminals, instances) is unaffected
+	}
+	site := r.Header.Get("Sec-Fetch-Site")
+	// cross-site per spec; same-site accepted for engines that compute opaque
+	// origins differently — on xbind's single origin, same-site-but-not-
+	// same-origin can never arise legitimately.
+	if site != "cross-site" && site != "same-site" {
+		return false // same-origin/none: chrome, or no metadata at all
+	}
+	switch r.Header.Get("Sec-Fetch-Mode") {
+	case "navigate":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			p := r.URL.Path
+			return strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/ws/")
+		}
+		return false
+	default:
+		// cors / no-cors / websocket / same-origin-ish empties: a subresource
+		// or XHR/WS initiated cross-site — from us, only opaque tile frames
+		// do that (a genuinely cross-site caller's cookie wouldn't be sent
+		// under SameSite=Lax anyway).
+		return true
+	}
+}
+
+// WithoutCookie returns a copy of r with the Cookie header stripped, so
+// FromRequest resolves only non-cookie credentials (the frame token).
+func WithoutCookie(r *http.Request) *http.Request {
+	r2 := r.Clone(r.Context())
+	r2.Header = r.Header.Clone()
+	r2.Header.Del("Cookie")
+	return r2
 }

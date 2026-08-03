@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-04
+
+- **Tile frontend isolation: tiles now run in sandboxed opaque origins —
+  BREAKING.** Every non-chrome tile document is served with a CSP `sandbox`
+  header and framed by `bx-frame` with the `sandbox` attribute (plus
+  `credentialless` in Chromium): a tile's JS can no longer read the shell's
+  or a sibling tile's DOM, `localStorage`/IndexedDB/cookies are gone inside
+  tile frames, and the ambient session cookie is worthless on requests out of
+  a tile — xbind drops it via a Fetch-Metadata gate, so a raw `fetch` without
+  the frame token no longer authenticates as the signed-in human. The frame
+  token is now a tile's *only* credential and works standalone (cookie-less
+  renewal included). Tiles that legitimately act as the human must become
+  trusted chrome (`"chrome": true` in xbin.json, host-set only — as
+  tiles/organisations now is). Migration:
+  [/docs/changes/2026-08-04-tile-frontend-isolation.md](/docs/changes/2026-08-04-tile-frontend-isolation.md)
+
 ## 2026-08-03
 
 - **Container stores: writeback now opt-in; round-trip diet shipped

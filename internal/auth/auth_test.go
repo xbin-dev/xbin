@@ -87,6 +87,99 @@ func TestFromRequest(t *testing.T) {
 	}
 }
 
+// Browser-plane isolation (plans/auth.md §6): a frame token ALONE — no
+// cookie, the situation inside a sandboxed tile frame — authenticates the
+// tile. Present-but-invalid still rejects, never fails open.
+func TestFrameTokenOnlyAuth(t *testing.T) {
+	a := testAuth(t)
+
+	r := httptest.NewRequest("GET", "/api/xbin/frame-token?component=apps/y", nil)
+	r.Header.Set(FrameTokenHeader, a.MintFrameToken("apps/y", "", time.Minute))
+	p, ok := a.FromRequest(r)
+	if !ok || p.Component != "apps/y" || p.Via != "frame" || p.Owner {
+		t.Fatalf("token-only frame principal: %+v %v", p, ok)
+	}
+
+	// WS path: the token rides a query param (browsers can't set WS headers).
+	r = httptest.NewRequest("GET", "/ws/events?frame="+a.MintFrameToken("apps/z", "", time.Minute), nil)
+	if p, ok := a.FromRequest(r); !ok || p.Component != "apps/z" {
+		t.Fatalf("query-token frame principal: %+v %v", p, ok)
+	}
+
+	r = httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set(FrameTokenHeader, "garbage")
+	if _, ok := a.FromRequest(r); ok {
+		t.Fatal("garbage token-only request accepted")
+	}
+}
+
+// The authed-middleware cookie gate: requests showing the opaque-origin tile
+// fingerprint (Fetch Metadata) must have the cookie dropped so a tile can't
+// ride the ambient human session; chrome and legacy clients are unaffected.
+func TestTileContext(t *testing.T) {
+	req := func(method, path string, h map[string]string) *http.Request {
+		r := httptest.NewRequest(method, path, nil)
+		for k, v := range h {
+			r.Header.Set(k, v)
+		}
+		return r
+	}
+	cases := []struct {
+		name string
+		r    *http.Request
+		want bool
+	}{
+		{"sandboxed tile fetch", req("GET", "/api/xbin/components", map[string]string{
+			"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}), true},
+		{"opaque-origin engine variant (same-site)", req("GET", "/api/xbin/components", map[string]string{
+			"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}), true},
+		{"sandboxed tile WS", req("GET", "/ws/events", map[string]string{
+			"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "websocket", "Sec-Fetch-Dest": "empty"}), true},
+		{"sandboxed tile form POST to API", req("POST", "/api/apps/x/do", map[string]string{
+			"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}), true},
+		{"sandboxed tile subresource", req("GET", "/c/apps/x/app.js", map[string]string{
+			"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script"}), true},
+		{"shell fetch", req("POST", "/api/xbin/grants", map[string]string{
+			"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}), false},
+		{"chrome tile fetch", req("GET", "/api/xbin/orgs", map[string]string{
+			"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}), false},
+		{"external link navigation", req("GET", "/", map[string]string{
+			"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}), false},
+		{"iframe document navigation", req("GET", "/c/apps/x/", map[string]string{
+			"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}), false},
+		{"legacy browser (no metadata)", req("GET", "/api/xbin/components", nil), false},
+		{"bearer tooling", req("GET", "/api/xbin/status", map[string]string{
+			"Authorization": "Bearer x", "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors"}), false},
+		{"direct GET nav to API (browser URL bar)", req("GET", "/api/xbin/status", map[string]string{
+			"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}), false},
+	}
+	for _, c := range cases {
+		if got := TileContext(c.r); got != c.want {
+			t.Errorf("%s: TileContext=%v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// WithoutCookie must strip only the cookie credential, leaving frame tokens
+// (header and query) and other headers intact for principal resolution.
+func TestWithoutCookie(t *testing.T) {
+	a := testAuth(t)
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: a.OwnerTokenValue()})
+	r.Header.Set(FrameTokenHeader, a.MintFrameToken("apps/y", "", time.Minute))
+	r2 := WithoutCookie(r)
+	if _, err := r2.Cookie(CookieName); err == nil {
+		t.Fatal("cookie survived WithoutCookie")
+	}
+	p, ok := a.FromRequest(r2)
+	if !ok || p.Component != "apps/y" {
+		t.Fatalf("token-only after WithoutCookie: %+v %v", p, ok)
+	}
+	if _, err := r.Cookie(CookieName); err != nil {
+		t.Fatal("original request mutated")
+	}
+}
+
 // Disabling token login must reject the owner-token *cookie* (so a leaked token
 // can't be pasted into a cookie) while leaving the *Bearer* path intact — bx
 // and component backends authenticate with the owner token over the gateway.

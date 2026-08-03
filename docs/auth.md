@@ -17,7 +17,7 @@ xbin has two planes with different rules:
 |---|---|---|
 | Owner (you) | login cookie, or `Authorization: Bearer` with the owner token | `owner` |
 | Element backend | per-generation instance token over the gateway socket (`XBIN_GATEWAY` + `XBIN_TOKEN` env — the SDK's `xbin.Client()` handles it) | `apps/email` |
-| Element frontend | owner cookie **+ frame token** (`xbin.fetch` attaches it) | `apps/email` |
+| Element frontend | **frame token alone** (`xbin.fetch`/`xbin.ws` attach it; tile frames are sandboxed — no cookie reaches them) | `apps/email` |
 | Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
 | Scheduler | internal | `xbin/cron` |
 | Public visitor | none — anonymous traffic through a **published endpoint** (docs/ingress.md) | `ingress` |
@@ -47,16 +47,38 @@ owns any app-level auth on its public routes; a workspace/org policy row can
 deny `ingress` for a set of tiles outright (see policy ceiling below).
 `ingress` is a reserved name — no component can produce that `From`.
 
-**Frame tokens** are why *which element's page* made a browser request
-matters and can't be forged by another element's JS: the cookie proves the
-human, the injected short-lived token attributes the request to the
-component whose document it is. Consequence for your frontend code: **use
-`xbin.fetch()` for anything beyond your own API.** A raw `fetch` to another
-element 403s. Per-tile READ gates (the `/c/` static plane) follow the
-DRIVING USER's access on element principals — an element reaches its own
-tile's files always, but one tile's frame token cannot read another tile's
-source past its user's RBAC, and an unattributed backend token is
-self-only.
+**Frame tokens** are a tile frontend's *only* credential. Tile frames run in
+a **sandboxed opaque origin** (iframe `sandbox` + a CSP `sandbox` header, so
+direct-tab opens are confined too): no parent/sibling DOM access, no
+localStorage/IDB/cookies, no ambient session cookie on requests — and where
+the browser supports it the frame is additionally `credentialless`. The
+injected short-lived token therefore both attributes and authenticates the
+request, cookie not required (renewal at `/api/xbin/frame-token` works
+cookie-less for the tile's own component). Server-side, a **Fetch-Metadata
+gate** drops the session cookie from any request showing the opaque-origin
+fingerprint (`Sec-Fetch-Site: cross-site` on a non-navigation, or a non-GET
+navigation to `/api/*`/`/ws/*`), so a tile that omits its token and
+raw-fetches does **not** become the human — it 401s. Consequence for your
+frontend code: **use `xbin.fetch()` for anything beyond your own API.** A raw
+`fetch` to another element 403s, and it can't ride the cookie either.
+Per-tile READ gates (the `/c/` static plane) follow the DRIVING USER's access
+on element principals — an element reaches its own tile's files always, but
+one tile's frame token cannot read another tile's source past its user's
+RBAC, and an unattributed backend token is self-only. Tile subresource loads
+(JS/CSS/images — `Sec-Fetch-Dest` script/style/image/font/media/worker,
+never documents or fetch) are authorized credential-less by the opaque-origin
+Fetch-Metadata fingerprint — sandboxed frames strip cookies *and* the
+Referer, so that's the only signal; tile JS can't forge it from a sandbox,
+but a determined non-browser client can spoof headers, so source is still no
+place for secrets.
+
+**Chrome is the exception.** Components that must act as the signed-in human
+— the shell itself, and host-trusted components with `"chrome": true` in
+xbin.json (e.g. tiles/organisations, which raw-fetches as the user by design)
+— run unsandboxed and keep the cookie. The flag is a host-level trust
+decision: it can only be set by editing the manifest directly (the create
+APIs never write it), never via grants. Don't set it on anything you wouldn't
+trust with your own session.
 
 ## Roles and grants
 
@@ -292,11 +314,15 @@ carry a seccomp block-list, and run under enforced cgroup v2 limits
 (memory.max/high, pids.max, cpu.weight). Still roadmap: `wasm`/wazero backends
 and per-scope **origin** isolation.
 
-Browser side, all elements are same-origin: frame tokens give **attribution**
-(RBAC works), not **isolation** (a malicious element's JS runs in the same
-origin). So the outer boundary is the VM/host; treat same-origin element
-*frontends* as one trust domain, and the grant system as seatbelts and audit
-trail, not a jail.
+Browser side, tile frames are **sandboxed opaque origins** (see *Frame
+tokens* above): a tile's JS can't read the shell's or a sibling tile's DOM,
+can't touch origin storage, and can't spend the ambient session cookie — the
+Fetch-Metadata gate drops it even where the browser would still send it.
+That's enforced isolation for tile JS, in every engine since ~2023 (Safari
+16.4+ for Fetch Metadata). The residual hole is narrower: same-origin frames
+share a renderer *process*, so a browser exploit — not tile JS — could still
+cross. Closing that means separate origins (subdomain-per-scope, roadmap);
+the VM/host stays the real outer boundary.
 
 ## Audit log
 

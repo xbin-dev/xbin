@@ -19,6 +19,11 @@ import (
 
 const frameTokenTTL = 15 * time.Minute
 
+// sandboxCSP confines a non-chrome tile document to an opaque origin
+// (plans/auth.md §6, ND8): scripts run, forms/modals work, but never
+// allow-same-origin — that plus allow-scripts would void the sandbox.
+const sandboxCSP = "sandbox allow-scripts allow-forms allow-modals"
+
 // handleComponentStatic serves /c/<component-path>/<file> from the workspace.
 // HTML responses get the single sanctioned transform (decision D4): the merged
 // import map, component identity meta tags, a frame token, and the
@@ -38,8 +43,16 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// to an unreadable tile gets a request-access page instead of a bare 403
 	// (D36) — the tile exists (they have the link), so hiding it buys nothing
 	// and "ask an admin out of band" was the review's biggest sharing gap.
+	//
+	// A sandboxed tile frame's SUBRESOURCE loads (module scripts, CSS, images)
+	// arrive with NO credential at all: opaque origins strip cookies (both
+	// directions, verified in Chromium) and the Referer downgrades to nothing
+	// (strict-origin-when-cross-origin against an unserializable origin), and
+	// headers can't be attached to tag loads anyway. So they're authorized by
+	// the one signal the browser still produces: the opaque-origin
+	// Fetch-Metadata fingerprint (see tileSubresource).
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) {
+		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !tileSubresource(r) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.serveRequestAccessPage(w, owner)
 				return
@@ -69,6 +82,7 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if strings.HasSuffix(full, ".html") || strings.HasSuffix(full, ".htm") {
 		comp, _, _ := s.Reg.Resolve(cleaned)
@@ -76,8 +90,69 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			s.serveInjectedHTML(w, r, full, comp, cleaned, dirIndex)
 			return
 		}
+		// inject:false serves byte-exact, but non-chrome HTML is confined
+		// regardless (ND8) — bx-frame sandboxes it when framed; this header
+		// covers direct-tab opens. Without injection it holds no frame token
+		// either, so its frontend has no identity at all.
+		if owner := s.owningComponent(cleaned); sandboxedFrame(owner, comp) {
+			w.Header().Set("Content-Security-Policy", sandboxCSP)
+		}
 	}
 	http.ServeFile(w, r, full)
+}
+
+// tileSubresource reports whether r is a credential-less subresource load
+// from a sandboxed tile frame, authorized by the opaque-origin
+// Fetch-Metadata fingerprint instead of credentials: a GET/HEAD for a
+// non-HTML file with Sec-Fetch-Site cross-site (same-site accepted for
+// engines that compute it differently — neither can be produced by
+// unsandboxed same-origin JS, which always yields same-origin) and a
+// genuine subresource destination — module scripts, styles, images, fonts,
+// media, workers: the loads a tile page performs but cannot attach
+// credentials to. Documents, frames, and fetch()/XHR (Dest: empty) are
+// excluded: HTML navigates with the cookie or bootstrap token, and
+// xbin.fetch carries the frame token.
+//
+// Honest scope: the URL names the tile, not the requester — any sandboxed
+// tile can tag-load (execute/render, not fetch-read) another's assets, and
+// headers are client-settable, so a determined NON-browser client can spoof
+// this to read tile source under /c/. This confines tile JS; it is not a
+// substitute for the vault. Never put secrets in source (D30).
+var tileSubresourceDests = map[string]bool{
+	"script": true, "style": true, "image": true, "font": true,
+	"audio": true, "video": true, "track": true, "worker": true,
+	"manifest": true,
+}
+
+func tileSubresource(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	// HTML documents are never subresources — they navigate (Dest:
+	// document/iframe, excluded below) with the cookie or bootstrap token.
+	if strings.HasSuffix(r.URL.Path, ".html") || strings.HasSuffix(r.URL.Path, ".htm") {
+		return false
+	}
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site", "same-site":
+	default:
+		return false
+	}
+	return tileSubresourceDests[r.Header.Get("Sec-Fetch-Dest")]
+}
+
+// sandboxedFrame reports whether a component's documents run in a sandboxed
+// opaque origin (plans/auth.md §6): everything except implicit chrome
+// (root, shell — they ARE the workspace UI) and components whose manifest
+// carries the host-set trust flag `chrome: true`.
+func sandboxedFrame(compPath string, comp *registry.Component) bool {
+	if isChrome(compPath) {
+		return false
+	}
+	if comp != nil && comp.Manifest.Chrome {
+		return false
+	}
+	return true
 }
 
 // owningComponent returns the registered component that owns a /c/ path (its
@@ -172,6 +247,18 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if sandboxedFrame(compPath, comp) {
+		// Browser-plane isolation (plans/auth.md §6): the document runs in an
+		// opaque origin — no parent/sibling DOM access, no storage, no ambient
+		// credentials on subresources; its only credential is the injected
+		// frame token. Delivered as a header (not just the iframe attribute)
+		// so direct-tab opens of /c/<tile>/ are confined identically.
+		w.Header().Set("Content-Security-Policy", sandboxCSP)
+	} else {
+		// Trusted chrome: keep popups it opens (full-page tile views, docs)
+		// in its own browsing-context group.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(out)
 }
@@ -201,6 +288,7 @@ func (s *Server) handleVendor(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "no-cache") // revalidate; vendor changes on upgrade
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		_, _ = w.Write(b)
 		return
 	}

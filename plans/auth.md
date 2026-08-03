@@ -174,20 +174,60 @@ Databases, search, cron are **broker-owned targets in the same RBAC grammar** �
 
 The problem: everything is same-origin, so without extra measure any element's
 frontend JS could hit any other element's `/api/*` riding the owner cookie —
-RBAC with a hole in it. Fix `[ND2]`:
+RBAC with a hole in it. Attribution came first `[ND2]`; **enforcement** landed
+with sandboxed tile frames `[ND8]`:
 
-- The owner cookie **authenticates the human**; a per-frame token **attributes the
-  request to an element**. `xbin.fetch()` (in `xbin-client.js`) attaches
-  `X-XBin-Frame-Token` automatically.
-- `/api/<elem>/…` policy: frame token for `<elem>` itself → own-API access (always
-  allowed); frame token for another element → treated as element→element, grants
-  consulted; cookie with **no** frame token → owner (only from non-element pages:
-  xbind's own UI; element-served pages always carry a token, and `Sec-Fetch-Dest`/
-  `Referer` are used to flag anomalies).
+- Every non-chrome tile document is served with
+  `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`
+  (covers direct-tab opens) and framed by `bx-frame` with the matching
+  `sandbox` attribute. The tile runs in an **opaque origin**: no parent or
+  sibling DOM access (either direction), no localStorage/IDB/cookies/SW, and
+  subresource requests carry no ambient credentials (Chromium; elsewhere the
+  server gate below strips them). Communication with the shell is
+  postMessage-only, identity = `event.source` window comparison.
+- The owner cookie **authenticates the human**, and humans act only from
+  **chrome** — the shell, plus components whose manifest carries the host-set
+  trust flag `chrome: true` (e.g. tiles/organisations, which deliberately
+  raw-fetches as the signed-in user). Chrome frames are never sandboxed.
+- The per-frame token is the tile's **only credential** and now authenticates
+  **standalone** (no cookie required): sandboxed frames hold nothing else.
+  `xbin.fetch()`/`xbin.ws()` attach it; renewal at `/api/xbin/frame-token`
+  works cookie-less for the tile's own component. The token's embedded user
+  id rides for attribution (D29) and per-tile static-file clamping only.
+- **Fetch-Metadata cookie gate** (in the auth middleware): a cookie-bearing
+  request with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
+  on a non-navigation, or a non-GET navigation to `/api/*`/`/ws/*` (form-POST
+  CSRF) — has the cookie dropped before principal resolution. The signal is
+  unforgeable both ways (unsandboxed JS can't produce cross-site toward its
+  own origin; sandboxed JS can't shed it). Top-level GET navigations keep the
+  cookie (external links into the workspace, Lax-legit). Browsers without
+  Fetch Metadata (pre-2023) fail open; the CSP sandbox still confines them.
+- `/c/<tile>/` **subresource** loads (module scripts, CSS, images) arrive
+  with NO credential at all — opaque origins strip cookies in both
+  directions (verified in Chromium) and downgrade the Referer to nothing
+  (strict-origin-when-cross-origin against an unserializable origin), and
+  headers can't be attached to tag loads. They're authorized by the one
+  signal the browser still produces: the opaque-origin Fetch-Metadata
+  fingerprint (`Sec-Fetch-Site: cross-site` — `same-site` accepted for
+  engine variants — plus a subresource `Sec-Fetch-Dest`:
+  script/style/image/font/media/worker; never documents, frames, fetch, or
+  `.html`). Unsandboxed JS cannot produce that fingerprint toward its own
+  origin. Honest scope: headers are client-settable, so a determined
+  non-browser client can spoof this to read tile source — the rule confines
+  tile JS; it is no substitute for the vault. Humans keep cookie+RBAC reads
+  for direct navigation.
+- Tile `fetch()` needs CORS: an opaque-origin fetch is `Origin: null`, so
+  xbind answers `Access-Control-Allow-Origin: null` (+ preflight) — safe
+  because tile requests carry no ambient credentials anyway (cookie dropped;
+  cross-site cookies never sent), the frame token stays the only way in.
+- `bx-frame` also sets `credentialless` where supported (Chromium 110+):
+  no cookies even on the document navigation, which then authenticates with a
+  bootstrap `?frame=` token minted by the embedding chrome.
 - Cookie is `HttpOnly` + `SameSite=Lax` (CSRF), `Secure` behind https proxy.
-- This is attribution, not isolation: a malicious element's JS still executes
-  same-origin (can read its parent's DOM, etc.). Real browser isolation =
-  subdomain-per-scope, phase 5. Documented, not hidden.
+- Residual, documented: same-origin tiles share a renderer process, so a
+  *browser exploit* crosses all of this — per-origin process isolation still
+  means subdomain-per-scope (phase 5), and the `/c/` URL scheme maps onto
+  that cleanly. Until then the VM/host remains the real outer boundary.
 
 ## 7. Documentation standard (elements teach their own auth)
 
@@ -247,4 +287,5 @@ brokered access; brokered is the default recommendation.
 - Multi-user / multi-tenant (the model leaves room: `owner` becomes a set of users
   with per-user role grants — later).
 - Secrets safe against a root-compromised container.
-- Browser-plane isolation beyond attribution (until subdomains).
+- Browser-plane isolation against a compromised renderer (shared-process
+  exploits) — that still requires separate origins (subdomain-per-scope).

@@ -137,7 +137,38 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   `xbin.fetch()`) attributes requests to an element; cookie-without-token = owner,
   only off element pages. Alternative (Referer-sniffing only) rejected as too
   heuristic; alternative (accept the same-origin hole) rejected as it guts RBAC in
-  the plane users actually build in.
+  the plane users actually build in. *Amended by ND8: the token is now the tile's
+  ONLY credential and cookie-without-token from a tile context is dropped, not
+  honored.*
+- **ND8 — Browser-plane isolation via sandboxed tile frames (2026-08-04).**
+  Non-chrome tile documents run in an opaque origin (`sandbox` iframe attr +
+  CSP `sandbox` header, so direct-tab opens are confined too): no DOM access
+  either way, no storage/cookies/SW; the frame token alone authenticates the
+  tile (cookie-less renewal included). Server-side, a Fetch-Metadata gate
+  (`Sec-Fetch-Site: cross-site` on non-navigations; non-GET navigations to
+  `/api/*`/`/ws/*`) drops the session cookie out of tile contexts —
+  unforgeable in both directions — so a hostile tile omitting its token can't
+  ride the ambient human session.   `/c/<tile>/` subresources authorize by
+  the opaque-origin Fetch-Metadata fingerprint (cross-site +
+  script/style/image/font destinations; sandboxed frames strip cookies AND
+  the Referer, so that's the only signal — unforgeable from a sandbox,
+  spoofable by non-browser clients, so tile source is treated as
+  non-secret). `Access-Control-Allow-Origin: null` re-enables tile fetch()
+  (opaque-origin requests are CORS-blocked otherwise). Humans act from **chrome**:
+  root/shell plus manifest `chrome: true` (host-set only; the create APIs
+  never write it) — tiles/organisations migrated there. `<iframe
+  credentialless>` layered on where supported (Chromium), with a bootstrap
+  `?frame=` token in the iframe URL minted by the embedding chrome.
+  Alternatives rejected: subdomains/extra ports (deployment constraint:
+  single origin, `127.0.0.1` dev), CHIPS/partitioned cookies (per-top-level-
+  site only, needs Secure), Origin-Agent-Cluster (process hint, not a
+  boundary), fenced frames (ads-only, no postMessage), guardian service
+  workers (evadable by the tile itself), credentialless-only (Chromium-only,
+  per-top-level-document jar shares across tiles). Residual: same-origin
+  tiles share a renderer process; a browser exploit still crosses —
+  per-origin process isolation remains the subdomain roadmap. BREAKING: tiles
+  lose localStorage/IDB/cookies and raw-cookie human identity inside frames
+  (docs/changes/2026-08-04-tile-frontend-isolation.md).
 - **ND3 — Vault at-rest encryption — RESOLVED (implemented 2026-07-02).**
   Superseded: the vault now has an AES-256-GCM encryption barrier
   (`internal/vault`). A random DEK encrypts each vault file; the DEK is
@@ -423,9 +454,13 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
 - **Tier 1 identity is soft** (same-uid `/proc` token theft possible) until ND1
   lands. The model is right from day one; the floor hardens at tier 2. Do not market
   tier 1 as element isolation.
-- **Browser plane: attribution, not isolation.** Same-origin elements share the JS
-  realm's ambient powers (DOM of embedding page, storage). Frame tokens make RBAC
-  meaningful; subdomain-per-scope (phase 5) makes it enforced.
+- **Browser plane: enforced isolation as of ND8 (2026-08-04).** ~~Attribution,
+  not isolation~~ — same-origin elements no longer share the JS realm's
+  ambient powers: tile frames are sandboxed opaque origins (no parent DOM, no
+  storage) and the ambient cookie is dropped out of tile contexts by the
+  Fetch-Metadata gate. The remaining soft spot is narrower: tiles share a
+  renderer *process*, so a browser exploit (not tile JS) still crosses —
+  subdomain-per-scope (phase 5) remains the fix for that.
 - **D11 — xbind restart kills terminal sessions**; `tmux` inside is the workaround.
 - **In-memory bus, at-most-once**; durability is the subscribing app's job.
 - **Terminal Landlock read guard MUST handle `LANDLOCK_ACCESS_FS_REFER`** — on an

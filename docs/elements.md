@@ -127,10 +127,19 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
   // Set false to serve this component's HTML byte-exact, skipping the
   // standard <head> injection. You lose the import map, xbin-client.js, and
-  // frame-token attribution — so requests fall back to the plain cookie
-  // principal (an admin acts as admin; a non-admin user gets 403 on element
-  // APIs), never a tile identity. Escape hatch; leave it alone normally.
+  // the frame token — so the frontend has NO identity at all (element APIs
+  // 401/403 to it; the document is still sandbox-confined unless chrome).
+  // Escape hatch for machine-targeted HTML; leave it alone normally.
   "inject": true,
+
+  // TRUSTED CHROME (host-set only): run this component's frames UNSANDBOXED,
+  // so its frontend keeps the ambient session cookie and acts as the
+  // signed-in human (like the shell itself — tiles/organisations works this
+  // way). Without it, frames are sandboxed opaque origins and the frame
+  // token is the tile's only credential (plans/auth.md §6). Setting this is
+  // trusting the component with your session; it can only be set by editing
+  // the manifest on the host, never via the create APIs or grants.
+  "chrome": false,
 
   // Marks this component a TEMPLATE — a blueprint, not a live tile. It runs
   // no backend and isn't openable; you instantiate it into an independent
@@ -164,6 +173,19 @@ into `<head>`:
 Write your view as a plain HTML document. Relative URLs work (you're a real
 document in an iframe). Vendored libraries: `lit` via the import map,
 anything else you drop into your own component dir.
+
+**Isolation (ND8).** Unless your component is trusted chrome, its document
+runs in a **sandboxed opaque origin** (iframe `sandbox` + CSP header, also
+on direct-tab opens): no parent/sibling DOM access, no `localStorage`/
+IndexedDB/cookies, and no ambient session cookie on requests — the frame
+token is your only credential, and `xbin.fetch`/`xbin.ws` carry it (that's
+why raw `fetch` to other elements 403s *and* can't impersonate the user).
+Your own static assets load credential-less (authorized by the opaque-origin
+Fetch-Metadata fingerprint your page produces). Keep per-session state in JS
+memory; put durable state in your backend (prefs/kv); route any genuinely
+cross-origin API calls through your backend (tile fetches go out as
+`Origin: null`, cookie-free). The postMessage bridge (dialogs, windows,
+auto-height) works as before.
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it

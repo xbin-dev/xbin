@@ -344,10 +344,12 @@ Honest framing: XBin is a **remote code execution appliance by design**. Therefo
   default-deny, identity-carrying, role-scoped. Owner auth at the front door:
   one-time login URL → cookie, bearer token for CLI, guarding every route incl. WS.
   Multi-user is out of scope for now (the RBAC model leaves room for it).
-- Browser-side, iframes give incidental containment but everything is same-origin;
-  frame tokens make cross-element calls *attributed* and grant-checked, not
-  *isolated*. If scope-level origin isolation ever matters, serve scopes on
-  subdomains (`calendar.myworkspace.example`) — the `/c/` URL scheme maps onto that
+- Browser-side, tile iframes are **sandboxed opaque origins** (ND8): no
+  cross-frame DOM, no storage, and the ambient cookie is dropped out of tile
+  contexts by a Fetch-Metadata gate — so frame tokens are both *attributed*
+  and *enforced*, grant-checked end to end. The residual is a shared renderer
+  process; if that ever matters, serve scopes on subdomains
+  (`calendar.myworkspace.example`) — the `/c/` URL scheme maps onto that
   cleanly.
 - Intra-workspace hardening is tiered (`plans/auth.md` §9): instance credentials +
   gateway default-deny → per-scope uids (identity, vault, and file grants become

@@ -48,12 +48,19 @@ type TemplateMeta struct {
 // Manifest is a component's xbin.json. All fields optional; a bare directory
 // with index.html is a valid static component.
 type Manifest struct {
-	Runtime  string        `json:"runtime,omitempty"` // static|go|node|python|cgi
-	Entry    string        `json:"entry,omitempty"`   // runtime-specific; defaults in runner
-	Deps     []string      `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
-	Uses     []Use         `json:"uses,omitempty"`    // runtime call grant requests
-	Expose   *Expose       `json:"expose,omitempty"`
-	Inject   *bool         `json:"inject,omitempty"` // false disables D4 HTML injection
+	Runtime string   `json:"runtime,omitempty"` // static|go|node|python|cgi
+	Entry   string   `json:"entry,omitempty"`   // runtime-specific; defaults in runner
+	Deps    []string `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
+	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
+	Expose  *Expose  `json:"expose,omitempty"`
+	Inject  *bool    `json:"inject,omitempty"` // false disables D4 HTML injection
+	// Chrome marks a component as trusted workspace chrome (plans/auth.md §6):
+	// its frames are NOT sandboxed, so its frontend keeps the ambient session
+	// cookie and acts as the signed-in human (like the shell itself). This is
+	// the highest-trust manifest flag — settable only by editing xbin.json on
+	// the host (the create APIs never write it), never grantable to elements.
+	// root and shell are chrome implicitly.
+	Chrome   bool          `json:"chrome,omitempty"`
 	Template *TemplateMeta `json:"template,omitempty"`
 	// Setup is a freeform shell script run once at build time to populate the
 	// component's environment layer — extra system/runtime deps beyond the base

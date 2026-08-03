@@ -203,7 +203,10 @@ Full manifest reference (all fields optional):
     },
     "implies": { "auditor": ["reader"] }  // only for custom role names
   },
-  "inject": true                // false = serve HTML byte-exact (rarely wanted)
+  "inject": true,               // false = serve HTML byte-exact (rarely wanted)
+  "chrome": false               // HOST-TRUST ONLY: run frames unsandboxed, acting
+                                //   as the signed-in human (like the shell). Never
+                                //   set on components you build as a tenant.
 }
 ```
 
@@ -223,15 +226,20 @@ are never scanned.
 
 ## Frontends
 
-Your HTML is served at `/c/<path>/` inside an iframe. xbind injects into
-`<head>`: the import map (`import {LitElement, html, css} from 'lit'` just
-works, vendored/offline), identity metas, and `xbin-client.js`, which gives
-every component document:
+Your HTML is served at `/c/<path>/` inside a **sandboxed iframe** (opaque
+origin — no parent/sibling DOM, no `localStorage`/IndexedDB/cookies, no
+ambient session cookie; only host-trusted `chrome: true` components run
+unsandboxed). xbind injects into `<head>`: the import map
+(`import {LitElement, html, css} from 'lit'` just works, vendored/offline),
+identity metas, and `xbin-client.js`, which gives every component document:
 
 ```js
 xbin.self                                  // "apps/thing"
 await xbin.fetch(`/api/${xbin.self}/x`)   // ALWAYS use xbin.fetch for /api/ —
-                                            // raw fetch to other elements 403s
+                                            // raw fetch to other elements 403s, and
+                                            // raw fetch WITHOUT the frame token
+                                            // authenticates as NOBODY (the frame
+                                            // token is your only credential)
 xbin.bus.on(`res:${xbin.self}/bus/`, (topic, data) => {…})   // live events
 await xbin.bus.publish(`res:${xbin.self}/bus`, 'changed', {…})
 xbin.events.on(e => {…})                   // reload/build/bus/grants/status stream
@@ -651,7 +659,14 @@ need an admin in the browser, or bx on the host.
 - **Ship `API.md` when you expose roles.** It's the integration contract;
   `bx doctor` flags its absence. Keep it truthful.
 - **Use `xbin.fetch` in frontends** for any `/api/` call. Raw `fetch` to
-  another element = 403 by design (identity attribution).
+  another element = 403 by design, and raw `fetch` anywhere carries NO
+  identity — tile frames are sandboxed (no ambient cookie; the frame token
+  is the only credential, and xbind drops stray cookies from tile contexts).
+- **No browser storage in tiles**: `localStorage`/IndexedDB/cookies are dead
+  inside sandboxed frames. Per-session state → JS memory; durable state →
+  your backend or `/api/xbin/prefs`. Cross-origin fetches from a tile go out
+  as `Origin: null` with no cookies — route external API calls through your
+  backend.
 - **Don't hand-edit**: `deps/` (symlinks are reconciled from the manifest),
   `go.work` (generated — has a marker line; removing the marker takes
   ownership), the `grants` array in workspace `xbin.json` (use `bx grant`;
