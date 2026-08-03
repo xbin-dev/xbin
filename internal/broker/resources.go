@@ -44,26 +44,9 @@ func (b *Broker) Provision() {
 					slog.Warn("provision", "err", err)
 				}
 			case "filesystem", "sqlite", "blob":
-				// Encrypted by default: a per-resource gocryptfs mount stood up
-				// by MountEncrypted (below) when the vault is unsealed — no
-				// plaintext dir is ever created. EXCEPT a filesystem resource
-				// declared {"plain": true} (D43): that one provisions as a
-				// plaintext dir with real kernel POSIX semantics (container
-				// stores). The flag is filesystem-only; elsewhere it is
-				// ignored loudly and the resource stays encrypted.
-				if res.Plain && res.Type != "filesystem" {
-					slog.Warn(`resource: "plain" is only valid on type filesystem — ignored, resource stays encrypted`,
-						"scope", scope, "name", name, "type", res.Type)
-				}
-				if res.Type == "filesystem" && res.Plain {
-					if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
-						slog.Warn("provision plain resource", "err", err)
-					}
-					if b.resenc != nil && b.resenc.Encrypted(scopeKey, name) {
-						slog.Warn("resource declared plain but encrypted remnants exist — the plain dir is fresh; delete the cipher tree to reclaim space",
-							"res", resLabel(scopeKey, name), "cipher", filepath.Join("data", "resources-enc", scopeKey, name))
-					}
-				}
+				// Always encrypted: a per-resource gocryptfs mount stood up by
+				// MountEncrypted (below) when the vault is unsealed. No plaintext
+				// dir is ever created.
 			case "kv", "bus":
 				// kv lives in the shared bbolt db (values encrypted per bucket);
 				// bus is in-memory.
@@ -332,7 +315,7 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 			// blob is always an encrypted gocryptfs mount; refuse until it's up
 			// (vault sealed / gocryptfs missing) so we never read or write plaintext
 			// into the bare mountpoint.
-			if !b.fsReady(rt.Scope, rt.Name) {
+			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
 				server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource unavailable — vault sealed or encryption not ready", "docs": "/docs/auth.md"})
 				return "", "", false
 			}

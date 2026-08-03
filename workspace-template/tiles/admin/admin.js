@@ -828,7 +828,7 @@ export class BxAdmin extends LitElement {
       <div class="bk"><div class="row hdr rrow"><span>id</span><span>type</span><span class="num">size</span><span>detail</span></div></div>
       ${resources.map((r) => html`<div class="bk"><div class="row rrow">
         <span class="p" title=${r.id}>${r.id}</span>
-        <span>${r.type}${r.plain ? html` <span class="pill" title="plaintext at rest — deliberate opt-out (plain: true)">plain</span>` : nothing}</span>
+        <span>${r.type}</span>
         <span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>
         <span class="muted">${r.detail || ''}</span>
       </div></div>`)}`;

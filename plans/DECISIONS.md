@@ -749,27 +749,3 @@ Deviations and refinements made while implementing; all deliberate:
   badge revealed rows; screens are left alone (a placed hidden tile
   renders its disabled state — hiding is about listings, not layouts).
   Refused while offloaded so the archived-data marker is never clobbered.
-
-- **D43 — `plain: true` filesystem resources (container stores).**
-  (2026-08-03) Encrypted resources are gocryptfs FUSE mounts whose
-  unprivileged daemon (xbind's uid, on the host) is the physical I/O
-  actor — so a podman layer store structurally cannot live on one: 0555
-  layer dirs are 0555 *for the daemon*, blocking its own `.pivot_root`
-  mkdirs (the production `ApplyLayer … permission denied`); layer chowns
-  to arbitrary sub-uids EPERM; sub-uid file access through the mount is
-  kernel-refused; the tile's `cap:containers` userns caps never apply to
-  daemon-side I/O. Rather than weaken the encryption layer, a filesystem
-  resource may declare `"plain": true`: plaintext dir in the legacy
-  `data/resources/<scope-key>/<name>` layout, never resenc-mounted,
-  always "ready" (no vault hold), NOT stopped/unmounted on seal — the
-  declaration explicitly opts that data out of vault protection, which is
-  honest for container stores (re-fetchable, mostly-public image bytes;
-  secrets belong in vault/kv). Filesystem-type only; on other types the
-  flag warns and is ignored (safe default: stays encrypted). Flipping an
-  encrypted resource to plain provisions fresh and leaves the old cipher
-  tree for the owner to delete (`bx doctor` flags remnants and lists
-  every plain resource; the admin tile shows a `plain` pill; /resources
-  carries `plain`/`encRemnant`). Companion fix: `cap:containers`
-  sandboxes get a private-cgroupns cgroup2 view at `/sys/fs/cgroup`,
-  best-effort, since libpod stats it at create even with cgroups
-  disabled.

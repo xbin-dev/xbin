@@ -170,28 +170,6 @@ func cmdDoctor() error {
 				}
 			}
 		}
-		// Plain (unencrypted) resources (D43): note each deliberate opt-out;
-		// warn on ignored flags and on encrypted remnants of now-plain
-		// resources (dead ciphertext eating disk).
-		var rs []struct {
-			ID, Type   string
-			Plain      bool
-			EncRemnant bool
-			Scope      string
-			Name       string
-		}
-		if err := apiJSON("GET", "/api/xbin/resources", nil, &rs); err == nil {
-			for _, r := range rs {
-				switch {
-				case r.Plain && r.Type != "filesystem":
-					warn(`%s: "plain" is only valid on type filesystem (type %s) — flag ignored, resource stays encrypted`, r.ID, r.Type)
-				case r.Plain && r.EncRemnant:
-					warn("%s is plain but encrypted remnants remain — delete data/resources-enc/<scope-key>/%s to reclaim the ciphertext", r.ID, r.Name)
-				case r.Plain:
-					fmt.Printf("  · %s: plaintext at rest — deliberate opt-out (plain: true; container stores need it)\n", r.ID)
-				}
-			}
-		}
 	}
 
 	// go.work ownership.

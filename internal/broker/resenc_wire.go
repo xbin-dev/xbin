@@ -10,18 +10,12 @@ import (
 	"github.com/xbin-dev/xbin/internal/vault"
 )
 
-// Encryption-at-rest for resource data (plans/vault-data.md). File-backed
-// resources (filesystem/sqlite/blob) are stored as a per-resource gocryptfs
-// mount keyed by a vault subkey, and kv values are envelope-encrypted per
-// bucket. When encryption can't run (no gocryptfs binary, or the vault is
-// sealed/absent) the resource is unavailable — the component that uses it is
-// held — never silently plaintext.
-//
-// ONE deliberate exception (D43): a filesystem resource declared
-// {"plain": true} opts out entirely — plaintext dir in the legacy
-// data/resources/<scopekey>/<name> layout, never resenc-mounted, never held
-// on vault state, untouched by seal. Container stores need real kernel POSIX
-// semantics a FUSE daemon can't provide (see registry.Resource.Plain).
+// Encryption-at-rest for resource data (plans/vault-data.md). There is no
+// plaintext resource path: file-backed resources (filesystem/sqlite/blob) are
+// ALWAYS stored as a per-resource gocryptfs mount keyed by a vault subkey, and
+// kv values are ALWAYS envelope-encrypted per bucket. When encryption can't run
+// (no gocryptfs binary, or the vault is sealed/absent) the resource is
+// unavailable — the component that uses it is held — never silently plaintext.
 
 // initResEnc builds the resource-encryption manager and clears any stale mounts
 // left by a previous xbind. Called from New (after the barrier is opened).
@@ -48,34 +42,9 @@ func fileBackedType(t string) bool {
 // resLabel is the stable key-derivation / mount identity for a resource.
 func resLabel(scopeKey, name string) string { return scopeKey + "/" + name }
 
-// resPlain reports whether (scope, name) is declared as a PLAIN filesystem
-// resource (D43). Only type filesystem honors the flag — everything else
-// stays encrypted (Provision warns on the ignored flag).
-func (b *Broker) resPlain(scope, name string) bool {
-	var m map[string]registry.Resource
-	if scope == "" {
-		m = b.Reg.Workspace().Resources
-	} else if sm, ok := b.Reg.Scopes()[scope]; ok {
-		m = sm.Resources
-	}
-	r, ok := m[name]
-	return ok && r.Type == "filesystem" && r.Plain
-}
-
-// plainResDir is a plain resource's on-disk dir (the legacy layout — usage
-// accounting and backups already walk it).
-func (b *Broker) plainResDir(scope, name string) string {
-	return filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(scope), name)
-}
-
 // fsReady reports whether a file-backed resource can be served right now:
-// for encrypted resources — gocryptfs present, a vault configured + unsealed,
-// and its mount up; a PLAIN resource (D43) is always ready.
-func (b *Broker) fsReady(scope, name string) bool {
-	if b.resPlain(scope, name) {
-		return true
-	}
-	scopeKey := util.ScopeKey(scope)
+// gocryptfs present, a vault configured + unsealed, and its mount up.
+func (b *Broker) fsReady(scopeKey, name string) bool {
 	return b.resenc != nil && b.resenc.Available() &&
 		b.barrier != nil && b.barrier.Initialized() && !b.barrier.Sealed() &&
 		b.resenc.Mounted(scopeKey, name)
@@ -86,9 +55,6 @@ func (b *Broker) fsReady(scope, name string) bool {
 // the .sqlite file inside the mount.
 func (b *Broker) fsResPath(scope, name string, sqlite bool) string {
 	dir := b.resenc.MountDir(util.ScopeKey(scope), name)
-	if b.resPlain(scope, name) {
-		dir = b.plainResDir(scope, name) // D43: plaintext dir, no mount
-	}
 	if sqlite {
 		return filepath.Join(dir, name+".sqlite")
 	}
@@ -112,7 +78,7 @@ func (b *Broker) EncryptionHold(comp string) bool {
 		}
 		switch {
 		case fileBackedType(res.Type):
-			if !b.fsReady(rt.Scope, rt.Name) {
+			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
 				return true
 			}
 		case res.Type == "kv":
@@ -157,15 +123,9 @@ func (b *Broker) SealResources() {
 	b.resenc.UnmountAll()
 }
 
-// componentUsesFileRes: does c depend on any ENCRYPTED file resource? Plain
-// resources (D43) don't count — a component whose only file resources are
-// plain keeps running across a seal.
 func (b *Broker) componentUsesFileRes(c *registry.Component) bool {
 	for _, u := range c.Manifest.Uses {
-		if rt, res, ok := b.parseRes(u.Target); ok && res != nil && fileBackedType(res.Type) {
-			if b.resPlain(rt.Scope, rt.Name) {
-				continue
-			}
+		if _, res, ok := b.parseRes(u.Target); ok && res != nil && fileBackedType(res.Type) {
 			return true
 		}
 	}
@@ -178,9 +138,6 @@ func (b *Broker) forEachFileRes(fn func(scope, name, rtype string)) {
 	do := func(scope string, resources map[string]registry.Resource) {
 		for name, res := range resources {
 			if fileBackedType(res.Type) {
-				if res.Type == "filesystem" && res.Plain {
-					continue // D43: plain resources are never resenc-mounted
-				}
 				fn(scope, name, res.Type)
 			}
 		}

@@ -8,7 +8,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vault"
 )
 
@@ -75,21 +74,12 @@ func (b *Broker) apiResources(w http.ResponseWriter, r *http.Request) {
 		Scope string `json:"scope"` // "" = workspace
 		Name  string `json:"name"`
 		Type  string `json:"type"`
-		// Plain: declared {"plain": true} (D43 — plaintext at rest, a
-		// deliberate opt-out; only honored on type filesystem). EncRemnant:
-		// a now-plain resource still has an old cipher tree on disk.
-		Plain      bool `json:"plain,omitempty"`
-		EncRemnant bool `json:"encRemnant,omitempty"`
 	}
 	out := []res{}
 	add := func(scope string, m map[string]registry.Resource) {
 		for name, rr := range m {
 			rt := resTarget{Scope: scope, Name: name}
-			row := res{ID: rt.String(), Scope: scope, Name: name, Type: rr.Type, Plain: rr.Plain}
-			if b.resPlain(scope, name) && b.resenc != nil && b.resenc.Encrypted(util.ScopeKey(scope), name) {
-				row.EncRemnant = true
-			}
-			out = append(out, row)
+			out = append(out, res{ID: rt.String(), Scope: scope, Name: name, Type: rr.Type})
 		}
 	}
 	add("", b.Reg.Workspace().Resources)
