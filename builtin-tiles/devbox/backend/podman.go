@@ -11,10 +11,12 @@ import (
 
 // podman wraps the rootless podman CLI for this tile. It pins storage to the
 // persistent `storage` resource (so images/containers survive restarts, not
-// the throwaway tmpfs upper) and the runroot to a tmpfs, and runs daemonless
-// with the vfs storage driver — the robust default inside a rootless,
-// gocryptfs-backed sandbox (no fuse-overlayfs-on-fuse-overlayfs-on-gocryptfs
-// stacking). Everything is overridable via env for tuning on a given host.
+// the throwaway tmpfs upper) and the runroot to a tmpfs, and runs daemonless.
+// Storage driver: overlay-via-fuse-overlayfs when the sandbox has /dev/fuse
+// (xbind binds it for cap:containers tiles) — a build step then writes only
+// its diff, where vfs copies the ENTIRE rootfs chain per layer, which is
+// brutally slow through the encrypted store. vfs stays the fallback.
+// Everything is overridable via env for tuning on a given host.
 type podman struct {
 	bin     string
 	root    string   // --root: persistent image/container store
@@ -40,7 +42,15 @@ func newPodman(storageDir, runtimeDir string) *podman {
 	_ = os.MkdirAll(root, 0o700)
 	_ = os.MkdirAll(runroot, 0o700)
 
-	driver := envOr("DEVBOX_STORAGE_DRIVER", "vfs")
+	driver := os.Getenv("DEVBOX_STORAGE_DRIVER")
+	if driver == "" {
+		driver = "vfs"
+		if _, err := exec.LookPath("fuse-overlayfs"); err == nil {
+			if _, err := os.Stat("/dev/fuse"); err == nil {
+				driver = "overlay"
+			}
+		}
+	}
 	network := envOr("DEVBOX_NETWORK", "") // "" = podman default (pasta/slirp)
 	p := &podman{
 		bin:     envOr("DEVBOX_PODMAN", "podman"),
@@ -53,6 +63,13 @@ func newPodman(storageDir, runtimeDir string) *podman {
 		"--root", root, "--runroot", runroot,
 		"--storage-driver", driver,
 		"--cgroup-manager", envOr("DEVBOX_CGROUP_MANAGER", "cgroupfs"),
+	}
+	if driver == "overlay" {
+		// Rootless overlay needs the userspace mounter — native kernel
+		// overlay can't whiteout on a FUSE-backed store.
+		if fo, err := exec.LookPath("fuse-overlayfs"); err == nil {
+			p.base = append(p.base, "--storage-opt", "overlay.mount_program="+fo)
+		}
 	}
 	// Podman wants HOME (config/state) + a tmpfs XDG_RUNTIME_DIR.
 	p.env = append(os.Environ(),

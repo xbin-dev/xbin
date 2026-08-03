@@ -105,9 +105,11 @@ userland:
   cap:containers scope's filesystem resources mount in gocryptfs
   single-tenant mode (D43, docs/resources.md — ownership/mode/whiteouts
   virtualized into encrypted xattrs), which is what lets the layer store's
-  0555 dirs, sub-uid chowns and file caps round-trip on resenc. The `vfs`
-  storage driver is the robust default (no FUSE-on-FUSE-on-gocryptfs
-  stacking); `fuse-overlayfs` is faster where it works.
+  0555 dirs, sub-uid chowns and file caps round-trip on resenc. Prefer the
+  `overlay` driver with fuse-overlayfs as mount program (the sandbox binds
+  /dev/fuse for cap:containers): build steps write diffs. `vfs` is the
+  fallback — robust but quadratic (each layer copies the whole chain), which
+  crawls through an encrypted store.
 - **Container networking**: a bound `net` interface. Podman's rootless network
   (pasta/slirp4netns) NATs the containers' egress out through the tile's own
   egress relay. `net=host` is the simplest, most robust option for a dev box

@@ -11,6 +11,11 @@ checks are skipped (reaching the mountpoint IS the access decision), and
 security.capability is served (encrypted) so file caps survive a store
 round-trip; RENAME_WHITEOUT is decomposed into rename + virtual whiteout.
 
+Because the daemon is the sole writer of a single-tenant cipher tree, the
+identity plane is cached in memory per inode — including the
+security.capability answer the kernel re-requests before every write
+(issue #515) — so small-file workloads stay near stock speed.
+
 Written against gocryptfs v2.6.1 for xbin's resenc container stores
 (docs/resources.md); no on-disk format change — the identity xattr is an
 overlay, trees mount fine with or without the flag.
@@ -19,7 +24,7 @@ Known fidelity gap: Linux forbids user.* xattrs on symlinks, so symlink
 ownership is not virtualized (lchown on a symlink is a no-op).
 ---
 diff --git a/cli_args.go b/cli_args.go
-index e690e15..28858c6 100644
+index e690e15..fe4ec0b 100644
 --- a/cli_args.go
 +++ b/cli_args.go
 @@ -31,7 +31,7 @@ type argContainer struct {
@@ -46,8 +51,8 @@ index e690e15..28858c6 100644
  		tlog.Fatal.Printf("-longnamemax: value %d is outside allowed range 62 ... 255", args.longnamemax)
  		os.Exit(exitcodes.Usage)
  	}
-+	if args.xbin_single_tenant && (args.reverse || args.plaintextnames) {
-+		tlog.Fatal.Printf("The option -xbin-single-tenant cannot be used with -reverse or -plaintextnames")
++	if args.xbin_single_tenant && (args.reverse || args.plaintextnames || args.sharedstorage) {
++		tlog.Fatal.Printf("The option -xbin-single-tenant cannot be used with -reverse, -plaintextnames or -sharedstorage")
 +		os.Exit(exitcodes.Usage)
 +	}
  
@@ -67,17 +72,18 @@ index 64a5923..de56cb6 100644
 +	SingleTenant bool
  }
 diff --git a/internal/fusefrontend/file.go b/internal/fusefrontend/file.go
-index afee158..24e68e9 100644
+index afee158..4dc5997 100644
 --- a/internal/fusefrontend/file.go
 +++ b/internal/fusefrontend/file.go
-@@ -443,6 +443,16 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
+@@ -443,6 +443,17 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
  	if f.rootNode.args.ForceOwner != nil {
  		a.Owner = *f.rootNode.args.ForceOwner
  	}
 +	// Single-tenant mode: present the virtualized identity (after the size
 +	// translation, which keys off the real regular-file type)
 +	if f.rootNode.args.SingleTenant {
-+		if v := f.rootNode.loadVirtFd(f.intFd()); v != nil {
++		rn := f.rootNode
++		if v := rn.virtFor(f.qIno, func() *virtStat { return rn.loadVirtFd(f.intFd()) }); v != nil {
 +			a.Mode = v.Mode
 +			a.Owner.Uid = v.Uid
 +			a.Owner.Gid = v.Gid
@@ -388,7 +394,7 @@ index 95be48d..eb46a57 100644
  	}
  	if nametransform.IsLongContent(cName) {
 diff --git a/internal/fusefrontend/node_dir_ops.go b/internal/fusefrontend/node_dir_ops.go
-index 11ff83d..94fdc3b 100644
+index 11ff83d..848432b 100644
 --- a/internal/fusefrontend/node_dir_ops.go
 +++ b/internal/fusefrontend/node_dir_ops.go
 @@ -77,6 +77,8 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
@@ -412,7 +418,7 @@ index 11ff83d..94fdc3b 100644
  
  	// Handle long file name
  	if nametransform.IsLongContent(cName) {
-@@ -142,8 +149,17 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
+@@ -142,8 +149,18 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
  		return nil, fs.ToErrno(err)
  	}
  
@@ -426,6 +432,7 @@ index 11ff83d..94fdc3b 100644
 +			tlog.Warn.Printf("Mkdir %q: storing virtual identity failed: %v", cName, err)
 +			return nil, fs.ToErrno(err)
 +		}
++		rn.rememberVirt(&st, v) // st is still raw here (newChild translates it)
 +		applyVirt(&st, v)
 +	} else if origMode != mode {
 +		// Fix permissions
@@ -433,7 +440,7 @@ index 11ff83d..94fdc3b 100644
  		origMode = uint32(st.Mode&^0777) | origMode
  		err = syscall.Fchmod(fd, origMode)
 diff --git a/internal/fusefrontend/node_open_create.go b/internal/fusefrontend/node_open_create.go
-index 9598559..72e09fb 100644
+index 9598559..ba6f340 100644
 --- a/internal/fusefrontend/node_open_create.go
 +++ b/internal/fusefrontend/node_open_create.go
 @@ -66,12 +66,21 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
@@ -474,7 +481,7 @@ index 9598559..72e09fb 100644
  	}
  	if err != nil {
  		// xfstests generic/488 triggers this
-@@ -99,10 +108,27 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+@@ -99,10 +108,30 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
  		return nil, nil, 0, fs.ToErrno(err)
  	}
  
@@ -498,26 +505,110 @@ index 9598559..72e09fb 100644
  	if errno != 0 {
  		return
  	}
-+	applyVirt(st, v)
++	if v != nil {
++		rn.rememberVirt(st, v) // st is still raw here (newChild translates it)
++		applyVirt(st, v)
++	}
  
  	inode = n.newChild(ctx, st, out)
  
 diff --git a/internal/fusefrontend/node_xattr.go b/internal/fusefrontend/node_xattr.go
-index 44bc502..7f08ac6 100644
+index 44bc502..42884b7 100644
 --- a/internal/fusefrontend/node_xattr.go
 +++ b/internal/fusefrontend/node_xattr.go
-@@ -38,7 +38,9 @@ func (n *Node) Getxattr(ctx context.Context, attr string, dest []byte) (uint32,
+@@ -4,6 +4,7 @@ package fusefrontend
+ import (
+ 	"bytes"
+ 	"context"
++	"slices"
+ 	"strings"
+ 	"syscall"
+ 
+@@ -38,11 +39,33 @@ func (n *Node) Getxattr(ctx context.Context, attr string, dest []byte) (uint32,
  	// If we are not mounted with -suid, reading the capability xattr does not
  	// make a lot of sense, so reject the request and gain a massive speedup.
  	// See https://github.com/rfjakob/gocryptfs/issues/515 .
--	if !rn.args.Suid && attr == xattrCapability {
-+	// Single-tenant mode serves it: file capabilities in container image
-+	// layers must survive a store round-trip.
-+	if !rn.args.Suid && !rn.args.SingleTenant && attr == xattrCapability {
- 		// Returning EOPNOTSUPP is what we did till
- 		// ca9e912a28b901387e1dbb85f6c531119f2d5ef2 "fusefrontend: drop xattr user namespace restriction"
- 		// and it did not cause trouble. Seems cleaner than saying ENODATA.
-@@ -141,6 +143,11 @@ func (n *Node) Listxattr(ctx context.Context, dest []byte) (uint32, syscall.Errn
++	// Single-tenant mode must serve it — file capabilities in container
++	// image layers survive a store round-trip — but per-inode cached, since
++	// the kernel repeats this question before every single write.
++	capCache := false
++	var capIno uint64
+ 	if !rn.args.Suid && attr == xattrCapability {
+-		// Returning EOPNOTSUPP is what we did till
+-		// ca9e912a28b901387e1dbb85f6c531119f2d5ef2 "fusefrontend: drop xattr user namespace restriction"
+-		// and it did not cause trouble. Seems cleaner than saying ENODATA.
+-		return 0, syscall.EOPNOTSUPP
++		if !rn.args.SingleTenant {
++			// Returning EOPNOTSUPP is what we did till
++			// ca9e912a28b901387e1dbb85f6c531119f2d5ef2 "fusefrontend: drop xattr user namespace restriction"
++			// and it did not cause trouble. Seems cleaner than saying ENODATA.
++			return 0, syscall.EOPNOTSUPP
++		}
++		capIno = n.StableAttr().Ino
++		if v, ok := rn.capCache.get(capIno); ok {
++			cached, _ := v.([]byte)
++			if cached == nil {
++				return 0, syscall.ENODATA
++			}
++			if len(dest) == 0 {
++				return uint32(len(cached)), 0
++			}
++			if len(dest) < len(cached) {
++				return minus1, syscall.ERANGE
++			}
++			return uint32(copy(dest, cached)), 0
++		}
++		capCache = true
+ 	}
+ 	var data []byte
+ 	// ACLs are passed through without encryption
+@@ -60,6 +83,9 @@ func (n *Node) Getxattr(ctx context.Context, attr string, dest []byte) (uint32,
+ 		}
+ 		cData, errno := n.getXAttr(cAttr)
+ 		if errno != 0 {
++			if capCache && errno == syscall.ENODATA {
++				rn.capCache.put(capIno, ([]byte)(nil))
++			}
+ 			return 0, errno
+ 		}
+ 		data, err = rn.decryptXattrValue(cData)
+@@ -67,6 +93,9 @@ func (n *Node) Getxattr(ctx context.Context, attr string, dest []byte) (uint32,
+ 			tlog.Warn.Printf("GetXAttr: %v", err)
+ 			return minus1, syscall.EIO
+ 		}
++		if capCache {
++			rn.capCache.put(capIno, slices.Clone(data))
++		}
+ 	}
+ 	// Caller passes size zero to find out how large their buffer should be
+ 	if len(dest) == 0 {
+@@ -101,7 +130,11 @@ func (n *Node) Setxattr(ctx context.Context, attr string, data []byte, flags uin
+ 		return syscall.EINVAL
+ 	}
+ 	cData := rn.encryptXattrValue(data)
+-	return n.setXAttr(nil, cAttr, cData, flags)
++	errno := n.setXAttr(nil, cAttr, cData, flags)
++	if errno == 0 && rn.args.SingleTenant && attr == xattrCapability {
++		rn.capCache.put(n.StableAttr().Ino, slices.Clone(data))
++	}
++	return errno
+ }
+ 
+ // RemoveXAttr - FUSE call.
+@@ -119,7 +152,11 @@ func (n *Node) Removexattr(ctx context.Context, attr string) syscall.Errno {
+ 	if err != nil {
+ 		return syscall.EINVAL
+ 	}
+-	return n.removeXAttr(cAttr)
++	errno := n.removeXAttr(cAttr)
++	if errno == 0 && rn.args.SingleTenant && attr == xattrCapability {
++		rn.capCache.put(n.StableAttr().Ino, ([]byte)(nil))
++	}
++	return errno
+ }
+ 
+ // ListXAttr - FUSE call. Lists extended attributes on the file at "relPath".
+@@ -141,6 +178,11 @@ func (n *Node) Listxattr(ctx context.Context, dest []byte) (uint32, syscall.Errn
  		if !strings.HasPrefix(curName, xattrStorePrefix) {
  			continue
  		}
@@ -529,12 +620,28 @@ index 44bc502..7f08ac6 100644
  		name, err := rn.decryptXattrName(curName)
  		if err != nil {
  			tlog.Warn.Printf("ListXAttr: invalid xattr name %q: %v", curName, err)
+diff --git a/internal/fusefrontend/root_node.go b/internal/fusefrontend/root_node.go
+index 8464c5f..85fe98e 100644
+--- a/internal/fusefrontend/root_node.go
++++ b/internal/fusefrontend/root_node.go
+@@ -62,6 +62,11 @@ type RootNode struct {
+ 	quirks uint64
+ 	// rootIno is the inode number that we report for the root node on mount
+ 	rootIno uint64
++	// Single-tenant mode caches (virtnode.go): virtualized identities and
++	// capability-xattr values per inode. Sound only because the daemon is
++	// the sole writer of a single-tenant cipher tree.
++	virtIdCache virtMemCache
++	capCache    virtMemCache
+ }
+ 
+ func NewRootNode(args Args, c *contentenc.ContentEnc, n *nametransform.NameTransform) *RootNode {
 diff --git a/internal/fusefrontend/virtnode.go b/internal/fusefrontend/virtnode.go
 new file mode 100644
-index 0000000..da2b42d
+index 0000000..fb12cbd
 --- /dev/null
 +++ b/internal/fusefrontend/virtnode.go
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,314 @@
 +package fusefrontend
 +
 +// xbin single-tenant mode (-xbin-single-tenant)
@@ -575,6 +682,8 @@ index 0000000..da2b42d
 +import (
 +	"encoding/json"
 +	"fmt"
++	"sync"
++	"sync/atomic"
 +	"syscall"
 +
 +	"golang.org/x/sys/unix"
@@ -582,10 +691,53 @@ index 0000000..da2b42d
 +	"github.com/hanwen/go-fuse/v2/fs"
 +	"github.com/hanwen/go-fuse/v2/fuse"
 +
++	"github.com/rfjakob/gocryptfs/v2/internal/inomap"
 +	"github.com/rfjakob/gocryptfs/v2/internal/nametransform"
 +	"github.com/rfjakob/gocryptfs/v2/internal/syscallcompat"
 +	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
 +)
++
++// In-memory caches for the identity plane. These are sound ONLY because a
++// single-tenant mount's daemon is the sole writer of its cipher tree — no
++// other process can change the xattrs behind its back. They matter because
++// the kernel stats constantly and asks for security.capability before EVERY
++// write (https://github.com/rfjakob/gocryptfs/issues/515); without caching,
++// small-file workloads (npm, image builds) pay an encrypted-xattr round
++// trip per operation. Keyed per inode (hard links share identity by
++// design); a crude size cap bounds memory on huge trees.
++const virtCacheMax = 1 << 19
++
++type virtMemCache struct {
++	m sync.Map
++	n atomic.Int64
++}
++
++func (c *virtMemCache) get(k any) (any, bool) { return c.m.Load(k) }
++
++func (c *virtMemCache) put(k, v any) {
++	if _, loaded := c.m.Swap(k, v); !loaded && c.n.Add(1) > virtCacheMax {
++		c.m.Clear()
++		c.n.Store(0)
++	}
++}
++
++// virtFor returns the (possibly cached) identity for an inode, calling load
++// on a miss and remembering the result — including "no identity" (nil).
++func (rn *RootNode) virtFor(qi inomap.QIno, load func() *virtStat) *virtStat {
++	if v, ok := rn.virtIdCache.get(qi); ok {
++		vs, _ := v.(*virtStat)
++		return vs
++	}
++	vs := load()
++	rn.virtIdCache.put(qi, vs)
++	return vs
++}
++
++// rememberVirt records a just-written identity (st only provides the inode
++// key and must be the raw, untranslated stat).
++func (rn *RootNode) rememberVirt(st *syscall.Stat_t, v *virtStat) {
++	rn.virtIdCache.put(inomap.QInoFromStat(st), v)
++}
 +
 +// stXattrName is the cipher-side xattr holding the virtualized stat data.
 +// The dotted suffix cannot collide with encrypted xattr names
@@ -684,7 +836,8 @@ index 0000000..da2b42d
 +	if !rn.args.SingleTenant {
 +		return
 +	}
-+	applyVirt(st, rn.loadVirtAt(dirfd, cName))
++	qi := inomap.QInoFromStat(st)
++	applyVirt(st, rn.virtFor(qi, func() *virtStat { return rn.loadVirtAt(dirfd, cName) }))
 +}
 +
 +// newVirt builds the identity for a freshly created object: the mode the
@@ -739,11 +892,17 @@ index 0000000..da2b42d
 +	if st.Mode&syscall.S_IFMT == syscall.S_IFLNK {
 +		return 0
 +	}
-+	v := applySetattrVirt(in, rn.loadVirtAt(dirfd, cName), st)
++	qi := inomap.QInoFromStat(st)
++	cur := rn.virtFor(qi, func() *virtStat { return rn.loadVirtAt(dirfd, cName) })
++	v := applySetattrVirt(in, cur, st)
 +	if v == nil {
 +		return 0
 +	}
-+	return fs.ToErrno(rn.saveVirtAt(dirfd, cName, v))
++	if errno := fs.ToErrno(rn.saveVirtAt(dirfd, cName, v)); errno != 0 {
++		return errno
++	}
++	rn.rememberVirt(st, v)
++	return 0
 +}
 +
 +// setattrVirtFd is setattrVirtAt for an open file handle.
@@ -752,11 +911,17 @@ index 0000000..da2b42d
 +	if err := syscall.Fstat(fd, &st); err != nil {
 +		return fs.ToErrno(err)
 +	}
-+	v := applySetattrVirt(in, rn.loadVirtFd(fd), &st)
++	qi := inomap.QInoFromStat(&st)
++	cur := rn.virtFor(qi, func() *virtStat { return rn.loadVirtFd(fd) })
++	v := applySetattrVirt(in, cur, &st)
 +	if v == nil {
 +		return 0
 +	}
-+	return fs.ToErrno(rn.saveVirtFd(fd, v))
++	if errno := fs.ToErrno(rn.saveVirtFd(fd, v)); errno != 0 {
++		return errno
++	}
++	rn.rememberVirt(&st, v)
++	return 0
 +}
 +
 +// createVirtSpecialAt creates the cipher-side representation of a special
@@ -781,7 +946,15 @@ index 0000000..da2b42d
 +	if mode&syscall.S_IFMT == 0 {
 +		mode |= syscall.S_IFREG
 +	}
-+	return rn.saveVirtFd(fd, newVirt(caller, mode, rdev))
++	v := newVirt(caller, mode, rdev)
++	if err := rn.saveVirtFd(fd, v); err != nil {
++		return err
++	}
++	var st syscall.Stat_t
++	if err := syscall.Fstat(fd, &st); err == nil {
++		rn.rememberVirt(&st, v)
++	}
++	return nil
 +}
 diff --git a/mount.go b/mount.go
 index 5c0f064..5661c3d 100644

@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Container-store speed: identity caching + overlay storage.** Two fixes
+  for slow small-file work (npm, image builds) on single-tenant stores:
+  the gocryptfs patch now caches the virtualized identities *and* the
+  `security.capability` answer the kernel re-requests before every write
+  in memory, per inode (sound because the daemon is the sole writer of a
+  single-tenant cipher tree) — stat/chmod-heavy work is back at stock
+  gocryptfs speed. And the devbox tile now prefers the `overlay` storage
+  driver via fuse-overlayfs when the sandbox has `/dev/fuse` (a build
+  step writes only its diff; `vfs` copied the entire rootfs chain per
+  layer — quadratic, and brutally slow through an encrypted store). `vfs`
+  remains the fallback and `DEVBOX_STORAGE_DRIVER` still overrides;
+  switching drivers keeps the old driver's images on disk — re-pull.
+
 - **Container stores work on encrypted resources.** A `filesystem` resource
   of a `cap:containers` scope now mounts in gocryptfs *single-tenant mode*
   (an xbin patchset on the pinned gocryptfs, `hack/gocryptfs-patches/`):

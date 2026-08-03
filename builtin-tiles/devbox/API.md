@@ -38,10 +38,12 @@ SSH username; you land in a shell inside it (starting it first if stopped).
 
 - **Storage** lives in the `storage` filesystem resource (`--root`), so
   images/containers + the SSH host key + authorized keys persist across
-  restarts (encrypted at rest). The `vfs` storage driver is the default (robust
-  inside the nested sandbox); override with `DEVBOX_STORAGE_DRIVER`,
-  `DEVBOX_NETWORK`, `DEVBOX_CGROUP_MANAGER`, `DEVBOX_PODMAN` if a host needs
-  tuning.
+  restarts (encrypted at rest). Storage driver: `overlay` via fuse-overlayfs
+  when the sandbox has `/dev/fuse` (build steps write diffs — far faster on
+  the encrypted store), else `vfs`; override with `DEVBOX_STORAGE_DRIVER`
+  (note: switching drivers keeps the old driver's images on disk under the
+  store — re-pull under the new one). `DEVBOX_NETWORK`,
+  `DEVBOX_CGROUP_MANAGER`, `DEVBOX_PODMAN` tune the rest.
 - **Host prerequisite**: nested rootless containers need a delegated
   sub-uid/gid range for the xbind user (`/etc/subuid`+`/etc/subgid` + the
   `uidmap` package) — the same thing `apt` in terminals needs. Without it you
