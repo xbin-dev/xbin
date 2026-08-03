@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-04
 
+- **Admin resources tab: workspace totals + per-type resource tabs.** The
+  live-stats view now opens with four workspace-total charts (CPU, memory,
+  I/O, IOPS summed across tiles, ~3 min of history) with a "by org" toggle
+  that splits each chart into one line per owner. The brokered-resources
+  table below became one tab per resource type (filesystem, sqlite, kv,
+  blob, bus, cron) with type-appropriate columns — bus resources show live
+  **events/min** (from a new cumulative publish counter on `GET /runtime`
+  resources; in-memory, resets with the daemon). Also fixed: `filesystem`
+  resources reported no size in the table.
+
 - **Tile frontend isolation: tiles now run in sandboxed opaque origins —
   BREAKING.** Every non-chrome tile document is served with a CSP `sandbox`
   header and framed by `bx-frame` with the `sandbox` attribute (plus

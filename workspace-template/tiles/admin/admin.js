@@ -99,6 +99,8 @@ export class BxAdmin extends LitElement {
     _rt: { state: true },       // /runtime snapshot {host, backends}
     _rtOpen: { state: true },   // set of expanded backend paths
     _stSort: { state: true },   // live-stats table sort {col, dir}
+    _stTotOrg: { state: true }, // totals charts: split lines per org
+    _resType: { state: true },  // resources table: active type tab
     _stFilter: { state: true }, // live-stats name-prefix filter
     _stGroup: { state: true },  // live-stats: group rows by org
     _stOpen: { state: true },   // live-stats: tile expanded into big charts
@@ -444,6 +446,15 @@ export class BxAdmin extends LitElement {
       // Sample per-backend network totals for live rate sparklines.
       this._hist = this._hist || {};
       const now = Date.now();
+      // Bus resources: ring of cumulative event counts → events/min.
+      this._busRing = this._busRing || new Map();
+      for (const r of rt.resources || []) {
+        if (r.type !== 'bus') continue;
+        const ring = this._busRing.get(r.id) || [];
+        ring.push({ t: now, n: r.events || 0 });
+        while (ring.length > 40) ring.shift();
+        this._busRing.set(r.id, ring);
+      }
       for (const b of rt.backends || []) {
         const a = b.activity;
         const h = (this._hist[b.path] = this._hist[b.path] || []);
@@ -843,16 +854,54 @@ export class BxAdmin extends LitElement {
       >mount ${mark(p.seccomp)} · read ${land}</span>`;
   }
 
+  // One tab per resource type; per-type columns (bus: live events/min from
+  // the cumulative counter sampled every poll — see _loadRuntime).
+  static resTypeOrder = ['filesystem', 'sqlite', 'kv', 'blob', 'bus', 'cron'];
+
+  _busRate(id) {
+    const ring = this._busRing?.get(id);
+    if (!ring || ring.length < 2) return null;
+    // events in the trailing ≤60s window, scaled to a minute
+    const last = ring[ring.length - 1];
+    let first = ring[0];
+    for (const s of ring) { if (last.t - s.t <= 65000) { first = s; break; } }
+    const dtMin = (last.t - first.t) / 60000;
+    if (dtMin <= 0) return null;
+    return Math.max(0, (last.n - first.n) / dtMin);
+  }
+
   _resourcesSection(resources) {
     if (!resources || !resources.length) return nothing;
+    const types = BxAdmin.resTypeOrder.filter((t) => resources.some((r) => r.type === t))
+      .concat([...new Set(resources.map((r) => r.type))].filter((t) => !BxAdmin.resTypeOrder.includes(t)));
+    const active = types.includes(this._resType) ? this._resType : types[0];
+    const rows = resources.filter((r) => r.type === active);
+    const cols = active === 'bus' ? ['id', 'events/min', 'events total']
+      : active === 'cron' ? ['id', 'jobs']
+      : active === 'kv' ? ['id', 'size', 'keys']
+      : ['id', 'size', 'detail'];
+    const cell = (r, c) => {
+      switch (c) {
+        case 'id': return html`<span class="p" title=${r.id}>${r.id}</span>`;
+        case 'size': return html`<span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>`;
+        case 'events/min': { const v = this._busRate(r.id);
+          return html`<span class="num">${v == null ? '…' : v < 10 ? v.toFixed(1) : Math.round(v)}</span>`; }
+        case 'events total': return html`<span class="num">${r.events || 0}</span>`;
+        default: return html`<span class="muted">${r.detail || ''}</span>`;
+      }
+    };
     return html`
       <h4>resources</h4>
-      <div class="bk"><div class="row hdr rrow"><span>id</span><span>type</span><span class="num">size</span><span>detail</span></div></div>
-      ${resources.map((r) => html`<div class="bk"><div class="row rrow">
-        <span class="p" title=${r.id}>${r.id}</span>
-        <span>${r.type}</span>
-        <span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>
-        <span class="muted">${r.detail || ''}</span>
+      <div class="strip" style="gap:2px">
+        ${types.map((t) => html`<button class="act ${t === active ? 'on' : ''}"
+          style=${t === active ? 'font-weight:600' : ''}
+          @click=${() => { this._resType = t; }}>${t}
+          <span class="muted">${resources.filter((r) => r.type === t).length}</span></button>`)}
+      </div>
+      <div class="bk"><div class="row hdr rrow" style="grid-template-columns: 1fr ${cols.slice(1).map(() => '110px').join(' ')}">
+        ${cols.map((c) => html`<span class=${c === 'id' ? '' : 'num'}>${c}</span>`)}</div></div>
+      ${rows.map((r) => html`<div class="bk"><div class="row rrow" style="grid-template-columns: 1fr ${cols.slice(1).map(() => '110px').join(' ')}">
+        ${cols.map((c) => cell(r, c))}
       </div></div>`)}`;
   }
 
@@ -1086,6 +1135,77 @@ export class BxAdmin extends LitElement {
     { label: 'iops r+w', keys: ['riops', 'wiops'], colors: ['#5b8def', 'var(--bx-red,#e5484d)'], fmt: (c) => `${Math.round(c.riops || 0)} · ${Math.round(c.wiops || 0)}` },
   ];
 
+  // N-line sparkline over precomputed numeric arrays (shared max). Used by
+  // the totals charts, where one line per org can exceed _stSpark's two.
+  _stSparkN(lines, w = 220, ht = 44) {
+    const len = Math.max(0, ...lines.map((l) => l.vals.length));
+    if (len < 2) return html`<span class="muted" style="font-size:10px">gathering…</span>`;
+    let max = 0;
+    for (const l of lines) for (const v of l.vals) max = Math.max(max, v);
+    const step = w / (len - 1);
+    return html`<svg class="spark" width=${w} height=${ht} viewBox="0 0 ${w} ${ht}">
+      ${lines.map((l) => html`<polyline fill="none" stroke=${l.color} stroke-width="1.3"
+        points=${l.vals.map((v, i) => `${((i + (len - l.vals.length)) * step).toFixed(1)},${(ht - (max ? v / max : 0) * (ht - 2) - 1).toFixed(1)}`).join(' ')}></polyline>`)}
+    </svg>`;
+  }
+
+  static orgPalette = ['#5b8def', '#43a047', '#f5a623', '#e5484d', '#9c27b0',
+    '#00acc1', '#8d6e63', '#7cb342'];
+
+  // Workspace totals: each metric summed across tiles point-by-point
+  // (series share the sampler's cadence; aligned on the tail). "by org"
+  // splits the sum into one line per owner.
+  _stTotals(stats) {
+    const tiles = stats?.tiles ?? [];
+    if (!tiles.length) return nothing;
+    const M = BxAdmin.stMetrics;
+    const val = (p, keys) => keys.reduce((s, k) => s + (p[k] || 0), 0);
+    const sum = (list, keys) => {
+      const len = Math.max(0, ...list.map((t) => (t.series || []).length));
+      const out = new Array(len).fill(0);
+      for (const t of list) {
+        const ser = t.series || [];
+        for (let i = 0; i < ser.length; i++) out[len - ser.length + i] += val(ser[i], keys);
+      }
+      return out;
+    };
+    let orgs = null;
+    if (this._stTotOrg) {
+      const buckets = new Map();
+      for (const t of tiles) {
+        const k = t.owner || 'workspace';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(t);
+      }
+      orgs = [...buckets.entries()];
+    }
+    const chart = (m) => {
+      const totalNow = tiles.reduce((s, t) => s + val(t.cur || {}, m.keys), 0);
+      const lines = orgs
+        ? orgs.map(([org, list], i) => ({ org, color: BxAdmin.orgPalette[i % BxAdmin.orgPalette.length], vals: sum(list, m.keys) }))
+        : [{ color: m.colors[0], vals: sum(tiles, m.keys) }];
+      return html`<div class="stchart">
+        <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">${m.label}
+          <b style="text-transform:none;letter-spacing:0"> ${m.label === 'cpu' ? `${totalNow.toFixed(1)}%`
+            : m.label.startsWith('iops') ? `${Math.round(totalNow)}/s`
+            : `${this._fmtBytes(totalNow)}${m.label === 'mem' ? '' : '/s'}`}</b></div>
+        ${this._stSparkN(lines)}
+      </div>`;
+    };
+    return html`
+      <h4 style="display:flex;align-items:center;gap:12px">workspace totals
+        <label class="muted" style="font-size:11px;font-weight:400;display:inline-flex;gap:5px;align-items:center">
+          <input type="checkbox" .checked=${this._stTotOrg}
+            @change=${(e) => { this._stTotOrg = e.target.checked; }}>
+          by org</label></h4>
+      <div class="stbig" style="padding:4px 0 2px">${M.map(chart)}</div>
+      ${orgs && orgs.length > 1 ? html`<div class="strip" style="gap:10px;flex-wrap:wrap">
+        ${orgs.map(([org], i) => html`<span class="muted mono" style="font-size:10.5px">
+          <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${BxAdmin.orgPalette[i % BxAdmin.orgPalette.length]}"></span>
+          ${org}</span>`)}
+      </div>` : nothing}`;
+  }
+
   _liveStatsSection(stats) {
     const tiles = stats?.tiles ?? [];
     const M = BxAdmin.stMetrics;
@@ -1189,6 +1309,7 @@ export class BxAdmin extends LitElement {
         ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
         ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
       </div>
+      ${this._stTotals(rt.stats)}
       ${this._liveStatsSection(rt.stats)}
       ${this._resourcesSection(rt.resources)}
       ${(!rt.resources || !rt.resources.length) ? html`<p class="muted">no brokered resources provisioned yet — declare them in a <span class="mono">scope.json</span> (kv, blob, bus, cron, sqlite, filesystem). See <a href="/docs/resources.md" target="_blank">docs/resources.md</a>.</p>` : nothing}`;

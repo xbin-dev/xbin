@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync/atomic"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -21,6 +22,7 @@ type ResourceInfo struct {
 	Type   string `json:"type"`   // kv|sqlite|blob|bus|cron
 	Size   int64  `json:"size"`   // bytes on disk (0 for ephemeral)
 	Detail string `json:"detail"` // "N keys" | "N files" | "N jobs" | "ephemeral"
+	Events int64  `json:"events,omitempty"` // bus: events published since start (cumulative — the admin UI derives events/min)
 }
 
 // ResourceUsage enumerates every declared resource with its storage footprint,
@@ -46,6 +48,10 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 	switch typ {
 	case "sqlite":
 		ri.Size, _ = b.fileResSize(scope, name, "sqlite")
+	case "filesystem":
+		size, files := b.fileResSize(scope, name, "filesystem")
+		ri.Size = size
+		ri.Detail = plural(files, "file")
 	case "blob":
 		size, files := b.fileResSize(scope, name, "blob")
 		ri.Size = size
@@ -58,6 +64,7 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 		ri.Detail = plural(b.cronCount(id), "job")
 	case "bus":
 		ri.Detail = "ephemeral"
+		ri.Events = b.busEventCount(id)
 	}
 	return ri
 }
@@ -129,6 +136,20 @@ func (b *Broker) cronCount(resource string) int {
 		}
 	}
 	return n
+}
+
+// countBusEvent bumps the published-event counter for one bus resource
+// (in-memory, like the bus itself — resets with the daemon).
+func (b *Broker) countBusEvent(id string) {
+	v, _ := b.busEv.LoadOrStore(id, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
+
+func (b *Broker) busEventCount(id string) int64 {
+	if v, ok := b.busEv.Load(id); ok {
+		return v.(*atomic.Int64).Load()
+	}
+	return 0
 }
 
 func plural(n int, unit string) string {

@@ -37,6 +37,7 @@ type Broker struct {
 	Hub *events.Hub
 
 	mu        sync.Mutex
+	busEv     sync.Map // bus resource id → *atomic.Int64 published-event count
 	kv        *kvStore
 	cron      *cronRunner
 	uids      *uidAllocator         // nil = tier 1

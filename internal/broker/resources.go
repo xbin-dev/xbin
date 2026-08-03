@@ -431,6 +431,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		Topic: rt.String() + "/" + msg.Topic,
 		Data:  msg.Data,
 	})
+	b.countBusEvent(rt.String())
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
