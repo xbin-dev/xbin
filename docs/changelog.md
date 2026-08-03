@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Live per-tile stats in the admin console.** The resources tab now leads
+  with a live table of every running tile: CPU %, memory, I/O MB/s and
+  IOPS (read+write, syscall-level — resource/FUSE I/O included), pids —
+  each with an inline sparkline, click a row for full-size charts (~3 min
+  of history at 2s cadence). Columns sort on click, a prefix filter
+  narrows by tile name, and "group by org" buckets rows under their
+  owner with per-org totals. Backed by a new demand-driven sampler in
+  xbind (cgroup-v2-exact under the installed service's `Delegate=yes`;
+  /proc-tree sampling in dev) surfaced as `stats` on `GET /runtime`
+  ([protocol.md](/docs/protocol.md)).
+
 - **Container-store speed: identity caching + overlay storage.** Two fixes
   for slow small-file work (npm, image builds) on single-tenant stores:
   the gocryptfs patch now caches the virtualized identities *and* the

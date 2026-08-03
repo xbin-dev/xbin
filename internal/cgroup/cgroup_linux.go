@@ -172,6 +172,24 @@ func (m *Manager) Usage(name string) (Usage, bool) {
 	return u, true
 }
 
+// Procs lists the pids currently in a leaf (the backend's whole process
+// tree — cgroup membership is inherited). ok=false if disabled/absent.
+func (m *Manager) Procs(name string) (pids []int, ok bool) {
+	if !m.Enabled() {
+		return nil, false
+	}
+	b, err := os.ReadFile(filepath.Join(m.leaf(name), "cgroup.procs"))
+	if err != nil {
+		return nil, false
+	}
+	for _, ln := range strings.Split(string(b), "\n") {
+		if n, err := strconv.Atoi(strings.TrimSpace(ln)); err == nil {
+			pids = append(pids, n)
+		}
+	}
+	return pids, true
+}
+
 // Remove deletes a component leaf (best-effort; after the process has exited).
 func (m *Manager) Remove(name string) {
 	if m.Enabled() {

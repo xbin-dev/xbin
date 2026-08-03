@@ -635,8 +635,18 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"isolate":   run.Isolate, "rootfs": run.Rootfs, "scopeUids": scopeUIDs && os.Geteuid() == 0,
 			"protections": sandbox.DetectProtections(), // terminal mount/read guard availability
 		}
+		// Live per-tile stats (cpu/mem/io series) with tile owners attached
+		// so the console can group by org.
+		stats := run.StatsSnapshot()
+		if tiles, ok := stats["tiles"].([]runner.TileStats); ok {
+			owners := userStore.Owners()
+			for i := range tiles {
+				tiles[i].Owner = owners[tiles[i].Path]
+			}
+		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{
 			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
+			"stats": stats,
 		})
 	})
 	// Ingress overview (plans/ingress.md): exposes + bindings + routes from

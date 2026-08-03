@@ -98,6 +98,10 @@ export class BxAdmin extends LitElement {
     _codeMode: { state: true }, // 'file' | 'diff'
     _rt: { state: true },       // /runtime snapshot {host, backends}
     _rtOpen: { state: true },   // set of expanded backend paths
+    _stSort: { state: true },   // live-stats table sort {col, dir}
+    _stFilter: { state: true }, // live-stats name-prefix filter
+    _stGroup: { state: true },  // live-stats: group rows by org
+    _stOpen: { state: true },   // live-stats: tile expanded into big charts
   };
 
   static styles = css`
@@ -232,6 +236,20 @@ export class BxAdmin extends LitElement {
     .code pre.diff > .fh { color: var(--bx-muted, #8794a1); }
     .grouphd { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
       color: var(--bx-muted, #8794a1); padding: 4px 8px; background: var(--bx-panel-2, #f7f8fa); }
+
+    /* ---- live tile stats (resources tab) ---- */
+    .strip { display: flex; gap: 10px; align-items: center; margin: 4px 0 8px; flex-wrap: wrap; }
+    table.stats th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    table.stats th.sortable:hover { color: var(--bx-text, #33414e); }
+    table.stats .strow { cursor: pointer; }
+    table.stats .strow:hover td, table.stats .strow.on td { background: var(--bx-panel-2, #f7f8fa); }
+    .stcell { display: flex; flex-direction: column; gap: 1px; min-width: 90px; }
+    .stcell .stval { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    svg.spark { display: block; opacity: .85; }
+    td.stbig { padding: 8px 0 10px; }
+    td.stbig > .stchart { display: inline-block; margin: 0 18px 4px 0; vertical-align: top; }
+    .stchart b { font-variant-numeric: tabular-nums; font-weight: 600; }
+    table.stats .grouphd { padding: 4px 8px; }
 
     /* highlight.js — dark palette (Atom-One-Dark-ish) scoped to this shadow */
     .hljs-comment, .hljs-quote { color: #7f8896; font-style: italic; }
@@ -380,6 +398,10 @@ export class BxAdmin extends LitElement {
     this._cats = new Set(); // active category chips
     this._access = {};      // per-component access relations, lazily loaded
     this._accOpen = new Set();
+    this._stSort = { col: 'cpu', dir: -1 };
+    this._stFilter = '';
+    this._stGroup = false;
+    this._stOpen = null;
   }
 
   _setGroup(g) { this._setTab(g.tabs[0].id); }
@@ -996,6 +1018,148 @@ export class BxAdmin extends LitElement {
 
   _isOffloaded(k) { return k.state === 'offloaded' || k.state === 'offloaded-full'; }
 
+  // ---- live per-tile stats (runtime → resources) --------------------------
+  // CPU / memory / I/O rates sampled by xbind (cgroup leaves, /proc fallback;
+  // internal/runner/stats.go), polled with the rest of /runtime every 2s.
+
+  // Multi-line SVG sparkline over a stats series. keys/colors pick up to two
+  // fields of each point; scaled to the window max (shared across lines).
+  _stSpark(series, keys, colors, w = 84, ht = 18) {
+    if (!series || series.length < 2) return html`<span class="muted" style="font-size:10px">—</span>`;
+    let max = 0;
+    for (const p of series) for (const k of keys) max = Math.max(max, p[k] || 0);
+    const step = w / (series.length - 1);
+    const pts = (k) => series.map((p, i) =>
+      `${(i * step).toFixed(1)},${(ht - (max ? ((p[k] || 0) / max) : 0) * (ht - 2) - 1).toFixed(1)}`).join(' ');
+    const p1 = pts(keys[0]);
+    const p2 = keys[1] ? pts(keys[1]) : '';
+    return html`<svg class="spark" width=${w} height=${ht} viewBox="0 0 ${w} ${ht}">
+      <polyline points=${p1} fill="none" stroke=${colors[0]} stroke-width="1.2"></polyline>
+      <polyline points=${p2} fill="none" stroke=${colors[1] || 'none'} stroke-width="1.2"></polyline>
+    </svg>`;
+  }
+
+  // One metric cell: current value over its sparkline.
+  _stCell(t, keys, colors, fmt) {
+    return html`<div class="stcell">
+      <span class="stval">${fmt(t.cur)}</span>
+      ${this._stSpark(t.series, keys, colors)}
+    </div>`;
+  }
+
+  _stSortKey(t) {
+    const c = t.cur || {};
+    switch (this._stSort.col) {
+      case 'tile': return t.path;
+      case 'org': return t.owner || '';
+      case 'mem': return c.mem || 0;
+      case 'io': return (c.rbps || 0) + (c.wbps || 0);
+      case 'iops': return (c.riops || 0) + (c.wiops || 0);
+      case 'pids': return c.pids || 0;
+      default: return c.cpu || 0;
+    }
+  }
+
+  _stTh(col, label, title) {
+    const s = this._stSort;
+    return html`<th class="sortable" title=${title || ''}
+      @click=${() => { this._stSort = { col, dir: s.col === col ? -s.dir : (col === 'tile' || col === 'org' ? 1 : -1) }; }}>
+      ${label}${s.col === col ? (s.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  }
+
+  // The four chart specs shared by cells and the expanded view. I/O series
+  // are syscall-level (all file activity incl. FUSE-backed resources).
+  static stMetrics = [
+    { label: 'cpu', keys: ['cpu'], colors: ['var(--bx-accent,#f5a623)'], fmt: (c) => `${(c.cpu || 0).toFixed(1)}%` },
+    { label: 'mem', keys: ['mem'], colors: ['var(--bx-green,#43a047)'], fmt: (c, el) => el._fmtBytes(c.mem || 0) },
+    { label: 'i/o r+w', keys: ['rbps', 'wbps'], colors: ['#5b8def', 'var(--bx-red,#e5484d)'], fmt: (c, el) => `${el._fmtBytes(c.rbps || 0)}/s · ${el._fmtBytes(c.wbps || 0)}/s` },
+    { label: 'iops r+w', keys: ['riops', 'wiops'], colors: ['#5b8def', 'var(--bx-red,#e5484d)'], fmt: (c) => `${Math.round(c.riops || 0)} · ${Math.round(c.wiops || 0)}` },
+  ];
+
+  _liveStatsSection(stats) {
+    const tiles = stats?.tiles ?? [];
+    const M = BxAdmin.stMetrics;
+    const f = (this._stFilter || '').trim();
+    let rows = f ? tiles.filter((t) => t.path.startsWith(f) || (t.owner || '').startsWith(f)) : tiles.slice();
+    const dir = this._stSort.dir;
+    rows.sort((a, b) => {
+      const ka = this._stSortKey(a); const kb = this._stSortKey(b);
+      const c = typeof ka === 'string' ? ka.localeCompare(kb) : ka - kb;
+      return c ? c * dir : a.path.localeCompare(b.path);
+    });
+
+    const head = html`<tr>
+      ${this._stTh('tile', 'tile')}
+      ${this._stGroup ? nothing : this._stTh('org', 'owner')}
+      ${this._stTh('cpu', 'cpu %')}
+      ${this._stTh('mem', 'memory')}
+      ${this._stTh('io', 'i/o', 'read + write, syscall-level (includes resource/FUSE I/O)')}
+      ${this._stTh('iops', 'iops', 'read + write ops/s')}
+      ${this._stTh('pids', 'pids')}
+    </tr>`;
+
+    const row = (t) => {
+      const open = this._stOpen === t.path;
+      return html`<tr class="strow ${open ? 'on' : ''}" @click=${() => { this._stOpen = open ? null : t.path; }}>
+        <td class="mono">${t.path}</td>
+        ${this._stGroup ? nothing : html`<td class="muted mono" style="font-size:11px">${t.owner || '—'}</td>`}
+        <td>${this._stCell(t, M[0].keys, M[0].colors, (c) => M[0].fmt(c, this))}</td>
+        <td>${this._stCell(t, M[1].keys, M[1].colors, (c) => M[1].fmt(c, this))}</td>
+        <td>${this._stCell(t, M[2].keys, M[2].colors, (c) => M[2].fmt(c, this))}</td>
+        <td>${this._stCell(t, M[3].keys, M[3].colors, (c) => M[3].fmt(c, this))}</td>
+        <td>${t.cur?.pids || 0}</td>
+      </tr>
+      ${open ? html`<tr><td colspan=${this._stGroup ? 6 : 7} class="stbig">
+        ${M.map((m) => html`<div class="stchart">
+          <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">${m.label}
+            <b style="text-transform:none;letter-spacing:0"> ${m.fmt(t.cur || {}, this)}</b></div>
+          ${this._stSpark(t.series, m.keys, m.colors, 300, 56)}
+        </div>`)}
+      </td></tr>` : nothing}`;
+    };
+
+    // Group by org: bucket per owner ref ("org:…", "user:…", or workspace).
+    let body;
+    if (this._stGroup) {
+      const buckets = new Map();
+      for (const t of rows) {
+        const k = t.owner || 'workspace';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(t);
+      }
+      const agg = (list, key) => list.reduce((s, t) => s + (this._aggVal(t, key)), 0);
+      body = [...buckets.entries()].map(([org, list]) => html`
+        <tr><td colspan="6" class="grouphd mono">${org} <span style="float:right;font-weight:400">
+          ${list.length} tile${list.length === 1 ? '' : 's'} · ${agg(list, 'cpu').toFixed(1)}% ·
+          ${this._fmtBytes(agg(list, 'mem'))} · ${this._fmtBytes(agg(list, 'io'))}/s</span></td></tr>
+        ${list.map(row)}`);
+    } else {
+      body = rows.map(row);
+    }
+
+    return html`
+      <h4>live tiles</h4>
+      <div class="strip">
+        <input placeholder="filter by name prefix…" .value=${this._stFilter}
+          @input=${(e) => { this._stFilter = e.target.value; }} style="width:200px">
+        <label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+          <input type="checkbox" .checked=${this._stGroup}
+            @change=${(e) => { this._stGroup = e.target.checked; this._stSort = this._stGroup && this._stSort.col === 'org' ? { col: 'cpu', dir: -1 } : this._stSort; }}>
+          group by org</label>
+        ${stats && !stats.cgroup ? html`<span class="muted" style="font-size:10.5px" title="run under the installed service (systemd Delegate=yes) for exact whole-tree accounting">process-tree sampling</span>` : nothing}
+      </div>
+      ${rows.length === 0 ? html`<p class="muted">${tiles.length === 0
+        ? 'no running backends — live stats appear when a tile’s backend runs.'
+        : 'no tiles match the filter.'}</p>`
+      : html`<table class="stats">${head}${body}</table>`}`;
+  }
+
+  _aggVal(t, key) {
+    const c = t.cur || {};
+    if (key === 'io') return (c.rbps || 0) + (c.wbps || 0);
+    return c[key] || 0;
+  }
+
   // ---- resources (runtime → resources): host health + brokered state ----
   _resourcesView() {
     const rt = this._rt; if (!rt) return html`<span class="muted">loading…</span>`;
@@ -1015,6 +1179,7 @@ export class BxAdmin extends LitElement {
         ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
         ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
       </div>
+      ${this._liveStatsSection(rt.stats)}
       ${this._resourcesSection(rt.resources)}
       ${(!rt.resources || !rt.resources.length) ? html`<p class="muted">no brokered resources provisioned yet — declare them in a <span class="mono">scope.json</span> (kv, blob, bus, cron, sqlite, filesystem). See <a href="/docs/resources.md" target="_blank">docs/resources.md</a>.</p>` : nothing}`;
   }

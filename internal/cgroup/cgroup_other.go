@@ -26,4 +26,5 @@ func (m *Manager) SetLimits(Limits)                    {}
 func (m *Manager) Add(string, int)                     {}
 func (m *Manager) Usage(string) (Usage, bool)          { return Usage{}, false }
 func (m *Manager) AtLimit(string) (int64, int64, bool) { return 0, 0, false }
+func (m *Manager) Procs(string) ([]int, bool)          { return nil, false }
 func (m *Manager) Remove(string)                       {}

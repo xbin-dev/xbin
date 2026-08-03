@@ -98,7 +98,18 @@ GET    /runtime                    admin. full runtime visibility →
                                    cgroup:{memCurrent,memMax,cpuUsec,pidsCurrent},
                                    activity:{allowed,denied,active,txBytes,rxBytes,
                                    recent:[{proto,dst,port,allowed,txBytes,rxBytes,
-                                   start,end}]}}], resources:[{id,type,size,detail}]}
+                                   start,end}]}}], resources:[{id,type,size,detail}],
+                                   stats:{cgroup,intervalSec,tiles:[{path,owner,
+                                   cur:{t,cpu,mem,rbps,wbps,riops,wiops,pids},
+                                   series:[point…]}]}} — stats is the live
+                                   per-tile sampler (~2s cadence, ~3 min of
+                                   points; demand-driven — sampling runs only
+                                   while /runtime is being polled). cpu is % of
+                                   one core; rbps/wbps + riops/wiops are
+                                   syscall-level I/O rates (includes FUSE-backed
+                                   resource I/O); cgroup=true means exact
+                                   whole-tree accounting via cgroup v2
+                                   delegation, false = /proc-tree sampling
                                    {state: idle|building|healthy|failed, gen, error?}
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,cpuSec,cgroup:{mem,pids},

@@ -153,6 +153,7 @@ type Runner struct {
 	mu     sync.Mutex
 	states map[string]*state
 	netmux *netMux
+	stats  statsState // live per-tile resource stats (stats.go)
 }
 
 func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Runner {
