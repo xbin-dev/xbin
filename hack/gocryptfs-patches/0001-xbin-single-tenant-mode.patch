@@ -20,6 +20,14 @@ Written against gocryptfs v2.6.1 for xbin's resenc container stores
 (docs/resources.md); no on-disk format change — the identity xattr is an
 overlay, trees mount fine with or without the flag.
 
+The caches are dropped when an inode loses its last directory entry
+(unlink, rmdir, replacing rename) and are never trusted for symlinks:
+backing filesystems reuse inode numbers (ext4/xfs immediately), and a
+leftover entry would dress the next occupant in the dead file's identity —
+a fresh update-alternatives symlink served as the deleted regular file, or
+a phantom security.capability on a just-unpacked binary, both of which
+break execve with "Permission denied" mid-apt-get-install.
+
 Known fidelity gap: Linux forbids user.* xattrs on symlinks, so symlink
 ownership is not virtualized (lchown on a symlink is a no-op).
 ---
@@ -72,10 +80,10 @@ index 64a5923..de56cb6 100644
 +	SingleTenant bool
  }
 diff --git a/internal/fusefrontend/file.go b/internal/fusefrontend/file.go
-index afee158..4dc5997 100644
+index afee158..80a6b7e 100644
 --- a/internal/fusefrontend/file.go
 +++ b/internal/fusefrontend/file.go
-@@ -443,6 +443,17 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
+@@ -443,6 +443,26 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
  	if f.rootNode.args.ForceOwner != nil {
  		a.Owner = *f.rootNode.args.ForceOwner
  	}
@@ -83,7 +91,16 @@ index afee158..4dc5997 100644
 +	// translation, which keys off the real regular-file type)
 +	if f.rootNode.args.SingleTenant {
 +		rn := f.rootNode
-+		if v := rn.virtFor(f.qIno, func() *virtStat { return rn.loadVirtFd(f.intFd()) }); v != nil {
++		var v *virtStat
++		if st.Nlink == 0 {
++			// Unlinked but still open: the identity xattr on the open inode
++			// stays authoritative, but the inode number may already belong
++			// to a new file — read through, don't touch the cache.
++			v = rn.loadVirtFd(f.intFd())
++		} else {
++			v = rn.virtFor(f.qIno, func() *virtStat { return rn.loadVirtFd(f.intFd()) })
++		}
++		if v != nil {
 +			a.Mode = v.Mode
 +			a.Owner.Uid = v.Uid
 +			a.Owner.Gid = v.Gid
@@ -157,7 +174,7 @@ index fe4bc47..eb03530 100644
  	}
  
 diff --git a/internal/fusefrontend/node.go b/internal/fusefrontend/node.go
-index 95be48d..eb46a57 100644
+index 95be48d..08556f3 100644
 --- a/internal/fusefrontend/node.go
 +++ b/internal/fusefrontend/node.go
 @@ -34,6 +34,10 @@ func (n *Node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (ch
@@ -193,7 +210,28 @@ index 95be48d..eb46a57 100644
  	dirfd, cName, errno := n.prepareAtSyscallMyself()
  	if errno != 0 {
  		return errno
-@@ -188,34 +200,42 @@ func (n *Node) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn,
+@@ -146,6 +158,20 @@ func (n *Node) Unlink(ctx context.Context, name string) (errno syscall.Errno) {
+ 	}
+ 	defer syscall.Close(dirfd)
+ 
++	// Single-tenant mode: the victim's inode number may be reused as soon as
++	// the last link is gone — drop its cached identity/capability answers.
++	rn := n.rootNode()
++	if rn.args.SingleTenant {
++		if st, serr := syscallcompat.Fstatat2(dirfd, cName, unix.AT_SYMLINK_NOFOLLOW); serr == nil {
++			victim := st
++			defer func() {
++				if errno == 0 {
++					rn.forgetVirt(victim)
++				}
++			}()
++		}
++	}
++
+ 	// Delete content
+ 	err := syscallcompat.Unlinkat(dirfd, cName, 0)
+ 	if err != nil {
+@@ -188,34 +214,42 @@ func (n *Node) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn,
  	}
  	defer syscall.Close(dirfd)
  
@@ -261,7 +299,7 @@ index 95be48d..eb46a57 100644
  		}
  	}
  
-@@ -280,33 +300,48 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
+@@ -280,33 +314,48 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
  	}
  	defer syscall.Close(dirfd)
  
@@ -324,7 +362,7 @@ index 95be48d..eb46a57 100644
  	}
  
  	st, err := syscallcompat.Fstatat2(dirfd, cName, unix.AT_SYMLINK_NOFOLLOW)
-@@ -315,6 +350,9 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
+@@ -315,6 +364,9 @@ func (n *Node) Mknod(ctx context.Context, name string, mode, rdev uint32, out *f
  		return
  	}
  
@@ -334,7 +372,7 @@ index 95be48d..eb46a57 100644
  	inode = n.newChild(ctx, st, out)
  
  	if rn.args.ForceOwner != nil {
-@@ -370,6 +408,9 @@ func (n *Node) Link(ctx context.Context, target fs.InodeEmbedder, name string, o
+@@ -370,6 +422,9 @@ func (n *Node) Link(ctx context.Context, target fs.InodeEmbedder, name string, o
  		errno = fs.ToErrno(err)
  		return
  	}
@@ -344,7 +382,21 @@ index 95be48d..eb46a57 100644
  	inode = n.newChild(ctx, st, out)
  	n.translateSize(dirfd, cName, &out.Attr)
  	return inode, 0
-@@ -469,6 +510,14 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+@@ -422,6 +477,13 @@ func (n *Node) Symlink(ctx context.Context, target, name string, out *fuse.Entry
+ 	if err != nil {
+ 		return nil, fs.ToErrno(err)
+ 	}
++	if rn.args.SingleTenant {
++		// A symlink cannot carry the identity xattr (user.* is forbidden on
++		// symlinks), so its identity is always "none". Flush whatever a
++		// previous occupant of this (possibly reused) inode number left in
++		// the cache.
++		rn.rememberVirt(st, nil)
++	}
+ 	// Report the plaintext size, not the encrypted blob size
+ 	st.Size = int64(len(target))
+ 
+@@ -469,6 +531,22 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
  	if rn.args.PlaintextNames {
  		return fs.ToErrno(syscallcompat.Renameat2(dirfd, cName, dirfd2, cName2, uint(flags)))
  	}
@@ -353,13 +405,21 @@ index 95be48d..eb46a57 100644
 +	// Rename without the flag, then leave a virtualized whiteout at the old
 +	// name (below, after the rename succeeded).
 +	renameFlags := flags
++	var renameVictim *syscall.Stat_t
 +	if rn.args.SingleTenant {
 +		renameFlags &^= syscallcompat.RENAME_WHITEOUT
++		// A replacing rename unlinks the target's inode — capture it so its
++		// cache entries can be dropped (see forgetVirt).
++		if flags&(syscallcompat.RENAME_NOREPLACE|syscallcompat.RENAME_EXCHANGE) == 0 {
++			if st, serr := syscallcompat.Fstatat2(dirfd2, cName2, unix.AT_SYMLINK_NOFOLLOW); serr == nil {
++				renameVictim = st
++			}
++		}
 +	}
  	// Long destination file name: create .name file
  	nameFileAlreadyThere := false
  	var err error
-@@ -485,7 +534,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+@@ -485,7 +563,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
  	}
  	// Actual rename
  	tlog.Debug.Printf("Renameat %d/%s -> %d/%s\n", dirfd, cName, dirfd2, cName2)
@@ -368,7 +428,7 @@ index 95be48d..eb46a57 100644
  	if (flags&syscallcompat.RENAME_NOREPLACE == 0) && (err == syscall.ENOTEMPTY || err == syscall.EEXIST) {
  		// If an empty directory is overwritten we will always get an error as
  		// the "empty" directory will still contain gocryptfs.diriv.
-@@ -494,7 +543,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+@@ -494,7 +572,7 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
  		// again.
  		tlog.Debug.Printf("Rename: Handling ENOTEMPTY")
  		if n2.Rmdir(ctx, newName) == 0 {
@@ -377,7 +437,13 @@ index 95be48d..eb46a57 100644
  		}
  	}
  	if err != nil {
-@@ -507,6 +556,15 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+@@ -504,9 +582,21 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ 		}
+ 		return fs.ToErrno(err)
+ 	}
++	if renameVictim != nil {
++		rn.forgetVirt(renameVictim)
++	}
  	if flags&syscallcompat.RENAME_EXCHANGE != 0 || flags&syscallcompat.RENAME_WHITEOUT != 0 {
  		// These flags mean that there is now a new file at cName and we
  		// should NOT delete its longname file.
@@ -394,7 +460,7 @@ index 95be48d..eb46a57 100644
  	}
  	if nametransform.IsLongContent(cName) {
 diff --git a/internal/fusefrontend/node_dir_ops.go b/internal/fusefrontend/node_dir_ops.go
-index 11ff83d..848432b 100644
+index 11ff83d..32bb9e2 100644
 --- a/internal/fusefrontend/node_dir_ops.go
 +++ b/internal/fusefrontend/node_dir_ops.go
 @@ -77,6 +77,8 @@ func (n *Node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
@@ -439,6 +505,25 @@ index 11ff83d..848432b 100644
  		// Preserve SGID bit if it was set due to inheritance.
  		origMode = uint32(st.Mode&^0777) | origMode
  		err = syscall.Fchmod(fd, origMode)
+@@ -168,6 +185,18 @@ func (n *Node) Rmdir(ctx context.Context, name string) (code syscall.Errno) {
+ 		return errno
+ 	}
+ 	defer syscall.Close(parentDirFd)
++	// Single-tenant mode: the directory's inode number may be reused right
++	// after the rmdir — drop its cached identity (see forgetVirt).
++	if rn.args.SingleTenant {
++		if st, serr := syscallcompat.Fstatat2(parentDirFd, cName, unix.AT_SYMLINK_NOFOLLOW); serr == nil {
++			victim := st
++			defer func() {
++				if code == 0 {
++					rn.forgetVirt(victim)
++				}
++			}()
++		}
++	}
+ 	if rn.args.PlaintextNames {
+ 		// Unlinkat with AT_REMOVEDIR is equivalent to Rmdir
+ 		err := unix.Unlinkat(parentDirFd, cName, unix.AT_REMOVEDIR)
 diff --git a/internal/fusefrontend/node_open_create.go b/internal/fusefrontend/node_open_create.go
 index 9598559..ba6f340 100644
 --- a/internal/fusefrontend/node_open_create.go
@@ -638,10 +723,10 @@ index 8464c5f..85fe98e 100644
  func NewRootNode(args Args, c *contentenc.ContentEnc, n *nametransform.NameTransform) *RootNode {
 diff --git a/internal/fusefrontend/virtnode.go b/internal/fusefrontend/virtnode.go
 new file mode 100644
-index 0000000..fb12cbd
+index 0000000..de4ca83
 --- /dev/null
 +++ b/internal/fusefrontend/virtnode.go
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,340 @@
 +package fusefrontend
 +
 +// xbin single-tenant mode (-xbin-single-tenant)
@@ -739,6 +824,20 @@ index 0000000..fb12cbd
 +	rn.virtIdCache.put(inomap.QInoFromStat(st), v)
 +}
 +
++// forgetVirt drops the cached identity and capability answers for an inode
++// that just lost a directory entry (unlink, rmdir, rename-over). The backing
++// filesystem may reuse the inode number immediately, and a leftover entry
++// would dress the next occupant in the previous file's identity — a deleted
++// file's type/mode on a fresh symlink or binary, or a phantom
++// security.capability on a fresh executable, both of which make execve fail
++// with EACCES. st must be the raw, untranslated stat of the removed entry.
++func (rn *RootNode) forgetVirt(st *syscall.Stat_t) {
++	rn.virtIdCache.put(inomap.QInoFromStat(st), (*virtStat)(nil))
++	st2 := *st
++	rn.inoMap.TranslateStat(&st2)
++	rn.capCache.put(st2.Ino, ([]byte)(nil))
++}
++
 +// stXattrName is the cipher-side xattr holding the virtualized stat data.
 +// The dotted suffix cannot collide with encrypted xattr names
 +// ("user.gocryptfs." + base64url, which never contains a dot). The value is
@@ -766,6 +865,13 @@ index 0000000..fb12cbd
 +// Size, times, nlink and inode identity stay real.
 +func applyVirt(st *syscall.Stat_t, v *virtStat) {
 +	if v == nil {
++		return
++	}
++	// Symlinks never carry an identity (user.* xattrs are forbidden on
++	// them), so a cached identity for a symlink inode can only be a stale
++	// leftover from a previous occupant of a reused inode number. Serve the
++	// raw attributes instead of dressing the symlink as the dead file.
++	if st.Mode&syscall.S_IFMT == syscall.S_IFLNK {
 +		return
 +	}
 +	st.Uid = v.Uid
@@ -920,7 +1026,12 @@ index 0000000..fb12cbd
 +	if errno := fs.ToErrno(rn.saveVirtFd(fd, v)); errno != 0 {
 +		return errno
 +	}
-+	rn.rememberVirt(&st, v)
++	if st.Nlink > 0 {
++		// nlink==0 means unlinked-but-open: the xattr write above keeps the
++		// fd view correct, but the inode number is about to be reused —
++		// don't (re)install a cache entry for it.
++		rn.rememberVirt(&st, v)
++	}
 +	return 0
 +}
 +

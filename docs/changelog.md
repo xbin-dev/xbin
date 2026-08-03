@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Fixed: container-store image builds could die with `Permission denied`
+  mid-install.** The per-inode identity/capability caching added earlier
+  today had no invalidation when a file was deleted. On backing
+  filesystems that recycle inode numbers (ext4, xfs — btrfs never does),
+  a freshly created file could be served the *deleted previous
+  occupant's* cached identity: an `update-alternatives` symlink (`which`)
+  reported as a regular non-executable file, or a phantom
+  `security.capability` on a just-unpacked binary — both make `execve`
+  fail with `EACCES`, killing `dpkg` maintainer scripts (exit 126)
+  partway through large `apt-get install`s. The gocryptfs patch now
+  drops cache entries when an inode loses its last link (unlink, rmdir,
+  replacing rename), never applies a cached identity to a symlink, and
+  reads through the cache for unlinked-but-open files. No store
+  migration; rebuild gocryptfs (`make build` / `hack/build-gocryptfs.sh`)
+  so mounts pick up the fix.
+
 - **Live per-tile stats in the admin console.** The resources tab now leads
   with a live table of every running tile: CPU %, memory, I/O MB/s and
   IOPS (read+write, syscall-level — resource/FUSE I/O included), pids —

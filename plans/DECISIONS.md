@@ -776,3 +776,31 @@ Deviations and refinements made while implementing; all deliberate:
   symlink ownership is not virtualized (user xattrs are forbidden on
   symlinks). Companion (kept from the reverted commit): cap:containers
   sandboxes get a cgroup2 view at /sys/fs/cgroup via cgroupns unshare.
+
+- **D44 — Per-inode cache invalidation: forget on last unlink, distrust
+  symlinks.** (2026-08-03) The single-tenant identity/capability caches
+  (same-day container-store speed work) were keyed by cipher inode with no
+  invalidation — "the daemon is the sole writer" covered mutation but not
+  *deletion*: the backing filesystem recycles inode numbers (ext4/xfs
+  reuse a freed inode immediately; btrfs never does, which is why no dev
+  box reproduced it), so the next occupant of a reused inode wore the dead
+  file's cached identity. Two visible casualties, both fatal to execve
+  mid-`apt-get`: a fresh `update-alternatives` symlink served as the
+  deleted regular file (`which: Permission denied`, dpkg exit 126 — the
+  identity clobbers type bits), and a phantom `security.capability` on a
+  just-unpacked binary (the cap cache is only seeded by xattr queries, so
+  creates never heal it). Mechanism proven with a deterministic
+  inode-recycling FUSE passthrough (reusefs) A/B'ing shipped vs fixed
+  builds; the full real workload (podman build, ubuntu + 163MB apt
+  install on a single-tenant store) runs green on the fix. Chosen fix:
+  on losing the last directory entry (unlink, rmdir, replacing rename)
+  write a "no identity"/"no capability" tombstone for the inode (matches
+  what a cold load would find — plain deletes would leave the same race
+  windows but with less obvious semantics); never apply a cached identity
+  to a raw symlink (symlinks cannot carry the identity xattr, so any hit
+  is definitionally stale); fd-getattr/fd-setattr of unlinked-but-open
+  files (nlink==0) read/write the xattr directly and skip the cache, so a
+  dying inode number is never re-seeded. Rejected: dropping the caches
+  (reintroduces the small-file collapse the caches fixed); trusting
+  filesystem generation numbers (not visible through the syscalls the
+  daemon can afford per-op).
