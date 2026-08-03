@@ -138,7 +138,7 @@ if [ "$UPGRADE" = 1 ]; then
 else
   step "create Lima VM 'xbin': Ubuntu 26.04 (${IMG_ARCH}), ${VMTYPE} runtime, disk ${VM_DISK} (thin), ${VM_MEM} RAM, ${VM_CPUS} cpus, no Mac directories shared into it"
   step "forward the VM's 127.0.0.1:8642 to this Mac's 127.0.0.1:8642 (loopback-only, not on your network)"
-  step "inside the VM: run the xbin Linux installer in system mode pinned to ${VERSION} (builds from source — expect 10-20 minutes on first run; follow along: limactl shell xbin sudo tail -f /var/log/cloud-init-output.log)"
+  step "inside the VM: run the xbin Linux installer in system mode pinned to ${VERSION} (builds from source — expect 10-20 minutes on first run; the in-VM install log streams below as it goes)"
 fi
 step "wait for http://127.0.0.1:8642/healthz and print your one-time login URL"
 echo "  VM lifecycle afterwards: limactl stop|start xbin · shell: limactl shell xbin · disk lives in ~/.lima/xbin · uninstall: limactl delete xbin"
@@ -200,8 +200,33 @@ provision:
       [ -x /opt/xbin/bin/xbind ] && exit 0
       curl -fsSL '${INSTALL_URL}' | XBIN_ASSUME_YES=1 XBIN_REF='${VERSION}' bash -s -- --system --yes
 EOF
-  # First boot provisions + builds xbin from source inside the VM.
-  limactl start --name=xbin --tty=false --timeout=40m "$tmpl"
+  # First boot provisions + builds xbin from source inside the VM. Stream
+  # the in-VM install log (cloud-init output) alongside so the 10-20 minute
+  # build gives live feedback — and when something breaks, the evidence is
+  # already on screen. set -m puts the streamer in its own process group so
+  # the kill takes its ssh child with it.
+  set -m
+  limactl start --name=xbin --tty=false --timeout=40m "$tmpl" &
+  start_pid=$!
+  (
+    until limactl shell xbin -- true >/dev/null 2>&1; do sleep 3; done
+    printf '\n──── in-VM install log (cloud-init) ────\n'
+    limactl shell xbin -- sudo sh -c \
+      'while [ ! -f /var/log/cloud-init-output.log ]; do sleep 1; done; tail -n +1 -f /var/log/cloud-init-output.log'
+  ) &
+  tail_pid=$!
+  trap 'kill -- -"$start_pid" -- -"$tail_pid" 2>/dev/null; rm -f "$tmpl"; exit 130' INT TERM
+  start_rc=0
+  wait "$start_pid" || start_rc=$?
+  kill -- -"$tail_pid" 2>/dev/null || kill "$tail_pid" 2>/dev/null || true
+  wait "$tail_pid" 2>/dev/null || true
+  set +m
+  trap 'rm -f "$tmpl"' EXIT
+  printf '──── end of install log ────\n'
+  if [ "$start_rc" -ne 0 ]; then
+    fail "limactl start failed (exit $start_rc) — see the log above"
+    exit 1
+  fi
 fi
 
 # Lima reports READY even when provisioning FAILED (it logs a warning and
