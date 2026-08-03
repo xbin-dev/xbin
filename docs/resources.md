@@ -58,7 +58,11 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
   (`plans/vault-data.md`).
 
 Only an explicit `--insecure-vault` (or `--no-auth`) stores resource data
-plaintext, for throwaway/inspection setups.
+plaintext, for throwaway/inspection setups — with **one declared exception**:
+a `filesystem` resource can opt out per-resource with `"plain": true` (see
+§filesystem below). That's for workloads the FUSE encryption layer can't
+host, container image stores chiefly; it's loud in `bx doctor` and never the
+default.
 
 ## kv — small structured state
 
@@ -164,6 +168,40 @@ dir := xbin.Resource("store")             // == $XBIN_RES_STORE, a directory
 os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
 db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_journal_mode=WAL")
 ```
+
+### `plain: true` — opting out of encryption at rest
+
+```jsonc
+{ "resources": { "store": { "type": "filesystem", "plain": true } } }
+```
+
+A plain filesystem resource is an ordinary kernel directory
+(`data/resources/…`) instead of a gocryptfs mount. You want this **only**
+when the workload needs POSIX semantics the FUSE encryption layer cannot
+provide — the canonical case is a **container image store** (`cap:containers`
+tiles): podman's layer extraction does mkdirs inside read-only-mirrored
+directories, arbitrary-uid chowns, and sub-uid access that a userspace
+encryption daemon must refuse but a real kernel filesystem allows.
+
+The trade-offs are exactly what it says on the tin:
+
+- **Bytes on disk are NOT encrypted.** A stolen disk yields this resource's
+  content. Don't put secrets in it — for a container store that's image
+  layers, i.e. mostly-public bytes; keep credentials in the vault or kv.
+- **It lives across a seal.** Sealing the vault stops components on
+  *encrypted* resources and unmounts their views; a component whose only
+  file resources are plain keeps running, and the data stays readable.
+  Deliberate: the flag declares "this data does not need vault protection".
+- Everything else is unchanged: same env delivery, same rw bind, same usage
+  accounting, and backups include it (backups are plaintext anyway, see
+  above).
+
+`plain` is honored on **type `filesystem` only** — on any other type it is
+ignored with a warning and the resource stays encrypted. Flipping an existing
+encrypted resource to plain provisions a **fresh empty dir**; the old
+ciphertext stays untouched at `data/resources-enc/…` until you delete it
+(`bx doctor` reminds you, and shows every plain resource as a deliberate
+opt-out).
 
 ## sqlite — a filesystem resource pointed at a db file
 

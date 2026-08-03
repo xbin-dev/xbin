@@ -15,12 +15,13 @@ import (
 
 // ResourceInfo is a provisioned resource plus its on-disk usage.
 type ResourceInfo struct {
-	ID     string `json:"id"`     // res:<scope>/<name>
-	Scope  string `json:"scope"`  // "" = workspace
-	Name   string `json:"name"`   //
-	Type   string `json:"type"`   // kv|sqlite|blob|bus|cron
-	Size   int64  `json:"size"`   // bytes on disk (0 for ephemeral)
-	Detail string `json:"detail"` // "N keys" | "N files" | "N jobs" | "ephemeral"
+	ID     string `json:"id"`              // res:<scope>/<name>
+	Scope  string `json:"scope"`           // "" = workspace
+	Name   string `json:"name"`            //
+	Type   string `json:"type"`            // kv|sqlite|blob|bus|cron
+	Size   int64  `json:"size"`            // bytes on disk (0 for ephemeral)
+	Detail string `json:"detail"`          // "N keys" | "N files" | "N jobs" | "ephemeral"
+	Plain  bool   `json:"plain,omitempty"` // D43: plaintext at rest by declaration
 }
 
 // ResourceUsage enumerates every declared resource with its storage footprint,
@@ -30,7 +31,9 @@ func (b *Broker) ResourceUsage() []ResourceInfo {
 	add := func(scope string, m map[string]registry.Resource) {
 		for name, rr := range m {
 			rt := resTarget{Scope: scope, Name: name}
-			out = append(out, b.resourceUsage(scope, name, rr.Type, rt.String()))
+			ri := b.resourceUsage(scope, name, rr.Type, rt.String())
+			ri.Plain = b.resPlain(scope, name)
+			out = append(out, ri)
 		}
 	}
 	add("", b.Reg.Workspace().Resources)

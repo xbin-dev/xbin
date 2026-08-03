@@ -292,6 +292,13 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
 	scopeKey := util.ScopeKey(scope)
 	name, rel, _ := strings.Cut(rest, "/")
+	if b.resPlain(scope, name) { // D43: plain resources restore into the plaintext dir
+		dir := b.plainResDir(scope, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		return backup.SafeJoin(dir, rel), nil
+	}
 	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name)
 	if err != nil {
 		return "", err

@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Container image stores: `plain: true` filesystem resources (D43).**
+  Encrypted (gocryptfs) resources structurally cannot host a podman layer
+  store — the unprivileged FUSE daemon is the I/O actor, so 0555 layer
+  dirs block its own `.pivot_root` mkdirs (`ApplyLayer … permission
+  denied`) and sub-uid chowns are refused. A `filesystem` resource can now
+  declare `"plain": true`: a plaintext kernel dir under `data/resources/…`
+  — never resenc-mounted, never held on vault state, not stopped by seal
+  (deliberate: the data opts out of vault protection; don't put secrets
+  in it). Filesystem-type only; elsewhere the flag warns and is ignored.
+  `bx doctor` lists every plain resource and flags leftover ciphertext of
+  now-plain resources; the admin tile resources view gets a `plain` pill.
+  `cap:containers` sandboxes also gain a private cgroup2 view at
+  `/sys/fs/cgroup` (libpod stats it even with cgroups disabled) — tiles
+  can drop their self-mount workaround. Migration:
+  [changes/2026-08-03-container-store-resources.md](changes/2026-08-03-container-store-resources.md).
+
 - **The installer knows when xbin is already there.** A no-flag non-root
   run on a box with a system-wide install now leads with that fact
   (version, running state, listen address) and makes upgrading the

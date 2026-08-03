@@ -264,6 +264,24 @@ func runInit(specPath string) error {
 			// minimal seccomp floor (host-damaging syscalls). The mount family,
 			// pivot_root, setns, mknod stay available; podman restricts each
 			// container itself. Still rootless in its own namespaces.
+			//
+			// libpod stats /sys/fs/cgroup at container create even with
+			// cgroups disabled and dies on its absence — backend sandboxes
+			// don't mount one. Give the container host a private cgroup2
+			// view: unshare a cgroupns (so the mount roots at this sandbox's
+			// own subtree) and mount cgroup2 over /sys/fs/cgroup.
+			// Best-effort — production tiles used to self-mount exactly this.
+			if err := unix.Unshare(unix.CLONE_NEWCGROUP); err != nil {
+				dbg(s.Debug, "cgroupns unshare failed (containers may need a manual cgroup2 mount): "+err.Error())
+			} else {
+				_ = os.MkdirAll("/sys/fs/cgroup", 0o755)
+				if err := unix.Mount("cgroup2", "/sys/fs/cgroup", "cgroup2",
+					unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
+					dbg(s.Debug, "cgroup2 mount failed (containers may need a manual mount): "+err.Error())
+				} else {
+					dbg(s.Debug, "cgroup2 view mounted at /sys/fs/cgroup")
+				}
+			}
 			if err := installContainerSeccomp(); err != nil {
 				return must(err, "install container seccomp")
 			}

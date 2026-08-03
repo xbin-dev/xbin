@@ -157,6 +157,15 @@ func (d ExposeDef) StreamProto() string {
 // Resource is a broker-provisioned resource declared in scope.json.
 type Resource struct {
 	Type string `json:"type"` // filesystem|sqlite|kv|blob|bus|cron
+	// Plain (type filesystem only, D43) opts OUT of encryption-at-rest: the
+	// resource provisions as a plaintext dir with real kernel-POSIX
+	// semantics. Container stores need this — a gocryptfs mount cannot host
+	// one (the FUSE daemon is the I/O actor: 0555-mirrored layer dirs block
+	// its own writes, arbitrary-uid chowns EPERM, sub-uid access is
+	// kernel-refused). Trade-off: bytes on disk are NOT encrypted and the
+	// resource stays live while the vault is sealed. Ignored (with a warn)
+	// on other types.
+	Plain bool `json:"plain,omitempty"`
 }
 
 // ScopeManifest is a scope.json: marks a directory as a scope root.
