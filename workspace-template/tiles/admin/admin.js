@@ -807,7 +807,7 @@ export class BxAdmin extends LitElement {
   _fmtBytes(n) {
     n = n || 0; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return (i === 0 ? n : n.toFixed(1)) + u[i];
+    return (i === 0 ? Math.round(n) : n.toFixed(1)) + u[i];
   }
   _fmtDur(s) {
     s = Math.max(0, s | 0);
@@ -1047,16 +1047,26 @@ export class BxAdmin extends LitElement {
     </div>`;
   }
 
+  // Sort on a ~1-minute moving average (last 30 points at 2s), not the
+  // instantaneous sample — otherwise rows reshuffle on every poll.
+  _stAvg(t, keys) {
+    const s = t.series || [];
+    const tail = s.slice(-30);
+    if (!tail.length) return 0;
+    let sum = 0;
+    for (const p of tail) for (const k of keys) sum += p[k] || 0;
+    return sum / tail.length;
+  }
+
   _stSortKey(t) {
-    const c = t.cur || {};
     switch (this._stSort.col) {
       case 'tile': return t.path;
       case 'org': return t.owner || '';
-      case 'mem': return c.mem || 0;
-      case 'io': return (c.rbps || 0) + (c.wbps || 0);
-      case 'iops': return (c.riops || 0) + (c.wiops || 0);
-      case 'pids': return c.pids || 0;
-      default: return c.cpu || 0;
+      case 'mem': return this._stAvg(t, ['mem']);
+      case 'io': return this._stAvg(t, ['rbps', 'wbps']);
+      case 'iops': return this._stAvg(t, ['riops', 'wiops']);
+      case 'pids': return this._stAvg(t, ['pids']);
+      default: return this._stAvg(t, ['cpu']);
     }
   }
 

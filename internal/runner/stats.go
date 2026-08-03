@@ -21,6 +21,7 @@ package runner
 // idles (skips collection) once nobody has asked for statsIdle.
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -181,11 +182,13 @@ func (r *Runner) statsSample() {
 					}
 					return float64(cur-was) / dt
 				}
-				pt.CPU = perSec(raw.cpuUsec, prev.cpuUsec) / 1e4 // µs/s → % of one core
-				pt.RBps = perSec(raw.rch, prev.rch)
-				pt.WBps = perSec(raw.wch, prev.wch)
-				pt.RIops = perSec(raw.sr, prev.sr)
-				pt.WIops = perSec(raw.sw, prev.sw)
+				// Rounded — these are display rates, full float precision
+				// only bloats the JSON.
+				pt.CPU = math.Round(perSec(raw.cpuUsec, prev.cpuUsec)/1e4*10) / 10 // µs/s → % of one core
+				pt.RBps = math.Round(perSec(raw.rch, prev.rch))
+				pt.WBps = math.Round(perSec(raw.wch, prev.wch))
+				pt.RIops = math.Round(perSec(raw.sr, prev.sr)*10) / 10
+				pt.WIops = math.Round(perSec(raw.sw, prev.sw)*10) / 10
 			}
 		}
 		r.stats.prev[comp] = raw
