@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-03
 
+- **Container stores: writeback now opt-in; round-trip diet shipped
+  instead.** The writeback cache (and the 60s kernel cache timeouts) moved
+  behind `XBIN_GOCRYPTFS_WRITEBACK=1` after a production build hit an
+  unexplained `close()`→EIO that correlated with it (never reproduced
+  elsewhere, including a full subuid-topology rerun of the same build —
+  both ways). The default path got faster differently, by deleting FUSE
+  round trips: every `close()` no longer sends a FLUSH (`FOPEN_NOFLUSH` —
+  ours was a semantic no-op), the kernel no longer asks for
+  `security.capability` before every write (`FUSE_HANDLE_KILLPRIV`, with
+  the implied suid/sgid/fscap clearing on write+truncate now done — and
+  tested — daemon-side), `fsync` uses the open handle instead of a path
+  re-walk plus open/close, and the async request backlog is 64 deep
+  (was 12). Census on a real dpkg upgrade through fuse-overlayfs: FLUSH
+  ops −100%, GETATTR −40%, ~13% fewer round trips overall; the win grows
+  with per-op latency (loaded servers), and append-style workloads now
+  beat the pre-writeback baseline. Rebuild gocryptfs (`make gocryptfs`).
+
 - **`XBIN_GOCRYPTFS_NOWRITEBACK=1`** (set in xbind's environment) reverts
   single-tenant mounts to pre-writeback kernel caching — an A/B and
   mitigation switch for suspected writeback interactions; mounts pick it

@@ -1,23 +1,25 @@
 From: xbin <xbin@xbin.dev>
-Subject: [PATCH] opt-in FUSE writeback cache (MountOptions.EnableWritebackCache)
+Subject: [PATCH] opt-in FUSE writeback cache + HANDLE_KILLPRIV
 
-Adds the missing opt-in for FUSE_WRITEBACK_CACHE: the kernel buffers
-writes in the page cache and flushes them as large aligned WRITE
-requests instead of forwarding every write() synchronously, and shared
-writable mmap starts working. go-fuse has carried the capability
-constant for years but never wired a way to request it.
+Adds two missing opt-ins go-fuse never wired despite carrying the
+capability constants:
 
-Used by xbin's patched gocryptfs in -xbin-single-tenant mode, where the
-daemon is the sole writer of the backing tree, making kernel-trusted
-write caching sound (hack/gocryptfs-patches/). Measured on that stack:
-4096 16-byte writes on one fd reach the daemon as a single WRITE.
+- MountOptions.EnableWritebackCache (FUSE_WRITEBACK_CACHE): the kernel
+  buffers writes in the page cache and flushes them as large aligned
+  WRITE requests, and shared writable mmap starts working.
+- MountOptions.HandleKillpriv (FUSE_HANDLE_KILLPRIV): the filesystem
+  promises to clear suid/sgid/security.capability on write and truncate
+  itself, so the kernel skips its pre-write privilege checks — including
+  the getxattr("security.capability") it otherwise issues per write.
 
-Written against go-fuse v2.8.0.
+Used by xbin's patched gocryptfs in -xbin-single-tenant mode
+(hack/gocryptfs-patches/), where the daemon is the backing tree's sole
+writer. Written against go-fuse v2.8.0.
 ---
 diff -ruN a/fuse/api.go b/fuse/api.go
---- a/fuse/api.go	2026-08-03 22:31:00.336654005 +0200
-+++ b/fuse/api.go	2026-08-03 22:31:00.345639826 +0200
-@@ -278,6 +278,17 @@
+--- a/fuse/api.go	2026-08-03 23:33:41.036262096 +0200
++++ b/fuse/api.go	2026-08-03 23:33:41.045945567 +0200
+@@ -278,6 +278,24 @@
  	// kernel to issue a new Readlink call.
  	EnableSymlinkCaching bool
  
@@ -32,19 +34,30 @@ diff -ruN a/fuse/api.go b/fuse/api.go
 +	// when nothing modifies the backing files behind the mount's back.
 +	EnableWritebackCache bool
 +
++	// HandleKillpriv promises that the filesystem itself clears
++	// suid/sgid/security.capability on write and truncate
++	// (FUSE_HANDLE_KILLPRIV). The kernel then skips its own pre-write
++	// privilege checks — including the getxattr("security.capability")
++	// it otherwise issues before every write.
++	HandleKillpriv bool
++
  	// If set, ask kernel not to do automatic data cache invalidation.
  	// The filesystem is fully responsible for invalidating data cache.
  	ExplicitDataCacheControl bool
 diff -ruN a/fuse/opcode.go b/fuse/opcode.go
---- a/fuse/opcode.go	2026-08-03 22:31:00.337647579 +0200
-+++ b/fuse/opcode.go	2026-08-03 22:31:00.346369671 +0200
-@@ -111,6 +111,10 @@
+--- a/fuse/opcode.go	2026-08-03 23:33:41.036972831 +0200
++++ b/fuse/opcode.go	2026-08-03 23:33:41.046972939 +0200
+@@ -111,6 +111,14 @@
  	if server.opts.EnableAcl {
  		kernelFlags |= CAP_POSIX_ACL
  	}
 +	if server.opts.EnableWritebackCache {
 +		// Only if the kernel offers it (v3.15+).
 +		kernelFlags |= input.Flags64() & CAP_WRITEBACK_CACHE
++	}
++	if server.opts.HandleKillpriv {
++		// Only if the kernel offers it (v4.9+).
++		kernelFlags |= input.Flags64() & CAP_HANDLE_KILLPRIV
 +	}
  	if server.opts.SyncRead {
  		// Clear CAP_ASYNC_READ

@@ -131,6 +131,20 @@ getfattr -d -m - "$M/xtest" 2>/dev/null | grep -q gocryptfs && fail "identity xa
 setfattr -n user.hello -v world "$M/xtest" || fail setfattr
 [ "$(getfattr --only-values -n user.hello "$M/xtest")" = "world" ] || fail getfattr
 
+# ---- 11. killpriv duty: write/truncate clears suid/sgid + fscaps ----
+# (FUSE_HANDLE_KILLPRIV is negotiated; the daemon owns the clearing.)
+echo x > "$M/kp"; chmod 6755 "$M/kp"
+echo y >> "$M/kp"
+[ "$(stat -c %a "$M/kp")" = "755" ] || fail "suid survived write: $(stat -c %a "$M/kp")"
+setcap cap_net_raw+ep "$M/kp"
+echo z >> "$M/kp"
+[ -z "$(getcap "$M/kp")" ] || fail "capability survived write: $(getcap "$M/kp")"
+chmod 4755 "$M/kp"; truncate -s 1 "$M/kp"
+[ "$(stat -c %a "$M/kp")" = "755" ] || fail "suid survived truncate"
+echo x > "$M/kpl"; chmod 2604 "$M/kpl"   # sgid without group-exec = mandatory locking
+echo y >> "$M/kpl"
+[ "$(stat -c %a "$M/kpl")" = "2604" ] || fail "mandatory-locking sgid wrongly cleared"
+
 umount "$M" || fail umount
 # ---- 10. at-rest check: nothing about the identity is plaintext on disk ----
 grep -rl '"u":' "$T/cipher" && fail "PLAINTEXT identity metadata on disk!"

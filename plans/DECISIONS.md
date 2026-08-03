@@ -830,3 +830,29 @@ Deviations and refinements made while implementing; all deliberate:
   kernel cache timeouts, and no-op setattr elision (skip the encrypted
   identity rewrite when chmod/chown changes nothing, as tar extraction
   does constantly).
+
+- **D46 — FUSE round-trip diet default, writeback demoted to opt-in.**
+  (2026-08-03) A production build failed with `close()`→EIO right after
+  D45's writeback shipped; a full-fidelity repro (real subuid topology,
+  the exact Dockerfile, outside every sandbox layer) passed cleanly both
+  with and without writeback, so causality is unproven — but unexplained
+  EIO on the default path is unacceptable, and writeback (plus the 60s
+  timeouts) moved behind `XBIN_GOCRYPTFS_WRITEBACK=1` until the failing
+  host's daemon logs settle it. The default path keeps the performance
+  goal by removing protocol round trips instead of batching data: an
+  opcode census of a real dpkg-through-overlay flow (~230 files) showed
+  6.5k LOOKUP / 4.6k GETXATTR / 4.1k SETATTR / 3.6k FLUSH — so:
+  FOPEN_NOFLUSH on every open (gocryptfs FLUSH is dup+close, a no-op;
+  kernel 5.16+ skips the op, older kernels ignore the bit), and
+  FUSE_HANDLE_KILLPRIV (second go-fuse opt-in patch) so the kernel stops
+  the per-write security.capability getxattr — with the implied duty
+  implemented in stKillPriv: write/truncate clears suid (always) and
+  sgid (only with group-exec; bare sgid is mandatory locking), drops
+  fscaps, all off the in-memory caches with a one-time backing probe on
+  miss. Also: FSYNC now uses the already-open handle (upstream's
+  Node.Fsync shadows File.Fsync and re-walks the path per fsync), and
+  MaxBackground 12→64. Census after: FLUSH −100%, GETATTR −40%. The
+  remaining GETXATTR storm is fuse-overlayfs's own cap queries
+  (userspace, cache-served, not removable kernel-side). Not pursued:
+  entry-timeout raises on the default path (kept at stock 1s until the
+  EIO is understood).

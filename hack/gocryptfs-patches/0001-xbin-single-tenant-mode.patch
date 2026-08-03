@@ -20,13 +20,18 @@ Written against gocryptfs v2.6.1 for xbin's resenc container stores
 (docs/resources.md); no on-disk format change — the identity xattr is an
 overlay, trees mount fine with or without the flag.
 
-Sole-writer also lets the kernel do the heavy caching: single-tenant
-mounts opt into the FUSE writeback cache (with the companion go-fuse
-patch, hack/gofuse-patches/ — small writes batch into large aligned
-WRITE requests instead of one round trip each, and shared writable mmap
-starts working) and stretch the attr/entry/negative-dentry timeouts to
-60s. Setattrs that change nothing (tar extraction re-chmods/re-chowns
+Sole-writer also cuts protocol round trips (with the companion go-fuse
+patch, hack/gofuse-patches/): FOPEN_NOFLUSH on every open (our FLUSH is
+a semantic no-op, so the kernel skips one round trip per close),
+FUSE_HANDLE_KILLPRIV with the implied duty done in stKillPriv (write/
+truncate clears suid/sgid/fscaps; mandatory-locking sgid kept), FSYNC on
+the open handle instead of a path re-walk, MaxBackground raised to 64,
+and setattrs that change nothing (tar extraction re-chmods/re-chowns
 exactly what create already set) skip the encrypted xattr rewrite.
+XBIN_GOCRYPTFS_WRITEBACK=1 additionally opts into the kernel writeback
+cache plus 60s attr/entry/negative-dentry timeouts (off by default
+after an unexplained close()->EIO correlated with it in one production
+build; shared writable mmap needs it).
 
 The caches are dropped when an inode loses its last directory entry
 (unlink, rmdir, replacing rename) and are never trusted for symlinks:
@@ -88,10 +93,33 @@ index 64a5923..de56cb6 100644
 +	SingleTenant bool
  }
 diff --git a/internal/fusefrontend/file.go b/internal/fusefrontend/file.go
-index afee158..80a6b7e 100644
+index afee158..ebe0373 100644
 --- a/internal/fusefrontend/file.go
 +++ b/internal/fusefrontend/file.go
-@@ -443,6 +443,26 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
+@@ -386,10 +386,22 @@ func (f *File) Write(ctx context.Context, data []byte, off int64) (uint32, sysca
+ 	if errno == 0 {
+ 		f.lastOpCount = openfiletable.WriteOpCount()
+ 		f.lastWrittenOffset = off + int64(len(data)) - 1
++		f.stKillPriv()
+ 	}
+ 	return n, errno
+ }
+ 
++// fsyncFd fsyncs the already-open backing fd — the fast path for FUSE
++// FSYNC, avoiding a path re-walk plus open/close of a fresh fd.
++func (f *File) fsyncFd() syscall.Errno {
++	f.fdLock.RLock()
++	defer f.fdLock.RUnlock()
++	if f.released {
++		return syscall.EBADF
++	}
++	return fs.ToErrno(syscall.Fsync(f.intFd()))
++}
++
+ // Release - FUSE call, close file
+ func (f *File) Release(ctx context.Context) syscall.Errno {
+ 	f.fdLock.Lock()
+@@ -443,6 +455,26 @@ func (f *File) Getattr(ctx context.Context, a *fuse.AttrOut) syscall.Errno {
  	if f.rootNode.args.ForceOwner != nil {
  		a.Owner = *f.rootNode.args.ForceOwner
  	}
@@ -119,7 +147,7 @@ index afee158..80a6b7e 100644
  	return 0
  }
 diff --git a/internal/fusefrontend/file_setattr.go b/internal/fusefrontend/file_setattr.go
-index fe4bc47..eb03530 100644
+index fe4bc47..c72f2c6 100644
 --- a/internal/fusefrontend/file_setattr.go
 +++ b/internal/fusefrontend/file_setattr.go
 @@ -29,30 +29,38 @@ func (f *File) setAttr(ctx context.Context, in *fuse.SetAttrIn) (errno syscall.E
@@ -181,8 +209,16 @@ index fe4bc47..eb03530 100644
  		}
  	}
  
+@@ -80,6 +88,7 @@ func (f *File) setAttr(ctx context.Context, in *fuse.SetAttrIn) (errno syscall.E
+ 		if errno != 0 {
+ 			return errno
+ 		}
++		f.stKillPriv()
+ 	}
+ 	return 0
+ }
 diff --git a/internal/fusefrontend/node.go b/internal/fusefrontend/node.go
-index 95be48d..08556f3 100644
+index 95be48d..b175f8a 100644
 --- a/internal/fusefrontend/node.go
 +++ b/internal/fusefrontend/node.go
 @@ -34,6 +34,10 @@ func (n *Node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (ch
@@ -467,6 +503,18 @@ index 95be48d..08556f3 100644
  		return 0
  	}
  	if nametransform.IsLongContent(cName) {
+@@ -519,6 +609,11 @@ func (n *Node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
+ //
+ // Note: f is always set to nil by go-fuse
+ func (n *Node) Fsync(ctx context.Context, f fs.FileHandle, flags uint32) syscall.Errno {
++	// Fast path: fsync the already-open handle instead of re-walking the
++	// path and opening a fresh fd (three syscalls + name re-encryption).
++	if file, ok := f.(*File); ok && file != nil {
++		return file.fsyncFd()
++	}
+ 	dirfd, cName, errno := n.prepareAtSyscallMyself()
+ 	if errno != 0 {
+ 		return errno
 diff --git a/internal/fusefrontend/node_dir_ops.go b/internal/fusefrontend/node_dir_ops.go
 index 11ff83d..32bb9e2 100644
 --- a/internal/fusefrontend/node_dir_ops.go
@@ -533,10 +581,18 @@ index 11ff83d..32bb9e2 100644
  		// Unlinkat with AT_REMOVEDIR is equivalent to Rmdir
  		err := unix.Unlinkat(parentDirFd, cName, unix.AT_REMOVEDIR)
 diff --git a/internal/fusefrontend/node_open_create.go b/internal/fusefrontend/node_open_create.go
-index 9598559..ba6f340 100644
+index 9598559..06a54fb 100644
 --- a/internal/fusefrontend/node_open_create.go
 +++ b/internal/fusefrontend/node_open_create.go
-@@ -66,12 +66,21 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+@@ -51,6 +51,7 @@ func (n *Node) Open(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFl
+ 		return
+ 	}
+ 	fh, _, errno = NewFile(fd, cName, rn)
++	fuseFlags |= rn.singleTenantOpenFlags()
+ 	return fh, fuseFlags, errno
+ }
+ 
+@@ -66,12 +67,21 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
  
  	var err error
  	fd := -1
@@ -558,7 +614,7 @@ index 9598559..ba6f340 100644
  	// Handle long file name
  	ctx2 := toFuseCtx(ctx)
  	if !rn.args.PlaintextNames && nametransform.IsLongContent(cName) {
-@@ -81,13 +90,13 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+@@ -81,13 +91,13 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
  			return nil, nil, 0, fs.ToErrno(err)
  		}
  		// Create content
@@ -574,7 +630,7 @@ index 9598559..ba6f340 100644
  	}
  	if err != nil {
  		// xfstests generic/488 triggers this
-@@ -99,10 +108,30 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+@@ -99,10 +109,30 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
  		return nil, nil, 0, fs.ToErrno(err)
  	}
  
@@ -605,6 +661,13 @@ index 9598559..ba6f340 100644
  
  	inode = n.newChild(ctx, st, out)
  
+@@ -110,5 +140,6 @@ func (n *Node) Create(ctx context.Context, name string, flags uint32, mode uint3
+ 		out.Owner = *rn.args.ForceOwner
+ 	}
+ 
++	fuseFlags |= rn.singleTenantOpenFlags()
+ 	return inode, fh, fuseFlags, errno
+ }
 diff --git a/internal/fusefrontend/node_xattr.go b/internal/fusefrontend/node_xattr.go
 index 44bc502..42884b7 100644
 --- a/internal/fusefrontend/node_xattr.go
@@ -731,10 +794,10 @@ index 8464c5f..85fe98e 100644
  func NewRootNode(args Args, c *contentenc.ContentEnc, n *nametransform.NameTransform) *RootNode {
 diff --git a/internal/fusefrontend/virtnode.go b/internal/fusefrontend/virtnode.go
 new file mode 100644
-index 0000000..975ed9d
+index 0000000..8db47b8
 --- /dev/null
 +++ b/internal/fusefrontend/virtnode.go
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,415 @@
 +package fusefrontend
 +
 +// xbin single-tenant mode (-xbin-single-tenant)
@@ -773,6 +836,8 @@ index 0000000..975ed9d
 +// ignores/lacks the virtual identities and falls back to real attributes.
 +
 +import (
++	"os"
++
 +	"encoding/json"
 +	"fmt"
 +	"sync"
@@ -844,6 +909,66 @@ index 0000000..975ed9d
 +	st2 := *st
 +	rn.inoMap.TranslateStat(&st2)
 +	rn.capCache.put(st2.Ino, ([]byte)(nil))
++}
++
++// wbOptIn: the kernel-caching experiment (writeback cache + long attr/entry
++// timeouts) is opt-in via XBIN_GOCRYPTFS_WRITEBACK=1.
++var wbOptIn = os.Getenv("XBIN_GOCRYPTFS_WRITEBACK") != ""
++
++// singleTenantOpenFlags returns extra FOPEN_* bits for Open/Create replies.
++// Without the writeback cache our FLUSH is semantically empty (dup+close),
++// so tell the kernel to skip it entirely — one round trip per close saved.
++// With writeback on, FLUSH is where close() learns of flush errors: keep it.
++func (rn *RootNode) singleTenantOpenFlags() uint32 {
++	if rn.args.SingleTenant && !wbOptIn {
++		return fuse.FOPEN_NOFLUSH
++	}
++	return 0
++}
++
++// stKillPriv implements the FUSE_HANDLE_KILLPRIV duty on single-tenant
++// mounts: a write or truncate clears suid/sgid and security.capability
++// (the kernel skips its own pre-write checks — including the
++// getxattr(security.capability) it otherwise issues before every write —
++// because we negotiated the capability). The common case (no priv bits)
++// costs two in-memory cache loads; a capability-cache miss probes the
++// backing xattr once and caches the answer. Called with ContentLock held.
++func (f *File) stKillPriv() {
++	rn := f.rootNode
++	if !rn.args.SingleTenant {
++		return
++	}
++	// suid/sgid in the virtualized mode
++	if vs := rn.virtFor(f.qIno, func() *virtStat { return rn.loadVirtFd(f.intFd()) }); vs != nil &&
++		vs.Mode&(syscall.S_ISUID|syscall.S_ISGID) != 0 {
++		nv := *vs
++		nv.Mode &^= syscall.S_ISUID
++		if nv.Mode&syscall.S_IXGRP != 0 {
++			// sgid without group-exec means mandatory locking, keep it
++			nv.Mode &^= syscall.S_ISGID
++		}
++		if nv.Mode != vs.Mode {
++			if err := rn.saveVirtFd(f.intFd(), &nv); err == nil {
++				rn.virtIdCache.put(f.qIno, &nv)
++			}
++		}
++	}
++	// security.capability
++	capIno := rn.inoMap.Translate(f.qIno)
++	cAttr, err := rn.encryptXattrName(xattrCapability)
++	if err != nil {
++		return
++	}
++	if v, ok := rn.capCache.get(capIno); ok {
++		if b, _ := v.([]byte); b == nil {
++			return // known: no capability
++		}
++	} else if sz, err := unix.Fgetxattr(f.intFd(), cAttr, nil); err != nil || sz <= 0 {
++		rn.capCache.put(capIno, ([]byte)(nil))
++		return
++	}
++	_ = unix.Fremovexattr(f.intFd(), cAttr)
++	rn.capCache.put(capIno, ([]byte)(nil))
 +}
 +
 +// stXattrName is the cipher-side xattr holding the virtualized stat data.
@@ -1089,7 +1214,7 @@ index 0000000..975ed9d
 +	return nil
 +}
 diff --git a/mount.go b/mount.go
-index 5c0f064..d89b26b 100644
+index 5c0f064..e41dba6 100644
 --- a/mount.go
 +++ b/mount.go
 @@ -269,6 +269,13 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
@@ -1139,16 +1264,18 @@ index 5c0f064..d89b26b 100644
  
  	// Init crypto backend
  	cCore := cryptocore.New(masterkey, cryptoBackend, IVBits, args.hkdf)
-@@ -372,6 +392,18 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -372,6 +392,20 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		fuseOpts = &fs.Options{
  			FirstAutomaticIno: 1000,
  		}
-+	} else if args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_NOWRITEBACK") == "" {
-+		// Single-tenant: the daemon is the sole writer, so nothing changes
-+		// behind the kernel's back — long dentry/attr caching is sound and
-+		// absorbs the re-stat storms of container image work.
-+		// XBIN_GOCRYPTFS_NOWRITEBACK=1 reverts to stock kernel caching
-+		// (and write-through) for A/B-ing suspected cache interactions.
++	} else if args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_WRITEBACK") != "" {
++		// Single-tenant kernel-caching experiment, opt-in via
++		// XBIN_GOCRYPTFS_WRITEBACK=1: long dentry/attr caching (sound —
++		// the daemon is the sole writer, nothing changes behind the
++		// kernel's back) plus the writeback cache below. Off by default
++		// after an unexplained close()->EIO on a production build that
++		// correlated with enabling it (never reproduced elsewhere; the
++		// full-topology repro passes both ways — plans/DECISIONS.md D45).
 +		long := 60 * time.Second
 +		fuseOpts = &fs.Options{
 +			NegativeTimeout: &long,
@@ -1158,22 +1285,35 @@ index 5c0f064..d89b26b 100644
  	} else {
  		fuseOpts = &fs.Options{
  			// These options are to be compatible with libfuse defaults,
-@@ -395,7 +427,13 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -395,7 +429,16 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
  		// have it >128kiB. We cannot handle more than 128kiB, so we tell
  		// the kernel to limit the size explicitly.
  		MaxWrite: fuse.MAX_KERNEL_WRITE,
 -		Debug:    args.fusedebug,
-+		// Single-tenant: writeback cache lets the kernel batch small
-+		// writes into few large FUSE requests and enables shared writable
-+		// mmap. Sole-writer (nothing touches the cipher tree behind this
-+		// mount) makes the kernel-cached view trustworthy.
-+		// XBIN_GOCRYPTFS_NOWRITEBACK=1 disables it (A/B / mitigation).
-+		EnableWritebackCache: args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_NOWRITEBACK") == "",
-+		Debug:                args.fusedebug,
++		// Single-tenant writeback cache (opt-in, see above): the kernel
++		// batches small writes into few large FUSE requests and shared
++		// writable mmap starts working.
++		EnableWritebackCache: args.xbin_single_tenant && os.Getenv("XBIN_GOCRYPTFS_WRITEBACK") != "",
++		// The kernel checks suid/sgid/fscaps before every write unless the
++		// fs promises to drop privileges itself — the promise
++		// (FUSE_HANDLE_KILLPRIV, honored by stKillPriv) removes a getxattr
++		// round trip per write.
++		HandleKillpriv: args.xbin_single_tenant,
++		Debug:          args.fusedebug,
  		// The kernel usually submits multiple read requests in parallel,
  		// which means we serve them in any order. Out-of-order reads are
  		// expensive on some backing network filesystems
-@@ -415,8 +453,12 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+@@ -410,13 +453,22 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
+ 	}
+ 
+ 	mOpts := &fuseOpts.MountOptions
++	if args.xbin_single_tenant {
++		// More async backlog helps parallel image work; go-fuse's default
++		// is a conservative 12.
++		mOpts.MaxBackground = 64
++	}
+ 	opts := make(map[string]string)
+ 	if args.allow_other {
  		tlog.Info.Printf(tlog.ColorYellow + "The option \"-allow_other\" is set. Make sure the file " +
  			"permissions protect your data from unwanted access." + tlog.ColorReset)
  		mOpts.AllowOther = true
