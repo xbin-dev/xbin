@@ -925,16 +925,21 @@ if [ "$CHOOSER" = 0 ]; then
   exit 0
 fi
 
-# ---- No mode chosen (non-root): explain, show BOTH plans, ask ---------------
+# ---- No mode chosen (non-root): explain, plan, ask --------------------------
+# Fresh box: both full plans. Existing install: the UPGRADE is the main path
+# — only its plan prints in full; the other mode is a single option line, its
+# plan shown only if picked.
 echo "${B}xbin installer${R}  →  run as $RUN_USER (no mode chosen)"
 if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
 if [ "$SYS_INSTALLED" = 1 ]; then
   echo
   info "${B}A system-wide xbin is already installed${R}${SYS_VERSION:+ ($SYS_VERSION)} — running: $SYS_RUNNING, listening on ${SYS_LISTEN:-127.0.0.1:8642}"
-  echo "  the usual move is upgrading it; a user-mode install would be a SEPARATE second instance"
-  echo "  (own workspace, own port$([ -n "$SYS_LISTEN" ] && printf ' — %s stays with the system install' "$SYS_LISTEN"))"
+elif [ "$USR_INSTALLED" = 1 ]; then
+  echo
+  info "${B}A user-mode xbin is already installed for $RUN_USER${R}"
+else
+  explain_modes
 fi
-explain_modes
 
 # User-mode preflight first (read-only; records blockers instead of dying so
 # the system option stays available — root can install what's missing).
@@ -944,16 +949,40 @@ preflight
 PREVIEW=0
 USER_FATAL=$PREFLIGHT_FATAL
 
-# System plan from read-only probes (getent, /etc/subuid, sysctls, unit
-# files, installed tools are all world-readable — root-only verification is
-# re-run after sudo).
-prepare_mode system
-print_plan
-echo "$SYSTEM_PLAN_NOTE"
-
-# User plan last, leaving user-mode state active for the [u] choice.
-prepare_mode user
-print_plan
+USER_PLAN_SHOWN=0
+if [ "$SYS_INSTALLED" = 1 ]; then
+  # Main path: upgrade the system install. Its plan prints from read-only
+  # probes (root-only verification re-runs after sudo).
+  prepare_mode system
+  print_plan
+  echo "$SYSTEM_PLAN_NOTE"
+  # The alternative is ONE line — its plan shows only if picked. prepare_mode
+  # still runs (read-only) so the line names the real port and the [u] branch
+  # has its state ready.
+  prepare_mode user
+  echo
+  if [ "$UPGRADE" = 1 ]; then
+    echo "  · alternative: upgrade the existing user-mode instance too (listens on $LISTEN) — pick [u] to see its plan first"
+  else
+    echo "  · alternative: add a separate user-only instance (own workspace, listens on $LISTEN) — pick [u] to see its plan first"
+  fi
+elif [ "$USR_INSTALLED" = 1 ]; then
+  # Main path: upgrade the user install (prepare_mode detects UPGRADE and
+  # print_plan carries the upgrade headline).
+  prepare_mode user
+  print_plan
+  USER_PLAN_SHOWN=1
+  echo
+  echo "  · alternative: install system-wide via sudo (dedicated xbin user under /opt/xbin) — pick [s]; its plan is shown after sudo, before anything changes"
+else
+  # Fresh box: both full plans, system first.
+  prepare_mode system
+  print_plan
+  echo "$SYSTEM_PLAN_NOTE"
+  prepare_mode user
+  print_plan
+  USER_PLAN_SHOWN=1
+fi
 
 if [ "$CHECK_ONLY" = 1 ]; then echo; info "check-only: no changes made"; exit 0; fi
 
@@ -968,6 +997,8 @@ fi
 echo
 if [ "$SYS_INSTALLED" = 1 ]; then
   CHOICE=$(ask "Upgrade the [s]ystem install via sudo (Enter), add a separate [u]ser-only instance, or [q]uit? " s)
+elif [ "$USR_INSTALLED" = 1 ]; then
+  CHOICE=$(ask "Upgrade the [u]ser install (Enter), install [s]ystem-wide via sudo, or [q]uit? " u)
 else
   CHOICE=$(ask "Install [s]ystem-wide via sudo, [u]ser-only, or [q]uit? " q)
 fi
@@ -976,6 +1007,8 @@ case "$CHOICE" in
     sudo_reexec "$@" ;;
   u|U|user)
     [ "$USER_FATAL" = 1 ] && die "user-mode preflight failed — run the commands above as root first, or pick the system install"
+    # If the user plan was only an option line, show it in full now.
+    if [ "$USER_PLAN_SHOWN" = 0 ]; then print_plan; fi
     [ -n "$LISTEN_BLOCKED" ] && die "$LISTEN_BLOCKED"
     echo
     confirm "Proceed?" || die "aborted"
