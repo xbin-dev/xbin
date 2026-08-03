@@ -28,10 +28,10 @@ const NOTES = [
   {
     id: 'building', title: 'Building & Terminal', color: 'sky',
     featured: true, badge: 'start here',
-    teaser: 'the 7×7 blue square opens a real terminal — this is how you build xbin',
+    teaser: 'the >_ button in a tile\u2019s title bar opens a real terminal — this is how you build xbin',
     intro: html`
-      <p>Read this one first. Every component and tile has a tiny
-      <strong>7×7&nbsp;px blue square</strong> in its corner — click it and a
+      <p>Read this one first. Every tile on a screen has a
+      <strong><code>&gt;_</code> button in its title bar</strong> — click it and a
       <strong>real terminal drops into that component's directory</strong>. That
       terminal is where xbin gets built: you rarely hand-edit files yourself,
       you run a <strong>coding agent</strong> in it (<code>claude</code> — Claude
@@ -46,23 +46,28 @@ const NOTES = [
     docs: 'getting-started.md',
     children: [
       {
-        id: 'the-button', title: 'the 7×7 blue button', color: 'sky',
-        teaser: 'click the corner square → a shell in that component',
+        id: 'the-button', title: 'the >_ button', color: 'sky',
+        teaser: 'click a tile\u2019s title-bar >_ → a shell in that component',
         body: html`
-          <p>Look at the top-right corner of any component frame or tile: a
-          <strong>7×7&nbsp;px blue square</strong>. Clicking it opens a
-          <strong>persistent terminal cwd'd into that component's
-          directory</strong> — a real shell (the owner/editing plane), not a
-          sandboxed toy. Close the tab and reopen later: the session survives and
-          replays its scrollback.</p>
-          <p>Open a terminal on the <strong>workspace root</strong> instead (the
-          root page's button) when you need to work across components or create
-          new ones — that one can edit the whole workspace. A terminal on a single
-          component is scoped to just that component plus your shared
-          <code>$HOME</code>.</p>
-          <p>Each terminal picks a network scope when it opens — internet by
-          default, so <code>git clone</code> / <code>go get</code> just work. The
-          <strong>isolation</strong> note has the full scoping story.</p>`,
+          <p>Every tile's title bar has a <strong><code>&gt;_</code>
+          button</strong>. Clicking it opens a <strong>persistent terminal cwd'd
+          into that component's directory</strong> — a real shell in a dev
+          sandbox. Close it and reopen later: the session survives and replays
+          its scrollback. (A full-page frame outside the shell shows a small
+          corner button that does the same.)</p>
+          <p>The terminal's API identity is <strong>the tile itself</strong>, not
+          you: <code>$XBIN_TOKEN</code> in the shell acts as that component —
+          its API, its resources, its granted calls — so admin endpoints and
+          other tiles' surfaces 403 by design. There is <strong>no root
+          terminal</strong>: create tiles from the canvas (right-click →
+          <em>Create a new tile</em>) or the Tile Manager; workspace-wide admin
+          lives in the browser or host-side <code>bx</code>.</p>
+          <p>The terminal's title bar also holds its knobs: a <strong>network
+          scope</strong> picker (internet by default, so <code>git clone</code> /
+          <code>go get</code> just work), a <strong>no-API</strong> toggle
+          (read/edit code with every API call unauthorized), and <code>⟲</code>
+          to reset the sandbox. The <strong>isolation</strong> note has the full
+          story.</p>`,
       },
       {
         id: 'with-agent', title: 'build with an agent', color: 'sky',
@@ -79,11 +84,10 @@ const NOTES = [
           <strong>workspace root carries <code>AGENTS.md</code></strong> (symlinked
           as <code>CLAUDE.md</code>) — a self-contained builder reference (manifest
           schema, the SDK, resource APIs, the mistakes to avoid) that these agents
-          read on startup. A component terminal mounts the workspace root
-          read-only, so the agent can <em>read</em> those rules from one level up
-          even though it can't edit anything outside its own component. And because
-          <code>$HOME</code> is shared across every terminal, you log the agent in
-          once and it stays logged in.</p>`,
+          read on startup. Every terminal sees it one level up, read-only, even
+          though nothing outside the component itself is editable. And because
+          your per-user <code>$HOME</code> is shared across <em>your</em>
+          terminals, you log the agent in once and it stays logged in.</p>`,
       },
       {
         id: 'two-filesystems', title: 'terminal ≠ deployment', color: 'sky',
@@ -93,7 +97,7 @@ const NOTES = [
           filesystem and the deployed backend's filesystem are different
           places.</strong></p>
           <p>In the <strong>terminal</strong> (build time) you get your component's
-          dir read-write, your shared <code>$HOME</code>, and a <strong>persistent
+          dir read-write, your per-user <code>$HOME</code>, and a <strong>persistent
           dev layer</strong> — an <code>apt install</code> or a tweak under
           <code>/etc</code> sticks around between sessions.</p>
           <p>The <strong>deployed backend</strong> (run time) runs in its own
@@ -197,24 +201,28 @@ bx ls                   # what exists in this workspace</pre>
     children: [
       {
         id: 'principals', title: 'the principals', color: 'purple',
-        teaser: 'owner is root; elements are least-privileged tenants',
+        teaser: 'admins and users are people; elements are least-privileged tenants',
         body: html`
-          <p>Three kinds of caller, very different trust:</p>
+          <p>The callers, in descending trust:</p>
           <ul>
-            <li><strong>Owner (you)</strong> — login cookie or
-              <code>Bearer $XBIN_TOKEN</code>. Passes <em>every</em>
-              permission check as role <code>admin</code>. Terminals run as
-              owner, which is why your <code>curl</code> always works.</li>
-            <li><strong>Element frontend</strong> — owner cookie
+            <li><strong>Admins</strong> — the workspace owner token (host-side,
+              <code>.xbin/token</code>) and admin <em>users</em>. Pass every
+              permission check as role <code>admin</code>.</li>
+            <li><strong>Users</strong> — signed-in people with per-tile levels
+              (read / write / terminal) and org memberships. Humans, not
+              code.</li>
+            <li><strong>Element frontend</strong> — session cookie
               <em>plus</em> a frame token that <code>xbin.fetch</code>
               attaches, attributing the call to that component.</li>
-            <li><strong>Element backend</strong> — its per-generation
-              gateway token. <strong>Default-deny</strong>: no grant, no
-              call.</li>
+            <li><strong>Element backend / terminal</strong> — a tile-scoped
+              token: the component acting as itself.
+              <strong>Default-deny</strong>: no grant, no call. A terminal is
+              <em>not</em> you — its <code>curl</code> follows the tile's
+              grants.</li>
           </ul>
-          <p>So the human is root and running code is a tenant — an app you
-          forked from the internet can't read your email unless you granted
-          it that role.</p>`,
+          <p>So humans hold the authority and running code is a tenant — an app
+          you forked from the internet can't read your email unless someone
+          granted it that role.</p>`,
       },
       {
         id: 'headers', title: 'verified headers', color: 'purple',
@@ -225,9 +233,13 @@ bx ls                   # what exists in this workspace</pre>
           checking the grant. By the time a request reaches your backend,
           <code>X-XBin-From</code> and <code>X-XBin-Role</code> are
           trustworthy — a caller cannot forge them.</p>
-          <pre>c := xbin.Caller(r)     // Go SDK: verified {From, Role, Owner}</pre>
+          <pre>c := xbin.Caller(r)     // Go SDK: {From, Role, Owner, User, UserLevel}</pre>
           <p>node / python read the headers directly; cgi gets
-          <code>XBIN_FROM</code> / <code>XBIN_ROLE</code> in env.</p>
+          <code>XBIN_FROM</code> / <code>XBIN_ROLE</code> in env. When a
+          signed-in human is driving the call, <code>X-XBin-User</code> /
+          <code>X-XBin-User-Level</code> ride along — your own UI's calls run
+          at the tile's full role even for read-level viewers, so gate
+          destructive actions with <code>c.UserCanWrite()</code>.</p>
           <p>Corollaries: never trust a role from a request body, query
           param, or custom header — and never build your own token check on
           top. If you received the request at all, xbind already
@@ -280,8 +292,11 @@ mux.Handle("POST /items", xbin.RoleFunc("writer", add))  // writer and up</pre>
   { "target": "res:apps/me/db",    "role": "writer" }
 ]</pre>
           <p>Same scope → granted automatically. Cross-scope → the request
-          sits <em>pending</em> until you approve it (role after the last
-          colon):</p>
+          sits <em>pending</em> until a human approves it — a workspace admin,
+          or an org admin when the tile is org-owned and the target is within
+          the org's allowance. You can watch your own tile's pendings (and who
+          can approve them) in the <strong>⚑ organisations</strong> panel.
+          Approving from a shell (role after the last colon):</p>
           <pre>bx grant apps/email apps/calendar:reader
 bx grant --revoke apps/email apps/calendar:reader
 bx grants                                # list everything, incl. pending</pre>
@@ -302,9 +317,11 @@ bx grants                                # list everything, incl. pending</pre>
           declares <code>implies</code>. On <code>bus</code> resources,
           <code>subscriber</code> / <code>publisher</code> are aliases for
           reader / writer.</p>
-          <p>And remember the escape hatch that isn't one: the owner passes
-          every check as <code>admin</code>. That's why your terminal never
-          needs a grant — and why code should never run as owner.</p>`,
+          <p>And remember the escape hatch that isn't one: admins pass every
+          check as <code>admin</code> — from the browser or host-side
+          <code>bx</code>. A tile's <em>terminal</em> is not that: it acts as
+          the tile and follows the tile's grants, which is exactly why code
+          (and the agents driving it) never runs with your authority.</p>`,
       },
     ],
   },
@@ -532,16 +549,19 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
         id: 'terminal-box', title: 'terminal isolation', color: 'teal',
         teaser: 'a component terminal can only touch its component + $HOME',
         body: html`
-          <p>Open a terminal on <code>apps/thing</code> and the whole workspace is
-          mounted <strong>read-only except that component's dir and
-          <code>$HOME</code></strong>. You can read siblings for patterns but can't
-          edit them — or workspace state (<code>xbin.json</code>,
-          <code>AGENTS.md</code>), or <code>data/</code>. A rogue agent can only
-          break its own component.</p>
+          <p>Open a terminal on <code>apps/thing</code> and you see <strong>your
+          view of the workspace, read-only — except that component's dir and
+          your <code>$HOME</code></strong>. Readable siblings are there for
+          patterns and API integration; tiles below your read level are simply
+          <em>absent</em> — contents and names — and root files like
+          <code>xbin.json</code> / <code>go.work</code> are filtered to what you
+          can see. Platform secrets (<code>data/</code>, tokens) are never
+          mounted. A rogue agent can only break its own component.</p>
           <p>Commits still work because <strong>each component is its own git
-          repo</strong> — <code>cd</code> into it and <code>git commit</code>. To
-          work across the workspace or create components, open a <strong>root
-          terminal</strong> (on the workspace root — full read-write).</p>`,
+          repo</strong> — <code>cd</code> into it and <code>git commit</code>.
+          There is no root terminal: create tiles from the canvas (right-click →
+          <em>Create a new tile</em>) or the Tile Manager, and do workspace-wide
+          work in the browser or with host-side <code>bx</code>.</p>`,
       },
       {
         id: 'dev-layer', title: 'the dev sandbox', color: 'teal',
@@ -555,9 +575,10 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           resets it to clean.</p>
           <p>Two things to keep straight:</p>
           <ul>
-            <li><strong>$HOME</strong> (<code>&lt;workspace&gt;/home</code>) is
-            <em>shared</em> across all terminals — agent CLI config, auth, and
-            dotfiles follow you everywhere and survive upgrades.</li>
+            <li><strong>$HOME</strong> (<code>homes/&lt;you&gt;</code>) is
+            <em>per-user</em> and shared across all <em>your</em> terminals —
+            agent CLI config, auth, and dotfiles follow you everywhere and
+            survive upgrades, and other users never see them.</li>
             <li>That dev layer is <em>separate</em> from the component's own
             <strong>env layer</strong> (built from <code>setup</code> in the
             manifest, which the running backend gets read-only). Install for
@@ -599,9 +620,11 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           <p>A sandboxed backend has <strong>zero IP egress</strong> until its
           <code>net</code> interface is bound. The owner picks what provides it:
           the <code>internet</code> builtin (public only, via a userspace gVisor
-          relay that terminates and meters every flow), <code>host</code>,
-          <code>lan:&lt;cidr&gt;</code>, or a <strong>provider tile</strong> — a
-          VPN, firewall, or router your traffic routes through.</p>
+          relay that terminates and meters every flow) — or a <em>filtered</em>
+          form like <code>internet:api.stripe.com:443</code> that pins egress to
+          named destinations — <code>host</code>, <code>lan:&lt;cidr&gt;</code>,
+          or a <strong>provider tile</strong> — a VPN, firewall, or router your
+          traffic routes through.</p>
           <p>Providers are real Linux routers in their own sandbox and are
           themselves clients of <em>their</em> egress, so binding one to another
           <strong>chains</strong> them (client → firewall → VPN → internet) — all
@@ -640,6 +663,25 @@ $XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
     ],
   },
   {
+    id: 'people', title: 'sharing & people', color: 'purple',
+    teaser: 'tiles have owners; orgs share them; asking for access is one click',
+    intro: html`
+      <p>Every tile has an <strong>owner</strong> — you, an org, or the
+      workspace — and that decides who runs it: sharing, lifecycle, and
+      approvals belong to the owner (org admins for org tiles). The create
+      dialog's <em>Owner</em> picker sets it; transfers preview their impact
+      before you confirm.</p>
+      <p>Day to day: share a tile from its <strong>⚙ access</strong> panel;
+      hit a tile you can't read and the page itself offers
+      <strong>request access</strong> — the owner sees it in the
+      <strong>⚑ organisations</strong> panel and approves in a click. New
+      people join by <strong>admin-minted invite links</strong> (single-use;
+      there is no self-signup), and orgs can pin shared <strong>org
+      screens</strong> every member gets. The sidebar groups it all by owner:
+      <em>mine · each org · workspace</em>.</p>`,
+    docs: 'auth.md',
+  },
+  {
     id: 'backups', title: 'backups', color: 'rose',
     teaser: 'per-component archives to a pluggable store; free disk with offload',
     intro: html`
@@ -673,6 +715,8 @@ POST /api/xbin/restore   { "component": "apps/thing", "file": "data/kv.json" }</
           <ul>
             <li><strong>disabled</strong> — the backend is stopped (frees compute);
             data stays local. Nothing can spawn it until re-enabled.</li>
+            <li><strong>hidden</strong> — disabled <em>and</em> kept out of the
+            sidebar and pickers ("show hidden" toggles reveal it).</li>
             <li><strong>offloaded</strong> — archived, then its resource data is
             removed to free disk; the tile stays listed and restores on demand.</li>
             <li><strong>offloaded-full</strong> — also drops the source + dev
