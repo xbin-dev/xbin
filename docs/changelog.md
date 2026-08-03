@@ -21,7 +21,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   encrypted mount. No new manifest surface and no on-disk format change;
   the mode follows the `cap:containers` grant automatically. Container
   tiles also get a cgroup2 view at `/sys/fs/cgroup` (libpod requires one)
-  and can drop their self-mount workaround. Host requirement:
+  plus `/dev/net/tun` and `/dev/fuse` device nodes (pasta/slirp4netns
+  networking, fuse-overlayfs storage) — and can drop their self-mount
+  workarounds. Host requirement:
   `user_allow_other` in `/etc/fuse.conf` (system installs enable it;
   `bx doctor` checks). See [resources.md](/docs/resources.md).
 

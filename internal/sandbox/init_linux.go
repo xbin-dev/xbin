@@ -167,6 +167,17 @@ func runInit(specPath string) error {
 	if s.FuseOverlay != "" {
 		_ = bindNode(newroot, "/dev/fuse")
 	}
+	// Container hosts: rootless podman's networking (pasta/slirp4netns) opens
+	// /dev/net/tun to build the container-side tap, and its storage may use
+	// fuse-overlayfs (/dev/fuse). Bound from the host — tun is world-rw by
+	// convention and namespaced-safe (the tap lands in the opener's netns);
+	// the installer persists both modules (modules-load.d/xbin.conf).
+	if s.Containers {
+		if err := bindNode(newroot, "/dev/net/tun"); err != nil {
+			dbg(s.Debug, "no /dev/net/tun on the host (modprobe tun): container networking will fail: "+err.Error())
+		}
+		_ = bindNode(newroot, "/dev/fuse")
+	}
 	dbg(s.Debug, "proc/tmp/dev mounted")
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
