@@ -198,6 +198,25 @@
   .bl b{display:block;font-size:14px;margin-bottom:2px}
   .bl span{color:var(--muted);font-size:13px;line-height:1.5}
 
+  /* ---------- see it in action (real screenshots) ---------- */
+  .shot{margin:0;cursor:zoom-in}
+  .shot img{display:block;width:100%;border:1px solid var(--border);border-radius:9px;background:var(--steel);transition:border-color .15s}
+  .shot:hover img{border-color:var(--muted)}
+  .shot figcaption{display:flex;gap:8px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.45}
+  .shot figcaption .sn{font:700 11px/1.6 var(--mono);color:var(--accent);flex:none}
+  .shot.lead{margin-top:38px}
+  .shot.lead img{border-radius:12px;border-color:var(--border2);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .shot.lead figcaption{font-size:12.5px;margin-top:10px}
+  .flow-h{display:flex;align-items:baseline;gap:12px;margin:46px 0 0;flex-wrap:wrap}
+  .flow-h h3{font-size:18px;margin:0}
+  .flow-h span{color:var(--muted);font-size:13.5px}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
+  .flow.f6{grid-template-columns:repeat(3,1fr)}
+  dialog.lb{border:1px solid var(--border2);border-radius:12px;padding:0;background:var(--steel);
+    max-width:min(94vw,1500px);box-shadow:0 30px 90px rgba(0,0,0,.6)}
+  dialog.lb::backdrop{background:rgba(10,11,14,.78);backdrop-filter:blur(3px)}
+  dialog.lb img{display:block;max-width:100%;max-height:88vh;border-radius:11px;cursor:zoom-out}
+
   /* install band */
   .installband{text-align:center;background:
     radial-gradient(700px 300px at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%)}
@@ -286,6 +305,7 @@
     .aud{grid-template-columns:1fr}
     .seclist{grid-template-columns:1fr}
     .boxlist{grid-template-columns:1fr}
+    .flow,.flow.f6{grid-template-columns:repeat(2,1fr)}
     .nav-links .lnk{display:none}
   }
   @media (max-width:560px){
@@ -331,6 +351,7 @@
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#compose">Composition</a>
       <a class="lnk" href="#terminals">Terminals</a>
+      <a class="lnk" href="#action">In action</a>
       <a class="lnk" href="#who">Who it's for</a>
       <a class="lnk" href="#people">Multi-user</a>
       <a class="lnk" href="#security">Security</a>
@@ -583,6 +604,81 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   </div>
 </section>
 
+<section id="action">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">See it in action</span>
+      <h2>Not mockups. This is the product.</h2>
+      <p class="lede">Screenshots from a real workspace: one daemon, a sidebar of tiles, and the
+        two loops you'll live in — <b>changing a tile</b> and <b>creating one</b>. Click any shot to zoom.</p>
+    </div>
+    <figure class="shot lead">
+      <img src="shots/overview-shell.png" loading="lazy"
+        alt="the xbin shell: a sidebar of tiles, and the admin tile listing every component with its runtime, sandbox namespaces, and live egress connections">
+      <figcaption><span class="sn">●</span>One workspace, one daemon: tiles in the sidebar; the admin
+        tile shows every component's runtime, sandbox namespaces, and live egress.</figcaption>
+    </figure>
+
+    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
+    <div class="flow">
+      <figure class="shot">
+        <img src="shots/change-tile-before.png" loading="lazy"
+          alt="the mempaste tile before the change: a paste text box and an Add paste button">
+        <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-prompt.png" loading="lazy"
+          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
+        <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-agent-done.png" loading="lazy"
+          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
+        <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-tile-after.png" loading="lazy"
+          alt="the mempaste tile after the change: an Upload file button next to Add paste">
+        <figcaption><span class="sn">4</span>Reload — the feature is live.</figcaption>
+      </figure>
+    </div>
+
+    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar: empty folder to shipped, one prompt</span></div>
+    <div class="flow f6">
+      <figure class="shot">
+        <img src="shots/create-menu.png" loading="lazy"
+          alt="the shell's plus menu with Create a new tile as the first entry">
+        <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-dialog.png" loading="lazy"
+          alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
+        <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-prompt.png" loading="lazy"
+          alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
+        <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-agent-done.png" loading="lazy"
+          alt="the agent reports the tile built, tested end-to-end, and committed">
+        <figcaption><span class="sn">4</span>Built, tested end-to-end, committed.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-tile-full.png" loading="lazy"
+          alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
+        <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-task-added.png" loading="lazy"
+          alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
+        <figcaption><span class="sn">6</span>Using it a minute later.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
 <section id="who">
   <div class="wrap">
     <div class="sec-head">
@@ -717,7 +813,17 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   </div>
 </footer>
 
+<dialog class="lb" id="lb" aria-label="screenshot zoom"><img alt=""></dialog>
+
 <script>
+  // screenshot lightbox
+  const lb = document.getElementById('lb');
+  const lbImg = lb.querySelector('img');
+  for (const f of document.querySelectorAll('.shot img')) {
+    f.addEventListener('click', () => { lbImg.src = f.src; lbImg.alt = f.alt; lb.showModal(); });
+  }
+  lb.addEventListener('click', () => lb.close());
+
   // copy buttons
   for (const b of document.querySelectorAll('.cp')) {
     b.addEventListener('click', async () => {

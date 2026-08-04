@@ -93,5 +93,5 @@ website:
 	@rm -rf website/dist
 	@mkdir -p website/dist
 	@cp website/index.html website/install.sh website/og.png website/dist/
-	@cp -r website/fonts website/dist/
+	@cp -r website/fonts website/shots website/dist/
 	@echo ">> website/dist ready: $$(ls website/dist | tr '\n' ' ')"

@@ -5,14 +5,16 @@ step, no external fonts/CDNs — same buildless ethos as the workspace), in the
 product's own steel + hazard-amber palette, with IBM Plex Sans self-hosted in
 `fonts/` (OFL, headings only) and one inline SVG icon set — no emoji, no
 glyph-soup. Plus `install.sh`, the bootstrap installer the site serves, and
-`og.png` (`og:image`, 1200×630).
+`og.png` (`og:image`, 1200×630). `shots/` holds the real-product screenshots
+(pngquant-compressed) used by the "see it in action" section.
 
 ## Pitch structure
 Hero (thesis + install one-liner + animated shell) → three pillars (yours /
 sandboxed / self-modifying) → "everything is a folder" model → composition
-(typed wires) → app terminals (BYO agent) → who it's for → **users & orgs**
-(the multi-user model) → security posture → "in the box" list → install →
-footer.
+(typed wires) → app terminals (BYO agent) → **see it in action** (real
+screenshots: overview + change-a-tile + create-a-tile flows) → who it's for →
+**users & orgs** (the multi-user model) → security posture → "in the box"
+list → install → footer.
 
 ## Build
 
