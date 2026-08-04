@@ -1,10 +1,13 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -151,5 +154,62 @@ func TestStaticCodeGrant(t *testing.T) {
 	// And the grant never widens HUMAN reads (humans use per-tile RBAC).
 	if w := get("/c/apps/lib/secret.js", auth.Principal{}); w.Code != 403 {
 		t.Fatalf("anonymous human: want 403, got %d", w.Code)
+	}
+}
+
+// The components listing is the discovery half of source reading: an element
+// holding a code grant must LIST what the grant covers, not just fetch known
+// paths (a bare `code` grant = every component — a code-stats tile that only
+// saw itself + chrome was the original report).
+func TestComponentsCodeGrant(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"apps/code-stats", "apps/a", "apps/b"} {
+		p := filepath.Join(root, filepath.FromSlash(rel), "xbin.json")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg, Auth: a}
+
+	list := func(p auth.Principal) []string {
+		r := httptest.NewRequest("GET", "/api/xbin/components", nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		s.apiComponents(w, r)
+		var out []struct{ Path string }
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		paths := []string{}
+		for _, c := range out {
+			paths = append(paths, c.Path)
+		}
+		sort.Strings(paths)
+		return paths
+	}
+	el := auth.Principal{Component: "apps/code-stats", Via: "instance"}
+
+	// No grant hook: element lists only itself (self-only clamp).
+	if got := list(el); !slices.Contains(got, "apps/code-stats") || slices.Contains(got, "apps/a") {
+		t.Fatalf("ungranted element listing = %v", got)
+	}
+	// Bare-code-style grant (hook says yes to everything): all components list.
+	s.CodeReadGrant = func(from, target string) bool { return from == "apps/code-stats" }
+	got := list(el)
+	for _, want := range []string{"apps/a", "apps/b", "apps/code-stats"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("code-granted element listing = %v, missing %s", got, want)
+		}
 	}
 }

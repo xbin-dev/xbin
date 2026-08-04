@@ -111,7 +111,11 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 	out := []componentInfo{}
 	for _, c := range s.Reg.Components() {
 		// A user sees only the tiles they may read (plus chrome); admins, all.
-		if !isChrome(c.Path) && !p.CanReadTile(c.Path) {
+		// An element additionally lists what its code[:<comp>] grant covers —
+		// the discovery half of source reading (a bare `code` grant is "all
+		// components": tooling like linters and stats must be able to
+		// enumerate what it may read, not just fetch known paths).
+		if !isChrome(c.Path) && !p.CanReadTile(c.Path) && !s.codeGranted(p, c.Path) {
 			continue
 		}
 		ci := componentInfo{

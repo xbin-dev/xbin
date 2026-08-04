@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-04
 
+- **Fixed: code grants also cover component discovery.** Yesterday's fix
+  opened `/c/` reads for `code`-granted elements, but `GET
+  /api/xbin/components` still filtered by tile read access — a tile with
+  the bare `code` grant (read all source) listed only itself plus chrome,
+  so tooling like a code-stats tile saw 3 of 30+ components. The listing
+  now includes everything the element's code grant covers.
+
 - **Fixed: `code`/`code:<component>` grants read source via `/c/` again.**
   The org-improvements read clamp (2026-08-02) made element principals
   self-only on the static plane, which also cut off elements holding a
