@@ -1,25 +1,38 @@
 # website — xbin.dev
 
-The **xbin.dev** landing page. A single self-contained `index.html` (no build
+The **xbin.dev** landing page. `index.html` carries the whole pitch (no build
 step, no external fonts/CDNs — same buildless ethos as the workspace), in the
-product's own steel + hazard-amber palette, plus `install.sh`, the bootstrap
-installer the site serves.
+product's own steel + hazard-amber palette, with IBM Plex Sans self-hosted in
+`fonts/` (OFL, headings only) and one inline SVG icon set — no emoji, no
+glyph-soup. Plus `install.sh`, the bootstrap installer the site serves, and
+`og.png` (`og:image`, 1200×630).
 
 ## Pitch structure
 Hero (thesis + install one-liner + animated shell) → three pillars (yours /
 sandboxed / self-modifying) → "everything is a folder" model → composition
 (typed wires) → app terminals (BYO agent) → who it's for → **users & orgs**
-(the multi-user model) → security posture → feature grid → install → footer.
+(the multi-user model) → security posture → "in the box" list → install →
+footer.
 
 ## Build
 
 ```
-make website        # assembles website/dist/ (index.html + install.sh)
+make website        # assembles website/dist/ (index.html, install.sh, og.png, fonts/)
 ```
 
 `dist/` is the deployable artifact — any static host, GitHub Pages, or an
 object store. `https://xbin.dev/` serves `index.html`;
 `https://xbin.dev/install.sh` serves the bootstrap.
+
+## og.png
+
+`og.html` is the master artwork for the share card. After editing it, re-render:
+
+```
+chromium --headless --disable-gpu --screenshot=website/og.png \
+  --window-size=1200,630 --hide-scrollbars \
+  --default-background-color=16181dff "file://$PWD/website/og.html"
+```
 
 ## install.sh & releases
 

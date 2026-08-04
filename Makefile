@@ -87,10 +87,11 @@ fmt-check:
 vendor:
 	./hack/vendor.sh
 
-# Assemble the static xbin.dev site into website/dist (index.html is fully
-# self-contained — no build step, matching the workspace's buildless ethos).
+# Assemble the static xbin.dev site into website/dist (no build step, matching
+# the workspace's buildless ethos: the page + the fonts/art it references).
 website:
 	@rm -rf website/dist
 	@mkdir -p website/dist
-	@cp website/index.html website/install.sh website/dist/
+	@cp website/index.html website/install.sh website/og.png website/dist/
+	@cp -r website/fonts website/dist/
 	@echo ">> website/dist ready: $$(ls website/dist | tr '\n' ' ')"
