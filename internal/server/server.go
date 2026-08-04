@@ -50,6 +50,12 @@ type Server struct {
 	// for injection into its frame (plans/interfaces.md). Installed by the broker.
 	Interfaces func(comp string) map[string]any
 
+	// CodeReadGrant reports whether element `from` holds a code[:<comp>]
+	// source-read grant covering `target` — opens the /c/ static plane for
+	// element principals beyond their own tile (installed by the broker;
+	// nil ⇒ grants don't open /c/, only the code API).
+	CodeReadGrant func(from, target string) bool
+
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle
 }

@@ -51,8 +51,14 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// headers can't be attached to tag loads anyway. So they're authorized by
 	// the one signal the browser still produces: the opaque-origin
 	// Fetch-Metadata fingerprint (see tileSubresource).
+	//
+	// An element principal holding a code[:<owner>] grant reads sibling
+	// source here too (the grant's whole point — tooling backends fetching
+	// files); the 2026-08-02 element read clamp governs everything else.
+	// Note the D4 injection mints a frame token only when CanReadTile passes,
+	// so grant-based reads never leak the OTHER tile's credential.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !tileSubresource(r) {
+		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !tileSubresource(r) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.serveRequestAccessPage(w, owner)
 				return
@@ -99,6 +105,13 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.ServeFile(w, r, full)
+}
+
+// codeGranted reports whether an element principal holds a code[:<target>]
+// source-read grant on target (broker-installed hook). Element principals
+// only — humans use their per-tile RBAC (CanReadTile).
+func (s *Server) codeGranted(p auth.Principal, target string) bool {
+	return p.Component != "" && s.CodeReadGrant != nil && s.CodeReadGrant(p.Component, target)
 }
 
 // tileSubresource reports whether r is a credential-less subresource load

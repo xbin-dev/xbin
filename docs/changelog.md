@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-04
 
+- **Fixed: `code`/`code:<component>` grants read source via `/c/` again.**
+  The org-improvements read clamp (2026-08-02) made element principals
+  self-only on the static plane, which also cut off elements holding a
+  source-read grant — tooling backends (linters, search, stats) could no
+  longer fetch sibling files. Grant-holding elements now pass the `/c/`
+  read gate (broker-installed hook; grants stay in the grant table); the
+  D4 injection still mints frame tokens only for principals with tile
+  read access, so grant-based reads never receive the other tile's
+  credential. Also fixed: the admin workspace-totals charts rendered
+  invisible (SVG-namespace bug in the multi-line sparkline).
+
 - **`code`/`code:<comp>` grants now open the `/c/` static plane for element
   principals.** The 2026-08-02 element read clamp had made backend instance
   tokens self-only on `/c/`, so a code-granted tooling tile could no longer

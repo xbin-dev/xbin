@@ -104,10 +104,12 @@ func (p Principal) tileLevel(path, want string) bool {
 		// tokens carry the driving user (Access resolved at principal build);
 		// an owner-driven one (no user id: the bootstrap token's frames and
 		// terminals) keeps owner reach; an unattributed INSTANCE token stays
-		// self-only — backends reach siblings through grants (/api), never by
-		// reading their static files. (Previously ANY element passed these
-		// gates for ANY tile, so one tile's frame token could read every
-		// other tile's /c/ source — 2026-08-02 re-review finding.)
+		// self-only — sibling source is reachable only through an explicit
+		// code[:<comp>] grant, which the /c/ handler consults via the
+		// broker-installed CodeReadGrant hook (it lives in the grant table,
+		// not this package). (Previously ANY element passed these gates for
+		// ANY tile, so one tile's frame token could read every other tile's
+		// /c/ source — 2026-08-02 re-review finding.)
 		if path == p.Component {
 			return true
 		}

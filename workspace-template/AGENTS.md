@@ -590,9 +590,11 @@ it. Declare `interfaces`/`provides`/`exposes`; leave **binding to the owner**
   role:"reader"}` (one component) or `{target:"code", role:"reader"}` (ALL
   components — for scanners/linters/stats). Once approved,
   `GET /api/xbin/code/tree` / `/code/file` / `/git/log` / `/git/diff`
-  `?component=<path>` return files + history (read-only; the same view a
-  terminal has). You always read your own source; a sibling's needs the grant.
-  There is no filesystem mount for this — use the API.
+  `?component=<path>` return files + history, and plain `/c/<comp>/<file>`
+  reads serve source to your element principal (HTML docs come without the
+  target's frame token — no credential leak). You always read your own
+  source; a sibling's needs the grant. There is no filesystem mount for
+  this — use the API.
 - **Agents cannot approve cross-scope grants — by construction.** Declaring
   `uses` is your job; *approving* a cross-scope (or `xbin:*`) grant is the
   owner's call — the human-in-the-loop the whole permission model exists

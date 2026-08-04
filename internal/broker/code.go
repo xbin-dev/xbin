@@ -122,6 +122,20 @@ func componentRemote(dir string) string {
 	return strings.TrimSpace(out)
 }
 
+// codeGrantAllows reports whether element `from` holds a source-read grant
+// covering component `target`: "code" (bare) = read ANY component's source
+// (tooling: linters, stats, search); "code:<comp>" = just that one. This is
+// the grant side of requireCodeRead and the /c/ static plane alike — a
+// code-granted backend reads sibling source through either.
+func (b *Broker) codeGrantAllows(from, target string) bool {
+	for _, t := range []string{"code", "code:" + target} {
+		if role, ok := b.grantedRole(from, t); ok && roleSatisfies(role, "reader", nil) {
+			return true
+		}
+	}
+	return false
+}
+
 // requireCodeRead gates the read-only source endpoints: admin sees any
 // component, an element sees its own source, or another component's when
 // granted the "code:<component>" capability (plans/auth.md). This is the
@@ -131,14 +145,8 @@ func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp st
 	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
 		return true
 	}
-	if p.Component != "" {
-		// "code" (bare) = read ANY component's source (tooling: linters, stats,
-		// search); "code:<comp>" = just that one.
-		for _, t := range []string{"code", "code:" + comp} {
-			if role, ok := b.grantedRole(p.Component, t); ok && roleSatisfies(role, "reader", nil) {
-				return true
-			}
-		}
+	if p.Component != "" && b.codeGrantAllows(p.Component, comp) {
+		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
 		"error": "reading a component's source needs admin, or a `code:" + comp + "` grant (one component) / `code` grant (all) — declare uses {target: \"code:" + comp + "\", role: \"reader\"}",

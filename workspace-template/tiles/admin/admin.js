@@ -10,7 +10,7 @@
  * a component's files and git log/diffs (syntax-highlighted via vendored
  * highlight.js), scoped to its path in the single workspace repo.
  */
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, nothing, svg } from 'lit';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import '/vendor/bx-multiselect.js';
@@ -1144,7 +1144,7 @@ export class BxAdmin extends LitElement {
     for (const l of lines) for (const v of l.vals) max = Math.max(max, v);
     const step = w / (len - 1);
     return html`<svg class="spark" width=${w} height=${ht} viewBox="0 0 ${w} ${ht}">
-      ${lines.map((l) => html`<polyline fill="none" stroke=${l.color} stroke-width="1.3"
+      ${lines.map((l) => svg`<polyline fill="none" stroke=${l.color} stroke-width="1.3"
         points=${l.vals.map((v, i) => `${((i + (len - l.vals.length)) * step).toFixed(1)},${(ht - (max ? v / max : 0) * (ht - 2) - 1).toFixed(1)}`).join(' ')}></polyline>`)}
     </svg>`;
   }

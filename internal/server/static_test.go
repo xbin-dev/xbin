@@ -3,8 +3,12 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
@@ -81,5 +85,71 @@ func TestSandboxedFrame(t *testing.T) {
 		if got := sandboxedFrame(c.path, c.comp); got != c.want {
 			t.Errorf("%s: sandboxedFrame=%v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+// A code[:<comp>] grant opens the /c/ static plane for element principals
+// (the 2026-08-02 clamp made instance tokens self-only even WITH the grant —
+// tooling backends couldn't fetch sibling source). Grant-based reads must
+// never mint the OTHER tile's frame token into served HTML.
+func TestStaticCodeGrant(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("apps/scanner/xbin.json", `{}`)
+	mk("apps/lib/xbin.json", `{}`)
+	mk("apps/lib/secret.js", `const key = "hunter2";`)
+	mk("apps/lib/index.html", `<!doctype html><html><head><title>lib</title></head><body>lib</body></html>`)
+
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg, Auth: a}
+	s.CodeReadGrant = func(from, target string) bool {
+		return from == "apps/scanner" && target == "apps/lib"
+	}
+
+	get := func(url string, p auth.Principal) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", url, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		s.handleComponentStatic(w, r)
+		return w
+	}
+	scanner := auth.Principal{Component: "apps/scanner", Via: "instance"}
+
+	// Granted: source file and HTML doc both read.
+	if w := get("/c/apps/lib/secret.js", scanner); w.Code != 200 || !strings.Contains(w.Body.String(), "hunter2") {
+		t.Fatalf("code-granted source read: got %d", w.Code)
+	}
+	w := get("/c/apps/lib/index.html", scanner)
+	if w.Code != 200 {
+		t.Fatalf("code-granted HTML read: got %d", w.Code)
+	}
+	// …but the served HTML must carry NO frame token for apps/lib (a
+	// code-grant read must not hand the other tile's credential to scanner).
+	if !strings.Contains(w.Body.String(), `xbin-frame-token" content=""`) {
+		t.Fatal("grant-based read leaked a frame token for the other tile")
+	}
+
+	// Ungranted: a different element gets 403.
+	if w := get("/c/apps/lib/secret.js", auth.Principal{Component: "apps/other", Via: "instance"}); w.Code != 403 {
+		t.Fatalf("ungranted element: want 403, got %d", w.Code)
+	}
+	// And the grant never widens HUMAN reads (humans use per-tile RBAC).
+	if w := get("/c/apps/lib/secret.js", auth.Principal{}); w.Code != 403 {
+		t.Fatalf("anonymous human: want 403, got %d", w.Code)
 	}
 }

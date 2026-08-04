@@ -122,9 +122,11 @@ once; xbind enforces at every call.
   GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`plans/gpu.md`). Same
   owner-approval flow; ungranted means the sandbox gets no egress / no GPU.
 - **`code:<component>`** (one component) / **`code`** (all components) —
-  read-only access to another component's **source** (its files + git log/diff
-  via `/api/xbin/code/*`, `/api/xbin/git/{log,diff}`), the runtime equivalent
-  of what a workspace terminal sees read-only. Request
+  read-only access to another component's **source**: its files + git
+  log/diff via `/api/xbin/code/*`, `/api/xbin/git/{log,diff}`, and plain
+  file reads over the static plane (`/c/<comp>/<file>` — element principals
+  only; served HTML never carries the target's frame token). The runtime
+  equivalent of what a workspace terminal sees read-only. Request
   `uses {target:"code:apps/x", role:"reader"}` for one, or
   `{target:"code", role:"reader"}` for **every** component (tooling — linters,
   stats, search — that must scan the whole workspace without re-granting per

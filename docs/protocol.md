@@ -77,7 +77,10 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  manifest inject:false. Cache-Control: no-store.
                                  Auth: any principal that may read the tile
                                  (cookie RBAC; frame token for the tile
-                                 itself); a tile's SUBRESOURCE loads
+                                 itself; an element holding a code[:<tile>]
+                                 grant reads its source here too — HTML then
+                                 served WITHOUT the tile's frame token);
+                                 a tile's SUBRESOURCE loads
                                  (Sec-Fetch-Dest: script/style/image/font/
                                  media/worker, never documents or fetch;
                                  never .html) are also authorized
