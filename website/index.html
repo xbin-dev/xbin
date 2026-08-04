@@ -212,10 +212,18 @@
   .flow-h span{color:var(--muted);font-size:13.5px}
   .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
   .flow.f6{grid-template-columns:repeat(3,1fr)}
-  dialog.lb{border:1px solid var(--border2);border-radius:12px;padding:0;background:var(--steel);
-    max-width:min(94vw,1500px);box-shadow:0 30px 90px rgba(0,0,0,.6)}
+  dialog.lb{border:1px solid var(--border2);border-radius:12px;padding:10px;background:var(--steel);
+    max-width:min(96vw,1560px);box-shadow:0 30px 90px rgba(0,0,0,.6)}
   dialog.lb::backdrop{background:rgba(10,11,14,.78);backdrop-filter:blur(3px)}
-  dialog.lb img{display:block;max-width:100%;max-height:88vh;border-radius:11px;cursor:zoom-out}
+  .lbrow{display:flex;align-items:center;gap:10px}
+  .lbrow img{display:block;max-width:100%;max-height:80vh;border-radius:9px;min-width:0}
+  .lbnav{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--border2);
+    background:var(--panel);color:var(--muted);font:18px/1 var(--sans);cursor:pointer;
+    display:grid;place-items:center;padding:0 0 2px;transition:color .15s,border-color .15s}
+  .lbnav:hover{color:var(--text);border-color:var(--muted)}
+  .lbcap{display:flex;gap:14px;align-items:baseline;padding:10px 4px 2px;color:var(--muted);font-size:13px;line-height:1.5}
+  .lbcap .txt{flex:1}
+  .lbcap .cnt{font:11px var(--mono);color:var(--dim);white-space:nowrap}
 
   /* install band */
   .installband{text-align:center;background:
@@ -813,16 +821,47 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   </div>
 </footer>
 
-<dialog class="lb" id="lb" aria-label="screenshot zoom"><img alt=""></dialog>
+<dialog class="lb" id="lb" aria-label="screenshot zoom">
+  <div class="lbrow">
+    <button type="button" class="lbnav" id="lbprev" aria-label="previous screenshot">‹</button>
+    <img alt="">
+    <button type="button" class="lbnav" id="lbnext" aria-label="next screenshot">›</button>
+  </div>
+  <div class="lbcap"><span class="txt" id="lbtxt"></span><span class="cnt" id="lbcnt"></span></div>
+</dialog>
 
 <script>
-  // screenshot lightbox
+  // screenshot lightbox: click a shot to zoom, ‹/› or arrow keys to browse,
+  // caption + counter shown under the image; backdrop click or Esc closes.
   const lb = document.getElementById('lb');
-  const lbImg = lb.querySelector('img');
-  for (const f of document.querySelectorAll('.shot img')) {
-    f.addEventListener('click', () => { lbImg.src = f.src; lbImg.alt = f.alt; lb.showModal(); });
+  const lbImg = lb.querySelector('.lbrow img');
+  const lbTxt = document.getElementById('lbtxt');
+  const lbCnt = document.getElementById('lbcnt');
+  const shots = [...document.querySelectorAll('.shot')].map(f => {
+    const img = f.querySelector('img');
+    const sn = f.querySelector('figcaption .sn');
+    const fc = f.querySelector('figcaption');
+    const step = sn ? sn.textContent.trim() : '';
+    const txt = fc.textContent.replace(sn ? sn.textContent : '', '').trim();
+    return { src: img.src, alt: img.alt, cap: (step && step !== '●' ? step + ' · ' : '') + txt };
+  });
+  let cur = 0;
+  function show(i){
+    cur = (i + shots.length) % shots.length;   // wrap around
+    lbImg.src = shots[cur].src; lbImg.alt = shots[cur].alt;
+    lbTxt.textContent = shots[cur].cap;
+    lbCnt.textContent = (cur + 1) + ' / ' + shots.length;
   }
-  lb.addEventListener('click', () => lb.close());
+  shots.forEach((s, i) => {
+    document.querySelectorAll('.shot img')[i].addEventListener('click', () => { show(i); lb.showModal(); });
+  });
+  document.getElementById('lbprev').addEventListener('click', () => show(cur - 1));
+  document.getElementById('lbnext').addEventListener('click', () => show(cur + 1));
+  lb.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft'){ e.preventDefault(); show(cur - 1); }
+    if (e.key === 'ArrowRight'){ e.preventDefault(); show(cur + 1); }
+  });
+  lb.addEventListener('click', e => { if (e.target === lb) lb.close(); });
 
   // copy buttons
   for (const b of document.querySelectorAll('.cp')) {
