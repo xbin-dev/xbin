@@ -9,12 +9,12 @@ glyph-soup. Plus `install.sh`, the bootstrap installer the site serves, and
 (pngquant-compressed) used by the "see it in action" section.
 
 ## Pitch structure
-Hero (thesis + install one-liner + animated shell) → three pillars (yours /
-sandboxed / self-modifying) → "everything is a folder" model → composition
-(typed wires) → app terminals (BYO agent) → **see it in action** (real
-screenshots: overview + change-a-tile + create-a-tile flows) → who it's for →
-**users & orgs** (the multi-user model) → security posture → "in the box"
-list → install → footer.
+Hero (thesis + install one-liner + animated shell) → **see it in action**
+(real screenshots: overview + change-a-tile + create-a-tile flows — the hook:
+proof, not claims) → "everything is a folder" model → three pillars (yours /
+sandboxed / self-modifying) → composition (typed wires) → app terminals
+(BYO agent) → who it's for → **users & orgs** (the multi-user model) →
+security posture → "in the box" list → install → footer.
 
 ## Build
 

@@ -356,10 +356,10 @@
     </a>
     <div class="nav-sp"></div>
     <div class="nav-links">
+      <a class="lnk" href="#action">In action</a>
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#compose">Composition</a>
       <a class="lnk" href="#terminals">Terminals</a>
-      <a class="lnk" href="#action">In action</a>
       <a class="lnk" href="#who">Who it's for</a>
       <a class="lnk" href="#people">Multi-user</a>
       <a class="lnk" href="#security">Security</a>
@@ -435,34 +435,83 @@
   </div>
 </header>
 
-<section id="pillars">
+<section id="action">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Why xbin</span>
-      <h2>Three non-negotiables.</h2>
+      <span class="eyebrow">See it in action</span>
+      <h2>Shot on a real workspace.</h2>
+      <p class="lede">A running workspace with nothing staged: the two loops you'll live in are
+        changing a tile and creating one. Click any shot to zoom.</p>
     </div>
-    <div class="pillars">
-      <div class="pillar">
-        <div class="ic"><svg class="icn"><use href="#i-lock"/></svg></div>
-        <h3>Yours</h3>
-        <p>One unprivileged daemon on a box you control: your files and your git history on
-          your disk. No accounts, no SaaS; nothing phones home. Dual MIT / Apache-2.0.</p>
-      </div>
-      <div class="pillar">
-        <div class="ic"><svg class="icn"><use href="#i-shield"/></svg></div>
-        <h3>Sandboxed</h3>
-        <p>Every tile runs rootless: user, mount, pid and net namespaces, seccomp and landlock.
-          Grants are default-deny; secrets live encrypted in a vault.</p>
-      </div>
-      <div class="pillar">
-        <div class="ic"><svg class="icn"><use href="#i-pencil"/></svg></div>
-        <h3>Self-modifying</h3>
-        <p>Open a browser terminal in any tile: edit and rebuild it live, or point an agent at it.
-          Each tile is its own git repo, versioned and backed up.</p>
-      </div>
+    <figure class="shot lead">
+      <img src="shots/overview-shell.png" loading="lazy"
+        alt="the xbin shell: a canvas of floating tiles — a paste bin, the Traefik ingress terminator, the manager's updates pane, and the welcome tile's notes — beside a sidebar of orgs and apps">
+      <figcaption><span class="sn">●</span>One workspace, one daemon: a canvas of floating tiles (a
+        paste bin, the Traefik ingress tile, the manager's updates, the built-in orientation notes)
+        with every app and org in the sidebar.</figcaption>
+    </figure>
+
+    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
+    <div class="flow">
+      <figure class="shot">
+        <img src="shots/change-tile-before.png" loading="lazy"
+          alt="the mempaste tile before the change: a paste text box and an Add paste button">
+        <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-prompt.png" loading="lazy"
+          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
+        <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-agent-done.png" loading="lazy"
+          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
+        <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-tile-after.png" loading="lazy"
+          alt="the mempaste tile after the change: an Upload file button next to Add paste">
+        <figcaption><span class="sn">4</span>Reload — the feature is live.</figcaption>
+      </figure>
+    </div>
+
+    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar from empty folder to shipped in one prompt</span></div>
+    <div class="flow f6">
+      <figure class="shot">
+        <img src="shots/create-menu.png" loading="lazy"
+          alt="the shell's plus menu with Create a new tile as the first entry">
+        <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-dialog.png" loading="lazy"
+          alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
+        <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-prompt.png" loading="lazy"
+          alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
+        <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-agent-done.png" loading="lazy"
+          alt="the agent reports the tile built, tested end-to-end, and committed">
+        <figcaption><span class="sn">4</span>Built and tested end-to-end, then committed.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-tile-full.png" loading="lazy"
+          alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
+        <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-task-added.png" loading="lazy"
+          alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
+        <figcaption><span class="sn">6</span>Using it a minute later.</figcaption>
+      </figure>
     </div>
   </div>
 </section>
+
+
 
 <section id="how">
   <div class="wrap">
@@ -495,6 +544,35 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       --host dash.example.com     <span class="m"># behind your TLS</span>
 <span class="g">✓ live</span> · sandboxed · versioned · backed up</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pillars">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Why xbin</span>
+      <h2>Three non-negotiables.</h2>
+    </div>
+    <div class="pillars">
+      <div class="pillar">
+        <div class="ic"><svg class="icn"><use href="#i-lock"/></svg></div>
+        <h3>Yours</h3>
+        <p>One unprivileged daemon on a box you control: your files and your git history on
+          your disk. No accounts, no SaaS; nothing phones home. Dual MIT / Apache-2.0.</p>
+      </div>
+      <div class="pillar">
+        <div class="ic"><svg class="icn"><use href="#i-shield"/></svg></div>
+        <h3>Sandboxed</h3>
+        <p>Every tile runs rootless: user, mount, pid and net namespaces, seccomp and landlock.
+          Grants are default-deny; secrets live encrypted in a vault.</p>
+      </div>
+      <div class="pillar">
+        <div class="ic"><svg class="icn"><use href="#i-pencil"/></svg></div>
+        <h3>Self-modifying</h3>
+        <p>Open a browser terminal in any tile: edit and rebuild it live, or point an agent at it.
+          Each tile is its own git repo, versioned and backed up.</p>
       </div>
     </div>
   </div>
@@ -608,82 +686,6 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span>. Flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
       <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em> and never as the owner. You can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
       <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Runtime state stays with the backend</b><span>The tile's live resources (its database, its resource filesystem) are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
-    </div>
-  </div>
-</section>
-
-<section id="action">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow">See it in action</span>
-      <h2>Shot on a real workspace.</h2>
-      <p class="lede">A running workspace with nothing staged: the two loops you'll live in are
-        changing a tile and creating one. Click any shot to zoom.</p>
-    </div>
-    <figure class="shot lead">
-      <img src="shots/overview-shell.png" loading="lazy"
-        alt="the xbin shell: a canvas of floating tiles — a paste bin, the Traefik ingress terminator, the manager's updates pane, and the welcome tile's notes — beside a sidebar of orgs and apps">
-      <figcaption><span class="sn">●</span>One workspace, one daemon: a canvas of floating tiles (a
-        paste bin, the Traefik ingress tile, the manager's updates, the built-in orientation notes)
-        with every app and org in the sidebar.</figcaption>
-    </figure>
-
-    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
-    <div class="flow">
-      <figure class="shot">
-        <img src="shots/change-tile-before.png" loading="lazy"
-          alt="the mempaste tile before the change: a paste text box and an Add paste button">
-        <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-prompt.png" loading="lazy"
-          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
-        <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-agent-done.png" loading="lazy"
-          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
-        <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-tile-after.png" loading="lazy"
-          alt="the mempaste tile after the change: an Upload file button next to Add paste">
-        <figcaption><span class="sn">4</span>Reload — the feature is live.</figcaption>
-      </figure>
-    </div>
-
-    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar from empty folder to shipped in one prompt</span></div>
-    <div class="flow f6">
-      <figure class="shot">
-        <img src="shots/create-menu.png" loading="lazy"
-          alt="the shell's plus menu with Create a new tile as the first entry">
-        <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-dialog.png" loading="lazy"
-          alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
-        <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-prompt.png" loading="lazy"
-          alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
-        <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-agent-done.png" loading="lazy"
-          alt="the agent reports the tile built, tested end-to-end, and committed">
-        <figcaption><span class="sn">4</span>Built and tested end-to-end, then committed.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-tile-full.png" loading="lazy"
-          alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
-        <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-task-added.png" loading="lazy"
-          alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
-        <figcaption><span class="sn">6</span>Using it a minute later.</figcaption>
-      </figure>
     </div>
   </div>
 </section>
