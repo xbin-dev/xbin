@@ -335,7 +335,6 @@
     <symbol id="i-swap" viewBox="0 0 16 16"><path d="M2.5 5.5h9M9.5 3.5l2 2-2 2"/><path d="M13.5 10.5h-9M6.5 8.5l-2 2 2 2"/></symbol>
     <symbol id="i-diamond" viewBox="0 0 16 16"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z"/></symbol>
     <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3"/><path d="M4.5 6.5 8 3l3.5 3.5"/></symbol>
-    <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 3v10"/><path d="M4.5 9.5 8 13l3.5-3.5"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5 12.5 8 9 11.5"/></symbol>
     <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></symbol>
     <symbol id="i-term" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.8 6.3 6.8 8l-2 1.7M8.5 10h2.8"/></symbol>
@@ -377,7 +376,7 @@
       <h1>Code and state, in <span class="amber">separate sandboxes</span>.</h1>
       <p class="sub">A Harvard architecture for self-hosted software. Terminals and agents rewrite a
         tile's code from inside the workspace; its live state answers only to the tile's own
-        API — sandboxed, multi-user, on one Linux box you own.</p>
+        API — sandboxed, multi-user, on one Linux box you own, internal until you say otherwise.</p>
       <div class="install">
         <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
         <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
@@ -459,7 +458,8 @@
       <span class="eyebrow">The model</span>
       <h2>Everything is a directory.</h2>
       <p class="lede">No registry, no build step: a component is a directory and its path is
-        its identity. Open a terminal in it, grant it what it needs, expose it when you want it public.</p>
+        its identity. Open a terminal in it and grant it what it needs; everything stays inside
+        the workspace by default.</p>
     </div>
     <div class="how">
       <div class="steps">
@@ -469,8 +469,9 @@
           <p>Attach a sandboxed shell to any tile to edit, build, and run agents. No SSH, no local checkout.</p></div></div>
         <div class="step"><span class="n">3</span><div><h3>Grants are default-deny</h3>
           <p>A tile cannot reach the network or another tile until you approve a grant. Secrets come from its own vault.</p></div></div>
-        <div class="step"><span class="n">4</span><div><h3>Expose it on your terms</h3>
-          <p><code>bx expose</code> publishes a tile behind your own TLS or Tailscale. Anonymous callers are path-confined.</p></div></div>
+        <div class="step"><span class="n">4</span><div><h3>Internal by default</h3>
+          <p>Tiles serve their users inside the workspace. Publishing one to the internet is a
+            separate opt-in (<code>bx expose</code>, behind your TLS) that most tiles never need.</p></div></div>
       </div>
       <div class="codeblock">
         <div class="cbh"><span class="dt sm da"></span><span class="cbn">apps/dashboard — terminal</span></div>
@@ -481,9 +482,7 @@ $ <span class="a">bx</span> term apps/dashboard        <span class="m"># a shell
   <span class="k">~/apps/dashboard</span> $ git commit -am ship
 
 $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</span> reader
-$ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
-      --host dash.example.com     <span class="m"># behind your TLS</span>
-<span class="g">✓ live</span> · sandboxed · versioned · backed up</pre>
+<span class="g">✓ live in the workspace</span> · sandboxed · versioned · backed up</pre>
       </div>
     </div>
   </div>
@@ -534,9 +533,6 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
         <div class="step"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-up"/></svg></span><div><h3>Egress is composition too</h3>
           <p>A tile has <b>zero network</b> until its <code>net</code> slot is bound to the internet,
             a LAN, or <em>through another tile</em>: a WireGuard/firewall tile that provides <code>net</code>. Chains compose.</p></div></div>
-        <div class="step"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-down"/></svg></span><div><h3>Ingress the same way</h3>
-          <p>An <code>exposes</code> endpoint goes public only when bound to an ingress terminator:
-            the Traefik tile or the built-in listener. Anonymous callers stay path-confined.</p></div></div>
       </div>
       <div class="wires" aria-label="example wiring of apps/agent">
         <div class="wire"><span class="wnode slot">agent · llm</span><span class="wlink"><b>http:llm</b></span><span class="wnode"><span class="dt sm dg"></span>tiles/llm-gw</span></div>
@@ -545,7 +541,6 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
         <div class="wire"><span class="wnode slot">agent · archive</span><span class="wlink"><b>http:archive</b></span><span class="wnode"><span class="dt sm dg"></span>tiles/s3-archiver</span><span class="wlink"></span><span class="wnode world">s3://backups</span></div>
         <div class="wire"><span class="wnode slot">agent · net</span><span class="wlink"><b>net</b></span><span class="wnode"><span class="dt sm dg"></span>tiles/wg-vpn</span><span class="wlink"></span><span class="wnode world">internet</span></div>
         <div class="wnote">all egress rides the VPN tile—the agent can't bypass it</div>
-        <div class="wire"><span class="wnode world">https://agent.example.com</span><span class="wlink"><b>ingress</b></span><span class="wnode"><span class="dt sm dg"></span>tiles/traefik</span><span class="wlink"></span><span class="wnode slot">agent · /hook/*</span></div>
       </div>
     </div>
 
@@ -569,7 +564,10 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       </div>
     </div>
     <p class="bindcap"><b>Binding is the owner's click</b>: a tile — or an agent inside one — can
-      request a capability, but it can't wire itself to anything. Until you bind, it has nothing.</p>
+      request a capability, but it can't wire itself to anything. Until you bind, it has nothing.
+      The same mechanism gates the outside world: no egress without a <span class="mono">net</span>
+      binding, and no public endpoint until an <span class="mono">exposes</span> endpoint is bound
+      to an ingress terminator — an opt-in most tiles never take.</p>
   </div>
 </section>
 
@@ -781,7 +779,7 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
       <div class="bl"><svg class="icn"><use href="#i-grid"/></svg><div><b>Tiles &amp; screens</b><span>A snappable grid of apps; drag, pin, float, or full-page any of them.</span></div></div>
       <div class="bl"><svg class="icn"><use href="#i-term"/></svg><div><b>Browser terminals</b><span>A real sandboxed shell on any tile, with a code + diff review pane.</span></div></div>
       <div class="bl"><svg class="icn"><use href="#i-branch"/></svg><div><b>Git per component</b><span>Version, diff, and restore every tile independently.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-globe"/></svg><div><b>Ingress &amp; expose</b><span>Publish HTTP or raw TCP/UDP behind your TLS, with a Traefik tile.</span></div></div>
+      <div class="bl"><svg class="icn"><use href="#i-globe"/></svg><div><b>Optional ingress</b><span>Publish HTTP or raw TCP/UDP behind your TLS with the Traefik tile; off unless you bind it.</span></div></div>
       <div class="bl"><svg class="icn"><use href="#i-box"/></svg><div><b>Containers</b><span>An opt-in <span class="mono">cap:containers</span> tile runs rootless podman for dev boxes.</span></div></div>
       <div class="bl"><svg class="icn"><use href="#i-disk"/></svg><div><b>Backups &amp; restore</b><span>Scheduled, encrypted, one-click restore of any tile or the whole workspace.</span></div></div>
       <div class="bl"><svg class="icn"><use href="#i-wrench"/></svg><div><b>bx CLI + Go SDK</b><span>Zero-dependency SDK; a <span class="mono">bx</span> CLI for everything the UI does.</span></div></div>
