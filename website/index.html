@@ -96,8 +96,7 @@
   .install .cp{margin-left:auto;flex:none;border:1px solid var(--border2);background:var(--panel);color:var(--muted);
     border-radius:6px;padding:4px 9px;font:11px var(--mono);cursor:pointer}
   .install .cp:hover{color:var(--text)}
-  .subnote{color:var(--dim);font:12px/1.5 var(--mono);margin-top:12px}
-  .subnote b{color:var(--muted);font-weight:600}
+  .modehint b{color:var(--text);font-weight:600}
 
   /* ---------- the shell mock (the hero's right column) ---------- */
   .mock{border:1px solid var(--border2);border-radius:12px;overflow:hidden;background:var(--steel);
@@ -374,21 +373,18 @@
   <div class="hero-in">
     <div>
       <h1>Code and state, in <span class="amber">separate sandboxes</span>.</h1>
-      <p class="sub">A Harvard architecture for self-hosted software. Terminals and agents rewrite a
-        tile's code from inside the workspace; its live state answers only to the tile's own
-        API — sandboxed, multi-user, on one Linux box you own, internal until you say otherwise.</p>
+      <p class="sub">A Harvard architecture for self-hosted software. Agents and terminals rewrite a
+        tile's code from inside the workspace; its live state answers only to the tile's own API.</p>
       <div class="install">
         <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
         <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
       </div>
-      <p class="modehint">prints both install plans and asks before changing anything ·
-        Linux &amp; macOS (Lima VM)</p>
+      <p class="modehint">prints the plan and asks before changing anything · Linux &amp; macOS (Lima VM) ·
+        <b>MIT / Apache-2.0</b> · no SaaS or telemetry</p>
       <div class="cta">
         <a class="btn amber" href="#install">Get started</a>
-        <a class="btn" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">GitHub</a>
         <a class="btn" href="#how">See how it works</a>
       </div>
-      <div class="subnote">One unprivileged daemon · <b>MIT / Apache-2.0</b> · no SaaS or telemetry · reach it behind Tailscale or your own TLS.</div>
     </div>
 
     <!-- the hero IS the product: a faithful mini-shell that boots itself -->
