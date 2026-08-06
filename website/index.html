@@ -198,7 +198,9 @@
   .bl b{display:block;font-size:14px;margin-bottom:2px}
   .bl span{color:var(--muted);font-size:13px;line-height:1.5}
 
-  /* ---------- see it in action (real screenshots) ---------- */
+  /* ---------- real screenshots (workspace band + workflows) ---------- */
+  .shotband{padding:clamp(40px,6vw,72px) 0;border-bottom:1px solid var(--border)}
+  .shotband .shot.lead{margin-top:0}
   .shot{margin:0;cursor:zoom-in}
   .shot img{display:block;width:100%;border:1px solid var(--border);border-radius:9px;background:var(--steel);transition:border-color .15s}
   .shot:hover img{border-color:var(--muted)}
@@ -356,10 +358,10 @@
     </a>
     <div class="nav-sp"></div>
     <div class="nav-links">
-      <a class="lnk" href="#action">In action</a>
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#compose">Composition</a>
       <a class="lnk" href="#terminals">Terminals</a>
+      <a class="lnk" href="#workflows">Workflows</a>
       <a class="lnk" href="#who">Who it's for</a>
       <a class="lnk" href="#people">Multi-user</a>
       <a class="lnk" href="#security">Security</a>
@@ -374,7 +376,7 @@
     <div>
       <h1>The workspace you rewrite from inside.</h1>
       <p class="sub">xbin turns one Linux box into a multi-user workspace of tiles. Every tile is a
-        folder you can open a terminal into, run agents in, sandbox, and publish.</p>
+        directory you can open a terminal into, run agents in, sandbox, and publish.</p>
       <div class="install">
         <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
         <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
@@ -435,81 +437,18 @@
   </div>
 </header>
 
-<section id="action">
+<section class="shotband" aria-label="a live xbin workspace">
   <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow">See it in action</span>
-      <h2>Shot on a real workspace.</h2>
-      <p class="lede">A running workspace with nothing staged: the two loops you'll live in are
-        changing a tile and creating one. Click any shot to zoom.</p>
-    </div>
     <figure class="shot lead">
       <img src="shots/overview-shell.png" loading="lazy"
         alt="the xbin shell: a canvas of floating tiles — a paste bin, the Traefik ingress terminator, the manager's updates pane, and the welcome tile's notes — beside a sidebar of orgs and apps">
-      <figcaption><span class="sn">●</span>One workspace, one daemon: a canvas of floating tiles (a
-        paste bin, the Traefik ingress tile, the manager's updates, the built-in orientation notes)
-        with every app and org in the sidebar.</figcaption>
     </figure>
-
-    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
-    <div class="flow">
-      <figure class="shot">
-        <img src="shots/change-tile-before.png" loading="lazy"
-          alt="the mempaste tile before the change: a paste text box and an Add paste button">
-        <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-prompt.png" loading="lazy"
-          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
-        <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-agent-done.png" loading="lazy"
-          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
-        <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/change-tile-after.png" loading="lazy"
-          alt="the mempaste tile after the change: an Upload file button next to Add paste">
-        <figcaption><span class="sn">4</span>Reload — the feature is live.</figcaption>
-      </figure>
-    </div>
-
-    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar from empty folder to shipped in one prompt</span></div>
-    <div class="flow f6">
-      <figure class="shot">
-        <img src="shots/create-menu.png" loading="lazy"
-          alt="the shell's plus menu with Create a new tile as the first entry">
-        <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-dialog.png" loading="lazy"
-          alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
-        <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-prompt.png" loading="lazy"
-          alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
-        <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-agent-done.png" loading="lazy"
-          alt="the agent reports the tile built, tested end-to-end, and committed">
-        <figcaption><span class="sn">4</span>Built and tested end-to-end, then committed.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-tile-full.png" loading="lazy"
-          alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
-        <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="shots/create-task-added.png" loading="lazy"
-          alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
-        <figcaption><span class="sn">6</span>Using it a minute later.</figcaption>
-      </figure>
-    </div>
   </div>
 </section>
+
+
+
+
 
 
 
@@ -517,7 +456,7 @@
   <div class="wrap">
     <div class="sec-head">
       <span class="eyebrow">The model</span>
-      <h2>Everything is a folder.</h2>
+      <h2>Everything is a directory.</h2>
       <p class="lede">No registry, no build step: a component is a directory and its path is
         its identity. Open a terminal in it, grant it what it needs, expose it when you want it public.</p>
     </div>
@@ -632,9 +571,8 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
         <span class="bindbtn">bind</span>
       </div>
     </div>
-    <p class="bindcap">Install a tile and its unbound slots appear in the shell like this.
-      <b>Binding is the owner's click</b>: a tile (or an agent inside one) can request a capability,
-      but it can't wire itself to anything. Until you bind, it has nothing.</p>
+    <p class="bindcap"><b>Binding is the owner's click</b>: a tile — or an agent inside one — can
+      request a capability, but it can't wire itself to anything. Until you bind, it has nothing.</p>
   </div>
 </section>
 
@@ -690,6 +628,72 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   </div>
 </section>
 
+<section id="workflows">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Workflows</span>
+      <h2>Change it where it runs.</h2>
+    </div>
+    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
+    <div class="flow">
+      <figure class="shot">
+        <img src="shots/change-tile-before.png" loading="lazy"
+          alt="the mempaste tile before the change: a paste text box and an Add paste button">
+        <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-prompt.png" loading="lazy"
+          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
+        <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-agent-done.png" loading="lazy"
+          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
+        <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/change-tile-after.png" loading="lazy"
+          alt="the mempaste tile after the change: an Upload file button next to Add paste">
+        <figcaption><span class="sn">4</span>The change is live with no deploy step.</figcaption>
+      </figure>
+    </div>
+
+    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar from empty directory to shipped in one prompt</span></div>
+    <div class="flow f6">
+      <figure class="shot">
+        <img src="shots/create-menu.png" loading="lazy"
+          alt="the shell's plus menu with Create a new tile as the first entry">
+        <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-dialog.png" loading="lazy"
+          alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
+        <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-prompt.png" loading="lazy"
+          alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
+        <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-agent-done.png" loading="lazy"
+          alt="the agent reports the tile built, tested end-to-end, and committed">
+        <figcaption><span class="sn">4</span>Built and tested end-to-end, then committed.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-tile-full.png" loading="lazy"
+          alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
+        <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="shots/create-task-added.png" loading="lazy"
+          alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
+        <figcaption><span class="sn">6</span>A working app with its own state, minutes after the prompt.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
 <section id="who">
   <div class="wrap">
     <div class="sec-head">
@@ -723,8 +727,8 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
     <div class="sec-head">
       <span class="eyebrow">Users &amp; orgs</span>
       <h2>Share the box without the blast radius.</h2>
-      <p class="lede">Every tile has an <b>owner</b> (you or an org), and everything else follows
-        from that. Admins set policy once; org admins run their own day-to-day, down to the 2am approval.</p>
+      <p class="lede">Every tile has an <b>owner</b> (you or an org). Admins set policy once; org
+        admins run their own day-to-day, down to the 2am approval.</p>
     </div>
     <div class="aud">
       <div class="card"><span class="tag">Accounts</span>
@@ -843,8 +847,9 @@ $ <span class="a">bx</span> expose apps/dashboard web <span class="m">\</span>
   const lbCnt = document.getElementById('lbcnt');
   const shots = [...document.querySelectorAll('.shot')].map(f => {
     const img = f.querySelector('img');
-    const sn = f.querySelector('figcaption .sn');
     const fc = f.querySelector('figcaption');
+    if (!fc) return { src: img.src, alt: img.alt, cap: img.alt };
+    const sn = fc.querySelector('.sn');
     const step = sn ? sn.textContent.trim() : '';
     const txt = fc.textContent.replace(sn ? sn.textContent : '', '').trim();
     return { src: img.src, alt: img.alt, cap: (step && step !== '●' ? step + ' · ' : '') + txt };
