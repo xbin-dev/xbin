@@ -46,7 +46,6 @@
   ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
-  .eyebrow{font:600 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
   .mono{font-family:var(--mono)}
   h1,h2,h3,h4,.brand{font-family:var(--display)}
   h2{font:700 clamp(26px,4vw,38px)/1.1 var(--display);letter-spacing:-.02em;text-wrap:balance;margin:0}
@@ -147,7 +146,6 @@
   /* ---------- generic section ---------- */
   section{padding:clamp(56px,8vw,96px) 0;border-bottom:1px solid var(--border)}
   .sec-head{max-width:60ch}
-  .sec-head h2{margin-top:10px}
   .sec-head .lede{margin-top:14px}
 
   /* pillars */
@@ -451,7 +449,6 @@
 <section id="how">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">The model</span>
       <h2>Everything is a directory.</h2>
       <p class="lede">No registry, no build step: a component is a directory and its path is
         its identity. Open a terminal in it and grant it what it needs; everything stays inside
@@ -512,7 +509,6 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="compose">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Composition</span>
       <h2>Small tiles with typed wires.</h2>
       <p class="lede">Tiles don't hardcode each other. A tile declares <b>typed interface slots</b>:
         "I need an LLM", "I need MCP servers", "I need somewhere to archive". The owner binds each
@@ -570,8 +566,7 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="terminals">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">App terminals</span>
-      <h2>Bring your own agent.</h2>
+      <h2>Terminals in the browser.</h2>
       <p class="lede">Every tile opens a real shell in the browser. xbin has <b>zero opinion about your
         harness</b>: run whatever you already use. Every workspace ships an <span class="mono">AGENTS.md</span> /
         <span class="mono">CLAUDE.md</span> contract, so any agent lands with the full mental model.</p>
@@ -622,8 +617,7 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="workflows">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Workflows</span>
-      <h2>Change it where it runs.</h2>
+      <h2>See real workflows.</h2>
     </div>
     <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
     <div class="flow">
@@ -688,7 +682,6 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="who">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Who it's for</span>
       <h2>From solo homelab to small team.</h2>
     </div>
     <div class="aud">
@@ -716,8 +709,7 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="people">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Users &amp; orgs</span>
-      <h2>Share the box without the blast radius.</h2>
+      <h2>Users and orgs.</h2>
       <p class="lede">Every tile has an <b>owner</b> (you or an org). Admins set policy once; org
         admins run their own day-to-day, down to the 2am approval.</p>
     </div>
@@ -749,7 +741,6 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="security" class="sec-band">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">Security posture</span>
       <h2>Isolation is the default.</h2>
       <p class="lede">xbin is a rootless sandbox runtime first and a UI second. The boundary is the
         kernel, and it's on for every tile from the start.</p>
@@ -768,7 +759,6 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section>
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">In the box</span>
       <h2>All of it ships in one binary.</h2>
     </div>
     <div class="boxlist">
@@ -786,7 +776,6 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="install" class="installband">
   <div class="wrap">
-    <span class="eyebrow">Install</span>
     <h2>Self-host it in one line.</h2>
     <p class="lede">On any Linux box with unprivileged user namespaces: the installer preflights
       the kernel, builds from source, and starts the daemon on loopback.</p>
