@@ -10,6 +10,23 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-07
+
+- **Rootfs: agent CLIs install reliably; bun ships in the base.** The base
+  image installed claude-code, opencode and codex in ONE npm transaction —
+  opencode's broken npm postinstall rolled all three back, and the
+  best-effort guard shipped a green image with no agent CLIs. Now: each
+  tool installs in its own step (failures are independent), claude-code
+  and codex install via **bun** (now in the base at `/usr/local/bun`, on
+  terminal/backend PATH — installs are ~10× faster and it's a runtime
+  builders use anyway), and opencode ships as its pinned official release
+  binary, sidestepping its npm postinstall entirely. A final inventory
+  step prints any missing tool loudly in the build log and stamps
+  `/etc/xbin-rootfs-tools` into the image. Also: node bumped to 22.23.2 —
+  current pnpm requires ≥22.13, so the old pin shipped a silently broken
+  pnpm. Rebuild the rootfs (`make rootfs`, or the installer's upgrade
+  path) to pick all of this up.
+
 ## 2026-08-04
 
 - **Fixed: code grants also cover component discovery.** Yesterday's fix
