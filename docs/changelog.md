@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-07
 
+- **Rootfs: agent CLIs install on CPUs without AVX2 (bun SIGILL fix).**
+  v0.3.22 installed the JS agent CLIs via bun, but bun's stock x64 build
+  requires AVX2 (Haswell+) and crashed with "Illegal instruction" on cloud
+  VMs without it — shipping (loudly, via the inventory step) an image
+  missing claude-code, codex, pnpm and yarn. The rootfs now selects bun's
+  build by the host's CPU (baseline/x86-64-v2 unless avx2 is present; the
+  rootfs runs on the host it's built on), verifies bun actually executes,
+  and falls back to npm per-tool when it can't — so the agent CLIs land on
+  any hardware. opencode (release binary) was unaffected. Rebuild the
+  rootfs to pick this up.
+
 - **Rootfs: agent CLIs install reliably; bun ships in the base.** The base
   image installed claude-code, opencode and codex in ONE npm transaction —
   opencode's broken npm postinstall rolled all three back, and the

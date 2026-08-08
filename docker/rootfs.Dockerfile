@@ -38,12 +38,22 @@ RUN mkdir -p /usr/local/node \
 # claude-code installs in <1s vs ~10s) and a first-class runtime builders
 # reach for anyway. Global installs land in $BUN_INSTALL/bin (also wired into
 # xbind's sandbox PATHs — internal/term, internal/runner/env.go).
+#
+# CPU matters: bun's stock x64 build needs AVX2 (Haswell+) and dies with
+# SIGILL ("Illegal instruction") on CPUs without it — some cloud VMs. The
+# rootfs runs on the host it's built on, so pick the build host's tier: the
+# baseline build (x86-64-v2/SSE4.2) unless avx2 is advertised. Then VERIFY it
+# executes; if even baseline can't run (pre-v2 CPU), drop bun so the JS steps
+# below fall back to npm — the agent CLIs must land on any hardware.
 ARG BUN_VERSION=1.3.14
 ENV BUN_INSTALL=/usr/local/bun
-RUN curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" -o /tmp/bun.zip \
+RUN if grep -qw avx2 /proc/cpuinfo; then asset=bun-linux-x64; else asset=bun-linux-x64-baseline; fi \
+    && echo ">> bun: using $asset" \
+    && curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${asset}.zip" -o /tmp/bun.zip \
     && unzip -q /tmp/bun.zip -d /tmp \
-    && install -m755 /tmp/bun-linux-x64/bun /usr/local/bin/bun \
-    && rm -rf /tmp/bun.zip /tmp/bun-linux-x64
+    && install -m755 "/tmp/${asset}/bun" /usr/local/bin/bun \
+    && rm -rf /tmp/bun.zip "/tmp/${asset}"; \
+    bun --version || { echo ">> bun cannot execute on this CPU — JS tools will use npm"; rm -f /usr/local/bin/bun; }
 
 # apt normally drops privileges to the `_apt` user for downloads. In a rootless,
 # single-uid sandbox namespace only one uid is mapped, so that setuid/setgid
@@ -67,17 +77,19 @@ ENV PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbi
 
 # JS package managers every frontend agent reaches for. Via bun, NOT corepack
 # (this node's bundled corepack has stale signing keys and rejects current
-# pnpm/yarn — and its shims would hit the same failure on first use).
-RUN bun add -g pnpm yarn || true
+# pnpm/yarn — and its shims would hit the same failure on first use). bun add
+# when bun runs here, else npm (see the bun verify above).
+RUN bun add -g pnpm yarn || npm install -g pnpm yarn || true
 
 # Agent CLIs — so an opened terminal is AI-assisted with zero setup (RT-4).
 # ONE TOOL PER STEP: a single shared npm invocation was a transaction — when
 # opencode's postinstall broke, npm rolled back claude and codex with it, and
-# `|| true` shipped a green image missing all three (2026-08-07). Keep each
-# best-effort (a registry hiccup must not brick base builds — the inventory
-# step at the end reports anything missing, loudly).
-RUN bun add -g @anthropic-ai/claude-code || true
-RUN bun add -g @openai/codex || true
+# `|| true` shipped a green image missing all three (2026-08-07). Each step is
+# bun-preferred, npm-fallback (bun is absent when its verify failed), and
+# best-effort — a registry hiccup must not brick base builds; the inventory
+# step at the end reports anything missing, loudly.
+RUN bun add -g @anthropic-ai/claude-code || npm install -g @anthropic-ai/claude-code || true
+RUN bun add -g @openai/codex || npm install -g @openai/codex || true
 
 # opencode from its release binary (same asset its official installer uses),
 # NOT npm: its npm postinstall re-invokes npm with the parent's lifecycle env
