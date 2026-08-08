@@ -15,6 +15,8 @@
 #   curl -fsSL https://xbin.dev/install.sh | sh                     # macOS: Lima VM (no sudo)
 #   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --check-only
 #   XBIN_VERSION=v0.2.0 curl -fsSL https://xbin.dev/install.sh | sudo bash   # pin one
+#   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --system --prebuilt-rootfs
+#                                          # skip the build: download a prebuilt bundle (no podman/Go)
 set -eu
 
 fetch() {

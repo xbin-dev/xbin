@@ -23,15 +23,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fd-find bat shellcheck zsh \
     && rm -rf /var/lib/apt/lists/*
 
+# Every manually-downloaded toolchain below is arch-specific. Read the image's
+# own architecture (dpkg gives amd64|arm64) and map it to each vendor's naming
+# once — so the SAME Dockerfile builds correctly under `podman build --platform
+# linux/amd64` or `linux/arm64` (prebuilt-bundle variants) with no build-args.
+#   DPKG_ARCH : amd64 | arm64      (Go's naming, and apt's [arch=])
+#   NODE_ARCH : x64   | arm64      (nodejs.org)
+#   OC_ARCH   : x64   | arm64      (opencode release asset)
+
 # Go (full toolchain — components build against it).
 ARG GO_VERSION=1.24.0
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+RUN a="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${a}.tar.gz" | tar -C /usr/local -xz
 
 # Node LTS. Keep this fresh within the LTS line: current pnpm requires
 # >=22.13, and an old pin ships a silently broken pnpm (2026-08-07 find).
 ARG NODE_VERSION=22.23.2
-RUN mkdir -p /usr/local/node \
-    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+RUN case "$(dpkg --print-architecture)" in amd64) na=x64 ;; arm64) na=arm64 ;; esac \
+    && mkdir -p /usr/local/node \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${na}.tar.xz" \
        | tar -C /usr/local/node --strip-components=1 -xJ
 
 # Bun — the package installer for the JS tools below (~10x faster than npm:
@@ -39,15 +49,19 @@ RUN mkdir -p /usr/local/node \
 # reach for anyway. Global installs land in $BUN_INSTALL/bin (also wired into
 # xbind's sandbox PATHs — internal/term, internal/runner/env.go).
 #
-# CPU matters: bun's stock x64 build needs AVX2 (Haswell+) and dies with
-# SIGILL ("Illegal instruction") on CPUs without it — some cloud VMs. The
+# CPU matters (amd64): bun's stock x64 build needs AVX2 (Haswell+) and dies
+# with SIGILL ("Illegal instruction") on CPUs without it — some cloud VMs. The
 # rootfs runs on the host it's built on, so pick the build host's tier: the
-# baseline build (x86-64-v2/SSE4.2) unless avx2 is advertised. Then VERIFY it
-# executes; if even baseline can't run (pre-v2 CPU), drop bun so the JS steps
-# below fall back to npm — the agent CLIs must land on any hardware.
+# baseline build (x86-64-v2/SSE4.2) unless avx2 is advertised. arm64 has no
+# such split — one aarch64 build. Then VERIFY bun executes; if even baseline
+# can't run (pre-v2 CPU), drop bun so the JS steps below fall back to npm —
+# the agent CLIs must land on any hardware.
 ARG BUN_VERSION=1.3.14
 ENV BUN_INSTALL=/usr/local/bun
-RUN if grep -qw avx2 /proc/cpuinfo; then asset=bun-linux-x64; else asset=bun-linux-x64-baseline; fi \
+RUN case "$(dpkg --print-architecture)" in \
+      arm64) asset=bun-linux-aarch64 ;; \
+      *) if grep -qw avx2 /proc/cpuinfo; then asset=bun-linux-x64; else asset=bun-linux-x64-baseline; fi ;; \
+    esac \
     && echo ">> bun: using $asset" \
     && curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${asset}.zip" -o /tmp/bun.zip \
     && unzip -q /tmp/bun.zip -d /tmp \
@@ -97,7 +111,8 @@ RUN bun add -g @openai/codex || npm install -g @openai/codex || true
 # a failed optionalDependency as a silent skip — both bit us. A pinned glibc
 # binary sidesteps every layer of that. Bump the pin to update.
 ARG OPENCODE_VERSION=1.18.15
-RUN curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+RUN case "$(dpkg --print-architecture)" in amd64) oa=x64 ;; arm64) oa=arm64 ;; esac \
+    && curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${oa}.tar.gz" \
        | tar -xz -C /usr/local/bin opencode \
     && chmod 755 /usr/local/bin/opencode || true
 
@@ -112,7 +127,7 @@ RUN GOBIN=/usr/local/bin GOFLAGS=-mod=mod go install golang.org/x/tools/gopls@la
 RUN mkdir -p -m 755 /etc/apt/keyrings \
     && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg > /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/* || true
 
 # Chromium + Playwright for frontend / e2e agents. Browsers land in a system

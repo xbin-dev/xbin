@@ -891,3 +891,29 @@ Deviations and refinements made while implementing; all deliberate:
   (userspace, cache-served, not removable kernel-side). Not pursued:
   entry-timeout raises on the default path (kept at stock 1s until the
   EIO is understood).
+
+- **D47 — Prebuilt install bundles + arch-parameterized rootfs.**
+  (2026-08-08) Every install built from source: podman/docker to compile
+  gocryptfs + fuse-overlayfs, plus a multi-minute/multi-GB rootfs build
+  (apt, go/node/bun/opencode toolchains, Playwright+Chromium). Added a fast
+  path: a **full bundle** per arch — `bin/` (4 native binaries) + `rootfs/`
+  (unpacked base) + `sdk/`, one `xbin-<ver>-linux-<arch>.tar.zst` — described
+  by `release-manifest.json` {version, baseVersion, variants[]}.
+  `install.sh --prebuilt-rootfs[=SPEC]` (or `XBIN_PREBUILT`) downloads the
+  manifest, picks the arch variant, sha256-verifies, unpacks, and reuses the
+  existing `XBIN_PREBUILT_BIN`/`XBIN_ROOTFS_DIR`/`XBIN_SDK_SRC` path — no
+  podman, no Go, no build. Chose a **full** bundle (not rootfs-only: building
+  even the binaries needs podman for the two container-built statics) and
+  **manifest JSON parsed with awk** in the POSIX installer (no jq/python on
+  the target). The rootfs Dockerfile is now **arch-parameterized** (all
+  toolchain downloads keyed off `dpkg --print-architecture`, so the same
+  Dockerfile builds under `podman --platform linux/amd64|arm64`) — this is
+  what makes an **arm64** variant possible at all (it never worked before:
+  Go/Node/gh were x64-hardcoded). Publishing is a **manually-run**
+  `deploy/publish-release.sh` (build per-arch, `gh release upload`) — not CI,
+  to avoid spending CI minutes building multi-GB rootfs on every tag; the
+  script cross-builds a foreign arch via `--platform`+qemu (slow) or the
+  maintainer runs it natively per arch. `flavor` is kept in the schema so a
+  future `slim` (no Chromium) slots in without breaking older installers.
+  Bundles are hosted as **GitHub Release assets** on the tag (fits the
+  existing tag-based bootstrap; the manifest and tarballs sit together).

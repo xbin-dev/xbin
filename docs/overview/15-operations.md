@@ -38,6 +38,50 @@ the one-time login URL. Everything is overridable via `XBIN_*` env
 (`XBIN_PREFIX`, `XBIN_LISTEN`, `XBIN_PREBUILT_BIN`/`XBIN_ROOTFS_DIR` to skip
 building, …); `--check-only` runs just the preflight.
 
+### Prebuilt bundles (`--prebuilt-rootfs`)
+
+Building from source is the default, but it needs podman/docker + Go and
+spends several minutes (and a few GB) building the base rootfs — apt, the
+go/node/bun/opencode toolchains, Playwright + Chromium. To skip all of that,
+point the installer at a **prebuilt bundle**:
+
+```
+XBIN_VERSION=vX.Y.Z curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --system --prebuilt-rootfs
+```
+
+A bundle is `bin/` (the four native binaries) + `rootfs/` (the unpacked base)
++ `sdk/`, one `xbin-<ver>-linux-<arch>.tar.zst` per architecture, described by
+a `release-manifest.json`:
+
+```json
+{ "version": "vX.Y.Z", "baseVersion": "<hash>",
+  "variants": [
+    {"arch":"amd64","flavor":"full","file":"xbin-vX.Y.Z-linux-amd64.tar.zst","sha256":"…","size":…},
+    {"arch":"arm64","flavor":"full","file":"xbin-vX.Y.Z-linux-arm64.tar.zst","sha256":"…","size":…}
+  ] }
+```
+
+`--prebuilt-rootfs` (or `XBIN_PREBUILT=<spec>`) with no value fetches this
+release's manifest from its GitHub Release, picks the variant matching the
+host arch, verifies its `sha256`, and unpacks it — **no podman, no Go, no
+build**. `SPEC` may instead be a manifest URL/path (`.json`), a specific
+bundle tarball (`.tar.*`), or a local unpacked bundle directory. `file` is
+resolved relative to the manifest URL, so the assets sit beside it.
+
+Maintainers produce and publish bundles with **`deploy/publish-release.sh`**
+(run after tagging the release):
+
+```
+deploy/publish-release.sh --tag vX.Y.Z --arch amd64,arm64      # build + upload to the GH Release
+deploy/publish-release.sh --tag vX.Y.Z --arch amd64 --no-upload  # just build artifacts under ./dist
+```
+
+It builds each arch (native directly; a foreign arch cross-builds — pure-Go
+binaries via `GOARCH`, the rootfs + fuse-overlayfs via `--platform` and the
+engine's qemu, so run it on native hardware of that arch, or register
+qemu/binfmt first), writes the manifest, and uploads everything as Release
+assets via `gh`.
+
 For hacking on xbin itself, `make dev` is the same shape from source:
 isolated against `./devws`, web/docs served from disk, debug logs, a seeded
 `admin`/`admin` login (dev only). `make dev-noauth` / `make dev-plaintext`

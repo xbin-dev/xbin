@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-08
+
+- **Prebuilt install bundles: `install.sh --prebuilt-rootfs`.** Skip the
+  multi-minute, multi-GB build (podman/docker + Go + apt + Chromium): download
+  a prebuilt bundle for the host arch — native binaries + base rootfs + SDK,
+  one `.tar.zst` per arch — verify its sha256, unpack, done. No podman, no Go,
+  no build. With no value it fetches this release's manifest from its GitHub
+  Release; `SPEC` may be a `release-manifest.json` URL/path, a bundle tarball,
+  or a local unpacked bundle dir (also `XBIN_PREBUILT=<spec>`). Maintainers
+  build + publish with `deploy/publish-release.sh`. The base rootfs Dockerfile
+  is now architecture-parameterized, so **amd64 and arm64** bundles are both
+  possible (arm64 previously never built — the toolchains were x64-hardcoded).
+  See [operations.md](/docs/overview/15-operations.md).
+
 ## 2026-08-07
 
 - **Rootfs: agent CLIs install on CPUs without AVX2 (bun SIGILL fix).**

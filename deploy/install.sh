@@ -25,6 +25,15 @@
 # do on THIS run (steps already in place are listed as such) and asks once.
 # Idempotent: re-run to upgrade in place. Flags: --check-only (preflight +
 # plan, no changes), --yes (skip the prompt; needs an explicit mode), --help.
+#
+#   --prebuilt-rootfs[=SPEC]  Skip the multi-minute, multi-GB build: download a
+#     prebuilt bundle (native binaries + base rootfs + SDK) for this arch and
+#     unpack it — no podman/docker, no Go, no build. SPEC is optional:
+#       (omitted)      this release's manifest on GitHub (needs a tagged run)
+#       URL/path .json a release-manifest.json (variant picked by arch)
+#       URL/path .tar* a specific bundle tarball (variant pre-chosen)
+#       local DIR      an already-unpacked bundle (bin/ rootfs/ sdk/)
+#     Also settable as XBIN_PREBUILT=<spec>.
 # Everything below is overridable via the environment (see "Config").
 set -euo pipefail
 
@@ -32,12 +41,15 @@ set -euo pipefail
 MODE=""
 CHECK_ONLY=0
 ASSUME_YES="${XBIN_ASSUME_YES:-0}"
+PREBUILT_SPEC=""
 for a in "$@"; do case "$a" in
   --system) MODE=system ;;
   --user) MODE=user ;;
   --check-only|--check) CHECK_ONLY=1 ;;
   --yes|-y) ASSUME_YES=1 ;;
-  -h|--help) sed -n '2,28p' "$0" 2>/dev/null || true; exit 0 ;;
+  --prebuilt-rootfs) PREBUILT_SPEC=default ;;
+  --prebuilt-rootfs=*) PREBUILT_SPEC="${a#*=}" ;;
+  -h|--help) sed -n '2,37p' "$0" 2>/dev/null || true; exit 0 ;;
   *) printf 'error: unknown argument: %s\n' "$a" >&2; exit 1 ;;
 esac; done
 
@@ -217,6 +229,11 @@ GO_MIN="1.26.3"
 XBIN_SRC="${XBIN_SRC:-}"                 # existing repo checkout
 XBIN_PREBUILT_BIN="${XBIN_PREBUILT_BIN:-}"   # dir with xbind, bx, fuse-overlayfs
 XBIN_ROOTFS_DIR="${XBIN_ROOTFS_DIR:-}"       # prebuilt unpacked base rootfs
+XBIN_SDK_SRC="${XBIN_SDK_SRC:-}"             # sdk source dir
+# --prebuilt-rootfs[=SPEC] (or XBIN_PREBUILT=<spec>): download + unpack a
+# prebuilt bundle instead of building. Folds the env default in when the flag
+# was not passed.
+PREBUILT_SPEC="${PREBUILT_SPEC:-${XBIN_PREBUILT:-}}"
 
 # ---- Package manager ------------------------------------------------------
 PKG=
@@ -259,6 +276,9 @@ go_arch() { case "$(uname -m)" in x86_64|amd64) echo amd64 ;; aarch64|arm64) ech
 
 BUILD_FROM_SOURCE=1
 [ -n "$XBIN_PREBUILT_BIN" ] && [ -n "$XBIN_ROOTFS_DIR" ] && BUILD_FROM_SOURCE=0
+# A prebuilt bundle is fetched during the build phase (fetch_prebuilt), which
+# then populates the three vars above — so no source build, no podman, no Go.
+[ -n "$PREBUILT_SPEC" ] && BUILD_FROM_SOURCE=0
 
 # ---- Preflight checks -----------------------------------------------------
 PREFLIGHT_FATAL=0
@@ -471,6 +491,107 @@ build_artifacts() {
   XBIN_ROOTFS_DIR="$BUILD_DIR/rootfs"
   XBIN_SDK_SRC="$SRC/sdk"
   ok "build complete"
+}
+
+# dl URL DEST — fetch a URL to a file (curl, wget fallback).
+dl() {
+  if have curl; then curl -fSL --retry 3 -o "$2" "$1"
+  elif have wget; then wget -qO "$2" "$1"
+  else die "need curl or wget to download prebuilt bundles"; fi
+}
+# dl_stdout URL — fetch a URL to stdout (for small text like the manifest).
+dl_stdout() {
+  if have curl; then curl -fsSL "$1"
+  elif have wget; then wget -qO- "$1"
+  else die "need curl or wget"; fi
+}
+# manifest_value ARCH KEY < manifest.json — pull the string KEY of the variant
+# whose "arch" matches ARCH. Awk-only (no jq/python on the target): keys sit on
+# their own lines after "arch", so track membership of the current variant.
+manifest_value() {
+  awk -v arch="$1" -v key="$2" '
+    /"arch"[ ]*:/ { cur = ($0 ~ "\"" arch "\"") ? 1 : 0 }
+    cur && $0 ~ "\"" key "\"[ ]*:" {
+      v = $0; sub(/.*"[ ]*:[ ]*"/, "", v); sub(/".*/, "", v); print v; exit
+    }'
+}
+ensure_zstd() {
+  have zstd && return 0
+  if [ "$MODE" = system ]; then info "installing zstd (to unpack the bundle)"; pkg_install zstd || true; fi
+  have zstd || die "zstd not found (needed to unpack the prebuilt bundle) — $(pkg_install_hint zstd)"
+}
+
+# fetch_prebuilt: resolve PREBUILT_SPEC → download + sha256-verify + unpack a
+# bundle, then point the install at bin/ rootfs/ sdk/ inside it (no build).
+fetch_prebuilt() {
+  local spec="$PREBUILT_SPEC" arch dest sha want out
+  arch=$(go_arch)
+  mkdir -p "$BUILD_DIR"
+  dest="$BUILD_DIR/prebuilt"
+  rm -rf "$dest"; mkdir -p "$dest"
+
+  # A local already-unpacked bundle dir: use it as-is.
+  if [ -d "$spec" ]; then
+    [ -d "$spec/bin" ] && [ -d "$spec/rootfs" ] || die "$spec is not an unpacked bundle (need bin/ and rootfs/)"
+    XBIN_PREBUILT_BIN="$spec/bin"; XBIN_ROOTFS_DIR="$spec/rootfs"; XBIN_SDK_SRC="$spec/sdk"
+    ok "prebuilt bundle: $spec (local, no download)"
+    return 0
+  fi
+
+  out="$dest/bundle.tar.zst"
+  case "$spec" in
+    default|*.json)
+      local murl base file
+      if [ "$spec" = default ]; then
+        case "$REF" in
+          v[0-9]*) ;;
+          *) die "--prebuilt-rootfs needs a tagged release (REF is '$REF'). Pin one: XBIN_VERSION=vX.Y.Z … (via xbin.dev/install.sh), or pass a manifest URL: --prebuilt-rootfs=<url>/release-manifest.json" ;;
+        esac
+        murl="$REPO_URL/releases/download/$REF/release-manifest.json"
+      else
+        murl="$spec"
+      fi
+      base="${murl%/*}"
+      info "fetching prebuilt manifest: $murl"
+      case "$murl" in
+        /*|./*|../*) [ -f "$murl" ] || die "manifest not found: $murl"; cp "$murl" "$dest/manifest.json" ;;
+        *) dl_stdout "$murl" > "$dest/manifest.json" || die "could not fetch manifest: $murl"; ;;
+      esac
+      file=$(manifest_value "$arch" file < "$dest/manifest.json")
+      want=$(manifest_value "$arch" sha256 < "$dest/manifest.json")
+      [ -n "$file" ] || die "no prebuilt variant for arch '$arch' in $murl — build from source (drop --prebuilt-rootfs) or pass a bundle URL"
+      case "$base" in
+        /*|.*) [ -f "$base/$file" ] || die "bundle not found beside manifest: $base/$file"; cp "$base/$file" "$out" ;;
+        *) info "downloading bundle: $base/$file"; dl "$base/$file" "$out" ;;
+      esac
+      ;;
+    *.tar.zst|*.tar.gz|*.tar.xz|*.tgz)
+      case "$spec" in
+        /*|./*|../*) [ -f "$spec" ] || die "bundle not found: $spec"; cp "$spec" "$out" ;;
+        *) info "downloading bundle: $spec"; dl "$spec" "$out" ;;
+      esac
+      warn "direct bundle (no manifest) — checksum not verified; trusting $spec" ;;
+    *) die "unrecognized --prebuilt-rootfs spec: $spec (expected a .json manifest, a .tar.* bundle, or a local dir)" ;;
+  esac
+
+  if [ -n "${want:-}" ]; then
+    sha=$( (sha256sum "$out" 2>/dev/null || shasum -a 256 "$out") | awk '{print $1}')
+    [ "$sha" = "$want" ] || die "checksum mismatch for the prebuilt bundle (got $sha, want $want) — refusing to install"
+    ok "bundle sha256 verified"
+  fi
+
+  ensure_zstd
+  info "unpacking bundle → $dest"
+  ( cd "$dest" && zstd -dc "$out" | tar -xf - ) || die "could not unpack the bundle"
+  rm -f "$out"
+  [ -d "$dest/bin" ] && [ -d "$dest/rootfs" ] || die "bundle is missing bin/ or rootfs/"
+  XBIN_PREBUILT_BIN="$dest/bin"; XBIN_ROOTFS_DIR="$dest/rootfs"; XBIN_SDK_SRC="$dest/sdk"
+
+  # Sanity: the shipped xbind must execute on this host (catches an arch
+  # mismatch or a corrupt bundle before we wire up a service around it).
+  "$XBIN_PREBUILT_BIN/xbind" version >/dev/null 2>&1 \
+    || die "prebuilt xbind does not run on this machine (arch mismatch or corrupt bundle) — build from source instead"
+  ok "prebuilt bundle ready ($arch, base $(cat "$dest/rootfs/etc/xbin-base-version" 2>/dev/null || echo '?'))"
 }
 
 # ---- System setup ---------------------------------------------------------
@@ -780,6 +901,8 @@ build_plan() {
       clone) plan fetch_source "fetch $REPO_URL@$REF into $SRC" ;;
     esac
     plan build_artifacts "build xbind, bx, fuse-overlayfs, gocryptfs + the base rootfs (podman/docker; several minutes on first run)"
+  elif [ -n "$PREBUILT_SPEC" ]; then
+    plan fetch_prebuilt "download + verify the prebuilt bundle for $(go_arch) ($([ "$PREBUILT_SPEC" = default ] && echo "this release's manifest" || echo "$PREBUILT_SPEC")) — no podman/Go, no build"
   else
     inplace "prebuilt artifacts: $XBIN_PREBUILT_BIN + $XBIN_ROOTFS_DIR (no build)"
   fi
@@ -869,7 +992,7 @@ prepare_mode() {
 
 banner() {
   echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
-  if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
+  if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; elif [ -n "$PREBUILT_SPEC" ]; then echo "  prebuilt bundle: $([ "$PREBUILT_SPEC" = default ] && echo "$REF release ($(go_arch))" || echo "$PREBUILT_SPEC")"; else echo "  using prebuilt artifacts"; fi
   [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
   if [ "$MODE" = system ] && [ "$EUID_NOW" = 0 ] && [ -n "${SUDO_USER:-}" ]; then
     local sh_home; sh_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
@@ -943,7 +1066,7 @@ fi
 # — only its plan prints in full; the other mode is a single option line, its
 # plan shown only if picked.
 echo "${B}xbin installer${R}  →  run as $RUN_USER (no mode chosen)"
-if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; else echo "  using prebuilt artifacts"; fi
+if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; elif [ -n "$PREBUILT_SPEC" ]; then echo "  prebuilt bundle: $([ "$PREBUILT_SPEC" = default ] && echo "$REF release ($(go_arch))" || echo "$PREBUILT_SPEC")"; else echo "  using prebuilt artifacts"; fi
 if [ "$SYS_INSTALLED" = 1 ]; then
   echo
   info "${B}A system-wide xbin is already installed${R}${SYS_VERSION:+ ($SYS_VERSION)} — running: $SYS_RUNNING, listening on ${SYS_LISTEN:-127.0.0.1:8642}"

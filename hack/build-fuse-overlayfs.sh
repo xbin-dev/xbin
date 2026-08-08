@@ -36,7 +36,9 @@ COPY --from=build /src/fuse-overlayfs /fuse-overlayfs
 EOF
 
 echo ">> building static fuse-overlayfs ${VERSION} (needs $DOCKER; cached after)"
-DOCKER_BUILDKIT=1 "$DOCKER" build -f "$ctx/Dockerfile" --target out \
+# PLATFORM (e.g. linux/arm64) cross-builds via the engine's qemu emulation —
+# set by deploy/publish-release.sh when producing a foreign-arch bundle.
+DOCKER_BUILDKIT=1 "$DOCKER" build ${PLATFORM:+--platform "$PLATFORM"} -f "$ctx/Dockerfile" --target out \
     -o "type=local,dest=$DEST" "$ctx"
 chmod +x "$DEST/fuse-overlayfs"
 "$DEST/fuse-overlayfs" --version | head -1

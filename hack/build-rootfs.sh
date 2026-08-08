@@ -19,11 +19,15 @@ cp "$repo/docker/rootfs.Dockerfile" "$ctx/Dockerfile"
 ( cd "$repo" && CGO_ENABLED=0 go build -o "$ctx/bx" ./cmd/bx )
 
 echo ">> building $TAG"
-"$DOCKER" build -t "$TAG" "$ctx"
+# PLATFORM (e.g. linux/arm64) cross-builds the base via the engine's qemu
+# emulation — set by deploy/publish-release.sh for a foreign-arch bundle. The
+# COPYed bx must match, so build it for the same arch (pure Go cross-compile:
+# GOARCH is exported by the publish script; harmless when unset = host).
+"$DOCKER" build ${PLATFORM:+--platform "$PLATFORM"} -t "$TAG" "$ctx"
 
 echo ">> unpacking to $OUT"
 mkdir -p "$OUT"
-cid=$("$DOCKER" create "$TAG")
+cid=$("$DOCKER" create ${PLATFORM:+--platform "$PLATFORM"} "$TAG")
 "$DOCKER" export "$cid" | tar -C "$OUT" -xf -
 "$DOCKER" rm "$cid" >/dev/null
 
