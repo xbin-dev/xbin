@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%20role%3D%22img%22%20aria-label%3D%22X/BIN%22%3E%20%20%20%3Cpath%20d%3D%22M18%204H56a4%204%200%200%201%204%204v38L46%2060H8a4%204%200%200%201-4-4V18z%22%20fill%3D%22%23f5a623%22/%3E%20%20%20%3Cpath%20d%3D%22M21%2021%2043%2043M43%2021%2021%2043%22%20stroke%3D%22%2323272e%22%20stroke-width%3D%229%22%20stroke-linecap%3D%22butt%22/%3E%20%20%20%3Ccircle%20cx%3D%2253%22%20cy%3D%2211%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%20%20%3Ccircle%20cx%3D%2211%22%20cy%3D%2253%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%20role%3D%22img%22%20aria-label%3D%22X/BIN%22%3E%20%20%20%3Cpath%20d%3D%22M18%204H56a4%204%200%200%201%204%204v38L46%2060H8a4%204%200%201-4-4V18z%22%20fill%3D%22%23f5a623%22/%3E%20%20%20%3Cpath%20d%3D%22M21%2021%2043%2043M43%2021%2021%2043%22%20stroke%3D%22%2323272e%22%20stroke-width%3D%229%22%20stroke-linecap%3D%22butt%22/%3E%20%20%20%3Ccircle%20cx%3D%2253%22%20cy%3D%2211%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%20%20%3Ccircle%20cx%3D%2211%22%20cy%3D%2253%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%3C/svg%3E">
 <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABmJLR0QA/wD/AP+gvaeTAAACK0lEQVRYheWWP2sUQRiHn5m95ALXHEGFg2ghopjDT2ChheEKG00ajZ1FIJ2NqLHwAgrRyi7YpLPTaKMSziIWfoJwBxGTKhpEiwgKyf2ZsYh7m72d3Z095yz0rfZuhnkeZub9MfC/l0ib8PPpiSpC33PI3EIyU7iy8QZA/mU4wBiKJ/6PWAGX8O3vktUPHts7XdxR/yM3aDjA+hfBtx8CIQSlogqNRQQGse2njmgATh5WkbGQwIDOnFJRUSqax7qHYgtXur+xuAouoQV88d0QN5+N0I7uJB0lmHuR5/Hb4UwCxksYB19c9Rcf4eHULjkZwO++HOb1WrDcjQtNdwJhONQaXldCEIUvvR+ylkgVUBo2v0bjotbwkCIPwEo9usynHYHSIFOyNlVACliYbJKT8GotPN0EBpgY77AwuZcKh5Qo9suTmvuXmlw8006dOzHe4dHULp7VypYCgcQelXK8RKXczgTPJLBfInFxpQVZo8BawNRqvVVreNx6bs6JPxKwgfcrkSqgNNxeNsMr5bbxTtQaHneW81bRbNWGp0uKlXr4f7/VQBhb9PghbdWGVkl4/WwLoJvz4Vbbb1EIJGbPtZg97zCKD0rUP3uRVvNzAuDYqLaGZxLwJZRuGbfWk5oHl+3SD6Gr/mfGHEjOdlt44ermfKyA4QHprnrgYDiCpAeka7hRIOkB6RreK7AFjCU9IPsqLeYL0xtGOBy8A5KZ3xJu4dc+Vp2u+c/VL9XA5XnO+ifbAAAAAElFTkSuQmCC">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>xbin: a self-hosted, sandboxed, self-modifying workspace</title>
 <meta name="description" content="xbin turns a Linux box into a multi-user workspace of tiles. Open a terminal in any app, sandbox it, run agents, and publish it, all from the browser, on hardware you own. MIT / Apache-2.0.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#16181d">
+<meta name="theme-color" content="#11131a">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://xbin.dev/">
 <meta property="og:site_name" content="xbin">
@@ -20,14 +20,18 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="fonts/IBMPlexSans-Bold.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
+<script>document.documentElement.className += ' js'</script>
+<script type="importmap">{"imports":{"lit":"./vendor/lit-all.min.js"}}</script>
 <style>
-  /* ===== xbin.dev: built in the product's own palette (theme.css) ===== */
+  /* ===== xbin.dev: built in the product's own palette (theme.css),
+           cut with the chamfered language of the shell itself ===== */
   @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-Bold.woff2") format("woff2");
     font-weight:700;font-style:normal;font-display:swap}
   @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
     font-weight:600;font-style:normal;font-display:swap}
   :root{
-    --bg:#16181d; --steel:#1b1e24; --panel:#23272e; --panel2:#2b3038;
+    --bg:#16181d; --frame:#1d2027; --panel-bg:#11131a;
+    --steel:#1b1e24; --panel:#23272e; --panel2:#2b3038;
     --border:#363c45; --border2:#454d59;
     --text:#d4d9e0; --muted:#868f9a; --dim:#5c6672;
     --accent:#f5a623; --accent-ink:#231a06;
@@ -36,21 +40,23 @@
     --sans:-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
     --display:"IBM Plex Sans",-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
     --maxw:1120px;
+    --cut:14px;
+    --pchamfer:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),100% 100%,var(--cut) 100%,0 calc(100% - var(--cut)));
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);
+  body{margin:0;background:var(--frame);color:var(--text);font:16px/1.6 var(--sans);
     -webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:inherit;text-decoration:none}
   ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
-  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
   .mono{font-family:var(--mono)}
   h1,h2,h3,h4,.brand{font-family:var(--display)}
   h2{font:700 clamp(26px,4vw,38px)/1.1 var(--display);letter-spacing:-.02em;text-wrap:balance;margin:0}
   .lede{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:60ch;text-wrap:pretty}
-  section{scroll-margin-top:64px}
+  section{scroll-margin-top:16px}
   /* status dots (one class per palette color, no inline styles) */
   .dt{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
   .dt.sm{width:7px;height:7px}
@@ -58,90 +64,93 @@
   /* the icon language: 16px stroke icons, currentColor */
   .icn{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
 
-  /* ---------- top nav ---------- */
-  nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--steel) 88%,transparent);
-    backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
-  .navin{display:flex;align-items:center;gap:14px;height:56px;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  /* numbered section kickers */
+  .kicker{display:flex;align-items:center;gap:10px;margin-bottom:14px;
+    font:600 11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .kicker::before{content:"";width:22px;height:2px;background:var(--accent);flex:none}
+  .kicker b{color:var(--accent);font-weight:600}
+
+  /* on-scroll reveals (main.js adds .in; gated on .js so the page is whole
+     with scripting off; static under reduced motion) */
+  .js .reveal{opacity:0;translate:0 16px;transition:opacity .6s ease,translate .6s ease}
+  .js .reveal.in{opacity:1;translate:none}
+  .pillars .pillar:nth-child(2){transition-delay:.07s}
+  .pillars .pillar:nth-child(3){transition-delay:.14s}
+  .aud .card:nth-child(2){transition-delay:.06s}
+  .aud .card:nth-child(3){transition-delay:.12s}
+  .aud .card:nth-child(4){transition-delay:.18s}
+  .flow .shot:nth-child(2){transition-delay:.05s}
+  .flow .shot:nth-child(3){transition-delay:.1s}
+  .flow .shot:nth-child(4){transition-delay:.15s}
+  .flow .shot:nth-child(5){transition-delay:.2s}
+  .flow .shot:nth-child(6){transition-delay:.25s}
+  @media (prefers-reduced-motion:reduce){.js .reveal{opacity:1;translate:none;transition:none}}
+
+  /* ---------- chamfered buttons ---------- */
+  .btn{display:inline-flex;align-items:center;gap:8px;font:600 14px var(--sans);
+    padding:10px 16px;cursor:pointer;border:none;background:var(--panel);color:var(--text);white-space:nowrap;
+    clip-path:var(--pchamfer);transition:background .15s,filter .15s}
+  .btn:hover{background:var(--panel2)}
+  .btn.amber{background:var(--accent);color:var(--accent-ink)}
+  .btn.amber:hover{filter:brightness(1.07);background:var(--accent)}
+  .btn.sm{padding:8px 13px;font-size:13px}
+  /* a visible 1px edge around a chamfered button: clip-path eats borders,
+     so the edge is a 1px wrapper wearing the same cut */
+  .oline{display:inline-block;padding:1px;background:var(--border2);clip-path:var(--pchamfer);transition:background .15s}
+  .oline:hover{background:var(--muted)}
+
+  /* ---------- the hero panel (nav lives inside it, like the shell) ---------- */
+  .hero{position:relative;margin:18px;background:var(--panel-bg);overflow:hidden;
+    clip-path:polygon(0 0,100% 0,100% calc(100% - 26px),calc(100% - 26px) 100%,26px 100%,0 calc(100% - 26px))}
+  .hero::before{content:"";position:absolute;inset:0;z-index:0;   /* the no-WebGL fallback */
+    background:
+      radial-gradient(1100px 520px at 76% -6%,color-mix(in srgb,var(--accent) 11%,transparent),transparent 60%),
+      radial-gradient(var(--border) 1px,transparent 1.5px);
+    background-size:auto,26px 26px;opacity:.9}
+  xb-gl{position:absolute;inset:0;z-index:0}
+  nav{position:relative;z-index:2;border-bottom:1px solid var(--border);
+    background:color-mix(in srgb,var(--panel-bg) 84%,transparent);backdrop-filter:blur(7px)}
+  .navin{display:flex;align-items:center;gap:14px;height:58px;max-width:1240px;margin:0 auto;padding:0 24px}
   .brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.05em;font-size:15px}
   .brand svg{flex:none}
   .nav-sp{flex:1}
-  nav .lnk{color:var(--muted);font-size:14px;padding:6px 8px}
-  nav .lnk:hover{color:var(--text)}
-  .btn{display:inline-flex;align-items:center;gap:8px;font:600 14px var(--sans);border-radius:8px;
-    padding:9px 15px;cursor:pointer;border:1px solid var(--border2);background:var(--panel);color:var(--text);white-space:nowrap;
-    transition:background .15s,border-color .15s,filter .15s}
-  .btn:hover{border-color:var(--muted);background:var(--panel2)}
-  .btn.amber{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-  .btn.amber:hover{filter:brightness(1.06);background:var(--accent)}
-  nav .btn{padding:7px 13px}
   .nav-links{display:flex;align-items:center;gap:4px}
+  nav .lnk{color:var(--muted);font-size:13.5px;padding:6px 10px;transition:color .15s}
+  nav .lnk:hover{color:var(--text)}
+  nav .lnk.on{color:var(--accent-ink);background:var(--accent);font-weight:600;
+    clip-path:polygon(0 0,100% 0,calc(100% - 7px) 100%,7px 100%)}
 
-  /* ---------- hero ---------- */
-  header.hero{position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
-  header.hero::before{content:"";position:absolute;inset:0;z-index:0;
-    background:
-      radial-gradient(1100px 500px at 78% -8%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 60%),
-      radial-gradient(var(--border) 1px,transparent 1.5px);
-    background-size:auto,26px 26px;opacity:.9}
-  .hero-in{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr 1.15fr;gap:44px;
-    align-items:center;max-width:var(--maxw);margin:0 auto;padding:clamp(40px,7vw,88px) 24px}
-  .hero h1{font:700 clamp(34px,5.4vw,58px)/1.03 var(--display);letter-spacing:-.03em;margin:16px 0 0;text-wrap:balance}
+  .hero-in{position:relative;z-index:1;display:grid;grid-template-columns:1.02fr 1.18fr;gap:44px;
+    align-items:center;max-width:1240px;margin:0 auto;padding:clamp(36px,5.5vw,72px) 24px 76px}
+  .hero-in>*{min-width:0}
+  .eyebrow{display:flex;align-items:center;gap:10px;margin:0;
+    font:600 11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .eyebrow::before{content:"";width:9px;height:9px;background:var(--accent);flex:none;
+    clip-path:polygon(0 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%)}
+  .hero h1{font:700 clamp(36px,5.2vw,62px)/1.02 var(--display);letter-spacing:-.03em;margin:18px 0 0;text-wrap:balance}
   .hero h1 .amber{color:var(--accent)}
-  .hero p.sub{color:var(--muted);font-size:clamp(16px,2.1vw,19px);margin:20px 0 0;max-width:52ch;text-wrap:pretty}
+  .hero p.sub{color:var(--muted);font-size:clamp(16px,2vw,19px);margin:20px 0 0;max-width:52ch;text-wrap:pretty}
   .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px;align-items:center}
-  .install{display:flex;align-items:center;gap:10px;margin-top:20px;background:#0e1014;border:1px solid var(--border);
-    border-radius:9px;padding:11px 12px;font:13px/1 var(--mono);color:var(--text);max-width:100%;overflow-x:auto}
-  .install .pmt{color:var(--accent)}
-  .install .cp{margin-left:auto;flex:none;border:1px solid var(--border2);background:var(--panel);color:var(--muted);
-    border-radius:6px;padding:4px 9px;font:11px var(--mono);cursor:pointer}
-  .install .cp:hover{color:var(--text)}
+  .install{display:flex;margin-top:22px;max-width:540px;padding:1px;background:var(--border);clip-path:var(--pchamfer)}
+  .install-in{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:#0c0e12;
+    clip-path:var(--pchamfer);padding:12px 13px;font:13px/1 var(--mono);color:var(--text)}
+  .install-in .cmd{overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+  .install-in .pmt{color:var(--accent)}
+  .install-in xb-copy{margin-left:auto;flex:none}
+  .modehint{margin:14px 0 0;color:var(--muted);font-size:12.5px;max-width:70ch}
   .modehint b{color:var(--text);font-weight:600}
+  .modehint code{font:12px var(--mono);color:var(--text);background:#0d0f13;border:1px solid var(--border);padding:2px 7px}
+  xb-shell-scene{transition:transform .18s ease-out;will-change:transform}
 
-  /* ---------- the shell mock (the hero's right column) ---------- */
-  .mock{border:1px solid var(--border2);border-radius:12px;overflow:hidden;background:var(--steel);
-    box-shadow:0 24px 70px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.4);display:flex;flex-direction:column;min-height:0}
-  .m-top{display:flex;align-items:center;gap:8px;background:var(--panel);border-bottom:1px solid var(--border);padding:8px 11px}
-  .m-top .brand{font-size:12px;gap:7px}
-  .m-chip{font:11px var(--mono);color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:1px 9px}
-  .m-sp{flex:1}
-  .m-tabs{display:flex;gap:2px;background:var(--panel2);border-bottom:1px solid var(--border);padding:5px 9px 0}
-  .m-tab{font:12px var(--mono);color:var(--muted);padding:6px 11px;border-radius:6px 6px 0 0;display:flex;gap:6px;align-items:center}
-  .m-tab.on{background:var(--steel);color:var(--text);border:1px solid var(--border);border-bottom:none;margin-bottom:-1px}
-  .m-body{display:flex;min-height:340px}
-  .m-side{width:150px;flex:none;border-right:1px solid var(--border);padding:6px 0;background:color-mix(in srgb,var(--panel) 40%,var(--steel))}
-  .m-grp{font:9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:8px 11px 3px}
-  .m-item{display:flex;align-items:center;gap:6px;padding:4px 11px;font:12px var(--mono);color:var(--muted)}
-  .m-item.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:#fff}
-  .m-item .st{margin-left:auto}
-  .m-main{flex:1;min-width:0;padding:9px;display:flex;flex-direction:column;gap:9px;
-    background:radial-gradient(var(--border) 1px,transparent 1.4px);background-size:22px 22px;background-position:11px 11px}
-  .m-card{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel);flex:none}
-  .m-card .h{display:flex;align-items:center;gap:7px;padding:5px 9px;border-bottom:1px solid var(--border);background:var(--panel2);font:10.5px var(--mono);color:var(--muted)}
-  .term{background:#0d0f13;color:#c8d0da;font:11.5px/1.6 var(--mono);padding:10px 11px;min-height:150px;white-space:pre-wrap;word-break:break-word}
-  .term .g{color:var(--green)} .term .a{color:var(--accent)} .term .m{color:var(--muted)} .term .b{color:var(--blue)}
-  .cursor{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
-  @keyframes blink{50%{opacity:0}}
-  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
-  /* the dashboard-in-a-tile scene: a dashboard that opens its terminal + updates */
-  .m-card .body{display:flex;flex-direction:column;height:300px}
-  .dash{flex:1;min-height:0;overflow:hidden;padding:12px 13px;display:flex;flex-direction:column;gap:11px}
-  .dash-h{display:flex;align-items:center;gap:8px;font:600 12px var(--sans);color:var(--text)}
-  .dash-h .sp{flex:1}
-  .dash-h .live{font:10px var(--mono);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 45%,transparent);border-radius:999px;padding:1px 7px;letter-spacing:.05em}
-  .stats{display:flex;gap:9px}
-  .stat{flex:1 1 0;min-width:0;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;gap:2px}
-  .stat b{font:700 16px var(--sans);letter-spacing:-.02em;color:var(--text);font-variant-numeric:tabular-nums}
-  .stat span{font:10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-  .stat.added{max-width:0;opacity:0;overflow:hidden;padding:9px 0;border-width:0;margin-left:-9px;white-space:nowrap;
-    transition:max-width .55s ease,opacity .45s ease,padding .45s,border-width .3s,margin .5s}
-  .stat.added.show{max-width:38%;opacity:1;padding:9px 10px;border-width:1px;border-color:color-mix(in srgb,var(--accent) 55%,transparent);
-    box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 26%,transparent);margin-left:0}
-  .bars{display:flex;align-items:flex-end;gap:5px;height:52px}
-  .bars i{flex:1;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 80%,transparent),color-mix(in srgb,var(--accent) 32%,transparent));border-radius:2px 2px 0 0}
-  .tpane{flex:none;height:0;overflow:hidden;background:#0d0f13;border-top:1px solid var(--border);transition:height .45s ease}
-  .tpane.open{height:150px}
-  .tbtn{margin-left:auto;font:11px var(--mono);color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 8px;transition:background .2s,color .2s,border-color .2s}
-  .tbtn.hot{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+  /* the telemetry strip along the hero panel's bottom edge */
+  .tick{position:absolute;left:0;right:0;bottom:0;z-index:2;height:30px;display:flex;align-items:center;
+    border-top:1px solid var(--border);background:#14161d;overflow:hidden}
+  .tick-in{white-space:nowrap;font:10.5px var(--mono);letter-spacing:.06em;color:var(--dim);
+    animation:tick 42s linear infinite;will-change:transform}
+  .tick-in b{color:var(--muted);font-weight:400}
+  .tick-in span{padding-right:8px}
+  @keyframes tick{to{transform:translateX(-50%)}}
+  @media (prefers-reduced-motion:reduce){.tick-in{animation:none}}
 
   /* ---------- generic section ---------- */
   section{padding:clamp(56px,8vw,96px) 0;border-bottom:1px solid var(--border)}
@@ -149,11 +158,14 @@
   .sec-head .lede{margin-top:14px}
 
   /* pillars */
-  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:40px}
+  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   .pillar{background:linear-gradient(180deg,var(--panel),color-mix(in srgb,var(--panel) 70%,var(--steel)));
-    border:1px solid var(--border);border-radius:12px;padding:22px}
-  .pillar .ic{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--accent);
-    background:color-mix(in srgb,var(--accent) 16%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);margin-bottom:14px}
+    border:1px solid var(--border);padding:22px;position:relative}
+  .pillar::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,var(--accent),transparent 55%)}
+  .pillar .ic{width:34px;height:34px;display:grid;place-items:center;color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 16%,transparent);margin-bottom:14px;
+    clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
   .pillar h3{font-size:17px;margin:0 0 6px;letter-spacing:-.01em}
   .pillar p{color:var(--muted);font-size:14px;margin:0}
 
@@ -162,12 +174,13 @@
   .steps{display:flex;flex-direction:column;gap:2px}
   .step{display:flex;gap:14px;padding:16px 0;border-top:1px solid var(--border)}
   .step:first-child{border-top:none}
-  .step .n{font:700 13px var(--mono);color:var(--accent);flex:none;width:26px;height:26px;border-radius:7px;
-    display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .step .n{font:700 13px var(--mono);color:var(--accent);flex:none;width:26px;height:26px;
+    display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 12%,transparent);
+    clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%)}
   .step h3{margin:2px 0 4px;font-size:15px}
   .step p{margin:0;color:var(--muted);font-size:14px}
-  .step code{font-family:var(--mono);font-size:12.5px;color:var(--text);background:#0e1014;border:1px solid var(--border);border-radius:5px;padding:1px 6px}
-  .codeblock{background:#0d0f13;border:1px solid var(--border);border-radius:10px;overflow-x:auto}
+  .step code{font-family:var(--mono);font-size:12.5px;color:var(--text);background:#0e1014;border:1px solid var(--border);padding:1px 6px}
+  .codeblock{background:#0d0f13;border:1px solid var(--border);overflow-x:auto}
   .codeblock .cbh{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--panel2)}
   .codeblock .cbn{font:11px var(--mono);color:var(--muted)}
   .codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.7 var(--mono);color:#c8d0da}
@@ -175,13 +188,14 @@
 
   /* audience */
   .aud{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:40px}
-  .aud .card{border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--panel)}
+  .aud .card{border:1px solid var(--border);padding:22px;background:var(--panel);
+    clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,0 100%)}
   .aud .tag{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
   .aud h3{font-size:17px;margin:10px 0 8px}
   .aud p{color:var(--muted);font-size:14px;margin:0}
 
   /* security band */
-  .sec-band{background:linear-gradient(180deg,var(--steel),var(--bg))}
+  .sec-band{background:linear-gradient(180deg,var(--steel),var(--frame))}
   .seclist{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 30px;margin-top:34px}
   .seclist .row{display:flex;gap:12px;align-items:flex-start}
   .seclist .row .k{color:var(--green);flex:none;margin-top:3px;display:inline-flex}
@@ -196,47 +210,41 @@
   .bl span{color:var(--muted);font-size:13px;line-height:1.5}
 
   /* ---------- real screenshots (workspace band + workflows) ---------- */
-  .shotband{padding:clamp(40px,6vw,72px) 0;border-bottom:1px solid var(--border)}
-  .shotband .shot.lead{margin-top:0}
+  .shotband{padding:clamp(44px,6vw,76px) 0;border-bottom:1px solid var(--border)}
   .shot{margin:0;cursor:zoom-in}
-  .shot img{display:block;width:100%;border:1px solid var(--border);border-radius:9px;background:var(--steel);transition:border-color .15s}
+  .shot img{display:block;width:100%;border:1px solid var(--border);background:var(--steel);transition:border-color .15s}
   .shot:hover img{border-color:var(--muted)}
   .shot figcaption{display:flex;gap:8px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.45}
   .shot figcaption .sn{font:700 11px/1.6 var(--mono);color:var(--accent);flex:none}
-  .shot.lead{margin-top:38px}
-  .shot.lead img{border-radius:12px;border-color:var(--border2);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  /* the lead shot gets the full chamfered frame */
+  .frame{display:block;padding:1px;background:var(--border2);
+    clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px));
+    box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .frame img{display:block;width:100%;background:var(--steel);
+    clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px))}
+  .shot.lead:hover .frame{background:var(--muted)}
+  .shot.lead .frame{transition:background .15s}
   .shot.lead figcaption{font-size:12.5px;margin-top:10px}
   .flow-h{display:flex;align-items:baseline;gap:12px;margin:46px 0 0;flex-wrap:wrap}
   .flow-h h3{font-size:18px;margin:0}
   .flow-h span{color:var(--muted);font-size:13.5px}
   .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
   .flow.f6{grid-template-columns:repeat(3,1fr)}
-  dialog.lb{border:1px solid var(--border2);border-radius:12px;padding:10px;background:var(--steel);
-    max-width:min(96vw,1560px);box-shadow:0 30px 90px rgba(0,0,0,.6)}
-  dialog.lb::backdrop{background:rgba(10,11,14,.78);backdrop-filter:blur(3px)}
-  .lbrow{display:flex;align-items:center;gap:10px}
-  .lbrow img{display:block;max-width:100%;max-height:80vh;border-radius:9px;min-width:0}
-  .lbnav{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--border2);
-    background:var(--panel);color:var(--muted);font:18px/1 var(--sans);cursor:pointer;
-    display:grid;place-items:center;padding:0 0 2px;transition:color .15s,border-color .15s}
-  .lbnav:hover{color:var(--text);border-color:var(--muted)}
-  .lbcap{display:flex;gap:14px;align-items:baseline;padding:10px 4px 2px;color:var(--muted);font-size:13px;line-height:1.5}
-  .lbcap .txt{flex:1}
-  .lbcap .cnt{font:11px var(--mono);color:var(--dim);white-space:nowrap}
 
   /* install band */
   .installband{text-align:center;background:
     radial-gradient(700px 300px at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%)}
   .installband .lede{margin:14px auto 0;text-align:center}
-  .bigcmd{display:inline-flex;align-items:center;gap:12px;margin:28px auto 0;background:#0d0f13;border:1px solid var(--border2);
-    border-radius:11px;padding:15px 18px;font:15px/1 var(--mono);max-width:100%;overflow-x:auto}
+  .installband .modehint{margin-left:auto;margin-right:auto;text-align:center}
+  .installband .kicker{justify-content:center}
+  .bigcmd{display:inline-flex;max-width:100%;margin:28px auto 0;padding:1px;background:var(--border2);clip-path:var(--pchamfer)}
+  .bigcmd-in{display:flex;align-items:center;gap:12px;background:#0c0e12;clip-path:var(--pchamfer);
+    padding:15px 18px;font:15px/1 var(--mono);min-width:0}
+  .bigcmd-in .cmd{overflow-x:auto;white-space:nowrap;scrollbar-width:none}
   .bigcmd .pmt{color:var(--accent)}
-  .modehint{margin:14px auto 0;color:var(--muted);font-size:12.5px;max-width:70ch}
-  .modehint code{font:12px var(--mono);color:var(--text);background:#0d0f13;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
-  .bigcmd .cp{flex:none;border:1px solid var(--border2);background:var(--panel);color:var(--muted);border-radius:6px;padding:6px 11px;font:12px var(--mono);cursor:pointer}
-  .bigcmd .cp:hover{color:var(--text)}
   .reach{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px;color:var(--muted);font:13px var(--mono)}
-  .reach span{border:1px solid var(--border);border-radius:999px;padding:5px 12px;background:var(--panel)}
+  .reach span{border:1px solid var(--border);padding:5px 12px;background:var(--panel);
+    clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)}
 
   footer{padding:44px 0;color:var(--muted)}
   .footin{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
@@ -247,62 +255,67 @@
 
   /* ---------- composition ---------- */
   .cmp{display:grid;grid-template-columns:.92fr 1.08fr;gap:38px;align-items:start;margin-top:38px}
-  .cmp-steps{display:flex;flex-direction:column}
   .wires{display:flex;flex-direction:column;gap:10px}
   .wire{display:flex;align-items:center;gap:0;min-width:0}
   .wnode{flex:none;display:inline-flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--text);
-    background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:6px 10px;white-space:nowrap}
+    background:var(--panel);border:1px solid var(--border);padding:6px 10px;white-space:nowrap}
   .wnode.slot{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
   .wnode.world{color:var(--muted);border-style:dashed}
   .wlink{flex:1;min-width:18px;height:1px;background:linear-gradient(90deg,var(--border2),var(--border2));position:relative}
   .wlink:has(b){min-width:96px}
   .wlink::after{content:"";position:absolute;right:-1px;top:-3px;border:4px solid transparent;border-left-color:var(--border2)}
   .wlink.rev::after{right:auto;left:-1px;border-left-color:transparent;border-right-color:var(--border2)}
-  .wlink b{position:absolute;left:50%;top:-9px;transform:translateX(-50%);font:9.5px var(--mono);color:var(--dim);background:var(--bg);padding:0 6px;font-weight:400;letter-spacing:.04em;white-space:nowrap}
+  .wlink b{position:absolute;left:50%;top:-9px;transform:translateX(-50%);font:9.5px var(--mono);color:var(--dim);background:var(--frame);padding:0 6px;font-weight:400;letter-spacing:.04em;white-space:nowrap}
   .wnote{color:var(--dim);font:11px var(--mono);margin:-4px 0 2px 4px}
   /* the shell's binding-request panel, faithfully (web/bx-bindings.js); all
      controls inert — this is a picture of the UI, not the UI */
   .bindpanel{margin-top:34px;background:var(--panel);border:1px solid var(--border);
-    border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;max-width:760px;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+    border-left:3px solid var(--accent);padding:10px 14px;max-width:760px;box-shadow:0 1px 2px rgba(0,0,0,.35)}
   .bindpanel h3{margin:0 0 6px;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
   .brow{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;flex-wrap:wrap}
   .brow .who{font-family:var(--mono);color:var(--text)}
   .brow .slot{color:var(--accent);font-weight:600}
   .brow .kind{color:var(--muted);font-size:11px}
   .brow .sel{flex:1;min-width:150px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);
-    border:1px solid var(--border);border-radius:5px;background:var(--steel);padding:3px 8px}
+    border:1px solid var(--border);background:var(--steel);padding:3px 8px}
   .brow .sel .chev{margin-left:auto;color:var(--muted);font-size:10px}
   .brow .sel .chip{background:color-mix(in srgb,var(--accent) 16%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);
-    border-radius:4px;padding:0 6px;font:11px var(--mono);color:var(--text)}
-  .brow .bindbtn{background:var(--green);color:#fff;border-radius:5px;padding:3px 12px;font:600 12px var(--sans)}
+    padding:0 6px;font:11px var(--mono);color:var(--text)}
+  .brow .bindbtn{background:var(--green);color:#fff;padding:3px 12px;font:600 12px var(--sans)}
   .bindcap{color:var(--dim);font:12px/1.6 var(--mono);margin-top:12px;max-width:72ch}
   .bindcap b{color:var(--muted);font-weight:600}
 
   /* ---------- terminals ---------- */
   .trm{display:grid;grid-template-columns:1fr 1.05fr;gap:38px;align-items:start;margin-top:38px}
   .harness{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
-  .harness span{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--border);
-    border-radius:999px;padding:4px 12px}
+  .harness span{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--border);padding:4px 12px;
+    clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)}
   .harness span.any{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
   .trm-copy{color:var(--muted);font-size:14.5px;max-width:52ch}
   .trm-copy b{color:var(--text)}
-  .twin{border:1px solid var(--border2);border-radius:10px;overflow:hidden;background:var(--panel);
+  .twin{border:1px solid var(--border2);overflow:hidden;background:var(--panel);
     box-shadow:0 14px 44px rgba(0,0,0,.45)}
   .twin .tbar{display:flex;align-items:center;gap:6px;background:var(--panel2);border-bottom:1px solid var(--border);
     padding:5px 9px;font:11px var(--mono);color:var(--muted)}
   .twin .tbar .path{color:var(--text);font-weight:600;padding-right:4px}
-  .twin .tbar .tab{border:1px solid var(--border);border-radius:4px;padding:1px 8px;background:var(--panel)}
+  .twin .tbar .tab{border:1px solid var(--border);padding:1px 8px;background:var(--panel)}
   .twin .tbar .lyt{display:flex;gap:2px;margin-left:auto}
-  .twin .tbar .lyt i{font-style:normal;border:1px solid transparent;border-radius:4px;padding:1px 6px}
+  .twin .tbar .lyt i{font-style:normal;border:1px solid transparent;padding:1px 6px}
   .twin .tbar .lyt i.on{border-color:var(--border);background:var(--panel)}
-  .twin .tbar .tg{border:1px solid var(--border);border-radius:4px;padding:1px 7px;background:var(--steel)}
+  .twin .tbar .tg{border:1px solid var(--border);padding:1px 7px;background:var(--steel)}
   .twin .tbar .tg b{color:var(--green);font-weight:600}
   .twin .term{min-height:230px}
+  .term{background:#0d0f13;color:#c8d0da;font:11.5px/1.6 var(--mono);padding:10px 11px;white-space:pre-wrap;word-break:break-word}
+  .term .g{color:var(--green)} .term .a{color:var(--accent)} .term .m{color:var(--muted)} .term .b{color:var(--blue)}
+  .cursor{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
   .trm-facts{margin-top:34px}
 
   /* ---------- responsive (dogfood the mobile posture) ---------- */
   @media (max-width:900px){
-    .hero-in{grid-template-columns:1fr;gap:30px}
+    .hero{margin:10px}
+    .hero-in{grid-template-columns:1fr;gap:30px;padding-bottom:56px}
     .how{grid-template-columns:1fr;gap:26px}
     .cmp{grid-template-columns:1fr;gap:26px}
     .trm{grid-template-columns:1fr;gap:26px}
@@ -316,8 +329,8 @@
     .nav-links .lnk{display:none}
   }
   @media (max-width:560px){
-    .m-side{width:118px}
     .navin{gap:8px}
+    .tick{display:none}
   }
 </style>
 </head>
@@ -344,111 +357,79 @@
   </defs>
 </svg>
 
-<nav>
-  <div class="navin">
-    <a class="brand" href="#top">
-      <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
-        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path>
-        <path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path>
-      </svg>X/BIN
-    </a>
-    <div class="nav-sp"></div>
-    <div class="nav-links">
-      <a class="lnk" href="#how">How it works</a>
-      <a class="lnk" href="#compose">Composition</a>
-      <a class="lnk" href="#terminals">Terminals</a>
-      <a class="lnk" href="#workflows">Workflows</a>
-      <a class="lnk" href="#who">Who it's for</a>
-      <a class="lnk" href="#people">Multi-user</a>
-      <a class="lnk" href="#security">Security</a>
-      <a class="lnk" href="#install">Install</a>
-    </div>
-    <a class="btn" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">GitHub ↗</a>
-  </div>
-</nav>
-
 <header class="hero" id="top">
+  <nav>
+    <div class="navin">
+      <a class="brand" href="#top">
+        <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+          <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path>
+          <path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path>
+        </svg>X/BIN
+      </a>
+      <div class="nav-sp"></div>
+      <div class="nav-links">
+        <a class="lnk" href="#how">How it works</a>
+        <a class="lnk" href="#compose">Composition</a>
+        <a class="lnk" href="#terminals">Terminals</a>
+        <a class="lnk" href="#workflows">Workflows</a>
+        <a class="lnk" href="#who">Who it's for</a>
+        <a class="lnk" href="#people">Multi-user</a>
+        <a class="lnk" href="#security">Security</a>
+        <a class="lnk" href="#install">Install</a>
+      </div>
+      <span class="oline"><a class="btn sm" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">GitHub ↗</a></span>
+    </div>
+  </nav>
+
+  <xb-gl></xb-gl>
+
   <div class="hero-in">
     <div>
+      <p class="eyebrow">self-hosted workspace runtime</p>
       <h1>Code and state, in <span class="amber">separate sandboxes</span>.</h1>
       <p class="sub">A Harvard architecture for self-hosted software. Agents and terminals rewrite a
         tile's code from inside the workspace; its live state answers only to the tile's own API.</p>
+      <div class="cta">
+        <a class="btn amber" href="https://vcpu.sh/xbin" target="_blank" rel="noopener">Try it live ↗</a>
+        <span class="oline"><a class="btn" href="#install">Self-host it</a></span>
+        <span class="oline"><a class="btn" href="#how">See how it works</a></span>
+      </div>
       <div class="install">
-        <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
-        <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
+        <div class="install-in">
+          <span class="cmd"><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
+          <xb-copy cmd="curl -fsSL https://xbin.dev/install.sh | sh"></xb-copy>
+        </div>
       </div>
       <p class="modehint">prints the plan and asks before changing anything · Linux &amp; macOS (Lima VM) ·
         <b>MIT / Apache-2.0</b> · no SaaS or telemetry</p>
-      <div class="cta">
-        <a class="btn amber" href="#install">Get started</a>
-        <a class="btn" href="#how">See how it works</a>
-      </div>
+      <p class="modehint">Free for an hour, no signup: <code>ssh xbin@vcpu.sh</code></p>
     </div>
 
     <!-- the hero IS the product: a faithful mini-shell that boots itself -->
-    <div class="mock" aria-hidden="true">
-      <div class="m-top">
-        <span class="brand"><svg viewBox="0 0 64 64" width="15" height="15"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path><path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path></svg>X/BIN</span>
-        <span class="m-chip">home-lab</span>
-        <span class="m-sp"></span>
-        <span class="dt dg"></span>
-      </div>
-      <div class="m-tabs">
-        <div class="m-tab on">Home</div>
-        <div class="m-tab">Ops <span class="dt sm dam"></span></div>
-        <div class="m-tab">Media</div>
-      </div>
-      <div class="m-body">
-        <div class="m-side">
-          <div class="m-grp">apps</div>
-          <div class="m-item on"><span class="dt sm da"></span>dashboard</div>
-          <div class="m-item">calendar</div>
-          <div class="m-item">notes<span class="st dt sm dg"></span></div>
-          <div class="m-item">queue<span class="st dt sm dam"></span></div>
-          <div class="m-grp">tiles</div>
-          <div class="m-item">manager</div>
-          <div class="m-item">admin</div>
-        </div>
-        <div class="m-main">
-          <div class="m-card">
-            <div class="h"><span class="dt sm da"></span>apps/dashboard<span class="tbtn" id="tbtn">&gt;_ terminal</span></div>
-            <div class="body">
-              <div class="dash">
-                <div class="dash-h">Service dashboard<span class="sp"></span><span class="live">live</span></div>
-                <div class="stats" id="stats">
-                  <div class="stat"><b>1.24M</b><span>requests</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,12 15,10 30,11 45,7 60,8 75,4 90,5" fill="none" stroke="var(--blue)" stroke-width="1.4"/></svg></div>
-                  <div class="stat"><b>0.31%</b><span>errors</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,6 15,7 30,5 45,8 60,6 75,7 90,6" fill="none" stroke="var(--green)" stroke-width="1.4"/></svg></div>
-                  <div class="stat added" id="newcard"><b>142ms</b><span>p95 latency</span><svg width="100%" height="15" viewBox="0 0 90 15" preserveAspectRatio="none"><polyline points="0,11 15,9 30,10 45,6 60,7 75,5 90,4" fill="none" stroke="var(--accent)" stroke-width="1.4"/></svg></div>
-                </div>
-                <div class="bars"><i style="height:40%"></i><i style="height:54%"></i><i style="height:47%"></i><i style="height:61%"></i><i style="height:57%"></i><i style="height:69%"></i><i style="height:64%"></i><i style="height:77%"></i><i style="height:71%"></i><i style="height:83%"></i></div>
-              </div>
-              <div class="tpane" id="tpane"><div class="term" id="term"></div></div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <xb-shell-scene></xb-shell-scene>
+  </div>
+
+  <div class="tick" aria-hidden="true">
+    <div class="tick-in">
+      <span>grants <b>default-deny</b> · net <b>unbound</b> · vault <b>sealed</b> · namespaces <b>user mount pid ipc uts net</b> · seccomp <b>on</b> · landlock <b>on</b> · egress <b>via wg-vpn</b> · backups <b>03:00</b> · harness <b>any</b> · base image <b>read-only</b> ·&nbsp;</span>
+      <span>grants <b>default-deny</b> · net <b>unbound</b> · vault <b>sealed</b> · namespaces <b>user mount pid ipc uts net</b> · seccomp <b>on</b> · landlock <b>on</b> · egress <b>via wg-vpn</b> · backups <b>03:00</b> · harness <b>any</b> · base image <b>read-only</b> ·&nbsp;</span>
     </div>
   </div>
 </header>
 
 <section class="shotband" aria-label="a live xbin workspace">
   <div class="wrap">
-    <figure class="shot lead">
-      <img src="shots/overview-shell.png" loading="lazy"
-        alt="the xbin shell: a canvas of floating tiles — a paste bin, the Traefik ingress terminator, the manager's updates pane, and the welcome tile's notes — beside a sidebar of orgs and apps">
+    <figure class="shot lead reveal">
+      <span class="frame"><img src="shots/overview-shell.png" loading="lazy"
+        alt="the xbin shell: a canvas of floating tiles — a paste bin, the Traefik ingress terminator, the manager's updates pane, and the welcome tile's notes — beside a sidebar of orgs and apps"></span>
     </figure>
   </div>
 </section>
 
-
-
-
-
-
-
 <section id="how">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>01</b>the model</div>
       <h2>Everything is a directory.</h2>
       <p class="lede">No registry, no build step: a component is a directory and its path is
         its identity. Open a terminal in it and grant it what it needs; everything stays inside
@@ -456,17 +437,17 @@
     </div>
     <div class="how">
       <div class="steps">
-        <div class="step"><span class="n">1</span><div><h3>A tile is a directory</h3>
+        <div class="step reveal"><span class="n">1</span><div><h3>A tile is a directory</h3>
           <p>An <code>index.html</code> and/or a backend (Go, Node, Python, or none). <code>mv</code> renames it, <code>cp -r</code> forks it, <code>rm -r</code> deletes it.</p></div></div>
-        <div class="step"><span class="n">2</span><div><h3>Terminals in the browser</h3>
+        <div class="step reveal"><span class="n">2</span><div><h3>Terminals in the browser</h3>
           <p>Attach a sandboxed shell to any tile to edit, build, and run agents. No SSH, no local checkout.</p></div></div>
-        <div class="step"><span class="n">3</span><div><h3>Grants are default-deny</h3>
+        <div class="step reveal"><span class="n">3</span><div><h3>Grants are default-deny</h3>
           <p>A tile cannot reach the network or another tile until you approve a grant. Secrets come from its own vault.</p></div></div>
-        <div class="step"><span class="n">4</span><div><h3>Internal by default</h3>
+        <div class="step reveal"><span class="n">4</span><div><h3>Internal by default</h3>
           <p>Tiles serve their users inside the workspace. Publishing one to the internet is a
             separate opt-in (<code>bx expose</code>, behind your TLS) that most tiles never need.</p></div></div>
       </div>
-      <div class="codeblock">
+      <div class="codeblock reveal">
         <div class="cbh"><span class="dt sm da"></span><span class="cbn">apps/dashboard — terminal</span></div>
 <pre><span class="m"># scaffold a tile, edit it live, ship it</span>
 $ <span class="a">bx</span> new apps/dashboard --runtime go
@@ -484,19 +465,19 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 <section id="pillars">
   <div class="wrap">
     <div class="pillars">
-      <div class="pillar">
+      <div class="pillar reveal">
         <div class="ic"><svg class="icn"><use href="#i-lock"/></svg></div>
         <h3>Yours</h3>
         <p>One unprivileged daemon on a box you control: your files and your git history on
           your disk. No accounts, no SaaS; nothing phones home. Dual MIT / Apache-2.0.</p>
       </div>
-      <div class="pillar">
+      <div class="pillar reveal">
         <div class="ic"><svg class="icn"><use href="#i-shield"/></svg></div>
         <h3>Sandboxed</h3>
         <p>Every tile runs rootless: user, mount, pid and net namespaces, seccomp and landlock.
           Grants are default-deny; secrets live encrypted in a vault.</p>
       </div>
-      <div class="pillar">
+      <div class="pillar reveal">
         <div class="ic"><svg class="icn"><use href="#i-pencil"/></svg></div>
         <h3>Self-modifying</h3>
         <p>Open a browser terminal in any tile: edit and rebuild it live, or point an agent at it.
@@ -508,7 +489,8 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="compose">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>02</b>composition</div>
       <h2>Small tiles with typed wires.</h2>
       <p class="lede">Tiles don't hardcode each other. A tile declares <b>typed interface slots</b>:
         "I need an LLM", "I need MCP servers", "I need somewhere to archive". The owner binds each
@@ -516,17 +498,17 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
     </div>
     <div class="cmp">
       <div class="cmp-steps steps">
-        <div class="step"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-swap"/></svg></span><div><h3>Call another tile's API</h3>
+        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-swap"/></svg></span><div><h3>Call another tile's API</h3>
           <p>Declare <code>uses</code>, get a role-gated grant. The callee sees your verified identity
             instead of a shared secret, and holds no ambient authority.</p></div></div>
-        <div class="step"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-diamond"/></svg></span><div><h3>Typed slots with swappable providers</h3>
+        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-diamond"/></svg></span><div><h3>Typed slots with swappable providers</h3>
           <p>An agent's <code>llm</code> slot binds to a gateway tile; its <code>mcp</code> slot (multi)
             binds to <em>several</em> MCP servers at once. Rebind later. The code never changes.</p></div></div>
-        <div class="step"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-up"/></svg></span><div><h3>Egress is composition too</h3>
+        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-up"/></svg></span><div><h3>Egress is composition too</h3>
           <p>A tile has <b>zero network</b> until its <code>net</code> slot is bound to the internet,
             a LAN, or <em>through another tile</em>: a WireGuard/firewall tile that provides <code>net</code>. Chains compose.</p></div></div>
       </div>
-      <div class="wires" aria-label="example wiring of apps/agent">
+      <div class="wires reveal" aria-label="example wiring of apps/agent">
         <div class="wire"><span class="wnode slot">agent · llm</span><span class="wlink"><b>http:llm</b></span><span class="wnode"><span class="dt sm dg"></span>tiles/llm-gw</span></div>
         <div class="wnote">one key, every model; swap the gateway and the agent code stays put</div>
         <div class="wire"><span class="wnode slot">agent · mcp ×2</span><span class="wlink"><b>http:mcp</b></span><span class="wnode"><span class="dt sm dg"></span>github-mcp&nbsp;+&nbsp;search-mcp</span></div>
@@ -537,7 +519,7 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
     </div>
 
     <!-- the shell's binding-request panel (bx-bindings), as it renders in the workspace -->
-    <div class="bindpanel" role="img" aria-label="the workspace shell's interface-binding panel">
+    <div class="bindpanel reveal" role="img" aria-label="the workspace shell's interface-binding panel">
       <h3>interfaces to bind</h3>
       <div class="brow">
         <span class="who">apps/agent</span><span class="slot">mcp</span><span class="kind">http:mcp</span>
@@ -555,7 +537,7 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
         <span class="bindbtn">bind</span>
       </div>
     </div>
-    <p class="bindcap"><b>Binding is the owner's click</b>: a tile — or an agent inside one — can
+    <p class="bindcap reveal"><b>Binding is the owner's click</b>: a tile — or an agent inside one — can
       request a capability, but it can't wire itself to anything. Until you bind, it has nothing.
       The same mechanism gates the outside world: no egress without a <span class="mono">net</span>
       binding, and no public endpoint until an <span class="mono">exposes</span> endpoint is bound
@@ -565,7 +547,8 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="terminals">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>03</b>terminals</div>
       <h2>Terminals in the browser.</h2>
       <p class="lede">Every tile opens a real shell in the browser. xbin has <b>zero opinion about your
         harness</b>: run whatever you already use. Every workspace ships an <span class="mono">AGENTS.md</span> /
@@ -573,17 +556,17 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
     </div>
     <div class="trm">
       <div>
-        <div class="harness">
+        <div class="harness reveal">
           <span>Claude Code</span><span>OpenCode</span><span>Codex</span><span>Hermes</span><span>aider</span><span class="any">…or just vim</span>
         </div>
-        <p class="trm-copy">The terminal is where tiles get built, and it is a <b>sandbox with a job</b>
+        <p class="trm-copy reveal">The terminal is where tiles get built, and it is a <b>sandbox with a job</b>
           to do. It can ship this tile; it can't wander the box. A rogue agent's blast radius is
           one tile's directory, and its <span class="mono">apt install</span>s land in a throwaway
           overlay, never in the base image.</p>
-        <p class="trm-copy">Your <span class="mono">$HOME</span> follows you: one per-user homedir across
+        <p class="trm-copy reveal">Your <span class="mono">$HOME</span> follows you: one per-user homedir across
           all your terminals. Dotfiles, harness config, and keys are set up once.</p>
       </div>
-      <div class="twin" aria-label="a tile terminal running an agent">
+      <div class="twin reveal" aria-label="a tile terminal running an agent">
         <div class="tbar">
           <span class="path">apps/dashboard</span>
           <span class="tab">agent</span><span>+</span>
@@ -604,73 +587,74 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
       </div>
     </div>
     <div class="seclist trm-facts">
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Read-only base image</b><span>Each terminal stacks a throwaway overlay on the shared base. <span class="mono">apt install</span> anything; the image never changes.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>One home, all your terminals</b><span><span class="mono">$HOME</span> is your per-user directory: persistent, shared across your sessions, and separate from the host's home.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>This tile read-write, the rest read-only</b><span>Only the tile the terminal was opened on is writable. Sibling tiles are readable for patterns and APIs, and only the ones your account can read.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span>. Flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em> and never as the owner. You can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Runtime state stays with the backend</b><span>The tile's live resources (its database, its resource filesystem) are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Read-only base image</b><span>Each terminal stacks a throwaway overlay on the shared base. <span class="mono">apt install</span> anything; the image never changes.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>One home, all your terminals</b><span><span class="mono">$HOME</span> is your per-user directory: persistent, shared across your sessions, and separate from the host's home.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>This tile read-write, the rest read-only</b><span>Only the tile the terminal was opened on is writable. Sibling tiles are readable for patterns and APIs, and only the ones your account can read.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Network is a switch</b><span>Per-terminal scope: <span class="mono">none</span>, <span class="mono">internet</span>, or <span class="mono">host</span>. Flip it in the titlebar; offline agents are a first-class mode.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Tile API access is a toggle</b><span>The terminal's token acts as <em>this tile</em> and never as the owner. You can switch API access off entirely, so an agent can edit code without reaching the live app.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Runtime state stays with the backend</b><span>The tile's live resources (its database, its resource filesystem) are <em>not mounted</em> in the terminal. State is reached through the tile's API, on its terms.</span></div></div>
     </div>
   </div>
 </section>
 
 <section id="workflows">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>04</b>workflows</div>
       <h2>See real workflows.</h2>
     </div>
-    <div class="flow-h"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
+    <div class="flow-h reveal"><h3>Change a tile</h3><span>an in-memory paste bin gains file uploads</span></div>
     <div class="flow">
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/change-tile-before.png" loading="lazy"
           alt="the mempaste tile before the change: a paste text box and an Add paste button">
         <figcaption><span class="sn">1</span>The tile: an in-memory paste bin.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/change-prompt.png" loading="lazy"
           alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
         <figcaption><span class="sn">2</span>Open its terminal, ask for the change in plain words.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/change-agent-done.png" loading="lazy"
           alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
         <figcaption><span class="sn">3</span>The agent edits, verifies end-to-end, commits.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/change-tile-after.png" loading="lazy"
           alt="the mempaste tile after the change: an Upload file button next to Add paste">
         <figcaption><span class="sn">4</span>The change is live with no deploy step.</figcaption>
       </figure>
     </div>
 
-    <div class="flow-h"><h3>Create a tile</h3><span>a home calendar from empty directory to shipped in one prompt</span></div>
+    <div class="flow-h reveal"><h3>Create a tile</h3><span>a home calendar from empty directory to shipped in one prompt</span></div>
     <div class="flow f6">
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-menu.png" loading="lazy"
           alt="the shell's plus menu with Create a new tile as the first entry">
         <figcaption><span class="sn">1</span>Create from the + menu.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-dialog.png" loading="lazy"
           alt="the create-a-new-tile dialog: name home-calendar, owner org Home">
         <figcaption><span class="sn">2</span>Name it, pick an owner.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-prompt.png" loading="lazy"
           alt="the new empty home-calendar tile with a terminal below it; the prompt describes the calendar to build">
         <figcaption><span class="sn">3</span>Point an agent at the empty tile.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-agent-done.png" loading="lazy"
           alt="the agent reports the tile built, tested end-to-end, and committed">
         <figcaption><span class="sn">4</span>Built and tested end-to-end, then committed.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-tile-full.png" loading="lazy"
           alt="the finished home-calendar tile: a month grid, an add-task form with date and recurrence">
         <figcaption><span class="sn">5</span>The tile is live immediately.</figcaption>
       </figure>
-      <figure class="shot">
+      <figure class="shot reveal">
         <img src="shots/create-task-added.png" loading="lazy"
           alt="the home-calendar tile in use: a Buy Groceries task on the calendar and in the task list">
         <figcaption><span class="sn">6</span>A working app with its own state, minutes after the prompt.</figcaption>
@@ -681,23 +665,24 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="who">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>05</b>who it's for</div>
       <h2>From solo homelab to small team.</h2>
     </div>
     <div class="aud">
-      <div class="card"><span class="tag">Homelab &amp; self-hosters</span>
+      <div class="card reveal"><span class="tag">Homelab &amp; self-hosters</span>
         <h3>Everything in one place on your box</h3>
         <p>Dashboards, notes, a calendar, a media tool, an agent: one binary with backups built in,
           reachable over Tailscale. No docker-compose sprawl.</p></div>
-      <div class="card"><span class="tag">Linux enthusiasts</span>
+      <div class="card reveal"><span class="tag">Linux enthusiasts</span>
         <h3>Real isolation you can inspect</h3>
         <p>Rootless user namespaces, cgroups v2, seccomp, and landlock with no container wrapper
           in between. Buildless frontend (no npm); the shell itself is a tile you can hack.</p></div>
-      <div class="card"><span class="tag">IT admins</span>
+      <div class="card reveal"><span class="tag">IT admins</span>
         <h3>Multi-user with real RBAC</h3>
         <p>Users, orgs, per-tile ownership and access levels, approvals delegated to org admins.
           An audit log records who approved what. Least privilege by default.</p></div>
-      <div class="card"><span class="tag">Small teams</span>
+      <div class="card reveal"><span class="tag">Small teams</span>
         <h3>Own your internal tools</h3>
         <p>No per-seat SaaS, no vendor lock-in. Agents build the dashboards and integrations;
           they run on your infrastructure, versioned and auditable.</p></div>
@@ -708,28 +693,29 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="people">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>06</b>users &amp; orgs</div>
       <h2>Users and orgs.</h2>
       <p class="lede">Every tile has an <b>owner</b> (you or an org). Admins set policy once; org
         admins run their own day-to-day, down to the 2am approval.</p>
     </div>
     <div class="aud">
-      <div class="card"><span class="tag">Accounts</span>
+      <div class="card reveal"><span class="tag">Accounts</span>
         <h3>Accounts by invitation only</h3>
         <p>Admins hand out single-use invite links; the invitee sets their own password. Pause an
           account without losing a grant. Hit a tile you can't read and the page itself offers
           <b>request access</b>; the owner approves at a level and that's it.</p></div>
-      <div class="card"><span class="tag">Orgs</span>
+      <div class="card reveal"><span class="tag">Orgs</span>
         <h3>Roles that mean what they say</h3>
         <p>Flat orgs with per-member <b>viewer / developer / admin</b> presets. Org admins manage
           members, sharing, lifecycle, and wiring, with real authority inside the org and none
           outside it.</p></div>
-      <div class="card"><span class="tag">Ownership</span>
+      <div class="card reveal"><span class="tag">Ownership</span>
         <h3>Tiles move like property</h3>
         <p>Transfer a tile to an org and its governance moves with it. Every transfer shows a
           preview first: your remaining access, which bindings die under the new owner's
           policy, who gains control. No silent surprises.</p></div>
-      <div class="card"><span class="tag">Delegation</span>
+      <div class="card reveal"><span class="tag">Delegation</span>
         <h3>The 2am loop without the admin</h3>
         <p>Workspace admins grant orgs allowances as precise as "internet, but only
           <span class="mono">*.stripe.com</span>". Org admins approve inside those bounds; requests
@@ -740,56 +726,61 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
 
 <section id="security" class="sec-band">
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>07</b>security</div>
       <h2>Isolation is the default.</h2>
       <p class="lede">xbin is a rootless sandbox runtime first and a UI second. The boundary is the
         kernel, and it's on for every tile from the start.</p>
     </div>
     <div class="seclist">
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Per-tile rootless sandboxes</b><span>User, mount, pid, IPC, UTS and net namespaces per backend, mapped to a delegated sub-uid range with no host root.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>seccomp + landlock</b><span>A syscall block-list and a filesystem allow-list on every tile; the mount family and friends are denied unless a tile is explicitly a container host.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Default-deny grants</b><span>An element principal reaches no other tile, resource, or network until the owner approves an explicit grant. Inbound identity headers are stripped.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Encrypted vault</b><span>Per-component secrets and stateful resources are encrypted at rest; the workspace can start sealed and be unsealed after login. A tile's secrets are read only by its own running backend.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Git per component + backups</b><span>Every tile is its own repo; scheduled backups and one-click restore are built in.</span></div></div>
-      <div class="row"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Bound network egress</b><span>Tiles have zero IP egress until you bind a net interface: internet, host, a LAN CIDR, or through another tile (a firewall/VPN).</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Per-tile rootless sandboxes</b><span>User, mount, pid, IPC, UTS and net namespaces per backend, mapped to a delegated sub-uid range with no host root.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>seccomp + landlock</b><span>A syscall block-list and a filesystem allow-list on every tile; the mount family and friends are denied unless a tile is explicitly a container host.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Default-deny grants</b><span>An element principal reaches no other tile, resource, or network until the owner approves an explicit grant. Inbound identity headers are stripped.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Encrypted vault</b><span>Per-component secrets and stateful resources are encrypted at rest; the workspace can start sealed and be unsealed after login. A tile's secrets are read only by its own running backend.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Git per component + backups</b><span>Every tile is its own repo; scheduled backups and one-click restore are built in.</span></div></div>
+      <div class="row reveal"><span class="k"><svg class="icn"><use href="#i-arrow"/></svg></span><div><b>Bound network egress</b><span>Tiles have zero IP egress until you bind a net interface: internet, host, a LAN CIDR, or through another tile (a firewall/VPN).</span></div></div>
     </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <div class="sec-head">
+    <div class="sec-head reveal">
+      <div class="kicker"><b>08</b>in the box</div>
       <h2>All of it ships in one binary.</h2>
     </div>
     <div class="boxlist">
-      <div class="bl"><svg class="icn"><use href="#i-grid"/></svg><div><b>Tiles &amp; screens</b><span>A snappable grid of apps; drag, pin, float, or full-page any of them.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-term"/></svg><div><b>Browser terminals</b><span>A real sandboxed shell on any tile, with a code + diff review pane.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-branch"/></svg><div><b>Git per component</b><span>Version, diff, and restore every tile independently.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-globe"/></svg><div><b>Optional ingress</b><span>Publish HTTP or raw TCP/UDP behind your TLS with the Traefik tile; off unless you bind it.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-box"/></svg><div><b>Containers</b><span>An opt-in <span class="mono">cap:containers</span> tile runs rootless podman for dev boxes.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-disk"/></svg><div><b>Backups &amp; restore</b><span>Scheduled, encrypted, one-click restore of any tile or the whole workspace.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-wrench"/></svg><div><b>bx CLI + Go SDK</b><span>Zero-dependency SDK; a <span class="mono">bx</span> CLI for everything the UI does.</span></div></div>
-      <div class="bl"><svg class="icn"><use href="#i-agent"/></svg><div><b>Agent-ready</b><span>An AGENTS.md contract, per-tile terminals, and a status channel agents drive.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-grid"/></svg><div><b>Tiles &amp; screens</b><span>A snappable grid of apps; drag, pin, float, or full-page any of them.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-term"/></svg><div><b>Browser terminals</b><span>A real sandboxed shell on any tile, with a code + diff review pane.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-branch"/></svg><div><b>Git per component</b><span>Version, diff, and restore every tile independently.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-globe"/></svg><div><b>Optional ingress</b><span>Publish HTTP or raw TCP/UDP behind your TLS with the Traefik tile; off unless you bind it.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-box"/></svg><div><b>Containers</b><span>An opt-in <span class="mono">cap:containers</span> tile runs rootless podman for dev boxes.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-disk"/></svg><div><b>Backups &amp; restore</b><span>Scheduled, encrypted, one-click restore of any tile or the whole workspace.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-wrench"/></svg><div><b>bx CLI + Go SDK</b><span>Zero-dependency SDK; a <span class="mono">bx</span> CLI for everything the UI does.</span></div></div>
+      <div class="bl reveal"><svg class="icn"><use href="#i-agent"/></svg><div><b>Agent-ready</b><span>An AGENTS.md contract, per-tile terminals, and a status channel agents drive.</span></div></div>
     </div>
   </div>
 </section>
 
 <section id="install" class="installband">
   <div class="wrap">
-    <h2>Self-host it in one line.</h2>
-    <p class="lede">On any Linux box with unprivileged user namespaces: the installer preflights
+    <div class="kicker reveal"><b>09</b>install</div>
+    <h2 class="reveal">Self-host it in one line.</h2>
+    <p class="lede reveal">On any Linux box with unprivileged user namespaces: the installer preflights
       the kernel, builds from source, and starts the daemon on loopback.</p>
-    <div class="bigcmd">
-      <span><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
-      <button class="cp" data-cmd="curl -fsSL https://xbin.dev/install.sh | sh">copy</button>
+    <div class="bigcmd reveal">
+      <div class="bigcmd-in">
+        <span class="cmd"><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
+        <xb-copy cmd="curl -fsSL https://xbin.dev/install.sh | sh"></xb-copy>
+      </div>
     </div>
-    <p class="modehint">The installer explains both modes (a
+    <p class="modehint reveal">The installer explains both modes (a
       dedicated <code>xbin</code> system user, or everything under your account), prints the
       numbered plan for each, and asks; it escalates via sudo only if you pick system-wide. On macOS
       the same command sets up a sized Lima VM and installs inside it. Already decided?
       <code>&hellip; | sudo bash</code> or <code>&hellip; | bash -s -- --user</code> skip the
       chooser; both still print the plan first.</p>
-    <div class="reach">
+    <div class="reach reveal">
       <span>tailscale serve 127.0.0.1:8642</span>
       <span>or point Caddy / Traefik at it</span>
       <span>or build from source: make</span>
@@ -809,95 +800,9 @@ $ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</sp
   </div>
 </footer>
 
-<dialog class="lb" id="lb" aria-label="screenshot zoom">
-  <div class="lbrow">
-    <button type="button" class="lbnav" id="lbprev" aria-label="previous screenshot">‹</button>
-    <img alt="">
-    <button type="button" class="lbnav" id="lbnext" aria-label="next screenshot">›</button>
-  </div>
-  <div class="lbcap"><span class="txt" id="lbtxt"></span><span class="cnt" id="lbcnt"></span></div>
-</dialog>
+<xb-lightbox></xb-lightbox>
 
-<script>
-  // screenshot lightbox: click a shot to zoom, ‹/› or arrow keys to browse,
-  // caption + counter shown under the image; backdrop click or Esc closes.
-  const lb = document.getElementById('lb');
-  const lbImg = lb.querySelector('.lbrow img');
-  const lbTxt = document.getElementById('lbtxt');
-  const lbCnt = document.getElementById('lbcnt');
-  const shots = [...document.querySelectorAll('.shot')].map(f => {
-    const img = f.querySelector('img');
-    const fc = f.querySelector('figcaption');
-    if (!fc) return { src: img.src, alt: img.alt, cap: img.alt };
-    const sn = fc.querySelector('.sn');
-    const step = sn ? sn.textContent.trim() : '';
-    const txt = fc.textContent.replace(sn ? sn.textContent : '', '').trim();
-    return { src: img.src, alt: img.alt, cap: (step && step !== '●' ? step + ' · ' : '') + txt };
-  });
-  let cur = 0;
-  function show(i){
-    cur = (i + shots.length) % shots.length;   // wrap around
-    lbImg.src = shots[cur].src; lbImg.alt = shots[cur].alt;
-    lbTxt.textContent = shots[cur].cap;
-    lbCnt.textContent = (cur + 1) + ' / ' + shots.length;
-  }
-  shots.forEach((s, i) => {
-    document.querySelectorAll('.shot img')[i].addEventListener('click', () => { show(i); lb.showModal(); });
-  });
-  document.getElementById('lbprev').addEventListener('click', () => show(cur - 1));
-  document.getElementById('lbnext').addEventListener('click', () => show(cur + 1));
-  lb.addEventListener('keydown', e => {
-    if (e.key === 'ArrowLeft'){ e.preventDefault(); show(cur - 1); }
-    if (e.key === 'ArrowRight'){ e.preventDefault(); show(cur + 1); }
-  });
-  lb.addEventListener('click', e => { if (e.target === lb) lb.close(); });
-
-  // copy buttons
-  for (const b of document.querySelectorAll('.cp')) {
-    b.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(b.dataset.cmd); const t = b.textContent; b.textContent = 'copied ✓'; setTimeout(() => b.textContent = t, 1400); } catch {}
-    });
-  }
-
-  // Hero scene: a dashboard tile opens its own terminal, an agent edits it, and
-  // the dashboard updates, looping. Respects prefers-reduced-motion.
-  const term = document.getElementById('term');
-  const tpane = document.getElementById('tpane');
-  const tbtn = document.getElementById('tbtn');
-  const newcard = document.getElementById('newcard');
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const script = [
-    '<span class="a">you@dashboard</span> $ claude "add a p95 latency card"',
-    '<span class="m">● read apps/dashboard/index.html</span>',
-    '<span class="m">● edit index.html</span>  <span class="b">+18 −2</span>',
-    '<span class="m">● bx build apps/dashboard</span>  <span class="g">✓</span>',
-    '<span class="g">✓ p95 latency card is live</span>',
-  ];
-  let timers = [];
-  const at = (ms, fn) => timers.push(setTimeout(fn, ms));
-  function typeLines(after){
-    let i = 0, out = '';
-    const next = () => {
-      if (i >= script.length){ term.innerHTML = out; after && after(); return; }
-      out += script[i] + '\n'; term.innerHTML = out + '<span class="cursor"></span>'; i++;
-      at(640, next);
-    };
-    next();
-  }
-  function run(){
-    timers.forEach(clearTimeout); timers = [];
-    tpane.classList.remove('open'); tbtn.classList.remove('hot');
-    newcard.classList.remove('show'); term.innerHTML = '';
-    at(1100, () => tbtn.classList.add('hot'));       // "click" the terminal button
-    at(1500, () => tpane.classList.add('open'));     // terminal slides in
-    at(1950, () => typeLines(() => at(350, () => newcard.classList.add('show')))); // edit → dashboard updates
-    at(9500, run);                                   // loop
-  }
-  if (reduce){
-    tpane.classList.add('open'); tbtn.classList.add('hot');
-    term.innerHTML = script.join('\n'); newcard.classList.add('show');
-  } else { run(); }
-</script>
+<script type="module" src="./js/main.js"></script>
 
 </body>
 </html>

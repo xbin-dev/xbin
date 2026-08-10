@@ -2,25 +2,34 @@
 
 The **xbin.dev** landing page. `index.html` carries the whole pitch (no build
 step, no external fonts/CDNs — same buildless ethos as the workspace), in the
-product's own steel + hazard-amber palette, with IBM Plex Sans self-hosted in
-`fonts/` (OFL, headings only) and one inline SVG icon set — no emoji, no
-glyph-soup. Plus `install.sh`, the bootstrap installer the site serves, and
-`og.png` (`og:image`, 1200×630). `shots/` holds the real-product screenshots
-(pngquant-compressed) used by the workspace band and the workflows section.
+product's own steel + hazard-amber palette, cut in the shell's chamfered
+corner language, with IBM Plex Sans self-hosted in `fonts/` (OFL, headings
+only) and one inline SVG icon set — no emoji, no glyph-soup. All interactivity
+is ES-module Lit elements in `js/` (`lit` vendored in `vendor/` from
+`web/vendor`, loaded via an import map — no npm, no bundler): a WebGL2 shader
+backdrop (`xb-gl`, with a CSS-gradient fallback and a static frame under
+`prefers-reduced-motion`), the self-booting shell mock (`xb-shell-scene`),
+the copy buttons (`xb-copy`) and the screenshot lightbox (`xb-lightbox`).
+Plus `install.sh`, the bootstrap
+installer the site serves, and `og.png` (`og:image`, 1200×630). `shots/`
+holds the real-product screenshots (pngquant-compressed) used by the
+workspace band and the workflows section.
 
 ## Pitch structure
-Hero (thesis + install one-liner + animated shell) → **workspace band** (the
-real overview screenshot, no words — proof, not claims) → "everything is a
-directory" model → three pillars (yours / sandboxed / self-modifying) →
-composition (typed wires) → app terminals (BYO agent) → **workflows** (the
-change-a-tile and create-a-tile screenshot flows) → who it's for →
-**users & orgs** (the multi-user model) → security posture → "in the box"
-list → install → footer.
+Hero (dark chamfered panel on a steel frame: nav inside the panel, thesis +
+install one-liner + the animated shell over a live WebGL tile-field, and a
+telemetry ticker along the bottom edge) → **workspace band** (the real overview
+screenshot, no words — proof, not claims) → "everything is a directory"
+model → three pillars (yours / sandboxed / self-modifying) → composition
+(typed wires) → app terminals (BYO agent) → **workflows** (the change-a-tile
+and create-a-tile screenshot flows) → who it's for → **users & orgs** (the
+multi-user model) → security posture → "in the box" list → install → footer.
 
 ## Build
 
 ```
-make website        # assembles website/dist/ (index.html, install.sh, og.png, fonts/)
+make website        # assembles website/dist/ (index.html, install.sh, og.png,
+                    # fonts/, shots/, js/, vendor/)
 ```
 
 `dist/` is the deployable artifact — any static host, GitHub Pages, or an
