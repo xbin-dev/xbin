@@ -413,6 +413,11 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	filter := func(e events.Event) bool {
+		// pr events name a component that has PR activity — D40 visibility:
+		// only subscribers who can read that tile see them.
+		if e.Type == "pr" {
+			return p.IsAdmin() || p.CanReadTile(e.Component)
+		}
 		if e.Type != "bus" {
 			return true
 		}

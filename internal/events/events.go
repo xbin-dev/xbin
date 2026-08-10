@@ -9,16 +9,17 @@ import (
 
 // Event is one message on the hub. JSON-encoded on the wire.
 type Event struct {
-	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status
+	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status|pr
 	Component string `json:"component,omitempty"` // workspace-relative path
 	Text      string `json:"text,omitempty"`      // human text (compiler output, log line)
 	Topic     string `json:"topic,omitempty"`     // bus: resource-qualified topic "res:scope/name/topic"
 	Data      any    `json:"data,omitempty"`      // bus payload / structured extras
 }
 
-// Filter decides whether a subscriber receives an event. Non-bus events are
+// Filter decides whether a subscriber receives an event. Most events are
 // visible to every authenticated subscriber; bus events are grant-checked by
-// the broker-installed filter.
+// the broker-installed filter, and pr events by tile read-visibility
+// (server.handleEventsWS).
 type Filter func(Event) bool
 
 type sub struct {

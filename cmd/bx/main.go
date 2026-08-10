@@ -49,6 +49,8 @@ func main() {
 		err = cmdPermset(os.Args[2:])
 	case "access":
 		err = cmdAccess(os.Args[2:])
+	case "code":
+		err = cmdCode(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "doctor":
@@ -117,6 +119,13 @@ func usage() {
   bx builtin updates | update <id> [--replace|--merge]
                                         update copied builtins (scaffold, tiles)
   bx logs [-f] <component>              show backend logs
+  bx code prs [<component>|--from] [--all|--state=S]
+                                        change proposals: a tile's inbox
+                                        (default: this terminal's), or yours
+  bx code pr <target> --title <t> [-m <msg>] <patch.mbox>…
+                                        propose changes to a tile you can read
+  bx code pr show|fetch|comment|close <n> [<component>] [flags]
+                                        review · apply (fetch | git am) · decide
   bx api <component>                    roles + API.md of a component
   bx grants                             grant table + pending requests
   bx grant <caller> <target>:<role>     approve/add a grant

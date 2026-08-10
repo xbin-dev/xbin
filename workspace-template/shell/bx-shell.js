@@ -120,6 +120,7 @@ export class BxShell extends LitElement {
     _showHidden: { state: true },   // sidebar: reveal hidden (state=hidden) tiles (D42)
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
     _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-report)
+    _prs: { state: true },          // open change proposals {path: count} (/api/xbin/code/prs/summary)
     _toasts: { state: true },       // transient notifications from tiles (xbin.notify)
     _mobile: { state: true },       // narrow-screen layout (off-canvas sidebar, stacked tiles)
     _drawer: { state: true },       // mobile: sidebar drawer open
@@ -297,6 +298,14 @@ export class BxShell extends LitElement {
       content: ''; position: absolute; left: 0; top: 3px; bottom: 3px; width: 2px;
       border-radius: 0 2px 2px 0; background: var(--st); }
     .group.folder .stdot { margin-left: 2px; }
+    /* ⇄ open change-proposal badge (sidebar rows + card headers) */
+    .prb { flex: none; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+      font-size: 9.5px; line-height: 15px; letter-spacing: .02em;
+      color: var(--bx-amber, #f2a71b);
+      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent);
+      background: color-mix(in srgb, var(--bx-amber, #f2a71b) 10%, transparent); }
+    button.prb { cursor: pointer; font-family: inherit; }
+    button.prb:hover { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 22%, transparent); }
     .tab.st-warn, .tab.st-error { color: var(--st); }
     .tab .stdot { margin-left: 2px; }
     .tab.on.st-warn, .tab.on.st-error { box-shadow: inset 0 -2px 0 var(--st); }
@@ -599,6 +608,7 @@ export class BxShell extends LitElement {
     this._settings = { fontSize: 13 };
     this._alerts = [];
     this._status = {};
+    this._prs = {};
     this._toasts = [];
     this._mobile = false;
     this._drawer = false;
@@ -631,8 +641,10 @@ export class BxShell extends LitElement {
       if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
       if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
+      if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
     });
     this._loadStatuses();
+    this._loadPRs();
     window.addEventListener('blur', this._onBlur);
     // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
     // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
@@ -1289,6 +1301,26 @@ export class BxShell extends LitElement {
     this._reflectTitle();
   }
   _statusOf(path) { return this._status[path]; }
+
+  // Open change proposals ("code PRs") per tile — the ⇄ badges. RAW fetch for
+  // the same reason as statuses: the summary is read-filtered to the signed-in
+  // user's tiles. Live updates arrive as `pr` events.
+  async _loadPRs() {
+    try {
+      const r = await fetch('/api/xbin/code/prs/summary');
+      if (r.ok) this._prs = (await r.json()).counts || {};
+    } catch { /* transient */ }
+  }
+  _prBadge(path, interactive = false) {
+    const n = this._prs[path];
+    if (!n) return nothing;
+    const title = `${n} open change proposal${n === 1 ? '' : 's'} — review in the tile's terminal window (⇄ tab)`;
+    return interactive
+      ? html`<button class="prb" title=${title}
+                     @pointerdown=${(e) => e.stopPropagation()}
+                     @click=${(e) => this._cardTerm(e)}>⇄${n}</button>`
+      : html`<span class="prb" title=${title}>⇄${n}</span>`;
+  }
   // Highest-severity status among the given component paths (null if none).
   _worstStatus(paths) {
     const rank = { ok: 0, info: 1, warn: 2, error: 3 };
@@ -1632,6 +1664,7 @@ export class BxShell extends LitElement {
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
         <span>${label ?? (c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path)}</span>
+        ${this._prBadge(c.path)}
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${this._hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
@@ -1865,6 +1898,7 @@ export class BxShell extends LitElement {
         <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path))}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
+          ${this._prBadge(o.path, true)}
           <span class="spacer"></span>
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}

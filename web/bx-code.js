@@ -40,7 +40,8 @@ function hl(code, lang) {
   return escHTML(code);
 }
 // Render a unified diff to highlighted HTML (per-file language, +/- coloring).
-function diffHTML(diff) {
+// Exported: bx-prs renders proposal series through the same pipeline.
+export function diffHTML(diff) {
   if (!diff) return '<span class="muted">no changes</span>';
   const hdr = /^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)/;
   let lang = '';
@@ -66,7 +67,7 @@ function diffHTML(diff) {
 }
 // Totals for a change-count summary, parsed from a unified diff. Counts +/-
 // content lines (not the +++/--- headers) and distinct files (diff --git).
-function diffStats(diff) {
+export function diffStats(diff) {
   let add = 0, del = 0; const files = new Set();
   for (const line of (diff || '').split('\n')) {
     if (line.startsWith('diff --git')) { const m = line.match(/ b\/(\S+)/); if (m) files.add(m[1]); continue; }

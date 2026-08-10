@@ -42,6 +42,15 @@ bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <use
                                        it (D36; pending requests show in the
                                        plain listing)
 bx logs [-f] <component>               backend logs (tail -f style with -f)
+bx code prs [<component>|--from] [--all|--state=S]
+                                       change proposals ("code PRs"): a tile's
+                                       inbox (defaults to this terminal's tile),
+                                       or --from = your outgoing ones
+bx code pr <target> --title <t> [-m <msg>] [--base <rev>] <patch.mbox>…
+                                       propose changes to a tile you can read
+bx code pr show|fetch|comment|close <n> [<component>] [flags]
+                                       review · fetch the series · discuss ·
+                                       close (--merged|--rejected|--withdrawn)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests
 bx grant <caller> <target>:<role>      approve/add a grant
@@ -91,6 +100,33 @@ to the named destinations (hostnames enforced by the relay's DNS pinning).
 `slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and
 `slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
 runtime-registered sub-slots of a provider (`bx iface` lists them).
+
+**`bx code pr`** — the cross-tile suggestion channel (plans/code-prs.md).
+You can *read* sibling tiles but write only your own, so changes to another
+tile travel as a PR: clone its repo out of the read-only mount, commit,
+`git format-patch`, file the series. Opening needs no approval — the
+capability to suggest is exactly the capability to read, and xbind never
+applies a patch; the *target's* terminal/agent reviews the diff and runs
+`git am --3way` itself. Typical flows:
+
+```sh
+# suggest (from your tile's terminal):
+git clone "$XBIN_WORKSPACE/apps/b" /tmp/b && cd /tmp/b
+# …edit, commit…
+git format-patch --base=auto origin/main..HEAD
+bx code pr apps/b --title "fix overflow" -m "why + how tested" 000*.patch
+
+# receive (in apps/b's terminal):
+bx code prs                                  # inbox (open PRs)
+bx code pr show 3                            # message, thread, base rev
+bx code pr fetch 3 | git apply --stat --check # review the shape FIRST
+bx code pr fetch 3 | git am --3way           # apply with authorship kept
+bx code pr close 3 --merged -m "applied as $(git rev-parse --short HEAD)"
+bx code pr close 3 --rejected -m "why"       # or push back
+```
+
+`--merged`/`--rejected` are the target side's call, `--withdrawn` the
+author's; comments go both ways and both agents should read them.
 
 **`bx vault set`** — with no value argument, reads the secret from stdin
 (so it stays out of shell history):

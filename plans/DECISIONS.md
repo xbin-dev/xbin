@@ -917,3 +917,31 @@ Deviations and refinements made while implementing; all deliberate:
   future `slim` (no Chromium) slots in without breaking older installers.
   Bundles are hosted as **GitHub Release assets** on the tag (fits the
   existing tag-based bootstrap; the manifest and tarballs sit together).
+
+- **D48 — Cross-tile change proposals ("code PRs"): read = suggest,
+  broker-stored, never auto-applied.** (2026-08-10) A terminal writes only
+  its own tile (D17/D40), so agents had no sanctioned way to improve a
+  sibling tile they can read. Added a PR system (plans/code-prs.md):
+  clone the target's repo out of the RO mount, commit, `git format-patch`,
+  `bx code pr <target>` files the series into a broker-owned store
+  (`data/prs/<target-key>/<n>/{meta.json,series.mbox}`); the target's own
+  plane lists/reviews (`bx code prs`, the terminal window's ⇄ tab), applies
+  with `git am --3way` in its OWN mount, and closes merged/rejected with a
+  note the author's agent reads. Four sub-decisions, all ratified:
+  **(1) format-patch mbox** as the artifact (reviewable text, `git am`
+  native, authorship-carrying; bundles/push deferred to a possible
+  `refs/xbin/pr/*` smart-HTTP rung), **(2) no new grant — the capability
+  to suggest IS the capability to read** (terminal/frame: driving user's
+  D40 read; elements: `code[:target]`; filing writes inert queue data and
+  escalates nothing, so no owner approval to open), **(3) broker-owned
+  `data/prs/`** rather than refs in the target repo (API-only from
+  sandboxes, backed up, watcher-invisible, no foreign refs polluting
+  component repos), **(4) the name "PR"** (agents already know the
+  workflow's semantics — that familiarity is half the feature). The
+  target-plane-applies property is enforced by mounts, not convention:
+  xbind has no apply endpoint. merged/rejected = target side (own
+  principals, write-level users, admins); withdrawn = author; no reopen.
+  A `pr` event fans out on open/comment/close, read-filtered per D40 like
+  the mounts (server-side filter in /ws/events); shell sidebar/cards badge
+  ⇄N and the terminal window carries the review UI. Series capped at
+  4 MiB — proposals are diffs, not file transfers.

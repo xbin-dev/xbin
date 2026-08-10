@@ -10,6 +10,26 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-10
+
+- **Cross-tile change proposals ("code PRs"): `bx code pr`.** A terminal can
+  write only its own tile; changes for a *sibling* tile now travel as
+  proposals instead of workarounds: clone the target's repo out of the
+  read-only mount, commit, `git format-patch`, then
+  `bx code pr <target> --title … -m … *.patch`. The target's own
+  terminal/agent lists its inbox (`bx code prs`), reviews the diff, applies
+  with `git am --3way`, and closes `--merged`/`--rejected` (with a note the
+  author's agent reads); `--withdrawn` is the author's. Opening needs no
+  grant — read visibility *is* the suggest capability (D48) — and xbind
+  never applies a patch itself, so the target plane stays in control.
+  Surfaces: `/api/xbin/code/prs*` + `/code/pr*`
+  ([protocol.md](/docs/protocol.md)), a **⇄ PRs tab** in the terminal
+  window (diff view, review thread, merge/reject), **⇄ badges** in the
+  shell sidebar and card headers for tiles with open proposals, and a `pr`
+  event on `/ws/events` (read-filtered). Agent workflow + rules (review
+  before apply, close the loop): workspace `AGENTS.md` §Suggesting changes.
+  Design: `plans/code-prs.md`.
+
 ## 2026-08-08
 
 - **Prebuilt install bundles: `install.sh --prebuilt-rootfs`.** Skip the

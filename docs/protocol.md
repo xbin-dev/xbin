@@ -466,6 +466,44 @@ POST   /git/import                 same authority as /create on the
                                    pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
+Cross-tile change proposals ("code PRs", plans/code-prs.md). READ visibility
+on the target is the whole gate (read = suggest, D48): admins; the target's
+own principals; terminals/frames whose driving user can read the tile (D40);
+elements holding code[:<target>]. xbind stores proposals under data/prs/ and
+NEVER applies one — the target's own plane reviews and `git am`s it in its
+terminal. A `pr` event (read-filtered like the mounts) fires on every
+open/comment/state change.
+
+POST   /code/prs                   read gate (above). body {target, title,
+                                   message?, base?, series} — open a proposal.
+                                   series = git format-patch mbox (≤4 MiB, must
+                                   contain a diff), stored verbatim; base = the
+                                   target rev it was formatted against (lifted
+                                   from the base-commit trailer by bx). → the
+                                   PR meta {number, target, from:{component,
+                                   user,via} (verified, never self-reported),
+                                   title, state:"open", created, …}.
+GET    /code/prs                   ?target=<path>[&state=…] → {target, prs:[…]}
+                                   (read gate); or ?from=1 → {prs:[…]} — the
+                                   caller's own outgoing PRs across targets;
+                                   admins with neither param get everything.
+GET    /code/prs/summary           any authenticated → {counts: {path: n}} —
+                                   open-PR counts, filtered to targets the
+                                   caller can read (the shell's ⇄ badges).
+GET    /code/pr                    read gate. ?target=<path>&n=<n> → full meta
+                                   + events (the review thread).
+GET    /code/pr/series             read gate. ?target=<path>&n=<n> → the raw
+                                   mbox, text/plain, byte-exact (review first,
+                                   then pipe into `git am --3way`).
+POST   /code/pr/comment            read gate. {target, n, body} — append to
+                                   the review thread (author ↔ maintainer).
+POST   /code/pr/state              {target, n, state, comment?}. merged and
+                                   rejected are the TARGET side's call (its
+                                   own principals, write-level users, admins);
+                                   withdrawn is the author's. Only open PRs
+                                   close; no reopen — refile instead. 409 on
+                                   double-close.
+
 GET    /grants                     admin — full table {grants, pending}.
                                    Any signed-in USER gets a filtered view
                                    (D26/D33): rows their orgs own

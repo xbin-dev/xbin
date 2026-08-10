@@ -5,7 +5,8 @@
  * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
  * the component's source directory) plus a code browser / git-review panel
  * (bx-code) that can share the window with the terminal (layout: terminal /
- * code / split).
+ * code / split), a read-only backend log view (bx-logs), and the
+ * change-proposal panel (bx-prs — cross-tile "code PRs").
  *
  * Attributes:
  *   src     — component path (workspace-relative)
@@ -35,6 +36,7 @@ import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
+import '/vendor/bx-prs.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -94,9 +96,10 @@ export class BxFrame extends LitElement {
     _gpus: { state: true },
     _buildError: { state: true },
     _autoHeight: { state: true },
-    _layout: { state: true },  // 'term' | 'code' | 'split'
+    _layout: { state: true },  // 'term' | 'code' | 'split' | 'logs' | 'prs'
     _codeW: { state: true },   // code panel width % in split
     _frame: { state: true },   // {url, sandboxed, credentialless} | null
+    _prCount: { state: true }, // open change proposals targeting this tile
   };
 
   static styles = css`
@@ -340,7 +343,20 @@ export class BxFrame extends LitElement {
         // that was 403'ing retries against the new permissions.
         if (e.component === this.src) this._reload();
         break;
+      case 'pr':
+        // Change-proposal activity on this tile — keep the PR tab badge live
+        // while the terminal window is open (the shell sidebar carries the
+        // ambient badge when it isn't).
+        if (e.component === this.src && this._termOpen) this._loadPRCount();
+        break;
     }
+  }
+
+  async _loadPRCount() {
+    try {
+      const r = await fetch(`/api/xbin/code/prs?target=${encodeURIComponent(this.src)}&state=open`);
+      if (r.ok) this._prCount = ((await r.json()).prs || []).length;
+    } catch { /* badge is best-effort */ }
   }
 
   _reload() {
@@ -414,6 +430,7 @@ export class BxFrame extends LitElement {
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (this._sessions.length === 0) this._newTerm();
+    this._loadPRCount();
     this.updateComplete.then(() => this._front());
   }
 
@@ -540,12 +557,13 @@ export class BxFrame extends LitElement {
     this._sessions = s;
   }
 
-  // Switch the pop-up layout: terminal only, code browser/review only, or a
-  // resizable split of the two. The terminal stays mounted (hidden in 'code')
-  // so its session survives; bx-code mounts lazily on first non-'term' view.
+  // Switch the pop-up layout: terminal only, code browser/review only, a
+  // resizable split of the two, backend logs, or change proposals (PRs). The
+  // terminal stays mounted (hidden in non-term views) so its session
+  // survives; the panels mount lazily on first view.
   _setLayout(l) {
     this._layout = l;
-    if ((l === 'code' || l === 'split') && this._pop && this._pop.w < 760) {
+    if ((l === 'code' || l === 'split' || l === 'prs') && this._pop && this._pop.w < 760) {
       this._pop = { ...this._pop, w: 960 }; // widen for the code panel
       this._saveTerm?.();
     }
@@ -624,6 +642,9 @@ export class BxFrame extends LitElement {
                       @click=${() => this._setLayout('split')}>⇋</button>
               <button class=${this._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
                       @click=${() => this._setLayout('logs')}>▤</button>
+              <button class=${this._layout === 'prs' ? 'on' : ''}
+                      title="change proposals — patches other tiles' agents suggested for this one"
+                      @click=${() => this._setLayout('prs')}>⇄${this._prCount ? ` ${this._prCount}` : ''}</button>
             </span>
             <span class="spacer"></span>
             <select class="scope" title="network scope (switching restarts the terminal)"
@@ -660,6 +681,7 @@ export class BxFrame extends LitElement {
                 style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
             ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
+            ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}
             <div class="term-host" style="display:${this._layout === 'term' || this._layout === 'split' ? 'flex' : 'none'}; flex-direction:column">
             ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"

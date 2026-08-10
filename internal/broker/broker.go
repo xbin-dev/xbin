@@ -53,6 +53,10 @@ type Broker struct {
 	statusMu sync.Mutex
 	statuses map[string]statusRec // component → last reported status (status.go)
 
+	// prsMu serializes cross-tile PR store mutations (numbering + meta
+	// rewrites, prs.go).
+	prsMu sync.Mutex
+
 	// pendingSeen is the last-published pending-grant key set (RefreshPending).
 	pendingSeen map[string]bool
 
