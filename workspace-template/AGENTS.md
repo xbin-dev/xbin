@@ -113,10 +113,14 @@ pending for the owner. Sharing model + roadmap: `plans/tile-sharing.md`.
 **Update copied builtins:** the scaffold (shell, manager/admin tiles) and
 imported tiles are copies you own; a newer xbind can carry newer versions.
 `bx builtin updates` lists what changed; `bx builtin update <id> [--replace|
---merge]` applies it (or the Tile Manager's Updates tab). Merge is a 3-way
-`git merge-file`, so your customizations survive; everything's in git either
-way. Template instances are forks and aren't tracked. Design:
-`plans/builtin-updates.md`.
+--merge|--pr]` applies it (or the Tile Manager's Updates tab). For a
+customized tile prefer **--pr / "Propose as PR"**: the update arrives as a
+change proposal (kind "builtin update", §Suggesting changes) that the tile's
+own terminal/agent merges with `git am --3way` — closing it merged completes
+the update tracking; rejecting keeps it offered. Replace discards local
+edits; merge writes 3-way conflict markers into the files (legacy).
+Everything's in git either way. Template instances are forks and aren't
+tracked. Design: `plans/builtin-updates.md`.
 
 The same scaffolder is exposed as `POST /api/xbin/create`
 (`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**
@@ -484,6 +488,12 @@ Rules — follow these exactly:
 - **Close the loop.** After applying: commit, test, `close --merged` with the
   sha. Your side: `--withdrawn` retires a proposal you no longer stand
   behind.
+- **Builtin-update PRs** (kind "builtin update" in the meta/⇄ tab) are the
+  platform proposing a newer embedded version of YOUR tile — same review
+  rules apply. Closing one merged also refreshes the workspace's update
+  tracking; rejecting keeps the update offered in the Tile Manager. If
+  `git am` reports the series doesn't apply, refresh the Updates tab and
+  re-propose (the embed may have moved under an xbind upgrade).
 
 ## Sandbox — what your backend can reach (isolation is on by default)
 

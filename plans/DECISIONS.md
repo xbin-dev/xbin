@@ -945,3 +945,25 @@ Deviations and refinements made while implementing; all deliberate:
   the mounts (server-side filter in /ws/events); shell sidebar/cards badge
   ⇄N and the terminal window carries the review UI. Series capped at
   4 MiB — proposals are diffs, not file transfers.
+
+- **D49 — Builtin-update conflicts travel as PRs (update mode "pr",
+  manual propose).** (2026-08-10) The shipped ApplyMerge wrote `<<<<<<<`
+  markers into a live tile's working files (watcher reloads a broken tile)
+  and recorded base=theirs BEFORE resolution — provenance claimed currency
+  over unresolved conflicts. Rather than patch that flow, route it through
+  D48: `POST /builtins/update {mode:"pr"}` renders base→theirs (adopted:
+  ours→theirs — a path merge-file refuses outright) as a format-patch via
+  a temp repo and files it as a change proposal against the tile, carrying
+  kind:"builtin-update" + unit id + embed rollup hash + changelog +
+  per-file status in the message. The tile's own plane merges with
+  `git am --3way` (the install baseline commit supplies base blobs; the
+  PR body's clone-first recipe keeps markers out of live files), and
+  **provenance records only on merged-close**, hash-guarded so a proposal
+  rendered from an older embed can't claim currency after an xbind
+  upgrade (it errors; the update stays offered). Filing is **manual** — a
+  "Propose as PR" click / `--pr` flag, no auto-filing at boot (no surprise
+  PRs). Idempotent per (unit, embed hash); a newer embed auto-withdraws
+  the stale open proposal ("superseded"). UI: Propose-as-PR is the primary
+  Updates-tab action for conflicted/adopted units; Replace stays for
+  clean/discard; merge-file demoted to legacy. Rejecting the PR keeps the
+  update offered — refusal is a first-class outcome, not a stuck state.

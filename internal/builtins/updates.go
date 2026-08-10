@@ -601,6 +601,203 @@ func (u *Updater) ApplyMerge(id string) ([]string, error) {
 	return written, u.record(def, installPath, theirs)
 }
 
+// Proposal is a builtin update rendered as a git patch series, for filing
+// through the cross-tile PR flow (update mode "pr" — where builtin-updates
+// meets plans/code-prs.md). The series is base→theirs for tracked units and
+// ours→theirs for adopted ones (no trusted base), so `git am --3way` in the
+// tile's own terminal does the merge with real git machinery instead of
+// conflict markers dropped into live files. Provenance is refreshed only
+// when the PR closes merged (RecordApplied) — after resolution, not before.
+type Proposal struct {
+	ID          string
+	InstallPath string
+	Title       string
+	Message     string
+	Series      string // format-patch mbox
+	ToVersion   int
+	ToHash      string // rollup of theirs; RecordApplied verifies the embed hasn't moved
+}
+
+// Propose renders a unit's pending update as a Proposal. Errors when the
+// unit is unknown or already up to date.
+func (u *Updater) Propose(id string) (*Proposal, error) {
+	def, ok := u.defByID(id)
+	if !ok {
+		return nil, fmt.Errorf("no such builtin %q", id)
+	}
+	o := u.load()
+	state := o.Units[id]
+	installPath := def.DefaultPath
+	if state != nil {
+		installPath = state.InstallPath
+	}
+	uu, err := u.compare(def, installPath, state)
+	if err != nil {
+		return nil, err
+	}
+	if !uu.HasUpdate {
+		return nil, fmt.Errorf("%s is up to date — nothing to propose", id)
+	}
+	theirs, err := u.render(def, installPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// The "from" side of the diff: the recorded base snapshot, or — adopted
+	// units, no trusted base — the installed files as they are now.
+	base := map[string][]byte{}
+	if state != nil && !state.Adopted {
+		snap := u.snapDir(id)
+		for rel := range state.Files {
+			if data, err := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))); err == nil {
+				base[rel] = data
+			}
+		}
+	} else {
+		root := filepath.Join(u.root, filepath.FromSlash(installPath))
+		for _, fs := range uu.Files {
+			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fs.Path))); err == nil {
+				base[fs.Path] = data
+			}
+		}
+	}
+
+	title := fmt.Sprintf("builtin update: %s v%d→v%d", def.Name, uu.FromVersion, uu.ToVersion)
+	if uu.FromVersion == 0 && state == nil {
+		title = fmt.Sprintf("builtin update: %s v%d (adopted — no recorded base)", def.Name, uu.ToVersion)
+	}
+	var msg strings.Builder
+	if def.Changelog != "" {
+		msg.WriteString(def.Changelog + "\n\n")
+	}
+	msg.WriteString("File status (base / yours / upstream):\n")
+	for _, fs := range uu.Files {
+		if fs.Status == stUpToDate {
+			continue
+		}
+		fmt.Fprintf(&msg, "  %-9s %s\n", fs.Status, fs.Path)
+	}
+	msg.WriteString("\nApply in this tile's terminal (clone-first keeps markers out of live files):\n" +
+		"  git clone \"$XBIN_WORKSPACE/" + installPath + "\" /tmp/upd && cd /tmp/upd\n" +
+		"  bx code pr fetch <n> | git am --3way    # resolve, build, test\n" +
+		"  git -C \"$XBIN_WORKSPACE/" + installPath + "\" pull /tmp/upd && bx code pr close <n> --merged\n" +
+		"Closing merged refreshes update tracking; rejecting keeps the update offered.")
+
+	series, err := patchSeries(base, theirs, title, msg.String())
+	if err != nil {
+		return nil, err
+	}
+	hashes := make(map[string]string, len(theirs))
+	for rel, data := range theirs {
+		hashes[rel] = sha(data)
+	}
+	return &Proposal{
+		ID: id, InstallPath: installPath, Title: title, Message: msg.String(),
+		Series: series, ToVersion: uu.ToVersion, ToHash: rollup(hashes),
+	}, nil
+}
+
+// RecordApplied refreshes a unit's provenance after its proposal PR closed
+// merged. toHash guards against the embed having moved since the PR was
+// filed (a newer xbind): a mismatched proposal must not claim currency.
+func (u *Updater) RecordApplied(id, toHash string) error {
+	def, ok := u.defByID(id)
+	if !ok {
+		return fmt.Errorf("no such builtin %q", id)
+	}
+	o := u.load()
+	installPath := def.DefaultPath
+	if state := o.Units[id]; state != nil {
+		installPath = state.InstallPath
+	}
+	theirs, err := u.render(def, installPath)
+	if err != nil {
+		return err
+	}
+	hashes := make(map[string]string, len(theirs))
+	for rel, data := range theirs {
+		hashes[rel] = sha(data)
+	}
+	if got := rollup(hashes); got != toHash {
+		return fmt.Errorf("embedded %s changed since the proposal was filed (a newer xbind?) — refresh the Updates tab and propose again", id)
+	}
+	return u.record(def, installPath, theirs)
+}
+
+// patchSeries renders old→new as a one-commit git format-patch mbox: a temp
+// repo, the old tree as a baseline commit, the new tree as the update commit
+// (subject + body = the PR title + message). git computes renames/deletions;
+// `git am --3way` on the receiving side gets index blob ids to merge from.
+func patchSeries(from, to map[string][]byte, subject, body string) (string, error) {
+	dir, err := os.MkdirTemp("", "xbin-propose-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	git := func(args ...string) (string, error) {
+		full := append([]string{"-C", dir,
+			"-c", "user.email=builtins@xbin", "-c", "user.name=xbin builtins",
+			"-c", "commit.gpgsign=false"}, args...)
+		out, err := exec.Command("git", full...).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git %v: %s", args, strings.TrimSpace(string(out)))
+		}
+		return string(out), nil
+	}
+	writeTree := func(files map[string][]byte) error {
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range ents {
+			if e.Name() != ".git" {
+				if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+					return err
+				}
+			}
+		}
+		for rel, data := range files {
+			p := filepath.Join(dir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(p, data, 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if _, err := git("init", "-q", "-b", "main"); err != nil {
+		return "", err
+	}
+	if err := writeTree(from); err != nil {
+		return "", err
+	}
+	if _, err := git("add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := git("commit", "-q", "--allow-empty", "-m", "builtin base"); err != nil {
+		return "", err
+	}
+	if err := writeTree(to); err != nil {
+		return "", err
+	}
+	if _, err := git("add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := git("commit", "-q", "-m", subject+"\n\n"+body); err != nil {
+		return "", err
+	}
+	series, err := git("format-patch", "--stdout", "-1", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(series, "diff --git") {
+		return "", fmt.Errorf("update produced an empty diff")
+	}
+	return series, nil
+}
+
 // Pin/unpin stop/resume offering updates for a unit.
 func (u *Updater) Pin(id string, pinned bool) error {
 	o := u.load()

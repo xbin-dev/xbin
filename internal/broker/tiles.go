@@ -152,13 +152,24 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		ID   string `json:"id"`
-		Mode string `json:"mode"` // "replace" | "merge" | "pin" | "unpin"
+		Mode string `json:"mode"` // "replace" | "merge" | "pr" | "pin" | "unpin"
 	}
 	if err := decodeJSON(r, &body); err != nil || body.ID == "" {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, mode}", "docs": "/docs/protocol.md"})
 		return
 	}
 	body.ID = b.updater.ResolveID(body.ID) // accept bare names (tiles/organisations)
+	// Mode "pr" writes nothing to the workspace: the update is filed as a
+	// change proposal against the tile (D49); its own plane applies it.
+	if body.Mode == "pr" {
+		m, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
+		if perr != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": perr.Error()})
+			return
+		}
+		server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
+		return
+	}
 	var (
 		files []string
 		err   error
@@ -173,7 +184,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	case "unpin":
 		err = b.updater.Pin(body.ID, false)
 	default:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "mode must be replace|merge|pin|unpin"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "mode must be replace|merge|pr|pin|unpin"})
 		return
 	}
 	if err != nil {

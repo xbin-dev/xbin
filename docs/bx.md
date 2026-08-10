@@ -17,7 +17,7 @@ bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|o
 bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>]
                                        list/instantiate template components (blueprints)
-bx builtin updates | update <id> [--replace|--merge]
+bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
                                        (upgraded workspaces predating them, D41)

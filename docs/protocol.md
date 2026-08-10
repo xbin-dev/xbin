@@ -415,10 +415,20 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
                                    fromVersion,toVersion,adopted,files:[{path,
                                    status}],clean,conflicts}] (plans/builtin-updates.md)
 POST   /builtins/update             xbin:writer. body {id, mode:
-                                   replace|merge|pin|unpin} → {files}. replace
+                                   replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
-                                   both re-record provenance. Never touches template
-                                   instances.
+                                   both → {files} and re-record provenance
+                                   eagerly. mode "pr" (D49) writes NOTHING:
+                                   the update is filed as a change proposal
+                                   against the tile → {pr:{target,number,…}} —
+                                   the tile's own plane reviews and `git am`s
+                                   it, and provenance refreshes only when the
+                                   PR closes merged. Idempotent per embed
+                                   version; a newer embed auto-withdraws the
+                                   stale open proposal. Such PRs carry
+                                   kind:"builtin-update" + builtin/toVersion/
+                                   toHash in their meta. Never touches
+                                   template instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
                                    [{id,source,title,description,defaultName}]
 POST   /templates/new               same authority as /create on the

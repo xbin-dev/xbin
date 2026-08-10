@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-08-10
 
+- **Builtin updates can arrive as PRs: `bx builtin update <id> --pr` /
+  "Propose as PR".** The old conflict path wrote `<<<<<<<` markers straight
+  into a live tile's files (and recorded the new base before you resolved).
+  Mode `pr` instead files the update as a change proposal against the tile —
+  kind "builtin update", carrying the version bump, changelog, and per-file
+  status — which the tile's own terminal/agent reviews and merges with
+  `git am --3way` (clone-first recipe in the PR body keeps markers out of
+  live files entirely). Update tracking refreshes **when the PR closes
+  merged**, not before; rejecting keeps the update offered; a newer xbind
+  auto-withdraws stale open proposals. The Tile Manager's Updates tab makes
+  "Propose as PR" the primary action for customized/conflicted builtins;
+  adopted units (no recorded base) — which `--merge` refuses — get a working
+  ours→upstream proposal too. `--merge` remains as the legacy path.
+  Design: D49, `plans/builtin-updates.md` + `plans/code-prs.md`.
+
 - **Cross-tile change proposals ("code PRs"): `bx code pr`.** A terminal can
   write only its own tile; changes for a *sibling* tile now travel as
   proposals instead of workarounds: clone the target's repo out of the

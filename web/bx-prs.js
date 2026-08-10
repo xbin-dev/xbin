@@ -212,6 +212,7 @@ export class BxPrs extends LitElement {
         <div class="ttl">#${m.number} ${m.title}</div>
         <div class="sub">
           <span class="st ${m.state}">${m.state}</span>
+          ${m.kind === 'builtin-update' ? html`<span class="st" title="a newer xbind ships a newer version of this builtin — closing merged completes the update tracking">builtin update</span>` : nothing}
           <span>from ${from}</span>
           <span>opened ${relTime(m.created)}</span>
           ${m.base ? html`<span title="the target HEAD the series was formatted against">base ${m.base.slice(0, 8)}</span>` : nothing}

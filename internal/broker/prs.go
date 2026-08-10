@@ -2,6 +2,8 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,6 +61,14 @@ type prMeta struct {
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 	Events  []prEvent `json:"events,omitempty"`
+
+	// Builtin-update proposals (update mode "pr") carry provenance so the
+	// merged-close refreshes update tracking and newer embeds supersede
+	// stale open proposals. Empty on ordinary PRs.
+	Kind      string `json:"kind,omitempty"`    // "" | "builtin-update"
+	Builtin   string `json:"builtin,omitempty"` // unit id ("scaffold:shell", "tile:llm-gw")
+	ToVersion int    `json:"toVersion,omitempty"`
+	ToHash    string `json:"toHash,omitempty"` // embed rollup the series was rendered from
 }
 
 func (b *Broker) registerPRs(srv *server.Server) {
@@ -289,8 +299,21 @@ func (b *Broker) apiPROpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b.prsMu.Lock()
+	err := b.prCreateLocked(m, body.Series)
+	b.prsMu.Unlock()
+	if err != nil {
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	b.prPublish("open", target, m.Number, "")
+	server.WriteJSON(w, http.StatusOK, m)
+}
+
+// prCreateLocked assigns the next per-target number and stores series + meta.
+// Callers hold prsMu and publish the open event after unlocking.
+func (b *Broker) prCreateLocked(m *prMeta, series string) error {
 	n := 1
-	if ents, err := os.ReadDir(b.prDir(target)); err == nil {
+	if ents, err := os.ReadDir(b.prDir(m.Target)); err == nil {
 		for _, e := range ents {
 			if v, err := strconv.Atoi(e.Name()); err == nil && v >= n {
 				n = v + 1
@@ -298,21 +321,73 @@ func (b *Broker) apiPROpen(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.Number = n
-	dir := filepath.Join(b.prDir(target), strconv.Itoa(n))
-	err := os.MkdirAll(dir, 0o755)
-	if err == nil {
-		err = prWriteFile(filepath.Join(dir, "series.mbox"), []byte(body.Series))
+	dir := filepath.Join(b.prDir(m.Target), strconv.Itoa(n))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
-	if err == nil {
-		err = b.prSave(m)
+	if err := prWriteFile(filepath.Join(dir, "series.mbox"), []byte(series)); err != nil {
+		return err
 	}
+	return b.prSave(m)
+}
+
+// ProposeBuiltinPR files a pending builtin update as a PR against its install
+// path (update mode "pr" — manual propose, D49). Idempotent per (unit, embed
+// hash): an open proposal with the same content is returned as-is; open
+// proposals for an older embed are auto-withdrawn as superseded first. The
+// filing principal is recorded as From (who clicked propose); Kind marks the
+// proposal so the merged-close refreshes update tracking (apiPRState).
+func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, error) {
+	prop, err := b.updater.Propose(id)
+	if err != nil {
+		return nil, err
+	}
+	target := prop.InstallPath
+	if _, ok := b.Reg.Component(target); !ok {
+		return nil, fmt.Errorf("update target %s is not a component", target)
+	}
+	now := time.Now().UTC()
+	var superseded []int
+
+	b.prsMu.Lock()
+	for _, m := range b.prList(target) {
+		if m.State != "open" || m.Kind != "builtin-update" || m.Builtin != id {
+			continue
+		}
+		if m.ToHash == prop.ToHash {
+			b.prsMu.Unlock()
+			return m, nil
+		}
+		m.State = "withdrawn"
+		m.Updated = now
+		m.Events = append(m.Events, prEvent{TS: now, Who: "xbin", Type: "state",
+			State: "withdrawn", Body: "superseded by a newer builtin update"})
+		if err := b.prSave(m); err != nil {
+			b.prsMu.Unlock()
+			return nil, err
+		}
+		superseded = append(superseded, m.Number)
+	}
+	m := &prMeta{
+		Target:  target,
+		From:    prFrom{Component: p.Component, User: p.UserID, Via: p.Via},
+		Title:   prop.Title,
+		Message: prop.Message,
+		State:   "open",
+		Created: now, Updated: now,
+		Kind: "builtin-update", Builtin: id,
+		ToVersion: prop.ToVersion, ToHash: prop.ToHash,
+	}
+	err = b.prCreateLocked(m, prop.Series)
 	b.prsMu.Unlock()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+		return nil, err
 	}
-	b.prPublish("open", target, n, "")
-	server.WriteJSON(w, http.StatusOK, m)
+	for _, n := range superseded {
+		b.prPublish("state", target, n, "withdrawn")
+	}
+	b.prPublish("open", target, m.Number, "")
+	return m, nil
 }
 
 // GET /code/prs?target=<path>[&state=open|merged|rejected|withdrawn] — a
@@ -544,6 +619,17 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	// A builtin-update proposal closing merged means the tile's plane applied
+	// and committed the new version — NOW refresh update tracking (base
+	// snapshot + marker), after resolution rather than before (the old
+	// ApplyMerge recorded eagerly, leaving markers behind a "current" base).
+	// Failure (e.g. the embed moved on) keeps the update offered — log only.
+	if body.State == "merged" && m.Kind == "builtin-update" && b.updater != nil {
+		if rerr := b.updater.RecordApplied(m.Builtin, m.ToHash); rerr != nil {
+			slog.Warn("builtin-update PR merged, provenance not refreshed",
+				"builtin", m.Builtin, "pr", m.Number, "err", rerr)
+		}
 	}
 	b.prPublish("state", target, body.N, body.State)
 	server.WriteJSON(w, http.StatusOK, m)

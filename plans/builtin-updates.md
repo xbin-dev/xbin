@@ -1,5 +1,14 @@
 # Updating builtin components in existing workspaces — design
 
+> **Addendum (2026-08-10, D49):** the conflict path below gained a better
+> vehicle — update mode **"pr"** files the update as a cross-tile change
+> proposal (`plans/code-prs.md`) instead of writing merge-file conflict
+> markers into live files. The tile's own terminal/agent merges with
+> `git am --3way`, and provenance records on merged-close (fixing the
+> shipped ApplyMerge's eager record). "Propose as PR" is the recommended
+> conflict path; merge-file stays as the legacy fallback. Adopted units,
+> which merge refuses, propose ours→theirs.
+
 Builtins ship *embedded in the xbind binary* and are copied into a workspace
 once — the scaffold at `init`, tiles at `bx tile import`. After that the copy is
 the user's: they edit it (a xbin workspace is self-modifying by design). So

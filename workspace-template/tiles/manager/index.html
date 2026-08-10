@@ -167,7 +167,10 @@
     <p class="muted" style="font-size:12px;margin:0 0 8px">
       Newer versions of builtin components (the shell, manager/admin tiles,
       imported tiles) that shipped with this xbind. <b>Replace</b> takes the new
-      version; <b>Merge</b> 3-way-merges it with your edits (everything is in git,
+      version (discarding local edits); <b>Propose as PR</b> files the update as
+      a change proposal the tile's own terminal/agent reviews and merges — the
+      recommended path when you've customized it. <b>Merge</b> writes 3-way
+      conflict markers straight into the files (legacy; everything is in git,
       so it's recoverable). Template instances are yours and aren't tracked.</p>
     <div id="updates"><span class="muted">loading…</span></div>
   </div>
@@ -417,8 +420,14 @@
         <div class="desc" style="font-family:var(--bx-mono);font-size:11px">${(u.files || []).map((f) =>
           `${esc(f.path)} <span class="muted">(${esc(f.status)})</span>`).join('<br>')}</div>
         <div class="row">
-          <button class="btn go" data-mode="replace">Replace</button>
-          ${u.adopted ? '' : '<button class="btn ghost go" data-mode="merge">Merge</button>'}
+          ${u.missing
+            ? '<button class="btn go" data-mode="replace">Install</button>'
+            : u.conflicts || u.adopted
+              ? `<button class="btn go" data-mode="pr">Propose as PR</button>
+                 <button class="btn ghost go" data-mode="replace">Replace</button>`
+              : `<button class="btn go" data-mode="replace">Replace</button>
+                 <button class="btn ghost go" data-mode="pr">Propose as PR</button>`}
+          ${u.adopted || u.missing ? '' : '<button class="btn ghost go" data-mode="merge">Merge</button>'}
           <button class="btn ghost go" data-mode="pin">Skip (pin)</button>
         </div>
         <div class="imsg"></div>`;
@@ -435,9 +444,11 @@
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
           imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
-          imsg.textContent = mode === 'merge'
-            ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
-            : `${mode}d — reload tiles to see changes`;
+          imsg.textContent = mode === 'pr'
+            ? `proposed as ${d.pr.target}#${d.pr.number} — review it in the tile's terminal (⇄ tab); closing it merged completes the update`
+            : mode === 'merge'
+              ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
+              : `${mode}d — reload tiles to see changes`;
           loadUpdates();
         } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
         finally { b.disabled = false; }
