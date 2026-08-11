@@ -437,8 +437,23 @@ POST   /templates/new               same authority as /create on the
                                    path?} → {path,
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md). A
-                                   builtin-template instance also gets a read-only
-                                   `template` git remote (below).
+                                   builtin-template instance gets a read-only
+                                   `template` git remote (below), and its repo
+                                   is SEEDED from the template's repo (D50):
+                                   main = the template snapshot + one commit of
+                                   instantiate rewrites — so `git fetch
+                                   template && git merge template/main` applies
+                                   upstream template fixes cleanly (shared
+                                   ancestry; the builder picks what to adopt).
+GET    /templates/updates           authenticated. → {instances:[{path,
+                                   template, head, legacy}]} — instances whose
+                                   builtin template gained snapshots they
+                                   haven't merged (filtered to tiles the
+                                   caller can read; all local git plumbing).
+                                   legacy = pre-seeding instance (unrelated
+                                   history): its FIRST merge needs
+                                   --allow-unrelated-histories, then it's
+                                   normal.
 GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git server for a
                                    builtin template's source repo, e.g.
                                    /templates/agent.git/info/refs. Each instance

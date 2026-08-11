@@ -119,8 +119,14 @@ change proposal (kind "builtin update", §Suggesting changes) that the tile's
 own terminal/agent merges with `git am --3way` — closing it merged completes
 the update tracking; rejecting keeps it offered. Replace discards local
 edits; merge writes 3-way conflict markers into the files (legacy).
-Everything's in git either way. Template instances are forks and aren't
-tracked. Design: `plans/builtin-updates.md`.
+Everything's in git either way. **Template instances** (e.g. an agent tile
+stamped from the `agent` template) are forks and aren't tracked by this
+mechanism — instead each instance has a read-only **`template` git remote**
+sharing history with its blueprint: when a newer xbind improves the template
+(`bx template updates` lists instances that are behind; the Tile Manager's
+Template tab shows the same), apply from the instance's terminal with
+`git fetch template && git merge template/main` (or cherry-pick — you choose
+what to adopt). Design: `plans/builtin-updates.md`.
 
 The same scaffolder is exposed as `POST /api/xbin/create`
 (`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**

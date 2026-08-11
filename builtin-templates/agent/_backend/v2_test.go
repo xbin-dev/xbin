@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func newTestDB(t *testing.T) *DB {
@@ -140,5 +142,30 @@ func TestContentValue(t *testing.T) {
 	}
 	if s, ok := contentValue("plain").(string); !ok || s != "plain" {
 		t.Fatal("plain text should stay a string")
+	}
+}
+
+// Oversized tool results are middle-elided before entering the transcript;
+// short ones pass through untouched, and both cut edges stay valid UTF-8.
+func TestCapToolResult(t *testing.T) {
+	if got := capToolResult("short"); got != "short" {
+		t.Fatalf("short result must pass through: %q", got)
+	}
+	big := ""
+	for len(big) < maxToolResult*2 {
+		big += "line with some content — ünïcode padding\n"
+	}
+	got := capToolResult(big)
+	if len(got) > maxToolResult+300 {
+		t.Fatalf("capped result too large: %d", len(got))
+	}
+	if !strings.Contains(got, "bytes elided") || !strings.Contains(got, big[:100]) {
+		t.Fatalf("capped result must keep the head + elision marker")
+	}
+	if !strings.Contains(got, big[len(big)-50:]) {
+		t.Fatal("capped result must keep the tail")
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("cut edges must stay valid UTF-8")
 	}
 }

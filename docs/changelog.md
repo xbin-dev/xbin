@@ -10,6 +10,31 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-11
+
+- **Template updates actually merge now.** Instances of builtin templates
+  always had a `template` git remote and a documented
+  `git fetch template && git merge template/main` upgrade path — but their
+  repos started from an unrelated `git init` root, so that merge refused
+  with "unrelated histories". New instances are now **seeded from the
+  template's repo** (D50): main = the template snapshot plus one commit of
+  instantiate rewrites, so upstream template fixes merge cleanly with the
+  snapshot as the common ancestor (you still pick what to adopt — an
+  instance is a fork). `bx template updates` and the Tile Manager's
+  Template tab list instances that are behind; instances created before
+  this release are flagged `legacy` — their first merge needs
+  `--allow-unrelated-histories`, after which they're normal.
+
+- **Agent template: markdown responses, folded tool output, capped tool
+  results.** Assistant messages (and the streaming draft) render as
+  sanitized markdown (raw HTML from the model is shown escaped, links are
+  scheme-checked and open in a new tab). Long tool outputs in the timeline
+  collapse behind a "show full output" expander instead of walls of text,
+  and the backend now middle-elides tool results over 16 KiB before they
+  enter the transcript — an unbounded file read no longer rides every
+  subsequent LLM call until compaction. Existing agent instances pick all
+  of this up via the template-updates path above.
+
 ## 2026-08-10
 
 - **Builtin updates can arrive as PRs: `bx builtin update <id> --pr` /

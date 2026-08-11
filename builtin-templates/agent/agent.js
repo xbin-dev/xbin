@@ -5,11 +5,34 @@
 // settings area (config / features / memory / schedules / skills / MCP).
 // Vanilla ES module (no framework, no build step — like the rest of this tile);
 // xbin.fetch attributes calls to this element (self → admin of its own backend).
+import { marked } from '/vendor/marked.esm.js';
+
 const base = `/api/${xbin.self}`;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
+
+// Assistant text renders as markdown, sanitized: raw HTML tokens are shown
+// escaped (model output is untrusted — an injected <script>/<img> must never
+// execute with this tile's frame token), links get safe schemes + a new tab,
+// and images render as their source text (remote loads are CSP-blocked
+// anyway). Everything else is HTML our renderer produced from markdown
+// structure. Streaming-tolerant: a parse error falls back to escaped text.
+marked.use({
+  breaks: true,
+  renderer: {
+    html({ text }) { return esc(text); },
+    image({ text, href }) { return `<span class="muted">[image: ${esc(text || href || '')}]</span>`; },
+    link({ href, title, tokens }) {
+      const h = String(href || '').trim();
+      const inner = this.parser.parseInline(tokens);
+      if (/^(javascript|data|vbscript):/i.test(h)) return inner;
+      return `<a href="${esc(h)}" target="_blank" rel="noopener noreferrer"${title ? ` title="${esc(title)}"` : ''}>${inner}</a>`;
+    },
+  },
+});
+const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return esc(s); } };
 // Group digits for readability: 123123 → "123 123" (narrow no-break space).
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
@@ -75,17 +98,39 @@ function eventStream(d) {
   return evs;
 }
 
+// Long tool output collapses behind a native <details>: a short head stays
+// visible for scanning, the full text one click away. Thresholds are display
+// comfort only — the backend separately caps what the LLM context keeps.
+function foldedBody(text) {
+  const s = String(text ?? '');
+  const lines = s.split('\n');
+  if (s.length <= 700 && lines.length <= 10) return `<div class="body">${esc(s)}</div>`;
+  let head = lines.slice(0, 6).join('\n');
+  if (head.length > 400) head = head.slice(0, 400);
+  return `<div class="body">${esc(head)}…</div>
+    <details class="more"><summary>show full output · ${fmtN(s.length)} chars, ${fmtN(lines.length)} lines</summary>
+    <div class="body">${esc(s)}</div></details>`;
+}
+
 function renderMsg(m) {
   let calls = '';
   if (m.toolCalls) {
     try {
-      calls = JSON.parse(m.toolCalls).map((tc) =>
-        `<div class="tc">→ ${esc(tc.function.name)}(${esc(tc.function.arguments || '')})</div>`).join('');
+      calls = JSON.parse(m.toolCalls).map((tc) => {
+        const args = tc.function.arguments || '';
+        return `<div class="tc" title="${esc(args)}">→ ${esc(tc.function.name)}(${esc(clip(args, 220))})</div>`;
+      }).join('');
     } catch { /* ignore */ }
   }
   const label = m.role === 'tool' ? `tool · ${esc(m.name)}` : esc(m.role);
+  let body = '';
+  if (m.content) {
+    body = m.role === 'assistant' ? `<div class="body md">${md(m.content)}</div>`
+      : m.role === 'tool' ? foldedBody(m.content)
+      : `<div class="body">${esc(m.content)}</div>`;
+  }
   return `<div class="ev ${esc(m.role)}"><div class="role">${label}</div>
-    ${m.content ? `<div class="body">${esc(m.content)}</div>` : ''}${calls}</div>`;
+    ${body}${calls}</div>`;
 }
 
 function renderStep(s) {
@@ -171,10 +216,12 @@ async function loadDetail() {
     const evs = eventStream(d);
     let html = evs.map((e) => e.kind === 'msg' ? renderMsg(e.m) : renderStep(e.s)).join('');
 
-    // Live streaming partial assistant text while running.
+    // Live streaming partial assistant text while running (markdown too —
+    // a mid-fence partial parse just renders literally until the fence
+    // closes, which reads better than a wall of raw markdown).
     if (run.status === 'running') {
       html += d.draft
-        ? `<div class="draft"><div class="role">assistant · streaming</div><div class="body">${esc(d.draft)}<span class="cur"></span></div></div>`
+        ? `<div class="draft"><div class="role">assistant · streaming</div><div class="body md">${md(d.draft)}<span class="cur"></span></div></div>`
         : `<div class="draft"><div class="role">assistant · thinking<span class="cur"></span></div></div>`;
     }
 

@@ -9,9 +9,10 @@ import (
 //
 //	bx template ls                          list templates (builtin + workspace)
 //	bx template new <source> [as <path>]    instantiate one into a named copy
+//	bx template updates                     instances behind their builtin template
 func cmdTemplate(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx template ls | new <source> [as <path>]")
+		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] | updates")
 	}
 	switch args[0] {
 	case "ls":
@@ -33,6 +34,32 @@ func cmdTemplate(args []string) error {
 			fmt.Printf("%-10s %-20s %s\n", t.Source, t.ID, t.Title)
 		}
 		fmt.Println("\ninstantiate: bx template new <source> [as <path>]")
+		return nil
+
+	case "updates":
+		var out struct {
+			Instances []struct {
+				Path     string `json:"path"`
+				Template string `json:"template"`
+				Head     string `json:"head"`
+				Legacy   bool   `json:"legacy"`
+			} `json:"instances"`
+		}
+		if err := apiJSON("GET", "/api/xbin/templates/updates", nil, &out); err != nil {
+			return err
+		}
+		if len(out.Instances) == 0 {
+			fmt.Println("every template instance is up to date with its template")
+			return nil
+		}
+		for _, i := range out.Instances {
+			note := ""
+			if i.Legacy {
+				note = "  (pre-seeding instance: first merge needs --allow-unrelated-histories)"
+			}
+			fmt.Printf("%-24s behind template %q (%s)%s\n", i.Path, i.Template, i.Head, note)
+		}
+		fmt.Println("\napply in the instance's terminal (you pick what to adopt — it's a fork):\n  git fetch template && git merge template/main    # or cherry-pick")
 		return nil
 
 	case "new":

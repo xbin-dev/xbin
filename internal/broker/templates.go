@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -23,6 +24,7 @@ import (
 func (b *Broker) registerTemplates(srv *server.Server) {
 	srv.RegisterAPI("GET /templates", b.apiTemplatesList)
 	srv.RegisterAPI("POST /templates/new", b.apiTemplatesNew)
+	srv.RegisterAPI("GET /templates/updates", b.apiTemplateUpdates)
 	// Read-only dumb-HTTP git server for template source repos; instances get
 	// this as their `template` remote (plans/agent-v2.md §template updates).
 	srv.RegisterAPI("GET /templates/{repo}/{rest...}", b.serveTemplateRepo)
@@ -128,6 +130,17 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Seed the instance's repo from the template's served repo BEFORE
+	// EnsureComponentRepos can give it an unrelated fresh root — shared
+	// ancestry is what lets `git merge template/main` apply upstream fixes.
+	// Best-effort: on failure the instance still gets a plain repo below.
+	if builtinName != "" {
+		if serr := b.SeedInstanceRepo(filepath.Join(b.Reg.Root, filepath.FromSlash(installed)), builtinName); serr != nil {
+			slog.Warn("template instance repo seeding failed (falling back to a fresh root)",
+				"template", builtinName, "instance", installed, "err", serr)
+		}
 	}
 
 	// Make the instance (and its Go module, if any) usable immediately —

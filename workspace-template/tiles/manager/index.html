@@ -139,6 +139,7 @@
       independent component you own and can build up. Builtin and any workspace
       component marked as a template both show here.</p>
     <div id="templates"><span class="muted">loading…</span></div>
+    <div id="tpl-updates"></div>
   </div>
 
   <div class="body" id="import-tab" hidden>
@@ -358,6 +359,28 @@
         host.innerHTML = '';
         for (const t of tpls) host.append(templateCard(t));
       } catch (e) { host.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
+      loadTemplateUpdates();
+    }
+    // Instances behind their builtin template. An instance is a fork — the
+    // builder picks what to adopt, so this only points at the merge, never
+    // applies anything.
+    async function loadTemplateUpdates() {
+      const host = document.getElementById('tpl-updates');
+      try {
+        const r = await xbin.fetch('/api/xbin/templates/updates');
+        const d = await r.json();
+        const list = (d && d.instances) || [];
+        if (!list.length) { host.innerHTML = ''; return; }
+        host.innerHTML = `<div class="tile" style="margin-top:10px">
+          <div class="h"><span class="title">Template updates</span></div>
+          <div class="desc">These instances' templates gained fixes in this xbind. Apply from the
+            instance's terminal — you pick what to adopt:</div>
+          ${list.map((i) => `<div class="desc" style="font-family:var(--bx-mono);font-size:11px">
+            ${esc(i.path)} <span class="muted">← template ${esc(i.template)}</span><br>
+            <span class="muted">git fetch template &amp;&amp; git merge ${i.legacy ? '--allow-unrelated-histories ' : ''}template/main</span>
+          </div>`).join('')}
+        </div>`;
+      } catch { host.innerHTML = ''; }
     }
     function templateCard(t) {
       const el = document.createElement('div');

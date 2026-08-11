@@ -15,7 +15,7 @@ bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|o
                                        scaffold a component (org-owned needs
                                        the org's Create knob, D25)
 bx tile ls | import <name> [as <path>] list/install builtin tiles
-bx template ls | new <source> [as <path>]
+bx template ls | new <source> [as <path>] | updates
                                        list/instantiate template components (blueprints)
 bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;

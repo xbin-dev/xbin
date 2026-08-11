@@ -274,9 +274,27 @@ func (ag *Agent) runOneTool(ctx context.Context, run *Run, cfg Config, tc toolCa
 			out = "error: " + err.Error()
 		}
 	}
+	out = capToolResult(out)
 	ag.db.journal(run.ID, "tool_call", map[string]any{"name": name, "args": args})
 	ag.db.journal(run.ID, "tool_result", map[string]any{"name": name, "result": clip(out, 2000)})
 	return out
+}
+
+// A tool result larger than this is elided in the middle before it enters the
+// transcript: an unbounded result (a big file read, a chatty HTTP body) would
+// otherwise ride EVERY subsequent LLM call until compaction. Head-heavy split
+// — openings carry the signal; the tail keeps trailing errors/summaries.
+const maxToolResult = 16 << 10
+
+func capToolResult(s string) string {
+	if len(s) <= maxToolResult {
+		return s
+	}
+	head, tail := maxToolResult*3/4, maxToolResult/4
+	h := strings.ToValidUTF8(s[:head], "")
+	t := strings.ToValidUTF8(s[len(s)-tail:], "")
+	return fmt.Sprintf("%s\n…[%d bytes elided — output truncated; narrow the query/read a range if you need the middle]…\n%s",
+		h, len(s)-len(h)-len(t), t)
 }
 
 func (ag *Agent) addToolResult(runID int64, tc toolCall, content string) {

@@ -63,6 +63,29 @@
     .ev.step.err { border-color: var(--bx-red); }
     .ev .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
     .ev .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
+    /* markdown bodies: the renderer's own block layout, not pre-wrap */
+    .body.md { white-space: normal; }
+    .body.md > :first-child { margin-top: 0; }
+    .body.md > :last-child { margin-bottom: 0; }
+    .body.md p, .body.md ul, .body.md ol, .body.md blockquote { margin: 5px 0; }
+    .body.md ul, .body.md ol { padding-left: 22px; }
+    .body.md h1, .body.md h2, .body.md h3, .body.md h4 { margin: 8px 0 3px; font-size: 14px; }
+    .body.md h1 { font-size: 16px; } .body.md h2 { font-size: 15px; }
+    .body.md code { font-family: var(--bx-mono); font-size: 12px; background: var(--bx-panel-2);
+      border: 1px solid var(--bx-border); border-radius: 4px; padding: 0 4px; }
+    .body.md pre { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+      border-radius: 6px; padding: 7px 9px; margin: 5px 0; overflow-x: auto; }
+    .body.md pre code { background: none; border: 0; padding: 0; white-space: pre; }
+    .body.md blockquote { border-left: 3px solid var(--bx-border); padding-left: 9px; color: var(--bx-muted); }
+    .body.md table { border-collapse: collapse; margin: 5px 0; display: block; overflow-x: auto; }
+    .body.md th, .body.md td { border: 1px solid var(--bx-border); padding: 2px 8px; font-size: 12.5px; }
+    .body.md a { color: var(--bx-accent, #b57e10); text-decoration: underline; }
+    .body.md hr { border: 0; border-top: 1px solid var(--bx-border); margin: 8px 0; }
+    /* folded long tool output */
+    details.more summary { cursor: pointer; color: var(--bx-muted); font-size: 11.5px;
+      user-select: none; margin-top: 2px; }
+    details.more summary:hover { color: var(--bx-text); }
+    details.more .body { max-height: 45vh; overflow: auto; }
     .ev.step .body { color: var(--bx-muted); font-size: 12px; }
     .ev.step.err .body { color: var(--bx-red); }
     .step-k { display: inline-block; color: var(--bx-muted); font-size: 10.5px; text-transform: uppercase;

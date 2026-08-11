@@ -967,3 +967,26 @@ Deviations and refinements made while implementing; all deliberate:
   Updates-tab action for conflicted/adopted units; Replace stays for
   clean/discard; merge-file demoted to legacy. Rejecting the PR keeps the
   update offered — refusal is a first-class outcome, not a stuck state.
+
+- **D50 — Template instances share git ancestry with their template repo.**
+  (2026-08-11) The fork-upstream model (template remote + fetch/merge,
+  templaterepo.go) was wired but broken: instances got a fresh `git init`
+  root from EnsureComponentRepos, so the documented merge always refused
+  with unrelated histories. Instantiate now SEEDS the instance repo before
+  EnsureComponentRepos can touch it: init, fetch the materialized template
+  repo's main from its local path, point main at the snapshot without
+  touching the working tree (which already holds the CopyTree rewrites),
+  then commit the rewrites on top ("instantiate <name> as <path>"). The
+  snapshot is the merge base forever after; the accruing one-commit-per-
+  version template history (materializeTemplateRepo) does the rest.
+  Detection is all local plumbing, no fetches: an instance is behind when
+  the template repo's HEAD is not an ancestor of its HEAD, and legacy
+  (pre-seeding) when even the template's ROOT commit isn't — surfaced via
+  GET /templates/updates, `bx template updates`, and the Tile Manager
+  (recipe only; nothing is ever auto-merged — instances are forks, the
+  builder picks what to adopt, unlike D48/D49 there is no provenance to
+  refresh). Chosen over retrofitting builtin-update tracking onto
+  instances (they diverge by design; content-hash provenance would
+  misread every divergence as a conflict) and over PR-based delivery
+  (D49) — a real git merge with shared ancestry is strictly stronger
+  here, and the remote already existed.
