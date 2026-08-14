@@ -10,6 +10,37 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-14
+
+- **security: credential-less tile-subresource reads now require a
+  recently-authenticated source IP.** The `/c/<tile>/` exception for
+  sandboxed-frame asset loads (JS/CSS/images — browsers can't attach
+  credentials to tag loads) was authorized by Fetch-Metadata headers alone,
+  which any non-browser client can forge. xbind now additionally requires a
+  successful authentication from the request's source IP within the last
+  hour, so drive-by internet scanners with no login get 401 even with
+  perfectly forged headers. **No tile/builder action needed** — a tile's
+  subresource loads always follow its authenticated document load from the
+  same IP, so browsers are unaffected. Note for **operators behind a reverse
+  proxy**: set the new `--trusted-proxies` / `XBIN_TRUSTED_PROXIES` (proxy
+  IPs/CIDRs) or all clients share the proxy's IP for this gate (and for the
+  login throttle, and session IP attribution).
+- **security: `X-Forwarded-For` is no longer trusted from arbitrary
+  clients.** It is honored only when the immediate peer matches
+  `--trusted-proxies`, and the chain is read from the **rightmost untrusted
+  hop** (the address the proxy appended and vouched for) — a client behind
+  the proxy prepending its own XFF entries gains nothing. Previously any
+  client could spoof it to bypass the per-IP login throttle (or lock a
+  victim IP out). Default behavior with no flag: the peer IP is always
+  authoritative.
+- **new endpoint: `GET /api/xbin/sessions`** (admin / `xbin:users`) — live
+  browser sessions with login/last-seen client IPs and activity times; the
+  caller's own row is marked `current`. Session ids are credentials and are
+  never returned; stateless bootstrap-token logins don't appear.
+- **admin tile: new "sessions" tab** under user management — the session/IP
+  table above, so IP attribution (and the warm-IP gate's view of the world)
+  is operator-visible.
+
 ## 2026-08-12
 
 - **Installer: prebuilt bundles by default, fail-fast network preflight,

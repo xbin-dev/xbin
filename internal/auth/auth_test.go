@@ -256,7 +256,7 @@ func TestSessionPrincipalOrgAccess(t *testing.T) {
 	}
 
 	r := httptest.NewRequest("GET", "/x", nil)
-	r.AddCookie(&http.Cookie{Name: CookieName, Value: a.NewSession("bob")})
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: a.NewSession("bob", "")})
 	p, ok := a.FromRequest(r)
 	if !ok || p.UserID != "bob" || p.Access == nil {
 		t.Fatalf("session principal: %+v %v", p, ok)

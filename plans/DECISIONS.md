@@ -140,6 +140,37 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   the plane users actually build in. *Amended by ND8: the token is now the tile's
   ONLY credential and cookie-without-token from a tile context is dropped, not
   honored.*
+- **ND9 — Warm-IP gate on the /c/ subresource exception + trusted-proxy IP
+  attribution (2026-08-14).** ND8's Fetch-Metadata fingerprint is client-
+  spoofable by construction (any non-browser client can set the headers), so
+  the credential-less `/c/` subresource read now also requires a
+  **recently-authenticated source IP**: any successful auth warms the client
+  IP for 1 h (sliding), and the exception serves only warm IPs. Rationale:
+  the threat that matters is drive-by internet scanners extracting tile
+  source en masse — they have no login, so they 401 — while browsers are
+  unaffected because a tile's subresource loads always follow its
+  authenticated document load (cookie or `?frame=` bootstrap) from the same
+  IP, and open tiles renew frame tokens every few minutes. Residual,
+  accepted: a client sharing an egress IP with a signed-in session (NAT/VPN
+  exit) or holding any account passes — tile source stays non-secret (D30).
+  Alternatives rejected: service workers (impossible — SW registration needs
+  a non-opaque origin; allowing it voids the sandbox), token-in-path asset
+  URLs via injected `<base href>` (works, but forces a relative-URLs-only
+  authoring rule, kills deliberate cross-tile tag-loads, and turns source
+  into bearer-URL-shareable — a breaking redesign kept in reserve), a
+  per-tile/workspace kill switch (a knob nobody needs yet — the gate is
+  compatible with every real browser flow). Two review-hardened details:
+  the warm window renews only on REAL auths — a credential-less gate check
+  never slides it (else one login would keep an egress IP warm forever for
+  anyone polling /c/, even after every session from it was revoked; frame-
+  token renewals give browsers fresh warmth anyway) — and, for attribution
+  behind a reverse proxy, `X-Forwarded-For` is honored **only** from
+  `--trusted-proxies` peers *and read at the rightmost untrusted hop* (the
+  address the appending proxy vouched for; the leftmost hop is client-
+  supplied, so reading it would hand the throttle-bypass spoof right back
+  to anyone behind the proxy). The same resolver feeds per-session IP
+  records, surfaced in the new `GET /api/xbin/sessions` + admin-console
+  sessions tab so an operator can *see* what the gate believes.
 - **ND8 — Browser-plane isolation via sandboxed tile frames (2026-08-04).**
   Non-chrome tile documents run in an opaque origin (`sandbox` iframe attr +
   CSP `sandbox` header, so direct-tab opens are confined too): no DOM access

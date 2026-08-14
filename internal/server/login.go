@@ -3,6 +3,7 @@ package server
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -62,16 +63,61 @@ func (t *loginThrottle) ok(ip string) {
 	t.mu.Unlock()
 }
 
-func clientIP(r *http.Request) string {
-	// Trust a fronting proxy's X-Forwarded-For first hop, else the peer.
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
-	}
+// ClientIP resolves the request's client IP for login throttling, session
+// IP attribution, and the /c/ warm-IP gate. X-Forwarded-For is honored ONLY
+// when the immediate peer is a configured trusted proxy (--trusted-proxies)
+// — an untrusted client must never pick its own throttle/attribution
+// identity (rotating XFF used to bypass the login throttle entirely).
+//
+// The chain is walked from the RIGHT, skipping trusted-proxy hops, to the
+// first address a trusted proxy actually vouched for: appending proxies
+// (nginx $proxy_add_x_forwarded_for, Caddy, HAProxy) put the real client
+// there, while everything further left is CLIENT-SUPPLIED — taking the
+// leftmost hop would hand the spoof right back to any client behind the
+// proxy. A hop that doesn't parse as an IP ends the walk (fall back to the
+// peer), which also keeps attacker-chosen strings out of the throttle and
+// warm-IP keyspaces.
+func (s *Server) ClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" && s.trustedProxy(host) {
+		hops := strings.Split(xff, ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			a, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
+			if err != nil {
+				break // garbage hop — nothing left of it is trustworthy either
+			}
+			if !s.trustedProxyAddr(a) {
+				return a.String()
+			}
+			// A trusted proxy's own address (a longer proxy chain) — keep
+			// walking toward the client.
+		}
+		// Every hop was a trusted proxy, or the chain was garbage: the peer
+		// itself is the closest thing to a client we can attest.
 	}
 	return host
+}
+
+// trustedProxy reports whether ip (the immediate peer) is a configured
+// trusted reverse proxy.
+func (s *Server) trustedProxy(ip string) bool {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	return s.trustedProxyAddr(addr)
+}
+
+func (s *Server) trustedProxyAddr(addr netip.Addr) bool {
+	for _, p := range s.TrustedProxies {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">

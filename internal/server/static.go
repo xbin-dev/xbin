@@ -58,7 +58,7 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// Note the D4 injection mints a frame token only when CanReadTile passes,
 	// so grant-based reads never leak the OTHER tile's credential.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !tileSubresource(r) {
+		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.serveRequestAccessPage(w, owner)
 				return
@@ -128,9 +128,23 @@ func (s *Server) codeGranted(p auth.Principal, target string) bool {
 //
 // Honest scope: the URL names the tile, not the requester — any sandboxed
 // tile can tag-load (execute/render, not fetch-read) another's assets, and
-// headers are client-settable, so a determined NON-browser client can spoof
-// this to read tile source under /c/. This confines tile JS; it is not a
-// substitute for the vault. Never put secrets in source (D30).
+// headers are client-settable, so the fingerprint alone is spoofable by any
+// NON-browser client. That's why serving additionally requires a
+// recently-authenticated source IP (tileSubresourceAuthed): drive-by
+// scanners with no login get 401, and only a client sharing an egress IP
+// with a real signed-in session can read tile source this way. This
+// confines tile JS; it is not a substitute for the vault. Never put secrets
+// in source (D30).
+
+// tileSubresourceAuthed is the /c/ credential-less exception in full: the
+// Fetch-Metadata subresource fingerprint AND a recently-authenticated
+// source IP (auth.RecentlyAuthed). Used identically by authedStatic
+// (admission) and handleComponentStatic (authorization) so the two never
+// disagree.
+func (s *Server) tileSubresourceAuthed(r *http.Request) bool {
+	return tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
+}
+
 var tileSubresourceDests = map[string]bool{
 	"script": true, "style": true, "image": true, "font": true,
 	"audio": true, "video": true, "track": true, "worker": true,

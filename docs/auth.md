@@ -68,9 +68,12 @@ RBAC, and an unattributed backend token is self-only. Tile subresource loads
 (JS/CSS/images — `Sec-Fetch-Dest` script/style/image/font/media/worker,
 never documents or fetch) are authorized credential-less by the opaque-origin
 Fetch-Metadata fingerprint — sandboxed frames strip cookies *and* the
-Referer, so that's the only signal; tile JS can't forge it from a sandbox,
-but a determined non-browser client can spoof headers, so source is still no
-place for secrets.
+Referer, so that's the only signal — **plus a recently-authenticated source
+IP**: the fingerprint is spoofable by any non-browser client, so xbind also
+requires a successful auth from that IP within the last hour (browsers are
+unaffected — a tile's subresource loads always follow its authenticated
+document load from the same IP; drive-by scanners with no login get 401).
+Source is still no place for secrets.
 
 **Chrome is the exception.** Components that must act as the signed-in human
 — the shell itself, and host-trusted components with `"chrome": true` in

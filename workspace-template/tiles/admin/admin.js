@@ -59,6 +59,7 @@ export class BxAdmin extends LitElement {
     _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
     _cron: { state: true },
     _users: { state: true },
+    _sessions: { state: true }, // live browser sessions with IPs (sessions tab)
     _orgs: { state: true },     // orgs & teams (docs/auth.md)
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _permsets: { state: true }, // {sets, attachedTo} (D28)
@@ -363,6 +364,7 @@ export class BxAdmin extends LitElement {
     ] },
     { id: 'usermgmt', label: 'user management', tabs: [
       { id: 'users', label: 'users' },
+      { id: 'sessions', label: 'sessions' },
       { id: 'orgs', label: 'organisations' },
       { id: 'permsets', label: 'permission sets' },
       { id: 'map', label: 'access map' },
@@ -419,6 +421,7 @@ export class BxAdmin extends LitElement {
     if (t === 'map') this._loadMap();
     if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose') this._loadIfaces();
     if (t === 'backup') this._loadBackup();
+    if (t === 'sessions') this._loadSessions();
   }
 
   connectedCallback() {
@@ -433,9 +436,12 @@ export class BxAdmin extends LitElement {
     if (this._tab === 'map') this._loadMap();
     if (['providers', 'wiring', 'endpoints', 'expose'].includes(this._tab)) this._loadIfaces();
     if (this._tab === 'backup') this._loadBackup();
+    if (this._tab === 'sessions') this._loadSessions();
     // Live backend/resource data: poll while a runtime-data tab is active.
+    // The sessions tab polls too (logins/logouts raise no event), at 1/5 rate.
     this._rtTimer = setInterval(() => {
       if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
+      if (this._tab === 'sessions' && (this._sessTick = (this._sessTick || 0) + 1) % 5 === 0) this._loadSessions();
     }, 2000);
   }
   disconnectedCallback() { super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); }
@@ -488,7 +494,7 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults, reqs] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults, reqs, sessions] = await Promise.all([
         api('/auth-overview'),
         api('/vaults').catch(() => null), // 503 while the barrier is sealed
         api('/cron/jobs'),
@@ -501,6 +507,7 @@ export class BxAdmin extends LitElement {
         api('/permission-sets').catch(() => ({ sets: {}, attachedTo: {} })),
         api('/defaults').catch(() => ({ defaultTiles: {} })),
         api('/access-requests').catch(() => ({ requests: [] })),
+        api('/sessions').catch(() => ({ sessions: [] })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._alerts = alerts.alerts ?? [];
@@ -509,6 +516,7 @@ export class BxAdmin extends LitElement {
       this._wsPolicy = wsPolicy.policy ?? [];
       this._permsets = permsets; this._defaults = defaults.defaultTiles ?? {};
       this._reqs = reqs.requests ?? [];
+      this._sessions = sessions.sessions ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
       if (this._tab === 'map') this._loadMap(true); // keep the matrix current
@@ -763,6 +771,7 @@ export class BxAdmin extends LitElement {
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${this._notice ? html`<div class="notice">${this._notice}</div>` : nothing}
         ${tab === 'users' ? this._usersView()
+          : tab === 'sessions' ? this._sessionsView()
           : tab === 'orgs' ? this._orgsView()
           : tab === 'permsets' ? this._permSetsView()
           : tab === 'map' ? this._mapView()
@@ -2183,6 +2192,51 @@ export class BxAdmin extends LitElement {
         without <b>term-net</b>.</p>
 
       ${this._signInSecurityView()}`;
+  }
+
+  // ---- sessions tab ----
+  // Live browser sessions with their client IPs — the attribution view for
+  // the /c/ warm-IP gate: a tile's credential-less subresource loads (its
+  // JS/CSS/images, which can't carry credentials from a sandboxed frame) are
+  // served only from an IP that authenticated within the last hour. If
+  // xbind sits behind a reverse proxy, --trusted-proxies must be set or
+  // every row here shows the proxy's IP and the gate keys on that.
+  async _loadSessions() {
+    try {
+      const d = await api('/sessions');
+      this._sessions = d.sessions ?? [];
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+  _ago(unixSec) {
+    const s = Math.max(0, (Date.now() - unixSec * 1000) / 1000);
+    return (s < 60 ? (s | 0) + 's' : this._fmtDur(s)) + ' ago';
+  }
+  _sessionsView() {
+    const ss = this._sessions ?? [];
+    return html`
+      <h4>sessions</h4>
+      <table>
+        <tr><th>user</th><th>signed in</th><th>last active</th><th>login IP</th><th>last IP</th><th></th></tr>
+        ${ss.length ? ss.map((s) => html`<tr>
+          <td class="mono">${s.user}${s.name && s.name !== s.user ? html` <span class="muted">${s.name}</span>` : nothing}</td>
+          <td title=${new Date(s.created * 1000).toLocaleString()}>${this._ago(s.created)}</td>
+          <td title=${new Date(s.lastActive * 1000).toLocaleString()}>${this._ago(s.lastActive)}</td>
+          <td class="mono">${s.ip || '—'}</td>
+          <td class="mono">${s.lastIP || '—'}</td>
+          <td>${s.current ? html`<span class="pill" title="the session you are signed in with right now">this session</span>` : nothing}</td>
+        </tr>`) : html`<tr><td class="muted" colspan="6">no live sessions</td></tr>`}
+      </table>
+      <p class="muted" style="font-size:11px;margin-top:6px;max-width:72ch">
+        Bootstrap <b>token logins</b> (<span class="mono">/login?token=…</span>) are
+        stateless and don't appear here. An IP with activity in the last hour counts as
+        <b>recently authenticated</b>: that's the second half of the rule serving tile
+        subresources (JS/CSS/images) without credentials — sandboxed tile frames can't
+        attach any, so xbind asks for the browser's Fetch-Metadata fingerprint <i>and</i>
+        a warm source IP, which keeps drive-by internet scanners (no login) out of tile
+        source. Behind a reverse proxy, set <span class="mono">--trusted-proxies</span>
+        (or <span class="mono">XBIN_TRUSTED_PROXIES</span>) or these IPs all show the
+        proxy's address and the gate keys on it. Sessions die after 12 h idle
+        (30 d absolute); a deleted or disabled user's sessions die immediately.</p>`;
   }
 
   // ---- click-through editors (shared by the users + orgs tabs) ----

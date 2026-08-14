@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -88,6 +89,70 @@ func TestSandboxedFrame(t *testing.T) {
 		if got := sandboxedFrame(c.path, c.comp); got != c.want {
 			t.Errorf("%s: sandboxedFrame=%v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+// The /c/ credential-less subresource exception requires a recently-
+// authenticated source IP on top of the (spoofable) Fetch-Metadata
+// fingerprint: a drive-by scanner that never logged in gets 401 even with
+// perfect headers, while a browser — whose tile subresource loads always
+// follow an authenticated document load from the same IP — is unaffected.
+func TestStaticWarmIPGate(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("apps/lib/xbin.json", `{}`)
+	mk("apps/lib/app.js", `console.log("tile");`)
+	mk("apps/lib/index.html", `<!doctype html><html><head><title>lib</title></head><body>lib</body></html>`)
+
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg, Auth: a}
+	h := s.authedStatic(http.HandlerFunc(s.handleComponentStatic))
+
+	// httptest.NewRequest's default peer: 192.0.2.1:1234.
+	subresource := func(url string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", url, nil)
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		r.Header.Set("Sec-Fetch-Dest", "script")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	// Cold IP (never authenticated): forged fingerprint is not enough.
+	if w := subresource("/c/apps/lib/app.js"); w.Code != 401 {
+		t.Fatalf("cold IP with forged headers: want 401, got %d", w.Code)
+	}
+
+	// A successful login warms the source IP → the exception applies.
+	a.NewSession("alice", "192.0.2.1")
+	if w := subresource("/c/apps/lib/app.js"); w.Code != 200 || !strings.Contains(w.Body.String(), "tile") {
+		t.Fatalf("warm IP subresource: want 200, got %d", w.Code)
+	}
+
+	// HTML documents are never subresources — warm IP or not.
+	if w := subresource("/c/apps/lib/index.html"); w.Code != 401 {
+		t.Fatalf("warm IP .html: want 401, got %d", w.Code)
+	}
+
+	// TTL expiry lapses the IP back to cold (2h > the 1h window).
+	a.TestAgeWarmIP("192.0.2.1", 2*time.Hour)
+	if w := subresource("/c/apps/lib/app.js"); w.Code != 401 {
+		t.Fatalf("lapsed warm IP: want 401, got %d", w.Code)
 	}
 }
 

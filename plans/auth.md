@@ -211,11 +211,23 @@ with sandboxed tile frames `[ND8]`:
   fingerprint (`Sec-Fetch-Site: cross-site` — `same-site` accepted for
   engine variants — plus a subresource `Sec-Fetch-Dest`:
   script/style/image/font/media/worker; never documents, frames, fetch, or
-  `.html`). Unsandboxed JS cannot produce that fingerprint toward its own
-  origin. Honest scope: headers are client-settable, so a determined
-  non-browser client can spoof this to read tile source — the rule confines
-  tile JS; it is no substitute for the vault. Humans keep cookie+RBAC reads
-  for direct navigation.
+  `.html`) **AND a recently-authenticated source IP** (a successful auth
+  from that IP within the last hour; sliding). Unsandboxed JS cannot
+  produce that fingerprint toward its own origin. Honest scope: headers are
+  client-settable, so a determined non-browser client can spoof the
+  fingerprint — the warm-IP requirement is what blunts that: drive-by
+  scanners with no login get 401, and only a client sharing an egress IP
+  with a real signed-in session (or holding any account) can read tile
+  source this way. Browsers are unaffected: a tile's subresource loads
+  always follow its authenticated document load (cookie or `?frame=`
+  bootstrap) from the same IP, and open tiles renew frame tokens every few
+  minutes. The rule confines tile JS; it is no substitute for the vault.
+  Humans keep cookie+RBAC reads for direct navigation. Attribution is
+  visible in the admin console's user-management → sessions tab (per-session
+  login/last-seen IPs); behind a reverse proxy it is correct only with
+  `--trusted-proxies` set (`X-Forwarded-For` is honored exclusively from
+  those peers — an untrusted client must never pick its own throttle/
+  attribution identity).
 - Tile `fetch()` needs CORS: an opaque-origin fetch is `Origin: null`, so
   xbind answers `Access-Control-Allow-Origin: null` (+ preflight) — safe
   because tile requests carry no ambient credentials anyway (cookie dropped;

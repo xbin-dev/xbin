@@ -87,9 +87,13 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  credential-less by the opaque-origin
                                  fingerprint (Sec-Fetch-Site: cross-site/
                                  same-site — sandboxed frames strip cookies
-                                 AND the Referer, so that is the only signal;
-                                 spoofable by non-browser clients — tile
-                                 source is not where secrets live).
+                                 AND the Referer, so that is the only signal)
+                                 PLUS a recently-authenticated source IP
+                                 (a successful auth from that IP within the
+                                 last hour — the fingerprint alone is
+                                 spoofable by non-browser clients, so drive-
+                                 by scanners with no login get 401; tile
+                                 source is still not where secrets live).
                                  Non-chrome HTML responses carry CSP sandbox;
                                  all responses X-Content-Type-Options: nosniff.
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
@@ -258,6 +262,17 @@ DELETE /users/<id>                admin/xbin:users. remove (revokes
                                    sessions) → {ok, orphanedTiles: […]} —
                                    tiles that fell to workspace-owned, so
                                    the handover is explicit
+GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
+                                   created, lastActive, ip, lastIP,
+                                   current}]} — live browser sessions with
+                                   client IPs (login IP + last-seen IP),
+                                   newest activity first; the caller's own
+                                   row is marked current:true. Session ids
+                                   are credentials and never returned.
+                                   Stateless bootstrap token logins don't
+                                   appear. This is the attribution view for
+                                   the /c/ warm-IP gate (admin console →
+                                   user management → sessions)
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
                                    hasAdminUser, canDisable} — owner-token
                                    browser-login state (docs/auth.md)

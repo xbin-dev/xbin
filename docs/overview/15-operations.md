@@ -155,7 +155,12 @@ terminal.
 `--listen` defaults to `127.0.0.1:8642` — **loopback, deliberately**. xbin
 is remote code execution by design; the console is reached through
 Tailscale/WireGuard or a TLS reverse proxy, never raw. Behind a proxy the
-session cookie flips to `Secure` when `X-Forwarded-Proto: https` arrives.
+session cookie flips to `Secure` when `X-Forwarded-Proto: https` arrives,
+and you **must** set `--trusted-proxies` to the proxy's IPs/CIDRs:
+`X-Forwarded-For` is honored only from those peers (a client must never pick
+its own throttle/attribution identity), and without it every client keys on
+the proxy's IP — sharing the login throttle and the `/c/` warm-IP gate, and
+showing the proxy's address in the admin console's sessions tab.
 
 Public traffic is a **separate, opt-in door** ([13-ingress.md](13-ingress.md)):
 set `XBIN_INGRESS_LISTEN` (+ `XBIN_INGRESS_CERT`/`KEY` for bring-your-own
@@ -229,6 +234,7 @@ Shutdown (SIGTERM): close the HTTP server, stop every backend, exit.
 | `--scope-uids` | off | tier-2 per-scope uids (needs root) |
 | `--insecure-vault` | off | plaintext secrets/data at rest |
 | `--ingress-listen/cert/key` (`XBIN_INGRESS_*`) | off | the public HTTP door |
+| `--trusted-proxies` (`XBIN_TRUSTED_PROXIES`) | trust nobody | comma-separated proxy IPs/CIDRs whose `X-Forwarded-For` is honored — set when behind a reverse proxy |
 
 Other env: `XBIN_VAULT_PASSPHRASE`, `XBIN_SDK_PATH`, `XBIN_BIN` (where `bx`
 lives), `XBIN_FUSE_OVERLAYFS`, `XBIN_GOCRYPTFS`, `XBIN_LIMIT_MEM` (per-tile

@@ -242,12 +242,23 @@ access lists. Consequences of the principle elsewhere in the system:
 
 ## Login mechanics & dev mode
 
-- `/healthz` and `/login`/`/logout` are the only unauthenticated routes.
-  Everything else requires a principal; unauthenticated browser navigations
-  redirect to the login page, API calls get 401.
+- The only unauthenticated routes are `/healthz`, `/login`/`/logout`
+  (throttled; the auth entry points themselves), and `/vendor/*` (xbind's
+  own shipped frontend code, loaded credential-less by sandboxed tile
+  frames). Everything else requires a principal; unauthenticated browser
+  navigations redirect to the login page, API calls get 401. One narrow
+  carve-out: a tile's **subresource** loads under `/c/` (JS/CSS/images —
+  never HTML) are served credential-less when they carry the sandboxed-frame
+  Fetch-Metadata fingerprint **and** come from a source IP that
+  authenticated within the last hour (the fingerprint alone is spoofable by
+  non-browser clients; the IP rule keeps drive-by scanners out — see
+  [../auth.md](../auth.md) §Browser-plane isolation).
 - Password logins are throttled per client IP (5 failures → 30 s cooldown;
   success clears it) and fail with a generic "invalid credentials" that
-  never reveals whether the username exists.
+  never reveals whether the username exists. The client IP is the peer
+  address, or `X-Forwarded-For` when the peer is a `--trusted-proxies`
+  entry — without that flag a fronting proxy makes every client share the
+  proxy's throttle/attribution identity.
 - **`--no-auth` (dev) disables owner auth but keeps element identity
   live**: instance, terminal, and frame tokens still resolve to element
   principals, so dev mode exercises exactly the RBAC production enforces —

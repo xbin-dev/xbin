@@ -148,8 +148,8 @@ func TestSessionExpiry(t *testing.T) {
 	a.sessionIdleTTL = 30 * time.Minute
 	a.sessionAbsTTL = 2 * time.Hour
 
-	id := a.NewSession("alice")
-	if uid, ok := a.sessionUser(id); !ok || uid != "alice" {
+	id := a.NewSession("alice", "10.0.0.1")
+	if uid, ok := a.sessionUser(id, ""); !ok || uid != "alice" {
 		t.Fatal("fresh session must resolve")
 	}
 
@@ -157,7 +157,7 @@ func TestSessionExpiry(t *testing.T) {
 	a.mu.Lock()
 	a.sessions[id].lastActive = time.Now().Add(-31 * time.Minute)
 	a.mu.Unlock()
-	if _, ok := a.sessionUser(id); ok {
+	if _, ok := a.sessionUser(id, ""); ok {
 		t.Fatal("idle-expired session must not resolve")
 	}
 	if _, ok := a.sessions[id]; ok {
@@ -165,22 +165,22 @@ func TestSessionExpiry(t *testing.T) {
 	}
 
 	// Active but past the absolute cap → dead even though lastActive is recent.
-	id2 := a.NewSession("bob")
+	id2 := a.NewSession("bob", "")
 	a.mu.Lock()
 	a.sessions[id2].created = time.Now().Add(-3 * time.Hour)
 	a.sessions[id2].lastActive = time.Now()
 	a.mu.Unlock()
-	if _, ok := a.sessionUser(id2); ok {
+	if _, ok := a.sessionUser(id2, ""); ok {
 		t.Fatal("absolute-expired session must not resolve")
 	}
 
 	// A lookup within the idle window slides it (stays alive across a gap that
 	// would have expired from the original login).
-	id3 := a.NewSession("carol")
+	id3 := a.NewSession("carol", "")
 	a.mu.Lock()
 	a.sessions[id3].lastActive = time.Now().Add(-20 * time.Minute) // still inside 30m
 	a.mu.Unlock()
-	if _, ok := a.sessionUser(id3); !ok {
+	if _, ok := a.sessionUser(id3, ""); !ok {
 		t.Fatal("session inside idle window must survive")
 	}
 	a.mu.Lock()

@@ -24,9 +24,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -210,10 +213,15 @@ type Auth struct {
 	sessionAbsTTL  time.Duration // hard cap since login regardless of activity
 
 	mu        sync.RWMutex
-	instances map[string]string   // instance token → component path
-	terminals map[string]termID   // terminal token → (component, user)
-	sessions  map[string]*session // session id → session
+	instances map[string]string    // instance token → component path
+	terminals map[string]termID    // terminal token → (component, user)
+	sessions  map[string]*session  // session id → session
+	warm      map[string]time.Time // client IP → last successful auth (the /c/ gate)
 	noAuth    bool
+
+	// clientIP resolves a request's client IP (trusted-proxy aware);
+	// installed by the server via SetClientIP. Nil → RemoteAddr.
+	clientIP func(*http.Request) string
 }
 
 // termID scopes a terminal-session token (plans/terminal-tokens.md): the tile
@@ -228,6 +236,8 @@ type session struct {
 	userID     string
 	created    time.Time // login time — the absolute-TTL anchor
 	lastActive time.Time // last authenticated request — the idle-TTL anchor
+	ip         string    // client IP at login
+	lastIP     string    // client IP of the most recent authenticated request
 }
 
 // Session lifetime defaults (override with XBIN_SESSION_IDLE_TTL /
@@ -262,6 +272,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		instances:      map[string]string{},
 		terminals:      map[string]termID{},
 		sessions:       map[string]*session{},
+		warm:           map[string]time.Time{},
 		noAuth:         noAuth,
 	}, nil
 }
@@ -331,12 +342,15 @@ func (a *Auth) TokenLoginDisabled() bool {
 // --- sessions ---
 
 // NewSession creates a server-side session for a user, returning its id.
-func (a *Auth) NewSession(userID string) string {
+// ip is the client IP the login came from (attribution for the sessions
+// API; also warms the IP for the /c/ subresource gate).
+func (a *Auth) NewSession(userID, ip string) string {
 	id := util.RandomToken(32)
 	now := time.Now()
 	a.mu.Lock()
 	a.sweepSessionsLocked(now) // login is rare — opportunistic reap, no goroutine
-	a.sessions[id] = &session{userID: userID, created: now, lastActive: now}
+	a.sessions[id] = &session{userID: userID, created: now, lastActive: now, ip: ip, lastIP: ip}
+	a.warmLocked(ip, now)
 	a.mu.Unlock()
 	return id
 }
@@ -351,8 +365,9 @@ func (a *Auth) DropSession(id string) {
 // sessionUser resolves a session id to its user, enforcing expiry: a session
 // dies after sessionIdleTTL of inactivity (sliding) or sessionAbsTTL since
 // login (hard cap), whichever first — so a stolen cookie can't authenticate
-// forever. A live lookup slides the idle window.
-func (a *Auth) sessionUser(id string) (string, bool) {
+// forever. A live lookup slides the idle window and records the caller's IP
+// (sessions-API attribution).
+func (a *Auth) sessionUser(id, ip string) (string, bool) {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -365,6 +380,9 @@ func (a *Auth) sessionUser(id string) (string, bool) {
 		return "", false
 	}
 	s.lastActive = now
+	if ip != "" {
+		s.lastIP = ip
+	}
 	return s.userID, true
 }
 
@@ -374,6 +392,121 @@ func (a *Auth) sweepSessionsLocked(now time.Time) {
 	for id, s := range a.sessions {
 		if now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL {
 			delete(a.sessions, id)
+		}
+	}
+	a.sweepWarmLocked(now)
+}
+
+// SessionInfo is the admin view of one live browser session (GET
+// /api/xbin/sessions). The session id is a credential: it NEVER leaves this
+// package in serialized form — ID is exported only so the handler can mark
+// the caller's own row; never put it on the wire.
+type SessionInfo struct {
+	ID         string
+	UserID     string
+	Created    time.Time
+	LastActive time.Time
+	IP         string // client IP at login
+	LastIP     string // client IP of the most recent request
+}
+
+// Sessions lists live sessions for the admin sessions view (newest activity
+// first). Expired ones are reaped on the way.
+func (a *Auth) Sessions() []SessionInfo {
+	now := time.Now()
+	a.mu.Lock()
+	a.sweepSessionsLocked(now)
+	out := make([]SessionInfo, 0, len(a.sessions))
+	for id, s := range a.sessions {
+		out = append(out, SessionInfo{
+			ID: id, UserID: s.userID, Created: s.created, LastActive: s.lastActive,
+			IP: s.ip, LastIP: s.lastIP,
+		})
+	}
+	a.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].LastActive.After(out[j].LastActive) })
+	return out
+}
+
+// --- recently-authenticated IPs (the /c/ subresource gate) ---
+
+// authedIPTTL is how long a client IP counts as "recently authenticated"
+// after its last successful auth — the second half of the /c/ credential-
+// less subresource rule (plans/auth.md §6): the Fetch-Metadata fingerprint
+// alone is spoofable by any non-browser client, so the exception also
+// requires a source IP with a real login behind it. That kills drive-by
+// internet scanners while staying invisible to browsers, whose tile
+// subresource loads always follow an authenticated document load from the
+// same IP (and open tiles renew frame tokens every few minutes).
+const authedIPTTL = time.Hour
+
+// SetClientIP installs the server's trusted-proxy-aware client-IP resolver
+// (used for warm-IP attribution and per-session IP records). Nil-safe:
+// RemoteAddr is the fallback.
+func (a *Auth) SetClientIP(f func(*http.Request) string) { a.clientIP = f }
+
+func (a *Auth) ipOf(r *http.Request) string {
+	if a.clientIP != nil {
+		return a.clientIP(r)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// noteAuthed records a successful authentication from r's client IP.
+func (a *Auth) noteAuthed(r *http.Request) {
+	a.mu.Lock()
+	a.warmLocked(a.ipOf(r), time.Now())
+	a.mu.Unlock()
+}
+
+// warmLocked marks ip freshly authenticated (caller holds a.mu). Only real
+// IPs enter the set: gateway (unix-socket) peers authenticate constantly
+// with a RemoteAddr like "@", and warming that would be meaningless noise —
+// the /c/ gate only ever looks up TCP clients' addresses.
+func (a *Auth) warmLocked(ip string, now time.Time) {
+	if _, err := netip.ParseAddr(ip); err != nil {
+		return
+	}
+	if len(a.warm) >= 4096 { // paranoia bound — prune before growing past it
+		a.sweepWarmLocked(now)
+	}
+	a.warm[ip] = now
+}
+
+// RecentlyAuthed reports whether ip authenticated successfully within
+// authedIPTTL. Deliberately does NOT slide the window: renewal comes only
+// from real auths (noteAuthed) — if a credential-less gate check renewed
+// it, a single login would keep an IP warm forever for anyone polling /c/
+// from the same egress, even after every session from it was revoked.
+// Browsers never notice: open tiles renew frame tokens every few minutes
+// and the shell polls with credentials, all real auths that re-warm.
+func (a *Auth) RecentlyAuthed(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	t, ok := a.warm[ip]
+	if !ok {
+		return false
+	}
+	if now.Sub(t) > authedIPTTL {
+		delete(a.warm, ip)
+		return false
+	}
+	return true
+}
+
+// sweepWarmLocked drops stale warm-IP entries (caller holds a.mu).
+func (a *Auth) sweepWarmLocked(now time.Time) {
+	for ip, t := range a.warm {
+		if now.Sub(t) > authedIPTTL {
+			delete(a.warm, ip)
 		}
 	}
 }
@@ -562,6 +695,14 @@ func (a *Auth) accessSnapshot(uid string) *users.Access {
 //  5. Frame token ALONE → the element frontend (plans/auth.md §6: sandboxed
 //     tile frames have no ambient cookie; the token is their only credential).
 func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
+	p, ok := a.fromRequest(r)
+	if ok {
+		a.noteAuthed(r) // any real auth warms the source IP for the /c/ gate
+	}
+	return p, ok
+}
+
+func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 	// A frame token attributes the request to (component, user); it's honored
 	// in every mode. Present-but-invalid is rejected, never downgraded.
 	frame := func() (Principal, bool, bool) { // principal, ok, present
@@ -631,7 +772,7 @@ func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
 		}
 		base = Principal{Owner: true, Via: "cookie"}
 	default:
-		uid, ok := a.sessionUser(cookie.Value)
+		uid, ok := a.sessionUser(cookie.Value, a.ipOf(r))
 		if !ok {
 			return Principal{}, false
 		}

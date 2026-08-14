@@ -19,6 +19,7 @@ import (
 func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("GET /whoami", b.apiWhoami)
 	srv.RegisterAPI("GET /users", b.apiUsersList)
+	srv.RegisterAPI("GET /sessions", func(w http.ResponseWriter, r *http.Request) { b.apiSessions(srv, w, r) })
 	srv.RegisterAPI("POST /users", b.apiUsersCreate)
 	srv.RegisterAPI("PATCH /users/{id}", b.apiUsersUpdate)
 	srv.RegisterAPI("POST /users/{id}/invite", b.apiUsersInvite)
@@ -582,6 +583,46 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"tokenLoginDisabled": st.TokenLoginDisabled()})
+}
+
+// apiSessions lists live browser sessions with their client IPs — the
+// admin console's sessions tab, and the attribution view for the /c/
+// warm-IP gate (an asset request from one of these IPs within an hour of
+// its last activity is what "recently authenticated" means there). Session
+// ids are credentials and are NEVER serialized; the caller's own row is
+// marked server-side. Note the bootstrap owner-token "session" is stateless
+// (the cookie holds the token itself), so token logins don't appear here.
+func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	// current is matched by session cookie, so it marks only cookie-
+	// authenticated callers (a direct browser fetch, curl with the cookie).
+	// The admin TILE drives this endpoint via a frame token with no cookie
+	// (ND8), so no row reads current there — cosmetic, documented as such.
+	current := ""
+	if c, err := r.Cookie(auth.CookieName); err == nil {
+		current = c.Value
+	}
+	out := []map[string]any{}
+	for _, si := range srv.Auth.Sessions() {
+		name := si.UserID
+		if b.Users != nil {
+			if u, ok := b.Users.Get(si.UserID); ok && u.Name != "" {
+				name = u.Name
+			}
+		}
+		out = append(out, map[string]any{
+			"user":       si.UserID,
+			"name":       name,
+			"created":    si.Created.Unix(),
+			"lastActive": si.LastActive.Unix(),
+			"ip":         si.IP,
+			"lastIP":     si.LastIP,
+			"current":    current != "" && si.ID == current,
+		})
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }
 
 func firstNonEmpty(a, b string) string {

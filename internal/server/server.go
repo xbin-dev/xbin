@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,12 @@ type Server struct {
 	// element principals beyond their own tile (installed by the broker;
 	// nil ⇒ grants don't open /c/, only the code API).
 	CodeReadGrant func(from, target string) bool
+
+	// TrustedProxies are the reverse-proxy IPs/CIDRs whose X-Forwarded-For
+	// header is honored when resolving client IPs (login throttle, session
+	// IP attribution, the /c/ warm-IP gate). Empty = trust nobody: the peer
+	// IP is always authoritative.
+	TrustedProxies []netip.Prefix
 
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle
@@ -164,7 +171,9 @@ func (s *Server) authed(next http.Handler) http.Handler {
 // credential-less request carrying the opaque-origin Fetch-Metadata
 // fingerprint of a sandboxed tile subresource load (module scripts, CSS,
 // images — no cookie, no Referer, no attachable headers) is let through
-// with an empty principal; handleComponentStatic re-checks the same
+// with an empty principal — but only from a recently-authenticated source
+// IP, since the fingerprint alone is spoofable by any non-browser client
+// (plans/auth.md §6). handleComponentStatic re-checks the same
 // tileSubresource rule as the authorization. Chrome trees always require a
 // real principal.
 func (s *Server) authedStatic(next http.Handler) http.Handler {
@@ -177,7 +186,7 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 			rel := strings.TrimPrefix(r.URL.Path, "/c/")
 			_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
 			if err == nil {
-				if owner := s.owningComponent(cleaned); !isChrome(owner) && tileSubresource(r) {
+				if owner := s.owningComponent(cleaned); !isChrome(owner) && s.tileSubresourceAuthed(r) {
 					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
 					return
 				}
@@ -328,7 +337,7 @@ func (s *Server) serveInvitePage(w http.ResponseWriter, r *http.Request, tok, er
 // and signs them in (D22). Throttled like login; single-use; no self-signup —
 // the account already exists, admin-created.
 func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
-	if !s.loginThrottle.allow(clientIP(r)) {
+	if !s.loginThrottle.allow(s.ClientIP(r)) {
 		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
 		return
 	}
@@ -344,17 +353,17 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := s.Auth.Users.RedeemInvite(tok, pass)
 	if err != nil {
-		s.loginThrottle.fail(clientIP(r))
+		s.loginThrottle.fail(s.ClientIP(r))
 		s.serveInvitePage(w, r, tok, err.Error())
 		return
 	}
-	s.loginThrottle.ok(clientIP(r))
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID))
+	s.loginThrottle.ok(s.ClientIP(r))
+	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
-	if !s.loginThrottle.allow(clientIP(r)) {
+	if !s.loginThrottle.allow(s.ClientIP(r)) {
 		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
 		return
 	}
@@ -366,13 +375,13 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	u, ok := s.Auth.Users.Verify(user, pass)
 	if !ok {
-		s.loginThrottle.fail(clientIP(r))
+		s.loginThrottle.fail(s.ClientIP(r))
 		// Generic error — never reveal whether the username exists.
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	s.loginThrottle.ok(clientIP(r))
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID))
+	s.loginThrottle.ok(s.ClientIP(r))
+	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

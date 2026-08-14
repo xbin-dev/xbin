@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -135,8 +136,14 @@ func main() {
 		ingressListen = flag.String("ingress-listen", envOr("XBIN_INGRESS_LISTEN", ""), "public ingress HTTP listener (plans/ingress.md; \"\" = off). Serves ONLY published tile routes — never the console")
 		ingressCert   = flag.String("ingress-cert", envOr("XBIN_INGRESS_CERT", ""), "TLS certificate (PEM) for the ingress listener (with --ingress-key; reloaded on change)")
 		ingressKey    = flag.String("ingress-key", envOr("XBIN_INGRESS_KEY", ""), "TLS key (PEM) for the ingress listener")
+		trustedProxy  = flag.String("trusted-proxies", envOr("XBIN_TRUSTED_PROXIES", ""), "comma-separated IPs/CIDRs of trusted reverse proxies whose X-Forwarded-For is honored (login throttle, session IP attribution, /c/ warm-IP gate). Default: trust nobody. REQUIRED when xbind sits behind a proxy, else all clients key on the proxy's IP")
 	)
 	flag.Parse()
+
+	trusted, err := parseTrustedProxies(*trustedProxy)
+	if err != nil {
+		fatal("bad --trusted-proxies: %v", err)
+	}
 
 	ws, err := filepath.Abs(*wsFlag)
 	if err != nil {
@@ -147,15 +154,37 @@ func main() {
 	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
 	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs,
-		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}); err != nil {
+		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}, trusted); err != nil {
 		fatal("%v", err)
 	}
+}
+
+// parseTrustedProxies parses the --trusted-proxies value: comma-separated
+// IPs (→ host prefixes) or CIDRs.
+func parseTrustedProxies(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(part); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		if a, err := netip.ParseAddr(part); err == nil {
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			continue
+		}
+		return nil, fmt.Errorf("%q is neither an IP nor a CIDR", part)
+	}
+	return out, nil
 }
 
 // ingressOpts is the builtin HTTP terminator's config (plans/ingress.md ING-3).
 type ingressOpts struct{ Listen, Cert, Key string }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts) error {
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts, trustedProxies []netip.Prefix) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -609,7 +638,11 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		Reg: reg, Auth: a, Hub: hub, Term: tm,
 		WebFS: webFS, DocsFS: docsFS,
 		ComponentAPI: px, Version: version,
+		TrustedProxies: trustedProxies,
 	}
+	// One client-IP resolver for everything: login throttle, session IP
+	// attribution, and the /c/ warm-IP gate (all trusted-proxy aware).
+	a.SetClientIP(srv.ClientIP)
 	brk.Register(srv)
 	srv.RegisterAPI("GET /backends", func(w http.ResponseWriter, r *http.Request) {
 		if !brk.IsAdmin(auth.PrincipalOf(r)) {
