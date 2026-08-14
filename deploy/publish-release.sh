@@ -68,12 +68,18 @@ esac)
 # auto-register; fatal for that arch if it still can't.
 ensure_platform() {
   local arch="$1"
-  "$ENGINE" run --rm --platform "linux/$arch" docker.io/library/alpine:3.20 true 2>/dev/null && return 0
+  "$ENGINE" run --rm --platform "linux/$arch" docker.io/library/alpine:3.22 true 2>/dev/null && return 0
   info "registering qemu/binfmt for linux/$arch (foreign-arch cross-build)"
   "$ENGINE" run --rm --privileged docker.io/tonistiigi/binfmt --install "$arch" >/dev/null 2>&1 || true
-  "$ENGINE" run --rm --platform "linux/$arch" docker.io/library/alpine:3.20 true 2>/dev/null \
+  "$ENGINE" run --rm --platform "linux/$arch" docker.io/library/alpine:3.22 true 2>/dev/null \
     || die "cannot run linux/$arch under $ENGINE — install qemu-user-static/binfmt, or run this on native $arch hardware"
 }
+
+# Pinned build inputs rot silently (an EOL'd Alpine, a vanished Go tarball) —
+# verify them before spending an hour on multi-arch builds. Hard failures
+# block the release; near-EOL warnings print but proceed.
+info "checking pinned build inputs"
+"$repo/hack/check-pins.sh" || die "pinned build inputs failed verification — bump the pins (see hack/check-pins.sh output) before publishing"
 
 mkdir -p "$OUTDIR"
 VARIANTS_TSV=""   # arch<TAB>file<TAB>sha256<TAB>size, one per line

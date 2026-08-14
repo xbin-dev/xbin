@@ -38,12 +38,20 @@ the one-time login URL. Everything is overridable via `XBIN_*` env
 (`XBIN_PREFIX`, `XBIN_LISTEN`, `XBIN_PREBUILT_BIN`/`XBIN_ROOTFS_DIR` to skip
 building, …); `--check-only` runs just the preflight.
 
-### Prebuilt bundles (`--prebuilt-rootfs`)
+### Prebuilt bundles (the default)
 
-Building from source is the default, but it needs podman/docker + Go and
-spends several minutes (and a few GB) building the base rootfs — apt, the
-go/node/bun/opencode toolchains, Playwright + Chromium. To skip all of that,
-point the installer at a **prebuilt bundle**:
+When the pinned release publishes a bundle for the host arch, the installer
+**uses it automatically** — it probes the release's `release-manifest.json`
+and, on a hit, drops podman/docker, Go, and the multi-minute multi-GB rootfs
+build (apt, the go/node/bun/opencode toolchains, Playwright + Chromium) from
+the plan entirely. Building from source remains the path for untagged refs
+(`master`), arches without a bundle, runs from a repo checkout, and
+`--build-from-source` (the explicit opt-out). Source builds preflight their
+remote inputs (the Alpine package index, the Go tarball, and — once an
+engine exists — that a *container* can reach the mirror, the classic
+fresh-podman trap) and retry once on transient registry/CDN errors.
+
+Forcing or redirecting the bundle path explicitly:
 
 ```
 XBIN_VERSION=vX.Y.Z curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --system --prebuilt-rootfs

@@ -5,7 +5,8 @@
 # and it is 100% STATIC across releases: it resolves the latest tagged
 # release from GitHub at run time and delegates to that release's real
 # installer in the tagged tree — deploy/install.sh on Linux (preflight-checks
-# the kernel, builds from source, sets up the systemd service), or
+# the kernel, installs the release's prebuilt bundle when one exists for the
+# arch — else builds from source — and sets up the systemd service), or
 # deploy/install-macos.sh on a Mac (sets up a Lima Linux VM you size, and
 # installs inside it). Audit:
 #   https://github.com/xbin-dev/xbin/tags → deploy/install*.sh at the tag
@@ -15,8 +16,8 @@
 #   curl -fsSL https://xbin.dev/install.sh | sh                     # macOS: Lima VM (no sudo)
 #   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --check-only
 #   XBIN_VERSION=v0.2.0 curl -fsSL https://xbin.dev/install.sh | sudo bash   # pin one
-#   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --system --prebuilt-rootfs
-#                                          # skip the build: download a prebuilt bundle (no podman/Go)
+#   curl -fsSL https://xbin.dev/install.sh | sudo bash -s -- --build-from-source
+#                                          # opt out of the prebuilt bundle and compile on this host
 set -eu
 
 fetch() {

@@ -10,6 +10,28 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-12
+
+- **Installer: prebuilt bundles by default, fail-fast network preflight,
+  pinned-input currency checks.** A real-world install died ten minutes in:
+  the fuse-overlayfs build container couldn't fetch the Alpine package index
+  (host networking fine, container networking broken — the classic fresh
+  podman trap). Three structural fixes: **(1)** when the pinned release
+  publishes a bundle for the host arch, `install.sh` now uses it
+  automatically — no podman, no Go, no build containers on the target at
+  all (`--build-from-source` opts out; untagged refs, repo checkouts, and
+  unbundled arches still build). **(2)** Source builds preflight their
+  remote inputs before anything mutates — Alpine index + Go tarball
+  reachability from the host, and, once an engine exists, an in-container
+  egress probe with a host-vs-container diagnosis — and the build steps
+  retry once on transient registry/CDN errors. **(3)** New
+  `hack/check-pins.sh` (run by `deploy/publish-release.sh`, fatal) guards
+  pin drift, EOL currency via the endoflife.date API, and artifact
+  reachability — it immediately caught that the `alpine:3.20` build pin
+  had been **4 months past EOL**; the pin is now 3.22. The behavior change
+  rides the next tag (the xbin.dev bootstrap always delegates to the
+  tagged installer).
+
 ## 2026-08-11
 
 - **Template updates actually merge now.** Instances of builtin templates

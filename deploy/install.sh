@@ -26,9 +26,13 @@
 # Idempotent: re-run to upgrade in place. Flags: --check-only (preflight +
 # plan, no changes), --yes (skip the prompt; needs an explicit mode), --help.
 #
-#   --prebuilt-rootfs[=SPEC]  Skip the multi-minute, multi-GB build: download a
-#     prebuilt bundle (native binaries + base rootfs + SDK) for this arch and
-#     unpack it — no podman/docker, no Go, no build. SPEC is optional:
+#   Prebuilt bundles are the DEFAULT when the pinned release ships one for
+#   this arch (auto-detected from its release-manifest.json): native binaries
+#   + base rootfs + SDK, sha256-verified — no podman/docker, no Go, no build.
+#   --build-from-source  opt out: compile on this host even when a bundle
+#     exists (also the automatic path for untagged refs, unbundled arches,
+#     XBIN_SRC checkouts, or when the manifest probe fails).
+#   --prebuilt-rootfs[=SPEC]  force the bundle path / point it elsewhere:
 #       (omitted)      this release's manifest on GitHub (needs a tagged run)
 #       URL/path .json a release-manifest.json (variant picked by arch)
 #       URL/path .tar* a specific bundle tarball (variant pre-chosen)
@@ -42,6 +46,7 @@ MODE=""
 CHECK_ONLY=0
 ASSUME_YES="${XBIN_ASSUME_YES:-0}"
 PREBUILT_SPEC=""
+FORCE_SOURCE=0
 for a in "$@"; do case "$a" in
   --system) MODE=system ;;
   --user) MODE=user ;;
@@ -49,7 +54,8 @@ for a in "$@"; do case "$a" in
   --yes|-y) ASSUME_YES=1 ;;
   --prebuilt-rootfs) PREBUILT_SPEC=default ;;
   --prebuilt-rootfs=*) PREBUILT_SPEC="${a#*=}" ;;
-  -h|--help) sed -n '2,37p' "$0" 2>/dev/null || true; exit 0 ;;
+  --build-from-source) FORCE_SOURCE=1 ;;
+  -h|--help) sed -n '2,42p' "$0" 2>/dev/null || true; exit 0 ;;
   *) printf 'error: unknown argument: %s\n' "$a" >&2; exit 1 ;;
 esac; done
 
@@ -279,6 +285,11 @@ BUILD_FROM_SOURCE=1
 # A prebuilt bundle is fetched during the build phase (fetch_prebuilt), which
 # then populates the three vars above — so no source build, no podman, no Go.
 [ -n "$PREBUILT_SPEC" ] && BUILD_FROM_SOURCE=0
+[ "$FORCE_SOURCE" = 1 ] && { BUILD_FROM_SOURCE=1; PREBUILT_SPEC=; }
+# auto_select_prebuilt (below, after the download helpers) may still flip
+# this to the bundle path when the pinned release ships one for this arch.
+PREBUILT_AUTO=0       # 1 = bundle chosen by the auto-probe, not a flag
+PREBUILT_PROBE_MISS=  # set when a tagged run probed for a bundle and found none
 
 # ---- Preflight checks -----------------------------------------------------
 PREFLIGHT_FATAL=0
@@ -331,6 +342,25 @@ preflight() {
     else warn "newuidmap/newgidmap not found yet — will install $UIDMAP_PKG"; fi
     if [ "$PKG" = "" ] && [ "$BUILD_FROM_SOURCE" = 1 ]; then
       warn "unrecognized package manager — install deps yourself (see README) or pass XBIN_PREBUILT_BIN/XBIN_ROOTFS_DIR"
+    fi
+  fi
+
+  # Remote inputs of a SOURCE build — probe from the host now rather than
+  # failing minutes (and several apt transactions) into the plan. The
+  # in-container probe runs in ensure_engine, once an engine exists.
+  if [ "$BUILD_FROM_SOURCE" = 1 ]; then
+    if dl_head "$(apkindex_url)"; then ok "Alpine v$ALPINE_PIN package index reachable (static-binary build containers)"
+    else
+      fail "cannot reach the Alpine v$ALPINE_PIN package index — the container builds WILL fail (mirror/CDN hiccup or restricted egress)"
+      warn "  retry later, or skip building: re-run with --prebuilt-rootfs"
+      PREFLIGHT_FATAL=1
+    fi
+    if ! go_ok; then
+      if dl_head "https://go.dev/dl/go${GO_VERSION}.linux-$(go_arch).tar.gz"; then ok "Go ${GO_VERSION} tarball reachable"
+      else
+        fail "cannot reach the Go ${GO_VERSION} tarball at go.dev — the toolchain install would fail"
+        PREFLIGHT_FATAL=1
+      fi
     fi
   fi
 
@@ -442,6 +472,11 @@ ensure_engine() {
     die "no container engine — preflight should have caught this ($(pkg_install_hint "$PODMAN_PKG"))"
   fi
   ok "container build engine: $ENGINE"
+  # Fail fast with a real diagnosis, not ten minutes in with apk noise: the
+  # entire build step depends on containers having egress. (The alpine image
+  # pulled here is the same one the build uses — nothing is wasted.)
+  if container_egress_ok "$ENGINE"; then ok "container egress verified (alpine v$ALPINE_PIN index reachable from inside a container)"
+  else die_container_egress; fi
 }
 install_deps() { # system mode only (user mode verified everything in preflight)
   if [ -n "$PKG" ]; then
@@ -484,13 +519,30 @@ build_artifacts() {
   export HOME="${HOME:-$BUILD_DIR/home}"
   export GOPATH="$BUILD_DIR/go" GOMODCACHE="$BUILD_DIR/go/pkg/mod" GOCACHE="$BUILD_DIR/go-cache"
   mkdir -p "$HOME" "$GOPATH" "$GOCACHE"
-  make -C "$SRC" build DOCKER="$ENGINE"
+  # Container builds fetch from registries and package mirrors — transient
+  # CDN errors are common enough to deserve one automatic retry (make's file
+  # targets resume where the failed attempt left off).
+  retry 2 make -C "$SRC" build DOCKER="$ENGINE" \
+    || die "build failed twice — see the output above (container-network trouble? skip building: re-run with --prebuilt-rootfs)"
   rm -rf "$BUILD_DIR/rootfs"
-  make -C "$SRC" rootfs DOCKER="$ENGINE" ROOTFS="$BUILD_DIR/rootfs"
+  retry 2 make -C "$SRC" rootfs DOCKER="$ENGINE" ROOTFS="$BUILD_DIR/rootfs" \
+    || die "rootfs build failed twice — see the output above (container-network trouble? skip building: re-run with --prebuilt-rootfs)"
   XBIN_PREBUILT_BIN="$SRC/bin"
   XBIN_ROOTFS_DIR="$BUILD_DIR/rootfs"
   XBIN_SDK_SRC="$SRC/sdk"
   ok "build complete"
+}
+
+# retry N cmd… — run again after a pause on failure (transient CDN/registry
+# errors during container builds). Returns the last attempt's status.
+retry() {
+  local n="$1" i=1; shift
+  while ! "$@"; do
+    [ "$i" -ge "$n" ] && return 1
+    warn "attempt $i/$n failed — retrying in 15s"
+    sleep 15
+    i=$((i+1))
+  done
 }
 
 # dl URL DEST — fetch a URL to a file (curl, wget fallback).
@@ -515,10 +567,77 @@ manifest_value() {
       v = $0; sub(/.*"[ ]*:[ ]*"/, "", v); sub(/".*/, "", v); print v; exit
     }'
 }
+# dl_head URL — reachability probe without downloading the body.
+dl_head() {
+  if have curl; then curl -fsIL -o /dev/null "$1"
+  elif have wget; then wget -q --spider "$1"
+  else return 1; fi
+}
 ensure_zstd() {
   have zstd && return 0
   if [ "$MODE" = system ]; then info "installing zstd (to unpack the bundle)"; pkg_install zstd || true; fi
   have zstd || die "zstd not found (needed to unpack the prebuilt bundle) — $(pkg_install_hint zstd)"
+}
+
+# ---- Prebuilt by default ---------------------------------------------------
+# Building on the target was the original default, but it is the slowest and
+# most fragile path: it drags Go, a container engine, and Alpine package
+# fetches (inside build containers) onto every install — a VM with broken
+# in-container DNS dies ten minutes and three apt transactions in. When the
+# pinned release ships a bundle for this arch, prefer it; one small manifest
+# fetch decides. Source build remains for: --build-from-source, untagged refs
+# (master has no release assets), XBIN_SRC / repo-checkout runs (dev flow),
+# unbundled arches, and probe failures (offline → the old behavior).
+auto_select_prebuilt() {
+  [ "$FORCE_SOURCE" = 1 ] && return 0
+  [ "$BUILD_FROM_SOURCE" = 1 ] || return 0   # a flag/env already chose prebuilt
+  [ -n "$XBIN_SRC" ] && return 0
+  if [ -f ./go.mod ] && grep -q 'module github.com/xbin-dev/xbin' ./go.mod 2>/dev/null; then
+    return 0 # running from a checkout — build what's here
+  fi
+  case "$REF" in v[0-9]*) ;; *) return 0 ;; esac
+  local m
+  if ! m=$(dl_stdout "$REPO_URL/releases/download/$REF/release-manifest.json" 2>/dev/null); then
+    PREBUILT_PROBE_MISS="no prebuilt manifest published for $REF"
+    return 0
+  fi
+  if [ -z "$(printf '%s' "$m" | manifest_value "$(go_arch)" sha256)" ]; then
+    PREBUILT_PROBE_MISS="the $REF release has no prebuilt bundle for $(go_arch)"
+    return 0
+  fi
+  PREBUILT_SPEC=default
+  BUILD_FROM_SOURCE=0
+  PREBUILT_AUTO=1
+}
+
+# ---- Remote build inputs (preflight + fail-fast probes) ---------------------
+# The Alpine release our static-binary build containers use — keep in sync
+# with hack/build-*.sh (hack/check-pins.sh guards the drift and the EOL date).
+ALPINE_PIN=3.22
+apk_arch() { case "$(uname -m)" in x86_64|amd64) echo x86_64 ;; *) echo aarch64 ;; esac; }
+apkindex_url() { echo "https://dl-cdn.alpinelinux.org/alpine/v$ALPINE_PIN/main/$(apk_arch)/APKINDEX.tar.gz"; }
+
+# container_egress_ok ENGINE — can a build container reach the Alpine mirror?
+# The image pull exercises host networking; the wget exercises the container's
+# own netns/DNS — the two failing DIFFERENTLY is the classic fresh-podman trap
+# this probe exists to catch before a ten-minute build does.
+container_egress_ok() {
+  # --platform pins the native arch: a host that once cross-built (qemu) may
+  # have a FOREIGN-arch alpine cached under the same tag, and running that
+  # dies with "exec format error" instead of probing anything.
+  "$1" run --rm --platform "linux/$(go_arch)" "docker.io/library/alpine:$ALPINE_PIN" \
+    wget -q --spider -T 20 "$(apkindex_url)" >/dev/null 2>&1
+}
+die_container_egress() {
+  fail "a build container cannot reach the Alpine package mirror"
+  if dl_head "$(apkindex_url)"; then
+    warn "  the HOST reaches it fine — in-container networking/DNS is broken (common on fresh"
+    warn "  container-engine installs: try a reboot; check net.ipv4.ip_forward, firewall/nftables,"
+    warn "  and /etc/resolv.conf handling for containers)"
+  else
+    warn "  the host cannot reach it either — mirror/CDN hiccup or restricted egress; retry later"
+  fi
+  die "container builds would fail exactly like this mid-install — fix the above, or skip building entirely: re-run with --prebuilt-rootfs"
 }
 
 # fetch_prebuilt: resolve PREBUILT_SPEC → download + sha256-verify + unpack a
@@ -990,9 +1109,23 @@ prepare_mode() {
   build_plan
 }
 
+# describe_artifacts: the one-line "where do the bits come from" statement,
+# shared by the banner and the no-mode chooser header.
+describe_artifacts() {
+  if [ "$BUILD_FROM_SOURCE" = 1 ]; then
+    echo "  building from source ($REPO_URL@$REF)${PREBUILT_PROBE_MISS:+ — $PREBUILT_PROBE_MISS}$([ "$FORCE_SOURCE" = 1 ] && printf ' %s' '(--build-from-source)')"
+  elif [ "$PREBUILT_AUTO" = 1 ]; then
+    echo "  prebuilt bundle: $REF release ($(go_arch)) — auto-selected, no build on this host (--build-from-source to compile instead)"
+  elif [ -n "$PREBUILT_SPEC" ]; then
+    echo "  prebuilt bundle: $([ "$PREBUILT_SPEC" = default ] && echo "$REF release ($(go_arch))" || echo "$PREBUILT_SPEC")"
+  else
+    echo "  using prebuilt artifacts"
+  fi
+}
+
 banner() {
   echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
-  if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; elif [ -n "$PREBUILT_SPEC" ]; then echo "  prebuilt bundle: $([ "$PREBUILT_SPEC" = default ] && echo "$REF release ($(go_arch))" || echo "$PREBUILT_SPEC")"; else echo "  using prebuilt artifacts"; fi
+  describe_artifacts
   [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
   if [ "$MODE" = system ] && [ "$EUID_NOW" = 0 ] && [ -n "${SUDO_USER:-}" ]; then
     local sh_home; sh_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
@@ -1033,6 +1166,11 @@ sudo_reexec() {
   exit 0
 }
 
+# Decide the artifact path once, before any plan is built: prefer the pinned
+# release's prebuilt bundle when it exists for this arch (see the function's
+# comment for when source build still wins). One small network fetch.
+auto_select_prebuilt
+
 if [ "$CHOOSER" = 0 ]; then
   # Explicit mode (or root default = system): the single-mode flow.
   if [ "$MODE" = system ] && [ "$EUID_NOW" != 0 ]; then
@@ -1066,7 +1204,7 @@ fi
 # — only its plan prints in full; the other mode is a single option line, its
 # plan shown only if picked.
 echo "${B}xbin installer${R}  →  run as $RUN_USER (no mode chosen)"
-if [ "$BUILD_FROM_SOURCE" = 1 ]; then echo "  building from source ($REPO_URL@$REF)"; elif [ -n "$PREBUILT_SPEC" ]; then echo "  prebuilt bundle: $([ "$PREBUILT_SPEC" = default ] && echo "$REF release ($(go_arch))" || echo "$PREBUILT_SPEC")"; else echo "  using prebuilt artifacts"; fi
+describe_artifacts
 if [ "$SYS_INSTALLED" = 1 ]; then
   echo
   info "${B}A system-wide xbin is already installed${R}${SYS_VERSION:+ ($SYS_VERSION)} — running: $SYS_RUNNING, listening on ${SYS_LISTEN:-127.0.0.1:8642}"
