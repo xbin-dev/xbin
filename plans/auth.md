@@ -178,9 +178,11 @@ RBAC with a hole in it. Attribution came first `[ND2]`; **enforcement** landed
 with sandboxed tile frames `[ND8]`:
 
 - Every non-chrome tile document is served with
-  `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`
-  (covers direct-tab opens) and framed by `bx-frame` with the matching
-  `sandbox` attribute. The tile runs in an **opaque origin**: no parent or
+  `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals
+  allow-downloads` (covers direct-tab opens) and framed by `bx-frame` with
+  the matching `sandbox` attribute. (`allow-downloads` — ND10 — is the one
+  user-facing affordance the sandbox keeps: a download crosses no
+  workspace/session/tile boundary and the browser's download UI mediates.) The tile runs in an **opaque origin**: no parent or
   sibling DOM access (either direction), no localStorage/IDB/cookies/SW, and
   subresource requests carry no ambient credentials (Chromium; elsewhere the
   server gate below strips them). Communication with the shell is

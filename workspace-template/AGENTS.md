@@ -263,6 +263,12 @@ xbin.notify('info', 'msg')                 // one-shot toast
 await xbin.fetch(`/api/xbin/prefs/mykey`, {method:'PUT', body: JSON.stringify(v)})
 const v = await (await xbin.fetch('/api/xbin/prefs/mykey')).json()
 
+// file downloads work (the sandbox allows them). From a USER GESTURE:
+xbin.download('report.csv', csvText, 'text/csv')   // Blob|ArrayBuffer|string
+// …or stream big files straight from your backend (answer with
+// Content-Disposition: attachment) — build the tokened URL at click time:
+a.href = xbin.url(`/api/${xbin.self}/export`)      // <a download> navigation
+
 // dialogs & pop-out windows — your tile is an IFRAME, so a modal or window you
 // render yourself is clipped to your card. For UI that must float over the
 // whole workspace, ask the shell to spawn it:
@@ -745,7 +751,8 @@ need an admin in the browser, or bx on the host.
   inside sandboxed frames. Per-session state → JS memory; durable state →
   your backend or `/api/xbin/prefs`. Cross-origin fetches from a tile go out
   as `Origin: null` with no cookies — route external API calls through your
-  backend.
+  backend. File **downloads** are allowed (`xbin.download` /
+  `xbin.url` + `<a download>`); popups and top-navigation are not.
 - **Don't hand-edit**: `deps/` (symlinks are reconciled from the manifest),
   `go.work` (generated — has a marker line; removing the marker takes
   ownership), the `grants` array in workspace `xbin.json` (use `bx grant`;

@@ -1780,12 +1780,7 @@ export class BxAdmin extends LitElement {
         body: JSON.stringify({ component: comp, version, file: path }),
       });
       if (!r.ok) throw new Error((await r.json()).error || r.status);
-      const blob = await r.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = path.split('/').pop() || 'file';
-      a.click();
-      URL.revokeObjectURL(a.href);
+      xbin.download(path.split('/').pop() || 'file', await r.blob());
     } catch (e) { this._err = String(e.message ?? e); }
   }
 

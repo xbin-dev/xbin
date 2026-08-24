@@ -14,12 +14,12 @@ Every route except `/healthz` and `/login` requires a principal
 | Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
 | Owner/instance bearer | `Authorization: Bearer <token>` | owner, or the element the instance token belongs to |
 | Terminal bearer | `Authorization: Bearer <token>` (`$XBIN_TOKEN` in a terminal) | the tile the terminal is opened on (element principal; per-session, revoked at session end) |
-| Frame token | `X-XBin-Frame-Token` header, or `?frame=` on WS/document URLs | element frontend — **standalone** (no cookie needed; sandboxed tile frames hold nothing else) |
+| Frame token | `X-XBin-Frame-Token` header, or `?frame=` on any URL (WS, document loads, tag-driven requests like `<a download>` — anything that can't set headers; xbind consumes it and never forwards it to backends) | element frontend — **standalone** (no cookie needed; sandboxed tile frames hold nothing else) |
 
 **Browser-plane isolation (ND8):** the cookie proves the human, and humans
 act only from *chrome* (the shell, plus manifest `chrome: true` components).
 Non-chrome tile documents are served with `Content-Security-Policy: sandbox
-allow-scripts allow-forms allow-modals` and framed sandboxed by `bx-frame`
+allow-scripts allow-forms allow-modals allow-downloads` and framed sandboxed by `bx-frame`
 (plus `credentialless` where supported) — an opaque origin with no DOM access
 either way, no storage, no ambient cookie. Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`

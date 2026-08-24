@@ -10,6 +10,25 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-24
+
+- **Tiles can trigger file downloads again: `allow-downloads` +
+  `xbin.download` / `xbin.url`.** The ND8 frame sandbox silently blocked
+  every tile-initiated download (blob + `<a download>` clicks AND
+  `Content-Disposition: attachment` navigations) — it even broke the admin
+  tile's backup restore-one-file flow. The sandbox (iframe attribute + CSP
+  header) now carries `allow-downloads` for all tiles (ND10): downloads
+  cross no workspace/session/tile boundary, and the browser's download UI
+  is the consent surface; popups/top-navigation stay blocked. New client
+  helpers: `xbin.download(filename, data, type?)` hands a
+  Blob/ArrayBuffer/string to the browser as a named download, and
+  `xbin.url(path)` returns a frame-token-carrying URL string for tag-driven
+  requests that can't set headers — the way to stream large downloads
+  straight from your backend (`<a href="${xbin.url(...)}" download>` + an
+  attachment response). Build such URLs at click time (the token is
+  short-lived), and trigger downloads from a user gesture. See
+  docs/elements.md §Isolation and docs/sdk.md.
+
 ## 2026-08-14
 
 - **security: credential-less tile-subresource reads now require a

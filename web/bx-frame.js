@@ -43,9 +43,13 @@ let zTop = 2000;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-// Sandbox tokens for tile frames: scripts + forms + modals, never
-// allow-same-origin (that plus allow-scripts would void the sandbox).
-const SANDBOX = 'allow-scripts allow-forms allow-modals';
+// Sandbox tokens for tile frames: scripts + forms + modals + downloads,
+// never allow-same-origin (that plus allow-scripts would void the sandbox).
+// Downloads are safe to allow (ND10): they cross no workspace/session/tile
+// boundary and the browser's own download UI mediates; popups and top
+// navigation stay blocked. Must match the CSP sandbox header
+// (internal/server/static.go) — browsers intersect the two.
+const SANDBOX = 'allow-scripts allow-forms allow-modals allow-downloads';
 
 // <iframe credentialless> (Chromium 110+): loads the frame in an ephemeral
 // credential context — no ambient cookie even on the document navigation.

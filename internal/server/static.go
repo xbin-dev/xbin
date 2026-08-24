@@ -20,9 +20,12 @@ import (
 const frameTokenTTL = 15 * time.Minute
 
 // sandboxCSP confines a non-chrome tile document to an opaque origin
-// (plans/auth.md §6, ND8): scripts run, forms/modals work, but never
-// allow-same-origin — that plus allow-scripts would void the sandbox.
-const sandboxCSP = "sandbox allow-scripts allow-forms allow-modals"
+// (plans/auth.md §6, ND8): scripts run, forms/modals/downloads work, but
+// never allow-same-origin — that plus allow-scripts would void the sandbox.
+// Downloads are allowed (ND10): they cross no workspace/session/tile
+// boundary and the browser's download UI mediates. Must match bx-frame's
+// iframe sandbox attribute — browsers intersect the two.
+const sandboxCSP = "sandbox allow-scripts allow-forms allow-modals allow-downloads"
 
 // handleComponentStatic serves /c/<component-path>/<file> from the workspace.
 // HTML responses get the single sanctioned transform (decision D4): the merged

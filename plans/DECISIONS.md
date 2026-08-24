@@ -140,6 +140,28 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   the plane users actually build in. *Amended by ND8: the token is now the tile's
   ONLY credential and cookie-without-token from a tile context is dropped, not
   honored.*
+- **ND10 — Tile downloads: `allow-downloads` for every sandboxed frame
+  (2026-08-24).** ND8's token list omitted `allow-downloads`, so any tile-
+  initiated download — blob + `<a download>.click()` or a
+  `Content-Disposition: attachment` navigation — was silently blocked by
+  the browser (undocumented; it broke the admin tile's restore-one-file
+  flow). Now every sandboxed tile carries `allow-downloads`, in BOTH layers
+  (the iframe `sandbox` attribute and the CSP `sandbox` header — browsers
+  intersect them), unconditionally. Rationale: a download crosses no
+  workspace/session/tile boundary — the residual risk is an unsolicited
+  save prompt, and the browser's own download UI is the consent surface;
+  popups and top-navigation stay blocked. Rejected: a self-declared
+  manifest flag (not a security boundary — the tile author writes the
+  manifest — so it buys only friction), an owner-approved capability grant
+  (invents frontend-grant machinery for a low-severity, browser-mediated
+  permission), and a shell-relayed `xbin:download` postMessage (unneeded —
+  `allow-downloads` is supported by every current engine; the bx-spawn
+  relay remains the fallback design if that ever changes). Client sugar:
+  `xbin.download(name, data)` (blob hand-off) and `xbin.url(path)` (a
+  same-host URL carrying the current frame token as `?frame=` — the only
+  way a tag-driven request authenticates; xbind already accepted `?frame=`
+  on every route and strips it before proxying, and tile JS could already
+  read its own token, so no new exposure).
 - **ND9 — Warm-IP gate on the /c/ subresource exception + trusted-proxy IP
   attribution (2026-08-14).** ND8's Fetch-Metadata fingerprint is client-
   spoofable by construction (any non-browser client can set the headers), so
@@ -175,7 +197,8 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   Non-chrome tile documents run in an opaque origin (`sandbox` iframe attr +
   CSP `sandbox` header, so direct-tab opens are confined too): no DOM access
   either way, no storage/cookies/SW; the frame token alone authenticates the
-  tile (cookie-less renewal included). Server-side, a Fetch-Metadata gate
+  tile (cookie-less renewal included). *Amended by ND10: the sandbox now
+  also carries `allow-downloads`.* Server-side, a Fetch-Metadata gate
   (`Sec-Fetch-Site: cross-site` on non-navigations; non-GET navigations to
   `/api/*`/`/ws/*`) drops the session cookie out of tile contexts —
   unforgeable in both directions — so a hostile tile omitting its token can't

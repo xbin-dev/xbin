@@ -77,6 +77,33 @@ function bws(path) {
     `${proto}//${location.host}${path}${sep}frame=${encodeURIComponent(frameToken)}`);
 }
 
+// --- attributed URL (navigation downloads, <a href>, media src) ---
+// Returns a same-host URL string carrying the CURRENT frame token as ?frame=
+// — the only way a tag-driven request (which can't set headers) authenticates
+// as this tile. Build it at click time, not page load: the module token
+// refreshes every 10 minutes and a stale one 401s. Typical use is a
+// backend-streamed download: <a href=... download> to an endpoint answering
+// with Content-Disposition: attachment. xbind consumes ?frame= itself and
+// never forwards it to the backend.
+function burl(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return `${location.protocol}//${location.host}${path}${sep}frame=${encodeURIComponent(frameToken)}`;
+}
+
+// --- client-side file download ---
+// Hands data to the browser as a named download (sandboxed tiles may trigger
+// downloads — the sandbox carries allow-downloads, ND10). Call from a user
+// gesture (a click handler): browsers throttle downloads with no activation.
+// data: Blob | ArrayBuffer | TypedArray | string.
+function download(filename, data, type = 'application/octet-stream') {
+  const blob = data instanceof Blob ? data : new Blob([data], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename || 'download';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 // --- event stream (own WS, authenticated by frame token) ---
 const eventHandlers = new Set();
 let ws = null;
@@ -214,4 +241,4 @@ function openWindow(spec = {}) {
   };
 }
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, bus, events, dialog, window: openWindow, status, clearStatus, notify });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify });

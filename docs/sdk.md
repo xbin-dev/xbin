@@ -152,6 +152,17 @@ const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
 // never sees it):
 const sock = xbin.ws('/api/apps/other/stream');
 
+// attributed URL string — same query-param trick for TAG-driven requests
+// (<a href>, media src) that can't set headers. Build at click time: the
+// embedded token is short-lived. The classic use is a backend-streamed
+// download (endpoint answers Content-Disposition: attachment):
+a.href = xbin.url(`/api/${xbin.self}/export.csv`);
+
+// client-side file download (sandboxed tiles may download — allow-downloads,
+// ND10). data: Blob | ArrayBuffer | TypedArray | string. Call from a user
+// gesture; browsers throttle unprompted downloads.
+xbin.download('report.csv', csvText, 'text/csv');
+
 // bus (needs a reader grant on the resource)
 const off = xbin.bus.on('res:apps/thing/bus/events/', (topic, data) => {…});
 await xbin.bus.publish('res:apps/thing/bus', 'events/created', ev); // writer

@@ -90,6 +90,15 @@ func TestSandboxedFrame(t *testing.T) {
 			t.Errorf("%s: sandboxedFrame=%v, want %v", c.path, got, c.want)
 		}
 	}
+	// The CSP the sandboxed path serves must carry allow-downloads (ND10 —
+	// tiles may trigger file downloads) and must never carry
+	// allow-same-origin (that plus allow-scripts would void the sandbox).
+	if !strings.Contains(sandboxCSP, "allow-downloads") {
+		t.Error("sandboxCSP must allow downloads (ND10)")
+	}
+	if strings.Contains(sandboxCSP, "allow-same-origin") {
+		t.Error("sandboxCSP must never include allow-same-origin")
+	}
 }
 
 // The /c/ credential-less subresource exception requires a recently-

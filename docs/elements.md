@@ -185,7 +185,13 @@ Fetch-Metadata fingerprint your page produces). Keep per-session state in JS
 memory; put durable state in your backend (prefs/kv); route any genuinely
 cross-origin API calls through your backend (tile fetches go out as
 `Origin: null`, cookie-free). The postMessage bridge (dialogs, windows,
-auto-height) works as before.
+auto-height) works as before. **File downloads work** (the sandbox carries
+`allow-downloads`, ND10): hand data to the browser with
+`xbin.download(filename, data)` — or stream straight from your backend with
+`<a href="${xbin.url('/api/'+xbin.self+'/export')}" download>` and a
+`Content-Disposition: attachment` response; build the URL at click time
+(the embedded token is short-lived). Trigger downloads from a user gesture —
+browsers throttle unprompted ones.
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it
