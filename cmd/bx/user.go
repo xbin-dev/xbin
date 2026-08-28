@@ -12,8 +12,8 @@ import (
 //
 //	bx user ls
 //	bx user add <id> [--admin] [--tiles a=terminal,b=read,lib/*] [--create sales/*]
-//	                 [--term-api] [--term-net]                  (prompts for password)
-//	bx user set <id> [--admin|--user] [--tiles …] [--create …]
+//	                 [--term-api] [--term-net] [--email a@b.c]  (prompts for password)
+//	bx user set <id> [--admin|--user] [--tiles …] [--create …] [--email a@b.c]
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
 //	bx user rm  <id>
 //
@@ -30,6 +30,7 @@ func cmdUser(args []string) error {
 		var out struct {
 			Users []struct {
 				ID, Name, Role   string
+				Email            string
 				Tiles            map[string]string
 				CanCreate        []string
 				TermAPI, TermNet bool
@@ -80,6 +81,9 @@ func cmdUser(args []string) error {
 				}
 			}
 			line := fmt.Sprintf("%-14s %-8s %-40s %s", u.ID, u.Role, access, u.Name)
+			if u.Email != "" {
+				line += "  <" + u.Email + ">"
+			}
 			if ms := memberships[u.ID]; len(ms) > 0 {
 				line += "  [" + strings.Join(ms, ",") + "]"
 			}
@@ -124,6 +128,10 @@ func cmdUser(args []string) error {
 			case "--name":
 				i++
 				body["name"] = args[i]
+			case "--email":
+				// Binds an SSO identity (docs/auth.md §SSO); "" clears.
+				i++
+				body["email"] = args[i]
 			case "--tiles":
 				i++
 				tiles := map[string]string{}

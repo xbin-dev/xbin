@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -137,12 +138,20 @@ func main() {
 		ingressCert   = flag.String("ingress-cert", envOr("XBIN_INGRESS_CERT", ""), "TLS certificate (PEM) for the ingress listener (with --ingress-key; reloaded on change)")
 		ingressKey    = flag.String("ingress-key", envOr("XBIN_INGRESS_KEY", ""), "TLS key (PEM) for the ingress listener")
 		trustedProxy  = flag.String("trusted-proxies", envOr("XBIN_TRUSTED_PROXIES", ""), "comma-separated IPs/CIDRs of trusted reverse proxies whose X-Forwarded-For is honored (login throttle, session IP attribution, /c/ warm-IP gate). Default: trust nobody. REQUIRED when xbind sits behind a proxy, else all clients key on the proxy's IP")
+		externalURL   = flag.String("external-url", envOr("XBIN_EXTERNAL_URL", ""), "the console's public base URL, e.g. https://xbin.corp.example — the stable address SSO redirect URIs are registered under (required for SSO login); also used for printed login/invite links. Empty on tunnel-only setups")
 	)
 	flag.Parse()
 
 	trusted, err := parseTrustedProxies(*trustedProxy)
 	if err != nil {
 		fatal("bad --trusted-proxies: %v", err)
+	}
+	extURL := strings.TrimRight(*externalURL, "/")
+	if extURL != "" {
+		u, err := url.Parse(extURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
+			fatal("bad --external-url %q: want http(s)://host[:port] with no path", *externalURL)
+		}
 	}
 
 	ws, err := filepath.Abs(*wsFlag)
@@ -154,7 +163,7 @@ func main() {
 	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
 	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs,
-		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}, trusted); err != nil {
+		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}, trusted, extURL); err != nil {
 		fatal("%v", err)
 	}
 }
@@ -184,7 +193,7 @@ func parseTrustedProxies(s string) ([]netip.Prefix, error) {
 // ingressOpts is the builtin HTTP terminator's config (plans/ingress.md ING-3).
 type ingressOpts struct{ Listen, Cert, Key string }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts, trustedProxies []netip.Prefix) error {
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts, trustedProxies []netip.Prefix, externalURL string) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -437,6 +446,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	}
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
+	brk.ExternalURL = externalURL
 
 	// Fold cgroup at-limit events into the workspace alerts: a tile that keeps
 	// hitting its memory or pids cap surfaces in the admin console / shell.
@@ -639,6 +649,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		WebFS: webFS, DocsFS: docsFS,
 		ComponentAPI: px, Version: version,
 		TrustedProxies: trustedProxies,
+		ExternalURL:    externalURL,
 	}
 	// One client-IP resolver for everything: login throttle, session IP
 	// attribution, and the /c/ warm-IP gate (all trusted-proxy aware).
@@ -814,11 +825,17 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		return err
 	}
 
+	// The printed URL should be the one a human can actually open: prefer
+	// the configured public address over the raw listen socket.
+	printURL := baseURL
+	if externalURL != "" {
+		printURL = externalURL
+	}
 	if noAuth {
 		slog.Warn("auth disabled")
-		fmt.Printf("\n  xbin (no auth): %s\n\n", baseURL)
+		fmt.Printf("\n  xbin (no auth): %s\n\n", printURL)
 	} else {
-		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", baseURL, a.OwnerTokenValue())
+		fmt.Printf("\n  xbin login URL:\n  %s/login?token=%s\n\n", printURL, a.OwnerTokenValue())
 	}
 
 	httpSrv := &http.Server{

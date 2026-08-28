@@ -2007,7 +2007,87 @@ export class BxAdmin extends LitElement {
         stops working immediately. Update host-side
         <span class="mono">XBIN_TOKEN</span> afterwards.</span>
       </div>
-      ${this._tokenBox()}`;
+      ${this._tokenBox()}
+      ${this._ssoView(s.sso)}`;
+  }
+
+  // ---- SSO sign-in (docs/auth.md §SSO, D51) ----
+  // Generic OIDC (Google/Keycloak/Okta/Entra/authentik/custom) or GitHub
+  // OAuth2. The client secret is write-only: the server only reports whether
+  // one is set. Who gets in stays the admin's call — bind emails on user rows
+  // and/or set the domain allow-rule for JIT provisioning.
+  _ssoView(sso) {
+    const c = sso || {};
+    const presets = [
+      ['', '— off —'], ['google', 'Google Workspace'], ['github', 'GitHub'],
+      ['keycloak', 'Keycloak'], ['okta', 'Okta'], ['entra', 'Microsoft Entra'],
+      ['authentik', 'authentik'], ['custom', 'custom OIDC'],
+    ];
+    const preset = c.enabled ? (c.preset || 'custom') : (this._ssoPreset ?? '');
+    const needsIssuer = preset && preset !== 'google' && preset !== 'github';
+    return html`
+      <h4 style="margin-top:16px">single sign-on</h4>
+      <div style="font-size:12px; max-width:52ch">
+        ${c.enabled ? html`<div style="margin-bottom:6px">
+            <span class="dot" style="background:${c.ready ? 'var(--bx-green,#43a047)' : 'var(--bx-amber,#f2a71b)'}"></span>
+            ${c.ready ? 'active' : 'configured but NOT active — the daemon needs --external-url (XBIN_EXTERNAL_URL) for the redirect URI'}
+            ${c.externalUrl ? html` · callback <span class="mono">${c.externalUrl}/login/sso/callback</span>` : nothing}
+          </div>`
+          : html`<div class="muted" style="margin-bottom:6px">Off — accounts sign in with passwords.
+            Configure a provider to put a "Sign in with …" button on the login page.
+            Requires the daemon flag <span class="mono">--external-url</span>${c.externalUrl ? html` (set: <span class="mono">${c.externalUrl}</span>)` : ' (not set)'}.</div>`}
+        <select @change=${(e) => { this._ssoPreset = e.target.value; this.requestUpdate(); }}>
+          ${presets.map(([v, l]) => html`<option value=${v} ?selected=${preset === v}>${l}</option>`)}
+        </select>
+        ${preset ? html`
+          ${needsIssuer ? html`<input id="sso-issuer" placeholder="issuer URL (https://idp.example/realms/x)"
+              value=${c.issuer || ''} style="margin-top:6px; width:100%">` : nothing}
+          <input id="sso-cid" placeholder="client id" value=${c.clientId || ''} style="margin-top:6px; width:100%">
+          <input id="sso-csec" type="password" style="margin-top:6px; width:100%"
+            placeholder=${c.clientSecretSet ? 'client secret (unchanged if left empty)' : 'client secret'}>
+          <input id="sso-domains" placeholder="allowed domains for auto-provisioning, comma-separated (empty = pre-bound emails only)"
+            value=${(c.allowedDomains || []).join(', ')} style="margin-top:6px; width:100%">
+          <input id="sso-label" placeholder="button label (default per provider)" value=${c.buttonLabel || ''}
+            style="margin-top:6px; width:100%">
+          <div style="margin-top:8px">
+            <button class="act go" @click=${() => this._saveSSO(preset)}>save SSO config</button>
+            ${c.enabled ? html`<button class="act rm" @click=${() => this._clearSSO()}>disable SSO</button>` : nothing}
+          </div>
+          <div class="muted" style="margin-top:6px">Users match by the <b>email</b> on their account
+            (set it in the users table / <span class="mono">bx user set --email</span>); unknown emails
+            under an allowed domain are auto-provisioned with default-tile access. GitHub uses the
+            account's verified primary email. Apple is not supported (no static client secret).</div>` : nothing}
+      </div>`;
+  }
+
+  async _saveSSO(preset) {
+    const g = (id) => this.renderRoot.querySelector('#' + id)?.value?.trim() ?? '';
+    const sso = {
+      kind: preset === 'github' ? 'github' : 'oidc',
+      preset,
+      issuer: preset === 'google' ? 'https://accounts.google.com' : g('sso-issuer'),
+      clientId: g('sso-cid'),
+      clientSecret: this.renderRoot.querySelector('#sso-csec')?.value ?? '',
+      allowedDomains: g('sso-domains').split(',').map((d) => d.trim()).filter(Boolean),
+      buttonLabel: g('sso-label'),
+    };
+    if (preset === 'github') sso.issuer = '';
+    try {
+      await api('/auth-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sso }) });
+      this._notice = 'SSO configuration saved'; this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    this._refresh();
+  }
+
+  async _clearSSO() {
+    if (!confirm('Disable SSO sign-in? The login page drops the SSO button; existing sessions stay.')) return;
+    try {
+      await api('/auth-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sso: null }) });
+      this._ssoPreset = ''; this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+    this._refresh();
   }
 
   async _rotateToken() {
@@ -2116,7 +2196,8 @@ export class BxAdmin extends LitElement {
           const createKey = `user:${u.id}:create`;
           return html`<tr style=${u.disabled ? 'opacity:.55' : ''}>
           <td class="mono">${u.id}</td>
-          <td>${u.name}</td>
+          <td>${u.name}${u.email ? html` <span class="muted mono" style="font-size:10.5px"
+            title="SSO binding — a verified ${u.email} sign-in lands on this account (bx user set ${u.id} --email …)">&lt;${u.email}&gt;</span>` : nothing}</td>
           <td><span class="pill">${u.role}</span>${u.disabled ? html`<span class="pill" style="color:var(--bx-red,#e5484d); border-color:var(--bx-red,#e5484d)" title="account disabled — can't sign in; everything is kept for re-enable (D34)">disabled</span>` : nothing}${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
           <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
             : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}

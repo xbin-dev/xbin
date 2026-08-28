@@ -59,7 +59,12 @@ func levelRank(l string) int {
 type User struct {
 	ID   string `json:"id"`   // stable, lowercase; the login name
 	Name string `json:"name"` // display name
-	Role string `json:"role"` // admin | user
+	// Email binds an SSO identity (sso.go) to this row: a verified IdP email
+	// matching it signs in as this user. Lowercased; unique across the store;
+	// optional (password-only users don't need one). NOT an id — ids are
+	// permanent directory-safe keys (validID), emails can change.
+	Email string `json:"email,omitempty"`
+	Role  string `json:"role"` // admin | user
 	// Tiles maps a component path — or a `prefix/*` / `*` pattern — to that
 	// user's access level (read|write|terminal). Levels union: the highest
 	// matching entry wins, so patterns widen access and can't narrow it.
@@ -285,6 +290,12 @@ type Store struct {
 	// exist. The Bearer owner token still works for tooling (bx). Enforced in
 	// internal/auth and the login handler.
 	tokenLoginDisabled bool
+
+	// sso is the workspace's SSO sign-in configuration (sso.go). Stored here
+	// — NOT the vault — because login must work while the vault is sealed at
+	// boot; same protection class as the password hashes in this file (0600,
+	// masked out of every terminal mount).
+	sso *SSOConfig
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -317,6 +328,7 @@ func Open(dataDir string) (*Store, error) {
 		AccessRequests     []AccessRequest           `json:"accessRequests"`
 		RequestCooldowns   map[string]int64          `json:"requestCooldowns"`
 		TokenLoginDisabled bool                      `json:"tokenLoginDisabled"`
+		SSO                *SSOConfig                `json:"sso"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -334,6 +346,7 @@ func Open(dataDir string) (*Store, error) {
 	s.requests = doc.AccessRequests
 	s.dismissed = doc.RequestCooldowns
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
+	s.sso = doc.SSO
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -477,6 +490,17 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 			return nil, err
 		}
 	}
+	// Email binds SSO logins to this row — must stay unique or one IdP
+	// identity would resolve to two accounts.
+	u.Email = strings.ToLower(strings.TrimSpace(u.Email))
+	if u.Email != "" {
+		if !strings.Contains(u.Email[1:], "@") {
+			return nil, fmt.Errorf("invalid email %q", u.Email)
+		}
+		if s.emailTakenLocked(u.Email, u.ID) {
+			return nil, fmt.Errorf("email %s is already bound to another user", u.Email)
+		}
+	}
 	if password != "" {
 		salt := make([]byte, 16)
 		if _, err := rand.Read(salt); err != nil {
@@ -590,6 +614,9 @@ func (s *Store) persistLocked() error {
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
 	doc := map[string]any{"users": users, "tokenLoginDisabled": s.tokenLoginDisabled}
+	if s.sso != nil {
+		doc["sso"] = s.sso
+	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))
 		for _, o := range s.orgs {

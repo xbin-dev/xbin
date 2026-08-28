@@ -24,7 +24,8 @@ bx builtin updates | update <id> [--replace|--merge|--pr]
 bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a
-                                       single-use invite link (D22);
+                                       single-use invite link (D22); --email
+                                       binds an SSO identity (docs/auth.md §SSO);
                                        set --disable/--enable pauses/restores
                                        the whole account (D34)
 bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)

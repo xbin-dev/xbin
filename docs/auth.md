@@ -441,10 +441,46 @@ delivery has two shapes:
 
 The account row is deliberately **credential-agnostic**: a user is an ID plus
 however their credential arrives — an admin-set password, an invite-redeemed
-one, and in the future an **SSO/OIDC identity** (enterprise/Google-Workspace
-sign-in for company-wide workspaces) would bind to the same row via the same
+one, or an **SSO identity** (below) bound to the same row via the same
 no-self-signup rule (the IdP asserts identity; a workspace admin — or a
 domain allow-rule they configure — still decides who gets an account).
+
+## SSO sign-in (D51)
+
+One provider per workspace, configured in the admin console's sign-in
+security panel (or `PATCH /auth-settings {sso:{…}}`): **generic OIDC** —
+authorization code + PKCE, ID token verified against the issuer's JWKS —
+with presets for **Google Workspace**, **Keycloak**, **Okta**, **Microsoft
+Entra**, and **authentik** (on-prem presets take your issuer URL), plus a
+**GitHub** OAuth2 path (GitHub has no OIDC; identity is the account's
+verified primary email from its API). *Apple is deliberately unsupported*:
+it has no static client secret (an ES256 JWT minted from a downloaded `.p8`
+key) and private-relay emails defeat the domain rule.
+
+Who gets in stays yours to decide, two ways (both may be active):
+
+- **Email binding** — set `email` on a user row (`bx user set <id>
+  --email a@corp.com`, the users table, or `PATCH /users/<id>`). A verified
+  IdP sign-in for that email lands on that account — including admins.
+- **Domain allow-rule (JIT provisioning)** — list allowed domains in the SSO
+  config; a first sign-in with a verified email under one auto-creates a
+  `user`-role account (id derived from the email local-part, default-tile
+  access only, credential-less — SSO *is* the credential). The Google preset
+  additionally requires the Workspace `hd` claim to match, so a consumer
+  Google account can't slip through. No domains configured = binding-only.
+
+Requirements and mechanics: the daemon needs **`--external-url`**
+(`XBIN_EXTERNAL_URL`) — the stable public console URL the redirect URI
+`<external-url>/login/sso/callback` is registered under at the IdP; an
+explicitly-unverified email always refuses; a disabled account refuses (and
+its sessions die, as everywhere); logins and JIT provisioning emit audit
+lines. The client secret is stored in `data/users.json` (0600, masked from
+every terminal mount — the vault can't hold it: it's sealed at boot, and
+login must work before an admin can unseal) and is write-only through the
+API. SSO discovery/token calls are the daemon's only outbound HTTP
+(`HTTPS_PROXY` honored). Password login stays available alongside SSO;
+sessions, TTLs, throttling, and the sessions tab treat SSO logins exactly
+like password ones.
 
 ## Disable, suspend, and asking for access (D34/D36)
 

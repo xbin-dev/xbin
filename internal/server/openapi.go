@@ -126,10 +126,10 @@ func endpoints() []ep {
 			"Live login sessions with client IPs (login IP + last-seen IP) and activity times, newest activity first. current:true marks the caller's own session for cookie-authenticated calls (tile-driven calls carry a frame token, no cookie, so no row is current there). Session ids are credentials and are never returned. Bootstrap owner-token logins are stateless and do not appear. This is the attribution view for the /c/ warm-IP gate: tile subresource loads without credentials are served only from an IP that authenticated within the last hour.",
 			nil, nil, "{sessions:[{user,name,created,lastActive,ip,lastIP,current}]}"},
 		{"GET", "/auth-settings", "Users", "Get auth settings", "xbin:users",
-			"Owner-token browser-login state. canDisable reports whether THIS caller may disable it (an admin user exists and the caller is a signed-in admin user, directly or driving a tile).", nil, nil, "{tokenLoginDisabled,hasAdminUser,canDisable}"},
+			"Sign-in policy: owner-token browser-login state (canDisable reports whether THIS caller may disable it) and the SSO configuration (docs/auth.md §SSO) — client secret reduced to clientSecretSet; ready = configured AND --external-url set.", nil, nil, "{tokenLoginDisabled,hasAdminUser,canDisable,sso:{enabled,ready,kind,preset,issuer,clientId,clientSecretSet,allowedDomains,buttonLabel,externalUrl}}"},
 		{"PATCH", "/auth-settings", "Users", "Update auth settings", "xbin:users",
-			"Enable/disable owner-token browser login (/login?token= + owner cookie). Disabling needs an admin user and a signed-in admin-user caller; the Bearer owner token is unaffected.",
-			nil, jsonBody("settings", oapi{"tokenLoginDisabled": boolean()}, "tokenLoginDisabled"), "{tokenLoginDisabled}"},
+			"Enable/disable owner-token browser login (/login?token= + owner cookie; disabling needs a signed-in admin-user caller; Bearer unaffected), and/or set the SSO config: an sso object replaces it (empty clientSecret keeps the stored one), sso:null clears it.",
+			nil, freeBody("{tokenLoginDisabled?:bool, sso?:{kind,preset,issuer,clientId,clientSecret,allowedDomains,buttonLabel}|null}"), "{tokenLoginDisabled,sso}"},
 
 		// --- orgs & teams (docs/auth.md) ---
 		{"GET", "/orgs", "Orgs", "List orgs (management view)", "xbin:users",

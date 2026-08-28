@@ -162,6 +162,16 @@ its own throttle/attribution identity), and without it every client keys on
 the proxy's IP — sharing the login throttle and the `/c/` warm-IP gate, and
 showing the proxy's address in the admin console's sessions tab.
 
+**SSO** ([auth.md](../auth.md) §SSO) additionally needs `--external-url` /
+`XBIN_EXTERNAL_URL` — the console's stable public base URL (e.g.
+`https://xbin.corp.example`, the address your proxy serves). Register
+`<external-url>/login/sso/callback` as the redirect URI at the provider —
+for Google Workspace: Cloud Console → APIs & Services → Credentials → OAuth
+client (Web application), authorized redirect URI as above, then paste the
+client id/secret into the admin console's sign-in security panel and (for
+JIT provisioning) list your Workspace domain. When set, `--external-url` is
+also what the boot login URL and invite links print.
+
 Public traffic is a **separate, opt-in door** ([13-ingress.md](13-ingress.md)):
 set `XBIN_INGRESS_LISTEN` (+ `XBIN_INGRESS_CERT`/`KEY` for bring-your-own
 TLS, reloaded on renewal) and it serves *only* published tile routes — never

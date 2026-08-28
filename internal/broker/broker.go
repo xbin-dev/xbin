@@ -65,6 +65,10 @@ type Broker struct {
 	// symlinks and regenerate go.work without waiting for the watcher.
 	OnStructureChange func()
 
+	// ExternalURL is the console's configured public base URL (--external-url;
+	// "" = none). Preferred when building absolute links (invite links).
+	ExternalURL string
+
 	// OnGrantChange, if set, is called with a component whose spawn-materialized
 	// access changed (a res:* resource / gpu:* grant, or a `net` interface
 	// binding added/revoked) so the host can restart its backend to pick up the

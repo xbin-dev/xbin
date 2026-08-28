@@ -1044,3 +1044,32 @@ Deviations and refinements made while implementing; all deliberate:
   misread every divergence as a conflict) and over PR-based delivery
   (D49) — a real git merge with shared ancestry is strictly stronger
   here, and the remote already existed.
+
+- **D51 — SSO sign-in: generic OIDC + GitHub, email-bound to the
+  credential-agnostic User row (2026-08-25).** Implements what D22 reserved:
+  an IdP identity is just another credential arriving at the same User row.
+  Shape: ONE provider per workspace — generic OIDC (code + PKCE; ID token
+  verified via JWKS; presets google/keycloak/okta/entra/authentik/custom)
+  plus a distinct GitHub OAuth2 path (GitHub has no OIDC — identity is the
+  API's verified primary email). Resolution order: User.Email binding
+  (new field; unique, lowercased — ids stay the permanent dir-safe keys,
+  emails can change) → the admin's domain allow-rule JIT-provisions a
+  default-access, credential-less account (ProvisionSSO, sibling of
+  UpsertInvited; id folded from the email local-part). Explicitly-unverified
+  emails always refuse; the google preset with domains set also requires a
+  matching `hd` claim. Storage: SSOConfig (client secret included) lives in
+  data/users.json next to tokenLoginDisabled — the VAULT CANNOT hold it (it
+  boots sealed; login must work before an admin can unseal — circular), and
+  the file already carries the password hashes at the same 0600/masked
+  protection. The redirect URI comes from the new --external-url (xbind had
+  no public-URL concept; request-derived URIs can't be pre-registered at an
+  IdP), which also fixes the printed boot/invite links. Round-trip state
+  (state/nonce/PKCE verifier) rides an HMAC-signed 10-min cookie keyed by a
+  boot-random secret — no server-side store; a mid-login restart just means
+  clicking again. Deps: golang.org/x/oauth2 + coreos/go-oidc/v3
+  (user-chosen over hand-rolled stdlib; first outbound HTTP the daemon
+  makes). Rejected/deferred: Apple (client secret is an ES256 JWT minted
+  from a .p8; private-relay emails defeat the domain rule), reverse-proxy
+  header auth (no operator need), passwordLoginDisabled SSO-only mode,
+  IdP-group→org mapping, and offboard-on-IdP-removal reconciliation —
+  recorded as follow-ups.

@@ -17,6 +17,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -133,6 +134,10 @@ func (s *Store) UpsertInvited(u User) (*User, error) {
 	}
 	if err := validID(u.ID); err != nil {
 		return nil, err
+	}
+	u.Email = strings.ToLower(strings.TrimSpace(u.Email))
+	if u.Email != "" && s.emailTakenLocked(u.Email, u.ID) {
+		return nil, fmt.Errorf("email %s is already bound to another user", u.Email)
 	}
 	u.PassHash = ""
 	u.Created = time.Now().Unix()

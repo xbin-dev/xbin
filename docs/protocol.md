@@ -69,6 +69,18 @@ GET  /login?invite=<tok>         invite set-password page (D22; single-use link)
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
                                  signs the user in (throttled)
+GET  /login/sso                  SSO sign-in start (docs/auth.md §SSO; 404 when
+                                 not configured): redirects to the IdP with
+                                 PKCE + state + nonce, carried in a signed
+                                 short-TTL cookie (throttled)
+GET  /login/sso/callback         the IdP's return leg: verifies state and the
+                                 ID token (or fetches GitHub's verified
+                                 primary email), resolves the email to a user
+                                 (bound Email first, else the domain
+                                 allow-rule JIT-provisions), then mints the
+                                 same session cookie as password login.
+                                 Errors land back on /login as fixed
+                                 ?sso_err= codes (throttled; audit-logged)
 POST /logout                     revoke the session
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the

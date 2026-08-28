@@ -10,6 +10,28 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-08-25
+
+- **SSO sign-in: "Sign in with Google / Keycloak / Okta / Entra / authentik
+  / GitHub".** Generic OIDC (authorization code + PKCE, ID token verified
+  against the issuer's JWKS) with provider presets, plus a GitHub OAuth2
+  path (verified primary email; GitHub has no OIDC). Configure it in the
+  admin console's sign-in security panel or `PATCH /auth-settings {sso:…}`.
+  No self-signup, ever: a verified IdP email signs in as the user row whose
+  new **`email` field** matches (`bx user set <id> --email a@corp.com`), or
+  — when you list **allowed domains** — JIT-provisions a default-access
+  `user` account (Google additionally requires the Workspace `hd` claim, so
+  consumer accounts can't slip through). Requires the new **`--external-url`**
+  / `XBIN_EXTERNAL_URL` (the stable public console URL the
+  `/login/sso/callback` redirect URI is registered under; also improves the
+  printed boot-login and invite links). The client secret is write-only and
+  lives with the user store (the vault is sealed at boot — a login secret
+  there would be circular); SSO discovery/token calls are the daemon's only
+  outbound HTTP (`HTTPS_PROXY` honored). Apple is deliberately unsupported
+  (no static client secret; private-relay emails defeat domain rules).
+  Password login continues to work alongside. New deps: `golang.org/x/oauth2`,
+  `coreos/go-oidc/v3`. Details: docs/auth.md §SSO, D51.
+
 ## 2026-08-24
 
 - **Tiles can trigger file downloads again: `allow-downloads` +

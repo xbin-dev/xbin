@@ -5,14 +5,18 @@ package server
 
 import (
 	"bufio"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -63,6 +67,19 @@ type Server struct {
 	// IP is always authoritative.
 	TrustedProxies []netip.Prefix
 
+	// ExternalURL is the console's public base URL (--external-url), e.g.
+	// https://xbin.corp.example — the stable address an OIDC redirect URI is
+	// registered under; also preferred for printed login/invite links. Empty
+	// on tunnel-only deployments (SSO then refuses to start).
+	ExternalURL string
+
+	// SSO runtime state (sso.go): per-issuer cached OIDC provider and the
+	// boot-random HMAC key signing the one-shot login-state cookie.
+	ssoMu         sync.Mutex
+	ssoProv       *oidc.Provider
+	ssoProvIssuer string
+	ssoStateKey   []byte
+
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	loginThrottle *loginThrottle
 }
@@ -87,6 +104,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /login", s.handleLogin)
 	mux.HandleFunc("POST /login", s.handleLogin)
 	mux.HandleFunc("POST /login/invite", s.handleInviteRedeem)
+	mux.HandleFunc("GET /login/sso", s.handleSSOStart)             // SSO: to the IdP (sso.go)
+	mux.HandleFunc("GET /login/sso/callback", s.handleSSOCallback) // SSO: back from it
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.Handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +312,23 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(loginPageHTML))
+	page := loginPageHTML
+	// SSO button — rendered only when configured AND startable (external-url
+	// set). Label is admin-config, HTML-escaped.
+	sso := ""
+	if s.SSOReady() {
+		sso = `<a class="sso" href="/login/sso">` + html.EscapeString(SSOButtonLabel(s.ssoConfig())) +
+			`</a><div class="or">or</div>`
+	}
+	page = strings.ReplaceAll(page, "{{SSO}}", sso)
+	// Callback errors arrive as fixed codes, mapped server-side — never
+	// attacker text.
+	errHTML := ""
+	if msg := ssoErrText(r.URL.Query().Get("sso_err")); msg != "" {
+		errHTML = `<div class="err">` + html.EscapeString(msg) + `</div>`
+	}
+	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
+	_, _ = w.Write([]byte(page))
 }
 
 // serveInvitePage renders the set-your-password page for an invite link

@@ -222,6 +222,9 @@ type userBody struct {
 	// set, but rows/memberships/ownership stay for re-enable.
 	Disabled *bool  `json:"disabled"`
 	Password string `json:"password"`
+	// Email binds an SSO identity to this account (docs/auth.md §SSO).
+	// Pointer for PATCH presence: absent keeps the current value, "" clears.
+	Email *string `json:"email"`
 }
 
 // minPasswordLen is the floor for account passwords set through the API. It's
@@ -271,6 +274,9 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		TermAPI: body.TermAPI != nil && *body.TermAPI,
 		TermNet: body.TermNet != nil && *body.TermNet,
 	}
+	if body.Email != nil {
+		nu.Email = *body.Email
+	}
 	// No password → invite flow (D22): create the account credential-less and
 	// mint a single-use set-your-password link the admin delivers. There is no
 	// self-signup — accounts only ever come from here.
@@ -292,7 +298,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	if invite != "" {
 		out["invite"] = invite
 		out["inviteUrl"] = "/login?invite=" + invite
-		if l := inviteLink(r, invite); l != "" {
+		if l := b.inviteLink(r, invite); l != "" {
 			out["inviteLink"] = l // absolute — what a curl-driven admin pastes
 		}
 		out["inviteExpires"] = time.Now().Add(users.InviteTTL).Unix()
@@ -300,11 +306,16 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, out)
 }
 
-// inviteLink builds the absolute invite URL from the request's own
-// host/scheme (X-Forwarded-Proto honored — invites travel through reverse
-// proxies). bx and the admin tile prepend their known origin themselves;
-// this saves the raw-curl admin from pasting a relative path into a chat.
-func inviteLink(r *http.Request, tok string) string {
+// inviteLink builds the absolute invite URL. The configured --external-url
+// wins (a stable public identity the operator vouched for); else it falls
+// back to the request's own host/scheme (X-Forwarded-Proto honored — invites
+// travel through reverse proxies). bx and the admin tile prepend their known
+// origin themselves; this saves the raw-curl admin from pasting a relative
+// path into a chat.
+func (b *Broker) inviteLink(r *http.Request, tok string) string {
+	if b.ExternalURL != "" {
+		return b.ExternalURL + "/login?invite=" + tok
+	}
 	if r.Host == "" {
 		return ""
 	}
@@ -381,7 +392,7 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 		"invite": tok, "inviteUrl": "/login?invite=" + tok,
 		"inviteExpires": time.Now().Add(users.InviteTTL).Unix(),
 	}
-	if l := inviteLink(r, tok); l != "" {
+	if l := b.inviteLink(r, tok); l != "" {
 		out["inviteLink"] = l
 	}
 	server.WriteJSON(w, http.StatusOK, out)
@@ -442,7 +453,10 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	nu := users.User{
 		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: tiles,
 		CanCreate: cur.CanCreate, TermAPI: cur.TermAPI, TermNet: cur.TermNet,
-		Disabled: cur.Disabled,
+		Disabled: cur.Disabled, Email: cur.Email,
+	}
+	if body.Email != nil {
+		nu.Email = *body.Email
 	}
 	if body.CanCreate != nil {
 		nu.CanCreate = body.CanCreate
@@ -545,7 +559,28 @@ func (b *Broker) apiAuthSettingsGet(w http.ResponseWriter, r *http.Request) {
 		"tokenLoginDisabled": st.TokenLoginDisabled(),
 		"hasAdminUser":       st.HasAdmin(),
 		"canDisable":         st.HasAdmin() && b.attributedAdminUser(auth.PrincipalOf(r)),
+		"sso":                b.ssoView(st),
 	})
+}
+
+// ssoView is auth-settings' SSO block: the stored config with the client
+// secret reduced to a set/unset bool (write-only — it never leaves the
+// store), plus the daemon-side readiness facts the admin UI explains.
+func (b *Broker) ssoView(st *users.Store) map[string]any {
+	c := st.SSO()
+	out := map[string]any{
+		"enabled":     c.Enabled(),
+		"externalUrl": b.ExternalURL,
+		"ready":       c.Enabled() && b.ExternalURL != "",
+	}
+	if c != nil {
+		out["kind"], out["preset"] = c.Kind, c.Preset
+		out["issuer"], out["clientId"] = c.Issuer, c.ClientID
+		out["allowedDomains"] = c.AllowedDomains
+		out["buttonLabel"] = c.ButtonLabel
+		out["clientSecretSet"] = c.ClientSecret != ""
+	}
+	return out
 }
 
 // apiAuthSettingsUpdate toggles owner-token browser login. Disabling it is
@@ -561,10 +596,38 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		TokenLoginDisabled *bool `json:"tokenLoginDisabled"`
+		TokenLoginDisabled *bool           `json:"tokenLoginDisabled"`
+		SSO                json.RawMessage `json:"sso"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.TokenLoginDisabled == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool}"})
+	if err := decodeJSON(r, &body); err != nil || (body.TokenLoginDisabled == nil && body.SSO == nil) {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool} and/or {sso: {...}|null}"})
+		return
+	}
+	// SSO config: an object replaces (empty clientSecret keeps the stored
+	// one), an explicit null clears SSO entirely. Same capability gate as the
+	// rest of sign-in policy.
+	if body.SSO != nil {
+		if string(body.SSO) == "null" {
+			if err := st.SetSSO(nil); err != nil {
+				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+		} else {
+			var c users.SSOConfig
+			if err := json.Unmarshal(body.SSO, &c); err != nil {
+				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad sso object: " + err.Error()})
+				return
+			}
+			if err := st.SetSSO(&c); err != nil {
+				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+	}
+	if body.TokenLoginDisabled == nil {
+		server.WriteJSON(w, http.StatusOK, map[string]any{
+			"tokenLoginDisabled": st.TokenLoginDisabled(), "sso": b.ssoView(st),
+		})
 		return
 	}
 	if *body.TokenLoginDisabled {
@@ -582,7 +645,9 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"tokenLoginDisabled": st.TokenLoginDisabled()})
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"tokenLoginDisabled": st.TokenLoginDisabled(), "sso": b.ssoView(st),
+	})
 }
 
 // apiSessions lists live browser sessions with their client IPs — the

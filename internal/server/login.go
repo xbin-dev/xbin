@@ -143,10 +143,17 @@ button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;bord
   padding:8px;font:700 14px inherit;cursor:pointer}
 button:hover{background:#e0912a}
 .note{margin-top:14px;font-size:11.5px;color:#868f9a}
+.err{background:#3a1616;border:1px solid #8a2f2f;color:#e0a3a3;border-radius:6px;
+  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
+a.sso{display:block;text-align:center;margin-bottom:14px;background:#2b3038;color:#d4d9e0;
+  border:1px solid #454d59;border-radius:6px;padding:8px;font-weight:600;text-decoration:none}
+a.sso:hover{border-color:#f5a623}
+.or{display:flex;align-items:center;gap:8px;color:#5c6672;font-size:11px;margin-bottom:10px}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid #363c45}
 </style></head><body>
 <form class="card" method="post" action="/login">
   <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
-  <label for="u">Username</label>
+  {{ERR}}{{SSO}}<label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
