@@ -102,15 +102,21 @@ RUN bun add -g pnpm yarn || npm install -g pnpm yarn || true
 # bun-preferred, npm-fallback (bun is absent when its verify failed), and
 # best-effort — a registry hiccup must not brick base builds; the inventory
 # step at the end reports anything missing, loudly.
-RUN bun add -g @anthropic-ai/claude-code || npm install -g @anthropic-ai/claude-code || true
-RUN bun add -g @openai/codex || npm install -g @openai/codex || true
+# PINNED versions: an unpinned "latest" here freezes at whatever was current
+# when the layer was FIRST built — the docker cache served claude-code
+# 2.1.207 across a month of releases. Bumping an ARG both updates the tool
+# and busts the cache; updating the base image = bump → release.
+ARG CLAUDE_CODE_VERSION=2.1.260
+RUN bun add -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} || npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} || true
+ARG CODEX_VERSION=0.153.2
+RUN bun add -g @openai/codex@${CODEX_VERSION} || npm install -g @openai/codex@${CODEX_VERSION} || true
 
 # opencode from its release binary (same asset its official installer uses),
 # NOT npm: its npm postinstall re-invokes npm with the parent's lifecycle env
 # (npm_config_global etc.) and misplaces the platform binary, and npm treats
 # a failed optionalDependency as a silent skip — both bit us. A pinned glibc
 # binary sidesteps every layer of that. Bump the pin to update.
-ARG OPENCODE_VERSION=1.18.15
+ARG OPENCODE_VERSION=1.18.27
 RUN case "$(dpkg --print-architecture)" in amd64) oa=x64 ;; arm64) oa=arm64 ;; esac \
     && curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${oa}.tar.gz" \
        | tar -xz -C /usr/local/bin opencode \

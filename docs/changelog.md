@@ -10,6 +10,19 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-04
+
+- **Base image: agent CLIs updated and PINNED — claude-code 2.1.260, codex
+  0.153.2, opencode 1.18.27.** The claude-code/codex installs were unpinned
+  "latest", which in practice froze at whatever was current when the docker
+  layer was first built — the cache served claude-code 2.1.207 across a
+  month of releases. All three now pin via Dockerfile ARGs, so updating the
+  base image is: bump the ARG → release (the base version is a hash of the
+  recipe, so a bump automatically rolls `xbin-base-version` — upgraded
+  installs swap the base and open terminals offer "⬆ base update"). The
+  rebuild also refreshed the @latest Go tools (gopls, dlv, golangci-lint)
+  baked into the image.
+
 ## 2026-08-25
 
 - **SSO sign-in: "Sign in with Google / Keycloak / Okta / Entra / authentik
