@@ -390,6 +390,17 @@ auto-grants the creator `terminal` on it — create ≈ own a namespace.
 Copy-shaped creation (clone, workspace-template instantiate) additionally
 requires **read on the source** — copying is reading.
 
+**Tile-creation policy (D52).** By default (`any`) a non-admin's new tile is
+*theirs* (`user:<id>`-owned) unless they create it as an org where they hold
+Create. The workspace-wide `tileCreation: org-only` setting (admin console →
+orgs → *tile creation*, `bx defaults set --tile-creation org-only`, `PUT
+/defaults`) forbids personal ownership for non-admins: every one of the five
+creation paths refuses a `user:` owner, and an unspecified owner resolves to
+the **single** org where the user holds Create (several → they must name one
+via `owner`; none → refused with "ask an org admin"). Workspace admins are
+unaffected — workspace-owned creation was always an admin act. `GET /whoami`
+reports the policy so owner pickers adapt (the manager tile drops "me").
+
 **The confused-deputy clamp.** An element holding the workspace-management
 grant (`xbin:writer` — the manager tile ships with it) may create tiles, but
 when a signed-in human is attributed on the call (frame/terminal
@@ -411,10 +422,12 @@ implies it):
 ```
 GET    /api/xbin/whoami            caller identity + permissions (any principal)
 GET    /api/xbin/users             list (no hashes)
-POST   /api/xbin/users             create {id,name,role,tiles:{path:level},
-                                   canCreate?,termApi?,termNet?,password}
+POST   /api/xbin/users             create {id,name,role,email?,tiles:{path:level},
+                                   canCreate?,termApi?,termNet?,password?|sso}
 PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset)
 DELETE /api/xbin/users/<id>        remove (revokes their sessions)
+GET    /api/xbin/defaults          provisioning defaults: defaultTiles,
+PUT    /api/xbin/defaults          newUsers (the new-account seed), tileCreation
 ```
 
 (The pre-tiers body — `tiles` as an array + a global `terminal` bool — is
@@ -464,10 +477,32 @@ Who gets in stays yours to decide, two ways (both may be active):
   IdP sign-in for that email lands on that account — including admins.
 - **Domain allow-rule (JIT provisioning)** — list allowed domains in the SSO
   config; a first sign-in with a verified email under one auto-creates a
-  `user`-role account (id derived from the email local-part, default-tile
-  access only, credential-less — SSO *is* the credential). The Google preset
-  additionally requires the Workspace `hd` claim to match, so a consumer
-  Google account can't slip through. No domains configured = binding-only.
+  `user`-role account (id derived from the email local-part, credential-less
+  — SSO *is* the credential) carrying the **new-account defaults** below.
+  The Google preset additionally requires the Workspace `hd` claim to match,
+  so a consumer Google account can't slip through. No domains configured =
+  binding-only.
+
+**Pre-provisioning (D52).** An SSO-only account can be created ahead of the
+first sign-in without a password *or* an invite: the add-user form's
+*sign-in: SSO* mode, `bx user add <id> --sso --email a@corp.com`, or `POST
+/users {sso:true, email}`. It is the same credential-less row the invite flow
+makes, minus the link — the email is what the IdP sign-in resolves to. Use it
+to hand out tiles/org roles before people arrive, or to admit a single
+outside address without opening its whole domain.
+
+**New-account defaults (D52).** Admin console → orgs → *new accounts* (`bx
+defaults`, `PUT /defaults {newUsers}`) is the seed **every** new account
+receives at creation — admin-added, invited, or JIT-provisioned: tiles
+(pattern → level), create patterns, `termApi`/`termNet`, and **org
+memberships** (org + level + Create knob). It is copied onto the row as a
+*union* with whatever the creator specified (the request wins per tile
+path), after which the row is edited like any other; changing the defaults
+later never touches existing accounts. It never grants `admin` — workspace
+or org — so an allow-listed domain can't mint administrators; promote by
+hand. This is the "everyone from corp.com lands in org *corp* as a
+developer" setting. (Contrast `defaultTiles`, the *live* visibility baseline
+evaluated on every check, D27.)
 
 Requirements and mechanics: the daemon needs **`--external-url`**
 (`XBIN_EXTERNAL_URL`) — the stable public console URL the redirect URI
@@ -555,7 +590,10 @@ gates creating new org-owned tiles; `admin` is org management (members,
 org-tile ACLs, transfers, exercising allowances). UI presets: **Admin**
 (terminal+create+admin), **Developer** (terminal+create), **Viewer** (read).
 Tiles can also be **shared to an org** (an `org.Tiles` entry — all members
-get that level, wherever the tile lives).
+get that level, wherever the tile lives). New accounts can auto-join orgs
+through the new-account defaults (§SSO sign-in, D52); the org-only
+tile-creation policy (§Create permission) makes org membership the only way
+a non-admin gets to create tiles at all.
 
 **Effective access (D31 — "your perms on an org tile are your perms in the
 org").** Resolution order:

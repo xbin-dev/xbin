@@ -64,6 +64,9 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		"admin":    b.IsAdmin(p),
 		"terminal": p.CanTerminal(),
 	}
+	if b.Users != nil { // workspace tile-creation policy (D52) — owner pickers adapt to it
+		out["tileCreation"] = b.Users.TileCreation()
+	}
 	switch {
 	case p.User != nil:
 		out["kind"] = "user"
@@ -225,6 +228,10 @@ type userBody struct {
 	// Email binds an SSO identity to this account (docs/auth.md §SSO).
 	// Pointer for PATCH presence: absent keeps the current value, "" clears.
 	Email *string `json:"email"`
+	// SSO (POST only) pre-provisions an SSO-only account: credential-less
+	// like the invite flow but WITHOUT minting an invite — the bound email's
+	// IdP sign-in is the credential (D52). Requires email.
+	SSO bool `json:"sso"`
 }
 
 // minPasswordLen is the floor for account passwords set through the API. It's
@@ -250,8 +257,18 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body userBody
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.ID) == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, name?, role?, tiles?, terminal?, password}"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, name?, role?, tiles?, canCreate?, termApi?, termNet?, email?, password? | sso:true}"})
 		return
+	}
+	if body.SSO {
+		if body.Email == nil || strings.TrimSpace(*body.Email) == "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "an SSO account needs an email to bind the IdP identity to"})
+			return
+		}
+		if body.Password != "" {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "an SSO account takes no password (sign-in is the IdP); drop sso or the password"})
+			return
+		}
 	}
 	if body.Password != "" {
 		if msg := weakPassword(body.Password); msg != "" {
@@ -279,14 +296,20 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// No password → invite flow (D22): create the account credential-less and
 	// mint a single-use set-your-password link the admin delivers. There is no
-	// self-signup — accounts only ever come from here.
+	// self-signup — accounts only ever come from here. sso:true is the same
+	// credential-less row with NO invite: the bound email signs in through
+	// the IdP (pre-provisioning, D52). Either way the new-account defaults
+	// (defaults.go) seed what the request left out.
 	var u *users.User
 	var invite string
-	if body.Password == "" {
+	switch {
+	case body.SSO:
+		u, err = st.UpsertInvited(nu)
+	case body.Password == "":
 		if u, err = st.UpsertInvited(nu); err == nil {
 			invite, err = st.CreateInvite(u.ID, 0)
 		}
-	} else {
+	default:
 		u, err = st.Upsert(nu, body.Password)
 	}
 	if err != nil {

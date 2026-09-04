@@ -595,7 +595,19 @@ func (b *Broker) apiPolicyPut(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
-// --- workspace defaults (D27, ws-admin) --------------------------------------
+// --- workspace defaults (D27 + D52, ws-admin) --------------------------------
+// defaultTiles: the live visibility baseline every user gets. newUsers: the
+// seed copied onto every new account (tiles, create patterns, terminal
+// flags, org memberships) — what SSO JIT provisioning lands with.
+// tileCreation: any | org-only.
+
+func (b *Broker) defaultsView(st *users.Store) map[string]any {
+	return map[string]any{
+		"defaultTiles": st.DefaultTiles(),
+		"newUsers":     st.NewUserDefaults(),
+		"tileCreation": st.TileCreation(),
+	}
+}
 
 func (b *Broker) apiDefaultsGet(w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
@@ -605,9 +617,13 @@ func (b *Broker) apiDefaultsGet(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"defaultTiles": st.DefaultTiles()})
+	server.WriteJSON(w, http.StatusOK, b.defaultsView(st))
 }
 
+// apiDefaultsPut replaces whichever of the three settings are present
+// (each is a whole-value replace, never a merge — an absent key leaves
+// that setting alone, so the admin tile's per-card saves don't clobber
+// each other).
 func (b *Broker) apiDefaultsPut(w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
@@ -617,16 +633,34 @@ func (b *Broker) apiDefaultsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		DefaultTiles map[string]string `json:"defaultTiles"`
+		DefaultTiles map[string]string      `json:"defaultTiles"`
+		NewUsers     *users.NewUserDefaults `json:"newUsers"`
+		TileCreation *string                `json:"tileCreation"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {defaultTiles: {pattern: level}}"})
+	if err := decodeJSON(r, &body); err != nil || (body.DefaultTiles == nil && body.NewUsers == nil && body.TileCreation == nil) {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "need {defaultTiles?: {pattern: level}, newUsers?: {tiles, canCreate, termApi, termNet, orgs:[{org, level, create}]}, tileCreation?: any|org-only}",
+		})
 		return
 	}
-	if err := st.SetDefaultTiles(body.DefaultTiles); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	if body.DefaultTiles != nil {
+		if err := st.SetDefaultTiles(body.DefaultTiles); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if body.NewUsers != nil {
+		if err := st.SetNewUserDefaults(*body.NewUsers); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if body.TileCreation != nil {
+		if err := st.SetTileCreation(*body.TileCreation); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteJSON(w, http.StatusOK, b.defaultsView(st))
 }

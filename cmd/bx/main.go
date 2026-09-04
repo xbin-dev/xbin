@@ -49,6 +49,8 @@ func main() {
 		err = cmdPermset(os.Args[2:])
 	case "access":
 		err = cmdAccess(os.Args[2:])
+	case "defaults":
+		err = cmdDefaults(os.Args[2:])
 	case "code":
 		err = cmdCode(os.Args[2:])
 	case "logs":
@@ -136,6 +138,8 @@ func usage() {
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
   bx owner <tile> [--transfer user:U|org:O|workspace]  tile ownership
   bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets
+  bx defaults [set --tile-creation any|org-only --org o[:level[:create]] …]
+                                        new-account defaults + creation policy
   bx access <tile> [set|rm user:…|org:…] per-tile access entries (owner/admin)
   bx iface                              interface requests, providers, bindings
   bx bind <component> <slot>=<provider> wire an interface to a provider

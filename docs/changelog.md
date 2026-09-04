@@ -12,6 +12,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-04
 
+- **Provisioning: SSO pre-provisioning, new-account defaults (incl. default
+  org membership), and an org-only tile-creation policy (D52).** Three
+  gaps in running a workspace on SSO, closed together:
+  - **Pre-provision SSO-only accounts** — no password, no invite link: the
+    add-user form's *sign-in: SSO* mode, `bx user add <id> --sso --email
+    a@corp.com`, or `POST /users {sso:true, email}`. The bound email's IdP
+    sign-in is the credential. The users table also gained an **email**
+    button to set/clear a row's binding.
+  - **New-account defaults** — admin console → orgs → *new accounts* (`bx
+    defaults`, `GET/PUT /defaults {newUsers}`): tiles, create patterns,
+    term-api/term-net, and **org memberships** (org + level + Create) that
+    every new account starts with — admin-added, invited, *and* SSO
+    auto-provisioned. Seeded once at creation as a union with the request;
+    rows stay individually editable; never grants admin (JIT accounts are
+    always role `user`). This is "everyone from the SSO domain lands in org
+    X as a developer".
+  - **Tile-creation policy** — `tileCreation: org-only` (same card / `bx
+    defaults set --tile-creation org-only`) stops non-admins from owning
+    tiles personally: all five creation paths refuse a `user:` owner and
+    resolve an unspecified owner to the user's single Create org (several →
+    name one; none → refused). Admins unaffected. `GET /whoami` reports
+    `tileCreation`; the manager tile's owner picker drops "me" under it.
+  - `POST /clone`, `/builtins/import`, `/templates/new`, `/git/import` now
+    accept `owner` like `/create` (previously always creator-owned).
 - **Base image: agent CLIs updated and PINNED — claude-code 2.1.260, codex
   0.153.2, opencode 1.18.27.** The claude-code/codex installs were unpinned
   "latest", which in practice froze at whatever was current when the docker

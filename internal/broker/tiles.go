@@ -45,11 +45,12 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
+		Name  string `json:"name"`
+		Path  string `json:"path"`
+		Owner string `json:"owner"` // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Name == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {name, path?}", "docs": "/docs/protocol.md"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {name, path?, owner?}", "docs": "/docs/protocol.md"})
 		return
 	}
 	// Importing a tile creates a component at the (possibly default) target:
@@ -64,7 +65,12 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		}
 		target = m.DefaultPath
 	}
-	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target, ""); !ok {
+	owner, msg := b.resolveCreateOwner(auth.PrincipalOf(r), body.Owner)
+	if msg != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target, owner); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
@@ -101,8 +107,7 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
-	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
-	b.assignOwner(installed, owner)
+	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": installed, "files": files, "pendingGrants": pending,
 	})

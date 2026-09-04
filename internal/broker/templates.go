@@ -69,9 +69,10 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Source string `json:"source"` // builtin name or workspace component path
 		Path   string `json:"path"`   // target component path (optional)
+		Owner  string `json:"owner"`  // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Source == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {source, path?}", "docs": "/docs/protocol.md"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {source, path?, owner?}", "docs": "/docs/protocol.md"})
 		return
 	}
 	// Resolve the source and the effective target FIRST — instantiating
@@ -99,7 +100,12 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 			target = "apps/" + path.Base(srcComp.Path) // instantiateWorkspace's default
 		}
 	}
-	if ok, msg := b.canCreateAt(p, target, ""); !ok {
+	owner, msg := b.resolveCreateOwner(p, body.Owner)
+	if msg != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if ok, msg := b.canCreateAt(p, target, owner); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
@@ -164,8 +170,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
-	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
-	b.assignOwner(installed, owner)
+	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": installed, "files": files, "pendingGrants": pending,
 	})

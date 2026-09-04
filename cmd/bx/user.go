@@ -13,6 +13,7 @@ import (
 //	bx user ls
 //	bx user add <id> [--admin] [--tiles a=terminal,b=read,lib/*] [--create sales/*]
 //	                 [--term-api] [--term-net] [--email a@b.c]  (prompts for password)
+//	                 [--invite | --sso]   invite link / SSO-only account (needs --email)
 //	bx user set <id> [--admin|--user] [--tiles …] [--create …] [--email a@b.c]
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
 //	bx user rm  <id>
@@ -20,10 +21,11 @@ import (
 // --tiles maps paths (or prefix/* patterns) to access levels read|write|
 // terminal (D16); a bare path means write. --create lists path patterns the
 // user may create tiles under. --term-api / --term-net grant a non-admin's
-// terminals the live tile-API token / internet egress (D17).
+// terminals the live tile-API token / internet egress (D17). New accounts
+// also receive the workspace's new-account defaults (`bx defaults`, D52).
 func cmdUser(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite] | set <id> [flags] | invite <id> | rm <id>")
+		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] | set <id> [flags] | invite <id> | rm <id>")
 	}
 	switch args[0] {
 	case "ls":
@@ -121,6 +123,11 @@ func cmdUser(args []string) error {
 				wantPw = true
 			case "--invite":
 				wantPw = false // create credential-less → the server mints an invite link
+			case "--sso":
+				// Pre-provision an SSO-only account (D52): credential-less, no
+				// invite — the bound --email signs in through the IdP.
+				wantPw = false
+				body["sso"] = true
 			case "--disable":
 				body["disabled"] = true
 			case "--enable":
@@ -177,6 +184,9 @@ func cmdUser(args []string) error {
 			return err
 		}
 		fmt.Printf("%s %s\n", map[string]string{"add": "created", "set": "updated"}[args[0]], id)
+		if body["sso"] == true {
+			fmt.Printf("SSO account — signs in through the IdP as %v (no password, no invite)\n", body["email"])
+		}
 		printInvite(out.InviteURL)
 		return nil
 

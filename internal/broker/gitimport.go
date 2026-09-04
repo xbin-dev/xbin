@@ -113,9 +113,9 @@ func dedupSortTags(tags []string) []string {
 
 // apiGitImport (POST /git/import {url, path?, ref?}) clones a remote component in.
 func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
-	var body struct{ URL, Path, Ref string }
+	var body struct{ URL, Path, Ref, Owner string } // owner as /create (D24/D52)
 	if err := decodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {url, path?, ref?} with a valid git URL"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {url, path?, ref?, owner?} with a valid git URL"})
 		return
 	}
 	url := strings.TrimSpace(body.URL)
@@ -125,7 +125,12 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Importing creates a tile at `path` — same authority as /create (create
 	// patterns work; the confused-deputy clamp applies to attributed humans).
-	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path, ""); !ok {
+	owner, msg := b.resolveCreateOwner(auth.PrincipalOf(r), body.Owner)
+	if msg != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path, owner); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
@@ -205,8 +210,7 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
-	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
-	b.assignOwner(path, owner)
+	b.assignOwner(path, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending,
 	})

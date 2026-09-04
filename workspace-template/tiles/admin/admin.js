@@ -70,6 +70,9 @@ export class BxAdmin extends LitElement {
     _notice: { state: true },   // green success line (never the red .err slot)
     _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
+    _newUsers: { state: true }, // new-account defaults {tiles, canCreate, termApi, termNet, orgs} (D52)
+    _tileCreation: { state: true }, // 'any' | 'org-only' (D52)
+    _newSignin: { state: true }, // add-user form: 'password' | 'invite' | 'sso'
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
     _matrix: { state: true },   // /access-matrix payload (access-map tab)
@@ -515,6 +518,7 @@ export class BxAdmin extends LitElement {
       this._orgs = orgs.orgs ?? [];
       this._wsPolicy = wsPolicy.policy ?? [];
       this._permsets = permsets; this._defaults = defaults.defaultTiles ?? {};
+      this._newUsers = defaults.newUsers ?? {}; this._tileCreation = defaults.tileCreation ?? 'any';
       this._reqs = reqs.requests ?? [];
       this._sessions = sessions.sessions ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
@@ -1929,15 +1933,28 @@ export class BxAdmin extends LitElement {
   // ---- users ----
   // Tile access is per-path levels (read < write < terminal, D16), edited
   // with the click-through row editors (_tilesEditor/_patternsEditor).
+  // Sign-in modes (D22/D52): password (set here), invite link (credential-
+  // less + a single-use link), or SSO (credential-less, NO link — the bound
+  // email signs in through the IdP). The server seeds the new-account
+  // defaults on top of whatever is given here.
   async _createUser(f) {
+    const signin = f.signin.value;
+    const body = { id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
+      email: f.email.value.trim(), termApi: f.termApi.checked, termNet: f.termNet.checked };
+    if (signin === 'sso') body.sso = true;
+    else if (signin === 'password') body.password = f.password.value;
     try {
       const d = await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
-          termApi: f.termApi.checked, termNet: f.termNet.checked,
-          password: f.password.value }) });
-      if (d?.inviteUrl) this._invite = { id: f.id.value.trim(), url: location.origin + d.inviteUrl };
+        body: JSON.stringify(body) });
+      if (d?.inviteUrl) this._invite = { id: body.id, url: location.origin + d.inviteUrl };
       f.reset(); this._err = ''; this._refresh(); // only clear the form on success
+      if (signin === 'sso') { this._notice = `${body.id} created — signs in via SSO as ${body.email}`; setTimeout(() => { this._notice = ''; }, 5000); }
     } catch (e) { this._err = String(e.message ?? e); }
+  }
+  _editEmail(u) {
+    const v = prompt(`Email bound to ${u.id} — a verified SSO sign-in for it lands on this account (empty clears):`, u.email ?? '');
+    if (v == null) return;
+    this._patchUser(u.id, { email: v.trim() }).catch((e) => { this._err = String(e.message ?? e); });
   }
   async _patchUser(id, patch) {
     await api(`/users/${encodeURIComponent(id)}`, { method: 'PATCH',
@@ -2054,9 +2071,12 @@ export class BxAdmin extends LitElement {
             ${c.enabled ? html`<button class="act rm" @click=${() => this._clearSSO()}>disable SSO</button>` : nothing}
           </div>
           <div class="muted" style="margin-top:6px">Users match by the <b>email</b> on their account
-            (set it in the users table / <span class="mono">bx user set --email</span>); unknown emails
-            under an allowed domain are auto-provisioned with default-tile access. GitHub uses the
-            account's verified primary email. Apple is not supported (no static client secret).</div>` : nothing}
+            (the users table's <b>email</b> button, the add-user form's <b>sign-in: SSO</b> mode for
+            pre-provisioning, or <span class="mono">bx user add --sso --email</span>); unknown emails
+            under an allowed domain are auto-provisioned as role <b>user</b> with the
+            <b>new accounts</b> defaults from the orgs tab (tiles, create patterns, org memberships —
+            never admin). GitHub uses the account's verified primary email. Apple is not supported
+            (no static client secret).</div>` : nothing}
       </div>`;
   }
 
@@ -2215,6 +2235,7 @@ export class BxAdmin extends LitElement {
               <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(u.canCreate ?? [])])}>create…</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? '− api' : '+ api'}</button>
               <button class="act" @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? '− net' : '+ net'}</button>`}
+            <button class="act" title="set/clear the SSO email binding" @click=${() => this._editEmail(u)}>email</button>
             <button class="act" title="mint a single-use set-password link (re-minting invalidates the old one)"
               @click=${() => this._mintInvite(u.id)}>invite</button>
             ${this._pwEdit === u.id ? html`
@@ -2245,20 +2266,35 @@ export class BxAdmin extends LitElement {
       ${this._requestsView()}
 
       <h4>add user</h4>
+      ${(() => {
+        const ssoOn = !!this._authSettings?.sso?.enabled;
+        const signin = this._newSignin ?? 'password';
+        return html`
       <form class="inline" @submit=${(e) => { e.preventDefault(); this._createUser(e.target); }}>
         <input name="id" placeholder="username" size="12" required>
         <input name="name" placeholder="display name" size="14">
+        <input name="email" type="email" size="20" ?required=${signin === 'sso'}
+          placeholder=${signin === 'sso' ? 'email (the IdP identity)' : 'email (optional — SSO binding)'}>
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termNet"> term-net</label>
-        <input name="password" type="password" placeholder="password (empty → invite link)" size="16" minlength="8">
+        <select name="signin" title="how this account signs in" @change=${(e) => { this._newSignin = e.target.value; }}>
+          <option value="password" ?selected=${signin === 'password'}>sign-in: password</option>
+          <option value="invite" ?selected=${signin === 'invite'}>sign-in: invite link</option>
+          <option value="sso" ?selected=${signin === 'sso'} ?disabled=${!ssoOn}>sign-in: SSO${ssoOn ? '' : ' (not configured)'}</option>
+        </select>
+        ${signin === 'password' ? html`<input name="password" type="password" placeholder="password (min 8)" size="16" minlength="8" required>` : nothing}
         <button class="act go">create</button>
-      </form>
+      </form>`;
+      })()}
       ${this._inviteBox()}
       <p class="muted" style="font-size:11px;margin-top:6px">
-        Leave the password empty to get a single-use <b>invite link</b> instead —
-        the new user sets their own password when opening it (there is no
-        self-signup; accounts only come from here).
+        <b>invite link</b>: the account is created without a password and you get
+        a single-use link the new user opens to set their own (there is no
+        self-signup; accounts only come from here). <b>SSO</b>: no password and no
+        link — the account is pre-provisioned and the given email's IdP sign-in
+        lands on it. Every new account also starts with the <b>new accounts</b>
+        defaults from the orgs tab (tiles, create patterns, org memberships).
         Grant tile access with the <b>tiles…</b> editor after creating (levels:
         <b>read</b> = see the tile + its source · <b>write</b> = edit/drive it ·
         <b>terminal</b> = a root shell in its directory — trusted users only).
@@ -2978,6 +3014,23 @@ export class BxAdmin extends LitElement {
         Baseline visibility every user gets (D27) — pattern → level.</p>
       ${this._defaultsEditor()}
 
+      <h4>new accounts</h4>
+      <p class="muted" style="font-size:11px; max-width:60ch">
+        What every NEW account starts with (D52) — copied onto the row at creation
+        (admin-added, invited, or SSO auto-provisioned) on top of what the creator
+        specifies; editable per user afterwards. This is where "everyone from the
+        SSO domain lands in org X as a developer" lives. Never grants admin.</p>
+      ${this._newUsersEditor()}
+
+      <h4>tile creation</h4>
+      <p class="muted" style="font-size:11px; max-width:60ch">
+        Who may create tiles outside an organisation (D52). Workspace-owned tiles
+        are always an admin act; this governs non-admins' personal tiles.</p>
+      <select @change=${(e) => this._putDefaults({ tileCreation: e.target.value })}>
+        <option value="any" ?selected=${(this._tileCreation ?? 'any') === 'any'}>any — users create personal tiles, and org-owned ones where they hold Create</option>
+        <option value="org-only" ?selected=${this._tileCreation === 'org-only'}>org-only — non-admins may only create organisation-owned tiles (needs Create in an org)</option>
+      </select>
+
       <h4>workspace policy</h4>
       <p class="muted" style="font-size:11px; max-width:60ch">
         Pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (org and
@@ -3003,6 +3056,64 @@ export class BxAdmin extends LitElement {
           () => Object.entries(this._defaults ?? {}).map(([target, level]) => ({ target, level })))}>edit</button>`;
     }
     return this._tilesEditor(key, (tiles) => this._orgAPI('PUT', '/defaults', { defaultTiles: tiles }));
+  }
+
+  // ---- new-account defaults + tile-creation policy (D52) ----
+  // PUT /defaults replaces only the keys given, so each control saves its
+  // own setting without clobbering the others.
+  async _putDefaults(patch) {
+    try {
+      const d = await api('/defaults', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch) });
+      this._defaults = d.defaultTiles ?? {}; this._newUsers = d.newUsers ?? {};
+      this._tileCreation = d.tileCreation ?? 'any'; this._err = '';
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  _newUsersEditor() {
+    const nu = this._newUsers ?? {};
+    const tilesKey = 'ws:newusers:tiles';
+    const createKey = 'ws:newusers:create';
+    const rows = nu.orgs ?? [];
+    const unused = (this._orgs ?? []).filter((o) => !rows.some((r) => r.org === o.id));
+    const saveOrgs = (orgs) => this._putDefaults({ newUsers: { ...nu, orgs } });
+    const row = (label, body) => html`<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:4px">
+      <span style="min-width:9ch; font-weight:600">${label}</span>${body}</div>`;
+    return html`
+      <div style="font-size:12px; max-width:64ch">
+        ${row('tiles', html`
+          ${Object.entries(nu.tiles ?? {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
+          ${!Object.keys(nu.tiles ?? {}).length ? html`<span class="muted">none</span>` : nothing}
+          <button class="act" @click=${() => this._toggleDraft(tilesKey,
+            () => Object.entries(nu.tiles ?? {}).map(([target, level]) => ({ target, level })))}>edit</button>`)}
+        ${this._draft(tilesKey) ? this._tilesEditor(tilesKey, (tiles) => this._putDefaults({ newUsers: { ...nu, tiles } })) : nothing}
+        ${row('create', html`
+          ${(nu.canCreate ?? []).map((c) => html`<span class="pill">create·${c}</span>`)}
+          ${!(nu.canCreate ?? []).length ? html`<span class="muted">none</span>` : nothing}
+          <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(nu.canCreate ?? [])])}>edit</button>`)}
+        ${this._draft(createKey) ? this._patternsEditor(createKey, (canCreate) => this._putDefaults({ newUsers: { ...nu, canCreate } })) : nothing}
+        ${row('terminals', html`
+          <label class="muted"><input type="checkbox" .checked=${!!nu.termApi}
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, termApi: e.target.checked } })}> term-api</label>
+          <label class="muted"><input type="checkbox" .checked=${!!nu.termNet}
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, termNet: e.target.checked } })}> term-net</label>`)}
+        ${row('orgs', html`
+          ${rows.map((r) => html`<span style="display:inline-flex; gap:4px; align-items:center; border:1px solid var(--bx-border,#d8dbe0); border-radius:6px; padding:2px 6px">
+            <span class="mono">${r.org}</span>
+            <select title="org-wide level on tiles the org owns"
+              @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, level: e.target.value } : x)))}>
+              ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${r.level === l}>${l}</option>`)}
+            </select>
+            <label class="muted"><input type="checkbox" .checked=${!!r.create} title="may create org-owned tiles"
+              @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, create: e.target.checked } : x)))}> create</label>
+            <button class="act rm" title="stop auto-joining this org" @click=${() => saveOrgs(rows.filter((x) => x.org !== r.org))}>✕</button>
+          </span>`)}
+          ${!rows.length ? html`<span class="muted">none — new accounts join no org</span>` : nothing}
+          ${unused.length ? html`<select @change=${(e) => { const id = e.target.value; e.target.value = ''; if (id) saveOrgs([...rows, { org: id, level: 'read' }]); }}>
+            <option value="">+ org…</option>
+            ${unused.map((o) => html`<option value=${o.id}>${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}</option>`)}
+          </select>` : nothing}`)}
+      </div>`;
   }
 }
 

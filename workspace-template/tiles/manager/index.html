@@ -233,6 +233,19 @@
           ownerSel.appendChild(ws);
           ws.selected = true; // admins default to workspace-owned (D24)
           ownerField.hidden = false;
+        } else if (who.tileCreation === 'org-only') {
+          // Workspace policy (D52): non-admins may only create org-owned
+          // tiles — drop "me" and preselect an org (the server refuses a
+          // personal owner and, with no owner, picks the single Create org).
+          ownerSel.remove(0);
+          if (ownerSel.options.length) {
+            ownerSel.options[0].selected = true;
+            ownerField.hidden = false;
+          } else {
+            msg.className = 'msg err';
+            msg.textContent = 'This workspace only allows organisation-owned tiles and you hold Create in no organisation — ask an org admin.';
+            btn.disabled = true;
+          }
         }
         if (ownerSel.options.length > 1) ownerField.hidden = false;
       } catch { /* no orgs; field stays hidden */ }

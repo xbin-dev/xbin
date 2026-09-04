@@ -285,6 +285,11 @@ type Store struct {
 	requests     []AccessRequest  // pending human access requests (D36)
 	dismissed    map[string]int64 // user\x00tile → cooldown expiry after a manager dismissal
 
+	// Provisioning policy (defaults.go, D52): the seed copied onto every
+	// new account, and whether non-admins may create tiles outside an org.
+	newUsers     NewUserDefaults
+	tileCreation string // "" (any) | "org-only"
+
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
 	// exist. The Bearer owner token still works for tooling (bx). Enforced in
@@ -329,6 +334,8 @@ func Open(dataDir string) (*Store, error) {
 		RequestCooldowns   map[string]int64          `json:"requestCooldowns"`
 		TokenLoginDisabled bool                      `json:"tokenLoginDisabled"`
 		SSO                *SSOConfig                `json:"sso"`
+		NewUsers           NewUserDefaults           `json:"newUsers"`
+		TileCreation       string                    `json:"tileCreation"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -347,6 +354,10 @@ func Open(dataDir string) (*Store, error) {
 	s.dismissed = doc.RequestCooldowns
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	s.sso = doc.SSO
+	s.newUsers = doc.NewUsers
+	if doc.TileCreation == TileCreationOrgOnly {
+		s.tileCreation = doc.TileCreation
+	}
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -519,9 +530,13 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		}
 	} else {
 		u.Created = time.Now().Unix()
+		s.seedNewUserLocked(&u) // new-account defaults (D52) — union with the request
 	}
 	nu := u
 	s.byID[u.ID] = &nu
+	if existing == nil {
+		s.joinDefaultOrgsLocked(nu.ID)
+	}
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -616,6 +631,12 @@ func (s *Store) persistLocked() error {
 	doc := map[string]any{"users": users, "tokenLoginDisabled": s.tokenLoginDisabled}
 	if s.sso != nil {
 		doc["sso"] = s.sso
+	}
+	if d := s.newUsers; len(d.Tiles) > 0 || len(d.CanCreate) > 0 || len(d.Orgs) > 0 || d.TermAPI || d.TermNet {
+		doc["newUsers"] = d
+	}
+	if s.tileCreation != "" {
+		doc["tileCreation"] = s.tileCreation
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))

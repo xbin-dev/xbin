@@ -160,6 +160,17 @@ func TestSSOLoginJIT(t *testing.T) {
 	f := newFakeIdP(t)
 	f.email, f.name = "Jane.Doe@corp.com", "Jane Doe"
 	h, _, st := ssoTestServer(t, f, []string{"corp.com"})
+	// New-account defaults (D52): the JIT account lands in org corp with
+	// the seeded tiles/flags — never as admin.
+	if _, err := st.UpsertOrg(users.Org{ID: "corp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetNewUserDefaults(users.NewUserDefaults{
+		Tiles: map[string]string{"apps/shared/*": users.LevelWrite}, TermAPI: true,
+		Orgs: []users.OrgDefault{{Org: "corp", Level: users.LevelWrite, Create: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	w := ssoRoundTrip(t, h, f, nil)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/" {
@@ -177,6 +188,12 @@ func TestSSOLoginJIT(t *testing.T) {
 	u, ok := st.FindByEmail("jane.doe@corp.com")
 	if !ok || u.ID != "jane.doe" || u.Name != "Jane Doe" {
 		t.Fatalf("JIT user: %+v %v", u, ok)
+	}
+	if u.Role != users.RoleUser || u.Tiles["apps/shared/*"] != users.LevelWrite || !u.TermAPI || u.TermNet {
+		t.Fatalf("JIT seed: %+v", u)
+	}
+	if orgs := st.UserOrgs(u.ID); len(orgs) != 1 || orgs[0].ID != "corp" || !orgs[0].Create || orgs[0].Level != users.LevelWrite || orgs[0].Admin {
+		t.Fatalf("JIT default org: %+v", orgs)
 	}
 	// Second login binds to the same row.
 	w2 := ssoRoundTrip(t, h, f, nil)

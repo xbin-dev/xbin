@@ -27,11 +27,12 @@ import (
 // (pendingGrants in the response). Same capability gate as /create.
 func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		From string `json:"from"`
-		To   string `json:"to"`
+		From  string `json:"from"`
+		To    string `json:"to"`
+		Owner string `json:"owner"` // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, to}"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, to, owner?}"})
 		return
 	}
 	from := strings.Trim(strings.TrimSpace(body.From), "/")
@@ -45,7 +46,12 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	// the source, so a human must be able to READ `from` (otherwise a
 	// manager-style tile is a source-exfiltration route).
 	p := auth.PrincipalOf(r)
-	if ok, msg := b.canCreateAt(p, to, ""); !ok {
+	owner, msg := b.resolveCreateOwner(p, body.Owner)
+	if msg != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		return
+	}
+	if ok, msg := b.canCreateAt(p, to, owner); !ok {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
 		return
 	}
@@ -144,8 +150,7 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 			pending = append(pending, registryGrantLite{From: g.From, Target: g.Target, Role: g.Role})
 		}
 	}
-	owner, _ := b.resolveCreateOwner(auth.PrincipalOf(r), "") // D24: creator-owned (workspace-owned for admins)
-	b.assignOwner(to, owner)
+	b.assignOwner(to, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"path": to, "from": from, "rewritten": rewritten, "pendingGrants": pending,
 	})

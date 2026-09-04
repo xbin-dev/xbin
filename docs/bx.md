@@ -26,8 +26,16 @@ bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | rm <id>
                                        an empty password (or --invite) prints a
                                        single-use invite link (D22); --email
                                        binds an SSO identity (docs/auth.md §SSO);
-                                       set --disable/--enable pauses/restores
-                                       the whole account (D34)
+                                       add --sso --email a@b pre-provisions an
+                                       SSO-only account (no password, no link;
+                                       D52); set --disable/--enable pauses/
+                                       restores the whole account (D34)
+bx defaults [set …]                    provisioning defaults (admin): what every
+                                       NEW account starts with — --tiles p=level,
+                                       --create p, --org o[:level[:create]]
+                                       (repeatable), --term-api/--term-net —
+                                       plus --default-tiles (the D27 baseline)
+                                       and --tile-creation any|org-only (D52)
 bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)
 bx org member <org> [<user> --level L [--create] [--admin]
                      [--suspend|--unsuspend] | rm <user>]   (suspend: D34)

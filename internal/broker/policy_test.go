@@ -228,14 +228,60 @@ func TestResolveCreateOwner(t *testing.T) {
 		{"other user ref", auth.Principal{UserID: "bob"}, "user:alice", "", "workspace-admin"},
 		{"bad ref", auth.Principal{UserID: "bob"}, "gang:x", "", "owner must be"},
 	}
-	for _, c := range cases {
-		ref, msg := b.resolveCreateOwner(c.p, c.requested)
-		if c.refuse == "" && (msg != "" || ref != c.wantRef) {
-			t.Errorf("%s: got ref=%q msg=%q, want ref=%q", c.name, ref, msg, c.wantRef)
+	run := func(cases []struct {
+		name      string
+		p         auth.Principal
+		requested string
+		wantRef   string
+		refuse    string
+	}) {
+		t.Helper()
+		for _, c := range cases {
+			ref, msg := b.resolveCreateOwner(c.p, c.requested)
+			if c.refuse == "" && (msg != "" || ref != c.wantRef) {
+				t.Errorf("%s: got ref=%q msg=%q, want ref=%q", c.name, ref, msg, c.wantRef)
+			}
+			if c.refuse != "" && !strings.Contains(msg, c.refuse) {
+				t.Errorf("%s: msg %q, want containing %q", c.name, msg, c.refuse)
+			}
 		}
-		if c.refuse != "" && !strings.Contains(msg, c.refuse) {
-			t.Errorf("%s: msg %q, want containing %q", c.name, msg, c.refuse)
-		}
+	}
+	run(cases)
+
+	// org-only policy (D52): non-admins can't own tiles personally. "" resolves
+	// to the one org where they hold Create; several → must choose; none →
+	// refused. Admins and unattributed automation are unaffected.
+	if err := st.SetTileCreation(users.TileCreationOrgOnly); err != nil {
+		t.Fatal(err)
+	}
+	run([]struct {
+		name      string
+		p         auth.Principal
+		requested string
+		wantRef   string
+		refuse    string
+	}{
+		{"org-only: default → the one create org", auth.Principal{UserID: "bob"}, "", "org:sales", ""},
+		{"org-only: org admin default", auth.Principal{UserID: "carol"}, "", "org:sales", ""},
+		{"org-only: explicit org still fine", auth.Principal{UserID: "bob"}, "org:sales", "org:sales", ""},
+		{"org-only: personal refused", auth.Principal{UserID: "bob"}, "user:bob", "", "must be owned by an organisation"},
+		{"org-only: no create org", auth.Principal{UserID: "alice"}, "", "", "hold Create in no organisation"},
+		{"org-only: admin still workspace-owned", auth.Principal{Owner: true}, "", "", ""},
+		{"org-only: admin personal ref ok", auth.Principal{Owner: true}, "user:bob", "user:bob", ""},
+	})
+	// Two create orgs → ambiguous, must name one.
+	if _, err := st.UpsertOrg(users.Org{ID: "ops", Members: []users.Member{{ID: "bob", Level: users.LevelWrite, Create: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if ref, msg := b.resolveCreateOwner(auth.Principal{UserID: "bob"}, ""); ref != "" || !strings.Contains(msg, "choose one") || !strings.Contains(msg, "ops") {
+		t.Fatalf("ambiguous org-only default: ref=%q msg=%q", ref, msg)
+	}
+	// Back to "any": bob's default is personal again.
+	if err := st.SetTileCreation(users.TileCreationAny); err != nil {
+		t.Fatal(err)
+	}
+	if ref, msg := b.resolveCreateOwner(auth.Principal{UserID: "bob"}, ""); ref != "user:bob" || msg != "" {
+		t.Fatalf("policy reset: ref=%q msg=%q", ref, msg)
 	}
 }
 

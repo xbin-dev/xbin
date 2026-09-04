@@ -74,6 +74,12 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 // defaults to the attributed human (user-owned) — workspace-owned for
 // admin/automation callers. "org:<id>" needs the human to hold the org's
 // Create knob (or be an org/workspace admin); "user:<other>" is admin-only.
+//
+// Under the org-only tile-creation policy (D52) a non-admin human may not
+// own tiles personally: "user:<self>" is refused and "" resolves to the ONE
+// org where they hold Create (several → they must name it; none → refused).
+// Shared by all five creation entry points, so the policy holds for clone,
+// template, builtin and git imports too.
 func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, msg string) {
 	if b.Users == nil {
 		return "", ""
@@ -83,14 +89,19 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 		return "", err.Error()
 	}
 	human := p.UserID // session user, or the user id attributed on a frame principal
+	orgOnly := human != "" && !b.IsAdmin(p) && b.Users.TileCreation() == users.TileCreationOrgOnly
 	if requested == "" {
 		if human == "" {
 			return "", "" // automation/root: workspace-owned
 		}
-		if u, ok := b.Users.Get(human); ok && !u.IsAdmin() {
-			return users.OwnerKindUser + ":" + u.ID, ""
+		u, ok := b.Users.Get(human)
+		if !ok || u.IsAdmin() {
+			return "", "" // admins default to workspace-owned
 		}
-		return "", "" // admins default to workspace-owned
+		if orgOnly {
+			return b.defaultOrgOwner(u.ID)
+		}
+		return users.OwnerKindUser + ":" + u.ID, ""
 	}
 	if err := b.Users.ValidateNewTile(requested); err != nil {
 		return "", err.Error()
@@ -106,12 +117,33 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 		}
 		return requested, ""
 	case users.OwnerKindUser:
+		if orgOnly {
+			return "", "workspace policy: tiles must be owned by an organisation — create it with owner org:<id> where you hold Create"
+		}
 		if id == human || b.IsAdmin(p) {
 			return requested, ""
 		}
 		return "", "creating tiles owned by another user is a workspace-admin action"
 	}
 	return requested, ""
+}
+
+// defaultOrgOwner picks the owner for an org-only creation with no explicit
+// owner: the single org where the user holds Create (or org admin).
+func (b *Broker) defaultOrgOwner(userID string) (ref, msg string) {
+	var can []string
+	for _, m := range b.Users.UserOrgs(userID) {
+		if !m.Suspended && (m.Create || m.Admin) {
+			can = append(can, m.ID)
+		}
+	}
+	switch len(can) {
+	case 0:
+		return "", "workspace policy allows only organisation-owned tiles and you hold Create in no organisation — ask an org admin to add you"
+	case 1:
+		return users.OwnerKindOrg + ":" + can[0], ""
+	}
+	return "", "workspace policy allows only organisation-owned tiles — choose one with owner: org:<id> (you hold Create in " + strings.Join(can, ", ") + ")"
 }
 
 // assignOwner records ownership after a successful creation (all five entry

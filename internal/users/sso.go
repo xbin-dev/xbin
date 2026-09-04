@@ -136,9 +136,11 @@ func (s *Store) emailTakenLocked(email, exceptID string) bool {
 // ProvisionSSO creates an account for a verified IdP email under the domain
 // allow-rule (JIT provisioning — the "admin-configured domain rule decides"
 // half of no-self-signup). The id derives from the email local-part folded
-// into the permanent id charset, suffixed on collision; access starts at
-// role `user` with defaultTiles only, credential-less (PassHash "" — SSO is
-// the credential). Race-safe: an existing binding for the email wins.
+// into the permanent id charset, suffixed on collision; the account is
+// always role `user` (never admin — D52), credential-less (PassHash "" —
+// SSO is the credential), and starts with the new-account defaults
+// (defaults.go: tiles, create patterns, terminal flags, org memberships)
+// on top of defaultTiles. Race-safe: an existing binding for the email wins.
 func (s *Store) ProvisionSSO(email, name string) (User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	s.mu.Lock()
@@ -167,8 +169,10 @@ func (s *Store) ProvisionSSO(email, name string) (User, error) {
 	if name == "" {
 		name, _, _ = strings.Cut(email, "@")
 	}
-	u := &User{ID: id, Name: name, Email: email, Role: RoleUser, Created: timeNow()}
+	u := &User{ID: id, Name: name, Email: email, Role: RoleUser, Tiles: map[string]string{}, Created: timeNow()}
+	s.seedNewUserLocked(u)
 	s.byID[id] = u
+	s.joinDefaultOrgsLocked(id)
 	if err := s.persistLocked(); err != nil {
 		delete(s.byID, id)
 		return User{}, err

@@ -1073,3 +1073,37 @@ Deviations and refinements made while implementing; all deliberate:
   header auth (no operator need), passwordLoginDisabled SSO-only mode,
   IdP-group→org mapping, and offboard-on-IdP-removal reconciliation —
   recorded as follow-ups.
+
+- **D52 — Provisioning policy: SSO pre-provisioning, a new-account seed
+  (with default org membership), and an org-only tile-creation policy
+  (2026-09-04).** Running a workspace on SSO (D51) exposed three gaps: an
+  SSO user could only exist by JIT (or by minting an invite nobody would
+  use), JIT accounts landed with defaultTiles and nothing else (every row
+  hand-edited afterwards), and nothing stopped a domain's worth of new
+  users from scattering personal tiles outside the org structure. Shapes
+  chosen: (1) `POST /users {sso:true, email}` is the invite flow's
+  credential-less row WITHOUT the link (UpsertInvited, no CreateInvite) —
+  no new account kind, the email binding is the credential. (2) A
+  workspace-level `newUsers` seed (tiles, canCreate, termApi/termNet, orgs
+  [{org, level, create}]) lives in users.json next to defaultTiles and is
+  COPIED onto every new row — password, invite, SSO-pre-provisioned, and
+  JIT alike — as a union with the request. Deliberately a one-shot copy,
+  not a live layer: defaultTiles already is the live baseline, and a seed
+  that keeps applying would make "I removed that from Jane" impossible.
+  Deliberately workspace-wide rather than per-SSO-domain: one concept,
+  every creation path, and per-domain rules are a later refinement if a
+  workspace ever runs two domains with different roles. (3) `tileCreation:
+  any|org-only` binds NON-ADMINS only (user-ratified): under org-only a
+  `user:` owner is refused everywhere and an empty owner resolves to the
+  single org where the user holds Create (several → must name one; none →
+  refused) — so single-org users need no UI change while ambiguity is
+  never guessed. The four non-/create entry points (clone, builtin import,
+  template new, git import) gained `owner` and route through the same
+  resolver, which they previously bypassed with a hardcoded creator-owned
+  default. Rejected: role/org-admin in the seed (user-ratified — an
+  allow-listed domain must never mint admins; promotion stays manual);
+  applying the policy to admins (workspace-owned creation is the admin's
+  own housekeeping act); a live "defaults layer" for new users (see above).
+  Follow-ups: per-domain seeds; `bx org member add` via the new
+  AddOrgMember single-row path; the manager tile's clone/template/import
+  tabs get an owner picker (today they rely on the single-org auto-pick).

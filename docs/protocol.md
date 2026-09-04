@@ -200,7 +200,10 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin}]
-                                   (the self-service membership view). On
+                                   (the self-service membership view), and
+                                   tileCreation: any|org-only — the
+                                   workspace's tile-creation policy (D52)
+                                   owner pickers adapt to. On
                                    element principals driven by a signed-in
                                    human, `user` reports the driver, SCOPED
                                    by the tile's trust (docs/auth.md): every
@@ -227,12 +230,20 @@ GET    /users                     admin or xbin:users. [{id,name,role,
                                    levels read|write|terminal
                                    (docs/auth.md, D16)
 POST   /users                     admin/xbin:users. create a user: {id,
-                                   name?, role?, tiles?, canCreate?, termApi?,
-                                   termNet?, password?}. WITH password →
-                                   ready to sign in; WITHOUT → credential-less
-                                   account + a single-use invite link the
-                                   admin delivers: {user, invite, inviteUrl:
-                                   /login?invite=…, inviteExpires} (72h, D22).
+                                   name?, role?, email?, tiles?, canCreate?,
+                                   termApi?, termNet?, password? | sso?}.
+                                   WITH password → ready to sign in;
+                                   WITHOUT → credential-less account + a
+                                   single-use invite link the admin
+                                   delivers: {user, invite, inviteUrl:
+                                   /login?invite=…, inviteExpires} (72h,
+                                   D22); sso:true (email required) →
+                                   credential-less with NO invite — the
+                                   bound email's IdP sign-in is the
+                                   credential (SSO pre-provisioning, D52).
+                                   Every new account is seeded with the
+                                   new-account defaults (/defaults
+                                   newUsers) on top of the given fields.
                                    There is NO self-signup — accounts only
                                    come from here. (id: [a-z0-9._-],
                                    immutable; password ≥ 8; the legacy body —
@@ -399,9 +410,26 @@ GET    /orgs/<org>/policy         admin/xbin:users, or that org's admins
                                    tiles the org OWNS
 PUT    /orgs/<org>/policy         admin/xbin:users. replace them
 GET    /defaults                  admin/xbin:users. {defaultTiles:
-                                   {pattern: level}} — visibility every
-                                   user gets (D27)
-PUT    /defaults                  admin/xbin:users. replace the map
+                                   {pattern: level}, newUsers: {tiles,
+                                   canCreate, termApi, termNet, orgs:
+                                   [{org, level, create}]}, tileCreation:
+                                   any|org-only}. defaultTiles = the live
+                                   visibility baseline every user gets
+                                   (D27). newUsers = what every NEW account
+                                   starts with, copied onto the row at
+                                   creation — admin-added, invited, or SSO
+                                   auto-provisioned — as a UNION with the
+                                   request (never admin; D52). tileCreation
+                                   = whether non-admins may own tiles
+                                   personally (org-only: they may only
+                                   create org-owned tiles — an unspecified
+                                   owner resolves to their single Create
+                                   org, several → they must name one, none
+                                   → refused; admins unaffected)
+PUT    /defaults                  admin/xbin:users. each present key
+                                   replaces that setting wholesale (absent
+                                   = untouched); default orgs must exist.
+                                   → the resulting defaults
 
 POST   /create                     owner/admin, a user whose canCreate
                                    covers the path, or an element granted
@@ -417,13 +445,19 @@ POST   /create                     owner/admin, a user whose canCreate
                                    need the xbin:writer capability).
                                    Default: the human creator becomes
                                    user-owner, admin/automation →
-                                   workspace-owned. Same scaffolder as `bx
+                                   workspace-owned. Under the org-only
+                                   tile-creation policy (/defaults, D52) a
+                                   non-admin's "user:" owner is refused and
+                                   an empty one resolves to their single
+                                   Create org. Same scaffolder as `bx
                                    new`; never overwrites. Clone/imports
-                                   assign the same default ownership.
+                                   take the same owner? and assign the
+                                   same default ownership.
 POST   /clone                      same authority as /create (create
                                    patterns work; the deputy clamp applies)
                                    + the human must have READ on `from`
-                                   (copying is reading). body {from, to}
+                                   (copying is reading). body {from, to,
+                                   owner?}
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
@@ -434,7 +468,7 @@ GET    /builtins                   any. optional tile catalog
                                    [{name,title,description,defaultPath,installed}]
 POST   /builtins/import            same authority as /create, checked on
                                    the resolved target (path? or the tile's
-                                   defaultPath). body {name, path?}
+                                   defaultPath). body {name, path?, owner?}
                                    → {path, files, pendingGrants} — installs an
                                    embedded tile (plans/tile-sharing.md).
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
@@ -461,7 +495,7 @@ GET    /templates                   any. template blueprints (builtin ∪ worksp
 POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
-                                   path?} → {path,
+                                   path?, owner?} → {path,
                                    files, pendingGrants} — instantiates a template
                                    into a named copy (plans/templates.md). A
                                    builtin-template instance gets a read-only
@@ -510,7 +544,8 @@ GET    /git/remote-info            xbin:writer. ?url=<git-url> → {defaultBranc
                                    tags:[…] (newest first), remote}. git ls-remote
                                    on a URL to preview versions before install.
 POST   /git/import                 same authority as /create on the
-                                   resolved path. body {url, path?, ref?} — clone a
+                                   resolved path. body {url, path?, ref?,
+                                   owner?} — clone a
                                    component in from a git remote (GitHub/GitLab/
                                    any git URL); path defaults to apps/<repo>, ref
                                    = a tag/branch. Its origin remote is kept (so

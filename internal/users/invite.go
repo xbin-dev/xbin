@@ -141,8 +141,10 @@ func (s *Store) UpsertInvited(u User) (*User, error) {
 	}
 	u.PassHash = ""
 	u.Created = time.Now().Unix()
+	s.seedNewUserLocked(&u) // new-account defaults (D52) — union with the request
 	nu := u
 	s.byID[u.ID] = &nu
+	s.joinDefaultOrgsLocked(nu.ID)
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
