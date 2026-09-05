@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -31,6 +32,14 @@ type fakeIdP struct {
 	// verifiedNull leaves email_verified out entirely (on-prem IdPs often
 	// don't map it); verifiedFalse asserts it false.
 	verifiedFalse bool
+	hd            string // google's hosted-domain claim
+	// Group claims (D53): groups go into the ID token under groupsClaim
+	// (default "groups") unless omitGroupsClaim; userinfoGroups are served
+	// by /userinfo instead (IdPs that only emit groups there).
+	groups          []string
+	groupsClaim     string
+	omitGroupsClaim bool
+	userinfoGroups  []string
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -47,8 +56,21 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			"authorization_endpoint":                f.srv.URL + "/auth",
 			"token_endpoint":                        f.srv.URL + "/token",
 			"jwks_uri":                              f.srv.URL + "/jwks",
+			"userinfo_endpoint":                     f.srv.URL + "/userinfo",
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
+	})
+	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer at-1" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims := map[string]any{"sub": "sub-1", "email": f.email}
+		if f.userinfoGroups != nil {
+			claims[f.claimName()] = f.userinfoGroups
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(claims)
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
 		pub := &f.key.PublicKey
@@ -67,6 +89,12 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		if f.verifiedFalse {
 			claims["email_verified"] = false
 		}
+		if f.hd != "" {
+			claims["hd"] = f.hd
+		}
+		if f.groups != nil && !f.omitGroupsClaim {
+			claims[f.claimName()] = f.groups
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "at-1", "token_type": "bearer",
@@ -79,6 +107,13 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 }
 
 func timeNowUnix() int64 { return time.Now().Unix() }
+
+func (f *fakeIdP) claimName() string {
+	if f.groupsClaim == "" {
+		return "groups"
+	}
+	return f.groupsClaim
+}
 
 // signRS256 builds a minimal JWS the go-oidc verifier accepts.
 func signRS256(key *rsa.PrivateKey, claims map[string]any) string {
@@ -97,6 +132,13 @@ func signRS256(key *rsa.PrivateKey, claims map[string]any) string {
 // pointed at the fake IdP, returning the http handler and the store.
 func ssoTestServer(t *testing.T, f *fakeIdP, domains []string) (http.Handler, *Server, *users.Store) {
 	t.Helper()
+	return ssoTestServerCfg(t, f, func(c *users.SSOConfig) { c.AllowedDomains = domains })
+}
+
+// ssoTestServerCfg is ssoTestServer with a hook to shape the SSO config
+// (preset, group claim, admin groups…) before it is stored.
+func ssoTestServerCfg(t *testing.T, f *fakeIdP, mutate func(c *users.SSOConfig)) (http.Handler, *Server, *users.Store) {
+	t.Helper()
 	a, err := auth.Load(t.TempDir(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -106,15 +148,40 @@ func ssoTestServer(t *testing.T, f *fakeIdP, domains []string) (http.Handler, *S
 		t.Fatal(err)
 	}
 	a.SetUsers(st)
-	if err := st.SetSSO(&users.SSOConfig{
+	c := &users.SSOConfig{
 		Kind: "oidc", Preset: "custom", Issuer: f.srv.URL,
-		ClientID: "test-client", ClientSecret: "test-secret", AllowedDomains: domains,
-	}); err != nil {
+		ClientID: "test-client", ClientSecret: "test-secret",
+	}
+	if mutate != nil {
+		mutate(c)
+	}
+	if err := st.SetSSO(c); err != nil {
 		t.Fatal(err)
 	}
 	// (httptest IdPs are http://127.0.0.1 — SetSSO allows loopback issuers.)
 	s := &Server{Auth: a, ExternalURL: "http://xbin.test"}
 	return s.Handler(), s, st
+}
+
+// ssoLogin runs a round-trip that must succeed (302 → /).
+func ssoLogin(t *testing.T, h http.Handler, f *fakeIdP) {
+	t.Helper()
+	w := ssoRoundTrip(t, h, f, nil)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/" {
+		t.Fatalf("sso login: %d → %q (%s)", w.Code, w.Header().Get("Location"), w.Body.String())
+	}
+}
+
+// ssoStartScopes returns the scope list /login/sso would request.
+func ssoStartScopes(t *testing.T, h http.Handler) []string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/login/sso", nil))
+	loc, err := url.Parse(w.Header().Get("Location"))
+	if err != nil || w.Code != http.StatusFound {
+		t.Fatalf("sso start: %d %v", w.Code, err)
+	}
+	return strings.Fields(loc.Query().Get("scope"))
 }
 
 // ssoRoundTrip drives start → (fake IdP) → callback and returns the final
@@ -305,5 +372,321 @@ func TestSSOGitHub(t *testing.T) {
 	}
 	if u, ok := st.FindByEmail("octo@corp.com"); !ok || u.ID != "octo" || u.Name != "Octo Cat" {
 		t.Fatalf("github JIT: %+v %v", u, ok)
+	}
+}
+
+func hasScope(scopes []string, want string) bool {
+	for _, s := range scopes {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func membership(t *testing.T, st *users.Store, org, id string) (users.Member, bool) {
+	t.Helper()
+	o, ok := st.Org(org)
+	if !ok {
+		t.Fatalf("no org %s", org)
+	}
+	return o.Member(id)
+}
+
+// Group sync over generic OIDC (D53): rules on orgs turn the groups claim
+// into memberships with provenance, a later sign-in without the group
+// removes them, the claim is read from UserInfo when the ID token lacks it,
+// an absent claim is a recorded failure that removes nothing, and the extra
+// scope is requested only while rules exist.
+func TestSSOGroupSyncOIDC(t *testing.T) {
+	f := newFakeIdP(t)
+	f.email, f.name = "jane@corp.com", "Jane"
+	f.groups = []string{"Sales", "everyone"}
+	h, _, st := ssoTestServerCfg(t, f, func(c *users.SSOConfig) {
+		c.AllowedDomains = []string{"corp.com"}
+		c.GroupsScope = "groups"
+	})
+	// No rules: no scope, no groups recorded.
+	if hasScope(ssoStartScopes(t, h), "groups") {
+		t.Fatal("groups scope requested without rules")
+	}
+	ssoLogin(t, h, f)
+	if u, _ := st.FindByEmail("jane@corp.com"); len(u.SSOGroups) != 0 {
+		t.Fatalf("groups recorded without rules: %v", u.SSOGroups)
+	}
+
+	if _, err := st.UpsertOrg(users.Org{ID: "sales"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetOrgSSOGroups("sales", []users.GroupRule{{Group: "sales", Level: users.LevelTerminal, Create: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasScope(ssoStartScopes(t, h), "groups") {
+		t.Fatal("groups scope missing with rules active")
+	}
+	ssoLogin(t, h, f)
+	m, ok := membership(t, st, "sales", "jane")
+	if !ok || m.Via != users.MemberViaSSO || m.Level != users.LevelTerminal || !m.Create {
+		t.Fatalf("synced membership: %+v %v", m, ok)
+	}
+	u, _ := st.FindByEmail("jane@corp.com")
+	if len(u.SSOGroups) != 2 || u.SSOSyncError != "" || u.LastLoginVia != "sso" || u.LastLogin == 0 {
+		t.Fatalf("sign-in facts: %+v", u)
+	}
+	if got := st.KnownSSOGroups(); len(got) != 2 {
+		t.Fatalf("known groups: %v", got)
+	}
+
+	// Claim absent everywhere → failure recorded, membership intact.
+	f.omitGroupsClaim = true
+	ssoLogin(t, h, f)
+	u, _ = st.FindByEmail("jane@corp.com")
+	if u.SSOSyncError == "" || !strings.Contains(u.SSOSyncError, "absent") {
+		t.Fatalf("absent claim must be recorded: %+v", u)
+	}
+	if _, ok := membership(t, st, "sales", "jane"); !ok {
+		t.Fatal("fetch failure must not remove memberships")
+	}
+	// UserInfo fallback with a custom claim name.
+	f.omitGroupsClaim = false
+	f.groups = nil
+	f.userinfoGroups = []string{"sales"}
+	f.groupsClaim = "memberOf"
+	h2, _, st2 := ssoTestServerCfg(t, f, func(c *users.SSOConfig) {
+		c.AllowedDomains = []string{"corp.com"}
+		c.GroupsClaim = "memberOf"
+	})
+	st2.UpsertOrg(users.Org{ID: "sales"})
+	st2.SetOrgSSOGroups("sales", []users.GroupRule{{Group: "sales"}})
+	ssoLogin(t, h2, f)
+	if m, ok := membership(t, st2, "sales", "jane"); !ok || m.Via != users.MemberViaSSO || m.Level != users.LevelRead {
+		t.Fatalf("userinfo fallback: %+v %v", m, ok)
+	}
+	// Group gone → membership gone; error cleared.
+	f.userinfoGroups = []string{"other"}
+	ssoLogin(t, h2, f)
+	if _, ok := membership(t, st2, "sales", "jane"); ok {
+		t.Fatal("membership must go with the group")
+	}
+	if u, _ := st2.FindByEmail("jane@corp.com"); u.SSOSyncError != "" || len(u.SSOGroups) != 1 {
+		t.Fatalf("after success: %+v", u)
+	}
+}
+
+// Workspace admin by group rule, through the real callback: granted with
+// provenance, revoked when the group goes, blocked for the last admin.
+func TestSSOGroupSyncAdminRole(t *testing.T) {
+	f := newFakeIdP(t)
+	f.email, f.name = "ops@corp.com", "Ops"
+	f.groups = []string{"xbin-admins"}
+	h, _, st := ssoTestServerCfg(t, f, func(c *users.SSOConfig) {
+		c.AllowedDomains = []string{"corp.com"}
+		c.AdminGroups = []string{"xbin-admins"}
+	})
+	ssoLogin(t, h, f)
+	u, _ := st.FindByEmail("ops@corp.com")
+	if u.Role != users.RoleAdmin || u.RoleVia != users.MemberViaSSO {
+		t.Fatalf("admin by rule: %+v", u)
+	}
+	// Only admin → revoke blocked. (An EMPTY claim — nil would omit it, which
+	// is "unknown" and changes nothing by design.)
+	f.groups = []string{}
+	ssoLogin(t, h, f)
+	if u, _ = st.FindByEmail("ops@corp.com"); u.Role != users.RoleAdmin {
+		t.Fatalf("last admin must keep the role: %+v", u)
+	}
+	// Another admin exists → revoked next time.
+	if _, err := st.Upsert(users.User{ID: "boss", Role: users.RoleAdmin}, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	ssoLogin(t, h, f)
+	if u, _ = st.FindByEmail("ops@corp.com"); u.Role != users.RoleUser || u.RoleVia != "" {
+		t.Fatalf("revoke: %+v", u)
+	}
+}
+
+// GitHub: teams (org/slug) and orgs become groups when rules exist;
+// read:org is requested only then; an API refusal is a recorded failure.
+func TestSSOGitHubGroups(t *testing.T) {
+	teamsStatus := 200
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/emails":
+			fmt.Fprint(w, `[{"email":"octo@corp.com","primary":true,"verified":true}]`)
+		case "/user":
+			fmt.Fprint(w, `{"login":"octo","name":"Octo Cat"}`)
+		case "/user/teams":
+			if teamsStatus != 200 {
+				http.Error(w, `{"message":"Resource not accessible"}`, teamsStatus)
+				return
+			}
+			fmt.Fprint(w, `[{"slug":"Platform","organization":{"login":"Acme"}}]`)
+		case "/user/orgs":
+			fmt.Fprint(w, `[{"login":"Acme"}]`)
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"access_token":"gh-at","token_type":"bearer"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	oldAPI, oldEP := githubAPI, githubEndpoint
+	githubAPI = api.URL
+	githubEndpoint.AuthURL, githubEndpoint.TokenURL = api.URL+"/authorize", api.URL+"/token"
+	defer func() { githubAPI, githubEndpoint = oldAPI, oldEP }()
+
+	a, _ := auth.Load(t.TempDir(), false)
+	st, _ := users.Open(t.TempDir())
+	a.SetUsers(st)
+	if err := st.SetSSO(&users.SSOConfig{Kind: "github", Preset: "github",
+		ClientID: "test-client", ClientSecret: "s", AllowedDomains: []string{"corp.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := (&Server{Auth: a, ExternalURL: "http://xbin.test"}).Handler()
+	f := &fakeIdP{}
+	if hasScope(ssoStartScopes(t, h), "read:org") {
+		t.Fatal("read:org requested without rules")
+	}
+	st.UpsertOrg(users.Org{ID: "infra"})
+	st.SetOrgSSOGroups("infra", []users.GroupRule{{Group: "acme/platform", Level: users.LevelTerminal, Create: true}})
+	if !hasScope(ssoStartScopes(t, h), "read:org") {
+		t.Fatal("read:org missing with rules")
+	}
+	ssoLogin(t, h, f)
+	if m, ok := membership(t, st, "infra", "octo"); !ok || m.Via != users.MemberViaSSO {
+		t.Fatalf("team → org: %+v %v", m, ok)
+	}
+	if u, _ := st.FindByEmail("octo@corp.com"); len(u.SSOGroups) != 2 { // acme/platform + acme
+		t.Fatalf("github groups: %v", u.SSOGroups)
+	}
+	teamsStatus = 403
+	ssoLogin(t, h, f)
+	u, _ := st.FindByEmail("octo@corp.com")
+	if u.SSOSyncError == "" {
+		t.Fatal("403 must be recorded")
+	}
+	if _, ok := membership(t, st, "infra", "octo"); !ok {
+		t.Fatal("failure must not remove the membership")
+	}
+}
+
+// Google preset: groups come from Cloud Identity (never a claim); the scope
+// is requested only with rules; keys are group emails; paging works.
+func TestSSOGoogleGroups(t *testing.T) {
+	var gotQuery string
+	ci := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/groups/-/memberships:searchDirectGroups" {
+			http.NotFound(w, r)
+			return
+		}
+		gotQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pageToken") == "" {
+			fmt.Fprint(w, `{"memberships":[{"groupKey":{"id":"Sales@corp.com"}}],"nextPageToken":"p2"}`)
+			return
+		}
+		fmt.Fprint(w, `{"memberships":[{"groupKey":{"id":"all@corp.com"}}]}`)
+	}))
+	defer ci.Close()
+	old := googleCloudIdentityAPI
+	googleCloudIdentityAPI = ci.URL
+	defer func() { googleCloudIdentityAPI = old }()
+
+	f := newFakeIdP(t)
+	f.email, f.name, f.hd = "jane@corp.com", "Jane", "corp.com"
+	f.groups = []string{"ignored-claim"} // google has no groups claim; must not be read
+	h, _, st := ssoTestServerCfg(t, f, func(c *users.SSOConfig) {
+		c.Preset = "google"
+		c.Issuer = f.srv.URL // ssoIssuer prefers an explicit issuer
+		c.AllowedDomains = []string{"corp.com"}
+	})
+	if hasScope(ssoStartScopes(t, h), googleGroupsScope) {
+		t.Fatal("cloud-identity scope requested without rules")
+	}
+	st.UpsertOrg(users.Org{ID: "sales"})
+	st.SetOrgSSOGroups("sales", []users.GroupRule{{Group: "sales@corp.com", Level: users.LevelWrite}})
+	if !hasScope(ssoStartScopes(t, h), googleGroupsScope) {
+		t.Fatal("cloud-identity scope missing with rules")
+	}
+	ssoLogin(t, h, f)
+	if !strings.Contains(gotQuery, "jane@corp.com") {
+		t.Fatalf("query: %q", gotQuery)
+	}
+	if m, ok := membership(t, st, "sales", "jane"); !ok || m.Level != users.LevelWrite {
+		t.Fatalf("google group → org: %+v %v", m, ok)
+	}
+	u, _ := st.FindByEmail("jane@corp.com")
+	if len(u.SSOGroups) != 2 || u.SSOGroups[0] != "all@corp.com" {
+		t.Fatalf("google groups (paged, lowercased, sorted): %v", u.SSOGroups)
+	}
+}
+
+// SSOTest: discovery + JWKS against the fake, a bogus issuer, and a draft.
+func TestSSOTestProbe(t *testing.T) {
+	f := newFakeIdP(t)
+	_, s, st := ssoTestServer(t, f, nil)
+	res := s.SSOTest(context.Background(), nil)
+	if !res.OK || res.JWKSKeys != 1 || res.Endpoints["userinfo"] == "" || !res.Ready {
+		t.Fatalf("probe: %+v", res)
+	}
+	bad := s.SSOTest(context.Background(), &users.SSOConfig{Kind: "oidc", Issuer: "http://127.0.0.1:1", ClientID: "x"})
+	if bad.OK || bad.Error == "" {
+		t.Fatalf("bogus issuer: %+v", bad)
+	}
+	st.SetSSO(nil)
+	if r := s.SSOTest(context.Background(), nil); r.OK || !strings.Contains(r.Error, "not configured") {
+		t.Fatalf("unconfigured: %+v", r)
+	}
+	// A draft is testable before anything is saved.
+	if r := s.SSOTest(context.Background(), &users.SSOConfig{Kind: "oidc", Issuer: f.srv.URL, ClientID: "x"}); !r.OK {
+		t.Fatalf("draft: %+v", r)
+	}
+}
+
+// SSO-only mode: a correct password is refused for non-admins (with the
+// fixed message), admins still get in, the login page carries the note,
+// and last-login is stamped for password logins.
+func TestPasswordLoginDisabledForNonAdmins(t *testing.T) {
+	f := newFakeIdP(t)
+	h, _, st := ssoTestServer(t, f, nil)
+	for _, u := range []users.User{{ID: "ann"}, {ID: "boss", Role: users.RoleAdmin}} {
+		if _, err := st.Upsert(u, "password123"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetPasswordLoginDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	login := func(id string) *httptest.ResponseRecorder {
+		form := url.Values{"username": {id}, "password": {"password123"}}
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := login("ann"); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "single sign-on") {
+		t.Fatalf("non-admin password login: %d %s", w.Code, w.Body.String())
+	}
+	if w := login("boss"); w.Code != http.StatusFound {
+		t.Fatalf("admin break-glass: %d %s", w.Code, w.Body.String())
+	}
+	if u, _ := st.Get("boss"); u.LastLoginVia != "password" || u.LastLogin == 0 {
+		t.Fatalf("last login: %+v", u)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/login", nil))
+	if !strings.Contains(w.Body.String(), "reserved for workspace admins") {
+		t.Fatal("login page must explain SSO-only mode")
+	}
+	// Wrong password still fails generically (no role leak).
+	form := url.Values{"username": {"ann"}, "password": {"nope"}}
+	r := httptest.NewRequest("POST", "/login", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d", w.Code)
 	}
 }

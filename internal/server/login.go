@@ -153,7 +153,7 @@ a.sso:hover{border-color:#f5a623}
 </style></head><body>
 <form class="card" method="post" action="/login">
   <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
-  {{ERR}}{{SSO}}<label for="u">Username</label>
+  {{ERR}}{{SSO}}{{PWNOTE}}<label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>

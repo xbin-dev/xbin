@@ -328,6 +328,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		errHTML = `<div class="err">` + html.EscapeString(msg) + `</div>`
 	}
 	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
+	// SSO-only mode: the form stays (the page can't know who is typing —
+	// admins may still use it) but says who it is for.
+	note := ""
+	if s.Auth.Users != nil && s.Auth.Users.PasswordLoginDisabled() {
+		note = `<div class="warn">Password sign-in is reserved for workspace admins — everyone else uses ` +
+			html.EscapeString(SSOButtonLabel(s.ssoConfig())) + `.</div>`
+	}
+	page = strings.ReplaceAll(page, "{{PWNOTE}}", note)
 	_, _ = w.Write([]byte(page))
 }
 
@@ -393,9 +401,22 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginThrottle.ok(s.ClientIP(r))
+	s.touchLogin(u.ID, "invite")
 	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
+
+// touchLogin stamps the last sign-in (admin-console offboarding signal);
+// never blocks a login.
+func (s *Server) touchLogin(id, via string) {
+	if err := s.Auth.Users.TouchLogin(id, via); err != nil {
+		slog.Warn("login: last-login stamp failed", "user", id, "err", err)
+	}
+}
+
+// passwordLoginRefused is the SSO-only mode message (D53): shown only after
+// a CORRECT password, so it reveals nothing about unknown accounts.
+const passwordLoginRefused = "password sign-in is disabled for this account — use single sign-on"
 
 func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	if !s.loginThrottle.allow(s.ClientIP(r)) {
@@ -415,7 +436,14 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	// SSO-only mode: non-admins sign in through the IdP only; admins keep
+	// the password as the break-glass path when the IdP is misconfigured.
+	if s.Auth.Users.PasswordLoginDisabled() && !u.IsAdmin() {
+		http.Error(w, passwordLoginRefused, http.StatusForbidden)
+		return
+	}
 	s.loginThrottle.ok(s.ClientIP(r))
+	s.touchLogin(u.ID, "password")
 	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
