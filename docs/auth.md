@@ -426,8 +426,12 @@ POST   /api/xbin/users             create {id,name,role,email?,tiles:{path:level
                                    canCreate?,termApi?,termNet?,password?|sso}
 PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset)
 DELETE /api/xbin/users/<id>        remove (revokes their sessions)
+DELETE /api/xbin/users/<id>/sessions  sign out everywhere (D53)
 GET    /api/xbin/defaults          provisioning defaults: defaultTiles,
 PUT    /api/xbin/defaults          newUsers (the new-account seed), tileCreation
+GET    /api/xbin/auth-settings     sign-in policy: token login, SSO config +
+PATCH  /api/xbin/auth-settings     group sync, SSO-only mode
+POST   /api/xbin/auth-settings/sso/test   probe the provider (D53)
 ```
 
 (The pre-tiers body — `tiles` as an array + a global `terminal` bool — is
@@ -504,6 +508,66 @@ hand. This is the "everyone from corp.com lands in org *corp* as a
 developer" setting. (Contrast `defaultTiles`, the *live* visibility baseline
 evaluated on every check, D27.)
 
+**Group sync (D53).** Each org can carry **IdP-group rules** (admin console
+→ organisations → *IdP groups → members*; `PUT /orgs/<org>/sso-groups`;
+`bx org sso-groups`): *group X → level, create, org-admin*. At **every SSO
+sign-in** the provider's groups for the user are reconciled against the
+rules: memberships the rules want are created (or re-set to the rule's
+knobs) with provenance **`via: "sso"`** — shown as ⟳ *synced* in the
+console — and a synced membership whose group **or rule** has disappeared
+is **removed**. Several rules on one org union (highest level, create OR,
+admin OR). Manual memberships are **never touched**: when a manual row and
+a matching rule coexist the manual row wins (delete it to let sync take
+over); an admin can *detach* a synced row (`via: ""`) to make it manual.
+Suspension survives a re-sync. If the provider **fails** to return groups —
+API error, scope not consented, claim absent — **nothing is removed**
+(unknown ≠ empty): the failure is recorded on the user and shown in the
+console's sign-in tab, and the sign-in still succeeds. Rule edits apply at
+each member's next sign-in. The groups each user's last sign-in carried are
+kept (`ssoGroups`) so the console offers real group names when you write
+rules. Default-org seeds (§New-account defaults) are manual rows.
+
+**Workspace admins by group (D53).** `adminGroups` in the SSO config lists
+provider groups whose members are **workspace admins** (`roleVia: "sso"`).
+Guards: only an admin role granted by a rule is ever revoked by sync (a
+hand-promoted admin is never demoted by the IdP), the **last enabled admin
+is never demoted** (the revoke is retried at the next sign-in once another
+admin exists), and every role change is audited. Use a group only IdP
+admins can edit — never one people can join themselves.
+
+**Provider notes.** *Generic OIDC*: the claim named by `groupsClaim`
+(default `groups`) is read from the ID token, then from UserInfo; some IdPs
+need an extra scope to emit it (`groupsScope`, e.g. Okta's `groups`). Okta:
+add a Groups claim to the app (filter *matches regex* `.*`). Keycloak: a
+*Group Membership* mapper (values are paths like `/sales`). Entra: enable
+the groups claim on the app registration (values are object IDs unless the
+app emits names; >200 groups overflows to an absent claim = recorded
+failure). *GitHub*: groups are the account's teams as `org/team-slug` plus
+its orgs as `org`; needs the `read:org` scope (an existing authorization
+re-consents once). *Google Workspace*: the ID token never carries groups —
+sign-ins query the **Cloud Identity API** (`searchDirectGroups`) with the
+`cloud-identity.groups.readonly` scope; enable that API on the OAuth
+client's GCP project; groups are named by their **email**
+(`sales@corp.com`); only direct memberships count. Extra scopes are
+requested only while rules exist. All group calls are bounded (8 s) and a
+timeout is just a recorded failure.
+
+**Connection test.** *Test connection* in the console (`POST
+/auth-settings/sso/test`) runs OIDC discovery + a JWKS fetch (or checks the
+GitHub API) for the stored config or the unsaved form — a typo'd issuer is
+caught before the first user clicks the button.
+
+**SSO-only mode (D53).** `passwordLoginDisabled` (sign-in tab → *SSO-only
+sign-in*; `PATCH /auth-settings`) refuses password sign-in and invite links
+for **non-admin** accounts — they use the IdP only. **Admins keep password
+sign-in** as the break-glass path, so a broken IdP config can't lock the
+workspace; enabling needs a ready provider, and removing SSO clears the
+mode. The login form stays (the page can't know who is typing) with a note.
+
+**Last sign-in.** Every successful sign-in stamps `lastLogin`/`lastLoginVia`
+(password | invite | sso) on the account — the console's *never signed in*
+and *stale 30d+* filters and its offboarding bulk-disable run on it.
+
 Requirements and mechanics: the daemon needs **`--external-url`**
 (`XBIN_EXTERNAL_URL`) — the stable public console URL the redirect URI
 `<external-url>/login/sso/callback` is registered under at the IdP; an
@@ -528,6 +592,10 @@ admin). An **org admin suspends a member** (the member row's `suspended`
 knob): that one membership confers nothing while set — org-tile level,
 org shares, create, adminship, set-conferred term flags — and reinstating
 is unchecking the box. Org-level moderation without touching the account.
+A third, lighter switch: **sign out everywhere** (`DELETE
+/users/<id>/sessions`, `bx user signout`, the users table's row menu) ends
+every browser session and terminal token of one user without changing the
+account — they can sign in again.
 
 **Self-service credentials (D38).** Signed-in users rotate their own
 password (`POST /account/password`, the shell's my-account section) after
@@ -591,9 +659,14 @@ org-tile ACLs, transfers, exercising allowances). UI presets: **Admin**
 (terminal+create+admin), **Developer** (terminal+create), **Viewer** (read).
 Tiles can also be **shared to an org** (an `org.Tiles` entry — all members
 get that level, wherever the tile lives). New accounts can auto-join orgs
-through the new-account defaults (§SSO sign-in, D52); the org-only
+through the new-account defaults (§SSO sign-in, D52) or at creation
+(`POST /users {orgs}`); IdP-group rules keep memberships in step with the
+directory (§Group sync, D53 — such rows carry `via: "sso"`); the org-only
 tile-creation policy (§Create permission) makes org membership the only way
-a non-admin gets to create tiles at all.
+a non-admin gets to create tiles at all. Single memberships are edited with
+`PUT`/`DELETE /orgs/<org>/members/<user>` (org admins included) — the
+whole-list `PATCH /orgs/<org> {members}` remains for bulk edits and never
+changes provenance.
 
 **Effective access (D31 — "your perms on an org tile are your perms in the
 org").** Resolution order:

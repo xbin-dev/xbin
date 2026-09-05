@@ -30,6 +30,9 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("POST /orgs", b.apiOrgCreate)
 	srv.RegisterAPI("PATCH /orgs/{org}", b.apiOrgUpdate)
 	srv.RegisterAPI("DELETE /orgs/{org}", b.apiOrgDelete)
+	srv.RegisterAPI("PUT /orgs/{org}/members/{user}", b.apiOrgMemberPut)
+	srv.RegisterAPI("DELETE /orgs/{org}/members/{user}", b.apiOrgMemberDelete)
+	srv.RegisterAPI("PUT /orgs/{org}/sso-groups", b.apiOrgSSOGroupsPut)
 	srv.RegisterAPI("GET /permission-sets", b.apiPermSetsList)
 	srv.RegisterAPI("PUT /permission-sets/{name}", b.apiPermSetPut)
 	srv.RegisterAPI("DELETE /permission-sets/{name}", b.apiPermSetDelete)
@@ -154,6 +157,8 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
 		return
 	}
+	// members replaces the whole list; provenance (via/viaGroups) is
+	// store-owned — the previous row's is kept and the body's ignored (D53).
 	var body struct {
 		Name    *string        `json:"name"`
 		Members []users.Member `json:"members"`
@@ -191,6 +196,119 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+	}
+	b.usersEvent()
+	o, _ := st.Org(org)
+	server.WriteJSON(w, http.StatusOK, b.orgView(*o))
+}
+
+// apiOrgMemberPut — PUT /orgs/{org}/members/{user}: upsert ONE membership
+// (D53). Present fields overlay; a new row starts at read. via:"" detaches
+// a synced row (manual from then on); any other via is refused — provenance
+// is written by SSO sync only. Same gate as PATCH /orgs.
+func (b *Broker) apiOrgMemberPut(w http.ResponseWriter, r *http.Request) {
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	org, user := r.PathValue("org"), r.PathValue("user")
+	if !b.canManageOrg(auth.PrincipalOf(r), org) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management needs workspace admin or org admin", "docs": "/docs/auth.md"})
+		return
+	}
+	var body struct {
+		Level     *string `json:"level"`
+		Create    *bool   `json:"create"`
+		Admin     *bool   `json:"admin"`
+		Suspended *bool   `json:"suspended"`
+		Via       *string `json:"via"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {level?, create?, admin?, suspended?, via?: \"\"}"})
+		return
+	}
+	if body.Via != nil && *body.Via != "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "provenance is written by SSO sync only — via may only be \"\" (detach)"})
+		return
+	}
+	if _, ok := st.Org(org); !ok {
+		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		return
+	}
+	if _, ok := st.Get(user); !ok {
+		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+		return
+	}
+	if _, err := st.SetOrgMember(org, user, users.MemberPatch{
+		Level: body.Level, Create: body.Create, Admin: body.Admin, Suspended: body.Suspended, Detach: body.Via != nil,
+	}); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	b.usersEvent()
+	o, _ := st.Org(org)
+	server.WriteJSON(w, http.StatusOK, b.orgView(*o))
+}
+
+// apiOrgMemberDelete — DELETE /orgs/{org}/members/{user}. Removing a SYNCED
+// row is allowed but temporary: it returns at the user's next sign-in while
+// the rule stands — the response says so.
+func (b *Broker) apiOrgMemberDelete(w http.ResponseWriter, r *http.Request) {
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	org, user := r.PathValue("org"), r.PathValue("user")
+	if !b.canManageOrg(auth.PrincipalOf(r), org) {
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management needs workspace admin or org admin", "docs": "/docs/auth.md"})
+		return
+	}
+	m, err := st.RemoveOrgMember(org, user)
+	if err != nil {
+		code := http.StatusBadRequest
+		if err == users.ErrNotMember {
+			code = http.StatusNotFound
+		}
+		server.WriteJSON(w, code, map[string]string{"error": err.Error()})
+		return
+	}
+	b.usersEvent()
+	o, _ := st.Org(org)
+	out := map[string]any{"org": b.orgView(*o), "removed": m}
+	if m.Via == users.MemberViaSSO {
+		out["note"] = "this membership was synced from IdP group(s) " + strings.Join(m.ViaGroups, ", ") +
+			" — it returns at their next sign-in while the rule stands; remove them from the group or delete the rule"
+	}
+	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// apiOrgSSOGroupsPut — PUT /orgs/{org}/sso-groups {rules:[{group, level,
+// create?, admin?}]}: replace the org's IdP-group rules (ws-admin only —
+// rules grant power, like sets/allow). Applied at each member's next SSO
+// sign-in.
+func (b *Broker) apiOrgSSOGroupsPut(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	org := r.PathValue("org")
+	var body struct {
+		Rules []users.GroupRule `json:"rules"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Rules == nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {rules: [{group, level?, create?, admin?}]}"})
+		return
+	}
+	if _, ok := st.Org(org); !ok {
+		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		return
+	}
+	if err := st.SetOrgSSOGroups(org, body.Rules); err != nil {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 	b.usersEvent()
 	o, _ := st.Org(org)

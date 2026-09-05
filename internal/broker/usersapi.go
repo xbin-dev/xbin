@@ -21,12 +21,14 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("GET /users", b.apiUsersList)
 	srv.RegisterAPI("GET /sessions", func(w http.ResponseWriter, r *http.Request) { b.apiSessions(srv, w, r) })
 	srv.RegisterAPI("POST /users", b.apiUsersCreate)
-	srv.RegisterAPI("PATCH /users/{id}", b.apiUsersUpdate)
+	srv.RegisterAPI("PATCH /users/{id}", func(w http.ResponseWriter, r *http.Request) { b.apiUsersUpdate(srv, w, r) })
 	srv.RegisterAPI("POST /users/{id}/invite", b.apiUsersInvite)
-	srv.RegisterAPI("DELETE /users/{id}", b.apiUsersDelete)
+	srv.RegisterAPI("DELETE /users/{id}", func(w http.ResponseWriter, r *http.Request) { b.apiUsersDelete(srv, w, r) })
+	srv.RegisterAPI("DELETE /users/{id}/sessions", func(w http.ResponseWriter, r *http.Request) { b.apiUsersSignout(srv, w, r) })
 	srv.RegisterAPI("POST /account/password", b.apiAccountPassword)
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
+	srv.RegisterAPI("POST /auth-settings/sso/test", func(w http.ResponseWriter, r *http.Request) { b.apiSSOTest(srv, w, r) })
 	b.registerOrgs(srv)
 	b.registerRequests(srv)
 }
@@ -232,6 +234,14 @@ type userBody struct {
 	// like the invite flow but WITHOUT minting an invite — the bound email's
 	// IdP sign-in is the credential (D52). Requires email.
 	SSO bool `json:"sso"`
+	// Orgs (POST only) joins the new account to orgs at creation (D53) —
+	// each entry overlays a seed-joined default org.
+	Orgs []struct {
+		Org    string `json:"org"`
+		Level  string `json:"level"`
+		Create bool   `json:"create"`
+		Admin  bool   `json:"admin"`
+	} `json:"orgs"`
 }
 
 // minPasswordLen is the floor for account passwords set through the API. It's
@@ -280,6 +290,21 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
 		return
 	}
+	// SSO-only mode (D53): a non-admin can't be given a password path — the
+	// invite link would mint one.
+	if st.PasswordLoginDisabled() && body.Role != users.RoleAdmin && !body.SSO && body.Password == "" {
+		server.WriteJSON(w, http.StatusConflict, map[string]string{
+			"error": "password sign-in is disabled for non-admins — create the account with sso:true and an email"})
+		return
+	}
+	// Orgs are validated BEFORE the account exists so a typo never leaves a
+	// half-provisioned user behind.
+	for _, o := range body.Orgs {
+		if _, ok := st.Org(o.Org); !ok {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "no such org " + o.Org})
+			return
+		}
+	}
 	tiles, err := users.ParseTiles(body.Tiles, body.Terminal != nil && *body.Terminal)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -316,8 +341,21 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	for _, o := range body.Orgs {
+		level, create, admin := o.Level, o.Create, o.Admin
+		if level == "" {
+			level = users.LevelRead
+		}
+		if _, err := st.SetOrgMember(o.Org, u.ID, users.MemberPatch{Level: &level, Create: &create, Admin: &admin}); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "join " + o.Org + ": " + err.Error(), "user": u.ID})
+			return
+		}
+	}
 	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
 	out := map[string]any{"user": u.Public()}
+	if orgs := st.UserOrgs(u.ID); len(orgs) > 0 {
+		out["orgs"] = orgs
+	}
 	if invite != "" {
 		out["invite"] = invite
 		out["inviteUrl"] = "/login?invite=" + invite
@@ -405,6 +443,13 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if st.PasswordLoginDisabled() {
+		if target, ok := st.Get(r.PathValue("id")); ok && !target.IsAdmin() {
+			server.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error": "password sign-in is disabled for non-admins — this account signs in through the IdP (bind its email instead)"})
+			return
+		}
+	}
 	tok, err := st.CreateInvite(r.PathValue("id"), 0)
 	if err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -421,7 +466,7 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, out)
 }
 
-func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
+func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
 	}
@@ -476,7 +521,7 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	nu := users.User{
 		ID: body.ID, Name: body.Name, Role: body.Role, Tiles: tiles,
 		CanCreate: cur.CanCreate, TermAPI: cur.TermAPI, TermNet: cur.TermNet,
-		Disabled: cur.Disabled, Email: cur.Email,
+		Disabled: cur.Disabled, Email: cur.Email, RoleVia: cur.RoleVia, // (Upsert drops RoleVia on a role change)
 	}
 	if body.Email != nil {
 		nu.Email = *body.Email
@@ -526,11 +571,14 @@ func (b *Broker) apiUsersUpdate(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if nu.Disabled && !cur.Disabled && srv != nil && srv.Auth != nil {
+		srv.Auth.DropUserSessions(u.ID) // the snapshot rule already refuses them; this clears the list
+	}
 	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
 	server.WriteJSON(w, http.StatusOK, u.Public())
 }
 
-func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
+func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
 	}
@@ -543,10 +591,58 @@ func (b *Broker) apiUsersDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if srv != nil && srv.Auth != nil {
+		srv.Auth.DropUserSessions(r.PathValue("id"))
+	}
 	b.usersEvent() // a deleted user's sessions/frame/terminal principals are gone — refresh panels
 	// orphanedTiles: what just fell to workspace-owned, so the handover is
 	// explicit rather than silent (re-assign with bx owner).
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "orphanedTiles": orphaned})
+}
+
+// apiUsersSignout — DELETE /users/{id}/sessions: "sign out everywhere"
+// (D53). Ends every browser session and terminal token of the user; they
+// can sign in again (disable the account to stop that).
+func (b *Broker) apiUsersSignout(srv *server.Server, w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	st := b.usersStore(w)
+	if st == nil {
+		return
+	}
+	u, ok := st.Get(r.PathValue("id"))
+	if !ok {
+		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+		return
+	}
+	n := 0
+	if srv != nil && srv.Auth != nil {
+		n = srv.Auth.DropUserSessions(u.ID)
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "dropped": n})
+}
+
+// apiSSOTest — POST /auth-settings/sso/test: probe the provider (discovery +
+// JWKS, or GitHub reachability) for the stored config or the admin's unsaved
+// draft {sso:{…}}. Always 200 — the body is a report, ok:false included.
+func (b *Broker) apiSSOTest(srv *server.Server, w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) {
+		return
+	}
+	if st := b.usersStore(w); st == nil {
+		return
+	}
+	var body struct {
+		SSO *users.SSOConfig `json:"sso"`
+	}
+	if r.ContentLength != 0 {
+		if err := decodeJSON(r, &body); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {} or {sso: {kind, preset?, issuer?, clientId, …}}"})
+			return
+		}
+	}
+	server.WriteJSON(w, http.StatusOK, srv.SSOTest(r.Context(), body.SSO))
 }
 
 // attributedAdminUser reports whether the human behind a request is a
@@ -579,11 +675,19 @@ func (b *Broker) apiAuthSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"tokenLoginDisabled": st.TokenLoginDisabled(),
-		"hasAdminUser":       st.HasAdmin(),
-		"canDisable":         st.HasAdmin() && b.attributedAdminUser(auth.PrincipalOf(r)),
-		"sso":                b.ssoView(st),
+		"tokenLoginDisabled":    st.TokenLoginDisabled(),
+		"hasAdminUser":          st.HasAdmin(),
+		"canDisable":            st.HasAdmin() && b.attributedAdminUser(auth.PrincipalOf(r)),
+		"sso":                   b.ssoView(st),
+		"passwordLoginDisabled": st.PasswordLoginDisabled(),
+		"canDisablePassword":    b.ssoReady(st), // same predicate as the PATCH guard
 	})
+}
+
+// ssoReady: a provider is configured AND the daemon knows its public URL —
+// the login button exists, so SSO-only mode can't strand non-admins.
+func (b *Broker) ssoReady(st *users.Store) bool {
+	return st.SSO().Enabled() && b.ExternalURL != ""
 }
 
 // ssoView is auth-settings' SSO block: the stored config with the client
@@ -602,7 +706,24 @@ func (b *Broker) ssoView(st *users.Store) map[string]any {
 		out["allowedDomains"] = c.AllowedDomains
 		out["buttonLabel"] = c.ButtonLabel
 		out["clientSecretSet"] = c.ClientSecret != ""
+		out["groupsClaim"], out["groupsScope"] = c.GroupsClaim, c.GroupsScope
+		out["adminGroups"] = c.AdminGroups
 	}
+	// Group sync status (D53): whether any rule is active, every group the
+	// IdP has been seen sending (the console's datalist), and the newest
+	// recorded fetch failure — derived from user rows, nothing extra stored.
+	sync := map[string]any{"rulesActive": st.SSOGroupRulesExist(), "knownGroups": st.KnownSSOGroups()}
+	var last *users.User
+	for _, u := range st.List() {
+		if u.SSOSyncError != "" && (last == nil || u.LastLogin > last.LastLogin) {
+			uu := u
+			last = &uu
+		}
+	}
+	if last != nil {
+		sync["lastError"] = map[string]any{"user": last.ID, "at": last.LastLogin, "error": last.SSOSyncError}
+	}
+	out["groupSync"] = sync
 	return out
 }
 
@@ -619,11 +740,12 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		TokenLoginDisabled *bool           `json:"tokenLoginDisabled"`
-		SSO                json.RawMessage `json:"sso"`
+		TokenLoginDisabled    *bool           `json:"tokenLoginDisabled"`
+		SSO                   json.RawMessage `json:"sso"`
+		PasswordLoginDisabled *bool           `json:"passwordLoginDisabled"`
 	}
-	if err := decodeJSON(r, &body); err != nil || (body.TokenLoginDisabled == nil && body.SSO == nil) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool} and/or {sso: {...}|null}"})
+	if err := decodeJSON(r, &body); err != nil || (body.TokenLoginDisabled == nil && body.SSO == nil && body.PasswordLoginDisabled == nil) {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool} and/or {sso: {...}|null} and/or {passwordLoginDisabled: bool}"})
 		return
 	}
 	// SSO config: an object replaces (empty clientSecret keeps the stored
@@ -647,9 +769,24 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// SSO-only mode (D53): non-admins sign in through the IdP only. Enabling
+	// needs a READY provider (configured + --external-url) — the same
+	// predicate GET reports as canDisablePassword.
+	if body.PasswordLoginDisabled != nil {
+		if *body.PasswordLoginDisabled && !b.ssoReady(st) {
+			server.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error": "SSO must be configured and --external-url set before disabling password sign-in"})
+			return
+		}
+		if err := st.SetPasswordLoginDisabled(*body.PasswordLoginDisabled); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	if body.TokenLoginDisabled == nil {
 		server.WriteJSON(w, http.StatusOK, map[string]any{
 			"tokenLoginDisabled": st.TokenLoginDisabled(), "sso": b.ssoView(st),
+			"passwordLoginDisabled": st.PasswordLoginDisabled(),
 		})
 		return
 	}
@@ -670,6 +807,7 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"tokenLoginDisabled": st.TokenLoginDisabled(), "sso": b.ssoView(st),
+		"passwordLoginDisabled": st.PasswordLoginDisabled(),
 	})
 }
 

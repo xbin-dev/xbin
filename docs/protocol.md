@@ -199,7 +199,7 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile alerts to admins + that tile's users
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
-                                   admin}]
+                                   admin,suspended?,via?,viaGroups?}]
                                    (the self-service membership view), and
                                    tileCreation: any|org-only — the
                                    workspace's tile-creation policy (D52)
@@ -226,12 +226,26 @@ DELETE /prefs/<key>               remove it
                                    bucket; the shell stores layout here)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, canCreate, termApi,
-                                   termNet, disabled?, invitePending?}] —
-                                   levels read|write|terminal
-                                   (docs/auth.md, D16)
+                                   termNet, disabled?, invitePending?,
+                                   email?, roleVia?, lastLogin?,
+                                   lastLoginVia?, ssoGroups?,
+                                   ssoSyncError?}] — levels
+                                   read|write|terminal (docs/auth.md, D16).
+                                   Sign-in facts (D53): lastLogin (unix) +
+                                   lastLoginVia (password|invite|sso);
+                                   ssoGroups = the IdP groups seen at the
+                                   last SSO sign-in; ssoSyncError = the
+                                   last group-fetch failure; roleVia "sso"
+                                   = admin by group rule
 POST   /users                     admin/xbin:users. create a user: {id,
                                    name?, role?, email?, tiles?, canCreate?,
-                                   termApi?, termNet?, password? | sso?}.
+                                   termApi?, termNet?, password? | sso?,
+                                   orgs?: [{org, level, create, admin}]}.
+                                   orgs joins the account at creation
+                                   (validated first — a bad org creates
+                                   nothing; D53) → response adds orgs.
+                                   Under SSO-only mode a non-admin needs
+                                   sso:true or a password (409 otherwise).
                                    WITH password → ready to sign in;
                                    WITHOUT → credential-less account + a
                                    single-use invite link the admin
@@ -272,7 +286,8 @@ POST   /users/<id>/invite         admin/xbin:users — or an ORG ADMIN for a
                                    the previous link; the current password
                                    keeps working until redemption. → {invite,
                                    inviteUrl, inviteLink (absolute, from the
-                                   request host), inviteExpires}
+                                   request host), inviteExpires}. 409 for a
+                                   non-admin under SSO-only mode (D53)
 PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    overlay (+password reset). {disabled:
                                    bool} suspends/restores the account
@@ -285,6 +300,11 @@ DELETE /users/<id>                admin/xbin:users. remove (revokes
                                    sessions) → {ok, orphanedTiles: […]} —
                                    tiles that fell to workspace-owned, so
                                    the handover is explicit
+DELETE /users/<id>/sessions       admin/xbin:users. "sign out everywhere"
+                                   (D53): ends every browser session and
+                                   terminal token of the user → {ok,
+                                   dropped}. They can sign in again —
+                                   disable the account to stop that
 GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    created, lastActive, ip, lastIP,
                                    current}]} — live browser sessions with
@@ -297,33 +317,94 @@ GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    the /c/ warm-IP gate (admin console →
                                    user management → sessions)
 GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
-                                   hasAdminUser, canDisable} — owner-token
-                                   browser-login state (docs/auth.md)
+                                   hasAdminUser, canDisable,
+                                   passwordLoginDisabled,
+                                   canDisablePassword, sso: {enabled,
+                                   ready, kind, preset, issuer, clientId,
+                                   clientSecretSet, allowedDomains,
+                                   buttonLabel, externalUrl, groupsClaim,
+                                   groupsScope, adminGroups, groupSync:
+                                   {rulesActive, knownGroups, lastError:
+                                   {user, at, error}|null}}} — sign-in
+                                   policy (docs/auth.md §SSO): the SSO
+                                   config with the secret reduced to a
+                                   bool, SSO-only mode (D53), and the
+                                   group-sync status (every group the IdP
+                                   has been seen sending, the newest
+                                   recorded fetch failure)
 POST   /auth-rotate-token         admin. Rotate the owner token: rewrites
                                    .xbin/token, old token dies immediately
                                    (bearer + cookie). → {token} (shown once).
-PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled:bool};
-                                   disabling requires a signed-in admin user
-                                   (Bearer owner token unaffected)
+PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled?:
+                                   bool, sso?: {kind, preset, issuer,
+                                   clientId, clientSecret, allowedDomains,
+                                   buttonLabel, groupsClaim, groupsScope,
+                                   adminGroups}|null,
+                                   passwordLoginDisabled?: bool}. Disabling
+                                   token login requires a signed-in admin
+                                   user (Bearer owner token unaffected); an
+                                   sso object replaces the config (empty
+                                   clientSecret keeps the stored one), null
+                                   clears it; passwordLoginDisabled = SSO-
+                                   only mode for non-admins — enabling
+                                   needs a READY provider (409 otherwise)
+POST   /auth-settings/sso/test    admin/xbin:users. probe the provider
+                                   without a user (D53): OIDC discovery +
+                                   JWKS, or GitHub API reachability. Body
+                                   {} = the stored config, {sso: {…}} = an
+                                   unsaved draft (empty clientSecret = the
+                                   stored one). Always 200 → {ok, kind,
+                                   issuer, redirectUri, externalUrl, ready,
+                                   endpoints, jwksKeys, warnings, error}
 
 GET    /orgs                      management view (docs/auth.md, ownership):
                                    admin/xbin:users → all orgs; a signed-in
                                    org admin → their orgs. {orgs:[{id,name,
                                    members:[{id,level,create,admin,
-                                   suspended?}],tiles,
-                                   sets,allow,policy,resolvedAllow,
-                                   ownedTiles}]}
+                                   suspended?,via?,viaGroups?}],tiles,
+                                   sets,allow,policy,ssoGroups:[{group,
+                                   level,create,admin}],resolvedAllow,
+                                   ownedTiles}]}. via "sso" = the row was
+                                   created by a group rule (D53) and
+                                   follows the IdP; ssoGroups = the org's
+                                   rules
 POST   /orgs                      admin/xbin:users. create {id, name?}
                                    (id: [a-z0-9._-], immutable; "workspace"
                                    reserved)
 PATCH  /orgs/<org>                admin/xbin:users, or that org's admin:
-                                   {name?, members?} — a member entry's
+                                   {name?, members?} — members replaces the
+                                   whole list (provenance via/viaGroups is
+                                   store-owned: kept from the previous row,
+                                   ignored in the body); a member entry's
                                    suspended:true pauses the membership
                                    (confers nothing, stays listed; D34).
                                    WS-ADMIN ONLY fields:
                                    {sets?, allow?} — delegation is granted
                                    from above (D26/D28); xbin/xbin:* never
                                    valid in allow
+PUT    /orgs/<org>/members/<user> admin/xbin:users, or that org's admin.
+                                   upsert ONE membership (D53): {level?,
+                                   create?, admin?, suspended?, via?: ""}.
+                                   Present fields overlay; a new row starts
+                                   at read. via:"" DETACHES a synced row
+                                   (manual from then on); any other via is
+                                   refused — provenance is written by SSO
+                                   sync only. → the org view; 404 unknown
+                                   org/user
+DELETE /orgs/<org>/members/<user> same gate. remove ONE membership → {org,
+                                   removed, note?}; 404 when not a member.
+                                   A synced row returns at the user's next
+                                   sign-in while its rule stands — note
+                                   says so
+PUT    /orgs/<org>/sso-groups     admin/xbin:users (ws-admin — rules grant
+                                   power). replace the org's IdP-group
+                                   rules: {rules: [{group, level?, create?,
+                                   admin?}]} — group = OIDC claim value,
+                                   GitHub org/team-slug, or Google group
+                                   email; matching rules union. Applied at
+                                   each member's next SSO sign-in
+                                   (docs/auth.md §Group sync, D53) → the
+                                   org view
 DELETE /orgs/<org>                admin/xbin:users; refused while the org
                                    still OWNS tiles (transfer first)
 GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,

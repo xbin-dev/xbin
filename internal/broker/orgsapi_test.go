@@ -386,3 +386,122 @@ func TestDirectoryAndMatrixGates(t *testing.T) {
 		t.Fatalf("matrix owners: %v %v", err, mx.Owners)
 	}
 }
+
+// Single-membership routes (D53): org admins and ws-admins may edit one
+// row; members can't; partial patches overlay; via:"" detaches a synced
+// row and any other via is refused; removing a synced row notes that it
+// comes back.
+func TestOrgMemberSingleRow(t *testing.T) {
+	b, st := orgFixture(t)
+	carol, bob, root := principalFor(t, st, "carol"), principalFor(t, st, "bob"), auth.Principal{Owner: true}
+	pv := func(user string) map[string]string { return map[string]string{"org": "sales", "user": user} }
+
+	if w := call(t, b.apiOrgMemberPut, bob, "PUT", "/orgs/sales/members/dave", `{"level":"read"}`, pv("dave")); w.Code != 403 {
+		t.Fatalf("member editing members: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiOrgMemberPut, carol, "PUT", "/orgs/sales/members/dave", `{"create":true}`, pv("dave")); w.Code != 200 {
+		t.Fatalf("org admin add: %d %s", w.Code, w.Body.String())
+	}
+	o, _ := st.Org("sales")
+	if m, ok := o.Member("dave"); !ok || m.Level != users.LevelRead || !m.Create || m.Admin {
+		t.Fatalf("new row: %+v %v", m, ok)
+	}
+	if w := call(t, b.apiOrgMemberPut, root, "PUT", "/orgs/sales/members/dave", `{"level":"terminal","admin":true}`, pv("dave")); w.Code != 200 {
+		t.Fatalf("root patch: %d", w.Code)
+	}
+	o, _ = st.Org("sales")
+	if m, _ := o.Member("dave"); m.Level != users.LevelTerminal || !m.Create || !m.Admin {
+		t.Fatalf("partial patch must overlay: %+v", m)
+	}
+	if w := call(t, b.apiOrgMemberPut, root, "PUT", "/orgs/sales/members/ghost", `{}`, pv("ghost")); w.Code != 404 {
+		t.Fatalf("unknown user: %d", w.Code)
+	}
+	if w := call(t, b.apiOrgMemberPut, root, "PUT", "/orgs/sales/members/dave", `{"via":"sso"}`, pv("dave")); w.Code != 400 {
+		t.Fatalf("forged provenance: %d %s", w.Code, w.Body.String())
+	}
+
+	// A synced row (seeded through the reconcile) detaches with via:"".
+	if err := st.SetOrgSSOGroups("sales", []users.GroupRule{{Group: "sales@corp.com", Level: users.LevelWrite}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SyncSSOGroups("dave", []string{"sales@corp.com"}, true); err != nil {
+		t.Fatal(err)
+	}
+	// dave has a MANUAL row → sync skipped it; use a fresh user instead.
+	if _, err := st.Upsert(users.User{ID: "erin", Role: users.RoleUser}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	st.SyncSSOGroups("erin", []string{"sales@corp.com"}, true)
+	o, _ = st.Org("sales")
+	if m, ok := o.Member("erin"); !ok || m.Via != users.MemberViaSSO {
+		t.Fatalf("expected synced erin: %+v %v", m, ok)
+	}
+	if w := call(t, b.apiOrgMemberPut, carol, "PUT", "/orgs/sales/members/erin", `{"via":""}`, pv("erin")); w.Code != 200 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body.String())
+	}
+	o, _ = st.Org("sales")
+	if m, _ := o.Member("erin"); m.Via != "" || m.Level != users.LevelWrite {
+		t.Fatalf("detach must clear provenance only: %+v", m)
+	}
+	// Remove a synced row → note in the response; a non-member → 404.
+	st.SyncSSOGroups("erin", []string{"sales@corp.com"}, true) // manual now: no-op
+	if _, err := st.Upsert(users.User{ID: "finn", Role: users.RoleUser}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	st.SyncSSOGroups("finn", []string{"sales@corp.com"}, true)
+	w := call(t, b.apiOrgMemberDelete, carol, "DELETE", "/orgs/sales/members/finn", "", pv("finn"))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "returns at their next sign-in") {
+		t.Fatalf("remove synced: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiOrgMemberDelete, carol, "DELETE", "/orgs/sales/members/finn", "", pv("finn")); w.Code != 404 {
+		t.Fatalf("remove non-member: %d", w.Code)
+	}
+	if w := call(t, b.apiOrgMemberDelete, bob, "DELETE", "/orgs/sales/members/alice", "", pv("alice")); w.Code != 403 {
+		t.Fatalf("member removing: %d", w.Code)
+	}
+}
+
+// Group rules are ws-admin only, validated, visible in the org view, and
+// survive a whole-list PATCH (which also keeps provenance).
+func TestOrgSSOGroupsRoute(t *testing.T) {
+	b, st := orgFixture(t)
+	carol, root := principalFor(t, st, "carol"), auth.Principal{Owner: true}
+	pv := map[string]string{"org": "sales"}
+	if w := call(t, b.apiOrgSSOGroupsPut, carol, "PUT", "/orgs/sales/sso-groups", `{"rules":[{"group":"sales@corp.com"}]}`, pv); w.Code != 403 {
+		t.Fatalf("org admin setting rules: %d", w.Code)
+	}
+	if w := call(t, b.apiOrgSSOGroupsPut, root, "PUT", "/orgs/sales/sso-groups", `{"rules":[{"group":"a"},{"group":"A"}]}`, pv); w.Code != 400 {
+		t.Fatalf("duplicate rule: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiOrgSSOGroupsPut, root, "PUT", "/orgs/sales/sso-groups", `{}`, pv); w.Code != 400 {
+		t.Fatalf("missing rules: %d", w.Code)
+	}
+	w := call(t, b.apiOrgSSOGroupsPut, root, "PUT", "/orgs/sales/sso-groups",
+		`{"rules":[{"group":"Sales@corp.com","level":"terminal","create":true}]}`, pv)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"ssoGroups"`) {
+		t.Fatalf("set rules: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := st.Upsert(users.User{ID: "erin", Role: users.RoleUser}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	st.SyncSSOGroups("erin", []string{"sales@corp.com"}, true)
+	// Whole-list PATCH by the org admin: rules and provenance intact, forged via ignored.
+	w = call(t, b.apiOrgUpdate, carol, "PATCH", "/orgs/sales",
+		`{"members":[{"id":"carol","level":"terminal","create":true,"admin":true},{"id":"erin","level":"read","via":"forged"},{"id":"bob","level":"read","via":"sso"}]}`, pv)
+	if w.Code != 200 {
+		t.Fatalf("patch: %d %s", w.Code, w.Body.String())
+	}
+	o, _ := st.Org("sales")
+	if len(o.SSOGroups) != 1 {
+		t.Fatal("PATCH must keep rules")
+	}
+	if m, _ := o.Member("erin"); m.Via != users.MemberViaSSO || m.Level != users.LevelRead {
+		t.Fatalf("erin after patch: %+v", m)
+	}
+	if m, _ := o.Member("bob"); m.Via != "" {
+		t.Fatalf("bob must not gain provenance: %+v", m)
+	}
+	if w := call(t, b.apiOrgsList, root, "GET", "/orgs", "", nil); !strings.Contains(w.Body.String(), `"via":"sso"`) {
+		t.Fatal("GET /orgs must expose provenance")
+	}
+}
