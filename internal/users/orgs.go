@@ -107,7 +107,9 @@ type Org struct {
 	// edited via SetOrgSSOGroups). Applied by SyncSSOGroups at every SSO
 	// sign-in.
 	SSOGroups []GroupRule `json:"ssoGroups,omitempty"`
-	Created   int64       `json:"created"`
+	// NetSets are the attached network sets (D54; ws-admin, SetOrgNetSets).
+	NetSets []string `json:"netSets,omitempty"`
+	Created int64    `json:"created"`
 }
 
 // Member returns the membership entry for a user, if any.
@@ -129,6 +131,18 @@ type PermissionSet struct {
 	TermAPI bool        `json:"termApi,omitempty"`
 	TermNet bool        `json:"termNet,omitempty"`
 	Created int64       `json:"created,omitempty"`
+}
+
+// NetSet is a named list of network reach rules (D54, netsets.go), attached
+// to orgs by reference. For an org's OWN tiles the union of its sets is at
+// once the ceiling on `net` bindings, what its admins may bind without
+// asking, and the default egress (the `org` binding) of tiles and of
+// terminals opened on them. Rules use the `net:` allowance grammar without
+// the prefix: internet | internet:<host|host-glob|ip|cidr>[:port] |
+// lan:<ip|cidr>[:port] | host | provider:<tile-glob>.
+type NetSet struct {
+	Rules   []string `json:"rules"`
+	Created int64    `json:"created,omitempty"`
 }
 
 // --- ownership ---------------------------------------------------------------
@@ -314,6 +328,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 		o.Allow = existing.Allow
 		o.Policy = existing.Policy
 		o.SSOGroups = existing.SSOGroups
+		o.NetSets = existing.NetSets
 	} else {
 		o.Created = time.Now().Unix()
 	}
@@ -683,6 +698,12 @@ func (s *Store) ResolvedAllow(orgID string) []string {
 		}
 	}
 	add(org.Allow)
+	// Network sets (D54) are an implicit allowance: org admins may bind
+	// anything inside them. (They are also the ceiling — an org.Allow entry
+	// wider than the sets passes here and is refused at validation.)
+	for _, r := range s.orgNetRulesLocked(org) {
+		add([]string{"net:" + r})
+	}
 	sort.Strings(out)
 	return out
 }
@@ -1225,6 +1246,12 @@ func (a *Access) Owned() []string {
 // never subject to it.
 type Ceiling struct {
 	rows []PolicyRow
+	// Network sets (D54): the owning org's attached sets and their union,
+	// so resolution, validation and transfer previews see the same reach.
+	owner    string // "org:<id>" when org-owned
+	netSets  []string
+	netRules []string
+	netHost  bool
 }
 
 // Ceiling collects the rows covering path (workspace + owner org's + sets').
@@ -1261,6 +1288,7 @@ func (s *Store) ceilingLocked(path, ownerRef string) Ceiling {
 		}
 	}
 	add(s.policy)
+	c := Ceiling{}
 	if org, ok := strings.CutPrefix(ownerRef, OwnerKindOrg+":"); ok {
 		if o := s.orgs[org]; o != nil {
 			for _, n := range o.Sets {
@@ -1269,9 +1297,51 @@ func (s *Store) ceilingLocked(path, ownerRef string) Ceiling {
 				}
 			}
 			add(o.Policy)
+			c.owner = ownerRef
+			c.netSets = append([]string(nil), o.NetSets...)
+			c.netRules = s.orgNetRulesLocked(o)
+			c.netHost = contains(c.netRules, "host")
 		}
 	}
-	return Ceiling{rows: rows}
+	c.rows = rows
+	return c
+}
+
+// OwnerOrg is the owning org's id when the ceiling was composed for an
+// org-owned tile ("" otherwise).
+func (c Ceiling) OwnerOrg() string {
+	id, _ := strings.CutPrefix(c.owner, OwnerKindOrg+":")
+	return id
+}
+
+// HasNetSets reports whether the owning org has network sets attached — the
+// switch that turns the set union into the tile's net ceiling and default.
+func (c Ceiling) HasNetSets() bool { return len(c.netSets) > 0 }
+
+// NetSets / NetRules / NetHost: the attached set names, their rule union
+// (sorted, deduped) and whether it grants host networking.
+func (c Ceiling) NetSets() []string  { return append([]string(nil), c.netSets...) }
+func (c Ceiling) NetRules() []string { return append([]string(nil), c.netRules...) }
+func (c Ceiling) NetHost() bool      { return c.netHost }
+
+// NetCovers reports whether a normalized net binding target ("net:internet",
+// "net:internet:<spec>", "net:lan:<cidr>", "net:host", "net:provider:<path>")
+// is inside the org's network sets. Always true without sets (today's
+// behaviour); containment/glob semantics are the allowance's (netAllowMatch).
+func (c Ceiling) NetCovers(target string) bool {
+	if !c.HasNetSets() {
+		return true
+	}
+	rest, ok := strings.CutPrefix(target, "net:")
+	if !ok {
+		return false
+	}
+	for _, r := range c.netRules {
+		if netAllowMatch(r, rest) {
+			return true
+		}
+	}
+	return false
 }
 
 // DenyRow returns the first row denying kind (for error messages).

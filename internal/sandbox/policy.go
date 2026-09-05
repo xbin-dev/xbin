@@ -129,18 +129,35 @@ func (p EgressPolicy) Allow(ip netip.Addr, port int) bool {
 }
 
 // AllowsHost reports whether a hostname is covered by a host rule (the relay
-// pairs this with an Allow on the resolved address).
+// pairs this with an Allow on the resolved address). A rule may carry one
+// '*' glob (org network sets, D54 — per-tile bindings name concrete hosts):
+// `*.example.com` matches any depth below the apex and, like the allowance
+// grammar, the apex itself.
 func (p EgressPolicy) AllowsHost(name string, port int) bool {
 	name = strings.ToLower(strings.TrimSuffix(name, "."))
 	for _, r := range p.Rules {
 		if r.Host == "" || (r.Port != 0 && r.Port != port) {
 			continue
 		}
-		if r.Host == name {
+		if hostMatch(r.Host, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// hostMatch: exact, or a single-'*' glob with the `*.x.y` ⇒ `x.y` carve-out.
+func hostMatch(pat, name string) bool {
+	i := strings.IndexByte(pat, '*')
+	if i < 0 {
+		return pat == name
+	}
+	pre, suf := pat[:i], pat[i+1:]
+	if len(name) >= len(pre)+len(suf) && strings.HasPrefix(name, pre) && strings.HasSuffix(name, suf) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(pat, "*.")
+	return ok && rest == name
 }
 
 // Empty reports whether the policy grants no egress (default-deny → empty netns).

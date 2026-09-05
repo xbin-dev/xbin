@@ -68,3 +68,38 @@ func TestParseErrors(t *testing.T) {
 		}
 	}
 }
+
+// Host rules may carry one '*' (org network sets, D54): any depth below the
+// apex matches, the apex itself matches (allowance carve-out), and unrelated
+// names that merely end in the suffix do not.
+func TestAllowsHostGlob(t *testing.T) {
+	pol, err := Parse([]string{"net:*.github.com:443", "net:api.stripe.com", "net:cdn-*.example.net"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pol.HasHostRules() {
+		t.Fatal("host rules expected")
+	}
+	cases := []struct {
+		name string
+		port int
+		want bool
+	}{
+		{"api.github.com", 443, true},
+		{"a.b.github.com", 443, true}, // one '*' spans labels
+		{"github.com", 443, true},     // apex carve-out
+		{"GITHUB.COM.", 443, true},    // case/trailing dot normalized
+		{"api.github.com", 80, false}, // port pinned
+		{"evilgithub.com", 443, false},
+		{"github.com.evil.example", 443, false},
+		{"api.stripe.com", 80, true},   // exact rule, any port
+		{"www.stripe.com", 443, false}, // exact rule doesn't glob
+		{"cdn-7.example.net", 443, true},
+		{"cdn.example.net", 443, false},
+	}
+	for _, c := range cases {
+		if got := pol.AllowsHost(c.name, c.port); got != c.want {
+			t.Errorf("AllowsHost(%q, %d) = %v, want %v", c.name, c.port, got, c.want)
+		}
+	}
+}

@@ -4,6 +4,7 @@ package relay
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -97,5 +98,36 @@ func TestPinAnswersParsesResponses(t *testing.T) {
 	r2.pinAnswers(qmsg)
 	if len(r2.pins) != 0 {
 		t.Fatal("queries must not pin")
+	}
+}
+
+// A glob host rule (org network sets, D54): every queried subdomain pins
+// under its own question name and passes when the policy's glob covers it;
+// pins stay public-only, so a wildcard never leaks LAN reach.
+func TestDNSPinningGlobHost(t *testing.T) {
+	// The glob itself is sandbox.EgressPolicy.AllowsHost's job (tested
+	// there); this is its shape as the relay sees it.
+	r := pinRelay(func(name string, port int) bool {
+		return port == 443 && (name == "github.com" || strings.HasSuffix(name, ".github.com"))
+	})
+	api := netip.MustParseAddr("203.0.113.10")
+	apex := netip.MustParseAddr("203.0.113.11")
+	other := netip.MustParseAddr("203.0.113.12")
+	priv := netip.MustParseAddr("10.0.0.5")
+	r.pin("api.github.com", api, 300)
+	r.pin("github.com", apex, 300)
+	r.pin("notgithub.com", other, 300)
+	r.pin("lan.github.com", priv, 300)
+	if !r.permitted(api, 443) || !r.permitted(apex, 443) {
+		t.Fatal("glob-covered names must pass at the pinned port")
+	}
+	if r.permitted(api, 80) {
+		t.Fatal("port outside the rule must be denied")
+	}
+	if r.permitted(other, 443) {
+		t.Fatal("a name outside the glob confers nothing")
+	}
+	if r.permitted(priv, 443) {
+		t.Fatal("private answers never pin, even under a glob")
 	}
 }

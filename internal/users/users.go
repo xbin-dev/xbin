@@ -307,6 +307,7 @@ type Store struct {
 	orgs         map[string]*Org
 	owners       map[string]string // component path → "user:<id>" | "org:<id>"
 	sets         map[string]*PermissionSet
+	netSets      map[string]*NetSet // network sets (D54, netsets.go)
 	policy       []PolicyRow
 	defaultTiles map[string]string
 	requests     []AccessRequest  // pending human access requests (D36)
@@ -360,6 +361,7 @@ func Open(dataDir string) (*Store, error) {
 		Orgs               []*Org                    `json:"orgs"`
 		Owners             map[string]string         `json:"owners"`
 		PermissionSets     map[string]*PermissionSet `json:"permissionSets"`
+		NetSets            map[string]*NetSet        `json:"netSets"`
 		DefaultTiles       map[string]string         `json:"defaultTiles"`
 		Policy             []PolicyRow               `json:"policy"`
 		AccessRequests     []AccessRequest           `json:"accessRequests"`
@@ -381,6 +383,7 @@ func Open(dataDir string) (*Store, error) {
 	}
 	s.owners = doc.Owners
 	s.sets = doc.PermissionSets
+	s.netSets = doc.NetSets
 	s.defaultTiles = doc.DefaultTiles
 	s.policy = doc.Policy
 	s.requests = doc.AccessRequests
@@ -732,6 +735,9 @@ func (s *Store) persistLocked() error {
 	}
 	if len(s.sets) > 0 {
 		doc["permissionSets"] = s.sets
+	}
+	if len(s.netSets) > 0 {
+		doc["netSets"] = s.netSets
 	}
 	if len(s.defaultTiles) > 0 {
 		doc["defaultTiles"] = s.defaultTiles
