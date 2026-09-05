@@ -64,6 +64,44 @@ func TestEmailBinding(t *testing.T) {
 	}
 }
 
+// An email binding must survive a daemon restart: User.UnmarshalJSON is
+// hand-rolled and silently dropped `email` before 2026-09-05 — every SSO
+// binding vanished on reload and the next save persisted the loss.
+func TestEmailBindingPersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Upsert(User{ID: "alice", Email: "Alice@Corp.com"}, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertInvited(User{ID: "bob", Email: "bob@corp.com"}); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, email := range map[string]string{"alice": "alice@corp.com", "bob": "bob@corp.com"} {
+		u, ok := s2.FindByEmail(email)
+		if !ok || u.ID != id {
+			t.Fatalf("binding %s → %s lost on reload: %+v %v", email, id, u, ok)
+		}
+	}
+	// A save after reload must still carry the emails.
+	if err := s2.SetTileCreation(TileCreationOrgOnly); err != nil {
+		t.Fatal(err)
+	}
+	s3, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s3.FindByEmail("alice@corp.com"); !ok {
+		t.Fatal("binding lost by a persist after reload")
+	}
+}
+
 // JIT provisioning: domain rule enforced, id derived from the local part
 // (folded to the id charset, collision-suffixed), defaultTiles-only access,
 // credential-less, idempotent per email.

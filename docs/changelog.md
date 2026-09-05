@@ -10,6 +10,16 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-05
+
+- **FIX: SSO email bindings were lost on daemon restart.** `users.json`
+  loading dropped the `email` field (v0.3.31–v0.3.32), so every binding set
+  with `--email` / the users table vanished on the next xbind restart — and
+  the next save persisted the loss, after which a returning SSO user was
+  JIT-provisioned as `<id>-2`. Fixed with a reload regression test. **If
+  your daemon restarted since binding emails, re-set them** (`bx user set
+  <id> --email …`); a stray `<id>-2` account can be deleted.
+
 ## 2026-09-04
 
 - **Provisioning: SSO pre-provisioning, new-account defaults (incl. default

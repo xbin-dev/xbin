@@ -103,6 +103,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 	var raw struct {
 		ID            string          `json:"id"`
 		Name          string          `json:"name"`
+		Email         string          `json:"email"`
 		Role          string          `json:"role"`
 		Tiles         json.RawMessage `json:"tiles"`
 		Terminal      bool            `json:"terminal"` // legacy global flag
@@ -123,7 +124,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("user %q: %w", raw.ID, err)
 	}
 	*u = User{
-		ID: raw.ID, Name: raw.Name, Role: raw.Role, Tiles: tiles,
+		ID: raw.ID, Name: raw.Name, Email: raw.Email, Role: raw.Role, Tiles: tiles,
 		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
 		Disabled: raw.Disabled, PassHash: raw.PassHash, InviteHash: raw.InviteHash,
 		InviteExpires: raw.InviteExpires, Created: raw.Created,
