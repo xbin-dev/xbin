@@ -103,7 +103,7 @@ export class BxMenu extends LitElement {
       color: var(--bx-muted, #8794a1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* the squares row */
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); gap: 4px; padding: 2px 4px 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(42px, 1fr)); gap: 4px; padding: 2px 4px 6px; }
     .cell {
       position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 3px; height: 52px; border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;

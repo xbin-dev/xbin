@@ -500,6 +500,11 @@ export class BxShell extends LitElement {
     }
     .item:hover { background: var(--bx-panel-2, #f7f8fa); }
     .item.open { color: var(--bx-accent, #f5a623); font-weight: 600; }
+    /* ⋯ opens the tile menu; shown on hover/focus, always on phones */
+    .item .more { flex: none; border: 0; background: none; color: var(--bx-muted, #8794a1);
+      font: inherit; font-size: 12px; line-height: 1; padding: 0 3px; opacity: 0; cursor: pointer; }
+    .item:hover .more, .item:focus-within .more, .body.mobile .item .more { opacity: .7; }
+    .item .more:hover { opacity: 1; color: var(--bx-accent, #f5a623); }
     .item .c { width: 7px; height: 7px; border-radius: 50%; flex: none; }
     .item .err { color: var(--bx-red, #e5484d); font-size: 10px; }
     .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #8794a1); }
@@ -628,6 +633,10 @@ export class BxShell extends LitElement {
       }
       .gtile .rz { display: none; }             /* no resize on touch */
       .gtile .card .head { cursor: default; }   /* no drag on touch */
+      .card .head button { font-size: 16px; padding: 0 8px; } /* tap targets */
+      /* sidebar rows: tap-sized, long-press opens the tile menu (no callout/selection) */
+      .item { padding: 7px 12px 7px 16px; -webkit-touch-callout: none; user-select: none; }
+      main { -webkit-touch-callout: none; }
 
       /* floating windows → full-screen sheets */
       .float {
@@ -1321,6 +1330,21 @@ export class BxShell extends LitElement {
     if (e.target.closest('button, bx-frame, aside, .spawn, .orgbar')) return;
     this._openCanvasMenu(e);
   }
+  // Long-press (touch/pen, phones only — the mouse keeps right-click): hold
+  // ~450 ms without moving 8px to open the menu the right-click would. A
+  // scroll cancels (pointercancel), and the menu's backdrop ignores the
+  // press's own pointerup/click.
+  _pressStart(e, fire) {
+    if (!this._mobile || e.pointerType === 'mouse' || e.button !== 0) return;
+    this._pressCancel();
+    const x = e.clientX, y = e.clientY;
+    this._press = { x, y, t: setTimeout(() => { this._press = null; fire(); }, 450) };
+  }
+  _pressMove(e) {
+    if (this._press && Math.hypot(e.clientX - this._press.x, e.clientY - this._press.y) > 8) this._pressCancel();
+  }
+  _pressCancel() { if (this._press) { clearTimeout(this._press.t); this._press = null; } }
+
   _openCanvasMenu(e) {
     e?.preventDefault?.();
     this._menu = { items: this._canvasMenuItems(), x: e?.clientX ?? 0, y: e?.clientY ?? 0, anchor: null,
@@ -2244,9 +2268,12 @@ export class BxShell extends LitElement {
     return html`
       <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''} ${this._hidden(c) ? 'hid' : ''}"
            data-path=${c.path}
-           draggable="true"
+           draggable=${this._mobile ? 'false' : 'true'}
            style=${depth ? `padding-left:${12 + depth * 12}px` : nothing}
            title=${title}
+           @pointerdown=${(e) => this._pressStart(e, () => this._openTileMenu(null, c.path))}
+           @pointermove=${(e) => this._pressMove(e)}
+           @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()} @pointerleave=${() => this._pressCancel()}
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-comp', c.path);
              e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; }}
            @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-comp')) {
@@ -2261,6 +2288,8 @@ export class BxShell extends LitElement {
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${this._hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
         <span class="rt">${c.runtime || ''}</span>
+        <button class="more" title="tile menu" @pointerdown=${(e) => e.stopPropagation()}
+                @click=${(e) => this._openTileMenu(e, c.path, e.currentTarget)}>⋯</button>
       </div>`;
   }
 
@@ -2575,7 +2604,10 @@ export class BxShell extends LitElement {
     const frame = html`<bx-frame src=${o.path} no-edit height="100%"></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}>
-        <div class="head" @pointerdown=${(e) => (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path))}>
+        <div class="head"
+             @pointerdown=${(e) => { this._pressStart(e, () => this._openTileMenu(null, o.path)); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
+             @pointermove=${(e) => this._pressMove(e)}
+             @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()} @pointerleave=${() => this._pressCancel()}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           ${this._prBadge(o.path, true)}
@@ -2583,15 +2615,15 @@ export class BxShell extends LitElement {
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._cardTerm(e)}>&gt;_</button>
-          ${this._canAdminTile(o.path) ? html`<button title="tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)"
+          ${!this._mobile && this._canAdminTile(o.path) ? html`<button title="tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => { e.stopPropagation(); this._openAdminWin(o.path); }}>⚙</button>` : nothing}
-          ${this._canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
+          ${!this._mobile && this._canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
                   @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>` : nothing}
           <button title="tile menu (terminal · logs · source · proposals · admin)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._openTileMenu(e, o.path, e.currentTarget)}>⋯</button>
-          ${this._canMutate ? html`<button title="close" @click=${() => this._toggle(o.path)}>✕</button>` : nothing}
+          ${!this._mobile && this._canMutate ? html`<button title="close" @click=${() => this._toggle(o.path)}>✕</button>` : nothing}
         </div>
         <div class="cbody">${frame}</div>
       </div>`;
@@ -2862,7 +2894,10 @@ export class BxShell extends LitElement {
                @pointerdown=${(e) => this._sideResizeStart(e)}></div>`}`}
         ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
           @click=${() => { this._drawer = false; }}></div>` : nothing}
-        <main @contextmenu=${(e) => this._onContextMenu(e)}>
+        <main @contextmenu=${(e) => this._onContextMenu(e)}
+              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, .orgbar, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
+              @pointermove=${(e) => this._pressMove(e)}
+              @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
           ${this._orgBar()}
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <div class="canvas ${this._canMutate ? '' : 'ro'}" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">

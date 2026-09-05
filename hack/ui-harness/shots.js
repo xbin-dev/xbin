@@ -273,6 +273,55 @@ async function menus(browser) {
   await ctx.close();
 }
 
+// Phone viewport (D56): the trimmed card head with ⋯, the tile menu and
+// the canvas menu as bottom sheets, a sidebar row's ⋯ in the drawer, and the
+// admin window as a full-screen sheet.
+async function mobile(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => log('mobile: PAGE ERROR', e.message));
+  await page.goto(`${URL}/login`);
+  await page.fill('input[name=username]', 'admin');
+  await page.fill('input[name=password]', 'admin');
+  await Promise.all([page.waitForNavigation(), page.click('button')]);
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const s = document.querySelector('bx-shell');
+    const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); }
+    for (const t of ['tiles/manager', 'apps/welcome', 'tiles/apidocs', 'tiles/admin']) if (s._isOpen(t)) s._toggle(t);
+    if (!s._isOpen('apps/crawler')) s._toggle('apps/crawler');
+  });
+  await sleep(800);
+  await shot(page, 'm-card-more', { fullPage: false });
+  await page.locator('.card[data-path="apps/crawler"] .head button[title^="tile menu"]').tap();
+  await sleep(500);
+  await shot(page, 'm-sheet-tile', { fullPage: false });
+  await page.locator('bx-menu .shead button[title=close]').tap();
+  await sleep(300);
+  await page.evaluate(() => document.querySelector('bx-shell')._openCanvasMenu({ clientX: 200, clientY: 600, preventDefault() {} }));
+  await sleep(500);
+  await shot(page, 'm-sheet-canvas', { fullPage: false });
+  await page.locator('bx-menu .it', { hasText: 'Open tile' }).tap();
+  await sleep(400);
+  await shot(page, 'm-sheet-canvas-open-tile', { fullPage: false });
+  await page.locator('bx-menu .shead button[title=close]').tap();
+  await sleep(300);
+  await page.locator('bx-shell .ham').tap();
+  await sleep(500);
+  await page.locator('bx-shell .item[data-path="apps/offline"] .more').tap();
+  await sleep(500);
+  await shot(page, 'm-sheet-sidebar', { fullPage: false });
+  await page.locator('bx-menu .shead button[title=close]').tap();
+  await sleep(300);
+  await page.evaluate(() => { document.querySelector('bx-shell')._drawer = false; });
+  await page.evaluate(() => document.querySelector('bx-shell')._openAdminWin('apps/crawler', 'interfaces'));
+  await sleep(1200);
+  await shot(page, 'm-admin-sheet', { fullPage: false });
+  await ctx.close();
+}
+
 async function orgAdmin(browser, user, pass, tiles) {
   const { ctx, page } = await login(browser, user, pass);
   for (const t of tiles) {
@@ -317,6 +366,7 @@ async function orgAdmin(browser, user, pass, tiles) {
   try {
     await admin(browser);
     await menus(browser);
+    await mobile(browser);
     await screens(browser);
     await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
