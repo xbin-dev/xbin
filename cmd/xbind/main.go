@@ -446,6 +446,9 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 	}
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
+	// D54: a terminal's network on an org-owned tile is the org's network
+	// sets; the broker knows ownership + sets, the term manager asks.
+	tm.TermNet = brk.TermNetFor
 	brk.ExternalURL = externalURL
 
 	// Fold cgroup at-limit events into the workspace alerts: a tile that keeps
@@ -689,7 +692,7 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			}
 		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{
-			"host": host, "backends": run.Inspect(), "resources": brk.ResourceUsage(),
+			"host": host, "backends": withNetLabels(brk, run.Inspect()), "resources": brk.ResourceUsage(),
 			"stats": stats,
 		})
 	})
@@ -741,6 +744,22 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 			"backend":   be, // nil when no backend is running
 			"disk":      map[string]any{"usageBytes": usage, "quotaBytes": quota, "blocked": blocked},
 			"alerts":    brk.TileAlerts(comp),
+			"net":       brk.NetLabel(comp), // the effective network + why (D54)
+		})
+	})
+	// GET /term-net?tile= — the scopes a terminal on this tile may take for
+	// the caller, so the picker offers only what the server will honour (D54).
+	srv.RegisterAPI("GET /term-net", func(w http.ResponseWriter, r *http.Request) {
+		p := auth.PrincipalOf(r)
+		tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+		if tile == "" || !p.CanTerminalTile(tile) {
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no terminal access to this tile"})
+			return
+		}
+		g := brk.TermNetFor(p, tile)
+		scopes, def := term.ScopesFor(p, g)
+		server.WriteJSON(w, http.StatusOK, map[string]any{
+			"tile": tile, "scopes": scopes, "default": def, "label": g.OrgLabel, "org": g.OrgOK,
 		})
 	})
 
@@ -1186,4 +1205,14 @@ func localDialAddr(listen string) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, port)
+}
+
+// withNetLabels annotates the runtime picture with each backend's effective
+// network (D54): the ref, mode, source and inert reason the console shows.
+func withNetLabels(brk *broker.Broker, bs []runner.Backend) []runner.Backend {
+	for i := range bs {
+		l := brk.NetLabel(bs[i].Path)
+		bs[i].NetRef, bs[i].Net, bs[i].NetSource, bs[i].NetNote = l.Ref, l.Effective, l.Source, l.Note
+	}
+	return bs
 }

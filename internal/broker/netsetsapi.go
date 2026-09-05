@@ -149,9 +149,9 @@ func (b *Broker) netSetsChanged(orgs []string) {
 // `bx status`: the stored/defaulted ref, the effective mode, the relay rules
 // (when any), where the reach comes from, and why it is inert (if it is).
 type NetLabel struct {
-	Ref       string   `json:"netRef,omitempty"`  // "org", "internet", "lan:…", a provider path, "" (unbound/none)
-	Effective string   `json:"net,omitempty"`     // host | relay | splice | none
-	Rules     []string `json:"netRules,omitempty"` // relay rules in force
+	Ref       string   `json:"netRef,omitempty"`    // "org", "internet", "lan:…", a provider path, "" (unbound/none)
+	Effective string   `json:"net,omitempty"`       // host | relay | splice | none
+	Rules     []string `json:"netRules,omitempty"`  // relay rules in force
 	Source    string   `json:"netSource,omitempty"` // "org:sales (devs-net, infra-net)" for org reach
 	Note      string   `json:"netNote,omitempty"`   // inert reason
 }

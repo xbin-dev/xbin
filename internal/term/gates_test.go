@@ -65,26 +65,87 @@ func TestClampTermScopes(t *testing.T) {
 	admin := auth.Principal{Owner: true}
 	plain := auth.Principal{UserID: "u", User: &users.User{ID: "u", Role: "user"}}
 	granted := auth.Principal{UserID: "g", User: &users.User{ID: "g", Role: "user", TermAPI: true, TermNet: true}}
+	// Grants as the broker computes them (TermNetFor): no org sets (legacy),
+	// an org tile with relay rules, and an org tile whose sets carry host.
+	noSets := func(p auth.Principal) TermNet { return legacyTermNet(p) }
+	sets := TermNet{OrgOK: true, Rules: []string{"net:10.0.0.0/8"}, OrgLabel: "org network (devs-net)"}
+	setsHost := TermNet{OrgOK: true, OrgHost: true, HostOK: true, OrgLabel: "org network (infra-net)"}
 
 	for _, tc := range []struct {
 		name    string
 		p       auth.Principal
+		g       TermNet
 		api     bool
 		net     string
 		wantAPI bool
 		wantNet string
 	}{
-		{"admin keeps host", admin, true, NetHost, true, NetHost},
-		{"ungranted loses api+net", plain, true, NetInternet, false, NetNone},
-		{"ungranted host clamps", plain, false, NetHost, false, NetNone},
-		{"ungranted none passes", plain, false, NetNone, false, NetNone},
-		{"granted keeps api+internet", granted, true, NetInternet, true, NetInternet},
-		{"granted host still clamps", granted, true, NetHost, true, NetNone},
+		// Pre-D54 rows (no org sets) are unchanged.
+		{"admin keeps host", admin, noSets(admin), true, NetHost, true, NetHost},
+		{"admin default is internet", admin, noSets(admin), true, "", true, NetInternet},
+		{"ungranted loses api+net", plain, noSets(plain), true, NetInternet, false, NetNone},
+		{"ungranted host clamps", plain, noSets(plain), false, NetHost, false, NetNone},
+		{"ungranted none passes", plain, noSets(plain), false, NetNone, false, NetNone},
+		{"ungranted org without sets → none", plain, noSets(plain), false, NetOrg, false, NetNone},
+		{"granted keeps api+internet", granted, noSets(granted), true, NetInternet, true, NetInternet},
+		{"granted host still clamps", granted, noSets(granted), true, NetHost, true, NetNone},
+		{"granted org without sets → internet", granted, noSets(granted), true, NetOrg, true, NetInternet},
+		// Org tile with sets: the set is the grant — no termNet needed; it
+		// replaces plain internet for members; host stays admin-only.
+		{"member default is org", plain, sets, false, "", false, NetOrg},
+		{"member org", plain, sets, false, NetOrg, false, NetOrg},
+		{"member internet → org", plain, sets, false, NetInternet, false, NetOrg},
+		{"member host → org", plain, sets, false, NetHost, false, NetOrg},
+		{"member none stays", plain, sets, false, NetNone, false, NetNone},
+		{"termNet member internet → org too", granted, sets, true, NetInternet, true, NetOrg},
+		{"admin default is org", admin, sets, true, "", true, NetOrg},
+		{"admin may still pick internet", admin, sets, true, NetInternet, true, NetInternet},
+		{"admin may still pick host", admin, sets, true, NetHost, true, NetHost},
+		// A host rule grants host networking to members.
+		{"member host via set", plain, setsHost, false, NetHost, false, NetHost},
+		{"member default org(host)", plain, setsHost, false, "", false, NetOrg},
 	} {
-		api, net := clampTermScopes(tc.p, tc.api, tc.net)
+		api, net := clampTermScopes(tc.p, tc.api, tc.net, tc.g)
 		if api != tc.wantAPI || net != tc.wantNet {
 			t.Errorf("%s: got (api=%v net=%s), want (api=%v net=%s)", tc.name, api, net, tc.wantAPI, tc.wantNet)
 		}
+	}
+}
+
+// ScopesFor lists what the picker may offer, widest first, with the default.
+func TestScopesFor(t *testing.T) {
+	admin := auth.Principal{Owner: true}
+	plain := auth.Principal{UserID: "u", User: &users.User{ID: "u", Role: "user"}}
+	ids := func(s []Scope) string {
+		out := ""
+		for _, x := range s {
+			out += x.ID + ","
+		}
+		return out
+	}
+	if s, def := ScopesFor(plain, legacyTermNet(plain)); ids(s) != "none," || def != NetNone {
+		t.Fatalf("ungranted: %s %s", ids(s), def)
+	}
+	granted := auth.Principal{UserID: "g", User: &users.User{ID: "g", Role: "user", TermNet: true}}
+	if s, def := ScopesFor(granted, legacyTermNet(granted)); ids(s) != "internet,none," || def != NetInternet {
+		t.Fatalf("granted: %s %s", ids(s), def)
+	}
+	sets := TermNet{OrgOK: true, Rules: []string{"net:10.0.0.0/8"}, OrgLabel: "org network (devs-net)", OrgDesc: "🖧 LAN 10.0.0.0/8"}
+	if s, def := ScopesFor(plain, sets); ids(s) != "org,none," || def != NetOrg || s[0].Label != "org network (devs-net)" || s[0].Desc == "" {
+		t.Fatalf("member with sets: %s %s %+v", ids(s), def, s)
+	}
+	if s, def := ScopesFor(admin, sets); ids(s) != "org,internet,host,none," || def != NetOrg {
+		t.Fatalf("admin with sets: %s %s", ids(s), def)
+	}
+	if s, _ := ScopesFor(plain, TermNet{OrgOK: true, OrgHost: true, HostOK: true}); ids(s) != "org,host,none," {
+		t.Fatalf("member with host set: %s", ids(s))
+	}
+	// Clamp notes name the effective scope.
+	if n := clampNote(NetHost, NetOrg, sets); n == "" || n[len(n)-len("org network (devs-net)"):] != "org network (devs-net)" {
+		t.Fatalf("clamp note: %q", n)
+	}
+	if n := clampNote(NetInternet, NetNone, legacyTermNet(plain)); n != "internet egress needs term-net here — running as offline" {
+		t.Fatalf("clamp note: %q", n)
 	}
 }
 
@@ -98,7 +159,13 @@ func TestSandboxEnvToken(t *testing.T) {
 			return []string{"XBIN_URL=http://127.0.0.1:1", "XBIN_TOKEN=OWNER-LEAK", "XBIN_WORKSPACE=/w"}
 		},
 	}
-	env := m.sandboxEnv("apps/foo", NetNone, "/w/homes/alice", "tile-token")
+	// A relay scope (internet, org) rewrites XBIN_URL to the relay gateway.
+	for _, e := range m.sandboxEnv("apps/foo", true, "/w/homes/alice", "tile-token") {
+		if v, ok := cutPrefix(e, "XBIN_URL="); ok && v != "http://10.0.2.2:1" {
+			t.Fatalf("relay scope XBIN_URL = %q, want the gateway host-forward", v)
+		}
+	}
+	env := m.sandboxEnv("apps/foo", false, "/w/homes/alice", "tile-token")
 	var tok, gitHdr string
 	for _, e := range env {
 		if v, ok := cutPrefix(e, "XBIN_TOKEN="); ok {

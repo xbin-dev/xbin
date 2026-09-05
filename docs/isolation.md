@@ -161,10 +161,13 @@ tier — while still running `apt`:
   list applies, enforced at the mount level.
 - **Code-only and airgapped by default.** Without the user's `termApi` grant
   the session is minted with **no** tile-API token (the `?api=1` toggle is
-  clamped); without `termNet`, no internet egress (`?net=` is clamped to
-  `none`) — the exfiltration path that makes source masking matter. `host`
-  networking never leaves the admin plane. The session still opens either
-  way — an ungranted user gets a working, airgapped, code-only shell.
+  clamped); on a personal or workspace tile, without `termNet` there is no
+  internet egress (`?net=` is clamped to `none`) — the exfiltration path
+  that makes source masking matter. On an **org-owned tile** the org's
+  network sets are the grant instead (the `org` scope, D54). `host`
+  networking needs the admin plane, or a set that says `host`. The session
+  still opens either way — an ungranted user gets a working, airgapped,
+  code-only shell, and the banner says why.
 - **Resource limits.** Where xbind's cgroup is delegated (see *Resource
   limits* below), each restricted session lives in its own cgroup leaf with
   the same memory/pids/CPU caps as a tile backend — a runaway build or fork
@@ -233,19 +236,28 @@ backend needs into `setup`.
 
 ## Network scopes for terminals
 
-A terminal picks a network scope when it opens (the net selector in the UI):
+A terminal picks a network scope when it opens (the net selector in the UI —
+it lists only the scopes the server will honour for you on that tile):
 
-- **internet** *(default)* — its own network namespace with an egress relay that
-  permits the **public internet only**; host interfaces and the LAN stay hidden.
-  `XBIN_URL` is transparently routed so `bx`/`curl` still reach xbind.
+- **org** *(default on org-owned tiles with network sets, D54)* — its own
+  network namespace with an egress relay enforcing the owning org's
+  **network sets** (LAN ranges, named internet destinations, all internet —
+  whatever a workspace admin attached); when a set says `host` this scope
+  *is* host networking. Members need no `termNet` for it.
+- **internet** *(default elsewhere)* — its own network namespace with an egress
+  relay that permits the **public internet only**; host interfaces and the LAN
+  stay hidden. `XBIN_URL` is transparently routed so `bx`/`curl` still reach
+  xbind.
 - **host** — shares the host network (LAN + host-local services visible). An
-  owner escape hatch; use it when you specifically need host reachability.
+  admin escape hatch — or an org's, when its network sets say `host`.
 - **none** — an isolated namespace with **no egress at all** (airgapped —
   xbind itself is unreachable).
 
-Note the contrast: a **terminal** defaults to public-internet egress (you
-usually want to `git clone`, `go get`, `npm i`), whereas a **backend** defaults
-to *no* egress until its `net` interface is bound.
+Note the contrast: a **terminal** on a personal tile defaults to public-
+internet egress (you usually want to `git clone`, `go get`, `npm i`), on an
+org tile to the org network, whereas a **backend** defaults to *no* egress
+until its `net` interface is bound — or, on an org-owned tile with network
+sets, to that org network (`org`).
 
 ## Network egress
 
@@ -254,8 +266,13 @@ Egress is an **interface**, not an ambient capability. A backend requests a
 authorization — a component can never self-bind). Providers include:
 
 - the **`internet`** builtin — public internet only, through a userspace gVisor
-  relay that terminates and meters every flow;
+  relay that terminates and meters every flow (`internet:<host|cidr>[:port]`
+  narrows it to named destinations, D35);
 - **`host`** / **`lan:<cidr>`** — host or a specific LAN range;
+- **`org`** — the owning org's **network sets** (a workspace-admin-managed
+  union of the forms above), live; the default for org-owned tiles that
+  declare `net`, and the ceiling for whatever else they bind (docs/auth.md
+  §Network sets, D54); **`none`** — explicitly no egress;
 - a **provider tile** — a VPN, firewall, or router (e.g. the egress-approver or
   s3-archiver's upstream). Provider tiles are themselves clients of *their* own
   egress, so binding one to another **chains** them

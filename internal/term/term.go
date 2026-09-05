@@ -49,16 +49,72 @@ const (
 	NetInternet = "internet" // own netns + egress relay, net:internet only (default)
 	NetHost     = "host"     // share the host network (LAN + host services visible)
 	NetNone     = "none"     // isolated netns, no egress (airgapped; xbind unreachable)
+	NetOrg      = "org"      // the tile's owning org's network sets as the egress policy (D54)
 )
 
-// normalizeNet clamps an incoming ?net= value to a known scope (default internet).
+// normalizeNet maps an incoming ?net= value to a known scope; "" (absent or
+// unknown) lets clampTermScopes pick the principal's default on this tile.
 func normalizeNet(s string) string {
 	switch s {
-	case NetHost, NetNone:
+	case NetHost, NetNone, NetInternet, NetOrg:
 		return s
 	default:
-		return NetInternet
+		return ""
 	}
+}
+
+// TermNet is what the broker knows about a principal's terminal egress on
+// ONE tile (D54): the org network's relay rules, and which scopes the
+// principal may pick. Manager.TermNet supplies it; nil keeps the pre-D54
+// rules (termNet → internet, host admin-only).
+type TermNet struct {
+	Rules      []string // sandbox grant targets (net:…) for the org scope
+	HostOK     bool     // net=host permitted (admin, or the org's sets carry `host`)
+	InternetOK bool     // net=internet permitted (admin, or no org sets + termNet)
+	OrgOK      bool     // the org scope exists (org-owned tile with sets that reach something)
+	OrgHost    bool     // the org scope is host networking
+	OrgLabel   string   // "org network (devs-net + infra-net)"
+	OrgDesc    string   // the rules, one per line — the picker's tooltip
+}
+
+// Scope is one network scope the client may pick, as the session frame
+// lists them.
+type Scope struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Desc  string `json:"desc,omitempty"`
+}
+
+func legacyTermNet(p auth.Principal) TermNet {
+	return TermNet{InternetOK: p.CanTermNet() || p.IsAdmin(), HostOK: p.IsAdmin()}
+}
+
+func (m *Manager) termNetFor(p auth.Principal, rel string) TermNet {
+	if m.TermNet == nil {
+		return legacyTermNet(p)
+	}
+	return m.TermNet(p, rel)
+}
+
+// ScopesFor lists the scopes a principal may pick on a tile, widest first,
+// and the default: org where it exists, else internet where allowed, else
+// none. Admins get the same list (plus host) so they see what members see.
+func ScopesFor(p auth.Principal, g TermNet) (scopes []Scope, def string) {
+	if g.OrgOK {
+		label := g.OrgLabel
+		if label == "" {
+			label = "org network"
+		}
+		scopes = append(scopes, Scope{ID: NetOrg, Label: label, Desc: g.OrgDesc})
+	}
+	if g.InternetOK || p.IsAdmin() {
+		scopes = append(scopes, Scope{ID: NetInternet, Label: "internet", Desc: "public internet through the egress relay (no LAN)"})
+	}
+	if g.HostOK || p.IsAdmin() {
+		scopes = append(scopes, Scope{ID: NetHost, Label: "host net", Desc: "the host's own network stack — LAN and host services, no relay, no metering"})
+	}
+	scopes = append(scopes, Scope{ID: NetNone, Label: "offline", Desc: "no network at all (xbind unreachable)"})
+	return scopes, scopes[0].ID
 }
 
 type control struct {
@@ -75,7 +131,10 @@ type client struct {
 type Session struct {
 	ID      string
 	Cwd     string // workspace-relative component path
-	Net     string // network scope (NetInternet|NetHost|NetNone)
+	Net     string // network scope (NetInternet|NetHost|NetNone|NetOrg)
+	NetNote string // why the requested scope was clamped ("" = as asked)
+	Label   string // human label of the effective scope (org network name)
+	Scopes  []Scope
 	cmd     *exec.Cmd
 	pty     *os.File
 	cleanup func()       // sandbox spec temp cleanup (nil for a plain shell)
@@ -122,6 +181,12 @@ type Manager struct {
 		MintTerminal(component, userID string) string
 		RevokeTerminal(token string)
 	}
+
+	// TermNet answers "what network may this principal's terminal on this
+	// tile have" — the tile's owning org's network sets (D54), wired to the
+	// broker by main. nil ⇒ the pre-D54 rules (termNet → internet, host
+	// admin-only).
+	TermNet func(p auth.Principal, component string) TermNet
 
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every
@@ -211,7 +276,8 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "the root terminal is disabled — open a terminal on a tile (admin ops: the admin tile, or bx from the host)", http.StatusForbidden)
 			return
 		}
-		if _, rel, err := util.SafeJoin(m.Root, cwd); err != nil || rel == "" || !p.CanTerminalTile(rel) {
+		_, rel, err := util.SafeJoin(m.Root, cwd)
+		if err != nil || rel == "" || !p.CanTerminalTile(rel) {
 			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 			return
 		}
@@ -224,8 +290,17 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			cwd: cwd, net: netMode, gpu: gpuMode,
 			homeKey: homeKey, userID: p.UserID,
 			api: apiAccess, restricted: !p.IsAdmin(),
+			netGrant: m.termNetFor(p, rel),
 		}
-		o.api, o.net = clampTermScopes(p, o.api, o.net)
+		asked := o.net
+		o.api, o.net = clampTermScopes(p, o.api, o.net, o.netGrant)
+		o.scopes, _ = ScopesFor(p, o.netGrant)
+		if asked != "" && asked != o.net {
+			o.netNote = clampNote(asked, o.net, o.netGrant)
+		}
+		if o.net == NetOrg {
+			o.label = o.netGrant.OrgLabel
+		}
 		if o.restricted {
 			if m.TermView != nil { // D40 allow-list view
 				o.readable, o.rootFiles = m.TermView(p)
@@ -271,6 +346,7 @@ func (m *Manager) List() []map[string]any {
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
 			"user":    s.homeKey,
 			"created": s.born.UTC().Format(time.RFC3339),
+			"label":   s.Label, "scopes": s.Scopes,
 		})
 		s.mu.Unlock()
 	}
@@ -281,6 +357,10 @@ func (m *Manager) List() []map[string]any {
 type openOpts struct {
 	cwd        string            // workspace-relative component path
 	net        string            // network scope (already clamped)
+	netGrant   TermNet           // what the org scope means here + what's allowed (D54)
+	scopes     []Scope           // the scopes the client may pick (session frame)
+	label      string            // human label of the effective scope
+	netNote    string            // why the asked scope was clamped
 	gpu        string            // GPU request (owner plane)
 	homeKey    string            // whose $HOME the session mounts
 	userID     string            // creating user, for token attribution ("" = token principal)
@@ -297,22 +377,83 @@ type openOpts struct {
 // rejected — the session still opens, and its banner reports the effective
 // scope, so an ungranted user gets a working (airgapped, code-only) shell
 // instead of an error.
-func clampTermScopes(p auth.Principal, api bool, net string) (bool, string) {
-	if p.IsAdmin() {
-		return api, net
-	}
-	if !p.CanTermAPI() {
+//
+// With organisation network sets (D54) the net half is a matrix over what
+// the tile's org grants (g): org where it exists, internet where allowed
+// (admin, or no org sets + termNet), host where allowed (admin, or the sets
+// carry `host`). An empty request means "the default here" — org, else
+// internet, else none — for admins too, so they see what members see.
+func clampTermScopes(p auth.Principal, api bool, net string, g TermNet) (bool, string) {
+	admin := p.IsAdmin()
+	if !admin && !p.CanTermAPI() {
 		api = false
 	}
-	switch net {
-	case NetHost: // LAN + host services — never for non-admins
-		net = NetNone
-	case NetInternet:
-		if !p.CanTermNet() {
-			net = NetNone
+	internetOK := g.InternetOK || admin
+	hostOK := g.HostOK || admin
+	fallback := func() string {
+		switch {
+		case g.OrgOK:
+			return NetOrg
+		case internetOK:
+			return NetInternet
 		}
+		return NetNone
+	}
+	switch net {
+	case NetHost:
+		// A refused host request lands on the tile's org network or offline —
+		// never silently upgraded to plain internet (D17's clamp, kept).
+		if !hostOK {
+			if g.OrgOK {
+				net = NetOrg
+			} else {
+				net = NetNone
+			}
+		}
+	case NetInternet:
+		if !internetOK {
+			net = fallback()
+		}
+	case NetOrg:
+		if !g.OrgOK {
+			if internetOK {
+				net = NetInternet
+			} else {
+				net = NetNone
+			}
+		}
+	case NetNone:
+	default: // "" — the tile's default
+		net = fallback()
 	}
 	return api, net
+}
+
+// clampNote explains a clamp to the person in the terminal.
+func clampNote(asked, got string, g TermNet) string {
+	why := ""
+	switch asked {
+	case NetHost:
+		why = "host networking is admin-only here"
+		if g.OrgOK {
+			why += " (the org's network sets don't grant host)"
+		}
+	case NetInternet:
+		why = "internet egress needs term-net here"
+		if g.OrgOK {
+			why = "on an org-owned tile the org's network sets replace plain internet"
+		}
+	case NetOrg:
+		why = "this tile's owner has no org network"
+	}
+	label := got
+	if got == NetOrg && g.OrgLabel != "" {
+		label = g.OrgLabel
+	}
+	if got == NetNone {
+		label = "offline"
+	}
+	return why + " — running as " + label
 }
 
 func (m *Manager) create(o openOpts) (*Session, error) {
@@ -393,6 +534,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f,
+		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey),
 		born:    time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
@@ -685,7 +827,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			_ = os.RemoveAll(viewDir)
 		}
 	}
-	env := m.sandboxEnv(rel, o.net, homeDir, token)
+	env := m.sandboxEnv(rel, o.net == NetInternet || (o.net == NetOrg && !o.netGrant.OrgHost), homeDir, token)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {
@@ -752,13 +894,23 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		envKey = "" // someone else holds it → ephemeral, no persistence this session
 	}
 
-	switch o.net {
-	case NetHost:
+	// The org scope (D54) is the tile's owning org's network sets: a relay
+	// with the union's rules — or the host netns when a set says `host`.
+	relayNet := false
+	var pol sandbox.EgressPolicy
+	switch {
+	case o.net == NetHost, o.net == NetOrg && o.netGrant.OrgHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
-	case NetNone:
+	case o.net == NetNone:
 		spec.Net = "none" // isolated netns, default-deny egress
+	case o.net == NetOrg:
+		spec.Net = "relay"
+		relayNet = true
+		pol, _ = sandbox.Parse(o.netGrant.Rules)
 	default: // NetInternet
 		spec.Net = "relay" // own netns; egress relay enforces net:internet
+		relayNet = true
+		pol, _ = sandbox.Parse([]string{"net:internet"})
 	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
@@ -769,15 +921,14 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		return nil, nil, nil, "", err
 	}
 
-	pol, _ := sandbox.Parse([]string{"net:internet"})
 	hostFwd := m.hostForward()
 	// post runs after the PTY starts: complete uid mapping (range mode) and, for
-	// the internet scope, stand up the egress relay on the init's TUN.
+	// the relay scopes, stand up the egress relay on the init's TUN.
 	post := func() *relay.Relay {
 		if err := h.SetupUserns(); err != nil {
 			slog.Warn("terminal sandbox: userns setup", "err", err)
 		}
-		if o.net != NetInternet || !h.NeedsRelay() {
+		if !relayNet || !h.NeedsRelay() {
 			return nil
 		}
 		fd, err := h.RecvTUN()
@@ -785,10 +936,17 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			slog.Warn("terminal egress relay: recv tun (egress disabled)", "err", err)
 			return nil
 		}
-		rl, err := relay.Start(relay.Config{
+		cfg := relay.Config{
 			TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
 			Gateway: netip.MustParseAddr(sandbox.GatewayIP), HostFwd: hostFwd,
-		})
+		}
+		if pol.HasHostRules() { // hostname rules need DNS pinning (D35)
+			cfg.AllowHost = pol.AllowsHost
+		}
+		if pol.Empty() { // nothing reachable: no DNS either (no exfiltration channel)
+			cfg.Resolver = ""
+		}
+		rl, err := relay.Start(cfg)
 		if err != nil {
 			slog.Warn("terminal egress relay: start (egress disabled)", "err", err)
 			return nil
@@ -824,7 +982,7 @@ func (m *Manager) hostForward() map[int]string {
 // XBIN_URL/WORKSPACE from m.Env(). In internet scope the netns can't reach
 // xbind's 127.0.0.1 listener, so XBIN_URL is rewritten to the relay gateway
 // host-forward.
-func (m *Manager) sandboxEnv(rel, netMode, homeDir, termTok string) []string {
+func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string) []string {
 	env := []string{
 		"TERM=xterm-256color", "COLORTERM=truecolor",
 		"XBIN_COMPONENT=" + rel,
@@ -835,7 +993,7 @@ func (m *Manager) sandboxEnv(rel, netMode, homeDir, termTok string) []string {
 		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
 	var xbinURL string
-	if netMode == NetInternet {
+	if relayNet {
 		if _, port, err := net.SplitHostPort(m.Listen); err == nil {
 			xbinURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
 		}
@@ -1064,8 +1222,11 @@ func (s *Session) attach(conn *websocket.Conn) {
 	// scrollback replay (new output is queued in c.send behind it, preserving
 	// order), then live stream.
 	go func() {
-		_ = conn.WriteMessage(websocket.TextMessage,
-			[]byte(fmt.Sprintf(`{"op":"session","id":"%s","net":"%s","baseOutdated":%t}`, s.ID, s.Net, s.baseOld)))
+		frame, _ := json.Marshal(map[string]any{
+			"op": "session", "id": s.ID, "net": s.Net, "baseOutdated": s.baseOld,
+			"label": s.Label, "scopes": s.Scopes, "netNote": s.NetNote,
+		})
+		_ = conn.WriteMessage(websocket.TextMessage, frame)
 		if len(sb) > 0 {
 			if err := conn.WriteMessage(websocket.BinaryMessage, sb); err != nil {
 				return

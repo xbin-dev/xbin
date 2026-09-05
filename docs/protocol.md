@@ -145,6 +145,7 @@ GET    /runtime                    admin. full runtime visibility →
                                    backends:[{path,runtime,state,isolated,pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
                                    cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],
+                                   netRef?,net?,netSource?,netNote?,
                                    cgroup:{memCurrent,memMax,cpuUsec,pidsCurrent},
                                    activity:{allowed,denied,active,txBytes,rxBytes,
                                    recent:[{proto,dst,port,allowed,txBytes,rxBytes,
@@ -160,13 +161,28 @@ GET    /runtime                    admin. full runtime visibility →
                                    resource I/O); cgroup=true means exact
                                    whole-tree accounting via cgroup v2
                                    delegation, false = /proc-tree sampling
-                                   {state: idle|building|healthy|failed, gen, error?}
+                                   {state: idle|building|healthy|failed, gen, error?}.
+                                   netRef = the bound/defaulted net ref (`org`,
+                                   `internet`, `lan:…`, a provider), net = the
+                                   effective mode host|relay|splice|none,
+                                   netSource = "org:<id> (<sets>)" for org
+                                   reach, netNote = why a stored binding is
+                                   inert (D54)
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
-                                   quota,blocked}, alerts[]. Readable from that
-                                   tile's terminal (tile-scoped token). `bx
-                                   status` renders it.
+                                   quota,blocked}, alerts[], net {netRef, net,
+                                   netRules, netSource, netNote} (the effective
+                                   network, D54). Readable from that tile's
+                                   terminal (tile-scoped token). `bx status`
+                                   renders it.
+GET    /term-net?tile=<p>          terminal access on the tile. the network
+                                   scopes a terminal there may take for the
+                                   caller (D54): {tile, scopes:[{id,label,
+                                   desc}], default, label, org} — `org` where
+                                   the owning org has network sets, internet/
+                                   host where allowed, offline always. The
+                                   picker offers exactly this list
 GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    TERMINAL-level access on it (read/write
                                    users don't — output can carry secrets).
@@ -952,15 +968,24 @@ token or resource state. **The root terminal (no cwd) is disabled** — 403 for
 everyone. Reattach/kill of another user's session: admins only.
 
 For a **non-admin**, the query params below are clamped rather than honored
-(docs/isolation.md): `api` is forced to `0` without the `termApi` grant,
-`net` is forced to `none` without `termNet`, and `net=host` is admin-only
-always. The session still opens; the `session` control frame reports the
-effective scope. New-session query params (all optional):
+(docs/isolation.md): `api` is forced to `0` without the `termApi` grant; on a
+personal/workspace tile `net` is forced to `none` without `termNet` and
+`net=host` is admin-only; on an **org-owned tile with network sets** (D54)
+the org network is the members' grant — `internet` and a refused `host`
+clamp to `org`, and `host` is allowed when a set says so. The session still
+opens; the `session` control frame reports the effective scope, the scopes
+the caller may pick, and why a request was clamped (`netNote`). New-session
+query params (all optional):
 
 - `?api=0` — mint **no** terminal token: the shell sees code but every tile/xbin
   API call is unauthorized (default `1`).
-- `?net=<scope>` (default `internet`):
+- `?net=<scope>` (absent = the tile's default: `org` where it exists, else
+  `internet` where allowed, else `none` — `GET /term-net?tile=` lists them):
 
+- `org` — own network namespace with an egress relay enforcing the owning
+  org's **network sets** (the union of their rules — LAN ranges, named
+  internet destinations with DNS pinning, all internet); when a set says
+  `host` this scope is host networking. Org-owned tiles only.
 - `internet` — own network namespace with an **internet-only egress relay**
   (`net:internet`: public addresses only, no host interfaces visible). TCP, UDP,
   and ICMP echo (`ping`) are forwarded under the policy; `traceroute` needs the
@@ -979,9 +1004,12 @@ ends the old one and opens a new WS).
 
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.
-  - server → client: `{"op":"session","id":"…","net":"internet","baseOutdated":false}`
-    (first message; `baseOutdated:true` ⇒ this terminal's persistent layer was
-    built on an older base image — reset it via `/ws/term/env` to rebuild on the
+  - server → client: `{"op":"session","id":"…","net":"org","label":"org network
+    (devs-net)","scopes":[{"id":"org","label":"…","desc":"…"},…],"netNote":"…",
+    "baseOutdated":false}` (first message; `scopes` = what this caller may
+    pick on this tile, `label` names the effective scope, `netNote` explains a
+    clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
+    an older base image — reset it via `/ws/term/env` to rebuild on the
     current base), `{"op":"exit"}` (shell ended)
   - client → server: `{"op":"resize","cols":120,"rows":32}`
 

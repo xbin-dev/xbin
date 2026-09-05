@@ -43,6 +43,13 @@ type Backend struct {
 	Egress      []string      `json:"egress,omitempty"`
 	Activity    *relay.Stats  `json:"activity,omitempty"`
 	Cgroup      *cgroup.Usage `json:"cgroup,omitempty"`
+	// Network labels (D54), filled by the daemon from the broker's view:
+	// the bound/defaulted ref, the effective mode, where the reach comes
+	// from, and why the binding is inert (if it is).
+	NetRef    string `json:"netRef,omitempty"`
+	Net       string `json:"net,omitempty"`
+	NetSource string `json:"netSource,omitempty"`
+	NetNote   string `json:"netNote,omitempty"`
 }
 
 // Inspect returns the runtime picture of every known component backend.
