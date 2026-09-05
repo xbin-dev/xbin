@@ -33,6 +33,9 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("PUT /orgs/{org}/members/{user}", b.apiOrgMemberPut)
 	srv.RegisterAPI("DELETE /orgs/{org}/members/{user}", b.apiOrgMemberDelete)
 	srv.RegisterAPI("PUT /orgs/{org}/sso-groups", b.apiOrgSSOGroupsPut)
+	srv.RegisterAPI("GET /net-sets", b.apiNetSetsList)
+	srv.RegisterAPI("PUT /net-sets/{name}", b.apiNetSetPut)
+	srv.RegisterAPI("DELETE /net-sets/{name}", b.apiNetSetDelete)
 	srv.RegisterAPI("GET /permission-sets", b.apiPermSetsList)
 	srv.RegisterAPI("PUT /permission-sets/{name}", b.apiPermSetPut)
 	srv.RegisterAPI("DELETE /permission-sets/{name}", b.apiPermSetDelete)
@@ -82,13 +85,31 @@ type orgView struct {
 	users.Org
 	ResolvedAllow []string `json:"resolvedAllow"`
 	OwnedTiles    []string `json:"ownedTiles"`
+	// Network sets (D54): the attached names ride on Org.NetSets (always
+	// emitted, never null); ResolvedNet is their rule union, NetHost whether
+	// it grants host networking.
+	NetSetsOut  []string `json:"netSets"`
+	ResolvedNet []string `json:"resolvedNet"`
+	NetHost     bool     `json:"netHost,omitempty"`
 }
 
 func (b *Broker) orgView(o users.Org) orgView {
+	rules, host := b.Users.OrgNetRules(o.ID)
+	sets := o.NetSets
+	if sets == nil {
+		sets = []string{}
+	}
+	if rules == nil {
+		rules = []string{}
+	}
+	o.NetSets = nil // emitted once, via NetSetsOut
 	return orgView{
 		Org:           o,
 		ResolvedAllow: b.Users.ResolvedAllow(o.ID),
 		OwnedTiles:    b.Users.OwnedBy(users.OwnerKindOrg + ":" + o.ID),
+		NetSetsOut:    sets,
+		ResolvedNet:   rules,
+		NetHost:       host,
 	}
 }
 
@@ -164,14 +185,15 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 		Members []users.Member `json:"members"`
 		Sets    []string       `json:"sets"`
 		Allow   []string       `json:"allow"`
+		NetSets []string       `json:"netSets"` // D54, ws-admin only
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
 		return
 	}
-	if (body.Sets != nil || body.Allow != nil) && !b.canManageUsers(p) {
+	if (body.Sets != nil || body.Allow != nil || body.NetSets != nil) && !b.canManageUsers(p) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "permission sets and allowances are workspace-admin only — delegation is granted from above (D26)", "docs": "/docs/auth.md"})
+			"error": "permission sets, allowances and network sets are workspace-admin only — delegation is granted from above (D26)", "docs": "/docs/auth.md"})
 		return
 	}
 	up := *cur
@@ -196,6 +218,14 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+	}
+	if body.NetSets != nil {
+		if err := st.SetOrgNetSets(org, body.NetSets); err != nil {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		slog.Info("org net sets", "org", org, "sets", body.NetSets, "by", humanID(p))
+		b.netSetsChanged([]string{org})
 	}
 	b.usersEvent()
 	o, _ := st.Org(org)

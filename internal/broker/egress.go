@@ -67,7 +67,39 @@ func (b *Broker) EgressFor(c *registry.Component) sandbox.EgressPolicy {
 		}
 	case strings.HasPrefix(nb, "lan:"):
 		targets = append(targets, "net:"+strings.TrimPrefix(nb, "lan:"))
+	case nb == NetRefOrg:
+		// The owning org's network sets (D54). A host rule means the host
+		// netns (NetHostShare) — no relay policy at all.
+		t, host := netRuleTargets(b.Users.Ceiling(c.Path).NetRules())
+		if !host {
+			targets = t
+		}
 	}
 	pol, _ := sandbox.Parse(targets)
 	return pol
+}
+
+// Builtin net refs beyond internet/host/lan:<cidr> (D54).
+const (
+	NetRefOrg  = "org"  // the owning org's network sets, live — org-owned tiles only
+	NetRefNone = "none" // explicitly no egress (deny-all), anywhere
+)
+
+// netRuleTargets maps network-set rules to sandbox grant targets. Provider
+// rules are allowance-only (a set can't splice to several provider tiles)
+// and are skipped; host is reported separately (it means the host netns).
+func netRuleTargets(rules []string) (targets []string, host bool) {
+	for _, r := range rules {
+		switch {
+		case r == "internet":
+			targets = append(targets, "net:internet")
+		case r == "host":
+			host = true
+		case strings.HasPrefix(r, "internet:"):
+			targets = append(targets, "net:"+strings.TrimPrefix(r, "internet:"))
+		case strings.HasPrefix(r, "lan:"):
+			targets = append(targets, "net:"+strings.TrimPrefix(r, "lan:"))
+		}
+	}
+	return targets, host
 }

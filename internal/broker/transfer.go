@@ -163,6 +163,22 @@ func (b *Broker) deadSlotReason(c *registry.Component, slot string, binding regi
 		if row, ok := ceil.DenyRow(users.PolicyDenyNet); ok {
 			return "a policy row for tiles matching \"" + row.Tiles + "\" denies net under the new owner"
 		}
+		if iface.Kind == "net" {
+			// Organisation network sets (D54): org egress means nothing away
+			// from an org with sets; an explicit ref must be inside the new
+			// org's sets.
+			ref := binding.First()
+			switch {
+			case ref == NetRefOrg && (ceil.OwnerOrg() == "" || !ceil.HasNetSets()):
+				return "org egress has no meaning under the new owner (no network sets) — rebind after the transfer"
+			case ref == NetRefOrg, ref == NetRefNone:
+				return ""
+			case ceil.OwnerOrg() != "" && ceil.HasNetSets():
+				if reason := b.netUncovered(c.Path, slot, binding, ceil); reason != "" {
+					return reason + " under the new owner"
+				}
+			}
+		}
 		return ""
 	}
 	// http/stream: every provider ref must be mayCall-blocked for the slot to die.

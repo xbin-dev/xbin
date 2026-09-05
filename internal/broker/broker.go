@@ -37,6 +37,7 @@ type Broker struct {
 	Hub *events.Hub
 
 	mu        sync.Mutex
+	inertNet  sync.Map // component → why its net binding resolves to no egress (D54)
 	busEv     sync.Map // bus resource id → *atomic.Int64 published-event count
 	resUsageC sync.Map // resource id → *resUsageEntry (walk-heavy sizes, TTL-cached)
 	kv        *kvStore

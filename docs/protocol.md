@@ -364,10 +364,14 @@ GET    /orgs                      management view (docs/auth.md, ownership):
                                    suspended?,via?,viaGroups?}],tiles,
                                    sets,allow,policy,ssoGroups:[{group,
                                    level,create,admin}],resolvedAllow,
-                                   ownedTiles}]}. via "sso" = the row was
+                                   ownedTiles,netSets:[…],resolvedNet:[…],
+                                   netHost?}]}. via "sso" = the row was
                                    created by a group rule (D53) and
                                    follows the IdP; ssoGroups = the org's
-                                   rules
+                                   rules; netSets = attached network sets
+                                   (D54), resolvedNet their rule union,
+                                   netHost whether it grants host
+                                   networking
 POST   /orgs                      admin/xbin:users. create {id, name?}
                                    (id: [a-z0-9._-], immutable; "workspace"
                                    reserved)
@@ -379,9 +383,11 @@ PATCH  /orgs/<org>                admin/xbin:users, or that org's admin:
                                    suspended:true pauses the membership
                                    (confers nothing, stays listed; D34).
                                    WS-ADMIN ONLY fields:
-                                   {sets?, allow?} — delegation is granted
-                                   from above (D26/D28); xbin/xbin:* never
-                                   valid in allow
+                                   {sets?, allow?, netSets?} — delegation
+                                   is granted from above (D26/D28); xbin/
+                                   xbin:* never valid in allow; netSets
+                                   attaches network sets (D54) and
+                                   restarts the org's net-declaring tiles
 PUT    /orgs/<org>/members/<user> admin/xbin:users, or that org's admin.
                                    upsert ONE membership (D53): {level?,
                                    create?, admin?, suspended?, via?: ""}.
@@ -414,6 +420,27 @@ PUT    /permission-sets/<name>    admin/xbin:users. replace one set (same
                                    allow grammar/floor as org allow)
 DELETE /permission-sets/<name>    admin/xbin:users; refused while attached
                                    to any org
+GET    /net-sets                  admin/xbin:users. organisation network
+                                   sets (D54): {sets:{name:{rules,
+                                   created}}, attachedTo:{name:[orgIds]}}.
+                                   Rules are the net: allowance grammar
+                                   without the prefix — internet |
+                                   internet:<host|host-glob|ip|cidr>[:port]
+                                   | lan:<ip|cidr>[:port] | host |
+                                   provider:<tile-glob>. Attached to an
+                                   org, the union is at once the CEILING on
+                                   its tiles' net bindings, what its admins
+                                   may bind without an allowance, the
+                                   default binding (`org`) of its tiles
+                                   that declare net, and the egress of
+                                   terminals opened on them
+PUT    /net-sets/<name>           admin/xbin:users. {rules:[…]} — create/
+                                   replace (400 on grammar; one destination
+                                   per rule; globs only in internet: host
+                                   rules; lan: rules are addresses/CIDRs);
+                                   attached orgs' net tiles restart →
+                                   {name, rules, created, attachedTo}
+DELETE /net-sets/<name>           admin/xbin:users; 409 while attached
 GET    /owner?tile=<path>         any principal that can READ the tile.
                                    {tile, owner: "user:<id>"|"org:<id>"|""}
 GET    /owner/preview             ?tile=&to= — transfer impact report
@@ -720,11 +747,22 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                     zone,listen}|[…]}},
                                     components: [{component, interfaces, provides}],
                                     pending: [{component, slot, kind, service,
-                                              expose?, options: [{id, label}]}]}.
+                                              expose?, default?, options: [{id, label}]}],
+                                    inert: {comp: {slot: reason}}}.
                                    `pending` is the unbound slots + candidate
                                    providers — the bind-on-install prompt;
                                    expose:true rows are unpublished exposed
                                    endpoints (bind = publish, docs/ingress.md).
+                                   default:"org" marks an unbound net slot on
+                                   an org-owned tile with network sets — it
+                                   is already satisfied (D54); binding only
+                                   narrows or overrides. `inert` lists net
+                                   bindings that are stored but resolve to
+                                   no egress (a set narrowed, a transfer),
+                                   with the reason. Net options carry `org`
+                                   (org-owned tiles; label = the live reach)
+                                   and `none`; options the org's sets refuse
+                                   say "not covered"
 POST   /bindings                   admin; an org admin within D26 (their
                                    org owns the component; targets
                                    intra-org or allowance-covered — the
@@ -739,8 +777,16 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    provider[#instance]; an instances-provide
                                    binds to a specific instance only. — bind
                                    a requested interface to a provider (a builtin
-                                   id like internet/host/lan:<cidr>, or a tile
-                                   path). Owner-only (agents can't self-bind).
+                                   id like internet/host/lan:<cidr>/
+                                   internet:<spec>, `org` — the owning org's
+                                   network sets, live; org-owned tiles only —
+                                   or `none` — explicitly no egress; or a
+                                   tile path). On an org-owned tile with
+                                   network sets every net ref must be inside
+                                   the sets (400 names the set; ws-admins
+                                   widen the set instead) — org admins bind
+                                   inside them without an allowance (D54).
+                                   Owner-only (agents can't self-bind).
                                    Restarts the component (+ a net provider whose
                                    roster changed) so wiring takes effect at once.
                                    For an EXPOSED endpoint slot (docs/ingress.md)

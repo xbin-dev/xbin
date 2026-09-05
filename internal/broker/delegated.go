@@ -165,6 +165,10 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 	for _, ref := range binding {
 		v := ref.Ref
 		switch {
+		case iface.Kind == "net" && (v == NetRefOrg || v == NetRefNone):
+			// D54 builtins: org can't exceed the org's own ceiling, none only
+			// narrows — neither needs an allowance (orgAdminMayBind skips them).
+			out = append(out, pairedTarget{"net:" + v, ""})
 		case iface.Kind == "net" && (v == "internet" || v == "host"):
 			out = append(out, pairedTarget{"net:" + v, ""})
 		case iface.Kind == "net" && strings.HasPrefix(v, "internet:"):
@@ -278,6 +282,9 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 					pass = false
 					break
 				}
+				if pt.target == "net:"+NetRefOrg || pt.target == "net:"+NetRefNone {
+					continue // D54 builtins need no allowance
+				}
 				if b.Users.AllowanceCovers(org, pt.target, "") {
 					continue
 				}
@@ -323,6 +330,7 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 	}
 	for _, ref := range refs {
 		if ref.Ref == "" || ref.Ref == "runtime" || ref.Ref == "internet" || ref.Ref == "host" ||
+			ref.Ref == NetRefOrg || ref.Ref == NetRefNone ||
 			strings.HasPrefix(ref.Ref, "lan:") || strings.HasPrefix(ref.Ref, "internet:") {
 			return false
 		}
