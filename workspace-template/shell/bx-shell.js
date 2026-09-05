@@ -125,7 +125,6 @@ export class BxShell extends LitElement {
     _ownedTiles: { state: true }, // tiles this human OWNS (⚙ on their own tiles, D24)
     _pendingN: { state: true },   // ⚑ badge: actionable pending approvals/requests
     _setupCard: { state: true },  // first-run hardening prompt (root token, no users)
-    _adminFor: { state: true },   // tile path whose mini-admin popover is open
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
     _ctx: { state: true },        // {x,y} background context menu (null = closed)
@@ -272,13 +271,8 @@ export class BxShell extends LitElement {
       color: var(--bx-text, #33414e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .buildfoot .ver.dirty { color: var(--bx-amber, #f2a71b); }
 
-    /* ---- per-tile mini-admin popover ---- */
-    .admin-pop-backdrop { position: fixed; inset: 0; z-index: 2400; }
-    .admin-pop {
-      position: fixed; z-index: 2500; width: 340px; max-height: 72vh; overflow-y: auto;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
-      border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
-    }
+    /* the per-tile admin window rides the .spawn chrome (D56) */
+    .spawn.admin .stitle { font-family: var(--bx-mono, ui-monospace, monospace); }
     /* orgs & teams management popover (org admins + ws admins) — centered. */
     .orgbtn {
       display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px;
@@ -651,10 +645,11 @@ export class BxShell extends LitElement {
         width: auto !important; height: auto !important;
         resize: none !important; border-radius: 0; border: 0;
       }
-      /* admin / org popovers → near-full-width sheets under the bars */
-      .admin-pop {
-        left: 6px !important; right: 6px; top: 54px !important;
-        width: auto !important; max-width: none !important; max-height: 82vh;
+      /* the tile-admin window → a full-screen sheet */
+      .spawn.admin {
+        position: fixed !important; inset: 0 !important;
+        width: auto !important; height: auto !important;
+        resize: none !important; border-radius: 0; border: 0;
       }
     }
   `;
@@ -671,8 +666,6 @@ export class BxShell extends LitElement {
     this._sysPrev = null; // previous traffic sample for req/s + MB/s deltas
     this._isAdmin = false;
     this._adminOrgs = new Set();
-    this._adminFor = null;
-    this._adminPos = { x: 0, y: 0 };
     this._dialogs = [];
     this._spawnWins = [];
     this._ctx = null;
@@ -740,6 +733,13 @@ export class BxShell extends LitElement {
     this._alertTimer = setInterval(() => this._loadAlerts(), 20000);
     // Ctrl/Cmd+S publishes the active org-screen draft (D55).
     this._onKey = (e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        // Escape peels: menu → open list → dialog (all stop it) → the top-most
+        // tile-admin window.
+        const top = this._spawnWins.filter((w) => w.kind === 'admin').sort((a, b) => b.z - a.z)[0];
+        if (top) this._closeSpawn(top.id);
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey) || e.key !== 's') return;
       const os = this._activeOrgScreen;
       if (os && this._orgDrafts?.[os.id]?.dirty) { e.preventDefault(); this._saveOrgDraft(os.id); }
@@ -1210,7 +1210,7 @@ export class BxShell extends LitElement {
     }
     // Cap pop-out windows per tile too (its `closed` resolves immediately if
     // over the cap).
-    if (this._spawnWins.filter((x) => x.from === d.from).length >= 6) { d.reply(); return; }
+    if (this._spawnWins.filter((x) => x.from === d.from && !x.kind).length >= 6) { d.reply(); return; }
     // window: frame a sub-path of the caller (default) or an explicit component
     // path. Both go through <bx-frame>, so RBAC (frame-token/CanUseTile) still
     // applies; strip any traversal from a caller-supplied sub-path.
@@ -1248,7 +1248,31 @@ export class BxShell extends LitElement {
     if (w) { w.z = ++zTop; this.requestUpdate(); }
   }
 
+  // The per-tile admin window (D56): the same draggable/resizable chrome as a
+  // pop-out window, hosting <bx-tile-admin> instead of a frame. One per tile —
+  // reopening fronts it (and jumps to `section` when asked); Escape closes the
+  // top-most; a full-screen sheet on phones.
+  _openAdminWin(path, section = null) {
+    const id = 'admin:' + path;
+    const ex = this._spawnWins.find((w) => w.id === id);
+    if (ex) {
+      if (section) { ex.section = section; this.renderRoot.querySelector(`bx-tile-admin[data-win="${CSS.escape(id)}"]`)?.show(section); }
+      this._spawnFront(id);
+      return;
+    }
+    const W = window.innerWidth, H = window.innerHeight;
+    const w = Math.min(560, W - 24), h = Math.min(Math.round(H * 0.7), H - 24);
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+    const r = (this._gtile(path) ?? this._floatWin(path))?.getBoundingClientRect();
+    const x = r ? clamp(r.right - w, 8, W - w - 8) : Math.round((W - w) / 2);
+    const y = r ? clamp(r.top + 36, 8, H - h - 8) : Math.round((H - h) / 2.4);
+    this._spawnWins = [...this._spawnWins, {
+      id, kind: 'admin', from: 'shell', path, section, reply: () => {}, title: `⚙ ${path}`, x, y, w, h, z: ++zTop,
+    }];
+  }
+
   _spawnDragStart(e, id) {
+    if (this._mobile) return; // sheets don't move
     if (e.button !== 0 || e.target.closest('button')) return;
     e.preventDefault();
     this._spawnFront(id);
@@ -1271,16 +1295,20 @@ export class BxShell extends LitElement {
   }
 
   _spawnTemplate(w) {
+    const admin = w.kind === 'admin';
     return html`
-      <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
+      <div class="spawn ${admin ? 'admin' : ''}" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
           <span class="stitle">${w.title}</span>
-          <span class="sfrom">${w.from}</span>
+          ${admin ? nothing : html`<span class="sfrom">${w.from}</span>`}
           <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
         </div>
         <div class="sbody">
-          <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
+          ${admin
+            ? html`<bx-tile-admin .path=${w.path} .section=${w.section} no-title data-win=${w.id}
+                     style="position:absolute; inset:0; overflow:auto"></bx-tile-admin>`
+            : html`<bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>`}
         </div>
       </div>`;
   }
@@ -1827,17 +1855,6 @@ export class BxShell extends LitElement {
     if (this._ownedTiles?.has(path)) return true;
     const owner = this._components.find((c) => c.path === path)?.owner ?? '';
     return owner.startsWith('org:') && !!this._adminOrgs?.has(owner.slice(4));
-  }
-
-  _openAdmin(e, path) {
-    e.stopPropagation();
-    if (this._adminFor === path) { this._adminFor = null; return; }
-    const r = e.currentTarget.getBoundingClientRect();
-    this._adminPos = {
-      x: Math.max(8, Math.min(r.right - 340, window.innerWidth - 356)),
-      y: Math.max(8, Math.min(r.bottom + 6, window.innerHeight - 120)),
-    };
-    this._adminFor = path;
   }
 
   // Screen sharing (D37): a ws-admin pins the CURRENT personal screen as the
@@ -2425,9 +2442,9 @@ export class BxShell extends LitElement {
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._cardTerm(e)}>&gt;_</button>
-          ${this._canAdminTile(o.path) ? html`<button title="tile admin (access · lifecycle · runtime · vault · grants · interfaces · backup · cron)"
+          ${this._canAdminTile(o.path) ? html`<button title="tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
+                  @click=${(e) => { e.stopPropagation(); this._openAdminWin(o.path); }}>⚙</button>` : nothing}
           ${this._canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
                   @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>` : nothing}
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
@@ -2714,12 +2731,6 @@ export class BxShell extends LitElement {
       </div>
 
       ${repeat(this._tiles.filter((o) => o.float), (o) => o.path, (o) => this._floatTemplate(o))}
-
-      ${this._adminFor ? html`
-        <div class="admin-pop-backdrop" @click=${() => { this._adminFor = null; }}></div>
-        <div class="admin-pop" style="left:${this._adminPos.x}px; top:${this._adminPos.y}px">
-          <bx-tile-admin .path=${this._adminFor}></bx-tile-admin>
-        </div>` : nothing}
 
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}

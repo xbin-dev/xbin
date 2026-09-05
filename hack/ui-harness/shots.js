@@ -126,7 +126,7 @@ async function admin(browser) {
   await shot(page, 'shell-popover-crawler', { fullPage: false });
   await dumpSelects(page, 'shell-popover-selects', 'bx-tile-admin select');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => { document.querySelector('bx-shell')._adminFor = null; });
+  await page.evaluate(() => { document.querySelector('bx-shell')._closeSpawn('admin:apps/crawler'); });
 
   await crawler.locator('button.term').click();
   await sleep(4000); // spawn + session frame

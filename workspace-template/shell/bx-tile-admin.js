@@ -33,6 +33,8 @@ const jbody = (v) => ({ headers: { 'Content-Type': 'application/json' }, body: J
 export class BxTileAdmin extends LitElement {
   static properties = {
     path: { type: String },
+    section: { type: String },  // a section to open + scroll to (lifecycle|access|runtime|vault|grants|interfaces|backup|cron)
+    noTitle: { type: Boolean, attribute: 'no-title' }, // the host's window chrome already names the tile
     _ov: { state: true },       // this tile's /auth-overview slice (state, roles, uses)
     _grants: { state: true },   // {grants, pending} filtered to this tile
     _binds: { state: true },    // /bindings (full — options need all providers)
@@ -52,7 +54,7 @@ export class BxTileAdmin extends LitElement {
 
   static styles = css`
     :host {
-      display: block; font: var(--bx-font, 12.5px/1.45 system-ui, sans-serif);
+      display: block; min-width: 0; font: var(--bx-font, 12.5px/1.45 system-ui, sans-serif);
       color: var(--bx-text, #33414e);
     }
     .hd { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px 6px;
@@ -76,8 +78,14 @@ export class BxTileAdmin extends LitElement {
     .mono { font-family: var(--bx-mono, monospace); }
     .muted { color: var(--bx-muted, #8794a1); }
     table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+    /* Control-heavy tables share the width; long refs ellipsize (the full
+       text rides on title=) instead of pushing the window into a scroll. */
+    table.fx { table-layout: fixed; }
     td { padding: 2px 6px 2px 0; border-top: 1px solid var(--bx-border, #e4e8ed); vertical-align: middle; }
+    td.ref { max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    td.ctl { text-align: right; white-space: nowrap; }
     tr:first-child td { border-top: 0; }
+    bx-multiselect { max-width: 100%; }
     button.act { border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
       color: var(--bx-text, #33414e); border-radius: 5px; font: inherit; font-size: 10.5px;
       padding: 1px 7px; cursor: pointer; }
@@ -85,9 +93,10 @@ export class BxTileAdmin extends LitElement {
     button.act:disabled { opacity: .5; cursor: default; }
     button.go { color: var(--bx-green, #43a047); }
     button.rm { color: var(--bx-red, #e5484d); }
-    input, select { font: inherit; font-size: 11px; padding: 2px 6px; max-width: 100%;
+    input, select { font: inherit; font-size: 11px; padding: 2px 6px; max-width: 100%; box-sizing: border-box;
       border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
       background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); }
+    select { text-overflow: ellipsis; }
     .row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
     .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11.5px; }
     .kv .k { color: var(--bx-muted, #8794a1); }
@@ -202,8 +211,8 @@ export class BxTileAdmin extends LitElement {
     if (v?.err) return html`<div class="sec err">${v.err}</div>`;
     const keys = v?.keys ?? [];
     return html`<div class="sec">
-      <table>${keys.length ? keys.map((k) => html`<tr>
-          <td class="mono">${k}</td>
+      <table class="fx">${keys.length ? keys.map((k) => html`<tr>
+          <td class="mono ref" title=${k}>${k}</td>
           <td class="mono muted">${this._secEdit === k ? html`
             <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
                 const nv = e.target.nv.value;
@@ -300,19 +309,19 @@ export class BxTileAdmin extends LitElement {
     return html`<div class="sec">
       ${roles.length ? html`<div style="margin-bottom:4px">exposes:
         ${roles.map((r) => html`<span class="pill">${r}</span>`)}</div>` : nothing}
-      <table>
+      <table class="fx">
         ${g.pending.map((p) => html`<tr style=${p.blocked ? 'opacity:.55' : ''}>
-          <td class="mono" style="font-size:10.5px" title=${p.blocked ?? ''}>${p.from} → ${p.target}</td>
-          <td><span class="pill">${p.role}</span></td>
-          <td style="text-align:right">${p.blocked
+          <td class="mono ref" style="font-size:10.5px" title=${p.blocked ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
+          <td style="width:5.5em"><span class="pill">${p.role}</span></td>
+          <td class="ctl" style="width:5em">${p.blocked
             ? html`<button class="act" disabled title=${p.blocked}>blocked</button>`
             : html`<button class="act go" ?disabled=${this._busy}
                 @click=${() => this._do(() => api('/grants', { method: 'POST', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>approve</button>`}</td>
         </tr>`)}
         ${g.grants.map((p) => html`<tr>
-          <td class="mono" style="font-size:10.5px">${p.from} → ${p.target}</td>
-          <td><span class="pill">${p.role}</span></td>
-          <td style="text-align:right"><button class="act rm" ?disabled=${this._busy}
+          <td class="mono ref" style="font-size:10.5px" title="${p.from} → ${p.target}">${p.from} → ${p.target}</td>
+          <td style="width:5.5em"><span class="pill">${p.role}</span></td>
+          <td class="ctl" style="width:5em"><button class="act rm" ?disabled=${this._busy}
             @click=${() => this._do(() => api('/grants', { method: 'DELETE', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>revoke</button></td>
         </tr>`)}
         ${!g.grants.length && !g.pending.length ? html`<tr><td class="muted">no grants involve this tile</td></tr>` : nothing}
@@ -363,10 +372,10 @@ export class BxTileAdmin extends LitElement {
             const known = nopts.some((o) => o.id === cur);
             const inert = d.inert?.[this.path]?.[slot];
             return html`<tr>
-              <td>${slot} <span class="pill">net</span>
+              <td class="ref" title=${slot}>${slot} <span class="pill">net</span>
                 ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
-              <td style="text-align:right">
-                <select @change=${(e) => {
+              <td class="ctl" style="width:62%">
+                <select title=${cur || 'unbound'} @change=${(e) => {
                   const v = e.target.value;
                   if (v === '__custom') { this._netCustom = slot; e.target.value = cur; return; }
                   this._netCustom = null; set(slot, v ? [v] : []);
@@ -384,11 +393,11 @@ export class BxTileAdmin extends LitElement {
               </td></tr>`;
           }
           return html`<tr>
-            <td>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
-            <td style="text-align:right">${def.multi
+            <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
+            <td class="ctl" style="width:62%">${def.multi
               ? html`<bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
                   @change=${(e) => set(slot, e.detail.selected)}></bx-multiselect>`
-              : html`<select @change=${(e) => set(slot, e.target.value ? [e.target.value] : [])}>
+              : html`<select title=${bound[0] ?? 'unbound'} @change=${(e) => set(slot, e.target.value ? [e.target.value] : [])}>
                   <option value="" ?selected=${!bound.length}>— unbound —</option>
                   ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
                 </select>`}</td></tr>`;
@@ -411,11 +420,11 @@ export class BxTileAdmin extends LitElement {
           @click=${() => this._do(() => api('/backup', { method: 'POST', ...jbody({ component: this.path }) }))}>backup now</button>
         <span class="muted" style="font-size:10.5px">needs an @archive binding</span>
       </div>
-      <table style="margin-top:5px">
+      <table class="fx" style="margin-top:5px">
         ${vs.slice(0, 6).map((v) => html`<tr>
-          <td class="mono" style="font-size:10.5px">${v.version}</td>
-          <td class="muted">${v.size ? (v.size / 1048576).toFixed(1) + ' MB' : ''}</td>
-          <td style="text-align:right"><button class="act" ?disabled=${this._busy}
+          <td class="mono ref" style="font-size:10.5px" title=${v.version}>${v.version}</td>
+          <td class="muted" style="width:5em">${v.size ? (v.size / 1048576).toFixed(1) + ' MB' : ''}</td>
+          <td class="ctl" style="width:5em"><button class="act" ?disabled=${this._busy}
             @click=${() => confirm(`Restore ${this.path} @ ${v.version}? Current state is replaced.`) &&
               this._do(() => api('/restore', { method: 'POST', ...jbody({ component: this.path, version: v.version }) }))}>restore</button></td>
         </tr>`)}
@@ -439,24 +448,41 @@ export class BxTileAdmin extends LitElement {
       </table></div>`;
   }
 
+  // show(section) opens one section and scrolls to it — the tile menu's
+  // "Access…", "Interfaces…" lines land here (D56).
+  show(section) {
+    this.section = section;
+    this._reveal(section);
+  }
+  updated(changed) {
+    if (changed.has('section') && this.section) this._reveal(this.section);
+  }
+  _reveal(section) {
+    const d = this.renderRoot.querySelector(`details[data-sec="${CSS.escape(section)}"]`);
+    if (!d) return;
+    d.open = true;
+    if (section === 'runtime') this._loadRuntime();
+    this.updateComplete.then(() => d.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }
+
   render() {
     const st = this._ov?.state ?? 'enabled';
     return html`
       <div class="hd">
-        <span class="t">${this.path}</span>
+        ${this.noTitle ? nothing : html`<span class="t">${this.path}</span>`}
         ${this._ov?.forbidden ? nothing
           : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>`}
         <button class="act" title="reload" @click=${() => { this._rt = null; this._loadCore(); }}>⟳</button>
       </div>
       ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
-      <details open><summary>lifecycle</summary>${this._lifecycle()}</details>
-      <details><summary>access</summary>${this._accessSec()}</details>
-      <details @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>
-      <details><summary>vault</summary>${this._vaultSec()}</details>
-      <details><summary>roles & grants</summary>${this._grantsSec()}</details>
-      <details><summary>interfaces</summary>${this._bindsSec()}</details>
-      <details><summary>backup</summary>${this._backupSec()}</details>
-      <details><summary>cron</summary>${this._cronSec()}</details>
+      <details open data-sec="lifecycle"><summary>lifecycle</summary>${this._lifecycle()}</details>
+      <details data-sec="access"><summary>access</summary>${this._accessSec()}</details>
+      <details data-sec="runtime" @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>
+      <details data-sec="vault"><summary>vault</summary>${this._vaultSec()}</details>
+      <details data-sec="grants"><summary>roles & grants</summary>${this._grantsSec()}</details>
+      <details data-sec="interfaces"><summary>interfaces</summary>${this._bindsSec()}</details>
+      <details data-sec="backup"><summary>backup</summary>${this._backupSec()}</details>
+      <details data-sec="cron"><summary>cron</summary>${this._cronSec()}</details>
     `;
   }
 }
