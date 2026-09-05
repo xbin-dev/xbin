@@ -327,8 +327,14 @@ component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
 composed by `root/index.html`. Edit it like any component; shells nest
 (`shell/index.html` is a working nested preview). Sidebar dots encode
 runtime: gray static, blue go, green node, amber python, red cgi. Canvas
-cards drag by their title bar into a column layout (drop to reorder within a
-column or move between columns); column count follows the canvas width.
+cards drag by their title bar on a snappable grid. **Menus:** right-click
+the empty canvas for *open tile* (recent + find), *create a new tile* as an
+owner, *new screen*; right-click a card head or a sidebar row — or press
+its ⋯ — for the tile menu (terminal · logs · source · proposals, then
+open/close/pin/full page and, for admins, lifecycle + the ⚙ sections). A
+right-click *inside* a tile's iframe never reaches the shell — only the
+head/row does. On phones the menus are bottom sheets (⋯ or long-press) and
+the ⚙ admin window is a full-screen sheet.
 
 **Tile sizing (design constraint).** The shell lays tiles on a **fixed
 snappable grid** (48px): a tile is a **fixed size** the user sets by dragging

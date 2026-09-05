@@ -28,8 +28,13 @@ export REPO
 mkdir -p "$OUT"
 mode="${1:-}"
 
-# The [x] keeps pkill from matching this script's own command line.
-stop() { pkill -f "bin/[x]bind --dev --workspace $WS" 2>/dev/null || true; sleep 0.5; }
+# The [x] keeps pkill from matching this script's own command line. Also
+# stop a harness instance from another HARNESS_DIR still holding the port.
+stop() {
+  pkill -f "bin/[x]bind --dev --workspace $WS" 2>/dev/null || true
+  pkill -f "bin/[x]bind --dev .*--listen 127.0.0.1:$PORT" 2>/dev/null || true
+  sleep 0.5
+}
 start() {
   (cd "$REPO" && nohup bin/xbind --dev --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)

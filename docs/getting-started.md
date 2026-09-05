@@ -79,7 +79,9 @@ it follows you across browsers and devices). The `<bx-frame>` pins in
 `root/index.html` only seed the *first* screen a brand-new user sees. Screens
 an organisation shares with its members show up as extra tabs; those are
 read-only until you click *edit layout*, and nothing changes for anyone else
-until you *Save and update for everyone*.
+until you *Save and update for everyone*. Right-click the canvas to reopen a
+recent tile or create one; right-click a card (or press its ⋯) for its
+terminal, logs, source, proposals and admin.
 
 ## First backend
 

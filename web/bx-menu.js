@@ -19,8 +19,8 @@
  *     { kind: 'sep' },
  *     { kind: 'header', label },
  *     { kind: 'grid', cells: [{ icon, label, badge?, mono?, disabled?, title?, action }] },
- *     { kind: 'input', placeholder?, empty? },   // filters its SIBLING items;
- *   ]                                             // Enter picks the first match
+ *     { kind: 'input', placeholder?, empty?, hint? },  // filters its SIBLING items;
+ *   ]                       // Enter picks the first match; `hint` shows while empty
  *
  * Point mode (`x`/`y`, a right-click) flips left/up at the viewport edges;
  * anchor mode (`.anchor` = a DOMRect, e.g. a ⋯ button) opens below it,
@@ -103,7 +103,7 @@ export class BxMenu extends LitElement {
       color: var(--bx-muted, #8794a1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* the squares row */
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px; padding: 2px 4px 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); gap: 4px; padding: 2px 4px 6px; }
     .cell {
       position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 3px; height: 52px; border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;
@@ -171,12 +171,20 @@ export class BxMenu extends LitElement {
     this._lvl = [];       // per level: the visible items as rendered (rows carry data-l/data-i)
     this._onScroll = (e) => { if (e.target === this || this.contains?.(e.target)) return; this._close(); };
     this._onResize = () => { this._place(); if (this._sub) this._placeSub(); };
+    // Escape closes even when focus wandered off the menu (a flyout that held
+    // the focused input just closed, the opener kept focus, …).
+    this._onDocKey = (e) => {
+      if (e.key !== 'Escape' || !this.open || e.composedPath().includes(this)) return;
+      e.preventDefault(); e.stopPropagation();
+      this._close();
+    };
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._opener = deepActive();
     document.addEventListener('scroll', this._onScroll, { capture: true, passive: true });
+    document.addEventListener('keydown', this._onDocKey, true);
     window.addEventListener('resize', this._onResize);
     this.updateComplete.then(() => {
       this._place();
@@ -186,6 +194,7 @@ export class BxMenu extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     document.removeEventListener('scroll', this._onScroll, { capture: true });
+    document.removeEventListener('keydown', this._onDocKey, true);
     window.removeEventListener('resize', this._onResize);
     clearTimeout(this._hover);
     clearTimeout(this._typeT);
@@ -365,6 +374,7 @@ export class BxMenu extends LitElement {
     this._lvl[level] = vis;
     const input = items.find((it) => it.kind === 'input');
     const anyItem = vis.some((it) => isItem(it));
+    const q = this._q.trim();
     return html`
       ${vis.map((it, idx) => {
         if (it.kind === 'sep') return html`<div class="sep"></div>`;
@@ -375,7 +385,7 @@ export class BxMenu extends LitElement {
           @input=${(e) => { this._q = e.target.value; }} @pointerenter=${() => this._hoverItem(null, null, level)}>`;
         return this._row(it, level, idx);
       })}
-      ${input && !anyItem ? html`<div class="empty">${input.empty ?? 'no matches'}</div>` : nothing}`;
+      ${input && !anyItem ? html`<div class="empty">${q ? (input.empty ?? 'no matches') : (input.hint ?? '')}</div>` : nothing}`;
   }
 
   render() {

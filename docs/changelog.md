@@ -10,6 +10,32 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-06
+
+- **Context menus that carry a tile's actions; the tile admin is a window
+  (D56).** Right-click the empty canvas for **open tile** — the five most
+  recently opened tiles that aren't on this screen plus a find box over
+  every readable tile — **create a new tile** as a specific owner (mine ·
+  each org you hold Create in · workspace; `tileCreation: org-only` hides
+  the personal entry), and **new screen** ("new sidebar folder" left the
+  menu; the sidebar's ＋ folder stays). Right-click a card head or a
+  sidebar row, or press the new **⋯** on either, for the **tile menu**: four
+  squares — terminal · logs · source · change proposals (with the open
+  count) — then open/close on this screen, pin/unpin, open full page, and
+  for admins the lifecycle actions plus Access… / Runtime… / Vault… / Roles
+  & grants… / Interfaces… / Backup… / Cron…, each opening the tile's admin
+  at that section. The ⚙ button now opens a real **admin window**:
+  draggable, resizable, one per tile, Escape closes, a full-screen sheet on
+  phones — replacing the 340px popover whose binding pickers overflowed.
+  Long provider and interface names ellipsize with the full text on hover
+  instead of forcing a scroll, and `bx-multiselect` lists are now
+  viewport-fixed so no container clips them. Menus and the admin window
+  are bottom sheets on narrow screens, opened from ⋯ or a long-press on a
+  card head, a sidebar row or the empty canvas. New core element
+  `/vendor/bx-menu.js` (shell chrome, not a tile API); `bx-frame` gains
+  `open(layout)`. Docs: overview/04-frontend.md, getting-started.md,
+  elements.md.
+
 ## 2026-09-05
 
 - **Org screens edit like dashboards; the sidebar is one tree per owner

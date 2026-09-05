@@ -1244,4 +1244,47 @@ Deviations and refinements made while implementing; all deliberate:
   is the 0600 identity store; sidebar structure is layout; `ws` has no org
   row). Follow-ups: server-side filtering of folder items to readable tiles
   (members currently see path names of unreadable tiles inside shared
-  folders); a per-org screen soft cap; onboarding starters (D56).
+  folders); a per-org screen soft cap; onboarding starters (a later
+  decision).
+
+- **D56 — One menu element for every surface; the tile admin is a window
+  (2026-09-06).** The shell had one right-click menu (empty canvas: create /
+  new screen / new folder) and no per-tile menu: a tile's actions were split
+  across the card head (`>_`, `⚙`, pin, full page, close), the pop-up frame's
+  layout buttons (code, logs, proposals) and the `⚙` popover's eight
+  sections; sidebar rows only toggled; a recently used tile meant scrolling
+  the sidebar; new tiles always went through the owner picker; touch devices
+  had none of it; and the `⚙` popover was a fixed 340px panel whose binding
+  pickers (long provider refs, the multiselect's absolutely positioned list)
+  overflowed into an inner scroll. Shapes, user-ratified: (1) ONE generic
+  menu element, `web/bx-menu.js`, serves every surface — canvas, card head,
+  float, sidebar row, `⋯` — with plain item objects carrying action
+  closures (the menu is shell-internal; closures beat an event/id protocol),
+  flyout submenus, a grid row, a filter input, keyboard navigation, and a
+  bottom-sheet mode; the shell only builds item lists. (2) The canvas menu
+  gets "open tile" (the five most recent not already on the screen + a find
+  box; recents are personal state in the layout pref) and "create a new
+  tile" as an explicit owner (honouring `tileCreation: org-only`); "new
+  sidebar folder" leaves the menu. (3) The tile menu leads with four squares
+  (terminal · logs · source · proposals) driven by a new public
+  `bx-frame.open(layout)`, then screen actions, then the admin lines that
+  open the admin at a section. (4) The `⚙` popover becomes a real WINDOW on
+  the existing pop-out chrome (draggable, resizable, one per tile, Escape,
+  section targeting, a full-screen sheet on phones); `⚙` opens it directly
+  (one click to everything), the menu's lines open it at a section.
+  (5) Overflow is solved structurally: the multiselect list is
+  viewport-fixed (position from the control rect, re-placed on scroll/
+  resize) so no container clips it; control-heavy tables use fixed layout
+  and ref cells ellipsize with the full text on title; the window is
+  resizable so wrapping happens only when the user makes it narrow.
+  (6) Mobile: `⋯` on card heads and rows plus long-press on heads, rows and
+  the empty canvas; menus render as bottom sheets with drill-in submenus;
+  the head keeps only `>_` and `⋯` under 820px. Rejected: native
+  `<menu>`/popover (no submenus or sheet mode, no positioning control),
+  per-surface bespoke menus (three DOM/CSS copies drifting, mobile ×3),
+  keeping the 340px popover (clipped lists, no resize, single instance,
+  non-reactive position), rich content in `bx-dialog` (its data-only spec is
+  an anti-phishing property; a menu needs closures, hover and submenus),
+  exporting `bx-menu` to tiles now (API still settling). Follow-ups: lazy
+  per-section loads in the admin element; focusable sidebar rows + the
+  ContextMenu key; `bx-menu` as a tile API once its schema settles.

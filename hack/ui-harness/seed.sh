@@ -53,6 +53,13 @@ mk apps/offline org:devs
 mk apps/racks   org:infra node
 mk apps/leads   org:sales
 mk apps/dev1-notes user:dev1
+# an http provider with a deliberately long path + a consumer with a multi
+# slot — the tile-admin window's overflow case (D56)
+LONG=apps/a-provider-with-a-deliberately-long-component-path-for-overflow
+api POST /create "{\"path\":\"$LONG\",\"owner\":\"org:devs\",\"title\":\"feed provider\"}" | head -c 120; echo
+printf '{\n  "provides": { "feed": { "kind": "http", "service": "feed" } }\n}\n' > "$WS/$LONG/xbin.json"
+api POST /create '{"path":"apps/consumer","owner":"org:devs","title":"consumer"}' | head -c 120; echo
+printf '{\n  "interfaces": { "net": { "kind": "net" }, "feeds": { "kind": "http", "service": "feed", "multi": true } }\n}\n' > "$WS/apps/consumer/xbin.json"
 sleep 2
 
 say "shared screens + folders (D37/D55)"

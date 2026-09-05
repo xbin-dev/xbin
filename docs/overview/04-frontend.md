@@ -152,6 +152,16 @@ What the shell provides:
   screens. No directory headers. Your own top-level folders still group
   anything (tiles from any owner, parked tabs, org screens) without moving
   a thing on disk.
+- **Context menus** (`<bx-menu>`, D56) — right-click the empty canvas for
+  **open tile** (the five most recently opened tiles not already on this
+  screen, plus a find box over every readable tile), **create a new tile**
+  as a specific owner (mine · each org you hold Create in · workspace), a
+  new screen, and the org-screen draft actions. Right-click a card head or
+  a sidebar row (or press its ⋯) for the **tile menu**: four squares —
+  terminal · logs · source · change proposals — then open/close, pin,
+  full page, and for admins the lifecycle actions plus one line per admin
+  section that opens the ⚙ window there. On phones the same menus open as
+  bottom sheets from ⋯ or a long-press.
 - **The grants panel** (`<bx-grants>`) — pending `uses` requests with the
   callee's role descriptions and one-click approve; rows a policy ceiling
   blocks are greyed with the blocking row named; renders nothing when

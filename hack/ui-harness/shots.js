@@ -186,7 +186,7 @@ async function screens(browser) {
   await page.evaluate(() => {
     const s = document.querySelector('bx-shell');
     const ctx = s._folderCtx('org:devs');
-    ctx.mutate((fs) => [...fs, { id: 'f2', name: 'Pinned', icon: '📌', items: [] }]);
+    if (!ctx.folders.some((f) => f.id === 'f2')) ctx.mutate((fs) => [...fs, { id: 'f2', name: 'Pinned', icon: '📌', items: [] }]);
     s._fileInto('f2', 'apps/pinned', s._folderCtx('org:devs'));
   });
   await sleep(400);
@@ -207,6 +207,70 @@ async function screens(browser) {
   await dumpSelects(page, 'share-menu-selects', 'bx-shell .wsmenu select');
   await ctx.close();
   await admin.ctx.close();
+}
+
+// Context menus (D56): the canvas menu with its open-tile / create submenus,
+// the tile menu from a card head and from a sidebar row, a grid square
+// opening a panel, and the admin window at "interfaces" with an open
+// multiselect list that must escape the window's edge.
+async function menus(browser) {
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const s = document.querySelector('bx-shell');
+    const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); }
+    // keep some tiles closed (recents list) and free the bottom of the canvas for the right-click
+    for (const t of ['apps/offline', 'apps/leads', 'tiles/apidocs', 'tiles/admin']) if (s._isOpen(t)) s._toggle(t);
+    if (!s._isOpen('apps/crawler')) s._toggle('apps/crawler');
+    // warm the recents list: open + close a few tiles
+    for (const t of ['apps/leads', 'apps/pinned', 'apps/racks']) { s._toggle(t); s._toggle(t); }
+  });
+  await sleep(800);
+  await page.mouse.click(1300, 860, { button: 'right' }); // empty canvas (below the cards)
+  await sleep(400);
+  await shot(page, 'menu-canvas', { fullPage: false });
+  await page.locator('bx-menu .it', { hasText: 'Open tile' }).hover();
+  await sleep(450);
+  await shot(page, 'menu-canvas-open-tile', { fullPage: false });
+  await page.locator('bx-menu .panel.sub .q').fill('le');
+  await sleep(300);
+  await shot(page, 'menu-canvas-open-tile-filter', { fullPage: false });
+  await page.locator('bx-menu .it', { hasText: 'Create a new tile' }).hover();
+  await sleep(450);
+  await shot(page, 'menu-canvas-create', { fullPage: false });
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await page.locator('.card[data-path="apps/crawler"] .head').click({ button: 'right' });
+  await sleep(400);
+  await shot(page, 'menu-tile-card', { fullPage: false });
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await page.locator('bx-shell .item[data-path="apps/offline"]').click({ button: 'right' });
+  await sleep(400);
+  await shot(page, 'menu-tile-sidebar', { fullPage: false });
+  await page.locator('bx-menu .cell', { hasText: 'logs' }).click();
+  await sleep(2500);
+  await shot(page, 'menu-tile-logs-opened', { fullPage: false });
+  await page.evaluate(() => { const s = document.querySelector('bx-shell'); s._frameOf('apps/offline')?.toggleTerminal(); });
+  await page.evaluate(() => document.querySelector('bx-shell')._openAdminWin('apps/consumer', 'interfaces'));
+  await sleep(1500);
+  await shot(page, 'admin-win-interfaces', { fullPage: false });
+  const ms = page.locator('bx-tile-admin bx-multiselect .control').first();
+  if (await ms.count()) {
+    await ms.click();
+    await sleep(500);
+    await shot(page, 'admin-win-multiselect-open', { fullPage: false });
+    const r = await page.evaluate(() => {
+      const ta = document.querySelector('bx-shell').shadowRoot.querySelector('bx-tile-admin');
+      const m = ta?.shadowRoot.querySelector('bx-multiselect')?.shadowRoot.querySelector('.menu')?.getBoundingClientRect();
+      const w = document.querySelector('bx-shell').shadowRoot.querySelector('.spawn.admin')?.getBoundingClientRect();
+      return { menu: m && [m.left, m.top, m.right, m.bottom].map(Math.round), win: w && [w.left, w.top, w.right, w.bottom].map(Math.round), vw: innerWidth, vh: innerHeight };
+    });
+    log('multiselect list rect', JSON.stringify(r));
+  } else log('no multiselect in apps/consumer admin window');
+  await ctx.close();
 }
 
 async function orgAdmin(browser, user, pass, tiles) {
@@ -252,6 +316,7 @@ async function orgAdmin(browser, user, pass, tiles) {
   const browser = await pw.chromium.launch();
   try {
     await admin(browser);
+    await menus(browser);
     await screens(browser);
     await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
