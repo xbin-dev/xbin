@@ -42,7 +42,8 @@ export class BxOrganisations extends LitElement {
     _xfer: { state: true },     // transfer-in-progress {tile, to} (inline confirm)
     _policies: { state: true }, // org → ceiling rows (read-only; ws-admin-set)
     _overrides: { state: true },// exact per-user entries on org tiles (clamp/exclude view)
-    _screens: { state: true },  // org screens (D37): [{id,org,name,edit,canEdit}]
+    _screens: { state: true },  // org screens (D37/D55): [{id,org,name,edit,rev,updatedBy,updatedAt,canEdit}]
+    _folders: { state: true },  // shared sidebar folder sets (D55): {scope: {folders,rev,updatedBy,updatedAt,canEdit}}
     _invite: { state: true },   // reset-by-link result {id, link} (copy field)
     _err: { state: true },
     _note: { state: true },
@@ -116,7 +117,9 @@ export class BxOrganisations extends LitElement {
     this._grants = await api('/grants').catch(() => null);
     this._binds = await api('/bindings').catch(() => null);
     this._reqs = (await api('/access-requests').catch(() => ({ requests: [] }))).requests ?? [];
-    this._screens = (await api('/screens').catch(() => ({ org: [] }))).org ?? [];
+    const shared = await api('/screens').catch(() => ({ org: [], folders: {} }));
+    this._screens = shared.org ?? [];
+    this._folders = shared.folders ?? {}; // shared sidebar folder sets per scope (D55)
     // Lifecycle states for the org-tiles list (hidden badges/toggle, D42).
     const comps = await api('/components').catch(() => []);
     this._compState = Object.fromEntries((comps ?? []).map((c) => [c.path, c.state || 'enabled']));
@@ -380,24 +383,44 @@ export class BxOrganisations extends LitElement {
     </div>`;
   }
 
-  // Org screens (D37): shared layouts for every member; the edit knob picks
-  // who may rearrange. Created from the shell ("share this screen to org…").
+  // Org screens (D37/D55): shared layouts for every member; the edit knob
+  // picks who may rearrange. Created from the shell ("share this screen to
+  // org…"), edited there through explicit "Save and update for everyone".
+  // Knob/rename here are meta-only writes: they never touch the tiles or the
+  // revision, so they can't clobber a member's draft.
   _screensView(o) {
     const rows = (this._screens ?? []).filter((x) => x.org === o.id);
-    if (!rows.length) return nothing;
+    const fs = this._folders?.['org:' + o.id];
+    if (!rows.length && !(fs?.folders ?? []).length) return nothing;
+    const ago = (iso) => {
+      if (!iso) return '';
+      const s = (Date.now() - Date.parse(iso)) / 1000;
+      return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86400)} d ago`;
+    };
+    const rename = (x) => {
+      const name = prompt('Org screen name:', x.name);
+      if (name == null || !name.trim() || name.trim() === x.name) return;
+      this._do(() => api('/screens/org', jbody('PUT', { id: x.id, org: x.org, name: name.trim() })), 'renamed');
+    };
     return html`<div class="card">
       <b style="font-size:12px">org screens</b>
-      ${rows.map((x) => html`<div class="row" style="margin:2px 0">
+      ${rows.map((x) => html`<div class="row" style="margin:2px 0; flex-wrap:wrap">
         <span class="mono">${x.name}</span>
+        <button title="rename (members see the new name at once)" @click=${() => rename(x)}>✎</button>
         <span class="muted" style="font-size:11px">editable by</span>
         <select @change=${(e) => this._do(() => api('/screens/org',
-            jbody('PUT', { id: x.id, org: x.org, edit: e.target.value, tiles: x.tiles ?? [] })), 'updated')}>
+            jbody('PUT', { id: x.id, org: x.org, edit: e.target.value })), 'updated')}>
           ${['admins', 'write', 'members'].map((v) => html`<option value=${v} ?selected=${x.edit === v}>${v === 'write' ? 'write-level members' : v === 'members' ? 'all members' : 'org admins'}</option>`)}
         </select>
+        <span class="muted" style="font-size:11px" title=${x.updatedAt ?? ''}>rev ${x.rev ?? 1}${x.updatedBy ? ` · saved by ${x.updatedBy} ${ago(x.updatedAt)}` : ''}</span>
         <span style="flex:1"></span>
         <button class="rm" @click=${() => this._do(() =>
           api('/screens/org', jbody('DELETE', { id: x.id, org: x.org })), 'deleted')}>delete</button>
       </div>`)}
+      ${!rows.length ? html`<p class="muted" style="font-size:11px; margin:2px 0">no org screens — share one from the shell's 🔧 menu ("share screen to org")</p>` : nothing}
+      <p class="muted" style="font-size:11px; margin:6px 0 0">
+        shared sidebar folders: ${(fs?.folders ?? []).length}${fs?.rev ? ` (rev ${fs.rev}, saved by ${fs.updatedBy} ${ago(fs.updatedAt)})` : ''}
+        — curated in the shell sidebar (✎ on the org's section); members see them read-only.</p>
     </div>`;
   }
 

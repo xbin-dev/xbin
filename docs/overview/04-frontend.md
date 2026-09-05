@@ -143,8 +143,15 @@ What the shell provides:
   which the server already filters to the caller's *readable* tiles (chrome
   excepted) — visibility is enforced server-side, the shell just renders
   it. Templates (blueprints) and offloaded tiles are hidden; offloaded
-  tiles are also auto-closed from open screens. View-only folders organize
-  the list without moving anything on disk.
+  tiles are also auto-closed from open screens. Tiles sit under their
+  **owner section** (mine · each org · workspace), and each section is one
+  tree (D55): the section's **shared folders** — curated by the org's
+  admins, or by ws-admins for workspace-owned tiles, through the same
+  draft / *Save for everyone* flow as org screens, read-only for everyone
+  else — then every remaining tile flat at the root, then the org's
+  screens. No directory headers. Your own top-level folders still group
+  anything (tiles from any owner, parked tabs, org screens) without moving
+  a thing on disk.
 - **The grants panel** (`<bx-grants>`) — pending `uses` requests with the
   callee's role descriptions and one-click approve; rows a policy ceiling
   blocks are greyed with the blocking row named; renders nothing when
