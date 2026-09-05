@@ -133,7 +133,9 @@ func usage() {
   bx grant <caller> <target>:<role>     approve/add a grant
   bx grant --revoke <caller> <target>:<role>
   bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md, D24-D28)
-  bx org member <org> [<user> --level L [--create] [--admin] | rm <user>]
+  bx org member <org> [<user> --level L [--create] [--admin] [--detach] | rm <user>]
+  bx org sso-groups <org> [--add g[:level[:create]] | --rm g]   IdP-group rules (D53)
+  bx user signout <id>                  end every session + terminal token
   bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
   bx owner <tile> [--transfer user:U|org:O|workspace]  tile ownership

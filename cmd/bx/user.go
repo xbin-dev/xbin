@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // cmdUser manages human users (plans/multi-user.md). Needs admin / the
@@ -14,8 +15,10 @@ import (
 //	bx user add <id> [--admin] [--tiles a=terminal,b=read,lib/*] [--create sales/*]
 //	                 [--term-api] [--term-net] [--email a@b.c]  (prompts for password)
 //	                 [--invite | --sso]   invite link / SSO-only account (needs --email)
+//	                 [--org o[:level[:create[:admin]]]]…   join orgs at creation (D53)
 //	bx user set <id> [--admin|--user] [--tiles …] [--create …] [--email a@b.c]
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
+//	bx user signout <id>   end every session + terminal token ("sign out everywhere")
 //	bx user rm  <id>
 //
 // --tiles maps paths (or prefix/* patterns) to access levels read|write|
@@ -25,7 +28,7 @@ import (
 // also receive the workspace's new-account defaults (`bx defaults`, D52).
 func cmdUser(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] | set <id> [flags] | invite <id> | rm <id>")
+		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] [--org o[:level]]… | set <id> [flags] | invite <id> | signout <id> | rm <id>")
 	}
 	switch args[0] {
 	case "ls":
@@ -33,17 +36,21 @@ func cmdUser(args []string) error {
 			Users []struct {
 				ID, Name, Role   string
 				Email            string
+				RoleVia          string
 				Tiles            map[string]string
 				CanCreate        []string
 				TermAPI, TermNet bool
 				Disabled         bool
 				InvitePending    bool
+				LastLogin        int64
+				LastLoginVia     string
 			} `json:"users"`
 		}
 		if err := apiJSON("GET", "/api/xbin/users", nil, &out); err != nil {
 			return err
 		}
-		// Org memberships per user (best-effort).
+		// Org memberships per user (best-effort). A trailing * marks a
+		// membership synced from an IdP group (D53).
 		memberships := map[string][]string{}
 		if orgs, err := fetchOrgs(); err == nil {
 			for _, o := range orgs {
@@ -51,6 +58,9 @@ func cmdUser(args []string) error {
 					tag := o.ID + ":" + m.Level
 					if m.Admin {
 						tag = o.ID + "(admin)"
+					}
+					if m.Via == "sso" {
+						tag += "*"
 					}
 					memberships[m.ID] = append(memberships[m.ID], tag)
 				}
@@ -82,12 +92,21 @@ func cmdUser(args []string) error {
 					access = "-"
 				}
 			}
-			line := fmt.Sprintf("%-14s %-8s %-40s %s", u.ID, u.Role, access, u.Name)
+			role := u.Role
+			if u.RoleVia == "sso" {
+				role += "*" // admin by IdP-group rule
+			}
+			line := fmt.Sprintf("%-14s %-8s %-40s %s", u.ID, role, access, u.Name)
 			if u.Email != "" {
 				line += "  <" + u.Email + ">"
 			}
 			if ms := memberships[u.ID]; len(ms) > 0 {
 				line += "  [" + strings.Join(ms, ",") + "]"
+			}
+			if u.LastLogin > 0 {
+				line += "  last:" + agoShort(u.LastLogin) + " via " + u.LastLoginVia
+			} else {
+				line += "  never signed in"
 			}
 			if u.Disabled {
 				line += "  DISABLED"
@@ -139,6 +158,26 @@ func cmdUser(args []string) error {
 				// Binds an SSO identity (docs/auth.md §SSO); "" clears.
 				i++
 				body["email"] = args[i]
+			case "--org":
+				// Join an org at creation (add only; repeatable):
+				// <org>[:level[:create[:admin]]] — D53.
+				i++
+				if i >= len(args) {
+					return fmt.Errorf("--org needs <org>[:level[:create[:admin]]]")
+				}
+				parts := strings.Split(args[i], ":")
+				o := map[string]any{"org": parts[0], "level": "read"}
+				if len(parts) > 1 && parts[1] != "" {
+					o["level"] = parts[1]
+				}
+				if len(parts) > 2 {
+					o["create"] = parts[2] == "create" || parts[2] == "true"
+				}
+				if len(parts) > 3 {
+					o["admin"] = parts[3] == "admin" || parts[3] == "true"
+				}
+				orgs, _ := body["orgs"].([]map[string]any)
+				body["orgs"] = append(orgs, o)
 			case "--tiles":
 				i++
 				tiles := map[string]string{}
@@ -203,6 +242,21 @@ func cmdUser(args []string) error {
 		printInvite(out.InviteURL)
 		return nil
 
+	case "signout":
+		// Sign out everywhere (D53): every browser session + terminal token
+		// of the user ends; the account itself is untouched.
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx user signout <id>")
+		}
+		var out struct {
+			Dropped int `json:"dropped"`
+		}
+		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1]+"/sessions", nil, &out); err != nil {
+			return err
+		}
+		fmt.Printf("signed out %s everywhere (%d session(s) ended)\n", args[1], out.Dropped)
+		return nil
+
 	case "rm":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: bx user rm <id>")
@@ -220,6 +274,21 @@ func cmdUser(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown: bx user %s", strings.Join(args, " "))
+}
+
+// agoShort renders a unix time as a coarse age ("3d", "2h", "5m").
+func agoShort(unix int64) string {
+	s := time.Now().Unix() - unix
+	switch {
+	case s < 60:
+		return "now"
+	case s < 3600:
+		return fmt.Sprintf("%dm", s/60)
+	case s < 86400:
+		return fmt.Sprintf("%dh", s/3600)
+	default:
+		return fmt.Sprintf("%dd", s/86400)
+	}
 }
 
 // printInvite shows a freshly minted invite link (single-use, 72h; the admin

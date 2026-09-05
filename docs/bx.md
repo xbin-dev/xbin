@@ -21,15 +21,21 @@ bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
                                        (upgraded workspaces predating them, D41)
-bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | rm <id>
+bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a
                                        single-use invite link (D22); --email
                                        binds an SSO identity (docs/auth.md §SSO);
                                        add --sso --email a@b pre-provisions an
                                        SSO-only account (no password, no link;
-                                       D52); set --disable/--enable pauses/
-                                       restores the whole account (D34)
+                                       D52); add --org o[:level[:create[:admin]]]
+                                       (repeatable) joins orgs at creation;
+                                       signout ends every session + terminal
+                                       token ("sign out everywhere", D53); set
+                                       --disable/--enable pauses/restores the
+                                       whole account (D34). ls shows last sign-in,
+                                       a * on admins/memberships that come from
+                                       IdP-group rules
 bx defaults [set …]                    provisioning defaults (admin): what every
                                        NEW account starts with — --tiles p=level,
                                        --create p, --org o[:level[:create]]
@@ -38,7 +44,15 @@ bx defaults [set …]                    provisioning defaults (admin): what eve
                                        and --tile-creation any|org-only (D52)
 bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)
 bx org member <org> [<user> --level L [--create] [--admin]
-                     [--suspend|--unsuspend] | rm <user>]   (suspend: D34)
+                     [--suspend|--unsuspend] [--detach] | rm <user>]
+                                       one membership per call (org admins too);
+                                       --detach turns an IdP-synced membership
+                                       manual (suspend: D34; sync: D53)
+bx org sso-groups <org> [--add g[:level[:create[:admin]]]]… [--rm g]… [--set '<json>']
+                                       IdP-group → membership rules (ws-admin):
+                                       Google group email, GitHub org/team-slug,
+                                       or the OIDC claim value; applied at each
+                                       member's next SSO sign-in (D53)
 bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
 bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
 bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)

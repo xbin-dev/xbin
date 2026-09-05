@@ -20,7 +20,9 @@ import (
 //	bx org add <id> [--name "…"]
 //	bx org set <id> [--name "…"] [--sets +s|-s]… [--allow +t|-t]…
 //	bx org member <org> [<user> [--level read|write|terminal] [--create[=false]]
-//	                     [--admin[=false]] [--suspend|--unsuspend] | rm <user>]
+//	                     [--admin[=false]] [--suspend|--unsuspend] [--detach] | rm <user>]
+//	bx org sso-groups <org> [--add <group>[:level[:create[:admin]]]]… [--rm <group>]…
+//	                        [--set '<json>']          IdP-group → membership rules (D53)
 //	bx org rm  <id>
 //	bx org policy [<org>] [--set '<rows json>']
 //	bx owner <tile> [--transfer user:<id>|org:<id>|workspace]
@@ -29,7 +31,7 @@ import (
 
 func cmdOrg(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | rm <id> | policy [<org>] [--set '<json>']")
+		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | sso-groups <org> … | rm <id> | policy [<org>] [--set '<json>']")
 	}
 	switch args[0] {
 	case "ls":
@@ -115,75 +117,160 @@ func cmdOrg(args []string) error {
 
 	case "member":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: bx org member <org> [<user> [--level L] [--create[=false]] [--admin[=false]] | rm <user>]")
-		}
-		org, err := findOrg(args[1])
-		if err != nil {
-			return err
+			return fmt.Errorf("usage: bx org member <org> [<user> [--level L] [--create[=false]] [--admin[=false]] [--suspend|--unsuspend] [--detach] | rm <user>]")
 		}
 		rest := args[2:]
 		if len(rest) == 0 { // list
+			org, err := findOrg(args[1])
+			if err != nil {
+				return err
+			}
 			for _, m := range org.Members {
 				tag := ""
 				if m.Suspended {
-					tag = "  SUSPENDED"
+					tag += "  SUSPENDED"
+				}
+				if m.Via == "sso" {
+					tag += "  synced:" + strings.Join(m.ViaGroups, ",")
 				}
 				fmt.Printf("%-16s level:%-9s create:%-5v admin:%v%s\n", m.ID, m.Level, m.Create, m.Admin, tag)
 			}
 			return nil
 		}
-		members := org.Members
+		// Single-row routes (D53): one request per edit, no read-modify-write
+		// of the whole list, and provenance stays where the store put it.
 		if rest[0] == "rm" {
 			if len(rest) < 2 {
 				return fmt.Errorf("usage: bx org member <org> rm <user>")
 			}
-			out := members[:0]
-			for _, m := range members {
-				if m.ID != rest[1] {
-					out = append(out, m)
-				}
+			var out struct {
+				Note string `json:"note"`
 			}
-			members = out
-		} else {
-			user := rest[0]
-			// Start from the existing entry (or a fresh read-level one).
-			entry := memberDoc{ID: user, Level: users.LevelRead}
-			idx := -1
-			for i, m := range members {
-				if m.ID == user {
-					entry, idx = m, i
-				}
+			if err := apiJSON("DELETE", "/api/xbin/orgs/"+args[1]+"/members/"+rest[1], nil, &out); err != nil {
+				return err
 			}
-			for i := 1; i < len(rest); i++ {
-				switch f, v, _ := strings.Cut(rest[i], "="); f {
-				case "--level":
-					if v == "" {
-						i++
-						v = rest[i]
+			fmt.Println("removed", rest[1], "from", args[1])
+			if out.Note != "" {
+				fmt.Println("note:", out.Note)
+			}
+			return nil
+		}
+		user := rest[0]
+		patch := map[string]any{}
+		for i := 1; i < len(rest); i++ {
+			switch f, v, _ := strings.Cut(rest[i], "="); f {
+			case "--level":
+				if v == "" {
+					i++
+					if i >= len(rest) {
+						return fmt.Errorf("--level needs read|write|terminal")
 					}
-					entry.Level = v
-				case "--create":
-					entry.Create = v != "false"
-				case "--admin":
-					entry.Admin = v != "false"
-				case "--suspend":
-					entry.Suspended = true
-				case "--unsuspend":
-					entry.Suspended = false
-				default:
-					return fmt.Errorf("unknown flag %s", rest[i])
+					v = rest[i]
 				}
-			}
-			if idx >= 0 {
-				members[idx] = entry
-			} else {
-				members = append(members, entry)
+				patch["level"] = v
+			case "--create":
+				patch["create"] = v != "false"
+			case "--admin":
+				patch["admin"] = v != "false"
+			case "--suspend":
+				patch["suspended"] = true
+			case "--unsuspend":
+				patch["suspended"] = false
+			case "--detach":
+				// A synced (IdP-group) membership becomes manual: sync stops
+				// re-setting or removing it.
+				patch["via"] = ""
+			default:
+				return fmt.Errorf("unknown flag %s", rest[i])
 			}
 		}
-		if err := apiJSON("PATCH", "/api/xbin/orgs/"+args[1], map[string]any{"members": members}, nil); err != nil {
+		if err := apiJSON("PUT", "/api/xbin/orgs/"+args[1]+"/members/"+user, patch, nil); err != nil {
 			return err
 		}
 		fmt.Println("ok")
+		return nil
+
+	case "sso-groups":
+		// IdP-group → membership rules (docs/auth.md §Group sync, D53).
+		if len(args) < 2 {
+			return fmt.Errorf("usage: bx org sso-groups <org> [--add <group>[:level[:create[:admin]]]]… [--rm <group>]… [--set '<rules json>']")
+		}
+		org, err := findOrg(args[1])
+		if err != nil {
+			return err
+		}
+		rules := org.SSOGroups
+		if rules == nil {
+			rules = []groupRuleDoc{}
+		}
+		if len(args) == 2 {
+			if len(rules) == 0 {
+				fmt.Println("no IdP-group rules — members are added by hand")
+			}
+			for _, r := range rules {
+				fmt.Printf("%-32s level:%-9s create:%-5v admin:%v\n", r.Group, r.Level, r.Create, r.Admin)
+			}
+			return nil
+		}
+		for i := 2; i < len(args); i++ {
+			switch args[i] {
+			case "--add":
+				i++
+				if i >= len(args) {
+					return fmt.Errorf("--add needs <group>[:level[:create[:admin]]]")
+				}
+				parts := strings.Split(args[i], ":")
+				r := groupRuleDoc{Group: parts[0], Level: users.LevelRead}
+				if len(parts) > 1 && parts[1] != "" {
+					r.Level = parts[1]
+				}
+				if len(parts) > 2 {
+					r.Create = parts[2] == "create" || parts[2] == "true"
+				}
+				if len(parts) > 3 {
+					r.Admin = parts[3] == "admin" || parts[3] == "true"
+				}
+				replaced := false
+				for j := range rules {
+					if strings.EqualFold(rules[j].Group, r.Group) {
+						rules[j], replaced = r, true
+					}
+				}
+				if !replaced {
+					rules = append(rules, r)
+				}
+			case "--rm":
+				i++
+				if i >= len(args) {
+					return fmt.Errorf("--rm needs <group>")
+				}
+				out := rules[:0]
+				for _, r := range rules {
+					if !strings.EqualFold(r.Group, args[i]) {
+						out = append(out, r)
+					}
+				}
+				rules = out
+			case "--set":
+				i++
+				if i >= len(args) {
+					return fmt.Errorf("--set needs a JSON array of {group, level?, create?, admin?}")
+				}
+				rules = nil
+				if err := json.Unmarshal([]byte(args[i]), &rules); err != nil {
+					return fmt.Errorf("--set wants a JSON array of {group, level?, create?, admin?}: %w", err)
+				}
+				if rules == nil {
+					rules = []groupRuleDoc{}
+				}
+			default:
+				return fmt.Errorf("unknown flag %s", args[i])
+			}
+		}
+		if err := apiJSON("PUT", "/api/xbin/orgs/"+args[1]+"/sso-groups", map[string]any{"rules": rules}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("updated %s: %d rule(s) — applied at each member's next SSO sign-in\n", args[1], len(rules))
 		return nil
 
 	case "rm":
@@ -526,11 +613,20 @@ func cmdAccess(args []string) error {
 // --- shared helpers ---------------------------------------------------------
 
 type memberDoc struct {
-	ID        string `json:"id"`
-	Level     string `json:"level"`
-	Create    bool   `json:"create,omitempty"`
-	Admin     bool   `json:"admin,omitempty"`
-	Suspended bool   `json:"suspended,omitempty"`
+	ID        string   `json:"id"`
+	Level     string   `json:"level"`
+	Create    bool     `json:"create,omitempty"`
+	Admin     bool     `json:"admin,omitempty"`
+	Suspended bool     `json:"suspended,omitempty"`
+	Via       string   `json:"via,omitempty"` // "sso" = synced from an IdP group (D53)
+	ViaGroups []string `json:"viaGroups,omitempty"`
+}
+
+type groupRuleDoc struct {
+	Group  string `json:"group"`
+	Level  string `json:"level"`
+	Create bool   `json:"create,omitempty"`
+	Admin  bool   `json:"admin,omitempty"`
 }
 
 type orgDoc struct {
@@ -540,6 +636,7 @@ type orgDoc struct {
 	Tiles         map[string]string `json:"tiles"`
 	Sets          []string          `json:"sets"`
 	Allow         []string          `json:"allow"`
+	SSOGroups     []groupRuleDoc    `json:"ssoGroups"`
 	ResolvedAllow []string          `json:"resolvedAllow"`
 	OwnedTiles    []string          `json:"ownedTiles"`
 }
