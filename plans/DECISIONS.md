@@ -1107,3 +1107,42 @@ Deviations and refinements made while implementing; all deliberate:
   Follow-ups: per-domain seeds; `bx org member add` via the new
   AddOrgMember single-row path; the manager tile's clone/template/import
   tabs get an owner picker (today they rely on the single-org auto-pick).
+
+- **D53 — SSO-driven org membership: group sync with provenance, admins by
+  group, single-membership API, sign-in tab (2026-09-05).** Running a
+  workspace on SSO (D51/D52) still left org housekeeping manual: the only
+  SSO→org link was the global new-account seed, nothing removed access when
+  someone left a team, and membership was editable only as a whole list.
+  Shapes: (1) IdP-group rules live ON THE ORG (Org.SSOGroups; ws-admin
+  write, because rules grant power like sets/allow) — the org card is where
+  the members they explain are read; workspace-admin groups live in
+  SSOConfig. (2) Provenance is one flag per membership row (Member.Via
+  "sso" + ViaGroups): sync re-sets synced rows to the rule's knobs at every
+  sign-in and REMOVES them when the group or rule disappears; manual rows
+  are never touched and MANUAL WINS when both exist (delete the manual row
+  to hand it to sync); detach (via:"") is the only API-writable provenance
+  change; whole-list PATCH keeps provenance and ignores the body's. User-
+  ratified over join-only: sync is the offboarding. (3) Never on failure: a
+  provider that returns no groups (API error, scope not consented, claim
+  absent) changes nothing — unknown ≠ empty — and the failure is recorded on
+  the user (the console derives the newest one; nothing extra persisted).
+  (4) Admin by rule (user-ratified) with three guards: only RoleVia "sso"
+  admins are demoted, never the last enabled admin (retried next sign-in),
+  every change audited. (5) Group-reading scopes are requested only while
+  rules exist (consent churn; Google rejects unknown scopes); Google never
+  looks for a claim — Cloud Identity searchDirectGroups is the only source
+  (group emails), GitHub = teams as org/slug + orgs, OIDC = configurable
+  claim from the ID token then UserInfo. (6) SSO-only mode refuses a CORRECT
+  non-admin password in the handler (the page can't know the role; admins
+  keep password as break-glass; needs a ready provider; cleared with SSO).
+  (7) Sign-in facts (LastLogin/Via, SSOGroups) on the user row — the
+  console's never/stale chips and "groups seen" datalist run on them.
+  (8) A sign-in sub-tab (daily surface — the users table — separated from
+  set-once config), single-membership routes replacing whole-list edits
+  everywhere in the UI and bx, native <details> row menus (no dialog
+  component), keyed rows. Rejected: a global mapping table (loses the
+  members-next-to-rules reading), a live "defaults layer" instead of copy
+  semantics, re-stamping hand-promoted admins, GitHub auth-endpoint probing
+  in the test (nothing meaningful without a user). Follow-ups: per-domain
+  seeds; IdP-driven offboarding beyond groups (SCIM-style deprovisioning);
+  persisted auth-event log tab.

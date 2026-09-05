@@ -773,7 +773,7 @@ set.
   all, so the shell sees code but every API call is unauthorized.
 - **Disabling token login.** Once you've created an admin *user*, an admin can
   turn off the bootstrap token's *browser* login from the admin console's
-  **Users → sign-in security** toggle (`PATCH /api/xbin/auth-settings`
+  **user management → sign-in** toggle (`PATCH /api/xbin/auth-settings`
   `{tokenLoginDisabled:true}`). Then the `…/login?token=` URL is refused **and**
   an owner-token cookie no longer authenticates (a leaked token can't be pasted
   into a cookie) — everyone signs in with an account. Guarded against lockout:

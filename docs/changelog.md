@@ -12,6 +12,48 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-05
 
+- **SSO-driven org management for multi-org teams (D53).** Everything a
+  small company with exec / sales / infra / compliance orgs needs to run
+  xbin on its identity provider without hand-editing memberships:
+  - **IdP groups → members.** Each org card gains rules mapping a provider
+    group to a membership shape (`sales@corp.com → developer`;
+    `PUT /orgs/<org>/sso-groups`, `bx org sso-groups`). At every SSO sign-in
+    the user's groups are reconciled: rule-wanted memberships are created or
+    re-set with provenance (⟳ *synced*), and a synced membership whose group
+    **or rule** is gone is **removed** — offboarding by group. Manual rows
+    are never touched (manual wins); *detach* turns a synced row manual. If
+    the provider fails to return groups, nothing is removed and the failure
+    shows in the console. Providers: generic OIDC `groups` claim (name
+    configurable, UserInfo fallback), GitHub teams/orgs (`read:org`),
+    Google Workspace via the Cloud Identity API (group emails). Extra scopes
+    are requested only while rules exist.
+  - **Workspace admins by group** (`adminGroups`), guarded: a hand-promoted
+    admin is never demoted by the IdP, the last enabled admin never loses the
+    role, every change is audited. The console warns about self-joinable
+    groups.
+  - **Admin console.** A **sign-in** sub-tab (token login, SSO with group
+    sync, *test connection*, *groups seen* — what the IdP actually sends —
+    and **SSO-only sign-in**). The users table scales: filter by id/name/
+    email/org, chips (admins · disabled · invited · never signed in · stale
+    30d+ · no org · one per org) that AND-combine, a **last sign-in** column,
+    org memberships as first-class pills (★ org admin, ⟳ synced), an
+    **orgs…** row editor (join/leave/preset/detach, one request per click),
+    a *more ▾* menu for the rare actions (incl. **sign out everywhere**),
+    and **disable all shown** for offboarding. Add-user defaults to SSO when
+    it is active, fills the id from the email, and can join an org at
+    creation. Org cards show member counts, an *add member … as* preset,
+    synced pills with *detach*, and the IdP-group rules with a datalist of
+    groups seen. Sessions tab: filter + per-user sign out. The manager
+    tile's owner picker now applies to clone / template / import / git too.
+  - **API.** `PUT`/`DELETE /orgs/<org>/members/<user>` (single membership;
+    org admins too), `PUT /orgs/<org>/sso-groups`, `DELETE
+    /users/<id>/sessions`, `POST /auth-settings/sso/test`; `POST /users`
+    takes `orgs`; `GET /users` carries `lastLogin`/`lastLoginVia`/`roleVia`/
+    `ssoGroups`; `/auth-settings` carries `passwordLoginDisabled` and
+    `sso.groupSync`; members/whoami carry `via`. `bx org member` edits one
+    row per call (`--detach`), `bx user add --org`, `bx user signout`,
+    `bx user ls` shows last sign-in. Downgrade note: an older xbind drops the
+    new fields on its next save (rules would need re-entry).
 - **FIX: SSO email bindings were lost on daemon restart.** `users.json`
   loading dropped the `email` field (v0.3.31–v0.3.32), so every binding set
   with `--email` / the users table vanished on the next xbind restart — and

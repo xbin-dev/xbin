@@ -213,7 +213,7 @@ close the bootstrap door:
    regular users get an explicit tile allow-list and no terminal by default.
 3. **Sign out, then sign back in** as that user — so your session is a real
    account, not the owner-token cookie.
-4. **Disable token login** (**Users → sign-in security → Disable token-URL
+4. **Disable token login** (**user management → sign-in → Disable token-URL
    login**). The `…/login?token=` URL and the owner-token cookie stop
    authenticating; from then on everyone signs in with an account
    ([docs/auth.md](docs/auth.md)). The `bx` CLI's `Bearer` token is deliberately

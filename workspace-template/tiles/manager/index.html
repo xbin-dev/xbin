@@ -127,6 +127,10 @@
                style="font-family:var(--bx-mono); font-size:11.5px; border-radius:5px">
       </div>
     </div>
+    <div class="field" id="clone-owner-field" hidden>
+      <label for="clone-owner">Owner</label>
+      <select id="clone-owner" class="owner"></select>
+    </div>
     <div class="actions">
       <button class="btn" id="clone-btn">Clone</button>
       <span class="msg" id="clone-msg"></span>
@@ -203,60 +207,64 @@
     const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     pretty.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(pretty.value); });
     slug.addEventListener('input', () => { slugTouched = slug.value !== ''; });
-    // Owner picker (docs/auth.md, D24/D25): whoami carries the driving
-    // human's org memberships; orgs where they hold the Create knob (or org
-    // admin) are offered as the new tile's OWNER. "me" sends an explicit
-    // user:<id> — for ADMINS an empty owner means workspace-owned, so a
-    // separate "workspace" option carries that ("" from a non-admin already
-    // defaults to personal server-side, but explicit beats implicit).
-    const ownerSel = document.getElementById('owner');
-    const ownerField = document.getElementById('owner-field');
-    (async () => {
-      try {
-        const who = await (await xbin.fetch('/api/xbin/whoami')).json();
+    // Owner picker (docs/auth.md, D24/D25/D52/D53): whoami carries the
+    // driving human's org memberships; orgs where they hold the Create knob
+    // (or org admin) are offered as the new tile's OWNER. "me" sends an
+    // explicit user:<id> — for ADMINS an empty owner means workspace-owned,
+    // so a separate "workspace" option carries that. Under the org-only
+    // policy non-admins get no "me" and an org is preselected. One whoami,
+    // shared by every creation tab (create, clone, template, import, git).
+    const whoP = xbin.fetch('/api/xbin/whoami').then((r) => r.json()).catch(() => ({}));
+    let ownerChoicesP = null;
+    function ownerChoices() {
+      return ownerChoicesP ??= whoP.then((who) => {
         // who.user = the attributed human on an element call; a root-token
         // driver has none (who.id would be this tile's path — not a user).
         const me = who.user ?? (who.kind === 'user' ? who : {});
-        const orgs = me.orgs ?? [];
-        if (me.id) ownerSel.options[0].value = 'user:' + me.id;
-        for (const o of orgs) {
+        const opts = [];
+        if (me.id) opts.push({ value: 'user:' + me.id, label: '— me (personal) —' });
+        for (const o of (me.orgs ?? [])) {
           if (!(o.create || o.admin)) continue;
-          const opt = document.createElement('option');
-          opt.value = 'org:' + o.id;
-          opt.textContent = `org ${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}`;
-          ownerSel.appendChild(opt);
+          opts.push({ value: 'org:' + o.id, label: `org ${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}` });
         }
+        let selected = opts[0]?.value ?? '';
+        let blocked = '';
         if (me.admin) {
-          const ws = document.createElement('option');
-          ws.value = '';
-          ws.textContent = '— workspace —';
-          ownerSel.appendChild(ws);
-          ws.selected = true; // admins default to workspace-owned (D24)
-          ownerField.hidden = false;
+          opts.push({ value: '', label: '— workspace —' });
+          selected = ''; // admins default to workspace-owned (D24)
         } else if (who.tileCreation === 'org-only') {
-          // Workspace policy (D52): non-admins may only create org-owned
-          // tiles — drop "me" and preselect an org (the server refuses a
-          // personal owner and, with no owner, picks the single Create org).
-          ownerSel.remove(0);
-          if (ownerSel.options.length) {
-            ownerSel.options[0].selected = true;
-            ownerField.hidden = false;
-          } else {
-            msg.className = 'msg err';
-            msg.textContent = 'This workspace only allows organisation-owned tiles and you hold Create in no organisation — ask an org admin.';
-            btn.disabled = true;
-          }
+          // Workspace policy (D52): personal ownership is refused server-side.
+          if (me.id) opts.shift();
+          selected = opts[0]?.value ?? '';
+          if (!opts.length) blocked = 'This workspace only allows organisation-owned tiles and you hold Create in no organisation — ask an org admin.';
         }
-        if (ownerSel.options.length > 1) ownerField.hidden = false;
-      } catch { /* no orgs; field stays hidden */ }
-    })();
+        return { opts, selected, show: opts.length > 1 || me.admin, blocked };
+      });
+    }
+    // attachOwner fills a <select class="owner"> (and unhides its field when
+    // there is a choice to make); ownerOf spreads its value into a body.
+    async function attachOwner(sel, field) {
+      if (!sel) return null;
+      const c = await ownerChoices();
+      sel.replaceChildren(...c.opts.map((o) => new Option(o.label, o.value, false, o.value === c.selected)));
+      if (field) field.hidden = !c.show; else sel.hidden = !c.show;
+      return c;
+    }
+    const ownerOf = (sel) => (sel?.value ? { owner: sel.value } : {});
+
+    const ownerSel = document.getElementById('owner');
+    const ownerField = document.getElementById('owner-field');
+    attachOwner(ownerSel, ownerField).then((c) => {
+      if (c?.blocked) { msg.className = 'msg err'; msg.textContent = c.blocked; btn.disabled = true; }
+    });
+    const cloneOwner = document.getElementById('clone-owner');
+    attachOwner(cloneOwner, document.getElementById('clone-owner-field'));
     document.getElementById('f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const path = pathPrefix.textContent + slug.value.replace(/^\/+|\/+$/g, '');
       btn.disabled = true; msg.className = 'msg'; msg.textContent = 'creating…';
       try {
-        const body = { path, title: pretty.value.trim() };
-        if (ownerSel.value) body.owner = ownerSel.value;
+        const body = { path, title: pretty.value.trim(), ...ownerOf(ownerSel) };
         const r = await xbin.fetch('/api/xbin/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -300,7 +308,7 @@
       try {
         const r = await xbin.fetch('/api/xbin/clone', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from, to }),
+          body: JSON.stringify({ from, to, ...ownerOf(cloneOwner) }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error((d.error ?? r.status) + (d.warnings ? ' — ' + d.warnings.join('; ') : ''));
@@ -336,9 +344,12 @@
               <select id="git-ref">${opts.join('') || '<option value="">(default)</option>'}</select></div>
             <div class="row"><span class="muted" style="font-size:11px;min-width:64px">install at</span>
               <input id="git-path" value="apps/${esc(gitSlug(url))}" size="20"></div>
+            <div class="row" id="git-owner-row" hidden><span class="muted" style="font-size:11px;min-width:64px">owner</span>
+              <select id="git-owner" class="owner"></select></div>
             <div class="actions"><button class="btn" id="git-import" type="button">Import</button>
               <span class="msg" id="git-imsg"></span></div>
           </div>`;
+        attachOwner(document.getElementById('git-owner'), document.getElementById('git-owner-row'));
         document.getElementById('git-import').onclick = () => doGitImport(url);
       } catch (e) { info.innerHTML = `<span class="msg err">${esc(e.message ?? e)}</span>`; }
     }
@@ -351,7 +362,7 @@
       try {
         const r = await xbin.fetch('/api/xbin/git/import', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, path, ref }),
+          body: JSON.stringify({ url, path, ref, ...ownerOf(document.getElementById('git-owner')) }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error ?? r.status);
@@ -405,16 +416,18 @@
         <div class="row">
           <span class="muted" style="font-size:11px">create at</span>
           <input class="path" value="apps/${esc(t.defaultName || '')}" size="18">
+          <select class="owner" title="owner of the new tile" hidden style="max-width:12em"></select>
           <button class="btn make">create</button>
         </div>
         <div class="imsg"></div>`;
+      attachOwner(el.querySelector('.owner'));
       const imsg = el.querySelector('.imsg');
       el.querySelector('.make').onclick = async (ev) => {
         const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'creating…';
         try {
           const r = await xbin.fetch('/api/xbin/templates/new', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim() }),
+            body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim(), ...ownerOf(el.querySelector('.owner')) }),
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
@@ -515,16 +528,18 @@
         <div class="row">
           <span class="muted" style="font-size:11px">import as</span>
           <input class="path" value="${esc(t.defaultPath)}" size="18">
+          <select class="owner" title="owner of the imported tile" hidden style="max-width:12em"></select>
           <button class="btn imp">${t.installed ? 'import copy' : 'import'}</button>
         </div>
         <div class="imsg"></div>`;
+      attachOwner(el.querySelector('.owner'));
       const imsg = el.querySelector('.imsg');
       el.querySelector('.imp').onclick = async (ev) => {
         const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'importing…';
         try {
           const r = await xbin.fetch('/api/xbin/builtins/import', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: t.name, path: el.querySelector('.path').value.trim() }),
+            body: JSON.stringify({ name: t.name, path: el.querySelector('.path').value.trim(), ...ownerOf(el.querySelector('.owner')) }),
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);

@@ -188,3 +188,17 @@ stray markers, inert team patterns). Migration note:
   guarantee; doctor covers the UX).
 - One-step "move tile into an org" (adopt = clone under the marker or
   host-side mv; documented in docs/auth.md).
+
+## SSO group sync (D53)
+
+An org may carry IdP-group rules (`Org.SSOGroups`: group → level/create/
+admin). At every SSO sign-in `users.SyncSSOGroups` reconciles the user's
+provider groups against every org's rules: wanted memberships are created or
+re-set with `Member.Via = "sso"` (+ `ViaGroups`), synced rows whose group or
+rule is gone are removed, manual rows are never touched (manual wins), and a
+failed group fetch changes nothing. `SSOConfig.AdminGroups` does the same for
+the workspace-admin role (`User.RoleVia`), guarded against demoting a hand-
+promoted or the last enabled admin. Single memberships are edited through
+`SetOrgMember`/`RemoveOrgMember` (the `PUT`/`DELETE /orgs/{org}/members/{user}`
+routes); the whole-list `UpsertOrg` path preserves provenance. See
+docs/auth.md §Group sync and plans/DECISIONS.md D53.
