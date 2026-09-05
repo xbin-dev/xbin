@@ -14,6 +14,7 @@ import { LitElement, html, css, nothing, svg, repeat } from 'lit';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import '/vendor/bx-multiselect.js';
+import { RULE_KINDS, parseRule, fmtRule, ruleProblem, ruleLabel, setSummary, netOptions } from '/vendor/bx-netrules.js';
 
 // "stale" for the users table's offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -66,6 +67,7 @@ export class BxAdmin extends LitElement {
     _orgs: { state: true },     // orgs & teams (docs/auth.md)
     _wsPolicy: { state: true }, // workspace policy-ceiling rows
     _permsets: { state: true }, // {sets, attachedTo} (D28)
+    _netsets: { state: true },  // {sets: {name: {rules, created}}, attachedTo} — org network sets (D54)
     _invite: { state: true },   // last minted invite link {id, url} (D22)
     _token: { state: true },    // freshly rotated owner token (copy-field box)
     _pwEdit: { state: true },   // user id whose password is being reset inline
@@ -408,6 +410,7 @@ export class BxAdmin extends LitElement {
       { id: 'sessions', label: 'sessions' },
       { id: 'orgs', label: 'organisations' },
       { id: 'permsets', label: 'permission sets' },
+      { id: 'netsets', label: 'network sets' },
       { id: 'map', label: 'access map' },
     ] },
     { id: 'vaultgrp', label: 'vault', tabs: [{ id: 'vault', label: 'vault' }] },
@@ -557,7 +560,7 @@ export class BxAdmin extends LitElement {
 
   async _refresh() {
     try {
-      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults, reqs, sessions] = await Promise.all([
+      const [ov, vaults, cron, users, authSettings, vaultStatus, alerts, orgs, wsPolicy, permsets, defaults, reqs, sessions, netsets] = await Promise.all([
         api('/auth-overview'),
         api('/vaults').catch(() => null), // 503 while the barrier is sealed
         api('/cron/jobs'),
@@ -571,13 +574,14 @@ export class BxAdmin extends LitElement {
         api('/defaults').catch(() => ({ defaultTiles: {} })),
         api('/access-requests').catch(() => ({ requests: [] })),
         api('/sessions').catch(() => ({ sessions: [] })),
+        api('/net-sets').catch(() => ({ sets: {}, attachedTo: {} })),
       ]);
       this._ov = ov; this._vaults = vaults; this._cron = cron.jobs ?? [];
       this._alerts = alerts.alerts ?? [];
       this._users = users.users ?? [];
       this._orgs = orgs.orgs ?? [];
       this._wsPolicy = wsPolicy.policy ?? [];
-      this._permsets = permsets; this._defaults = defaults.defaultTiles ?? {};
+      this._permsets = permsets; this._netsets = netsets; this._defaults = defaults.defaultTiles ?? {};
       this._newUsers = defaults.newUsers ?? {}; this._tileCreation = defaults.tileCreation ?? 'any';
       this._reqs = reqs.requests ?? [];
       this._sessions = sessions.sessions ?? [];
@@ -839,6 +843,7 @@ export class BxAdmin extends LitElement {
           : tab === 'sessions' ? this._sessionsView()
           : tab === 'orgs' ? this._orgsView()
           : tab === 'permsets' ? this._permSetsView()
+          : tab === 'netsets' ? this._netSetsView()
           : tab === 'map' ? this._mapView()
           : tab === 'components' ? (this._codeComp ? this._codeView() : this._componentsView())
           : tab === 'resources' ? this._resourcesView()
@@ -997,6 +1002,10 @@ export class BxAdmin extends LitElement {
       </div>
       <div>
         <h5>egress ${act ? html`· ${this._fmtBytes(act.txBytes)}↑ ${this._fmtBytes(act.rxBytes)}↓ · ${act.active} active` : nothing}</h5>
+        ${b.netRef ? html`<div class="mono" style="font-size:11px">net ${b.netRef === 'org'
+            ? html`<span class="pill" title=${(b.netRules ?? []).join('\n') || 'org network (no relay rules)'}>🏢 ${b.netSource || 'org network'}</span>`
+            : b.netRef}${b.net ? html` <span class="muted">· ${b.net}</span>` : nothing}</div>` : nothing}
+        ${b.netNote ? html`<div class="warn-line">⚠ ${b.netNote}</div>` : nothing}
         ${(b.egress && b.egress.length) ? html`<div class="mono">${b.egress.join(', ')}</div>` : html`<span class="muted">${b.isolated ? 'no egress granted (deny-all)' : 'unrestricted (host network)'}</span>`}
         ${act && act.recent && act.recent.length ? html`
           <table class="flowtab"><tbody>
@@ -1564,10 +1573,55 @@ export class BxAdmin extends LitElement {
           list.push({ ref: c.component, service: def.service });
         }
       }
-    const builtins = { net: ['internet', 'host'] };
+    // Net builtins are NOT a fixed list any more: the owning org's network
+    // sets decide (org / none / "not covered") — see _netBindRow (D54).
+    const builtins = {};
     const requests = comps.flatMap((c) =>
       Object.entries(c.interfaces || {}).map(([slot, def]) => ({ comp: c.component, slot, def })));
     return { d, comps, instances, providersByKind, builtins, requests };
+  }
+
+  // The org that owns a tile (null for personal/workspace tiles) — from the
+  // auth-overview's owner column, resolved against the org list.
+  _orgOfTile(comp) {
+    const owner = (this._ov?.components ?? []).find((c) => c.path === comp)?.owner || '';
+    return owner.startsWith('org:') ? ((this._orgs ?? []).find((o) => o.id === owner.slice(4)) ?? null) : null;
+  }
+
+  // One net slot's row (D54): options come from bx-netrules (the org's sets
+  // decide what is offered and what is "not covered"), an unlisted bound ref
+  // (lan:… / internet:… from `custom…`) shows as its own option, an inert
+  // binding carries the server's reason, and `custom…` reveals a free-text
+  // input for the D35 filtered forms.
+  _netBindRow(r, d, bound, providers) {
+    const pend = (d.pending ?? []).find((p) => p.component === r.comp && p.slot === r.slot);
+    const org = this._orgOfTile(r.comp);
+    const opts = netOptions({ org, providers, pending: pend });
+    const cur = bound[0] ?? '';
+    const known = opts.some((o) => o.id === cur);
+    const inert = d.inert?.[r.comp]?.[r.slot];
+    const ck = `bindcustom:${r.comp}:${r.slot}`;
+    const custom = this._draft(ck);
+    return html`<tr>
+      <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">net</span></td>
+      <td>
+        <select @change=${(e) => {
+          const v = e.target.value;
+          if (v === '__custom') { this._setDraft(ck, cur && !known ? cur : ''); e.target.value = cur; return; }
+          this._dropDraft(ck); this._bindSet(r.comp, r.slot, v);
+        }}>
+          ${opts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur}>${o.label}</option>`)}
+          ${cur && !known ? html`<option value=${cur} selected>${cur}</option>` : nothing}
+        </select>
+        ${custom !== undefined ? html`<form class="inline" style="display:inline-flex; gap:4px; margin-left:4px"
+            @submit=${(e) => { e.preventDefault(); const v = e.target.ref.value.trim(); if (!v) return; this._dropDraft(ck); this._bindSet(r.comp, r.slot, v); }}>
+            <input name="ref" size="28" placeholder="lan:10.0.0.0/8 · internet:api.example.com:443" .value=${custom}
+              title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — hostnames are DNS-pinned; no globs in bindings">
+            <button class="act go">bind</button>
+            <button class="act" type="button" @click=${() => this._dropDraft(ck)}>✕</button></form>` : nothing}
+        ${inert ? html`<span class="pill pol" title=${inert}>inert</span> <span class="warn-line" style="display:inline">${inert}</span>` : nothing}
+        ${org ? html`<span class="muted" style="font-size:10.5px" title="owned by org:${org.id} — its network sets bound this list">🏢 ${org.id}</span>` : nothing}
+      </td></tr>`;
   }
 
   // ---- binding → interface providers ----
@@ -1616,6 +1670,7 @@ export class BxAdmin extends LitElement {
                 (r.def.kind !== 'http' || !r.def.service || e.service === r.def.service))
               .map((e) => e.ref)];
           const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
+          if (r.def.kind === 'net' && !r.def.multi) return this._netBindRow(r, d, bound, opts);
           if (r.def.multi) {
             return html`<tr>
               <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
@@ -2553,7 +2608,7 @@ export class BxAdmin extends LitElement {
             <option value="admin">as org admin</option>
           </select>` : nothing}
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
-        <label class="muted" style="font-size:11px"><input type="checkbox" name="termNet"> term-net</label>
+        <label class="muted" style="font-size:11px" title="internet in terminals on personal/workspace tiles (org tiles follow their org's network sets)"><input type="checkbox" name="termNet"> term-net</label>
         <select name="signin" title="how this account signs in" @change=${(e) => { this._newSignin = e.target.value; }}>
           <option value="password" ?selected=${signin === 'password'}>sign-in: password</option>
           <option value="invite" ?selected=${signin === 'invite'}>sign-in: invite link</option>
@@ -2570,8 +2625,9 @@ export class BxAdmin extends LitElement {
         Every new account also gets the <b>new accounts</b> seed (organisations tab); more orgs
         later via the row's <b>orgs…</b>. Levels: <b>read</b> = see the tile + its source ·
         <b>write</b> = edit/drive it · <b>terminal</b> = a root shell in its directory. A non-admin's
-        terminals get no live tile-API token without <b>term-api</b> and no internet egress without
-        <b>term-net</b>. Sign-in security and SSO live in the <b>sign-in</b> tab.</p>`;
+        terminals get no live tile-API token without <b>term-api</b> and, on personal/workspace tiles,
+        no internet egress without <b>term-net</b> — terminals on org-owned tiles follow the org's
+        <b>network sets</b> instead. Sign-in security and SSO live in the <b>sign-in</b> tab.</p>`;
   }
 
   _userRow(u) {
@@ -2630,7 +2686,8 @@ export class BxAdmin extends LitElement {
         ${u.role === 'admin' ? nothing : html`
           <button @click=${() => this._toggleDraft(createKey, () => [...(u.canCreate ?? [])])}>create patterns…</button>
           <button @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? 'revoke term-api' : 'allow term-api'}</button>
-          <button @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? 'revoke term-net' : 'allow term-net'}</button>`}
+          <button title="internet in terminals on personal/workspace tiles — org tiles follow their org's network sets (D54)"
+            @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? 'revoke term-net' : 'allow term-net'}</button>`}
         <hr>
         <button @click=${() => this._editEmail(u)}>set email…</button>
         <button @click=${() => this._mintInvite(u.id)}>mint invite link</button>
@@ -3384,6 +3441,8 @@ export class BxAdmin extends LitElement {
             : html`<div class="muted" style="font-size:10.5px; margin-top:3px">no allowances — every grant/binding goes through a workspace admin</div>`}
         </div>
 
+        ${this._orgNetBlock(o, opath)}
+
         ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:8px">
           <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">owned tiles</span>
           <div style="margin-top:3px">${o.ownedTiles.map((p) => html`
@@ -3400,6 +3459,145 @@ export class BxAdmin extends LitElement {
       </div>`;
   }
 
+  // Org card → network (D54): which network sets the org holds, what its own
+  // tiles therefore reach, and the one-line semantics. ws-admin only (the
+  // server refuses the field from org admins).
+  _orgNetBlock(o, opath) {
+    const names = Object.keys(this._netsets?.sets ?? {}).sort();
+    const sets = o.netSets ?? [];
+    const rules = o.resolvedNet ?? [];
+    return html`<div style="margin-top:8px">
+      <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">network (ws-admin, D54)</span>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:3px">
+        <label class="muted" style="font-size:11px">network sets
+          <bx-multiselect style="min-width:130px"
+            .options=${names.map((n) => ({ value: n, label: n }))}
+            .selected=${sets} placeholder="— none —"
+            @change=${(e) => this._orgAPI('PATCH', opath, { netSets: e.detail.selected })}></bx-multiselect></label>
+        ${!names.length ? html`<a class="link" style="font-size:11px" @click=${() => this._setTab('netsets')}>create one in network sets →</a>` : nothing}
+      </div>
+      ${sets.length ? html`
+        <div style="margin-top:3px">
+          <span class="muted" style="font-size:10.5px">org tiles reach:</span>
+          ${rules.filter((r) => r !== 'host').map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
+          ${o.netHost ? html`<span class="pill pol" title="a set grants host networking: every org-bound tile and terminal shares the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
+          ${!rules.length ? html`<span class="muted" style="font-size:11px">nothing — the attached sets carry no rules (airgapped, incl. DNS)</span>` : nothing}
+        </div>
+        <div class="muted" style="font-size:10.5px; margin-top:3px">org-owned tiles that declare
+          <span class="mono">net</span> bind to <span class="mono">org</span> by default; org admins may bind
+          anything inside it; terminals on org tiles get the same reach — no term-net needed.</div>`
+        : html`<div class="muted" style="font-size:10.5px; margin-top:3px">no network sets — org tiles'
+          <span class="mono">net</span> slots stay unbound until a workspace admin binds them explicitly;
+          terminals on them fall back to term-net.</div>`}
+    </div>`;
+  }
+
+  // ---- network sets (D54, ws-admin) ----
+  // Named reach rules attached to orgs by reference. A separate tab from
+  // permission sets on purpose: these answer "what can this org reach", those
+  // "who may approve what" — a founder shouldn't hunt for the first behind the
+  // second's allowance grammar.
+  _netSetsView() {
+    const sets = this._netsets?.sets ?? {};
+    const attached = this._netsets?.attachedTo ?? {};
+    const editKey = (n) => `netset:${n}`;
+    return html`
+      ${this._targetDatalist()}
+      <p class="muted" style="max-width:72ch">Named <b>network reach</b>, attached to organisations by reference
+        (organisations tab → network). For an org's <b>own tiles</b> the union of its sets is the ceiling on
+        <span class="mono">net</span> bindings, what its admins may bind without asking, and the default egress —
+        the builtin <span class="mono">org</span> — of those tiles and of terminals opened on them. Personal and
+        workspace tiles are unaffected (their terminals follow <b>term-net</b>). Edits restart the affected
+        org tiles; terminals pick the change up when reopened.</p>
+      ${Object.entries(sets).sort(([a], [b]) => a.localeCompare(b)).map(([name, ns]) =>
+        this._netSetCard(name, ns, attached[name] ?? [], editKey(name)))}
+      ${!Object.keys(sets).length ? html`<p class="muted">No network sets yet — every org tile's
+        <span class="mono">net</span> slot is bound by hand today.</p>` : nothing}
+      <h4>add set</h4>
+      <form class="inline" @submit=${async (e) => { e.preventDefault();
+        const f = e.target; const name = f.name_.value.trim();
+        if (!name) return;
+        await this._orgAPI('PUT', `/net-sets/${encodeURIComponent(name)}`, { rules: ['internet'] });
+        if (!this._err) { f.reset(); this._setDraft(editKey(name), [{ kind: 'internet', value: '' }]); } }}>
+        <input name="name_" placeholder="set name (devs-net)" size="16" required>
+        <button class="act go">create</button>
+        <span class="muted" style="font-size:10.5px">starts as 🌐 all internet and opens for editing — add LAN ranges or destinations there</span>
+      </form>
+      <p class="muted" style="font-size:10.5px; margin-top:6px">Rule grammar:
+        <span class="mono">internet · internet:&lt;host|*.glob|ip|cidr&gt;[:port] · lan:&lt;ip|cidr&gt;[:port] · host · provider:&lt;tile-glob&gt;</span>
+        — the <span class="mono">net:</span> allowance forms without the prefix. Hostnames are DNS-pinned by the
+        relay (one <span class="mono">*</span> per glob); same-org provider tiles need no rule. A workspace or org
+        <span class="mono">deny net</span> ceiling row still beats everything.</p>`;
+  }
+
+  _netSetCard(name, ns, orgs, key) {
+    const d = this._draft(key); // [{kind, value}] rows while editing
+    const rules = ns.rules ?? [];
+    const sum = setSummary(rules);
+    return html`<div style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
+      <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
+        <b class="mono">⛭ ${name}</b>
+        ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}
+        ${sum.host ? html`<span class="pill pol" title="every org-bound tile and terminal in attached orgs shares the host's network stack">⚠ host</span>` : nothing}
+        <span style="flex:1"></span>
+        <button class="act" @click=${() => this._toggleDraft(key, () => rules.map(parseRule))}>edit</button>
+        <button class="act rm" ?disabled=${orgs.length > 0}
+          title=${orgs.length ? `detach from ${orgs.join(', ')} first` : 'delete this set'}
+          @click=${() => confirm(`Delete network set ${name}?`) && this._orgAPI('DELETE', `/net-sets/${encodeURIComponent(name)}`)}>del</button>
+      </div>
+      <div style="margin-top:3px">${rules.length
+        ? rules.map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)
+        : html`<span class="muted" style="font-size:11px">no rules — attached orgs' tiles reach nothing (airgapped, incl. DNS)</span>`}</div>
+      ${d ? this._netSetEditor(name, key, d) : nothing}
+    </div>`;
+  }
+
+  // Typed-row editor: [kind ▾][value][✕] per rule with an inline shape hint
+  // (bx-netrules.ruleProblem — the server validates for real), a live "reach"
+  // preview and a loud line whenever a row grants host networking.
+  _netSetEditor(name, key, d) {
+    const upd = (i, patch) => this._setDraft(key, d.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    const wire = d.map(fmtRule);
+    const problems = d.map((r, i) => (wire[i] ? ruleProblem(wire[i]) : 'value required'));
+    const bad = problems.some(Boolean);
+    const dup = new Set(wire).size !== wire.length;
+    const host = d.some((r) => r.kind === 'host');
+    const providerOnly = wire.length > 0 && d.every((r) => r.kind === 'provider');
+    const sum = setSummary(wire.filter(Boolean));
+    return html`<div class="editor" style="margin-top:6px">
+      ${d.map((r, i) => {
+        const k = RULE_KINDS.find((x) => x.id === r.kind) ?? RULE_KINDS[0];
+        return html`<div class="orow">
+          <select @change=${(e) => upd(i, { kind: e.target.value })}>
+            ${RULE_KINDS.map((x) => html`<option value=${x.id} ?selected=${x.id === r.kind} title=${x.help}>${x.icon} ${x.label}</option>`)}
+          </select>
+          ${k.hasValue
+            ? html`<input size="30" list=${r.kind === 'provider' ? 'tile-targets' : nothing} placeholder=${k.placeholder}
+                title=${k.help} .value=${r.value ?? ''} @input=${(e) => upd(i, { value: e.target.value })}>`
+            : html`<span class="muted" style="font-size:11px">${k.help}</span>`}
+          ${problems[i] ? html`<span class="err-pill">${problems[i]}</span>` : nothing}
+          <button class="act rm" title="remove rule" @click=${() => this._setDraft(key, d.filter((_, j) => j !== i))}>✕</button>
+        </div>`;
+      })}
+      <div class="orow">
+        <button class="act" @click=${() => this._setDraft(key, [...d, { kind: 'lan', value: '' }])}>+ rule</button>
+        <span style="flex:1"></span>
+        <button class="act go" ?disabled=${bad || dup} title=${bad ? 'fix the highlighted rules first' : dup ? 'remove the duplicate rule' : 'save (restarts affected org tiles)'}
+          @click=${async () => {
+            await this._orgAPI('PUT', `/net-sets/${encodeURIComponent(name)}`, { rules: wire });
+            if (!this._err) this._dropDraft(key);
+          }}>save</button>
+        <button class="act" @click=${() => this._dropDraft(key)}>cancel</button>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:4px">tiles in attached orgs reach:
+        ${wire.filter(Boolean).length ? sum.text : 'nothing (airgapped, incl. DNS)'}${providerOnly ? ' — provider-only: no relay egress until a provider tile is bound' : ''}</div>
+      ${host ? html`<div class="warn-line">⚠ <b>host networking</b> shares the host's full network stack with EVERY
+        org-bound tile and terminal in attached orgs — no relay, no filtering, no metering, no ingress splicing.
+        Prefer a LAN range; keep host for a dedicated infra org.</div>` : nothing}
+      ${dup ? html`<div class="warn-line">duplicate rules</div>` : nothing}
+    </div>`;
+  }
+
   // ---- permission sets (D28, ws-admin) ----
   _permSetsView() {
     const sets = this._permsets?.sets ?? {};
@@ -3410,7 +3608,9 @@ export class BxAdmin extends LitElement {
         <b>by reference</b> — edit a set once and every attached org follows. A set carries
         <b>allow</b> entries (what its orgs' admins may self-approve), <b>ceiling rows</b>
         (restrictive — a set can also impose fleet-wide denies), and member
-        <b>term-api/term-net</b> flags.</p>
+        <b>term-api/term-net</b> flags (term-net = internet in terminals on personal/workspace tiles;
+        what an org's <i>own</i> tiles and their terminals may reach is the
+        <a class="link" @click=${() => this._setTab('netsets')}>network sets</a> tab).</p>
       ${Object.entries(sets).sort(([a], [b]) => a.localeCompare(b)).map(([name, ps]) => {
         const d = this._draft(editKey(name));
         return html`

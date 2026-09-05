@@ -212,17 +212,22 @@ an ungranted user still gets a working shell):
   off (`?api=0`), the session is minted with **no token at all**: the shell
   reads and edits source but every call to the tile's (or xbin's) API is
   unauthorized. Use it for untrusted code that should see code but not act.
-- **`termNet`** — without it, internet egress is clamped to `none`.
+- **`termNet`** — without it, internet egress on a personal/workspace tile is
+  clamped to `none`. On an **org-owned** tile the org's network sets decide
+  instead (D54): the terminal gets the `org` scope, `termNet` or not.
 
 ## Network scopes per session
 
-A terminal picks a scope when it opens (`?net=`); the netns/relay is fixed at
-spawn, so switching scope restarts the session:
+A terminal picks a scope when it opens (`?net=`; absent = the tile's default);
+the netns/relay is fixed at spawn, so switching scope restarts the session. The
+session frame lists the scopes *this* user may pick on *this* tile (the menu
+renders exactly that) and explains any clamp:
 
 | Scope | Meaning |
 |-------|---------|
-| `internet` *(default)* | its own netns + an egress relay permitting the **public internet only**; host interfaces and LAN stay hidden. xbind stays reachable via a host-forward on the relay gateway `10.0.2.2` (`XBIN_URL` is transparently rewritten so `bx`/`curl` reach it without any host interface exposed). |
-| `host` | shares the host network (LAN + host services). Owner escape hatch — **admin-only**, clamped to `none` for non-admins. |
+| `org` *(default on org-owned tiles with network sets)* | its own netns + the relay under the **owning org's network sets** — the same reach the org's tiles get (`lan:` ranges, pinned hosts, the internet if a set says so); host networking when a set grants `host`. Members need no `termNet`. |
+| `internet` *(default elsewhere)* | its own netns + an egress relay permitting the **public internet only**; host interfaces and LAN stay hidden. xbind stays reachable via a host-forward on the relay gateway `10.0.2.2` (`XBIN_URL` is transparently rewritten so `bx`/`curl` reach it without any host interface exposed). |
+| `host` | shares the host network (LAN + host services). Owner escape hatch — **admin-only** unless the tile's org has a `host` network-set rule; refused requests fall back to `org` (or `none`). |
 | `none` | isolated netns, **no egress at all** (airgapped; even xbind is unreachable). |
 
 ## The dev layer: persistent, per-component, resettable

@@ -3,11 +3,16 @@
  *
  * Attributes/properties:
  *   cwd      — component path to open the shell in (new session)
- *   net      — network scope for a new session: internet (default) | host | none
+ *   net      — network scope for a new session: org | internet | host | none;
+ *              omit it for the tile's default (the org network on org-owned
+ *              tiles with network sets, else internet — D54). The server may
+ *              clamp the request; the attribute then mirrors what it granted.
  *   session  — existing session id to reattach (set automatically after
  *              connect; survives element re-creation if you persist it)
  *
- * Events: 'bx-session' (detail: {id, net}) once the server assigns a session.
+ * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,
+ * netNote}) once the server assigns a session — `scopes` is exactly what this
+ * user may pick on this tile, `netNote` explains a clamp.
  * Wire protocol: docs/protocol.md §/ws/term.
  *
  * xterm.js ships as UMD, loaded lazily into the main document; bx-terminal
@@ -68,6 +73,7 @@ const enc = new TextEncoder();
 
 export class BxTerminal extends HTMLElement {
   #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
+  #serverNet = null; #notedSession = null; // effective scope per the server; the session we printed a net note for
   #onPref; #onStorage; #onAmbient; #gen = 0; // connection epoch: only the latest socket drives the term
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
@@ -289,9 +295,13 @@ export class BxTerminal extends HTMLElement {
   static get observedAttributes() { return ['net', 'gpu', 'api']; }
   attributeChangedCallback(name, oldV, newV) {
     if ((name !== 'net' && name !== 'gpu' && name !== 'api') || oldV === null || oldV === newV || !this.#term) return;
+    // The server reports the EFFECTIVE scope in its session frame (it may
+    // clamp what was asked — D54); mirroring that into the attribute must not
+    // respawn the shell we just got.
+    if (name === 'net' && newV === this.#serverNet) return;
     const msg = name === 'gpu' ? `switching GPU → ${newV}…`
       : name === 'api' ? `${newV === '0' ? 'disabling' : 'enabling'} tile API…`
-        : `switching network → ${newV}…`;
+        : `switching network → ${newV === 'org' ? 'org network' : newV}…`;
     this.#restart(msg);
   }
 
@@ -382,7 +392,9 @@ export class BxTerminal extends HTMLElement {
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
       : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
-        `&net=${encodeURIComponent(this.getAttribute('net') || 'internet')}` +
+        // net is sent only when chosen; absent = the server's default for this
+        // tile (the org network on org-owned tiles, D54).
+        (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
         `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
         `&api=${this.getAttribute('api') === '0' ? '0' : '1'}`;
     const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
@@ -404,8 +416,16 @@ export class BxTerminal extends HTMLElement {
         let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
         if (ctl.op === 'session') {
           this.setAttribute('session', ctl.id);
-          if (ctl.net) this.setAttribute('net', ctl.net);
-          this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: ctl.id, net: ctl.net, baseOutdated: !!ctl.baseOutdated }, bubbles: true }));
+          if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
+          // A clamp note ("host networking is admin-only — using the org
+          // network") is worth one gray line; the scope picker shows the rest.
+          if (ctl.netNote && ctl.id !== this.#notedSession) {
+            this.#notedSession = ctl.id;
+            this.#term.write(`\r\n\x1b[90m[${ctl.netNote}]\x1b[0m\r\n`);
+          }
+          this.dispatchEvent(new CustomEvent('bx-session', {
+            detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated },
+            bubbles: true }));
         } else if (ctl.op === 'exit') {
           // Shell exited — the session is gone server-side. Let the host close
           // this terminal (its tab/window), like a real terminal emulator.

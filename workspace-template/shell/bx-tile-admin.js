@@ -19,6 +19,7 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import '/vendor/bx-multiselect.js';
+import { netOptions } from '/vendor/bx-netrules.js';
 
 const api = async (path, opts) => {
   const r = await fetch(`/api/xbin${path}`, opts);
@@ -35,6 +36,8 @@ export class BxTileAdmin extends LitElement {
     _ov: { state: true },       // this tile's /auth-overview slice (state, roles, uses)
     _grants: { state: true },   // {grants, pending} filtered to this tile
     _binds: { state: true },    // /bindings (full — options need all providers)
+    _orgs: { state: true },     // /orgs (the owning org's network sets drive the net picker, D54)
+    _netCustom: { state: true }, // slot whose `custom…` net input is open
     _rt: { state: true },       // this tile's /runtime backend entry (lazy)
     _vault: { state: true },    // vault key names
     _backups: { state: true },  // versions
@@ -109,10 +112,11 @@ export class BxTileAdmin extends LitElement {
     // only" rows instead of blanking the whole panel.
     try {
       const forbidden = () => ({ forbidden: true });
-      const [ov, grants, binds, cron, backups, vault, access] = await Promise.all([
+      const [ov, grants, binds, cron, backups, vault, access, orgs] = await Promise.all([
         api('/auth-overview').catch(forbidden),
         api('/grants').catch(forbidden),
         api('/bindings').catch(forbidden),
+        api('/orgs').catch(() => ({ orgs: [] })), // empty for non-admins — the picker then shows the classic list
         api('/cron/jobs').catch(() => ({ jobs: [] })),
         api(`/backups?component=${encodeURIComponent(this.path)}`).catch(() => null),
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
@@ -129,6 +133,7 @@ export class BxTileAdmin extends LitElement {
         pending: (grants.pending ?? []).filter(mine),
       };
       this._binds = binds;
+      this._orgs = orgs.orgs ?? [];
       this._cron = (cron.jobs ?? []).filter((j) => j.component === this.path);
       this._backups = backups?.versions ?? [];
       this._vault = vault;
@@ -185,6 +190,9 @@ export class BxTileAdmin extends LitElement {
       <span class="k">memory</span><span class="mono">${rt.rssKb != null ? (rt.rssKb / 1024).toFixed(1) + ' MB' : '—'}</span>
       <span class="k">cpu</span><span class="mono">${rt.cpuSec != null ? rt.cpuSec.toFixed(1) + ' s' : '—'}</span>
       <span class="k">conns</span><span class="mono">${rt.activeConns ?? 0} active</span>
+      ${rt.netRef ? html`<span class="k">net</span><span class="mono" title=${(rt.netRules ?? []).join('\n')}>${rt.netRef === 'org'
+        ? `org → ${rt.netSource || 'org network'}` : rt.netRef}${rt.net ? ` · ${rt.net}` : ''}</span>` : nothing}
+      ${rt.netNote ? html`<span class="k"></span><span class="err">${rt.netNote}</span>` : nothing}
       <span class="k">egress</span><span class="mono">${act.allowed ?? 0} allowed · ${act.denied ?? 0} denied</span>
     </div>`;
   }
@@ -319,10 +327,13 @@ export class BxTileAdmin extends LitElement {
     const slots = Object.entries(me?.interfaces ?? {});
     const provides = Object.entries(me?.provides ?? {});
     const instances = d.instances ?? {};
-    // Options: same kind/service/own filter as the admin Interfaces tab.
+    // Options: same kind/service/own filter as the admin Interfaces tab. Net
+    // builtins are not a fixed list — the owning org's network sets decide
+    // (org / none / "not covered"), via bx-netrules (D54).
+    const owner = this._ov?.owner || '';
+    const org = owner.startsWith('org:') ? ((this._orgs ?? []).find((o) => o.id === owner.slice(4)) ?? null) : null;
     const optsFor = (def) => {
       const out = [];
-      if (def.kind === 'net') out.push('internet', 'host');
       for (const c of d.components ?? []) {
         if (c.component === this.path) continue;
         for (const p of Object.values(c.provides ?? {})) {
@@ -344,8 +355,35 @@ export class BxTileAdmin extends LitElement {
     return html`<div class="sec">
       <table>
         ${slots.map(([slot, def]) => {
-          const bound = [].concat(d.bindings?.[this.path]?.[slot] ?? []);
+          const bound = [].concat(d.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
           const opts = optsFor(def);
+          if (def.kind === 'net' && !def.multi) {
+            const pend = (d.pending ?? []).find((p) => p.component === this.path && p.slot === slot);
+            const nopts = netOptions({ org, providers: opts, pending: pend });
+            const cur = bound[0] ?? '';
+            const known = nopts.some((o) => o.id === cur);
+            const inert = d.inert?.[this.path]?.[slot];
+            return html`<tr>
+              <td>${slot} <span class="pill">net</span>
+                ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
+              <td style="text-align:right">
+                <select @change=${(e) => {
+                  const v = e.target.value;
+                  if (v === '__custom') { this._netCustom = slot; e.target.value = cur; return; }
+                  this._netCustom = null; set(slot, v ? [v] : []);
+                }}>
+                  ${nopts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur}>${o.label}</option>`)}
+                  ${cur && !known ? html`<option value=${cur} selected>${cur}</option>` : nothing}
+                </select>
+                ${this._netCustom === slot ? html`<form class="row" style="justify-content:flex-end; margin-top:3px"
+                    @submit=${(e) => { e.preventDefault(); const v = e.target.ref.value.trim(); if (!v) return; this._netCustom = null; set(slot, [v]); }}>
+                    <input name="ref" size="24" placeholder="lan:10.0.0.0/8 · internet:host:443" .value=${cur && !known ? cur : ''}
+                      title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — no globs in bindings">
+                    <button class="act go" type="submit">bind</button>
+                    <button class="act" type="button" @click=${() => { this._netCustom = null; }}>✕</button></form>` : nothing}
+                ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}
+              </td></tr>`;
+          }
           return html`<tr>
             <td>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
             <td style="text-align:right">${def.multi

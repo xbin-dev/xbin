@@ -12,6 +12,41 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-05
 
+- **Organisation network sets — per-org egress policy (D54).** A startup's
+  orgs rarely want the same network: `devs` the office LAN + internet,
+  `infra` all of `10/8` + the host network, `sales` the internet only. A
+  **network set** is a named rule list (`internet`, `internet:<host|*.glob|
+  ip|cidr>[:port]`, `lan:<ip|cidr>[:port]`, `host`, `provider:<tile-glob>`
+  — the `net:` allowance forms without the prefix) a workspace admin attaches
+  to orgs by reference. For an org's **own tiles** the union of its sets is
+  the **ceiling** on `net` bindings (an uncovered ref is refused at write
+  naming the set; one that turns uncovered later — a narrowed set, a
+  transfer — goes **inert** with the reason surfaced everywhere the binding
+  shows), the org admins' **allowance** (bind anything inside without
+  asking), the **default binding** — the new builtin `org`, the live union,
+  so an org tile that declares `net` simply has its org's reach — and the
+  egress of **terminals** opened on those tiles (new scope `org`; members
+  need no `termNet`, which now governs personal/workspace tiles only). A set
+  may grant `host` (every org-bound tile and terminal shares the host netns
+  — loud warning). New builtin `none` pins any tile offline. Same-org
+  provider tiles need no rule. Set/attachment edits restart the affected org
+  tiles. Surfaces: admin console **network sets** tab (typed-row editor with
+  inline hints + reach preview) and the org card's **network** block; the
+  binding tab, tile popover and organisations tile offer `org`/`none`/
+  `custom…` and label refused options "not covered"; the terminal scope menu
+  is rendered from the session frame (`scopes`, `netNote`) and shows 🏢 *org
+  network (…)*; `bx netset ls|set|rm`, `bx org set --net`, `bx org ls`
+  `net:`/`reach:`, `bx bind … net=org|none`, `bx iface` `default:org`/inert,
+  `bx status` `net org → …`, `bx doctor` checks. Protocol: `GET/PUT/DELETE
+  /net-sets`, `PATCH /orgs {netSets}`, `orgs[].netSets/resolvedNet/netHost`,
+  `/bindings` `pending[].default` + `inert`, `/runtime` + `/tile-status`
+  `netRef/net/netSource/netNote`, `GET /term-net`, terminal `?net=` absent =
+  default. Non-breaking: old bindings and personal/workspace tiles behave as
+  before; an older xbind resolves `org`/`none` to no egress (fail closed) and
+  drops `netSets` on its next persist. Hostname globs are allowed in set
+  rules only (per-tile bindings unchanged, D35). Docs: auth.md §Network
+  sets, overview/12-egress.md, isolation.md, protocol.md, bx.md.
+
 - **SSO-driven org management for multi-org teams (D53).** Everything a
   small company with exec / sales / infra / compliance orgs needs to run
   xbin on its identity provider without hand-editing memberships:

@@ -33,6 +33,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { repeat } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
+import { SCOPE_ICON } from '/vendor/bx-netrules.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
@@ -291,7 +292,7 @@ export class BxFrame extends LitElement {
     try {
       const sessions = this._sessions
         .filter((s) => s.id) // only server-assigned sessions can be reattached
-        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, api: s.api, name: s.name || '', key: s.key }));
+        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, api: s.api, name: s.name || '', key: s.key, scopes: s.scopes || null, label: s.label || '' }));
       if (!sessions.length && !this._termOpen) { localStorage.removeItem(this._termKey()); return; }
       localStorage.setItem(this._termKey(), JSON.stringify({
         open: !!this._termOpen, active: this._active, pop: this._pop, sessions,
@@ -305,8 +306,8 @@ export class BxFrame extends LitElement {
     const saved = this._loadTerm();
     if (!saved?.sessions?.length) return;
     this._sessions = saved.sessions.map((s) => ({
-      key: s.key || uid(), id: s.id ?? null, net: s.net || 'internet', gpu: s.gpu || 'none',
-      api: s.api !== false, name: s.name || '',
+      key: s.key || uid(), id: s.id ?? null, net: s.net || null, gpu: s.gpu || 'none',
+      api: s.api !== false, name: s.name || '', scopes: s.scopes || null, label: s.label || '',
     }));
     this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
     if (saved.pop) this._pop = { ...saved.pop };
@@ -480,7 +481,8 @@ export class BxFrame extends LitElement {
   }
 
   _newTerm() {
-    this._sessions = [...this._sessions, { key: uid(), id: null, net: 'internet', gpu: 'none', name: '' }];
+    // net null = the server picks this tile's default scope (D54).
+    this._sessions = [...this._sessions, { key: uid(), id: null, net: null, gpu: 'none', name: '' }];
     this._active = this._sessions.length - 1;
   }
 
@@ -513,7 +515,10 @@ export class BxFrame extends LitElement {
   _gotSession(i, ev) {
     const s = [...this._sessions];
     const cur = s[i] || {};
-    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || 'internet',
+    // The server reports the EFFECTIVE scope plus the scopes this user may
+    // pick on this tile — the select renders exactly that list (D54).
+    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || null,
+             scopes: ev.detail.scopes || cur.scopes || null, label: ev.detail.label || '',
              baseOutdated: !!ev.detail.baseOutdated };
     this._sessions = s;
   }
@@ -651,13 +656,20 @@ export class BxFrame extends LitElement {
                       @click=${() => this._setLayout('prs')}>⇄${this._prCount ? ` ${this._prCount}` : ''}</button>
             </span>
             <span class="spacer"></span>
-            <select class="scope" title="network scope (switching restarts the terminal)"
-                    .value=${this._sessions[this._active]?.net || 'internet'}
+            ${(() => {
+              // Scopes come from the session frame (what the server will honour
+              // for this user on this tile); before it arrives, the classic list.
+              const cur = this._sessions[this._active];
+              const scopes = cur?.scopes ?? [
+                { id: 'internet', label: 'internet' }, { id: 'host', label: 'host net' }, { id: 'none', label: 'offline' }];
+              const now = scopes.find((s) => s.id === (cur?.net || scopes[0].id)) ?? scopes[0];
+              return html`<select class="scope"
+                    title=${'network scope (switching restarts the terminal)' + (now?.desc ? '\n' + now.desc : '')}
+                    .value=${cur?.net || scopes[0].id}
                     @change=${(e) => this._setNet(this._active, e.target.value)}>
-              <option value="internet">🌐 internet</option>
-              <option value="host">🖧 host net</option>
-              <option value="none">⛔ offline</option>
-            </select>
+                ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${SCOPE_ICON[s.id] ?? '·'} ${s.label}</option>`)}
+              </select>`;
+            })()}
             <select class="scope" title="live tile API access — off = the shell can read/edit code but every API call is unauthorized (switching restarts the terminal)"
                     .value=${this._sessions[this._active]?.api === false ? 'off' : 'on'}
                     @change=${(e) => this._setApi(this._active, e.target.value === 'on')}>
@@ -689,7 +701,7 @@ export class BxFrame extends LitElement {
             <div class="term-host" style="display:${this._layout === 'term' || this._layout === 'split' ? 'flex' : 'none'}; flex-direction:column">
             ${repeat(this._sessions, (s) => s.key, (s, i) => html`
               <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || 'internet'} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
+                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
                 @bx-session=${(ev) => this._gotSession(i, ev)}
                 @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
             </div>

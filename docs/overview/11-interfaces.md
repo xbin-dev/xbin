@@ -75,11 +75,13 @@ It gets its own chapter: [13-ingress.md](13-ingress.md).
 
 ### `net` — L3 egress
 
-`"interfaces": { "net": { "kind": "net" } }`, bound to the `internet` / `host` /
-`lan:<cidr>` builtins or to a tile that `provides {kind:"net"}` (a firewall, VPN, or
-router — the middlebox pattern). No binding = an empty network namespace = zero IP
-egress. A multi `net` slot is rejected at bind time (it would mean multiple default
-routes). The whole family — relay, splice, provider tiles, `cap:net-admin` — is
+`"interfaces": { "net": { "kind": "net" } }`, bound to the `internet` /
+`internet:<dst>[:port]` / `host` / `lan:<cidr>` / `org` / `none` builtins or to a
+tile that `provides {kind:"net"}` (a firewall, VPN, or router — the middlebox
+pattern). No binding = an empty network namespace = zero IP egress — except on an
+org-owned tile whose org has **network sets** (D54): there an unbound slot resolves
+to `org`, the org's reach, and every explicit ref must sit inside it. A multi `net`
+slot is rejected at bind time (it would mean multiple default routes). The whole family — relay, splice, provider tiles, `cap:net-admin` — is
 [12-egress.md](12-egress.md).
 
 ### `http` — service contracts
@@ -205,7 +207,10 @@ its kind plus every tile whose provides match (service-filtered; instances expan
 `provider#id` entries). The shell's `bx-bindings` prompt and the admin tile's
 **interfaces** tab render exactly this list — importing a tile that requests `net` and
 `openai` immediately asks the owner two concrete questions. (The `net` picker offers
-`internet` and `host`; `lan:<cidr>` is accepted as a typed ref.)
+`internet`, `host`, `none` and — on org-owned tiles — `org`, with options the org's
+network sets refuse labelled "not covered"; `lan:<cidr>` / `internet:<dst>` are
+accepted as typed refs via `custom…`. A pending row carrying `default: "org"` is
+already satisfied.)
 
 ## What the component sees
 

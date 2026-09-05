@@ -1146,3 +1146,55 @@ Deviations and refinements made while implementing; all deliberate:
   in the test (nothing meaningful without a user). Follow-ups: per-domain
   seeds; IdP-driven offboarding beyond groups (SCIM-style deprovisioning);
   persisted auth-event log tab.
+
+- **D54 — Organisation network sets: one rule list = ceiling + allowance +
+  default + terminal egress (2026-09-05).** Egress was per-tile only: an org
+  admin with `net:internet` bound the internet, `host` was admin-only always,
+  the only org-level knob was the binary `deny net` row, terminals were
+  hardcoded to `net:internet` behind a boolean `termNet`, and the CIDR/host
+  forms had no UI — a startup could not say "devs → 10.42/16, infra → 10/8 +
+  host, sales → internet". Shapes: (1) a **NetSet** is a named rule list
+  attached to orgs BY REFERENCE (the permission-set precedent); rules are the
+  existing `net:` allowance entries without the prefix (`internet`,
+  `internet:<host|glob|ip|cidr>[:port]`, `lan:<ip|cidr>[:port]`, `host`,
+  `provider:<glob>`) — no new grammar, `parseAllowEntry` validates, the
+  relay's existing union of internet/CIDR/pinned-host rules enforces; the only
+  new enforcement is one-`*` host globs (+ apex) in the relay's host matcher.
+  (2) One list, four meanings, all derived from `users.Ceiling` (the per-tile
+  composed policy) and `ResolvedAllow`: the ceiling on org-owned tiles' net
+  bindings, the org admins' allowance, the default binding — the builtin
+  `org` = the LIVE union, so a fresh org tile that declares `net` has its
+  org's reach with no binding row — and the egress of terminals opened on
+  org-owned tiles (new scope `org`; the set IS the grant, members need no
+  `termNet`, which now governs personal/workspace tiles only). User-ratified:
+  terminals ride the org that OWNS THE TILE (network is a property of the
+  tile, not the person); auto-bind by default; `host` allowed via a set with
+  a loud warning (relaxes D17's "admin-only, always"); no `termNet` needed on
+  org tiles. (3) Union, not intersection, across attached sets — sets are
+  reach you ADD (a provider-only set therefore airgaps `org`; the label says
+  so); `deny net` still beats everything. (4) Refuse at write, inert only
+  when stale: an uncovered ref is a 400 naming the set (ws-admins included —
+  they widen the set), while a set narrowed or a transfer into a non-
+  covering org turns the binding inert with the reason surfaced in
+  `/bindings.inert`, `/tile-status`, `bx iface/status/doctor` and every UI;
+  `deadSlotReason` previews it on transfer. (5) Same-org provider tiles are
+  covered without a `provider:` rule (D26's intra-org spirit); cross-org and
+  workspace providers need one. (6) New builtin `none` (anywhere) pins a tile
+  offline; `org` on a non-org tile is refused. (7) Set/attachment edits
+  restart affected org tiles + their stored providers (the transfer
+  mechanism); terminals apply at next spawn. (8) The client never guesses
+  network state: the session frame lists the scopes THIS user may pick on
+  THIS tile (+ `netNote` for a clamp) and bind options carry server labels;
+  one shared browser module (`web/bx-netrules.js`) owns rule parsing/labels
+  so the admin console, organisations tile, tile popover and terminal menu
+  cannot drift. (9) A separate "network sets" tab from permission sets: sets
+  answer "what can this org reach", permission sets "who may approve what".
+  Rejected: a separate net-policy-row grammar (D20 rows are restrictive;
+  reach is additive), folding reach into permission sets (buries the
+  founder's question behind the allowance grammar), per-tile net ACLs (the
+  org is the unit), hostname globs in `lan:` and in per-tile bindings (D35
+  unchanged), intersection semantics, broker-side caches (`Ceiling` already
+  composes under one lock), clamping refused `host` to `internet` (D17's
+  clamp-to-none kept; `org` when available). Follow-ups: per-org relay
+  metering roll-ups; a "why can't I reach X" explainer in the terminal;
+  set-level DNS overrides.

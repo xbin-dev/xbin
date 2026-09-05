@@ -625,7 +625,10 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           form like <code>internet:api.stripe.com:443</code> that pins egress to
           named destinations — <code>host</code>, <code>lan:&lt;cidr&gt;</code>,
           or a <strong>provider tile</strong> — a VPN, firewall, or router your
-          traffic routes through.</p>
+          traffic routes through. Tiles owned by an <strong>organisation</strong>
+          with <em>network sets</em> need no binding at all: their slot resolves
+          to <code>org</code>, the org's own reach (say, the office LAN plus the
+          internet), and every explicit ref must stay inside it.</p>
           <p>Providers are real Linux routers in their own sandbox and are
           themselves clients of <em>their</em> egress, so binding one to another
           <strong>chains</strong> them (client → firewall → VPN → internet) — all

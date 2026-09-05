@@ -205,6 +205,9 @@ Full manifest reference (all fields optional):
                                                     //   owner binds internet | host |
                                                     //   lan:<cidr> | internet:<host|cidr>
                                                     //   [:port][,…] (filtered, D35) |
+                                                    //   org (the owning org's network
+                                                    //   sets — the default on org tiles
+                                                    //   that have them, D54) | none |
                                                     //   a provider tile
     "llm": { "kind": "http", "service": "openai" }  // a service endpoint
   },
@@ -530,7 +533,11 @@ and production isolate). **Design for this — it's default-deny:**
   (public only, never LAN/RFC1918), `host`, `lan:<cidr>`, or a **provider tile**
   (a VPN/firewall/router your traffic routes through). `bx bind <you> net=internet`
   or the admin Interfaces tab; the binding is owner-authorized (don't self-bind)
-  and **restarts your backend**. (There is no `net:*`-in-`uses` egress grant —
+  and **restarts your backend**. On an **org-owned** tile whose org has *network
+  sets* (D54) the slot is already satisfied without a binding — it resolves to
+  `org`, the org's reach (`bx status` shows `net org → <sets>`) — and any explicit
+  ref must sit inside those sets (an uncovered one is refused, or goes inert if a
+  set is narrowed later: `bx iface` says why). (There is no `net:*`-in-`uses` egress grant —
   egress is *only* this interface, so the owner can always reroute you without a
   code change. `bx` and the SDK reach xbind over the gateway with or without it.)
 - **GPUs are a grant too.** Request `gpu:all`, `gpu:<index>`, or `gpu:<uuid>` in

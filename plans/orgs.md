@@ -202,3 +202,21 @@ promoted or the last enabled admin. Single memberships are edited through
 `SetOrgMember`/`RemoveOrgMember` (the `PUT`/`DELETE /orgs/{org}/members/{user}`
 routes); the whole-list `UpsertOrg` path preserves provenance. See
 docs/auth.md §Group sync and plans/DECISIONS.md D53.
+
+## Network sets (D54)
+
+A `users.NetSet{Rules, Created}` is a named reach list attached to orgs by
+reference (`Org.NetSets`, `SetOrgNetSets`, `UpsertOrg` carries the field).
+Rules are `net:` allowance entries without the prefix (`ValidateNetRules`).
+`ceilingLocked` folds the owning org's sets into `Ceiling` (`NetSets`,
+`NetRules`, `NetHost`, `NetCovers`) and `ResolvedAllow` adds them as `net:`
+entries, so `netBinding` (the single resolution choke point), `validateBinding`,
+`orgAdminMayBind` and `deadSlotReason` all see one truth: for org-owned tiles
+the union is the ceiling on net bindings, the org admins' allowance, the
+default binding (`org` = the live union; `none` pins offline) and — via
+`broker.TermNetFor` → `term.Manager.TermNet` — the egress of terminals opened
+on those tiles (scope `org`, no `termNet` needed). `netSetsChanged` restarts
+affected org tiles on set/attachment edits; uncovered refs are refused at write
+and go inert (`b.inertNet`, `/bindings.inert`) only when state turns stale.
+Routes: `GET/PUT/DELETE /net-sets`, `PATCH /orgs {netSets}`, `GET /term-net`.
+See docs/auth.md §Network sets and plans/DECISIONS.md D54.

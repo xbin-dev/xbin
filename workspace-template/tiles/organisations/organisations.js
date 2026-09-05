@@ -16,6 +16,7 @@
  * open tile shows new requests/membership changes without a reload.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { ruleLabel, orgNetLabel, SCOPE_ICON } from '/vendor/bx-netrules.js';
 
 const api = async (path, opts) => {
   const r = await fetch('/api/xbin' + path, opts);
@@ -34,7 +35,8 @@ export class BxOrganisations extends LitElement {
     _orgs: { state: true },     // manageable orgs (org admins; [] for members)
     _dir: { state: true },      // users-directory (org admins)
     _grants: { state: true },   // scoped {grants, pending, scope} (D26/D33)
-    _binds: { state: true },    // scoped {bindings, pending} (D26/D33)
+    _binds: { state: true },    // scoped {bindings, pending, inert} (D26/D33/D54)
+    _netCustom: { state: true }, // pending net slot (comp\0slot) whose `custom…` input is open
     _reqs: { state: true },     // human access requests, scoped mine/manage (D36)
     _acl: { state: true },      // per-tile expanded ACL {tile, owner, entries}
     _xfer: { state: true },     // transfer-in-progress {tile, to} (inline confirm)
@@ -458,6 +460,13 @@ export class BxOrganisations extends LitElement {
     }
     if (!bindPending.length && !bound.length) return nothing;
     const routeId = (p, f) => `bp-${p.component}-${p.slot}-${f}`;
+    const orgOf = (comp) => (this._orgs ?? []).find((o) => (o.ownedTiles ?? []).includes(comp)) ?? null;
+    const inertOf = (comp, slot) => this._binds?.inert?.[comp]?.[slot];
+    const ck = (p) => `${p.component}\0${p.slot}`;
+    // A net slot with a server `default` (org, D54) is already satisfied: the
+    // picker preselects it and says so; binding is still offered for the
+    // covered alternatives (and `custom…` for lan:/internet: forms).
+    const optLabel = (p, op) => (p.default && op.id === p.default ? `default: ${op.label}` : op.label);
     return html`
       <h3>wiring &amp; ingress</h3>
       ${bindPending.length ? html`<div class="card">
@@ -465,9 +474,16 @@ export class BxOrganisations extends LitElement {
           <span class="mono">${p.component}</span> · <span class="pill">${p.slot}</span>
           <span class="muted">${p.expose ? `publish ${p.kind}` : p.service ? `${p.kind}:${p.service}` : p.kind}</span>
           ${(p.options ?? []).length ? html`
-            <select id="bp-${p.component}-${p.slot}">
-              ${p.options.map((op) => html`<option value=${op.id}>${op.label}</option>`)}
+            <select id="bp-${p.component}-${p.slot}" @change=${(e) => {
+              if (e.target.value === '__custom') this._netCustom = ck(p);
+              else if (this._netCustom === ck(p)) this._netCustom = null;
+            }}>
+              ${p.options.map((op) => html`<option value=${op.id} title=${op.desc ?? ''} ?selected=${op.id === p.default}>${optLabel(p, op)}</option>`)}
+              ${p.kind === 'net' && !p.expose ? html`<option value="__custom">custom…</option>` : nothing}
             </select>
+            ${this._netCustom === ck(p) ? html`
+              <input id=${routeId(p, 'custom')} size="26" placeholder="lan:10.0.0.0/8 · internet:api.example.com:443"
+                title="filtered egress: lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — must sit inside your org's network sets">` : nothing}
             ${p.expose && p.kind === 'http' ? html`
               <select id=${routeId(p, 'mode')} title="exact hostname, or a delegated wildcard zone">
                 <option value="host">host</option><option value="zone">zone</option>
@@ -479,6 +495,10 @@ export class BxOrganisations extends LitElement {
               const get = (f) => this.renderRoot.getElementById(routeId(p, f))?.value?.trim() ?? '';
               const sel = this.renderRoot.getElementById(`bp-${p.component}-${p.slot}`);
               const body = { component: p.component, slot: p.slot, provider: sel.value };
+              if (sel.value === '__custom') {
+                body.provider = get('custom');
+                if (!body.provider) { this._err = 'type a lan:<cidr> or internet:<host|cidr>[:port] ref'; return; }
+              }
               if (p.expose && p.kind === 'http') {
                 const v = get('val');
                 if (!v) { this._err = 'an http publish needs a hostname (host) or wildcard zone'; return; }
@@ -494,7 +514,10 @@ export class BxOrganisations extends LitElement {
         <b style="font-size:12px">active bindings on org tiles</b>
         ${bound.map((b) => html`<div class="row" style="margin:2px 0">
           <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
-          <span class="muted">→ ${b.ref}${b.route ? ` (${b.route})` : ''}</span>
+          <span class="muted">→ ${b.ref === 'org'
+            ? html`<span title=${(orgOf(b.comp)?.resolvedNet ?? []).map(ruleLabel).join('\n')}>${SCOPE_ICON.org} ${orgNetLabel(orgOf(b.comp))}</span>`
+            : b.ref === 'none' ? `${SCOPE_ICON.none} none — explicitly offline` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
+          ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" title="unbind — the slot reappears above to re-route" @click=${() => this._do(() =>
             api('/bindings', jbody('DELETE', { component: b.comp, slot: b.slot })), 'unbound')}>unbind</button>
@@ -502,7 +525,27 @@ export class BxOrganisations extends LitElement {
       </div>` : nothing}
       <p class="muted" style="font-size:11px; margin:2px 0 0">
         Publishing through your org's own terminator needs no allowance (D41);
-        host ports and the builtin listener do.</p>`;
+        host ports and the builtin listener do. Net bindings inside your org's
+        network sets need no allowance either; an uncovered ref is refused (or, if a
+        set is later narrowed, goes inert) until a workspace admin widens the set (D54).</p>`;
+  }
+
+  // Read-only network line for an org you administer (D54): the sets are a
+  // workspace-admin call; this shows what they mean for the org's tiles.
+  _orgNetLine(o) {
+    const sets = o.netSets ?? [];
+    const rules = (o.resolvedNet ?? []).filter((r) => r !== 'host');
+    if (!sets.length) {
+      return html`<p class="muted" style="font-size:11px">no network sets — this org's tiles get egress
+        only when a workspace admin binds their <span class="mono">net</span> slot; terminals on them
+        follow term-net.</p>`;
+    }
+    return html`<p class="muted" style="font-size:11px">
+      network: <b>${sets.join(' + ')}</b> <span class="muted">(set by a workspace admin)</span> —
+      org tiles reach ${rules.map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
+      ${o.netHost ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title="org-bound tiles and terminals share the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
+      ${!rules.length && !o.netHost ? html`<span>nothing (the sets carry no rules)</span>` : nothing}
+      · org tiles bind <span class="mono">net=org</span> by default; terminals on them get this reach.</p>`;
   }
 
   // ---- human access requests (D36) ----
@@ -640,6 +683,7 @@ export class BxOrganisations extends LitElement {
           <span class="muted">(set by a workspace admin)</span></p>`
           : html`<p class="muted" style="font-size:11px">no allowances — grants/bindings for this
             org's tiles go through a workspace admin.</p>`}
+        ${this._orgNetLine(o)}
         <div class="card">${this._memberEditor(o)}</div>
         ${this._ceilingsView(o)}
         ${this._overridesView(o)}

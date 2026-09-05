@@ -92,10 +92,13 @@ shell is the workspace's most powerful surface:
 | Flag | Off (default) | On |
 |---|---|---|
 | `termApi` | `api=0` forced — the shell gets no live tile-API token | terminal carries the tile-scoped `$XBIN_TOKEN` |
-| `termNet` | `net=none` forced — no internet egress | `net=internet` allowed (through the egress relay) |
+| `termNet` | `net=none` forced on personal/workspace tiles — no internet egress | `net=internet` allowed there (through the egress relay) |
 
 Denial **clamps rather than 403s**: an ungranted user still gets a working,
-airgapped, code-only shell. `net=host` stays admin-only unconditionally.
+airgapped, code-only shell. Terminals on **org-owned** tiles are governed by
+the org's *network sets* instead (D54, [12-egress.md](12-egress.md)): the
+`org` scope carries the sets' reach without `termNet`. `net=host` stays
+admin-only unless a set grants `host`.
 Teams confer both flags by union (below), but only a workspace admin may set
 them — on users or on teams (D21). Non-admin terminals additionally run in
 the restricted sandbox tier (D18 kernel lockdown, cgroup limits —

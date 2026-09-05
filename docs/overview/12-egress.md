@@ -34,14 +34,17 @@ workspace can be cleaned up.
 
 ## The `net` interface and its builtins
 
-`"interfaces": { "net": { "kind": "net" } }`, bound by the owner. Three builtin
-providers cover the common cases; a fourth "provider" is a tile (next section).
+`"interfaces": { "net": { "kind": "net" } }`, bound by the owner. Builtin
+providers cover the common cases; the other "provider" is a tile (next section).
 
 | binding | reach | mechanism |
 |---------|-------|-----------|
 | `internet` | **public addresses only** | gVisor relay under a public-only policy |
+| `internet:<host\|ip\|cidr>[:port][,…]` | only those public destinations (hostnames DNS-pinned; D35) | relay under a filtered policy |
 | `lan:<cidr>` | that CIDR (+ public, per rules) | relay under a CIDR policy |
 | `host` | the host's full network, LAN + host services, interfaces visible | shares the host netns (`HostNet`) — powerful, owner-only |
+| `org` | the **owning org's network sets** — the live union of their rules (D54, below); the default on org-owned tiles that have sets | relay under the union; `HostNet` when a set says `host` |
+| `none` | nothing — explicitly offline (even DNS) | empty netns |
 | a provider tile | whatever the provider forwards | TUN spliced to the provider (below) |
 
 **`internet` is public-only, exactly.** A destination is reachable iff it is a valid,
@@ -195,14 +198,36 @@ hand-edited `xbin.json`) goes inert the moment a deny row covers the tile, and i
 `cap:net-admin` and lan-ingress legs go with it. This is how an org says "these tiles
 never touch the network," and has it hold against the tiles themselves.
 
+## Organisation network sets (D54)
+
+The ceiling above is binary. What a company actually wants is *per-org reach*:
+`devs` → office LAN + internet, `infra` → all of `10/8` + the host network,
+`sales` → internet only. A **network set** is a named rule list a workspace
+admin attaches to orgs by reference (admin console → user management → **network
+sets**; `bx netset`). Rules are the `net:` allowance forms without the prefix:
+`internet`, `internet:<host|*.glob|ip|cidr>[:port]`, `lan:<ip|cidr>[:port]`,
+`host`, `provider:<tile-glob>`. For an org's **own tiles** the union of its sets is
+four things at once: the **ceiling** on `net` bindings (an uncovered ref is refused
+at write, naming the set; one that turns uncovered later — a narrowed set, a
+transfer — goes **inert** with the reason surfaced), the org admins' **allowance**
+(bind anything inside without asking), the **default binding** — the builtin
+`org`, the live union, so a fresh org tile that declares `net` simply has its org's
+reach — and the **egress of terminals** opened on those tiles (members need no
+`termNet`). Same-org provider tiles are covered without a rule; a `host` rule makes
+every `org`-bound tile and terminal share the host netns (no relay, no metering —
+the console warns; keep it for an infra org). Set or attachment edits restart the
+affected org tiles. Personal and workspace tiles are untouched; `deny net` still
+wins. Details: [docs/auth.md §Network sets](/docs/auth.md).
+
 ## Where you see it
 
 | surface | shows |
 |---------|-------|
-| admin **runtime** tab | per-backend namespaces, live egress flows (allowed/denied, dst, bytes), the wiring graph |
-| `bx status [<tile>]` / `GET /api/xbin/tile-status` | one tile's backend + egress policy + activity |
+| admin **runtime** tab | per-backend namespaces, live egress flows (allowed/denied, dst, bytes), the wiring graph; 🏢 `org:<sets>` on org-bound tiles |
+| `bx status [<tile>]` / `GET /api/xbin/tile-status` | one tile's backend + egress policy + activity; `net org → <sets>` and `⚠ net <why>` when inert |
 | an egress-approver / router tile's own page (`<bx-frame>`) | its approve/deny queue, per-IP RDAP, throughput |
-| `bx iface` / admin interfaces tab | which tiles provide net, who's bound to whom |
+| `bx iface` / admin **binding** tab / organisations tile | which tiles provide net, who's bound to whom; `default:org` rows, `inert` reasons, "not covered" options |
+| admin **network sets** tab / org card → network / `bx netset`, `bx org ls` | the sets, their reach, which orgs hold them |
 
 The through-line: **the network is a middlebox xbind already owns.** `net=internet` is
 that middlebox with a public-only policy; a provider tile is that middlebox made

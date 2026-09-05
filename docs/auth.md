@@ -411,9 +411,12 @@ capability semantics.
 
 **Terminal-plane grants.** A non-admin's terminals run restricted
 (docs/isolation.md): beyond the kernel lockdown, they get **no live tile-API
-token** unless the user has `termApi`, and **no internet egress** unless
-`termNet` (host networking is admin-only, always). Grant `terminal` levels
-only if you mean root in that directory.
+token** unless the user has `termApi`, and — on personal and workspace
+tiles — **no internet egress** unless `termNet`. Terminals opened on an
+**org-owned** tile take that org's *network sets* instead (§Network sets,
+D54): members get the org network without `termNet`, and a set may even
+grant host networking; otherwise host networking stays admin-only. Grant
+`terminal` levels only if you mean root in that directory.
 
 **User management API** — gated by `xbin:users` (distinct from
 `xbin:admin`, so a dedicated user-admin tile can hold just this; admin
@@ -432,6 +435,10 @@ PUT    /api/xbin/defaults          newUsers (the new-account seed), tileCreation
 GET    /api/xbin/auth-settings     sign-in policy: token login, SSO config +
 PATCH  /api/xbin/auth-settings     group sync, SSO-only mode
 POST   /api/xbin/auth-settings/sso/test   probe the provider (D53)
+GET    /api/xbin/net-sets          organisation network sets (D54): {sets, attachedTo}
+PUT    /api/xbin/net-sets/<name>   {rules} — create/replace; restarts attached
+                                   orgs' net-declaring tiles
+DELETE /api/xbin/net-sets/<name>   refused (409) while an org holds it
 ```
 
 (The pre-tiers body — `tiles` as an array + a global `terminal` bool — is
@@ -703,7 +710,13 @@ tile:<pattern>[@<role>]
 ```
 
 Entries validate per class at write time — a typo can't silently over- OR
-under-delegate. The D32 qualifiers scope delegation precisely: `@<role>`
+under-delegate. (Organisation *network-set* rules, D54 below, are exactly the
+`net:` forms without the prefix — `internet`, `internet:<host|glob|ip|cidr>
+[:port]`, `lan:<ip|cidr>[:port]`, `host`, `provider:<tile-glob>` — and an
+org's attached sets fold into its allowance automatically; an `org.allow`
+`net:` entry wider than the sets passes the allowance check and is then
+refused by the ceiling, so put reach in sets, not in extras.) The D32
+qualifiers scope delegation precisely: `@<role>`
 caps the delegable role (`tile:apps/warehouse@reader` delegates *consuming*
 the warehouse, never admin on it; bare entries delegate any role — prefer
 the cap), and `iface:api@apps/warehouse#dev` pins an interface allowance to
@@ -753,9 +766,80 @@ stay ws-admin).
 **Permission sets (D28).** Named, reusable `{allow, policy, termApi,
 termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per
 org): effective allowance = union(sets)∪extras; set ceiling rows join the
-restrictive union; term flags confer to members of attached orgs. Ws-admin
-only; deleting an attached set is refused. Managing ten orgs = editing one
-set.
+restrictive union; term flags confer to members of attached orgs (`termNet`
+governs terminals on personal/workspace tiles only — org tiles follow the
+org's network sets, next section). Ws-admin only; deleting an attached set is
+refused. Managing ten orgs = editing one set. Permission sets answer *who may
+approve what*; **network sets** answer *what may this org reach* — two tabs
+on purpose.
+
+## Network sets (D54)
+
+The startup shape: `devs` should reach the office LAN `10.42.0.0/16` and the
+internet, `infra` all of `10.0.0.0/8` plus the host's own network, `sales`
+just the internet. Before D54 egress was per-tile only: any org admin with a
+`net:internet` allowance bound the internet, `host` was admin-only, the only
+org-level knob was the all-or-nothing `deny net` ceiling row, and the
+CIDR/hostname forms had no UI. A **network set** is a named list of reach
+rules a workspace admin attaches to orgs *by reference* (like permission
+sets); for an org's **own tiles** the union of its attached sets is, at once:
+
+1. **The ceiling on `net` bindings.** An explicit ref outside the sets is
+   refused at write time — for org admins *and* workspace admins — with the
+   set named (`… is not covered by org:devs's network sets (devs-net) —
+   widen a set (PUT /net-sets/<name>) or bind org/none`). A binding that
+   *later* falls outside (a set narrowed, a tile transferred into an org
+   whose sets don't cover it) goes **inert** with the reason shown in
+   `bx iface`/`bx status`, the admin binding tab and the organisations tile.
+2. **The org admins' allowance.** Sets fold into `resolvedAllow` as `net:`
+   entries: an org admin binds anything inside them without asking.
+3. **The default egress.** An org-owned tile that declares a `net` slot and
+   has no binding is bound to the builtin **`org`** — the *live* union of the
+   sets (`GET /bindings` lists the slot as pending with `default: "org"`,
+   i.e. satisfied). `org` may also be bound explicitly; **`none`** pins a
+   tile offline on any owner. `org` on a personal/workspace tile is refused
+   (bind a concrete provider).
+4. **Terminal egress on org tiles.** A terminal opened on an org-owned tile
+   gets the scope `org` by default with exactly the sets' reach — members
+   need no `termNet`. Admins may still pick `internet`/`host`; a non-admin
+   asking for a scope the sets don't cover is clamped to `org` (the session
+   frame says why). Personal and workspace tiles are unchanged: `termNet`
+   and the D17 clamps govern them alone.
+
+**Rules.** `internet` · `internet:<host|host-glob|ip|cidr>[:port]` (public
+destinations; hostnames are DNS-pinned by the relay, one `*` per glob, e.g.
+`*.github.com` also covers `github.com`) · `lan:<ip|cidr>[:port]` (private
+ranges; no names or globs) · `host` (host networking) · `provider:<tile-glob>`
+(a net-provider tile may be bound; same-org providers need no rule). The
+union is a plain union — a set holding only `provider:` rules gives `org`
+**no relay egress at all** (airgapped incl. DNS) until a provider is bound;
+the option label says so. A set carrying **`host`** makes every `org`-bound
+tile *and* terminal in attached orgs share the host's network stack — no
+relay, no filtering, no metering, no ingress splicing: the console warns
+loudly; prefer a LAN range and keep `host` for a dedicated infra org.
+Hostname globs are allowed in set rules and refused in per-tile bindings
+(D35 unchanged). A workspace or org **`deny net`** ceiling row still beats
+everything.
+
+**Edits take effect immediately** for tiles: changing a set's rules or an
+org's attachments restarts the affected org tiles' backends (and their stored
+provider tiles); terminals pick the new reach up when reopened. Deleting an
+attached set is refused; deleting an org leaves its sets unattached. Older
+xbind binaries resolve `org`/`none` to no egress and drop `netSets` on their
+next persist (fail closed).
+
+**Surfaces.** Admin console → user management → **network sets** (typed-row
+editor with inline shape hints, reach preview, host warning) and the org
+card's **network** block (attach sets, see the reach); the binding tab and
+the tile popover offer `org`/`none`/`custom…` and label refused options
+"not covered"; the organisations tile shows org admins their reach and
+wiring picker with the default preselected; the terminal's scope menu lists
+🏢 *org network (devs-net)*. `bx netset ls|set|rm`, `bx org set --net`,
+`bx org ls` (`net:`/`reach:`), `bx bind <tile> net=org|none|lan:…`,
+`bx iface` (`default:org`, inert), `bx status` (`net org → …`), `bx doctor`.
+Protocol: `/net-sets`, `PATCH /orgs {netSets}`, `orgs[].resolvedNet/netHost`,
+`/bindings` `pending[].default` + `inert`, `/term-net`, the terminal session
+frame's `scopes`/`netNote`.
 
 ## Owner login mechanics
 
