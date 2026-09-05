@@ -423,6 +423,15 @@ export class BxFrame extends LitElement {
   // standalone embeds; the shell hides it via no-edit).
   toggleTerminal() { this._toggleTerm(); }
 
+  // open(layout) makes sure the pop-up is open and shows the given panel:
+  // 'term' | 'code' | 'split' | 'logs' | 'prs' (omit to keep the current one).
+  // The shell's tile menu uses it for "terminal / logs / source / proposals".
+  open(layout) {
+    if (!this._termOpen) this._toggleTerm();
+    if (layout) this._setLayout(layout);
+    this.updateComplete.then(() => this._front());
+  }
+
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {
@@ -576,7 +585,9 @@ export class BxFrame extends LitElement {
   _setLayout(l) {
     this._layout = l;
     if ((l === 'code' || l === 'split' || l === 'prs') && this._pop && this._pop.w < 760) {
-      this._pop = { ...this._pop, w: 960 }; // widen for the code panel
+      // widen for the code panel, keeping the window on screen
+      const w = Math.min(960, window.innerWidth - 16);
+      this._pop = { ...this._pop, w, x: Math.max(8, Math.min(this._pop.x, window.innerWidth - w - 8)) };
       this._saveTerm?.();
     }
   }

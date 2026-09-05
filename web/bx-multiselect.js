@@ -9,8 +9,10 @@
  *                   placeholder="— unbound —"
  *                   @change=${e => save(e.detail.selected)}></bx-multiselect>
  *
- * Emits `change` with { selected: [value…] } on every toggle. Opens down, or
- * up when there isn't room below.
+ * Emits `change` with { selected: [value…] } on every toggle. The list is
+ * viewport-fixed (positioned from the control's rect, flipped up when there
+ * is no room below), so a scrolling or overflow-hidden container — a table
+ * cell in the tile-admin window, a popover — never clips it.
  */
 import { LitElement, html, css, nothing } from 'lit';
 
@@ -20,8 +22,7 @@ export class BxMultiselect extends LitElement {
     selected: { attribute: false },  // [value]
     placeholder: { type: String },
     _open: { state: true },
-    _up: { state: true },
-    _right: { state: true },
+    _pos: { state: true },           // {left, top, minWidth} once measured
   };
 
   static styles = css`
@@ -37,18 +38,15 @@ export class BxMultiselect extends LitElement {
     .sum.ph { color: var(--bx-muted, #8794a1); }
     .caret { color: var(--bx-muted, #8794a1); font-size: 9px; flex: none; }
     .menu {
-      position: absolute; z-index: 50;
+      position: fixed; z-index: 3900; box-sizing: border-box;
       /* Size to the widest option (at least the control's width) — long
          provider refs must not squeeze into the control column and scroll. */
-      min-width: 100%; width: max-content; max-width: min(480px, 92vw);
+      width: max-content; max-width: min(480px, 92vw);
       max-height: 300px; overflow: auto; overscroll-behavior: contain;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); padding: 3px;
     }
-    .menu.down { top: calc(100% + 3px); }
-    .menu.up { bottom: calc(100% + 3px); }
-    .menu.l { left: 0; }
-    .menu.r { right: 0; }
+    .menu.hidden { visibility: hidden; }
     .opt {
       display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 4px;
       font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap;
@@ -64,15 +62,34 @@ export class BxMultiselect extends LitElement {
     this.selected = [];
     this.placeholder = '— none —';
     this._open = false;
-    this._up = false;
-    this._right = false;
+    this._pos = null;
     this._onDocDown = (e) => { if (!e.composedPath().includes(this)) this._close(); };
-    this._onKey = (e) => { if (e.key === 'Escape') this._close(); };
+    // An open list eats the Escape (so a window behind it doesn't close too).
+    this._onKey = (e) => { if (e.key === 'Escape' && this._open) { e.stopPropagation(); this._close(); } };
+    // Scrolling anywhere (except inside the list) or resizing moves the anchor.
+    this._onMove = (e) => { if (e.target === this || (e.target instanceof Node && this.renderRoot.contains(e.target))) return; this._place(); };
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     this._detach();
+  }
+
+  // Pin the list to the control: below it, or above when the viewport has no
+  // room below; never past the edges; at least as wide as the control.
+  async _place() {
+    await this.updateComplete;
+    const c = this.renderRoot.querySelector('.control');
+    const m = this.renderRoot.querySelector('.menu');
+    if (!c || !m) return;
+    const r = c.getBoundingClientRect();
+    const mw = m.offsetWidth, mh = m.offsetHeight;
+    const W = window.innerWidth, H = window.innerHeight, M = 8;
+    let left = r.left, top = r.bottom + 3;
+    if (left + mw > W - M) left = Math.max(M, r.right - mw);
+    if (top + mh > H - M && r.top - 3 - mh >= M) top = r.top - 3 - mh;
+    top = Math.max(M, Math.min(top, H - M - mh));
+    this._pos = { left, top, minWidth: r.width };
   }
 
   _norm() {
@@ -84,24 +101,25 @@ export class BxMultiselect extends LitElement {
 
   _attach() {
     document.addEventListener('pointerdown', this._onDocDown, true);
-    document.addEventListener('keydown', this._onKey);
+    document.addEventListener('keydown', this._onKey, true);
+    document.addEventListener('scroll', this._onMove, { capture: true, passive: true });
+    window.addEventListener('resize', this._onMove);
   }
   _detach() {
     document.removeEventListener('pointerdown', this._onDocDown, true);
-    document.removeEventListener('keydown', this._onKey);
+    document.removeEventListener('keydown', this._onKey, true);
+    document.removeEventListener('scroll', this._onMove, { capture: true });
+    window.removeEventListener('resize', this._onMove);
   }
 
   _toggleOpen() {
     if (this._open) { this._close(); return; }
-    // Flip up / anchor right when the viewport leaves no room below / to the
-    // right (the menu grows to its content width).
-    const r = this.getBoundingClientRect();
-    this._up = r.bottom > (window.innerHeight - 320) && r.top > 320;
-    this._right = window.innerWidth - r.left < 490;
+    this._pos = null;
     this._open = true;
     this._attach();
+    this._place();
   }
-  _close() { if (!this._open) return; this._open = false; this._detach(); }
+  _close() { if (!this._open) return; this._open = false; this._pos = null; this._detach(); }
 
   _toggle(value) {
     const set = new Set(this.selected || []);
@@ -123,7 +141,8 @@ export class BxMultiselect extends LitElement {
         <span class="caret">▾</span>
       </button>
       ${this._open ? html`
-        <div class="menu ${this._up ? 'up' : 'down'} ${this._right ? 'r' : 'l'}">
+        <div class="menu ${this._pos ? '' : 'hidden'}"
+             style=${this._pos ? `left:${this._pos.left}px; top:${this._pos.top}px; min-width:${this._pos.minWidth}px` : nothing}>
           ${opts.length ? opts.map((o) => html`
             <label class="opt">
               <input type="checkbox" .checked=${sel.has(o.value)} @change=${() => this._toggle(o.value)}>
