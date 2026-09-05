@@ -101,9 +101,48 @@ func cmdDoctor() error {
 				Members       []map[string]any  `json:"members"`
 				ResolvedAllow []string          `json:"resolvedAllow"`
 				Tiles         map[string]string `json:"tiles"`
+				NetSets       []string          `json:"netSets"`
+				NetHost       bool              `json:"netHost"`
 			} `json:"orgs"`
 		}
 		if err := apiJSON("GET", "/api/xbin/orgs", nil, &ov); err == nil {
+			// Network sets (D54): attachments must exist, rules must parse, and
+			// a set granting host networking is worth a loud line.
+			var ns struct {
+				Sets map[string]struct {
+					Rules []string `json:"rules"`
+				} `json:"sets"`
+			}
+			haveSets := apiJSON("GET", "/api/xbin/net-sets", nil, &ns) == nil
+			for name, s := range ns.Sets {
+				for _, r := range s.Rules {
+					if msg := allowEntryProblem("net:" + r); msg != "" {
+						warn("network set %q rule %q: %s", name, r, msg)
+					}
+				}
+			}
+			for _, o := range ov.Orgs {
+				if haveSets {
+					for _, n := range o.NetSets {
+						if _, ok := ns.Sets[n]; !ok {
+							warn("org %q attaches unknown network set %q (bx netset ls)", o.ID, n)
+						}
+					}
+				}
+				if o.NetHost {
+					warn("org %q gets HOST networking through its network sets — its tiles and terminals share the host stack (no relay, no filtering, no metering)", o.ID)
+				}
+			}
+			var binds struct {
+				Inert map[string]map[string]string `json:"inert"`
+			}
+			if apiJSON("GET", "/api/xbin/bindings", nil, &binds) == nil {
+				for comp, slots := range binds.Inert {
+					for slot, reason := range slots {
+						warn("%s %s: net binding is inert — %s (widen the org's network set, or bind net=org)", comp, slot, reason)
+					}
+				}
+			}
 			for _, o := range ov.Orgs {
 				if len(o.Members) == 0 {
 					warn("org %q has no members — leftover? (bx org rm, or add members)", o.ID)

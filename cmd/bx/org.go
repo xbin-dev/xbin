@@ -18,7 +18,7 @@ import (
 //
 //	bx org ls
 //	bx org add <id> [--name "…"]
-//	bx org set <id> [--name "…"] [--sets +s|-s]… [--allow +t|-t]…
+//	bx org set <id> [--name "…"] [--sets +s|-s]… [--net +n|-n]… [--allow +t|-t]…
 //	bx org member <org> [<user> [--level read|write|terminal] [--create[=false]]
 //	                     [--admin[=false]] [--suspend|--unsuspend] [--detach] | rm <user>]
 //	bx org sso-groups <org> [--add <group>[:level[:create[:admin]]]]… [--rm <group>]…
@@ -50,10 +50,17 @@ func cmdOrg(args []string) error {
 				}
 				mem = append(mem, tag)
 			}
-			fmt.Printf("%-14s members:[%s] sets:%s owned:%d  %s\n",
-				o.ID, strings.Join(mem, " "), strings.Join(o.Sets, ","), len(o.OwnedTiles), o.Name)
+			fmt.Printf("%-14s members:[%s] sets:%s net:%s owned:%d  %s\n",
+				o.ID, strings.Join(mem, " "), strings.Join(o.Sets, ","), strings.Join(o.NetSets, ","), len(o.OwnedTiles), o.Name)
 			if len(o.ResolvedAllow) > 0 {
 				fmt.Printf("               may self-approve: %s\n", strings.Join(o.ResolvedAllow, " "))
+			}
+			if len(o.ResolvedNet) > 0 {
+				host := ""
+				if o.NetHost {
+					host = "  (HOST networking)"
+				}
+				fmt.Printf("               reach: %s%s\n", strings.Join(o.ResolvedNet, " "), host)
 			}
 		}
 		return nil
@@ -77,11 +84,11 @@ func cmdOrg(args []string) error {
 
 	case "set":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: bx org set <id> [--name \"…\"] [--sets +s|-s] [--allow +t|-t]")
+			return fmt.Errorf("usage: bx org set <id> [--name \"…\"] [--sets +s|-s] [--net +n|-n] [--allow +t|-t]")
 		}
 		id := args[1]
 		body := map[string]any{}
-		var setMods, allowMods []string
+		var setMods, allowMods, netMods []string
 		for i := 2; i < len(args); i++ {
 			switch args[i] {
 			case "--name":
@@ -90,6 +97,10 @@ func cmdOrg(args []string) error {
 			case "--sets":
 				i++
 				setMods = append(setMods, splitList(args[i])...)
+			case "--net":
+				// Network sets (D54): +name attaches, -name detaches.
+				i++
+				netMods = append(netMods, splitList(args[i])...)
 			case "--allow":
 				i++
 				allowMods = append(allowMods, splitList(args[i])...)
@@ -97,7 +108,7 @@ func cmdOrg(args []string) error {
 				return fmt.Errorf("unknown flag %s", args[i])
 			}
 		}
-		if len(setMods) > 0 || len(allowMods) > 0 {
+		if len(setMods) > 0 || len(allowMods) > 0 || len(netMods) > 0 {
 			cur, err := findOrg(id)
 			if err != nil {
 				return err
@@ -107,6 +118,9 @@ func cmdOrg(args []string) error {
 			}
 			if len(allowMods) > 0 {
 				body["allow"] = applyMods(cur.Allow, allowMods)
+			}
+			if len(netMods) > 0 {
+				body["netSets"] = applyMods(cur.NetSets, netMods)
 			}
 		}
 		if err := apiJSON("PATCH", "/api/xbin/orgs/"+id, body, nil); err != nil {
@@ -639,6 +653,9 @@ type orgDoc struct {
 	SSOGroups     []groupRuleDoc    `json:"ssoGroups"`
 	ResolvedAllow []string          `json:"resolvedAllow"`
 	OwnedTiles    []string          `json:"ownedTiles"`
+	NetSets       []string          `json:"netSets"`     // attached network sets (D54)
+	ResolvedNet   []string          `json:"resolvedNet"` // their rule union
+	NetHost       bool              `json:"netHost"`
 }
 
 func fetchOrgs() ([]orgDoc, error) {

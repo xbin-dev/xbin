@@ -53,7 +53,18 @@ bx org sso-groups <org> [--add g[:level[:create[:admin]]]]… [--rm g]… [--set
                                        Google group email, GitHub org/team-slug,
                                        or the OIDC claim value; applied at each
                                        member's next SSO sign-in (D53)
-bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
+bx org set <id> [--sets +s|-s] [--net +n|-n] [--allow +t|-t]   delegation + network sets (ws-admin)
+bx netset ls | set <name> [--rules a,b|--add r|--rm r] | rm <name>
+                                       organisation network sets (D54): named
+                                       reach rules — internet, internet:<host|
+                                       host-glob|ip|cidr>[:port], lan:<cidr>,
+                                       host, provider:<tile-glob> — attached to
+                                       orgs with `bx org set --net +<name>`; for
+                                       an org's own tiles the union is the
+                                       ceiling on net bindings, what its admins
+                                       may bind without asking, the default
+                                       binding `org`, and the egress of terminals
+                                       opened on them (docs/auth.md §Network sets)
 bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
 bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
@@ -119,7 +130,13 @@ Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
 **`bx bind`** — wires a component's interface slots (plans/interfaces.md).
 Net slots take the builtin refs `internet`, `host`, `lan:<cidr>` — or the
 FILTERED form `internet:<host|ip|cidr>[:port][,…]` (D35), restricting egress
-to the named destinations (hostnames enforced by the relay's DNS pinning).
+to the named destinations (hostnames enforced by the relay's DNS pinning) —
+plus `org` and `none` (D54): on an org-owned tile whose org has network
+sets the slot **defaults to `org`** (the live union of the sets; `bx iface`
+shows it as satisfied) and any explicit ref must be inside the sets — the
+server refuses others naming the set; `none` pins a tile offline. A binding
+that a later set edit or transfer leaves outside the sets goes **inert**
+(`bx iface` / `bx status` say why).
 `slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and
 `slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
 runtime-registered sub-slots of a provider (`bx iface` lists them).
@@ -168,8 +185,10 @@ docs/auth.md §vault.
 **`bx doctor`** — checks: xbind reachable; manifest parse errors; dangling
 `deps`; `expose` without `API.md`; roles without descriptions; ownership/org
 sanity (orphaned owner entries, admin-less or member-less orgs, allowance
-entries that can never match, dead defaultTiles/share patterns); go.work
-ownership; host inotify budget; toolchains present for the runtimes in use.
+entries that can never match, dead defaultTiles/share patterns); network
+sets (unknown attachments, rules that can't parse, orgs granted HOST
+networking, inert net bindings); go.work ownership; host inotify budget;
+toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend

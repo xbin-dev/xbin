@@ -51,6 +51,8 @@ func main() {
 		err = cmdAccess(os.Args[2:])
 	case "defaults":
 		err = cmdDefaults(os.Args[2:])
+	case "netset":
+		err = cmdNetset(os.Args[2:])
 	case "code":
 		err = cmdCode(os.Args[2:])
 	case "logs":
@@ -136,7 +138,8 @@ func usage() {
   bx org member <org> [<user> --level L [--create] [--admin] [--detach] | rm <user>]
   bx org sso-groups <org> [--add g[:level[:create]] | --rm g]   IdP-group rules (D53)
   bx user signout <id>                  end every session + terminal token
-  bx org set <id> [--sets +s|-s] [--allow +t|-t]   delegation (ws-admin)
+  bx org set <id> [--sets +s|-s] [--net +n|-n] [--allow +t|-t]   delegation + network (ws-admin)
+  bx netset ls|set <name> [--rules a,b|--add r|--rm r]|rm <name>   org network sets (D54)
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
   bx owner <tile> [--transfer user:U|org:O|workspace]  tile ownership
   bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets
@@ -144,7 +147,9 @@ func usage() {
                                         new-account defaults + creation policy
   bx access <tile> [set|rm user:…|org:…] per-tile access entries (owner/admin)
   bx iface                              interface requests, providers, bindings
-  bx bind <component> <slot>=<provider> wire an interface to a provider
+  bx bind <component> <slot>=<provider> wire an interface to a provider (net:
+                                        internet|host|org|none|lan:<cidr>|
+                                        internet:<spec>|<provider tile>)
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                         add/remove on a multi slot (# = instance)
   bx bind --unset <component> <slot>
@@ -390,6 +395,13 @@ type tileStatus struct {
 			PidsCurrent int64 `json:"pidsCurrent"`
 		} `json:"cgroup"`
 	} `json:"backend"`
+	Net struct { // the effective network (D54)
+		Ref    string   `json:"netRef"`
+		Mode   string   `json:"net"`
+		Rules  []string `json:"netRules"`
+		Source string   `json:"netSource"`
+		Note   string   `json:"netNote"`
+	} `json:"net"`
 	Disk struct {
 		UsageBytes int64 `json:"usageBytes"`
 		QuotaBytes int64 `json:"quotaBytes"`
@@ -430,6 +442,22 @@ func printTileStatus(s *tileStatus) {
 		}
 	} else {
 		fmt.Println("  backend    not running")
+	}
+	if n := s.Net; n.Ref != "" || n.Mode != "" {
+		line := n.Ref
+		if line == "" {
+			line = "unbound"
+		}
+		if n.Source != "" {
+			line += " → " + n.Source
+		}
+		if n.Mode != "" {
+			line += " (" + n.Mode + ")"
+		}
+		fmt.Printf("  net        %s\n", line)
+		if n.Note != "" {
+			fmt.Printf("  ⚠ net      %s\n", n.Note)
+		}
 	}
 	dq := ""
 	if s.Disk.QuotaBytes > 0 {
@@ -542,6 +570,12 @@ func cmdIface() error {
 			Interfaces map[string]map[string]any `json:"interfaces"`
 			Provides   map[string]map[string]any `json:"provides"`
 		} `json:"components"`
+		Pending []struct { // unbound slots; default:"org" = satisfied by the org network (D54)
+			Component string `json:"component"`
+			Slot      string `json:"slot"`
+			Default   string `json:"default"`
+		} `json:"pending"`
+		Inert map[string]map[string]string `json:"inert"` // stored net bindings resolving to no egress
 	}
 	if err := apiJSON("GET", "/api/xbin/bindings", nil, &out); err != nil {
 		return err
@@ -564,6 +598,12 @@ func cmdIface() error {
 			fmt.Printf("  %-30s provides %s (%v)%s\n", c.Component, slot, def["kind"], extra)
 		}
 	}
+	defaults := map[string]string{}
+	for _, p := range out.Pending {
+		if p.Default != "" {
+			defaults[p.Component+"\x00"+p.Slot] = p.Default
+		}
+	}
 	fmt.Println("requests → binding:")
 	for _, c := range out.Components {
 		for slot := range c.Interfaces {
@@ -571,6 +611,14 @@ func cmdIface() error {
 			display := strings.Join(bound, ", ")
 			if display == "" {
 				display = "(unbound — no capability)"
+				if d := defaults[c.Component+"\x00"+slot]; d != "" {
+					display = d + " (default — the owning org's network sets)"
+				}
+			} else if display == "org" {
+				display = "org (the owning org's network sets)"
+			}
+			if reason := out.Inert[c.Component][slot]; reason != "" {
+				display += "  ⚠ inert: " + reason
 			}
 			fmt.Printf("  %-30s %s → %s\n", c.Component, slot, display)
 		}
@@ -832,6 +880,13 @@ func cmdBind(args []string) error {
 		if op == 0 {
 			body := map[string]string{"component": comp, "slot": slot, "provider": ref}
 			if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
+				if strings.Contains(err.Error(), "not covered") {
+					// The org's network sets are the ceiling (D54).
+					return fmt.Errorf("%w\nhint: bx org ls shows the org's reach; bx netset set <set> --add <rule> widens it, or bind net=org (the org network) / net=none", err)
+				}
+				if strings.Contains(err.Error(), "org egress is for org-owned") {
+					return fmt.Errorf("%w\nhint: net refs are internet | host | org | none | lan:<cidr> | internet:<host|cidr>[:port] | <provider tile>", err)
+				}
 				return err
 			}
 			continue
