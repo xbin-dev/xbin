@@ -212,6 +212,9 @@ export class BxFrame extends LitElement {
       background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
       font: 11px var(--bx-mono, ui-monospace, monospace);
       padding: 1px 4px; border-radius: 4px; cursor: pointer;
+      /* the org scope's label names the sets ("org network (devs-net + …)")
+         — cap it so the API/GPU pickers stay on the bar; the tooltip has it all */
+      max-width: 24ch; text-overflow: ellipsis;
     }
     .panels { display: flex; flex: 1; min-height: 0; }
     bx-code { min-width: 0; overflow: hidden; border-right: 1px solid var(--bx-border, #e4e8ed); }

@@ -51,6 +51,19 @@ function portProblem(str) {
   return p >= 1 && p <= 65535 ? '' : 'port must be 1–65535';
 }
 
+// addrProblem checks the parts a regex can't: octet range and prefix length.
+function addrProblem(str) {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?/.exec(str);
+  if (v4) {
+    if (v4.slice(1, 5).some((o) => Number(o) > 255)) return 'octets are 0–255';
+    if (v4[5] !== undefined && Number(v4[5]) > 32) return 'prefix length is 0–32';
+    return '';
+  }
+  const v6 = /^\[[0-9a-f:]+\](?:\/(\d{1,3}))?/.exec(str);
+  if (v6 && v6[1] !== undefined && Number(v6[1]) > 128) return 'prefix length is 0–128';
+  return '';
+}
+
 /**
  * ruleProblem('lan:10.0.0.0') → a short hint, or '' when the shape looks
  * right. Client-side only — the server validates for real.
@@ -65,7 +78,7 @@ export function ruleProblem(str) {
       if (!v) return 'a private address or CIDR, e.g. 10.0.0.0/8';
       if (v.includes('*')) return 'LAN rules take addresses or CIDRs, not globs';
       if (!CIDR4.test(v) && !V6.test(v)) return 'expected a.b.c.d[/n][:port] or [v6]/n[:port]';
-      return portProblem(v);
+      return addrProblem(v) || portProblem(v);
     }
     case 'internet-to': {
       if (!v) return 'a public host, glob, address or CIDR';
@@ -74,7 +87,7 @@ export function ruleProblem(str) {
       if (v.includes('*') && !HOST.test(v)) return 'globs look like *.example.com[:port]';
       if (CIDR4.test(v) || V6.test(v)) {
         if (/^(10\.|192\.168\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(v)) return 'private ranges are LAN rules';
-        return portProblem(v);
+        return addrProblem(v) || portProblem(v);
       }
       if (!HOST.test(v)) return 'expected host[:port], *.host, ip[:port] or cidr[:port]';
       return portProblem(v);

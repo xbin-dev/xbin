@@ -408,6 +408,32 @@ func TestNetLabel(t *testing.T) {
 	}
 }
 
+// The inert map must be live, not "whatever last resolved": a static tile
+// (nothing respawns it on a set change) whose set was narrowed reports inert
+// on the very next /bindings read, with no resolution in between.
+func TestInertNetLive(t *testing.T) {
+	b, st := netSetFixture(t, "")
+	if err := st.UpsertNetSet("devs-net", users.NetSet{Rules: []string{"internet", "lan:10.0.0.0/8"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetOrgNetSets("sales", []string{"devs-net"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Bindings = map[string]map[string]registry.Binding{"apps/bot": {"net": registry.BindTo("lan:10.1.0.0/16")}}
+	})
+	if _, inert := b.InertNetBindings()["apps/bot"]; inert {
+		t.Fatal("a covered binding is not inert")
+	}
+	if err := st.UpsertNetSet("devs-net", users.NetSet{Rules: []string{"internet"}}); err != nil {
+		t.Fatal(err)
+	}
+	w := call(t, b.apiBindingsList, auth.Principal{Owner: true}, "GET", "/bindings", "", nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"inert":{"apps/bot":{"net":"net:lan:10.1.0.0/16 is not covered`) {
+		t.Fatalf("inert must be reported without a prior resolution: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func contains(list []string, v string) bool {
 	for _, e := range list {
 		if e == v {

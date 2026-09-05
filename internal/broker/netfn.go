@@ -126,7 +126,17 @@ func (b *Broker) noteInertNet(comp, reason string) {
 func (b *Broker) clearInertNet(comp string) { b.inertNet.Delete(comp) }
 
 // InertNetBindings lists components whose net binding is inert with the reason.
+// The map is filled as a side effect of resolution, and a static tile (no
+// backend to respawn) may not have been resolved since the set/ownership
+// change that made it inert — so re-resolve every stored net binding first;
+// the answer is then live, not "whatever last spawned".
 func (b *Broker) InertNetBindings() map[string]string {
+	bindings := b.Reg.Workspace().Bindings
+	for _, c := range b.Reg.Components() {
+		if slot, has := netIfaceSlot(c); has && bindings[c.Path][slot].First() != "" {
+			b.netBinding(c.Path)
+		}
+	}
 	out := map[string]string{}
 	b.inertNet.Range(func(k, v any) bool { out[k.(string)] = v.(string); return true })
 	return out

@@ -1581,11 +1581,10 @@ export class BxAdmin extends LitElement {
     return { d, comps, instances, providersByKind, builtins, requests };
   }
 
-  // The org that owns a tile (null for personal/workspace tiles) — from the
-  // auth-overview's owner column, resolved against the org list.
+  // The org that owns a tile (null for personal/workspace tiles) — the org
+  // list already carries every org's ownedTiles.
   _orgOfTile(comp) {
-    const owner = (this._ov?.components ?? []).find((c) => c.path === comp)?.owner || '';
-    return owner.startsWith('org:') ? ((this._orgs ?? []).find((o) => o.id === owner.slice(4)) ?? null) : null;
+    return (this._orgs ?? []).find((o) => (o.ownedTiles ?? []).includes(comp)) ?? null;
   }
 
   // One net slot's row (D54): options come from bx-netrules (the org's sets

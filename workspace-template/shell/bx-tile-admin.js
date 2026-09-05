@@ -116,11 +116,11 @@ export class BxTileAdmin extends LitElement {
         api('/auth-overview').catch(forbidden),
         api('/grants').catch(forbidden),
         api('/bindings').catch(forbidden),
-        api('/orgs').catch(() => ({ orgs: [] })), // empty for non-admins — the picker then shows the classic list
         api('/cron/jobs').catch(() => ({ jobs: [] })),
         api(`/backups?component=${encodeURIComponent(this.path)}`).catch(() => null),
         api(`/vault/${this.path}`).catch((e) => ({ err: String(e.message ?? e) })),
         api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
+        api('/orgs').catch(() => ({ orgs: [] })), // empty for non-admins — the net picker then shows the classic list
       ]);
       // Picker for the access section (best-effort; owners/org admins may fetch).
       api('/users-directory').then((d) => { this._dir = d.users ?? []; }).catch(() => {});
@@ -330,8 +330,7 @@ export class BxTileAdmin extends LitElement {
     // Options: same kind/service/own filter as the admin Interfaces tab. Net
     // builtins are not a fixed list — the owning org's network sets decide
     // (org / none / "not covered"), via bx-netrules (D54).
-    const owner = this._ov?.owner || '';
-    const org = owner.startsWith('org:') ? ((this._orgs ?? []).find((o) => o.id === owner.slice(4)) ?? null) : null;
+    const org = (this._orgs ?? []).find((o) => (o.ownedTiles ?? []).includes(this.path)) ?? null;
     const optsFor = (def) => {
       const out = [];
       for (const c of d.components ?? []) {

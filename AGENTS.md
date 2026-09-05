@@ -42,6 +42,12 @@ make fmt-check vet  # CI mirrors exactly these
 - Frontend has no test harness: `node --check` every touched `.js` (for
   inline `<script type="module">` extract it first), then click through in
   `make dev`. Say so honestly in the commit if you couldn't drive the UI.
+  To *look* without a browser session, `hack/ui-harness/run.sh` seeds a
+  throwaway workspace (orgs, network sets, users, org tiles in every binding
+  state) and writes Playwright screenshots + `<select>` option dumps of the
+  admin console, organisations tile, tile popover and terminal scope menu
+  under `$HARNESS_DIR/out` (needs node + Playwright's Chromium; header of the
+  script). It found real bugs on its first run — use it for UI-touching work.
 - Builtin tile backends aren't part of the workspace build. To typecheck one:
   `cd builtin-tiles/<t> && cp go.mod.tile go.mod`, write a throwaway
   `go.work` with `replace github.com/xbin-dev/xbin/sdk => ../../sdk`, build,
