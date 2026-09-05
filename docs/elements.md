@@ -233,6 +233,9 @@ frame the root inside the root if you enjoy that sort of thing.
 A tile is an iframe, so any modal or window it renders itself is **clipped to
 its card**. To float over the whole workspace, a tile asks the **shell** to
 spawn it. Two APIs on the in-frame `xbin` global (see [sdk.md](/docs/sdk.md)):
+(The shell's own context menus are `<bx-menu>`, served at
+`/vendor/bx-menu.js` — shell chrome with action closures, not a tile API;
+tiles keep using the two calls below.)
 
 - **`xbin.dialog(spec) → Promise<{button, values}>`** — a modal the shell
   renders from a plain-data `spec` (`title`, `message`, `fields`, `buttons`).
