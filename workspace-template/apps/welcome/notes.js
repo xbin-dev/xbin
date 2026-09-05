@@ -745,8 +745,11 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
       <strong>⚑ organisations</strong> panel and approves in a click. New
       people join by <strong>admin-minted invite links</strong> (single-use;
       there is no self-signup), and orgs can pin shared <strong>org
-      screens</strong> every member gets. The sidebar groups it all by owner:
-      <em>mine · each org · workspace</em>.</p>`,
+      screens</strong> every member gets — read-only until you
+      <em>edit layout</em>, published only by <em>Save and update for
+      everyone</em>. The sidebar groups it all by owner:
+      <em>mine · each org · workspace</em>, each section one tree of curated
+      folders plus its remaining tiles.</p>`,
     docs: 'auth.md',
   },
   {

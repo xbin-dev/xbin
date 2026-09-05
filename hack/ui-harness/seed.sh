@@ -55,6 +55,12 @@ mk apps/leads   org:sales
 mk apps/dev1-notes user:dev1
 sleep 2
 
+say "shared screens + folders (D37/D55)"
+api PUT /screens/org '{"org":"devs","name":"Devs HQ","edit":"write","tiles":[{"path":"apps/crawler","x":0,"y":0,"w":576,"h":384},{"path":"apps/pinned","x":576,"y":0,"w":576,"h":384}]}'
+api PUT /screens/org '{"org":"sales","name":"Sales board","edit":"admins","tiles":[{"path":"apps/leads","x":0,"y":0,"w":576,"h":384}]}'
+api PUT /screens/folders '{"scope":"org:devs","folders":[{"id":"f1","name":"Crawling","icon":"🕷","items":["apps/crawler","apps/offline"]}],"rev":0}'
+api PUT /screens/folders '{"scope":"ws","folders":[{"id":"w1","name":"Docs","icon":"📚","items":["tiles/apidocs","apps/welcome"]}],"rev":0}'
+
 say "bindings"
 api POST /bindings '{"component":"apps/pinned","slot":"net","provider":"internet:api.github.com:443"}'
 api POST /bindings '{"component":"apps/offline","slot":"net","provider":"none"}'

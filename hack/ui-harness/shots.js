@@ -135,6 +135,62 @@ async function admin(browser) {
   await ctx.close();
 }
 
+// Org screens (D55): view bar → edit layout → draft → a competing save →
+// conflict dialog → reload theirs; hide an org tab and reopen it from the
+// sidebar; the share menu's replace target. dev1 is a devs org admin.
+async function screens(browser) {
+  const { ctx, page } = await login(browser, 'dev1', 'devpass123');
+  const admin = await login(browser, 'admin', 'admin'); // the competing saver
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  const sh = () => document.querySelector('bx-shell');
+  const orgId = await page.evaluate(() => document.querySelector('bx-shell')._orgScreens.find((s) => s.org === 'devs')?.id);
+  if (!orgId) { log('no devs org screen seeded'); await ctx.close(); await admin.ctx.close(); return; }
+  await page.evaluate((id) => document.querySelector('bx-shell')._openOrgScreen(id), orgId);
+  await sleep(800);
+  await shot(page, 'orgscreen-view', { fullPage: false });
+  // edit layout → add a tile from the sidebar → dirty draft
+  await page.locator('bx-shell .orgbar button', { hasText: 'edit layout' }).click();
+  await sleep(300);
+  await page.evaluate(() => document.querySelector('bx-shell')._toggle('apps/offline'));
+  await sleep(600);
+  await shot(page, 'orgscreen-edit', { fullPage: false });
+  // someone else saves first (admin, against the current rev) → our save conflicts
+  const cur = await page.evaluate((id) => document.querySelector('bx-shell')._orgScreens.find((s) => s.id === id).rev, orgId);
+  const r = await admin.ctx.request.put(`${URL}/api/xbin/screens/org`, { data: { id: orgId, org: 'devs',
+    tiles: [{ path: 'apps/pinned', x: 0, y: 0, w: 576, h: 384 }], rev: cur } });
+  log('competing save:', r.status(), (await r.text()).slice(0, 120));
+  await sleep(1200); // the users event refreshes _orgScreens → "newer version" note
+  await shot(page, 'orgscreen-edit-newer', { fullPage: false });
+  await page.locator('bx-shell .orgbar button', { hasText: 'Save and update' }).click();
+  await sleep(800);
+  await shot(page, 'orgscreen-conflict', { fullPage: false });
+  await page.locator('bx-dialog button', { hasText: 'Reload theirs' }).click();
+  await sleep(800);
+  await shot(page, 'orgscreen-after-reload', { fullPage: false });
+  // edit again and save cleanly
+  await page.locator('bx-shell .orgbar button', { hasText: 'edit layout' }).click();
+  await page.evaluate(() => document.querySelector('bx-shell')._toggle('apps/crawler'));
+  await sleep(300);
+  await page.locator('bx-shell .orgbar button', { hasText: 'Save and update' }).click();
+  await sleep(1200);
+  await shot(page, 'orgscreen-saved', { fullPage: false });
+  // hide the org tab → reopen from the sidebar entry
+  await page.evaluate((id) => document.querySelector('bx-shell')._hideOrgTab(id), orgId);
+  await sleep(500);
+  await shot(page, 'orgtab-hidden', { fullPage: false });
+  await page.locator('bx-shell .item.screen.org').first().click();
+  await sleep(500);
+  // share menu (replace target) as dev1 on a personal screen
+  await page.evaluate(() => { const s = document.querySelector('bx-shell'); s._active = s._screens[0].id; s._settingsOpen = true; });
+  await sleep(500);
+  await shot(page, 'share-menu', { fullPage: false });
+  await dumpSelects(page, 'share-menu-selects', 'bx-shell .wsmenu select');
+  await ctx.close();
+  await admin.ctx.close();
+}
+
 async function orgAdmin(browser, user, pass, tiles) {
   const { ctx, page } = await login(browser, user, pass);
   for (const t of tiles) {
@@ -175,6 +231,7 @@ async function orgAdmin(browser, user, pass, tiles) {
   const browser = await pw.chromium.launch();
   try {
     await admin(browser);
+    await screens(browser);
     await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
   } finally {

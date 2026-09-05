@@ -28,6 +28,11 @@
  * The <bx-frame> children of <bx-shell> seed the first screen on first run;
  * after that your saved layout is the source of truth. Theme tokens come from
  * /vendor/theme.css and can be overridden here.
+ * **Org screens** (D37/D55) are shared tabs owned by an organisation: view
+ * mode is read-only for everyone; "edit layout" opens a personal draft and
+ * only "Save and update for everyone" publishes it (revisioned — a stale save
+ * asks whether to reload theirs or overwrite). Members may hide, reorder and
+ * copy them; org admins rename them from the tab.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
@@ -72,6 +77,17 @@ const RUNTIME_COLOR = {
 };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (!(s >= 0)) return '';
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
+}
 
 // Shared z-order for floating (unpinned) tile windows. Kept below bx-frame's
 // terminal pop-ups (which start at 2000) so a terminal always sits on top.
@@ -127,8 +143,15 @@ export class BxShell extends LitElement {
     _sideQ: { state: true },        // sidebar component/tab filter
     _dropBefore: { state: true }, // sidebar item being hovered as a drop target
     _who: { state: true },        // whoami (id/name/role — my-account + owner sections)
-    _orgScreens: { state: true }, // shared org screens (D37): [{id,org,name,edit,tiles,canEdit}]
+    _orgScreens: { state: true }, // shared org screens (D37): [{id,org,name,edit,tiles,rev,updatedBy,updatedAt,canEdit}]
     _menuMsg: { state: true },    // settings-menu feedback line {ok, text}
+    _orgDrafts: { state: true },  // org-screen drafts (D55): {id: {tiles, baseRev, dirty, name}} — edit mode == a draft exists
+    _folderDrafts: { state: true }, // shared-folder drafts (D55): {scope: {folders, baseRev, dirty}}
+    _sharedFolders: { state: true }, // shared folder sets from /screens: {scope: {folders,rev,updatedBy,updatedAt,canEdit}}
+    _conflict: { state: true },   // stale-save dialog {kind, id, spec} (null = closed)
+    _tabOrder: { state: true },   // tab order across personal + org screens (ids)
+    _hiddenOrg: { state: true },  // org screens hidden from the tab bar {id: true}
+    _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
   };
 
   static styles = css`
@@ -186,6 +209,33 @@ export class BxShell extends LitElement {
     }
     .tab .x:hover { opacity: 1; color: var(--bx-red, #e5484d); }
     .tab.add { color: var(--bx-muted, #8794a1); font-weight: 600; }
+    .tab .dirty { color: var(--bx-amber, #f2a71b); font-size: 10px; }
+
+    /* ---- shared org screen bar (D55): view info, or the draft's save/discard ---- */
+    .orgbar {
+      position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 8px;
+      margin: 0 0 6px; padding: 5px 10px; font-size: 11.5px; border-radius: 6px;
+      color: var(--bx-muted, #8794a1); background: var(--bx-panel, #fff);
+      border: 1px solid var(--bx-border, #e4e8ed);
+    }
+    .orgbar.editing { color: var(--bx-text, #33414e);
+      border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #fff)); }
+    .orgbar .ico { flex: none; }
+    .orgbar .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .orgbar .spacer { flex: 1; }
+    .orgbar .muted { font-size: 11px; opacity: .8; }
+    .orgbar .newer { color: var(--bx-amber, #f2a71b); white-space: nowrap; }
+    .orgbar .newer a { cursor: pointer; text-decoration: underline; }
+    .orgbar button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); border-radius: 5px;
+      padding: 2px 9px; cursor: pointer; white-space: nowrap; }
+    .orgbar button.act:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .orgbar button.act.go { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
+    .orgbar button.act.go:disabled { opacity: .45; cursor: default; }
+    /* view mode of a shared screen: no grab cursor, no resize handles */
+    .canvas.ro .card .head { cursor: default; }
+    .canvas.ro .rz { display: none; }
 
     /* ---- body ---- */
     .body { display: flex; flex: 1; min-height: 0; }
@@ -624,7 +674,13 @@ export class BxShell extends LitElement {
     this._orgScreens = [];   // shared org screens (D37)
     this._wsDefault = null;  // ws-admin-curated default screen tiles (D37)
     this._menuMsg = null;
-    this._orgSaveT = null;
+    this._orgDrafts = {};
+    this._folderDrafts = {};
+    this._sharedFolders = {};
+    this._conflict = null;
+    this._tabOrder = [];
+    this._hiddenOrg = {};
+    this._shareOrg = '';
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
@@ -659,6 +715,13 @@ export class BxShell extends LitElement {
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
     this._loadAlerts();
     this._alertTimer = setInterval(() => this._loadAlerts(), 20000);
+    // Ctrl/Cmd+S publishes the active org-screen draft (D55).
+    this._onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 's') return;
+      const os = this._activeOrgScreen;
+      if (os && this._orgDrafts?.[os.id]?.dirty) { e.preventDefault(); this._saveOrgDraft(os.id); }
+    };
+    window.addEventListener('keydown', this._onKey);
   }
 
   disconnectedCallback() {
@@ -669,6 +732,7 @@ export class BxShell extends LitElement {
     clearInterval(this._sysTimer);
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
+    window.removeEventListener('keydown', this._onKey);
     this._mq?.removeEventListener('change', this._onMq);
   }
 
@@ -691,39 +755,164 @@ export class BxShell extends LitElement {
     adopt();
   }
 
-  // ---- shared screens (D37): the ws default seed + org screens ----
+  // ---- shared screens (D37/D55): the ws default seed, org screens, shared folders ----
   // RAW fetch — the cookie principal is the signed-in user (xbin.fetch would
-  // downgrade to the chrome element and see nothing).
+  // downgrade to the chrome element and see nothing). Safe to call any time:
+  // edits live in personal drafts, so a refresh never clobbers anything.
   async _loadShared() {
-    if (this._orgSaveT) return; // an org-screen edit is in flight — don't clobber it
     try {
       const r = await fetch('/api/xbin/screens');
       if (r.ok) {
         const d = await r.json();
         this._orgScreens = (d.org ?? []).map((x) => ({ ...x, tiles: gridMigrate(x.tiles ?? []) }));
         this._wsDefault = Array.isArray(d.default?.tiles) ? d.default.tiles : null;
+        this._sharedFolders = d.folders ?? {};
+        this._reconcileDrafts();
         // The active org screen vanished (deleted / membership lost) → first tab.
-        if (!this._screens.some((x) => x.id === this._active)
-            && !this._orgScreens.some((x) => x.id === this._active) && this._screens.length) {
-          this._active = (this._visibleScreens()[0] ?? this._screens[0]).id;
-        }
+        const vis = this._visibleTabs();
+        if (vis.length && !vis.some((t) => t.id === this._active)) this._active = vis[0].id;
       }
     } catch { /* offline / restarting */ }
   }
 
   get _activeOrgScreen() { return (this._orgScreens ?? []).find((x) => x.id === this._active) ?? null; }
 
-  _saveOrgScreen(id) {
-    clearTimeout(this._orgSaveT);
-    this._orgSaveT = setTimeout(() => {
-      this._orgSaveT = null;
-      const x = (this._orgScreens ?? []).find((o) => o.id === id);
-      if (!x) return;
-      fetch('/api/xbin/screens/org', {
+  // ---- org-screen drafts (D55): edit like a dashboard, publish explicitly ----
+  // View mode is read-only for everyone. "edit layout" copies the shared
+  // tiles into a personal draft; every gesture mutates the draft; only "Save
+  // and update for everyone" writes the shared store, naming the revision the
+  // draft was based on — a stale save comes back 409 and the human picks.
+  get _canMutate() { const os = this._activeOrgScreen; return !os || !!this._orgDrafts?.[os.id]; }
+
+  _enterEdit(id) {
+    const os = (this._orgScreens ?? []).find((x) => x.id === id);
+    if (!os?.canEdit || this._orgDrafts?.[id]) return;
+    this._orgDrafts = { ...this._orgDrafts, [id]: {
+      tiles: os.tiles.map((t) => ({ ...t })), baseRev: os.rev ?? 1, dirty: false, name: os.name } };
+  }
+  _dropDraft(id) {
+    const { [id]: _, ...rest } = this._orgDrafts ?? {};
+    this._orgDrafts = rest;
+    this._save();
+  }
+  _discardDraft(id) {
+    const d = this._orgDrafts?.[id];
+    if (!d) return;
+    if (d.dirty && !confirm(`Discard your unsaved changes to "${d.name}"?`)) return;
+    this._dropDraft(id);
+  }
+  async _saveOrgDraft(id, force = false) {
+    const d = this._orgDrafts?.[id];
+    const os = (this._orgScreens ?? []).find((x) => x.id === id);
+    if (!d || !os) return;
+    try {
+      const r = await fetch('/api/xbin/screens/org', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: x.id, org: x.org, tiles: x.tiles }),
-      }).catch(() => { /* best-effort; the next edit retries */ });
-    }, 500);
+        body: JSON.stringify({ id, org: os.org, tiles: d.tiles, rev: d.baseRev, force }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.status === 409) { this._conflict = this._conflictSpec('screen', id, body); return; }
+      if (!r.ok) { this._pushToast(os.org, { level: 'error', message: body.error ?? `save failed (${r.status})` }); return; }
+      this._orgScreens = this._orgScreens.map((x) => x.id === id
+        ? { ...x, tiles: d.tiles, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt } : x);
+      this._dropDraft(id);
+      this._pushToast(os.org, { level: 'ok', message: `saved — everyone in ${os.org} sees rev ${body.rev}` });
+    } catch { this._pushToast(os.org, { level: 'error', message: 'offline — try again' }); }
+  }
+  // Fork an org screen (any member, even read-only) into a personal screen.
+  _copyOrgScreen(id) {
+    const os = (this._orgScreens ?? []).find((x) => x.id === id);
+    if (!os) return;
+    const src = this._orgDrafts?.[id]?.tiles ?? os.tiles;
+    const s = { id: uid(), name: `${os.name} (copy)`, tiles: src.map((t) => ({ ...t })) };
+    this._screens = [...this._screens, s];
+    this._active = s.id;
+    this._save();
+  }
+  // Someone saved first: reload theirs (drop the draft), overwrite, or keep editing.
+  _conflictSpec(kind, id, body) {
+    const theirs = kind === 'screen' ? body.screen : body.folders;
+    const mine = kind === 'screen' ? this._orgDrafts?.[id] : this._folderDrafts?.[id];
+    const what = kind === 'screen' ? `"${mine?.name ?? id}"` : `the ${id === 'ws' ? 'workspace' : id} sidebar folders`;
+    return { kind, id, spec: {
+      title: 'Someone saved this first',
+      message: `${what} is now at rev ${body.rev}, saved by ${this._whoLabel(theirs?.updatedBy)} ${ago(theirs?.updatedAt)}. Your draft is based on rev ${mine?.baseRev ?? '?'}.`,
+      buttons: [
+        { label: 'Keep editing', value: null },
+        { label: 'Reload theirs (drop my draft)', value: 'reload' },
+        { label: 'Overwrite with mine', value: 'force', danger: true },
+      ],
+    } };
+  }
+  async _onConflict({ button }) {
+    const c = this._conflict;
+    this._conflict = null;
+    if (!c || !button) return;
+    if (c.kind === 'screen') {
+      if (button === 'force') { this._saveOrgDraft(c.id, true); return; }
+      await this._loadShared(); // theirs = the live entry, not the 409 snapshot
+      this._dropDraft(c.id);
+    } else if (c.kind === 'folders') {
+      if (button === 'force') { this._saveFolderDraft(c.id, true); return; }
+      await this._loadShared();
+      this._dropFolderDraft(c.id);
+    } else if (c.kind === 'replace') {
+      if (button === 'force') { this._shareToOrg(c.org, c.id, true); return; }
+      await this._loadShared();
+    }
+  }
+  // Drafts outlive refreshes. A draft whose org screen vanished (deleted,
+  // membership lost) is forked into a personal screen when dirty and dropped
+  // when clean — nothing is lost, no orphan UI. Folder drafts for scopes we no
+  // longer see are dropped.
+  _reconcileDrafts() {
+    let changed = false;
+    const drafts = { ...(this._orgDrafts ?? {}) };
+    let screens = this._screens;
+    for (const [id, d] of Object.entries(drafts)) {
+      if ((this._orgScreens ?? []).some((s) => s.id === id)) continue;
+      if (d.dirty) {
+        screens = [...screens, { id: uid(), name: `${d.name || 'org screen'} (draft copy)`, tiles: d.tiles }];
+        this._pushToast('screens', { level: 'warn', message: `org screen "${d.name || id}" is gone — your draft was copied to your screens` });
+      }
+      delete drafts[id]; changed = true;
+    }
+    const fdrafts = { ...(this._folderDrafts ?? {}) };
+    for (const scope of Object.keys(fdrafts)) {
+      if (!this._sharedFolders?.[scope]) { delete fdrafts[scope]; changed = true; }
+    }
+    if (changed) { this._orgDrafts = drafts; this._folderDrafts = fdrafts; this._screens = screens; this._save(); }
+  }
+  _whoLabel(id) { return !id ? 'someone' : id === this._myId ? 'you' : id; }
+
+  // The bar above a shared screen: what it is and who saved it (view), or the
+  // draft's Save / Discard (edit). Sticky so it stays visible while scrolling.
+  _orgBar() {
+    const os = this._activeOrgScreen;
+    if (!os) return nothing;
+    const d = this._orgDrafts?.[os.id];
+    if (!d) {
+      return html`<div class="orgbar">
+        <span class="ico" title="shared with every member of ${os.org}">🔒</span>
+        <span class="txt">shared org screen · <b>${os.org}</b>${os.updatedBy
+          ? html` · last saved by ${this._whoLabel(os.updatedBy)} ${ago(os.updatedAt)} (rev ${os.rev ?? 1})` : nothing}</span>
+        <span class="spacer"></span>
+        <button class="act" title="fork this layout into a screen of your own" @click=${() => this._copyOrgScreen(os.id)}>copy to my screens</button>
+        ${os.canEdit ? html`<button class="act go" title="open a draft — nothing changes for others until you save" @click=${() => this._enterEdit(os.id)}>edit layout</button>`
+          : html`<span class="muted" title="editable by: ${os.edit === 'members' ? 'all members' : os.edit === 'write' ? 'write-level members' : 'org admins'}">read-only for you</span>`}
+      </div>`;
+    }
+    const newer = (os.rev ?? 1) > d.baseRev;
+    return html`<div class="orgbar editing">
+      <span class="ico">✎</span>
+      <span class="txt">editing <b>${os.name}</b> · based on rev ${d.baseRev}${d.dirty ? ' · unsaved changes' : ''}</span>
+      ${newer ? html`<span class="newer">⚠ a newer version (rev ${os.rev}) was saved by ${this._whoLabel(os.updatedBy)} ${ago(os.updatedAt)} —
+        <a @click=${() => { if (!d.dirty || confirm('Drop your draft and take the newer version?')) this._dropDraft(os.id); }}>reload theirs</a></span>` : nothing}
+      <span class="spacer"></span>
+      <button class="act" @click=${() => this._discardDraft(os.id)}>discard</button>
+      <button class="act go" ?disabled=${!d.dirty} title="publish this draft as the org's screen (Ctrl/Cmd+S)"
+        @click=${() => this._saveOrgDraft(os.id)}>Save and update for everyone</button>
+    </div>`;
   }
 
   // ---- persistence ----
@@ -733,14 +922,22 @@ export class BxShell extends LitElement {
       const r = await window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`);
       if (r?.ok) {
         const l = await r.json();
+        if (Array.isArray(l?.tabOrder)) this._tabOrder = l.tabOrder.filter((x) => typeof x === 'string');
+        if (l?.hiddenOrg && typeof l.hiddenOrg === 'object') this._hiddenOrg = l.hiddenOrg;
+        // Dirty drafts come back after a reload (D55); clean ones were never saved.
+        const dr = l?.drafts ?? {};
+        this._orgDrafts = Object.fromEntries(Object.entries(dr.org ?? {}).map(([id, d]) =>
+          [id, { tiles: gridMigrate(d.tiles ?? []), baseRev: d.baseRev ?? 1, dirty: true, name: d.name }]));
+        this._folderDrafts = Object.fromEntries(Object.entries(dr.folders ?? {}).map(([scope, d]) =>
+          [scope, { folders: Array.isArray(d.folders) ? d.folders : [], baseRev: d.baseRev ?? 0, dirty: true }]));
         if (Array.isArray(l?.screens) && l.screens.length) {
           // Migrate any old column-based layout to the fixed grid on load.
           this._screens = l.screens.map((s) => ({ ...s, tiles: gridMigrate(s.tiles ?? []) }));
-          this._active = l.screens.some((s) => s.id === l.active) ? l.active : l.screens[0].id;
-          // Never leave a parked screen active (it isn't in the tab bar).
-          if (this._screens.find((s) => s.id === this._active)?.parked) {
-            this._active = (this._visibleScreens()[0] ?? this._screens[0]).id;
-          }
+          const known = l.screens.some((s) => s.id === l.active) || (this._orgScreens ?? []).some((s) => s.id === l.active);
+          this._active = known ? l.active : l.screens[0].id;
+          // Never leave a parked / hidden screen active (it isn't in the tab bar).
+          const vis = this._visibleTabs();
+          if (vis.length && !vis.some((t) => t.id === this._active)) this._active = vis[0].id;
         }
         if (l?.side && typeof l.side === 'object') {
           this._side = { width: 224, collapsed: false, folders: [], ...l.side };
@@ -748,6 +945,7 @@ export class BxShell extends LitElement {
       }
     } catch { /* offline / restarting — fall through to seed */ }
     this._layoutLoaded = true;
+    this._reconcileDrafts();
     this._ensureScreen();
   }
 
@@ -781,30 +979,43 @@ export class BxShell extends LitElement {
   _save() {
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
+      // Only DIRTY drafts persist: a clean edit session isn't worth resurrecting.
+      const dirty = (m, pick) => Object.fromEntries(Object.entries(m ?? {}).filter(([, d]) => d.dirty).map(([k, d]) => [k, pick(d)]));
+      const drafts = {
+        org: dirty(this._orgDrafts, (d) => ({ tiles: d.tiles, baseRev: d.baseRev, name: d.name })),
+        folders: dirty(this._folderDrafts, (d) => ({ folders: d.folders, baseRev: d.baseRev })),
+      };
       window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side }),
+        body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side,
+          tabOrder: this._tabOrder, hiddenOrg: this._hiddenOrg, drafts }),
       }).catch(() => { /* best-effort; retried on next change */ });
     }, 400);
   }
 
   // ---- active screen helpers ----
+  // An org screen with a draft shows the draft's tiles (D55).
   get _screen() {
-    return this._screens.find((s) => s.id === this._active) ?? this._activeOrgScreen ?? undefined;
+    const p = this._screens.find((s) => s.id === this._active);
+    if (p) return p;
+    const os = this._activeOrgScreen;
+    if (!os) return undefined;
+    const d = this._orgDrafts?.[os.id];
+    return d ? { ...os, tiles: d.tiles } : os;
   }
   get _tiles() { return this._screen?.tiles ?? []; }
 
   // Replace the active screen's tiles via fn(copy) → new array, then persist
   // (debounced, so rapid changes like drag/resize coalesce). An ORG screen
-  // (D37) writes to the shared store instead — and only when this member may
-  // edit it (the server enforces regardless).
+  // (D37/D55) mutates its personal DRAFT — never the shared store, and never
+  // in view mode; publishing is the explicit save.
   _mutateTiles(fn) {
     const os = this._activeOrgScreen;
     if (os) {
-      if (!os.canEdit) return; // read-only for this member
-      const tiles = fn(os.tiles.map((t) => ({ ...t })));
-      this._orgScreens = this._orgScreens.map((x) => x.id === os.id ? { ...x, tiles } : x);
-      this._saveOrgScreen(os.id);
+      const d = this._orgDrafts?.[os.id];
+      if (!d) return; // view mode: a shared screen never changes by accident
+      this._orgDrafts = { ...this._orgDrafts, [os.id]: { ...d, tiles: fn(d.tiles.map((t) => ({ ...t }))), dirty: true } };
+      this._save();
       return;
     }
     if (!this._screen) return;
@@ -871,7 +1082,9 @@ export class BxShell extends LitElement {
       else if (owner.startsWith('org:')) sec(owner, owner.slice(4)).comps.push(c);
       else sec('workspace', 'workspace').comps.push(c);
     }
-    return [...secs.values()].filter((x) => x.comps.length);
+    // An org section also lists the org's screens, so it stays even without tiles.
+    const hasScreens = (key) => (this._orgScreens ?? []).some((o) => 'org:' + o.org === key);
+    return [...secs.values()].filter((x) => x.comps.length || hasScreens(x.key));
   }
 
   // The directory-tree grouping (top-level dir) within one section.
@@ -1188,14 +1401,21 @@ export class BxShell extends LitElement {
     const fid = e.dataTransfer.getData('application/bx-folder');
     if (fid) { this._nestFolder(fid, f.id); return; }              // folder → nest under this one
     const sid = e.dataTransfer.getData('application/bx-screen');
-    if (sid) { this._fileInto(f.id, '#screen:' + sid); return; }   // tab → park in the tree
+    if (sid) { // tab → park in the tree (an org tab files as a reference)
+      const org = e.dataTransfer.types.includes('application/bx-orgscreen');
+      this._fileInto(f.id, (org ? '#orgscreen:' : '#screen:') + sid);
+      return;
+    }
     const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
     if (path) this._fileInto(f.id, path);
   }
 
   // ---- nested folders + screen refs in the tree ----
+  // '#screen:<id>' parks a personal tab; '#orgscreen:<id>' references an org
+  // screen (D55) — the live screen either way, never a snapshot.
   _isScreenItem(s) { return typeof s === 'string' && s.startsWith('#screen:'); }
-  _screenIdOf(s) { return s.slice(8); }
+  _isOrgScreenItem(s) { return typeof s === 'string' && s.startsWith('#orgscreen:'); }
+  _screenIdOf(s) { return s.slice(s.indexOf(':') + 1); }
   _childFolders(parentId) {
     return (this._side.folders ?? []).filter((f) => (f.parent ?? null) === (parentId ?? null));
   }
@@ -1215,8 +1435,41 @@ export class BxShell extends LitElement {
   }
 
   // ---- screens: visible tabs vs. parked-in-tree ----
-  _visibleScreens() { return this._screens.filter((s) => !s.parked); }
   _isTracked(id) { return (this._side.folders ?? []).some((f) => f.items.includes('#screen:' + id)); }
+  // Every tab, personal and org, in the user's order (D55): ids in _tabOrder
+  // first, then the rest (personal in _screens order, org in server order).
+  _tabList() {
+    const all = [
+      ...this._screens.map((s) => ({ kind: 'personal', id: s.id, s })),
+      ...(this._orgScreens ?? []).map((s) => ({ kind: 'org', id: s.id, s })),
+    ];
+    const by = new Map(all.map((t) => [t.id, t]));
+    const out = [], seen = new Set();
+    for (const id of this._tabOrder ?? []) {
+      const t = by.get(id);
+      if (t && !seen.has(id)) { out.push(t); seen.add(id); }
+    }
+    for (const t of all) if (!seen.has(t.id)) { out.push(t); seen.add(t.id); }
+    return out;
+  }
+  _visibleTabs() {
+    return this._tabList().filter((t) => (t.kind === 'personal' ? !t.s.parked : !this._hiddenOrg?.[t.id]));
+  }
+  // Hide an org tab for me only; it stays listed under its org in the sidebar.
+  _hideOrgTab(id) {
+    if (this._visibleTabs().length <= 1) return;
+    this._hiddenOrg = { ...(this._hiddenOrg ?? {}), [id]: true };
+    if (this._active === id) this._active = this._visibleTabs()[0].id;
+    this._save();
+  }
+  _openOrgScreen(id) {
+    if (!(this._orgScreens ?? []).some((s) => s.id === id)) return;
+    const { [id]: _, ...rest } = this._hiddenOrg ?? {};
+    this._hiddenOrg = rest;
+    this._active = id;
+    if (this._mobile) this._drawer = false;
+    this._save();
+  }
   // Open a screen from the tree: un-park it (if parked) and make it active — the
   // live screen, not a snapshot.
   _openScreen(id) {
@@ -1235,14 +1488,15 @@ export class BxShell extends LitElement {
     if (wasParked) this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: false } : s);
     this._save();
   }
+  // Reorder tabs (personal and org alike) — the order is personal state.
   _moveScreen(dragId, beforeId) {
     if (dragId === beforeId) return;
-    const drag = this._screens.find((s) => s.id === dragId);
-    if (!drag) return;
-    const rest = this._screens.filter((s) => s.id !== dragId);
-    const i = beforeId ? rest.findIndex((s) => s.id === beforeId) : -1;
+    const ids = this._tabList().map((t) => t.id);
+    if (!ids.includes(dragId)) return;
+    const rest = ids.filter((x) => x !== dragId);
+    const i = beforeId ? rest.indexOf(beforeId) : -1;
     const at = i < 0 ? rest.length : i;
-    this._screens = [...rest.slice(0, at), drag, ...rest.slice(at)];
+    this._tabOrder = [...rest.slice(0, at), dragId, ...rest.slice(at)];
     this._save();
   }
 
@@ -1254,6 +1508,9 @@ export class BxShell extends LitElement {
     for (const it of f.items) {
       if (this._isScreenItem(it)) {
         const s = this._screens.find((x) => x.id === this._screenIdOf(it));
+        if (s && this._sideMatch(s.name)) return true;
+      } else if (this._isOrgScreenItem(it)) {
+        const s = (this._orgScreens ?? []).find((x) => x.id === this._screenIdOf(it));
         if (s && this._sideMatch(s.name)) return true;
       } else if (this._sideMatch(it)) return true;
     }
@@ -1476,16 +1733,23 @@ export class BxShell extends LitElement {
     if (this._activeOrgScreen || !this._screen) return nothing;
     const orgs = [...(this._adminOrgs ?? [])];
     if (!this._isAdmin && !orgs.length) return nothing;
+    const org = orgs.includes(this._shareOrg) ? this._shareOrg : orgs[0];
+    const targets = (this._orgScreens ?? []).filter((s) => s.org === org);
     return html`
       <div class="hd" style="margin-top:10px">this screen</div>
       ${this._isAdmin ? html`<div class="row" style="margin-bottom:4px">
         <span title="new users' first screen seeds from this layout (D37)">workspace default</span>
         <button class="act" @click=${() => this._saveWsDefault()}>save current</button>
       </div>` : nothing}
-      ${orgs.length ? html`<div class="row">
-        <select id="share-org">${orgs.map((o) => html`<option value=${o}>${o}</option>`)}</select>
+      ${orgs.length ? html`<div class="row" style="flex-wrap:wrap">
+        <select id="share-org" .value=${org} @change=${(e) => { this._shareOrg = e.target.value; }}>
+          ${orgs.map((o) => html`<option value=${o} ?selected=${o === org}>${o}</option>`)}</select>
+        <select id="share-target" title="create a new org screen, or replace an existing one with this layout (D55)">
+          <option value="">as a new org screen</option>
+          ${targets.map((s) => html`<option value=${s.id}>replace "${s.name}" (rev ${s.rev ?? 1})</option>`)}
+        </select>
         <button class="act" title="members of the org see it as a shared tab (read-only unless you widen its edit setting in the organisations tile)"
-          @click=${() => this._shareToOrg(this.renderRoot.getElementById('share-org')?.value)}>share screen to org</button>
+          @click=${() => this._shareToOrg(org, this.renderRoot.getElementById('share-target')?.value || '')}>share screen to org</button>
       </div>` : nothing}`;
   }
 
@@ -1502,15 +1766,31 @@ export class BxShell extends LitElement {
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
-  async _shareToOrg(org) {
+  // Share the current personal screen: as a new org screen, or replacing an
+  // existing one in place (revisioned — a stale replace goes through the same
+  // conflict dialog as a draft save).
+  async _shareToOrg(org, targetId = '', force = false) {
     if (!org) return;
+    const target = targetId ? (this._orgScreens ?? []).find((s) => s.id === targetId && s.org === org) : null;
+    const body = target
+      ? { id: target.id, org, tiles: this._tiles, rev: target.rev ?? 1, force }
+      : { org, name: this._screen?.name || org, tiles: this._tiles };
     try {
       const r = await fetch('/api/xbin/screens/org', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ org, name: this._screen?.name || org, tiles: this._tiles }),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
-      this._menuMsg = r.ok ? { ok: true, text: `shared to ${org} — appears as a tab for its members` }
+      if (r.status === 409 && target) {
+        this._settingsOpen = false;
+        const c = this._conflictSpec('screen', target.id, d);
+        c.kind = 'replace'; c.org = org;
+        c.spec.message = `"${target.name}" is now at rev ${d.rev}, saved by ${this._whoLabel(d.screen?.updatedBy)} ${ago(d.screen?.updatedAt)}; you were replacing rev ${target.rev ?? 1}.`;
+        c.spec.buttons = [{ label: 'Cancel', value: null }, { label: 'Reload theirs', value: 'reload' }, { label: 'Replace anyway', value: 'force', danger: true }];
+        this._conflict = c;
+        return;
+      }
+      this._menuMsg = r.ok
+        ? { ok: true, text: target ? `replaced "${target.name}" — now rev ${d.rev}` : `shared to ${org} — appears as a tab for its members` }
         : { ok: false, text: d.error ?? `failed (${r.status})` };
       if (r.ok) this._loadShared();
     } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
@@ -1630,8 +1910,9 @@ export class BxShell extends LitElement {
       .map((x) => {
         const collapsed = !!this._side.ownerCollapsed?.[x.key] && !this._sideQ.trim();
         const shown = groupsOf(x.comps);
-        if (!shown.length) return nothing;
-        const n = shown.reduce((m, [, cs]) => m + cs.length, 0);
+        const screens = (this._orgScreens ?? []).filter((o) => 'org:' + o.org === x.key && this._sideMatch(o.name));
+        if (!shown.length && !screens.length) return nothing;
+        const n = shown.reduce((m, [, cs]) => m + cs.length, 0) + screens.length;
         const label = x.key === 'mine' ? 'mine' : x.key === 'workspace' ? 'workspace' : x.label;
         return html`
           <div class="group owner" title="tiles owned by ${x.key === 'mine' ? 'you' : x.key === 'workspace' ? 'the workspace' : 'org ' + x.label} — click to fold"
@@ -1640,7 +1921,7 @@ export class BxShell extends LitElement {
             ${x.key === 'mine' ? '👤 ' : x.key !== 'workspace' ? '⚑ ' : ''}${label}
             <span class="n">${n}</span>
           </div>
-          ${collapsed ? nothing : tree(x.comps, true)}`;
+          ${collapsed ? nothing : html`${tree(x.comps, true)}${screens.map((o) => this._orgScreenItemTemplate(o.id, 1))}`}`;
       });
   }
 
@@ -1682,11 +1963,15 @@ export class BxShell extends LitElement {
         const s = this._screens.find((x) => x.id === this._screenIdOf(it));
         return s && this._sideMatch(s.name);
       }
+      if (this._isOrgScreenItem(it)) {
+        const s = (this._orgScreens ?? []).find((x) => x.id === this._screenIdOf(it));
+        return s && this._sideMatch(s.name);
+      }
       const c = this._components.find((x) => x.path === it);
       return c && !this._offloaded(c) && this._sideMatch(it);
     });
     const children = this._childFolders(f.id);
-    const comps = items.filter((it) => !this._isScreenItem(it)).map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
+    const comps = items.filter((it) => !this._isScreenItem(it) && !this._isOrgScreenItem(it)).map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
     const fst = !open ? this._worstStatus(comps.map((c) => c.path)) : null;
     return html`
       <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''}" draggable="true"
@@ -1710,8 +1995,32 @@ export class BxShell extends LitElement {
         ${children.map((c) => this._folderTemplate(c, depth + 1))}
         ${items.map((it) => this._isScreenItem(it)
           ? this._screenItemTemplate(this._screenIdOf(it), depth + 1)
-          : this._itemTemplate(this._components.find((c) => c.path === it), f.id, null, depth + 1))}`
+          : this._isOrgScreenItem(it)
+            ? this._orgScreenItemTemplate(this._screenIdOf(it), depth + 1, f.id)
+            : this._itemTemplate(this._components.find((c) => c.path === it), f.id, null, depth + 1))}`
         : nothing}`;
+  }
+
+  // An org screen in the tree: under its org section (always, so a hidden tab
+  // is never stranded) or as a personal folder reference. Click re-opens it.
+  _orgScreenItemTemplate(id, depth = 0, folderId = null) {
+    const s = (this._orgScreens ?? []).find((x) => x.id === id);
+    if (!s) return nothing; // stale ref (deleted / membership lost)
+    const hidden = !!this._hiddenOrg?.[id];
+    const dirty = !!this._orgDrafts?.[id]?.dirty;
+    return html`
+      <div class="item screen org ${this._active === id ? 'on' : ''}" style="padding-left:${12 + depth * 12}px"
+           draggable="true"
+           title=${`org screen "${s.name}" (${s.org}) — click to open${hidden ? ' (hidden from the tab bar)' : ''}`}
+           @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', id);
+             e.dataTransfer.setData('application/bx-orgscreen', id); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
+           @click=${() => this._openOrgScreen(id)}>
+        <span class="sic">▦</span>
+        <span class="sname">${s.name}${dirty ? ' ●' : ''}</span>
+        ${folderId ? html`<span class="ob">${s.org}</span>` : nothing}
+        ${hidden ? html`<span class="pk">hidden</span>` : nothing}
+        ${folderId ? html`<button class="xt" title="remove from this folder" @click=${(e) => { e.stopPropagation(); this._fileInto('', '#orgscreen:' + id); }}>✕</button>` : nothing}
+      </div>`;
   }
 
   // A parked/opened screen tab, shown in the tree. It's the live screen (by id),
@@ -1750,6 +2059,15 @@ export class BxShell extends LitElement {
   }
 
   _toggle(path) {
+    const os = this._activeOrgScreen;
+    if (os && !this._orgDrafts?.[os.id]) {
+      // A shared screen in view mode: an editor's deliberate add opens a draft
+      // (still nothing published until saved); anyone else gets the tile on
+      // their own screen instead.
+      if (!os.canEdit) { this._openOnPersonal(path); return; }
+      this._enterEdit(os.id);
+      this._pushToast(os.org, { level: 'info', message: 'editing the org screen — "Save and update for everyone" publishes it' });
+    }
     if (this._isOpen(path)) {
       this._mutateTiles((tiles) => tiles.filter((o) => o.path !== path));
       return;
@@ -1757,6 +2075,25 @@ export class BxShell extends LitElement {
     const { x, y } = this._freeSpot();
     this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
+  }
+
+  // Open a tile on the user's own screen: the first visible personal tab, or
+  // a fresh Home when there is none.
+  _openOnPersonal(path) {
+    let s = this._visibleTabs().find((t) => t.kind === 'personal')?.s;
+    if (!s) {
+      s = { id: uid(), name: 'Home', tiles: [] };
+      this._screens = [...this._screens, s];
+    }
+    this._active = s.id;
+    if (!this._isOpen(path)) {
+      const { x, y } = this._freeSpot();
+      this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
+    } else {
+      this._save();
+    }
+    this._pushToast(path, { level: 'info', message: 'read-only org screen — opened on your screen' });
+    if (this._mobile) this._drawer = false;
   }
 
   _runtimeOf(path) {
@@ -1771,7 +2108,23 @@ export class BxShell extends LitElement {
     this._active = s.id;
     this._save();
   }
-  _renameScreen(id) {
+  async _renameScreen(id) {
+    const os = (this._orgScreens ?? []).find((x) => x.id === id);
+    if (os) { // org screens: an org-admin act, meta-only (never bumps the revision)
+      if (!this._adminOrgs?.has(os.org)) return;
+      const name = prompt('Org screen name:', os.name);
+      if (name == null || !name.trim() || name.trim() === os.name) return;
+      try {
+        const r = await fetch('/api/xbin/screens/org', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, org: os.org, name: name.trim() }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) this._pushToast(os.org, { level: 'error', message: d.error ?? `rename failed (${r.status})` });
+        this._loadShared();
+      } catch { /* offline */ }
+      return;
+    }
     const s = this._screens.find((x) => x.id === id);
     const name = prompt('Screen name:', s?.name ?? '');
     if (name == null || !name.trim()) return;
@@ -1780,20 +2133,22 @@ export class BxShell extends LitElement {
   }
   _closeScreen(id, ev) {
     ev.stopPropagation();
-    if (this._visibleScreens().length <= 1) return; // keep at least one open tab
+    if (this._visibleTabs().length <= 1) return; // keep at least one open tab
     // If this screen is parked in the folder tree, closing the TAB just parks it
     // (the layout stays, restorable from the tree) instead of deleting it.
     if (this._isTracked(id)) {
       this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: true } : s);
-      if (this._active === id) this._active = this._visibleScreens()[0].id;
+      if (this._active === id) this._active = this._visibleTabs()[0].id;
       this._save();
       return;
     }
     const s = this._screens.find((x) => x.id === id);
     if (s.tiles.length && !confirm(`Close screen "${s.name}" and its ${s.tiles.length} tile(s)?`)) return;
-    const remaining = this._screens.filter((x) => x.id !== id);
-    this._screens = remaining;
-    if (this._active === id) this._active = (remaining.find((x) => !x.parked) ?? remaining[0]).id;
+    this._screens = this._screens.filter((x) => x.id !== id);
+    if (this._active === id) {
+      const vis = this._visibleTabs();
+      this._active = (vis[0] ?? this._tabList()[0])?.id ?? '';
+    }
     this._save();
   }
 
@@ -1806,7 +2161,7 @@ export class BxShell extends LitElement {
 
   _gridDragStart(ev, path) {
     if (this._mobile) return; // tiles are stacked (no free grid) on mobile
-    if (this._activeOrgScreen && !this._activeOrgScreen.canEdit) return; // read-only org screen
+    if (!this._canMutate) return; // shared screen in view mode (D55)
     if (ev.button !== 0 || ev.target.closest('button, select, .rz')) return;
     ev.preventDefault();
     const el = this._gtile(path);
@@ -1831,7 +2186,7 @@ export class BxShell extends LitElement {
 
   _gridResizeStart(ev, path) {
     if (this._mobile || ev.button !== 0) return;
-    if (this._activeOrgScreen && !this._activeOrgScreen.canEdit) return; // read-only org screen
+    if (!this._canMutate) return; // shared screen in view mode (D55)
     ev.preventDefault(); ev.stopPropagation();
     const el = this._gtile(path);
     if (!el) return;
@@ -1906,10 +2261,10 @@ export class BxShell extends LitElement {
           ${this._canAdminTile(o.path) ? html`<button title="tile admin (access · lifecycle · runtime · vault · grants · interfaces · backup · cron)"
                   @pointerdown=${(e) => e.stopPropagation()}
                   @click=${(e) => this._openAdmin(e, o.path)}>⚙</button>` : nothing}
-          <button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
-                  @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>
+          ${this._canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
+                  @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>` : nothing}
           <button title="open full page" @click=${() => window.open(`/c/${o.path}/`, '_blank')}>⤢</button>
-          <button title="close" @click=${() => this._toggle(o.path)}>✕</button>
+          ${this._canMutate ? html`<button title="close" @click=${() => this._toggle(o.path)}>✕</button>` : nothing}
         </div>
         <div class="cbody">${frame}</div>
       </div>`;
@@ -2081,33 +2436,31 @@ export class BxShell extends LitElement {
       </div>
 
       <div class="tabs">
-        ${this._visibleScreens().map((s) => {
+        ${this._visibleTabs().map(({ kind, s }) => {
+          const many = this._visibleTabs().length > 1;
           const tst = this._worstStatus((s.tiles ?? []).map((t) => t.path));
+          const draft = kind === 'org' ? this._orgDrafts?.[s.id] : null;
+          const title = tst ? `${s.name} — a tile here needs attention (${tst})`
+            : kind === 'org'
+              ? `org screen — shared with ${s.org}${s.canEdit ? ' (edit layout to change it for everyone)' : ' (read-only for you)'}${this._adminOrgs?.has(s.org) ? ' · double-click to rename' : ' · managed by org admins'} · drag to reorder · ✕ hides it for you`
+              : 'drag to reorder · drag into a sidebar folder to park · double-click to rename';
           return html`
-          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}" draggable="true"
+          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''} ${kind === 'org' ? 'org' : ''}" draggable="true"
                @click=${() => this._switchScreen(s.id)}
                @dblclick=${() => this._renameScreen(s.id)}
-               @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', s.id); e.dataTransfer.effectAllowed = 'move'; }}
+               @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', s.id);
+                 if (kind === 'org') e.dataTransfer.setData('application/bx-orgscreen', s.id);
+                 e.dataTransfer.effectAllowed = 'move'; }}
                @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-screen')) e.preventDefault(); }}
                @drop=${(e) => { e.preventDefault(); const d = e.dataTransfer.getData('application/bx-screen'); if (d) this._moveScreen(d, s.id); }}
-               title=${tst ? `${s.name} — a tile here needs attention (${tst})`
-                 : 'drag to reorder · drag into a sidebar folder to park · double-click to rename'}>
+               title=${title}>
             <span>${s.name}</span>
+            ${kind === 'org' ? html`<span class="ob">${s.org}</span>` : nothing}
+            ${kind === 'org' && !s.canEdit ? html`<span class="ro" title="read-only for you">🔒</span>` : nothing}
+            ${draft?.dirty ? html`<span class="dirty" title="unsaved draft — Save and update for everyone">●</span>` : nothing}
             ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
-            ${this._visibleScreens().length > 1
-              ? html`<button class="x" @click=${(e) => this._closeScreen(s.id, e)}>✕</button>` : nothing}
-          </div>`;
-        })}
-        ${(this._orgScreens ?? []).map((s) => {
-          const tst = this._worstStatus((s.tiles ?? []).map((t) => t.path));
-          return html`
-          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''}"
-               @click=${() => this._switchScreen(s.id)}
-               title="org screen — shared with ${s.org}${s.canEdit ? ' (you can rearrange it)' : ' (read-only for you)'}; managed in the organisations tile">
-            <span>${s.name}</span>
-            <span class="ob">${s.org}</span>
-            ${s.canEdit ? nothing : html`<span class="ro" title="read-only for you">🔒</span>`}
-            ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
+            ${many ? html`<button class="x" title=${kind === 'org' ? 'hide this org screen from my tabs (reopen it from the sidebar)' : 'close'}
+              @click=${(e) => { e.stopPropagation(); kind === 'org' ? this._hideOrgTab(s.id) : this._closeScreen(s.id, e); }}>✕</button>` : nothing}
           </div>`;
         })}
         <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
@@ -2172,12 +2525,14 @@ export class BxShell extends LitElement {
         ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
           @click=${() => { this._drawer = false; }}></div>` : nothing}
         <main @contextmenu=${(e) => this._openCtx(e)}>
+          ${this._orgBar()}
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
-          <div class="canvas" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">
+          <div class="canvas ${this._canMutate ? '' : 'ro'}" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">
             ${repeat(this._tiles.filter((o) => !o.float), (o) => o.path, (o) => this._gridCard(o))}
           </div>
           ${this._tiles.filter((o) => !o.float).length === 0 && !this._tiles.some((o) => o.float)
-            ? html`<div class="empty">empty screen — open a tile from the sidebar</div>` : nothing}
+            ? html`<div class="empty">${this._activeOrgScreen && !this._canMutate
+              ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}</div>` : nothing}
           <slot style="display:none"></slot>
         </main>
       </div>
@@ -2200,10 +2555,24 @@ export class BxShell extends LitElement {
         <div class="ctx-backdrop" @pointerdown=${() => { this._ctx = null; }}
              @contextmenu=${(e) => { e.preventDefault(); this._ctx = null; }}></div>
         <div class="ctxmenu" style="left:${this._ctx.x}px; top:${this._ctx.y}px">
+          ${(() => {
+            const os = this._activeOrgScreen;
+            if (!os) return nothing;
+            const d = this._orgDrafts?.[os.id];
+            return html`
+              ${!d && os.canEdit ? html`<button @click=${() => this._ctxDo(() => this._enterEdit(os.id))}>✎ Edit this org screen</button>` : nothing}
+              ${d ? html`<button ?disabled=${!d.dirty} @click=${() => this._ctxDo(() => this._saveOrgDraft(os.id))}>💾 Save and update for everyone</button>
+                <button @click=${() => this._ctxDo(() => this._discardDraft(os.id))}>↺ Discard draft</button>` : nothing}
+              <button @click=${() => this._ctxDo(() => this._copyOrgScreen(os.id))}>⧉ Copy to my screens</button>`;
+          })()}
           <button @click=${() => this._ctxDo(() => this._newTileDialog())}>✦ Create a new tile…</button>
           <button @click=${() => this._ctxDo(() => this._addScreen())}>▦ New screen</button>
           <button @click=${() => this._ctxDo(() => this._addFolder())}>▸ New sidebar folder…</button>
         </div>` : nothing}
+
+      ${this._conflict ? html`
+        <bx-dialog open .spec=${this._conflict.spec}
+          @bx-dialog-resolve=${(e) => this._onConflict(e.detail)}></bx-dialog>` : nothing}
 
       ${this._create ? html`
         <bx-dialog open .spec=${this._create}

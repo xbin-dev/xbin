@@ -76,7 +76,10 @@ watch the whole workspace restyle. Drag any card by its title bar to rearrange
 it; organise work into named **screens** (the tabs at the top — add with `+`,
 double-click to rename); your whole layout is **saved per user** (server-side, so
 it follows you across browsers and devices). The `<bx-frame>` pins in
-`root/index.html` only seed the *first* screen a brand-new user sees.
+`root/index.html` only seed the *first* screen a brand-new user sees. Screens
+an organisation shares with its members show up as extra tabs; those are
+read-only until you click *edit layout*, and nothing changes for anyone else
+until you *Save and update for everyone*.
 
 ## First backend
 
