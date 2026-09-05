@@ -1198,3 +1198,50 @@ Deviations and refinements made while implementing; all deliberate:
   clamp-to-none kept; `org` when available). Follow-ups: per-org relay
   metering roll-ups; a "why can't I reach X" explainer in the terminal;
   set-level DNS overrides.
+
+- **D55 — Org screens with explicit save + revisions; one sidebar tree per
+  owner with shared folders (2026-09-05).** D37's org screens auto-saved
+  every drag through a 500 ms debounce: an accidental nudge on a shared tab
+  changed it for the whole org, every drag tick was a file rewrite plus a
+  `users` broadcast, two members rearranging at once clobbered each other
+  silently, and members could neither park, reorder, fork nor rename an org
+  tab. The sidebar grouped each owner section by top-level directory
+  (APPS/TILES), which duplicated the owner structure, cost vertical space
+  and left an org no way to curate how its tiles are presented. Shapes,
+  user-ratified: (1) Grafana-style editing — view mode is read-only for
+  everyone; "edit layout" opens a LOCAL DRAFT, and only "Save and update for
+  everyone" publishes (or Discard). (2) A per-screen REVISION counting tile
+  saves only: a save names the rev it was based on, a stale one is refused
+  with 409 carrying the current screen, and a human picks reload / overwrite
+  — a plain compare-and-set, no locks. Rename/knob changes are admin-plane
+  and never bump the rev, so an admin renaming never conflicts with a
+  member's draft. A write WITHOUT rev stays accepted as the legacy overwrite
+  so pre-D55 shell copies keep working (non-breaking; the scaffold update
+  brings the UX). (3) Drafts are personal state in the layout pref (dirty
+  only), survive a reload, and a draft whose screen vanishes (deleted,
+  membership lost) is forked into a personal screen — nothing is lost, no
+  orphan UI. Org drafts are never pruned client-side: `/components` is
+  read-filtered, so a member cannot tell "offloaded" from "unreadable" and
+  pruning would delete other members' tiles. (4) The sidebar is ONE TREE PER
+  OWNER SECTION, everywhere: curated folders + the remaining readable tiles
+  flat at the root, no directory headers; the tree is complete. Shared
+  folder sets live in data/screens.json keyed `ws` (ws-admins curate) and
+  `org:<id>` (its admins), under the same draft/rev/409 flow; per-user open
+  state stays personal; personal top-level folders keep holding anything.
+  Curators save the FULL list, never the render-filtered one. (5) Org-tab
+  ergonomics are personal state: tab order across both kinds, hidden org
+  tabs (restorable from the org section, which always lists the org's
+  screens), copy-to-my-screens for any member; org admins rename from the
+  tab and replace an existing org screen in place (sharing no longer always
+  creates a new one). Rejected: keeping debounced auto-save (the failure
+  mode itself), per-tile locks (no session concept, stale locks, and the
+  problem is accidental overwrite, not co-editing), CRDT/merge (overlapping
+  rects have no meaningful merge; conflicts are rare, a 409 + choice is
+  cheaper and legible), hard-refusing legacy writes (breaks every old
+  shell copy for no safety gain), keeping directory grouping, a second
+  personal folder set inside "mine" (top-level personal folders already are
+  the user's tree), storing shared folders on the org record (`users.json`
+  is the 0600 identity store; sidebar structure is layout; `ws` has no org
+  row). Follow-ups: server-side filtering of folder items to readable tiles
+  (members currently see path names of unreadable tiles inside shared
+  folders); a per-org screen soft cap; onboarding starters (D56).

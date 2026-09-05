@@ -12,6 +12,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-05
 
+- **Org screens edit like dashboards; the sidebar is one tree per owner
+  (D55).** Org screens no longer auto-save every drag: the shell shows a
+  shared screen read-only (even to editors), **edit layout** opens a
+  personal draft, and **Save and update for everyone** publishes it — or
+  **Discard**. Saves carry a **revision**; someone else saving first gets
+  you a conflict dialog (*reload theirs* / *overwrite with mine* / keep
+  editing) instead of a silent clobber; the screen bar shows who saved
+  last and when; drafts survive a reload, and a draft whose screen is
+  deleted is copied to your own screens. Members can hide an org tab (it
+  stays in the org's sidebar section to reopen), order org tabs among
+  their own, and **copy to my screens**; org admins rename from the tab
+  and can **replace** an existing org screen with a personal one. The
+  sidebar drops the APPS/TILES directory headers: every owner section
+  (mine · each org · workspace) is one tree — **shared folders** curated
+  by the org's admins (or ws-admins for workspace-owned tiles) with the
+  same draft/save flow, plus every remaining readable tile flat at the
+  root, and the org's screens. Personal top-level folders work as before.
+  Protocol: `GET /screens` gains `rev/updatedBy/updatedAt` per org screen
+  and a `folders` map; `PUT /screens/org` takes `rev`/`force` (stale →
+  409 with the current screen), returns `{id, rev, …}`, and accepts a
+  tiles-less meta-only body; new `PUT /screens/folders`. Non-breaking: a
+  tiles write without `rev` is still accepted as a legacy overwrite, so a
+  workspace whose `shell/` predates this keeps working — take the
+  `scaffold:shell` builtin update for the new UX. Docs: auth.md §Shared
+  screens and folders, overview/04-frontend.md, protocol.md.
+
 - **Organisation network sets — per-org egress policy (D54).** A startup's
   orgs rarely want the same network: `devs` the office LAN + internet,
   `infra` all of `10/8` + the host network, `sales` the internet only. A

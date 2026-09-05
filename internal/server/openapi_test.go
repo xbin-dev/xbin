@@ -32,6 +32,7 @@ func TestOpenAPISpec(t *testing.T) {
 		"/runtime":                 {"get", "admin"},
 		"/whoami":                  {"get", "authenticated"},
 		"/users":                   {"post", "xbin:users"},
+		"/screens/folders":         {"put", "admin (ws) / org admin (org:<id>)"},
 	}
 	for p, w := range want {
 		item, ok := paths[p].(oapi)

@@ -283,16 +283,33 @@ POST   /account/password          signed-in users. {current, new} — self-
                                    service rotation; verifies the current
                                    password (D38)
 GET    /screens                   signed-in. {default: {tiles}|null, org:
-                                   [{id,org,name,edit,tiles,canEdit}]} —
-                                   the ws default screen + your orgs'
-                                   screens (D37)
+                                   [{id,org,name,edit,tiles,rev,updatedBy,
+                                   updatedAt,canEdit}], folders: {"ws":
+                                   {folders,rev,updatedBy,updatedAt,canEdit},
+                                   "org:<id>": {…}}} — the ws default
+                                   screen, your orgs' screens, and the
+                                   shared sidebar folder sets you may see
+                                   (ws always; each org you belong to;
+                                   ws-admins: every org) (D37/D55)
 PUT    /screens/default           ws-admin. {tiles} — the seed screen new
                                    users start from
-PUT    /screens/org               {id?,org,name?,edit?,tiles} — create
-                                   (org admin) / edit tiles (per the
-                                   screen's edit knob: admins|write|
-                                   members) / meta changes (org admin)
+PUT    /screens/org               {id?,org,name?,edit?,tiles?,rev?,force?}
+                                   — create (no id; org admin) → {ok,id,
+                                   rev:1,…}; a tiles update follows the
+                                   screen's edit knob (admins|write|
+                                   members) and carries `rev`, the
+                                   revision it was based on: stale → 409
+                                   {error, rev, screen} unless force:true;
+                                   no rev = legacy overwrite. No tiles =
+                                   meta-only (name/edit; org admin), which
+                                   never bumps the revision (D55)
 DELETE /screens/org               org admin. {id, org}
+PUT    /screens/folders           {scope:"ws"|"org:<id>", folders:[…], rev,
+                                   force?} — replace one owner section's
+                                   curated sidebar tree (ws: ws-admin;
+                                   org: its admins). rev 0 for a scope's
+                                   first save; stale → 409 {error, rev,
+                                   folders}; folders:[] clears (D55)
 POST   /users/<id>/invite         admin/xbin:users — or an ORG ADMIN for a
                                    non-admin member of their org
                                    (delegated reset-by-link, D38).

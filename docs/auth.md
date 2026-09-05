@@ -610,10 +610,22 @@ proving the current one. Org admins may re-mint invite links for NON-ADMIN
 members of their orgs — delegated reset-by-link; admin accounts stay
 ws-admin-only to reset.
 
-**Shared screens (D37).** A ws-admin-curated default screen seeds every new
-user's first screen; org screens are member-visible layouts with an `edit`
-knob (admins | write | members) governing who may rearrange — server-
-enforced on save, read-only in the shell for everyone else.
+**Shared screens and folders (D37/D55).** A ws-admin-curated default screen
+seeds every new user's first screen; org screens are member-visible layouts
+with an `edit` knob (admins | write | members) governing who may rearrange
+— server-enforced on save. Editing is explicit, dashboard-style: the shell
+shows an org screen read-only, an editor opens a local **draft**, and only
+*Save and update for everyone* publishes it. Every save names the
+**revision** it was based on; a stale save is refused with the current
+screen so the editor can reload theirs or overwrite — nobody clobbers
+anybody silently. Drafts are personal (they live in the editor's own
+layout pref and survive a reload); rename/knob changes are org-admin acts
+that never bump the revision. The same store and rules cover **shared
+sidebar folders**: the curated tree under an owner section — `ws` for
+workspace-owned tiles (ws-admins curate) and `org:<id>` for an org's tiles
+(its admins curate) — which members see read-only. Creation, rename, knob
+and delete stay org-admin acts; suspended members see nothing; ws-admins
+see and may edit everything.
 
 And the people-plane request loop: any signed-in user can **ask for access**
 (`POST /access-requests`, `bx access <tile> request`, or simply navigating

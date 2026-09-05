@@ -2,6 +2,8 @@ package broker
 
 import (
 	"encoding/json"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -127,5 +129,165 @@ func TestScreensAndAccountFlows(t *testing.T) {
 	carol = principalFor(t, st, "carol")
 	if w := call(t, b.apiUsersInvite, carol, "POST", "/users/root2/invite", "", map[string]string{"id": "root2"}); w.Code != 403 {
 		t.Fatalf("resetting an ADMIN user must stay ws-admin-only: %d", w.Code)
+	}
+}
+
+// D55: revisions on org screens (409 on a stale tile save, legacy write
+// without rev still accepted, meta-only edits don't bump), and the shared
+// sidebar folder sets with the same rule and the ws/org gates.
+func TestScreensRevisionsAndFolders(t *testing.T) {
+	b, st := orgFixture(t) // sales: carol admin, bob write-level, alice read; dave outsider; root2 ws-admin
+	carol := principalFor(t, st, "carol")
+	bob := principalFor(t, st, "bob")
+	alice := principalFor(t, st, "alice")
+	dave := principalFor(t, st, "dave")
+	root := auth.Principal{Owner: true}
+
+	var res struct {
+		ID        string `json:"id"`
+		Rev       int    `json:"rev"`
+		UpdatedBy string `json:"updatedBy"`
+		UpdatedAt string `json:"updatedAt"`
+		Error     string `json:"error"`
+	}
+	put := func(p auth.Principal, body string) int {
+		t.Helper()
+		w := call(t, b.apiScreensOrgPut, p, "PUT", "/screens/org", body, nil)
+		res = struct {
+			ID        string `json:"id"`
+			Rev       int    `json:"rev"`
+			UpdatedBy string `json:"updatedBy"`
+			UpdatedAt string `json:"updatedAt"`
+			Error     string `json:"error"`
+		}{}
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code
+	}
+	if c := put(carol, `{"org":"sales","name":"HQ","edit":"write","tiles":[{"path":"apps/email"}]}`); c != 200 || res.ID == "" || res.Rev != 1 || res.UpdatedBy != "carol" || res.UpdatedAt == "" {
+		t.Fatalf("create: %d %+v", c, res)
+	}
+	id := res.ID
+	// bob saves against rev 1 → 2; carol's rev-1 save is stale → 409 carrying bob's tiles.
+	if c := put(bob, `{"id":"`+id+`","org":"sales","tiles":[{"path":"apps/welcome"}],"rev":1}`); c != 200 || res.Rev != 2 || res.UpdatedBy != "bob" {
+		t.Fatalf("bob rev1: %d %+v", c, res)
+	}
+	w := call(t, b.apiScreensOrgPut, carol, "PUT", "/screens/org", `{"id":"`+id+`","org":"sales","tiles":[],"rev":1}`, nil)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"rev":2`) || !strings.Contains(w.Body.String(), `apps/welcome`) || !strings.Contains(w.Body.String(), "saved by bob") {
+		t.Fatalf("stale save: %d %s", w.Code, w.Body.String())
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales","tiles":[],"rev":1,"force":true}`); c != 200 || res.Rev != 3 {
+		t.Fatalf("force: %d %+v", c, res)
+	}
+	// Legacy write (no rev): accepted, bumps.
+	if c := put(bob, `{"id":"`+id+`","org":"sales","tiles":[{"path":"apps/email"}]}`); c != 200 || res.Rev != 4 {
+		t.Fatalf("legacy: %d %+v", c, res)
+	}
+	// Meta-only: admin renames without touching the revision; members can't; empty body is a 400.
+	if c := put(carol, `{"id":"`+id+`","org":"sales","name":"HQ2"}`); c != 200 || res.Rev != 4 {
+		t.Fatalf("rename: %d %+v", c, res)
+	}
+	if c := put(bob, `{"id":"`+id+`","org":"sales","name":"nope"}`); c != 403 {
+		t.Fatalf("member rename: %d %+v", c, res)
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales"}`); c != 400 {
+		t.Fatalf("nothing to change: %d %+v", c, res)
+	}
+	w = call(t, b.apiScreensGet, alice, "GET", "/screens", "", nil)
+	if !strings.Contains(w.Body.String(), `"name":"HQ2"`) || !strings.Contains(w.Body.String(), `"rev":4`) || !strings.Contains(w.Body.String(), `"updatedBy":"bob"`) {
+		t.Fatalf("get after rename: %s", w.Body.String())
+	}
+
+	// Folder sets.
+	fput := func(p auth.Principal, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return call(t, b.apiScreensFoldersPut, p, "PUT", "/screens/folders", body, nil)
+	}
+	sales := `{"scope":"org:sales","folders":[{"id":"f1","name":"Pipeline","items":["apps/email"]}],"rev":0}`
+	for _, p := range []auth.Principal{alice, bob, dave} {
+		if w := fput(p, sales); w.Code != 403 {
+			t.Fatalf("non-admin folders: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if w := fput(carol, sales); w.Code != 200 || !strings.Contains(w.Body.String(), `"rev":1`) {
+		t.Fatalf("carol folders: %d %s", w.Code, w.Body.String())
+	}
+	if w := fput(carol, sales); w.Code != 409 || !strings.Contains(w.Body.String(), `"rev":1`) || !strings.Contains(w.Body.String(), `Pipeline`) {
+		t.Fatalf("stale folders: %d %s", w.Code, w.Body.String())
+	}
+	if w := fput(carol, strings.Replace(sales, `"rev":0`, `"rev":1`, 1)); w.Code != 200 || !strings.Contains(w.Body.String(), `"rev":2`) {
+		t.Fatalf("folders rev1: %d %s", w.Code, w.Body.String())
+	}
+	if w := fput(carol, strings.Replace(sales, `"rev":0`, `"rev":0,"force":true`, 1)); w.Code != 200 || !strings.Contains(w.Body.String(), `"rev":3`) {
+		t.Fatalf("folders force: %d %s", w.Code, w.Body.String())
+	}
+	ws := `{"scope":"ws","folders":[{"id":"w1","name":"Ops","items":["apps/calendar"]}],"rev":0}`
+	if w := fput(carol, ws); w.Code != 403 {
+		t.Fatalf("org admin on ws folders: %d", w.Code)
+	}
+	if w := fput(root, ws); w.Code != 200 {
+		t.Fatalf("root ws folders: %d %s", w.Code, w.Body.String())
+	}
+	if w := fput(carol, `{"scope":"org:nope","folders":[],"rev":0}`); w.Code != 404 {
+		t.Fatalf("unknown org: %d", w.Code)
+	}
+	if w := fput(root, `{"scope":"ws","folders":{},"rev":0}`); w.Code != 400 {
+		t.Fatalf("non-array folders: %d", w.Code)
+	}
+	if w := fput(root, `{"scope":"team:x","folders":[],"rev":0}`); w.Code != 400 {
+		t.Fatalf("bad scope: %d", w.Code)
+	}
+	if w := fput(root, `{"scope":"ws","folders":[]}`); w.Code != 400 {
+		t.Fatalf("missing rev: %d", w.Code)
+	}
+
+	// Views: members see their org's set read-only and ws read-only; the
+	// outsider only ws; root edits both.
+	type fview struct {
+		Rev     int  `json:"rev"`
+		CanEdit bool `json:"canEdit"`
+	}
+	var view struct {
+		Folders map[string]fview `json:"folders"`
+	}
+	get := func(p auth.Principal) {
+		t.Helper()
+		w := call(t, b.apiScreensGet, p, "GET", "/screens", "", nil)
+		view.Folders = nil
+		if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get(alice)
+	if f := view.Folders["org:sales"]; f.Rev != 3 || f.CanEdit || view.Folders["ws"].CanEdit || view.Folders["ws"].Rev != 1 {
+		t.Fatalf("alice folders view: %+v", view.Folders)
+	}
+	get(carol)
+	if !view.Folders["org:sales"].CanEdit || view.Folders["ws"].CanEdit {
+		t.Fatalf("carol folders view: %+v", view.Folders)
+	}
+	get(dave)
+	if _, has := view.Folders["org:sales"]; has || len(view.Folders) != 1 {
+		t.Fatalf("outsider folders view: %+v", view.Folders)
+	}
+	get(root)
+	if !view.Folders["org:sales"].CanEdit || !view.Folders["ws"].CanEdit {
+		t.Fatalf("root folders view: %+v", view.Folders)
+	}
+
+	// Compat: a pre-D55 document (no rev, no folders) loads as rev 1 with an
+	// empty ws set, and the first revisioned save works.
+	if err := b.screensWrite(screensDoc{Org: []orgScreen{{ID: "old", Org: "sales", Name: "n", Edit: "admins", Tiles: json.RawMessage(`[]`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	get(alice)
+	if f := view.Folders["ws"]; f.Rev != 0 || len(view.Folders) != 2 {
+		t.Fatalf("legacy doc folders: %+v", view.Folders)
+	}
+	w = call(t, b.apiScreensGet, carol, "GET", "/screens", "", nil)
+	if !strings.Contains(w.Body.String(), `"id":"old"`) || !strings.Contains(w.Body.String(), `"rev":1`) {
+		t.Fatalf("legacy screen rev: %s", w.Body.String())
+	}
+	if c := put(carol, `{"id":"old","org":"sales","tiles":[{"path":"apps/email"}],"rev":1}`); c != 200 || res.Rev != 2 {
+		t.Fatalf("legacy screen save: %d %+v", c, res)
 	}
 }

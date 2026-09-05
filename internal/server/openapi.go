@@ -115,6 +115,22 @@ func endpoints() []ep {
 		{"PUT", "/prefs/{key}", "Prefs", "Set one pref", "authenticated", "Body is the arbitrary JSON value to store.", []oapi{pathParam("key", "pref key")}, freeBody("the JSON value to store"), "ok"},
 		{"DELETE", "/prefs/{key}", "Prefs", "Delete one pref", "authenticated", "", []oapi{pathParam("key", "pref key")}, nil, "ok"},
 
+		// --- shared screens & sidebar folders (D37/D55) ---
+		{"GET", "/screens", "Screens", "Shared layouts visible to the caller", "authenticated",
+			"The ws-admin default screen (everyone), the caller's orgs' screens (each with rev/updatedBy/updatedAt and canEdit per the screen's edit knob), and the folder sets they may see: `ws` always, plus `org:<id>` for every org they belong to (ws-admins: all).",
+			nil, nil, "{default: {tiles}|null, org: [{id,org,name,edit,tiles,rev,updatedBy,updatedAt,canEdit}], folders: {scope: {folders,rev,updatedBy,updatedAt,canEdit}}}"},
+		{"PUT", "/screens/default", "Screens", "Set the workspace default screen", "admin",
+			"The seed screen every new user starts from (root/index.html's <bx-frame> pins stay the fallback).",
+			nil, jsonBody("layout", oapi{"tiles": arr()}, "tiles"), "ok"},
+		{"PUT", "/screens/org", "Screens", "Create or update an org screen", "org admin / per edit knob",
+			"Create (no id; org admin or ws-admin) returns the new id at rev 1. A tiles update is gated by the screen's edit knob (admins|write|members) and carries `rev`, the revision it was based on: a stale one is refused with 409 {error, rev, screen} unless force:true; a body without rev is the legacy overwrite. A body without tiles is a meta-only edit (name/edit — org admins), which never bumps the revision.",
+			nil, jsonBody("screen", oapi{"id": str("omit to create"), "org": str(""), "name": str(""), "edit": str("admins|write|members"), "tiles": arr(), "rev": oapi{"type": "integer"}, "force": boolean()}, "org"), "{ok, id, rev, updatedBy, updatedAt} | 409 {error, rev, screen}"},
+		{"DELETE", "/screens/org", "Screens", "Delete an org screen", "org admin", "",
+			nil, jsonBody("screen ref", oapi{"id": str(""), "org": str("")}, "id", "org"), "ok"},
+		{"PUT", "/screens/folders", "Screens", "Replace one owner section's curated sidebar tree", "admin (ws) / org admin (org:<id>)",
+			"The shared folder tree members see under that owner section. `scope` is `ws` (workspace-owned tiles; ws-admin) or `org:<id>` (that org's admins, ws-admins too). Carries the revision it was based on (0 for a scope's first save); stale → 409 {error, rev, folders} unless force:true. `folders: []` clears the scope.",
+			nil, jsonBody("folder set", oapi{"scope": str("ws | org:<id>"), "folders": arr(), "rev": oapi{"type": "integer"}, "force": boolean()}, "scope", "folders", "rev"), "{ok, rev, updatedBy, updatedAt} | 409 {error, rev, folders}"},
+
 		// --- users ---
 		{"GET", "/users", "Users", "List users", "xbin:users",
 			"Human users and their per-tile permissions, plus sign-in facts (lastLogin, lastLoginVia, ssoGroups seen at the last SSO sign-in, ssoSyncError) and roleVia (\"sso\" when the admin role came from a group rule). Admin or the xbin:users grant.", nil, nil, "{users:[{id,name,email,role,roleVia,tiles,canCreate,termApi,termNet,disabled,invitePending,lastLogin,lastLoginVia,ssoGroups,ssoSyncError}]}"},
