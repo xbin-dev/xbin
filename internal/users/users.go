@@ -92,6 +92,23 @@ type User struct {
 	InviteHash    string `json:"inviteHash,omitempty"`
 	InviteExpires int64  `json:"inviteExpires,omitempty"`
 	Created       int64  `json:"created"`
+	// RoleVia records that the admin role was granted by an SSO admin-group
+	// rule ("sso"; groups.go). "" = set by hand. Only "sso"-granted admins
+	// are ever demoted by group sync — a hand promotion is never undone by
+	// the IdP.
+	RoleVia string `json:"roleVia,omitempty"`
+	// LastLogin / LastLoginVia: unix time and channel (password | invite |
+	// sso) of the last successful sign-in — the admin console's offboarding
+	// signal ("never signed in", "stale 30d+").
+	LastLogin    int64  `json:"lastLogin,omitempty"`
+	LastLoginVia string `json:"lastLoginVia,omitempty"`
+	// SSOGroups are the provider groups seen at the last SSO sign-in (sorted,
+	// deduped, capped) — what the admin UI offers when writing group rules,
+	// so nobody has to guess the IdP's spelling. SSOSyncError is the last
+	// group-fetch failure at sign-in ("" once a fetch succeeds again);
+	// memberships are never changed on failure.
+	SSOGroups    []string `json:"ssoGroups,omitempty"`
+	SSOSyncError string   `json:"ssoSyncError,omitempty"`
 }
 
 // UnmarshalJSON accepts both the current shape (tiles as a path→level map) and
@@ -115,6 +132,11 @@ func (u *User) UnmarshalJSON(b []byte) error {
 		InviteHash    string          `json:"inviteHash"`
 		InviteExpires int64           `json:"inviteExpires"`
 		Created       int64           `json:"created"`
+		RoleVia       string          `json:"roleVia"`
+		LastLogin     int64           `json:"lastLogin"`
+		LastLoginVia  string          `json:"lastLoginVia"`
+		SSOGroups     []string        `json:"ssoGroups"`
+		SSOSyncError  string          `json:"ssoSyncError"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
@@ -123,11 +145,15 @@ func (u *User) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return fmt.Errorf("user %q: %w", raw.ID, err)
 	}
+	// Every persisted field must be listed here — a field missing from this
+	// literal is silently dropped on reload (the 2026-09-05 email incident).
 	*u = User{
 		ID: raw.ID, Name: raw.Name, Email: raw.Email, Role: raw.Role, Tiles: tiles,
 		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
 		Disabled: raw.Disabled, PassHash: raw.PassHash, InviteHash: raw.InviteHash,
 		InviteExpires: raw.InviteExpires, Created: raw.Created,
+		RoleVia: raw.RoleVia, LastLogin: raw.LastLogin, LastLoginVia: raw.LastLoginVia,
+		SSOGroups: raw.SSOGroups, SSOSyncError: raw.SSOSyncError,
 	}
 	return nil
 }
@@ -302,6 +328,11 @@ type Store struct {
 	// boot; same protection class as the password hashes in this file (0600,
 	// masked out of every terminal mount).
 	sso *SSOConfig
+	// passwordLoginDisabled is SSO-only mode (D53): non-admin accounts can't
+	// sign in with a password (or be invited to set one); admins keep
+	// password sign-in as the break-glass path. Requires SSO to be
+	// configured; cleared when SSO is removed.
+	passwordLoginDisabled bool
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -337,6 +368,7 @@ func Open(dataDir string) (*Store, error) {
 		SSO                *SSOConfig                `json:"sso"`
 		NewUsers           NewUserDefaults           `json:"newUsers"`
 		TileCreation       string                    `json:"tileCreation"`
+		PasswordLoginOff   bool                      `json:"passwordLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -359,6 +391,7 @@ func Open(dataDir string) (*Store, error) {
 	if doc.TileCreation == TileCreationOrgOnly {
 		s.tileCreation = doc.TileCreation
 	}
+	s.passwordLoginDisabled = doc.PasswordLoginOff && s.sso.Enabled()
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -402,6 +435,41 @@ func (s *Store) SetTokenLoginDisabled(v bool) error {
 		return fmt.Errorf("create an admin user before disabling token login")
 	}
 	s.tokenLoginDisabled = v
+	return s.persistLocked()
+}
+
+// PasswordLoginDisabled reports SSO-only mode (see the field doc).
+func (s *Store) PasswordLoginDisabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.passwordLoginDisabled
+}
+
+// SetPasswordLoginDisabled toggles SSO-only mode. Enabling it needs a
+// configured SSO provider — otherwise non-admins would have no way in.
+func (s *Store) SetPasswordLoginDisabled(v bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v && !s.sso.Enabled() {
+		return fmt.Errorf("configure SSO before disabling password sign-in")
+	}
+	s.passwordLoginDisabled = v
+	return s.persistLocked()
+}
+
+// TouchLogin stamps a successful sign-in (via: password | invite | sso).
+// Called after every session creation; a failure only logs upstream — it
+// must never block a login.
+func (s *Store) TouchLogin(id, via string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.byID[normalizeID(id)]
+	if u == nil {
+		return fmt.Errorf("no such user %q", id)
+	}
+	nu := *u
+	nu.LastLogin, nu.LastLoginVia = timeNow(), via
+	s.byID[nu.ID] = &nu
 	return s.persistLocked()
 }
 
@@ -529,6 +597,15 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		if u.InviteHash == "" { // a plain update must not burn a pending invite
 			u.InviteHash, u.InviteExpires = existing.InviteHash, existing.InviteExpires
 		}
+		// Sign-in facts are store-owned (TouchLogin / group sync), never part
+		// of an API update. Role provenance survives only while the role does:
+		// a manual role change is manual provenance.
+		u.LastLogin, u.LastLoginVia = existing.LastLogin, existing.LastLoginVia
+		u.SSOGroups, u.SSOSyncError = existing.SSOGroups, existing.SSOSyncError
+		u.RoleVia = ""
+		if u.Role == existing.Role {
+			u.RoleVia = existing.RoleVia
+		}
 	} else {
 		u.Created = time.Now().Unix()
 		s.seedNewUserLocked(&u) // new-account defaults (D52) — union with the request
@@ -638,6 +715,9 @@ func (s *Store) persistLocked() error {
 	}
 	if s.tileCreation != "" {
 		doc["tileCreation"] = s.tileCreation
+	}
+	if s.passwordLoginDisabled {
+		doc["passwordLoginDisabled"] = true
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))

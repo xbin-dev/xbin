@@ -275,3 +275,44 @@ func TestSessionPrincipalOrgAccess(t *testing.T) {
 		t.Fatal("org member is not a workspace admin")
 	}
 }
+
+// DropUserSessions (D53): every session and terminal token of ONE user dies;
+// other users' sessions keep authenticating.
+func TestDropUserSessions(t *testing.T) {
+	a := testAuth(t)
+	st, err := users.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetUsers(st)
+	for _, id := range []string{"bob", "eve"} {
+		if _, err := st.Upsert(users.User{ID: id, Role: users.RoleUser}, "password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bob1, bob2, eve := a.NewSession("bob", "1.1.1.1"), a.NewSession("bob", "2.2.2.2"), a.NewSession("eve", "")
+	term := a.MintTerminal("apps/x", "bob")
+	if n := a.DropUserSessions("bob"); n != 2 {
+		t.Fatalf("dropped %d sessions, want 2", n)
+	}
+	for _, id := range []string{bob1, bob2} {
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: id})
+		if _, ok := a.FromRequest(r); ok {
+			t.Fatal("bob's session still authenticates")
+		}
+	}
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set("Authorization", "Bearer "+term)
+	if _, ok := a.FromRequest(r); ok {
+		t.Fatal("bob's terminal token still authenticates")
+	}
+	r = httptest.NewRequest("GET", "/x", nil)
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: eve})
+	if p, ok := a.FromRequest(r); !ok || p.UserID != "eve" {
+		t.Fatalf("eve's session must survive: %+v %v", p, ok)
+	}
+	if n := a.DropUserSessions("bob"); n != 0 {
+		t.Fatalf("second drop: %d", n)
+	}
+}

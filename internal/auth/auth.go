@@ -362,6 +362,29 @@ func (a *Auth) DropSession(id string) {
 	a.mu.Unlock()
 }
 
+// DropUserSessions ends every browser session of one user ("sign out
+// everywhere", D53) and revokes the terminal tokens minted for them, so
+// shells they had open lose their API credential too (the socket itself
+// stays attached until it reconnects). Frame tokens are stateless HMACs and
+// simply expire (frameTokenTTL). Returns the number of sessions dropped.
+func (a *Auth) DropUserSessions(userID string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for id, s := range a.sessions {
+		if s.userID == userID {
+			delete(a.sessions, id)
+			n++
+		}
+	}
+	for tok, t := range a.terminals {
+		if t.userID == userID {
+			delete(a.terminals, tok)
+		}
+	}
+	return n
+}
+
 // sessionUser resolves a session id to its user, enforcing expiry: a session
 // dies after sessionIdleTTL of inactivity (sliding) or sessionAbsTTL since
 // login (hard cap), whichever first — so a stolen cookie can't authenticate

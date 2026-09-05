@@ -32,6 +32,24 @@ type SSOConfig struct {
 	// binding-only (every user pre-created with a matching Email).
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
 	ButtonLabel    string   `json:"buttonLabel,omitempty"` // login-page button text (preset default when empty)
+	// Group sync (D53, groups.go). GroupsClaim is the ID-token/UserInfo claim
+	// carrying the user's groups for generic OIDC ("" → "groups"; ignored for
+	// github and the google preset, which have their own fetch). GroupsScope
+	// is an extra OAuth scope some IdPs need to emit it (Okta: "groups") —
+	// requested only while group rules exist. AdminGroups: members of these
+	// provider groups are WORKSPACE admins (User.RoleVia "sso"), with the
+	// SyncSSOGroups guards.
+	GroupsClaim string   `json:"groupsClaim,omitempty"`
+	GroupsScope string   `json:"groupsScope,omitempty"`
+	AdminGroups []string `json:"adminGroups,omitempty"`
+}
+
+// GroupsClaimName is the effective OIDC claim name for groups.
+func (c *SSOConfig) GroupsClaimName() string {
+	if c == nil || c.GroupsClaim == "" {
+		return "groups"
+	}
+	return c.GroupsClaim
 }
 
 // Enabled reports whether SSO sign-in is configured.
@@ -63,6 +81,7 @@ func (s *Store) SSO() *SSOConfig {
 	}
 	c := *s.sso
 	c.AllowedDomains = append([]string(nil), s.sso.AllowedDomains...)
+	c.AdminGroups = append([]string(nil), s.sso.AdminGroups...)
 	return &c
 }
 
@@ -74,6 +93,9 @@ func (s *Store) SetSSO(c *SSOConfig) error {
 	defer s.mu.Unlock()
 	if c == nil {
 		s.sso = nil
+		// Removing the IdP must never strand non-admins: SSO-only mode
+		// (passwordLoginDisabled) goes with it.
+		s.passwordLoginDisabled = false
 		return s.persistLocked()
 	}
 	switch c.Kind {
@@ -100,6 +122,12 @@ func (s *Store) SetSSO(c *SSOConfig) error {
 			cc.AllowedDomains = append(cc.AllowedDomains, d)
 		}
 	}
+	cc.GroupsClaim = strings.TrimSpace(c.GroupsClaim)
+	cc.GroupsScope = strings.TrimSpace(c.GroupsScope)
+	if strings.ContainsAny(cc.GroupsScope, " \t") {
+		return fmt.Errorf("groupsScope must be a single OAuth scope")
+	}
+	cc.AdminGroups = normGroupKeys(c.AdminGroups)
 	if cc.ClientSecret == "" && s.sso != nil {
 		cc.ClientSecret = s.sso.ClientSecret
 	}

@@ -64,6 +64,27 @@ type Member struct {
 	Create    bool   `json:"create,omitempty"`
 	Admin     bool   `json:"admin,omitempty"`
 	Suspended bool   `json:"suspended,omitempty"`
+	// Via is the membership's provenance (D53): "" = manual (an admin wrote
+	// it), MemberViaSSO = created by one of the org's group rules at an SSO
+	// sign-in. Synced rows are re-set to the rule's knobs on every sign-in and
+	// REMOVED when the rule or the group disappears; manual rows are never
+	// touched by sync. Only sync writes "sso"; the API can only clear it
+	// (detach → manual). ViaGroups names the rule groups that matched.
+	Via       string   `json:"via,omitempty"`
+	ViaGroups []string `json:"viaGroups,omitempty"`
+}
+
+// MemberViaSSO marks a membership created by group sync (groups.go).
+const MemberViaSSO = "sso"
+
+// GroupRule maps one IdP group to a membership shape in the org that holds
+// it (D53). Several rules matching one user union: highest level, create OR,
+// admin OR.
+type GroupRule struct {
+	Group  string `json:"group"` // provider key: OIDC claim value, "org/team-slug" or "org" (GitHub), group email (Google)
+	Level  string `json:"level"` // read|write|terminal ("" → read)
+	Create bool   `json:"create,omitempty"`
+	Admin  bool   `json:"admin,omitempty"`
 }
 
 // Org is one organization (D25): a flat member list, per-tile shares (tiles
@@ -79,10 +100,14 @@ type Org struct {
 	Tiles map[string]string `json:"tiles,omitempty"`
 	// Sets / Allow are the delegated-approval configuration (ws-admin only):
 	// referenced permission sets plus per-org extra allowance entries.
-	Sets    []string    `json:"sets,omitempty"`
-	Allow   []string    `json:"allow,omitempty"`
-	Policy  []PolicyRow `json:"policy,omitempty"` // ceiling rows for org-OWNED tiles
-	Created int64       `json:"created"`
+	Sets   []string    `json:"sets,omitempty"`
+	Allow  []string    `json:"allow,omitempty"`
+	Policy []PolicyRow `json:"policy,omitempty"` // ceiling rows for org-OWNED tiles
+	// SSOGroups are the org's IdP-group → membership rules (D53; ws-admin
+	// edited via SetOrgSSOGroups). Applied by SyncSSOGroups at every SSO
+	// sign-in.
+	SSOGroups []GroupRule `json:"ssoGroups,omitempty"`
+	Created   int64       `json:"created"`
 }
 
 // Member returns the membership entry for a user, if any.
@@ -274,7 +299,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 			return nil, fmt.Errorf("org id %q is reserved", o.ID)
 		}
 	}
-	members, err := s.normMembersLocked(o.Members)
+	members, err := s.normMembersLocked(o.Members, existing)
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +313,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 		o.Sets = existing.Sets
 		o.Allow = existing.Allow
 		o.Policy = existing.Policy
+		o.SSOGroups = existing.SSOGroups
 	} else {
 		o.Created = time.Now().Unix()
 	}
@@ -385,7 +411,10 @@ func (s *Store) SetOrgTile(orgID, path, level string) error {
 }
 
 // normMembersLocked validates + dedups a member list (caller holds s.mu).
-func (s *Store) normMembersLocked(members []Member) ([]Member, error) {
+// Provenance (Via/ViaGroups) is store-owned: a whole-list edit keeps what the
+// previous row had and ignores whatever the client sent, so the org tile's
+// PATCH can never forge or strip "synced" (D53).
+func (s *Store) normMembersLocked(members []Member, existing *Org) ([]Member, error) {
 	seen := map[string]bool{}
 	out := make([]Member, 0, len(members))
 	for _, m := range members {
@@ -401,6 +430,12 @@ func (s *Store) normMembersLocked(members []Member) ([]Member, error) {
 		}
 		if levelRank(m.Level) == 0 {
 			return nil, fmt.Errorf("member %q: unknown level %q (want read|write|terminal)", m.ID, m.Level)
+		}
+		m.Via, m.ViaGroups = "", nil
+		if existing != nil {
+			if prev, ok := existing.Member(m.ID); ok {
+				m.Via, m.ViaGroups = prev.Via, prev.ViaGroups
+			}
 		}
 		seen[m.ID] = true
 		out = append(out, m)
@@ -1375,6 +1410,9 @@ type OrgMembership struct {
 	// Suspended: the membership is paused (D34) — shown so the member knows
 	// why the org's tiles are gone (rather than silently vanishing).
 	Suspended bool `json:"suspended,omitempty"`
+	// Via/ViaGroups: provenance (D53) — "sso" when a group rule created it.
+	Via       string   `json:"via,omitempty"`
+	ViaGroups []string `json:"viaGroups,omitempty"`
 }
 
 // UserOrgs lists the orgs a user belongs to with their role — whoami's
@@ -1388,7 +1426,8 @@ func (s *Store) UserOrgs(id string) []OrgMembership {
 	for _, o := range s.orgs {
 		if m, ok := o.Member(id); ok {
 			out = append(out, OrgMembership{ID: o.ID, Name: o.Name, Level: m.Level,
-				Create: m.Create, Admin: m.Admin, Suspended: m.Suspended})
+				Create: m.Create, Admin: m.Admin, Suspended: m.Suspended,
+				Via: m.Via, ViaGroups: append([]string(nil), m.ViaGroups...)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
