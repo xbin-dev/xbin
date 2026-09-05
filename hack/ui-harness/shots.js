@@ -147,7 +147,8 @@ async function screens(browser) {
   const sh = () => document.querySelector('bx-shell');
   const orgId = await page.evaluate(() => document.querySelector('bx-shell')._orgScreens.find((s) => s.org === 'devs')?.id);
   if (!orgId) { log('no devs org screen seeded'); await ctx.close(); await admin.ctx.close(); return; }
-  await page.evaluate((id) => document.querySelector('bx-shell')._openOrgScreen(id), orgId);
+  // a dirty draft from an earlier pass survives reloads by design — drop it so this pass starts in view mode
+  await page.evaluate((id) => { const s = document.querySelector('bx-shell'); if (s._orgDrafts?.[id]) s._dropDraft(id); s._openOrgScreen(id); }, orgId);
   await sleep(800);
   await shot(page, 'orgscreen-view', { fullPage: false });
   // edit layout → add a tile from the sidebar → dirty draft
@@ -176,6 +177,23 @@ async function screens(browser) {
   await page.locator('bx-shell .orgbar button', { hasText: 'Save and update' }).click();
   await sleep(1200);
   await shot(page, 'orgscreen-saved', { fullPage: false });
+  // sidebar trees: shared folders (devs: Crawling; ws: Docs) + flat roots
+  await shot(page, 'sidebar-trees', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
+  // curate devs' shared folders: ✎ → draft → new folder → file a tile → save
+  await page.locator('bx-shell .group.owner', { hasText: 'devs' }).hover();
+  await page.locator('bx-shell .group.owner', { hasText: 'devs' }).locator('button.pen').click();
+  await sleep(300);
+  await page.evaluate(() => {
+    const s = document.querySelector('bx-shell');
+    const ctx = s._folderCtx('org:devs');
+    ctx.mutate((fs) => [...fs, { id: 'f2', name: 'Pinned', icon: '📌', items: [] }]);
+    s._fileInto('f2', 'apps/pinned', s._folderCtx('org:devs'));
+  });
+  await sleep(400);
+  await shot(page, 'sidebar-folders-edit', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
+  await page.locator('bx-shell .secbar button', { hasText: 'Save for everyone' }).click();
+  await sleep(1000);
+  await shot(page, 'sidebar-folders-saved', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
   // hide the org tab → reopen from the sidebar entry
   await page.evaluate((id) => document.querySelector('bx-shell')._hideOrgTab(id), orgId);
   await sleep(500);
@@ -206,6 +224,9 @@ async function orgAdmin(browser, user, pass, tiles) {
   await page.goto(`${URL}/`);
   await page.waitForSelector('bx-shell', { timeout: 15000 });
   await sleep(1500);
+  // stay on a personal screen: a sidebar click on an org screen would open a draft
+  await page.evaluate(() => { const s = document.querySelector('bx-shell'); const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); } });
+  await sleep(300);
   for (const t of tiles) {
     await page.evaluate((p) => { const sh = document.querySelector('bx-shell'); if (!sh._isOpen(p)) sh._toggle(p); }, t);
     await sleep(800);

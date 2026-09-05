@@ -459,6 +459,29 @@ export class BxShell extends LitElement {
       color: var(--bx-accent, #f5a623);
       background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent);
     }
+    .group.folder.ro { cursor: pointer; }
+    .group.folder.ro .ficon { opacity: .8; }
+    /* ✎ on an owner header: curate that section's shared folders (D55) */
+    .group.owner .pen {
+      margin-left: auto; border: 0; background: none; cursor: pointer; padding: 0 3px;
+      color: var(--bx-muted, #8794a1); font-size: 11px; opacity: 0;
+    }
+    .group.owner:hover .pen { opacity: .8; }
+    .group.owner .pen:hover { opacity: 1; color: var(--bx-accent, #f5a623); }
+    .group.owner.editing { color: var(--bx-accent, #f5a623); }
+    /* the section's edit bar while curating shared folders */
+    .secbar {
+      margin: 2px 8px 4px; padding: 5px 7px; border-radius: 6px; font-size: 10.5px;
+      border: 1px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #fff));
+      color: var(--bx-text, #33414e);
+    }
+    .secbar .l { margin-bottom: 3px; }
+    .secbar .newer { color: var(--bx-amber, #f2a71b); margin-bottom: 3px; }
+    .secbar .newer a { cursor: pointer; text-decoration: underline; }
+    .secbar .r { display: flex; align-items: center; gap: 4px; }
+    .secbar .mini.go { color: #23272e; background: var(--bx-accent, #f5a623); border-radius: 4px; padding: 1px 6px; font-weight: 600; }
+    .secbar .mini.go:disabled { opacity: .45; cursor: default; }
     .group.owner { cursor: pointer; user-select: none; color: var(--bx-text, #33414e);
       border-top: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 60%, transparent); margin-top: 4px; }
     .group.owner .tri { flex: none; font-size: 9px; width: 10px; }
@@ -1062,6 +1085,11 @@ export class BxShell extends LitElement {
   // and "workspace" for the rest — the directory tree lives WITHIN each
   // section. Collapses to a flat tree when only one section exists (a solo
   // workspace shouldn't grow headers).
+  _ownerKeyOf(c) {
+    const owner = c?.owner ?? '';
+    if (this._myId && owner === 'user:' + this._myId) return 'mine';
+    return owner.startsWith('org:') ? owner : 'workspace';
+  }
   _ownerSections() {
     const filed = new Set((this._side.folders ?? []).flatMap((f) => f.items));
     const secs = new Map(); // key → {key, label, comps}
@@ -1076,30 +1104,14 @@ export class BxShell extends LitElement {
       if (c.template) continue; // blueprints aren't openable tiles (instantiate via Tile Manager)
       if (this._offloaded(c)) continue; // archived — restore from the admin console
       if (this._hidden(c) && !this._showHidden) continue; // D42: behind the show-hidden toggle
-      if (filed.has(c.path)) continue; // shown under its folder instead
-      const owner = c.owner ?? '';
-      if (this._myId && owner === 'user:' + this._myId) sec('mine', 'mine').comps.push(c);
-      else if (owner.startsWith('org:')) sec(owner, owner.slice(4)).comps.push(c);
-      else sec('workspace', 'workspace').comps.push(c);
+      if (filed.has(c.path)) continue; // shown under its personal folder instead
+      const key = this._ownerKeyOf(c);
+      sec(key, key === 'mine' ? 'mine' : key === 'workspace' ? 'workspace' : key.slice(4)).comps.push(c);
     }
-    // An org section also lists the org's screens, so it stays even without tiles.
+    // An org section also lists the org's screens, and a section whose shared
+    // folders are being curated stays put even while empty.
     const hasScreens = (key) => (this._orgScreens ?? []).some((o) => 'org:' + o.org === key);
-    return [...secs.values()].filter((x) => x.comps.length || hasScreens(x.key));
-  }
-
-  // The directory-tree grouping (top-level dir) within one section.
-  _groupComps(comps) {
-    const g = new Map();
-    for (const c of comps) {
-      const top = c.path.includes('/') ? c.path.split('/')[0] : 'workspace';
-      if (!g.has(top)) g.set(top, []);
-      g.get(top).push(c);
-    }
-    return [...g.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }
-
-  get _groups() { // flat view over every section (empty-state + filtering checks)
-    return this._groupComps(this._ownerSections().flatMap((x) => x.comps));
+    return [...secs.values()].filter((x) => x.comps.length || hasScreens(x.key) || !!this._folderDrafts?.[this._scopeOf(x.key)]);
   }
 
   _toggleOwnerSec(key) {
@@ -1108,15 +1120,82 @@ export class BxShell extends LitElement {
     this._saveSide({ ownerCollapsed: cur });
   }
 
-  // _sideLabel shortens an item's label for its group: org tiles drop
-  // everything up to the o/<org>/ marker (the group header carries it), others
-  // drop their top-level dir as before. The tooltip keeps the full path.
-  _sideLabel(top, path) {
-    if (top.startsWith('o/')) {
-      const i = path.indexOf(top + '/');
-      if (i >= 0) return path.slice(i + top.length + 1);
+  // Flat-tree labels (D55): the basename, or the full path when two tiles in
+  // the section share one. The tooltip always carries the full path.
+  _labelsFor(comps) {
+    const base = (p) => p.slice(p.lastIndexOf('/') + 1);
+    const n = {};
+    for (const c of comps) n[base(c.path)] = (n[base(c.path)] ?? 0) + 1;
+    return new Map(comps.map((c) => [c.path, n[base(c.path)] > 1 ? c.path : base(c.path)]));
+  }
+
+  // ---- folder contexts (D55): which folder list a tree renders and how it mutates ----
+  // 'top'      — the user's own top-level folders (_side.folders): any tile,
+  //              parked tabs, org-screen refs; always editable, saved at once.
+  // 'ws' / 'org:<id>' — a shared, curated set under that owner section
+  //              (/screens.folders): editable only through a draft, by its
+  //              curators (ws-admins / the org's admins); read-only otherwise.
+  _scopeOf(sectionKey) { return sectionKey === 'workspace' ? 'ws' : sectionKey?.startsWith('org:') ? sectionKey : null; }
+  _sectionOf(scope) { return scope === 'ws' ? 'workspace' : scope; }
+  _folderCtx(key) {
+    if (key === 'top') {
+      return { key, shared: false, folders: this._side.folders ?? [], canEdit: true, curator: true,
+        mutate: (fn) => this._saveSide({ folders: fn(this._side.folders ?? []) }) };
     }
-    return path.includes('/') ? path.slice(path.indexOf('/') + 1) : path;
+    const set = this._sharedFolders?.[key];
+    const draft = this._folderDrafts?.[key];
+    return { key, shared: true, set, draft,
+      folders: draft?.folders ?? set?.folders ?? [],
+      canEdit: !!draft, curator: !!set?.canEdit,
+      mutate: (fn) => {
+        const d = this._folderDrafts?.[key];
+        if (!d) return;
+        this._folderDrafts = { ...this._folderDrafts, [key]: { ...d, folders: fn(d.folders), dirty: true } };
+        this._save();
+      } };
+  }
+  _isFolderOpen(f, ctx) {
+    if (this._sideQ.trim()) return true; // force-open while filtering
+    return ctx.shared ? (this._side.sharedOpen?.[f.id] ?? true) : !!f.open;
+  }
+
+  // ---- shared folder drafts (D55): curate, then "Save and update for everyone" ----
+  _enterFolderEdit(scope) {
+    const set = this._sharedFolders?.[scope];
+    if (!set?.canEdit || this._folderDrafts?.[scope]) return;
+    this._folderDrafts = { ...this._folderDrafts, [scope]: {
+      folders: (set.folders ?? []).map((f) => ({ ...f, items: [...(f.items ?? [])] })), baseRev: set.rev ?? 0, dirty: false } };
+    const sec = this._sectionOf(scope);
+    if (this._side.ownerCollapsed?.[sec]) this._toggleOwnerSec(sec);
+  }
+  _dropFolderDraft(scope) {
+    const { [scope]: _, ...rest } = this._folderDrafts ?? {};
+    this._folderDrafts = rest;
+    this._save();
+  }
+  _discardFolderDraft(scope) {
+    const d = this._folderDrafts?.[scope];
+    if (!d) return;
+    if (d.dirty && !confirm('Discard your unsaved changes to the shared folders?')) return;
+    this._dropFolderDraft(scope);
+  }
+  async _saveFolderDraft(scope, force = false) {
+    const d = this._folderDrafts?.[scope];
+    if (!d) return;
+    const who = scope === 'ws' ? 'the workspace' : scope.slice(4);
+    try {
+      const r = await fetch('/api/xbin/screens/folders', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, folders: d.folders, rev: d.baseRev, force }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.status === 409) { this._conflict = this._conflictSpec('folders', scope, body); return; }
+      if (!r.ok) { this._pushToast('sidebar', { level: 'error', message: body.error ?? `save failed (${r.status})` }); return; }
+      this._sharedFolders = { ...this._sharedFolders, [scope]: { ...(this._sharedFolders?.[scope] ?? {}),
+        folders: d.folders, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt, canEdit: true } };
+      this._dropFolderDraft(scope);
+      this._pushToast('sidebar', { level: 'ok', message: `shared folders saved — everyone in ${who} sees rev ${body.rev}` });
+    } catch { this._pushToast('sidebar', { level: 'error', message: 'offline — try again' }); }
   }
 
   // ---- tile-spawned dialogs & pop-out windows (docs/elements.md) ----
@@ -1321,13 +1400,18 @@ export class BxShell extends LitElement {
     window.dispatchEvent(new CustomEvent('bx-ambient-zoom', { detail: { zoom: z } }));
   }
 
-  _addFolder() {
+  // Every folder operation takes a context (see _folderCtx): the user's own
+  // top-level folders, or a shared set being curated through a draft.
+  _addFolder(ctx = this._folderCtx('top')) {
+    if (!ctx.canEdit) return;
     const name = prompt('Folder name');
     if (!name?.trim()) return;
-    this._saveSide({ folders: [...this._side.folders, { id: uid(), name: name.trim(), open: true, items: [] }] });
+    const f = { id: uid(), name: name.trim(), items: [] };
+    if (!ctx.shared) f.open = true;
+    ctx.mutate((fs) => [...fs, f]);
   }
-  _folderDialog(f) {
-    this._folderEdit = { id: f.id, spec: {
+  _folderDialog(f, ctx) {
+    this._folderEdit = { id: f.id, ctxKey: ctx.key, spec: {
       title: 'Folder', message: 'Name and an optional emoji icon.',
       fields: [
         { name: 'name', label: 'Name', value: f.name },
@@ -1342,13 +1426,13 @@ export class BxShell extends LitElement {
     if (!edit || button !== 'save') return;
     const name = (values.name || '').trim();
     const icon = (values.icon || '').trim().slice(0, 4); // 1–2 emoji
-    this._saveSide({ folders: this._side.folders.map((f) =>
-      f.id === edit.id ? { ...f, name: name || f.name, icon } : f) });
+    this._folderCtx(edit.ctxKey ?? 'top').mutate((fs) => fs.map((f) =>
+      f.id === edit.id ? { ...f, name: name || f.name, icon } : f));
   }
 
   // Move a component into folderId, positioned before beforePath (or at the end).
-  _moveInto(folderId, path, beforePath) {
-    this._saveSide({ folders: this._side.folders.map((f) => {
+  _moveInto(folderId, path, beforePath, ctx) {
+    ctx.mutate((fs) => fs.map((f) => {
       let items = f.items.filter((p) => p !== path);
       if (f.id === folderId) {
         const i = beforePath ? items.indexOf(beforePath) : -1;
@@ -1356,58 +1440,86 @@ export class BxShell extends LitElement {
         items = [...items.slice(0, at), path, ...items.slice(at)];
       }
       return { ...f, items };
-    }) });
+    }));
   }
 
-  _dropOnItem(e, targetPath, folderId) {
+  // Drop onto a row: inside a folder = reorder there; on a root row = unfile
+  // from that row's context (a shared scope only while curating it).
+  _dropOnItem(e, targetPath, folderId, ctxKey) {
     e.preventDefault(); e.stopPropagation();
     this._dropBefore = null;
     const path = e.dataTransfer.getData('application/bx-comp');
     if (!path || path === targetPath) return;
-    if (folderId) this._moveInto(folderId, path, targetPath);
-    else this._fileInto('', path); // dropped on an ungrouped item → unfile
+    const ctx = this._folderCtx(ctxKey ?? 'top');
+    if (!ctx.canEdit) return;
+    if (folderId) this._moveInto(folderId, path, targetPath, ctx);
+    else this._fileInto('', path, ctx);
   }
-  _deleteFolder(f) {
-    // Components return to their prefix groups; child folders re-parent up so
+  _deleteFolder(f, ctx) {
+    if (!ctx.canEdit) return;
+    // Components return to their section root; child folders re-parent up so
     // they aren't hidden; any screen parked only here re-opens as a tab.
     const parent = f.parent ?? null;
-    const folders = this._side.folders.filter((x) => x.id !== f.id)
-      .map((x) => (x.parent ?? null) === f.id ? { ...x, parent } : x);
+    ctx.mutate((fs) => fs.filter((x) => x.id !== f.id)
+      .map((x) => (x.parent ?? null) === f.id ? { ...x, parent } : x));
+    if (ctx.shared) return;
     const refs = f.items.filter((it) => this._isScreenItem(it)).map((it) => this._screenIdOf(it));
     if (refs.length) {
-      const stillTracked = (id) => folders.some((x) => x.items.includes('#screen:' + id));
+      const stillTracked = (id) => this._isTracked(id);
       this._screens = this._screens.map((s) =>
         (refs.includes(s.id) && s.parked && !stillTracked(s.id)) ? { ...s, parked: false } : s);
+      this._save();
     }
-    this._side = { ...this._side, folders };
-    this._save();
   }
-  _toggleFolder(f) {
-    this._saveSide({ folders: this._side.folders.map((x) => x.id === f.id ? { ...x, open: !x.open } : x) });
+  _toggleFolder(f, ctx) {
+    if (ctx.shared) { // open/closed is personal even for a shared folder
+      this._saveSide({ sharedOpen: { ...(this._side.sharedOpen ?? {}), [f.id]: !this._isFolderOpen(f, ctx) } });
+      return;
+    }
+    ctx.mutate((fs) => fs.map((x) => x.id === f.id ? { ...x, open: !x.open } : x));
   }
-  // File path into folder id ('' = unfile). A component lives in one folder max.
-  _fileInto(folderId, path) {
-    this._saveSide({
-      folders: this._side.folders.map((f) => {
-        const items = f.items.filter((p) => p !== path);
-        if (f.id === folderId) items.push(path);
-        return { ...f, items };
-      }),
-    });
+  // File path into folder id ('' = unfile). A component lives in one folder
+  // max within a context.
+  _fileInto(folderId, path, ctx = this._folderCtx('top')) {
+    if (!ctx.canEdit) return;
+    ctx.mutate((fs) => fs.map((f) => {
+      const items = f.items.filter((p) => p !== path);
+      if (f.id === folderId) items.push(path);
+      return { ...f, items };
+    }));
   }
-  _dropOnFolder(e, f) {
+  _dropOnFolder(e, f, ctx) {
     e.preventDefault(); e.stopPropagation();
     this._dropFolder = null;
+    const note = (message) => this._pushToast('sidebar', { level: 'info', message });
     const fid = e.dataTransfer.getData('application/bx-folder');
-    if (fid) { this._nestFolder(fid, f.id); return; }              // folder → nest under this one
+    if (fid) { // folder → nest under this one (never across contexts)
+      const from = e.dataTransfer.getData('application/bx-folder-ctx') || 'top';
+      if (from !== ctx.key || !ctx.canEdit) return;
+      this._nestFolder(fid, f.id, ctx);
+      return;
+    }
     const sid = e.dataTransfer.getData('application/bx-screen');
     if (sid) { // tab → park in the tree (an org tab files as a reference)
+      if (ctx.shared) { note('tabs park only in your own folders'); return; }
       const org = e.dataTransfer.types.includes('application/bx-orgscreen');
-      this._fileInto(f.id, (org ? '#orgscreen:' : '#screen:') + sid);
+      this._fileInto(f.id, (org ? '#orgscreen:' : '#screen:') + sid, ctx);
       return;
     }
     const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
-    if (path) this._fileInto(f.id, path);
+    if (!path) return;
+    if (!ctx.canEdit) {
+      note(ctx.curator ? 'shared folders — click ✎ on the section to curate them' : 'this folder is shared and read-only for you');
+      return;
+    }
+    if (ctx.shared) { // a shared tree holds its own section's tiles only
+      const c = this._components.find((x) => x.path === path);
+      if (this._ownerKeyOf(c) !== this._sectionOf(ctx.key)) {
+        note('a tile can only be filed under its own owner section — use a personal folder for cross-owner grouping');
+        return;
+      }
+    }
+    this._fileInto(f.id, path, ctx);
   }
 
   // ---- nested folders + screen refs in the tree ----
@@ -1416,22 +1528,22 @@ export class BxShell extends LitElement {
   _isScreenItem(s) { return typeof s === 'string' && s.startsWith('#screen:'); }
   _isOrgScreenItem(s) { return typeof s === 'string' && s.startsWith('#orgscreen:'); }
   _screenIdOf(s) { return s.slice(s.indexOf(':') + 1); }
-  _childFolders(parentId) {
-    return (this._side.folders ?? []).filter((f) => (f.parent ?? null) === (parentId ?? null));
+  _childFolders(parentId, ctx = this._folderCtx('top')) {
+    return ctx.folders.filter((f) => (f.parent ?? null) === (parentId ?? null));
   }
   // Is folder aId an ancestor of bId? (walk bId's parents up) — used to reject cycles.
-  _isAncestorFolder(aId, bId) {
-    const by = new Map((this._side.folders ?? []).map((f) => [f.id, f]));
+  _isAncestorFolder(aId, bId, ctx) {
+    const by = new Map(ctx.folders.map((f) => [f.id, f]));
     let p = by.get(bId)?.parent ?? null, guard = 0;
     while (p && guard++ < 200) { if (p === aId) return true; p = by.get(p)?.parent ?? null; }
     return false;
   }
-  _nestFolder(dragId, targetId) {
-    if (dragId === targetId || this._isAncestorFolder(dragId, targetId)) return;
-    this._saveSide({ folders: this._side.folders.map((f) => f.id === dragId ? { ...f, parent: targetId } : f) });
+  _nestFolder(dragId, targetId, ctx) {
+    if (dragId === targetId || this._isAncestorFolder(dragId, targetId, ctx)) return;
+    ctx.mutate((fs) => fs.map((f) => f.id === dragId ? { ...f, parent: targetId } : f));
   }
-  _unnestFolder(dragId) {
-    this._saveSide({ folders: this._side.folders.map((f) => f.id === dragId ? { ...f, parent: null } : f) });
+  _unnestFolder(dragId, ctx) {
+    ctx.mutate((fs) => fs.map((f) => f.id === dragId ? { ...f, parent: null } : f));
   }
 
   // ---- screens: visible tabs vs. parked-in-tree ----
@@ -1502,7 +1614,7 @@ export class BxShell extends LitElement {
 
   // ---- sidebar filter ----
   _sideMatch(text) { const q = this._sideQ.trim().toLowerCase(); return !q || (text ?? '').toLowerCase().includes(q); }
-  _folderHasMatch(f) {
+  _folderHasMatch(f, ctx = this._folderCtx('top')) {
     if (!this._sideQ.trim()) return true;
     if (this._sideMatch(f.name)) return true;
     for (const it of f.items) {
@@ -1514,17 +1626,19 @@ export class BxShell extends LitElement {
         if (s && this._sideMatch(s.name)) return true;
       } else if (this._sideMatch(it)) return true;
     }
-    return this._childFolders(f.id).some((c) => this._folderHasMatch(c));
+    return this._childFolders(f.id, ctx).some((c) => this._folderHasMatch(c, ctx));
   }
   _sideEmptyMsg() {
     const q = this._sideQ.trim();
+    const top = this._folderCtx('top');
+    const sections = this._ownerSections();
     if (q) {
-      const anyFolder = this._childFolders(null).some((f) => this._folderHasMatch(f));
-      const anyGroup = this._groups.some(([top, comps]) =>
-        comps.some((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path))));
-      return (!anyFolder && !anyGroup) ? html`<div class="empty">no matches for “${q}”</div>` : nothing;
+      const anyFolder = this._childFolders(null, top).some((f) => this._folderHasMatch(f, top));
+      const anyTile = sections.some((x) => x.comps.some((c) => this._sideMatch(c.path)))
+        || (this._orgScreens ?? []).some((o) => this._sideMatch(o.name));
+      return (!anyFolder && !anyTile) ? html`<div class="empty">no matches for “${q}”</div>` : nothing;
     }
-    return (this._groups.length === 0 && (this._side.folders ?? []).length === 0)
+    return (sections.length === 0 && (this._side.folders ?? []).length === 0)
       ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing;
   }
 
@@ -1891,42 +2005,83 @@ export class BxShell extends LitElement {
     window.addEventListener('pointerup', up);
   }
 
-  // The owner-sectioned component tree. One section (solo/plain workspace) →
-  // render the flat prefix groups exactly as before; more → collapsible
-  // owner headers (mine / each org / workspace) with the tree inside, plus
-  // the owner filter applied. A live search forces sections open.
+  // The owner-sectioned tree (D55): every section — mine / each org /
+  // workspace — is ONE tree: its shared curated folders (org admins or
+  // ws-admins curate; everyone else reads), then every remaining readable
+  // tile flat at the root, then (orgs) the org's screens. No directory
+  // headers. One section (solo workspace) renders without the header; more
+  // get collapsible owner headers plus the owner filter. A live search forces
+  // everything open.
   _sectionsTemplate() {
     const sections = this._ownerSections();
     const filter = this._side.ownerFilter ?? '';
-    const groupsOf = (comps) => this._groupComps(comps)
-      .map(([top, cs]) => [top, cs.filter((c) => this._sideMatch(c.path) || this._sideMatch(this._sideLabel(top, c.path)))])
-      .filter(([, cs]) => cs.length);
-    const tree = (comps, indent) => groupsOf(comps).map(([top, cs]) => html`
-      <div class="group" style=${indent ? 'padding-left:22px' : nothing}>${top} <span class="n">${cs.length}</span></div>
-      ${cs.map((c) => this._itemTemplate(c, null, this._sideLabel(top, c.path), indent ? 1 : 0))}`);
-    if (sections.length <= 1) return sections.map((x) => tree(x.comps, false));
+    const single = sections.length <= 1;
     return sections
-      .filter((x) => !filter || x.key === filter)
-      .map((x) => {
-        const collapsed = !!this._side.ownerCollapsed?.[x.key] && !this._sideQ.trim();
-        const shown = groupsOf(x.comps);
-        const screens = (this._orgScreens ?? []).filter((o) => 'org:' + o.org === x.key && this._sideMatch(o.name));
-        if (!shown.length && !screens.length) return nothing;
-        const n = shown.reduce((m, [, cs]) => m + cs.length, 0) + screens.length;
-        const label = x.key === 'mine' ? 'mine' : x.key === 'workspace' ? 'workspace' : x.label;
-        return html`
-          <div class="group owner" title="tiles owned by ${x.key === 'mine' ? 'you' : x.key === 'workspace' ? 'the workspace' : 'org ' + x.label} — click to fold"
-               @click=${() => this._toggleOwnerSec(x.key)}>
-            <span class="tri">${collapsed ? '▸' : '▾'}</span>
-            ${x.key === 'mine' ? '👤 ' : x.key !== 'workspace' ? '⚑ ' : ''}${label}
-            <span class="n">${n}</span>
-          </div>
-          ${collapsed ? nothing : html`${tree(x.comps, true)}${screens.map((o) => this._orgScreenItemTemplate(o.id, 1))}`}`;
-      });
+      .filter((x) => single || !filter || x.key === filter)
+      .map((x) => this._sectionTemplate(x, single));
   }
 
-  // One sidebar row for a component — used by folders and prefix groups alike.
-  _itemTemplate(c, folderId = null, label = null, depth = 0) {
+  _sectionTemplate(x, single) {
+    const scope = this._scopeOf(x.key);
+    const ctx = scope ? this._folderCtx(scope) : null;
+    const editing = !!ctx?.draft;
+    const labels = this._labelsFor(x.comps);
+    const section = { key: x.key, labels, comps: x.comps };
+    const filed = new Set(ctx ? ctx.folders.flatMap((f) => f.items ?? []) : []);
+    const root = x.comps
+      .filter((c) => !filed.has(c.path) && (this._sideMatch(c.path) || this._sideMatch(labels.get(c.path))))
+      .sort((a, b) => labels.get(a.path).localeCompare(labels.get(b.path)));
+    const screens = x.key.startsWith('org:')
+      ? (this._orgScreens ?? []).filter((o) => 'org:' + o.org === x.key && this._sideMatch(o.name)) : [];
+    const depth = single ? 0 : 1;
+    const folders = ctx ? this._childFolders(null, ctx).map((f) => this._folderTemplate(f, depth, ctx, section)) : [];
+    const body = html`
+      ${editing ? this._sectionEditBar(ctx) : nothing}
+      ${folders}
+      ${root.map((c) => this._itemTemplate(c, null, labels.get(c.path), depth, scope))}
+      ${screens.map((o) => this._orgScreenItemTemplate(o.id, depth))}`;
+    if (single) return body;
+    const collapsed = !!this._side.ownerCollapsed?.[x.key] && !this._sideQ.trim() && !editing;
+    const label = x.key === 'mine' ? 'mine' : x.key === 'workspace' ? 'workspace' : x.label;
+    const n = x.comps.length + screens.length;
+    return html`
+      <div class="group owner ${editing ? 'editing' : ''}" title="tiles owned by ${x.key === 'mine' ? 'you' : x.key === 'workspace' ? 'the workspace' : 'org ' + x.label} — click to fold"
+           @click=${() => this._toggleOwnerSec(x.key)}
+           @dragover=${(e) => { if (ctx?.canEdit && e.dataTransfer.types.includes('application/bx-comp')) e.preventDefault(); }}
+           @drop=${(e) => { // dropped on the header while curating → unfile from this scope
+             const path = e.dataTransfer.getData('application/bx-comp');
+             if (ctx?.canEdit && path) { e.preventDefault(); e.stopPropagation(); this._fileInto('', path, ctx); } }}>
+        <span class="tri">${collapsed ? '▸' : '▾'}</span>
+        ${x.key === 'mine' ? '👤 ' : x.key !== 'workspace' ? '⚑ ' : ''}${label}
+        <span class="n">${n}</span>
+        ${ctx?.curator && !editing ? html`<button class="pen" title="curate this section's shared folders (everyone here sees them)"
+          @click=${(e) => { e.stopPropagation(); this._enterFolderEdit(scope); }}>✎</button>` : nothing}
+      </div>
+      ${collapsed ? nothing : body}`;
+  }
+
+  // While curating a shared folder set: add folders, then publish or discard.
+  _sectionEditBar(ctx) {
+    const d = ctx.draft, set = ctx.set;
+    const newer = set && (set.rev ?? 0) > d.baseRev;
+    return html`
+      <div class="secbar">
+        <div class="l">✎ editing shared folders${d.dirty ? ' · unsaved' : ''}</div>
+        ${newer ? html`<div class="newer">⚠ rev ${set.rev} saved by ${this._whoLabel(set.updatedBy)} ${ago(set.updatedAt)} —
+          <a @click=${() => { if (!d.dirty || confirm('Drop your draft and take the newer folders?')) this._dropFolderDraft(ctx.key); }}>reload theirs</a></div>` : nothing}
+        <div class="r">
+          <button class="mini" title="new shared folder" @click=${() => this._addFolder(ctx)}>＋ folder</button>
+          <span style="flex:1"></span>
+          <button class="mini" @click=${() => this._discardFolderDraft(ctx.key)}>discard</button>
+          <button class="mini go" ?disabled=${!d.dirty} title="publish these folders to everyone in this section"
+            @click=${() => this._saveFolderDraft(ctx.key)}>Save for everyone</button>
+        </div>
+      </div>`;
+  }
+
+  // One sidebar row for a component — used by folders and section roots alike.
+  // ctxKey names the folder context a drop on this row acts in.
+  _itemTemplate(c, folderId = null, label = null, depth = 0, ctxKey = null) {
     if (!c) return nothing;
     const st = this._statusOf(c.path);
     const title = st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
@@ -1941,10 +2096,10 @@ export class BxShell extends LitElement {
            @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-comp')) {
              e.preventDefault(); e.stopPropagation(); this._dropBefore = c.path; } }}
            @dragleave=${() => { if (this._dropBefore === c.path) this._dropBefore = null; }}
-           @drop=${(e) => this._dropOnItem(e, c.path, folderId)}
+           @drop=${(e) => this._dropOnItem(e, c.path, folderId, ctxKey)}
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
-        <span>${label ?? (c.path.includes('/') ? c.path.slice(c.path.indexOf('/') + 1) : c.path)}</span>
+        <span>${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
         ${this._prBadge(c.path)}
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
@@ -1953,51 +2108,63 @@ export class BxShell extends LitElement {
       </div>`;
   }
 
-  // A sidebar folder — may nest child folders and hold both components and
-  // parked screen tabs (#screen:<id>). Recursive; `depth` drives indentation.
-  _folderTemplate(f, depth = 0) {
-    if (!this._folderHasMatch(f)) return nothing;
-    const open = f.open || !!this._sideQ.trim(); // force-open while filtering
-    const items = f.items.filter((it) => {
+  // A sidebar folder — may nest child folders and hold components; a personal
+  // (top) folder also holds parked tabs and org-screen refs. Recursive;
+  // `depth` drives indentation; `ctx` says whose folder list this is and
+  // whether it may change; `section` (shared trees) bounds the visible items
+  // to that owner section's readable tiles.
+  _folderTemplate(f, depth = 0, ctx = this._folderCtx('top'), section = null) {
+    if (!this._folderHasMatch(f, ctx) && !ctx.canEdit) return nothing;
+    const open = this._isFolderOpen(f, ctx);
+    const inSection = section ? new Set(section.comps.map((c) => c.path)) : null;
+    const items = (f.items ?? []).filter((it) => {
       if (this._isScreenItem(it)) {
+        if (ctx.shared) return false;
         const s = this._screens.find((x) => x.id === this._screenIdOf(it));
         return s && this._sideMatch(s.name);
       }
       if (this._isOrgScreenItem(it)) {
+        if (ctx.shared) return false;
         const s = (this._orgScreens ?? []).find((x) => x.id === this._screenIdOf(it));
         return s && this._sideMatch(s.name);
       }
+      if (inSection && !inSection.has(it)) return false; // unreadable, other owner, or filed personally
       const c = this._components.find((x) => x.path === it);
-      return c && !this._offloaded(c) && this._sideMatch(it);
+      return c && !this._offloaded(c) && (this._sideMatch(it) || this._sideMatch(section?.labels.get(it)));
     });
-    const children = this._childFolders(f.id);
+    const children = this._childFolders(f.id, ctx);
     const comps = items.filter((it) => !this._isScreenItem(it) && !this._isOrgScreenItem(it)).map((p) => this._components.find((c) => c.path === p)).filter(Boolean);
+    // A shared folder with nothing this user can see stays out of their way —
+    // unless its curator is editing (they must see what they just created).
+    if (ctx.shared && !ctx.canEdit && !items.length && !children.length) return nothing;
     const fst = !open ? this._worstStatus(comps.map((c) => c.path)) : null;
+    const ro = ctx.shared && !ctx.canEdit;
     return html`
-      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''}" draggable="true"
+      <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''} ${ro ? 'ro' : ''}" draggable=${ctx.canEdit ? 'true' : 'false'}
            style="padding-left:${8 + depth * 12}px"
-           title="click to fold · double-click to rename/icon · drop a tile, a tab, or another folder in"
-           @click=${() => this._toggleFolder(f)}
-           @dblclick=${() => this._folderDialog(f)}
-           @dragstart=${(e) => { e.dataTransfer.setData('application/bx-folder', f.id);
+           title=${ro ? 'shared folder (curated by admins) — click to fold' : 'click to fold · double-click to rename/icon · drop a tile' + (ctx.shared ? '' : ', a tab,') + ' or another folder in'}
+           @click=${() => this._toggleFolder(f, ctx)}
+           @dblclick=${() => { if (ctx.canEdit) this._folderDialog(f, ctx); }}
+           @dragstart=${(e) => { if (!ctx.canEdit) { e.preventDefault(); return; }
+             e.dataTransfer.setData('application/bx-folder', f.id); e.dataTransfer.setData('application/bx-folder-ctx', ctx.key);
              e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
-           @dragover=${(e) => { e.preventDefault(); this._dropFolder = f.id; }}
+           @dragover=${(e) => { e.preventDefault(); this._dropFolder = ctx.canEdit ? f.id : null; }}
            @dragleave=${() => { if (this._dropFolder === f.id) this._dropFolder = null; }}
-           @drop=${(e) => this._dropOnFolder(e, f)}>
+           @drop=${(e) => this._dropOnFolder(e, f, ctx)}>
         <span class="tri">${open ? '▾' : '▸'}</span>
         <span class="ficon">${f.icon || '📁'}</span>
         <span class="fname">${f.name}</span> <span class="n">${items.length + children.length}</span>
         ${fst ? html`<span class="stdot"></span>` : nothing}
-        <button class="fx" title="delete folder (contents return to their groups / tabs)"
-                @click=${(e) => { e.stopPropagation(); this._deleteFolder(f); }}>✕</button>
+        ${ctx.canEdit ? html`<button class="fx" title="delete folder (contents return to the section root / tabs)"
+                @click=${(e) => { e.stopPropagation(); this._deleteFolder(f, ctx); }}>✕</button>` : nothing}
       </div>
       ${open ? html`
-        ${children.map((c) => this._folderTemplate(c, depth + 1))}
+        ${children.map((c) => this._folderTemplate(c, depth + 1, ctx, section))}
         ${items.map((it) => this._isScreenItem(it)
           ? this._screenItemTemplate(this._screenIdOf(it), depth + 1)
           : this._isOrgScreenItem(it)
             ? this._orgScreenItemTemplate(this._screenIdOf(it), depth + 1, f.id)
-            : this._itemTemplate(this._components.find((c) => c.path === it), f.id, null, depth + 1))}`
+            : this._itemTemplate(this._components.find((c) => c.path === it), f.id, section?.labels.get(it) ?? null, depth + 1, ctx.key))}`
         : nothing}`;
   }
 
@@ -2019,7 +2186,7 @@ export class BxShell extends LitElement {
         <span class="sname">${s.name}${dirty ? ' ●' : ''}</span>
         ${folderId ? html`<span class="ob">${s.org}</span>` : nothing}
         ${hidden ? html`<span class="pk">hidden</span>` : nothing}
-        ${folderId ? html`<button class="xt" title="remove from this folder" @click=${(e) => { e.stopPropagation(); this._fileInto('', '#orgscreen:' + id); }}>✕</button>` : nothing}
+        ${folderId ? html`<button class="xt" title="remove from this folder" @click=${(e) => { e.stopPropagation(); this._fileInto('', '#orgscreen:' + id, this._folderCtx('top')); }}>✕</button>` : nothing}
       </div>`;
   }
 
@@ -2477,13 +2644,22 @@ export class BxShell extends LitElement {
                  @dragover=${(e) => e.preventDefault()}
                  @drop=${(e) => { // dropped on empty sidebar space
                    const fid = e.dataTransfer.getData('application/bx-folder');
-                   if (fid) { this._unnestFolder(fid); return; }      // folder → top level
+                   const fctx = e.dataTransfer.getData('application/bx-folder-ctx') || 'top';
+                   if (fid) { this._unnestFolder(fid, this._folderCtx(fctx)); return; } // folder → top level of its context
                    const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
-                   if (path) this._fileInto('', path);                // component → ungrouped
+                   if (path) this._fileInto('', path, this._folderCtx('top'));   // component → out of personal folders
                  }}>
             <div class="side-top">
-              <button class="mini" title="new folder (view-only grouping — nothing moves on disk)"
+              <button class="mini" title="new personal folder (view-only grouping — nothing moves on disk)"
                       @click=${() => this._addFolder()}>＋ folder</button>
+              ${(() => { // a solo section has no header to hold its ✎ — offer it here
+                const secs = this._ownerSections();
+                if (secs.length > 1) return nothing;
+                const scope = this._scopeOf(secs[0]?.key ?? 'workspace');
+                const ctx = scope ? this._folderCtx(scope) : null;
+                return ctx?.curator && !ctx.draft ? html`<button class="mini" title="curate the shared folders everyone sees"
+                  @click=${() => this._enterFolderEdit(scope)}>✎ shared</button>` : nothing;
+              })()}
               <span style="flex:1"></span>
               <button class="mini" title="collapse sidebar"
                       @click=${() => this._saveSide({ collapsed: true })}>«</button>
@@ -2504,7 +2680,7 @@ export class BxShell extends LitElement {
               </select>
             </div>` : nothing}
             <div class="side-scroll">
-              ${this._childFolders(null).map((f) => this._folderTemplate(f, 0))}
+              ${this._childFolders(null, this._folderCtx('top')).map((f) => this._folderTemplate(f, 0, this._folderCtx('top')))}
               ${this._sectionsTemplate()}
               ${this._hiddenCount ? html`<button class="hidtoggle"
                   title="hidden tiles are disabled; manage via the tile ⚙ or admin console"
