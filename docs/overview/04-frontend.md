@@ -166,11 +166,12 @@ What the shell provides:
   callee's role descriptions and one-click approve; rows a policy ceiling
   blocks are greyed with the blocking row named; renders nothing when
   there's nothing to decide.
-- **Per-tile ⚙ admin window** (`<bx-tile-admin>`) — lifecycle, access,
+- **Per-tile ⚙ admin popover** (`<bx-tile-admin>`) — lifecycle, access,
   runtime, vault, grants, interfaces, backup and cron for one tile, in a
-  draggable, resizable window (a full-screen sheet on phones); one per
-  tile, Escape closes it, and the tile menu's "Access…", "Interfaces…"
-  lines open it at that section. Shown to workspace admins and — for tiles
+  wide, resizable popover next to the card (a sheet on phones) with
+  context-menu manners: click outside or Escape closes it; the tile menu's
+  "Access…", "Interfaces…" lines open it at that section. Shown to
+  workspace admins and — for tiles
   inside their org — org admins ([07-users-orgs.md](07-users-orgs.md)). It
   uses *raw* fetch deliberately: the window is workspace chrome acting as
   the signed-in human, never as a tile — handing a non-admin a tile's frame

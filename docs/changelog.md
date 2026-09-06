@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-06
 
+- **Menus polish.** A right-click (or touch long-press) anywhere inside a
+  tile now opens its menu — the injected client relays the event out of the
+  iframe, unless the tile handled it itself or the target is an input, link
+  or editable text. The tile menu is a little wider and the four squares'
+  labels line up. The ⚙ tile admin is a popover rather than a window: still
+  wide and resizable, but click outside or Escape closes it, nothing to
+  drag, no ✕ (a sheet on phones keeps one). Fixed: opening a tile's logs
+  before its terminal had ever loaded could throw ("Terminal is not a
+  constructor") — the two xterm loaders now wait for the shared script tag.
+
 - **Context menus that carry a tile's actions; the tile admin is a window
   (D56).** Right-click the empty canvas for **open tile** — the five most
   recently opened tiles that aren't on this screen plus a find box over

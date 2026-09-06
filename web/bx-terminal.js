@@ -19,14 +19,23 @@
  * renders into light DOM so xterm's global stylesheet applies.
  */
 
-const scriptOnce = (src) =>
-  new Promise((res, rej) => {
-    const id = 'bxs-' + src.replace(/\W/g, '');
-    if (document.getElementById(id)) { res(); return; }
-    const s = document.createElement('script');
-    s.id = id; s.src = src; s.onload = res; s.onerror = rej;
+// Load a classic script once per document. Several elements (the terminal,
+// the read-only logs view) share the tag by id, so a second caller must wait
+// for the SAME tag to load — not resolve just because the tag exists.
+const scriptOnce = (src) => {
+  const id = 'bxs-' + src.replace(/\W/g, '');
+  let s = document.getElementById(id);
+  if (s?.dataset.loaded) return Promise.resolve();
+  if (!s) {
+    s = document.createElement('script');
+    s.id = id; s.src = src;
     document.head.appendChild(s);
+  }
+  return new Promise((res, rej) => {
+    s.addEventListener('load', () => { s.dataset.loaded = '1'; res(); }, { once: true });
+    s.addEventListener('error', rej, { once: true });
   });
+};
 
 function savedFontSize() {
   const n = Number(localStorage.getItem('bx-term-fontsize'));

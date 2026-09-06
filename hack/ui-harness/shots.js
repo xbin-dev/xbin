@@ -126,7 +126,7 @@ async function admin(browser) {
   await shot(page, 'shell-popover-crawler', { fullPage: false });
   await dumpSelects(page, 'shell-popover-selects', 'bx-tile-admin select');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => { document.querySelector('bx-shell')._closeSpawn('admin:apps/crawler'); });
+  await page.evaluate(() => { document.querySelector('bx-shell')._adminPop = null; });
 
   await crawler.locator('button.term').click();
   await sleep(4000); // spawn + session frame
@@ -247,6 +247,13 @@ async function menus(browser) {
   await shot(page, 'menu-tile-card', { fullPage: false });
   await page.keyboard.press('Escape');
   await sleep(300);
+  // right-click INSIDE the tile's iframe: the tile page relays it to the shell
+  const cb = await page.locator('.card[data-path="apps/crawler"] .cbody').boundingBox();
+  await page.mouse.click(cb.x + 120, cb.y + 90, { button: 'right' });
+  await sleep(600);
+  await shot(page, 'menu-tile-body', { fullPage: false });
+  await page.keyboard.press('Escape');
+  await sleep(300);
   await page.locator('bx-shell .item[data-path="apps/offline"]').click({ button: 'right' });
   await sleep(400);
   await shot(page, 'menu-tile-sidebar', { fullPage: false });
@@ -265,11 +272,17 @@ async function menus(browser) {
     const r = await page.evaluate(() => {
       const ta = document.querySelector('bx-shell').shadowRoot.querySelector('bx-tile-admin');
       const m = ta?.shadowRoot.querySelector('bx-multiselect')?.shadowRoot.querySelector('.menu')?.getBoundingClientRect();
-      const w = document.querySelector('bx-shell').shadowRoot.querySelector('.spawn.admin')?.getBoundingClientRect();
+      const w = document.querySelector('bx-shell').shadowRoot.querySelector('.admin-pop')?.getBoundingClientRect();
       return { menu: m && [m.left, m.top, m.right, m.bottom].map(Math.round), win: w && [w.left, w.top, w.right, w.bottom].map(Math.round), vw: innerWidth, vh: innerHeight };
     });
     log('multiselect list rect', JSON.stringify(r));
   } else log('no multiselect in apps/consumer admin window');
+  // click outside closes the admin popover
+  await page.mouse.click(1300, 860);
+  await sleep(300);
+  await page.mouse.click(1300, 860);
+  await sleep(300);
+  log('admin popover after outside click:', await page.evaluate(() => !!document.querySelector('bx-shell')._adminPop));
   await ctx.close();
 }
 

@@ -72,6 +72,7 @@ export class BxMenu extends LitElement {
       border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
     }
     .panel.hidden { visibility: hidden; }
+    .panel:has(.grid) { min-width: 250px; }
 
     /* ---- rows ---- */
     .it {
@@ -111,9 +112,11 @@ export class BxMenu extends LitElement {
     }
     .cell:hover, .cell:focus-visible { border-color: var(--bx-accent, #f5a623); color: var(--bx-accent, #f5a623); outline: none; }
     .cell[disabled] { opacity: .45; cursor: default; }
-    .cell .ic { font-size: 15px; line-height: 1; }
+    /* icon and label sit in fixed-height rows so labels align across cells
+       whatever the glyph's own height */
+    .cell .ic { height: 18px; display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; }
     .cell.mono .ic { font-family: var(--bx-mono, ui-monospace, monospace); font-weight: 700; font-size: 12px; letter-spacing: -.5px; }
-    .cell .lb { font-size: 10px; color: var(--bx-muted, #8794a1); }
+    .cell .lb { height: 12px; line-height: 12px; font-size: 10px; color: var(--bx-muted, #8794a1); }
     .cell .badge { position: absolute; top: 3px; right: 4px; }
 
     .q {
@@ -188,6 +191,9 @@ export class BxMenu extends LitElement {
     window.addEventListener('resize', this._onResize);
     this.updateComplete.then(() => {
       this._place();
+      // A menu opened from inside a tile's iframe: pull keyboard focus out of
+      // the frame so Escape / arrows reach the menu, not the tile document.
+      if (this._opener?.tagName === 'IFRAME') { try { this._opener.blur(); } catch { /* fine */ } }
       this.renderRoot.querySelector('.panel.main, .sheet')?.focus({ preventScroll: true });
     });
   }

@@ -241,4 +241,29 @@ function openWindow(spec = {}) {
   };
 }
 
+// A right-click (or a touch long-press) on the tile's body opens the SHELL's
+// tile menu — the iframe would otherwise swallow it. A tile that handles
+// contextmenu itself (preventDefault) keeps its own menu; inputs, links and
+// editable text keep the native one.
+if (embedded) {
+  const native = (t) => !!(t instanceof Element && t.closest('input, textarea, select, a[href], [contenteditable]:not([contenteditable="false"])'));
+  const send = (x, y) => window.parent.postMessage({ type: 'xbin:contextmenu', x, y }, PARENT);
+  document.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented || native(e.target)) return;
+    e.preventDefault();
+    send(e.clientX, e.clientY);
+  });
+  let press = null;
+  const cancel = () => { if (press) { clearTimeout(press.t); press = null; } };
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || e.button !== 0 || native(e.target)) return;
+    cancel();
+    const x = e.clientX, y = e.clientY;
+    press = { x, y, t: setTimeout(() => { press = null; send(x, y); }, 450) };
+  }, true);
+  document.addEventListener('pointermove', (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) cancel(); }, true);
+  document.addEventListener('pointerup', cancel, true);
+  document.addEventListener('pointercancel', cancel, true);
+}
+
 window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify });

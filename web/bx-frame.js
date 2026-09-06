@@ -391,6 +391,20 @@ export class BxFrame extends LitElement {
       return;
     }
 
+    // A right-click / long-press inside the tile: relay it upward in viewport
+    // coordinates so the shell can open the tile menu (the iframe swallows
+    // the native event).
+    if (d.type === 'xbin:contextmenu') {
+      const r = this._iframe?.getBoundingClientRect();
+      if (!r) return;
+      const clampN = (v, hi) => Math.max(0, Math.min(Number(v) || 0, hi));
+      this.dispatchEvent(new CustomEvent('bx-contextmenu', {
+        bubbles: true, composed: true,
+        detail: { x: r.left + clampN(d.x, r.width), y: r.top + clampN(d.y, r.height) },
+      }));
+      return;
+    }
+
     // Dialog / pop-out window requests — relayed to <bx-shell> with the VERIFIED
     // component id (this.src, not anything the tile claimed). `reply` posts the
     // result back to this exact iframe, keyed by the request id.

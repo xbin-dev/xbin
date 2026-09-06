@@ -16,14 +16,23 @@
  * xterm's stylesheet linked so it works anywhere.
  */
 
-const scriptOnce = (src) =>
-  new Promise((res, rej) => {
-    const id = 'bxs-' + src.replace(/\W/g, '');
-    if (document.getElementById(id)) { res(); return; }
-    const s = document.createElement('script');
-    s.id = id; s.src = src; s.onload = res; s.onerror = rej;
+// Same loader as bx-terminal: the tag is shared by id, so wait for ITS load
+// rather than resolving because it already exists (the terminal and this
+// view mount together when logs open first).
+const scriptOnce = (src) => {
+  const id = 'bxs-' + src.replace(/\W/g, '');
+  let s = document.getElementById(id);
+  if (s?.dataset.loaded) return Promise.resolve();
+  if (!s) {
+    s = document.createElement('script');
+    s.id = id; s.src = src;
     document.head.appendChild(s);
+  }
+  return new Promise((res, rej) => {
+    s.addEventListener('load', () => { s.dataset.loaded = '1'; res(); }, { once: true });
+    s.addEventListener('error', rej, { once: true });
   });
+};
 
 let xtermReady = null;
 function loadXterm() {

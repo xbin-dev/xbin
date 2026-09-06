@@ -1268,10 +1268,13 @@ Deviations and refinements made while implementing; all deliberate:
   sidebar folder" leaves the menu. (3) The tile menu leads with four squares
   (terminal · logs · source · proposals) driven by a new public
   `bx-frame.open(layout)`, then screen actions, then the admin lines that
-  open the admin at a section. (4) The `⚙` popover becomes a real WINDOW on
-  the existing pop-out chrome (draggable, resizable, one per tile, Escape,
-  section targeting, a full-screen sheet on phones); `⚙` opens it directly
-  (one click to everything), the menu's lines open it at a section.
+  open the admin at a section. (4) The `⚙` popover becomes a WIDE,
+  RESIZABLE POPOVER with context-menu manners (click outside or Escape
+  closes, nothing to drag, one at a time, section targeting, a sheet on
+  phones) — first shipped as a draggable window on the pop-out chrome, then
+  trimmed back on review: window-isms (drag, ✕, stacking) added nothing over
+  a popover that simply dismisses; `⚙` opens it directly (one click to
+  everything), the menu's lines open it at a section.
   (5) Overflow is solved structurally: the multiselect list is
   viewport-fixed (position from the control rect, re-placed on scroll/
   resize) so no container clips it; control-heavy tables use fixed layout

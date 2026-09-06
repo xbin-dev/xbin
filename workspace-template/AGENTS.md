@@ -332,9 +332,10 @@ the empty canvas for *open tile* (recent + find), *create a new tile* as an
 owner, *new screen*; right-click a card head or a sidebar row — or press
 its ⋯ — for the tile menu (terminal · logs · source · proposals, then
 open/close/pin/full page and, for admins, lifecycle + the ⚙ sections). A
-right-click *inside* a tile's iframe never reaches the shell — only the
-head/row does. On phones the menus are bottom sheets (⋯ or long-press) and
-the ⚙ admin window is a full-screen sheet.
+right-click (or touch long-press) *inside* a tile reaches the shell too —
+the injected client relays it unless the tile handled the event itself or
+the target is an input, link or editable text. On phones the menus are
+bottom sheets (⋯ or long-press) and the ⚙ admin popover is a sheet.
 
 **Tile sizing (design constraint).** The shell lays tiles on a **fixed
 snappable grid** (48px): a tile is a **fixed size** the user sets by dragging

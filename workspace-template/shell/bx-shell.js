@@ -129,6 +129,7 @@ export class BxShell extends LitElement {
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
     _menu: { state: true },       // open context menu {items, x, y, anchor, sheet, title, tile} (null = closed)
+    _adminPop: { state: true },   // the ⚙ admin popover {path, section, x, y, w, h} (null = closed)
     _create: { state: true },     // new-tile dialog spec (null = closed)
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
     _settings: { state: true },     // per-user workspace settings {fontSize}
@@ -272,8 +273,23 @@ export class BxShell extends LitElement {
       color: var(--bx-text, #33414e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .buildfoot .ver.dirty { color: var(--bx-amber, #f2a71b); }
 
-    /* the per-tile admin window rides the .spawn chrome (D56) */
-    .spawn.admin .stitle { font-family: var(--bx-mono, ui-monospace, monospace); }
+    /* ---- per-tile admin popover (D56): wide, resizable, click-outside closes ---- */
+    .admin-pop-backdrop { position: fixed; inset: 0; z-index: 2400; }
+    .admin-pop {
+      position: fixed; z-index: 2500; display: flex; flex-direction: column; box-sizing: border-box;
+      min-width: 300px; min-height: 160px; overflow: hidden; resize: both;
+      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
+    }
+    .admin-pop .ahead {
+      flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+      border-bottom: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel-2, #f7f8fa);
+      font: 600 12px var(--bx-mono, ui-monospace, monospace); user-select: none;
+    }
+    .admin-pop .ahead .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-pop .ahead button { border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+      font-size: 14px; padding: 2px 6px; cursor: pointer; }
+    .admin-pop > bx-tile-admin { flex: 1; min-height: 0; overflow: auto; }
     /* orgs & teams management popover (org admins + ws admins) — centered. */
     .orgbtn {
       display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px;
@@ -644,11 +660,12 @@ export class BxShell extends LitElement {
         width: auto !important; height: auto !important;
         resize: none !important; border-radius: 0; border: 0;
       }
-      /* the tile-admin window → a full-screen sheet */
-      .spawn.admin {
-        position: fixed !important; inset: 0 !important;
+      /* the tile-admin popover → a sheet under the bars (tap above to close) */
+      .admin-pop-backdrop { background: rgba(0, 0, 0, .45); }
+      .admin-pop {
+        left: 0 !important; right: 0; top: 48px !important; bottom: 0;
         width: auto !important; height: auto !important;
-        resize: none !important; border-radius: 0; border: 0;
+        resize: none; border-radius: 12px 12px 0 0; border: 0;
       }
     }
   `;
@@ -668,6 +685,7 @@ export class BxShell extends LitElement {
     this._dialogs = [];
     this._spawnWins = [];
     this._menu = null;
+    this._adminPop = null;
     this._recent = [];             // recently opened tile paths, newest first (layout pref)
     this._pendingFrameOpen = new Map(); // path → layout to open once its card exists
     this._press = null;            // long-press timer (touch)
@@ -736,10 +754,8 @@ export class BxShell extends LitElement {
     // Ctrl/Cmd+S publishes the active org-screen draft (D55).
     this._onKey = (e) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        // Escape peels: menu → open list → dialog (all stop it) → the top-most
-        // tile-admin window.
-        const top = this._spawnWins.filter((w) => w.kind === 'admin').sort((a, b) => b.z - a.z)[0];
-        if (top) this._closeSpawn(top.id);
+        // Escape peels: menu → open list → dialog (all stop it) → the admin popover.
+        if (this._adminPop) this._adminPop = null;
         return;
       }
       if (!(e.ctrlKey || e.metaKey) || e.key !== 's') return;
@@ -1213,7 +1229,7 @@ export class BxShell extends LitElement {
     }
     // Cap pop-out windows per tile too (its `closed` resolves immediately if
     // over the cap).
-    if (this._spawnWins.filter((x) => x.from === d.from && !x.kind).length >= 6) { d.reply(); return; }
+    if (this._spawnWins.filter((x) => x.from === d.from).length >= 6) { d.reply(); return; }
     // window: frame a sub-path of the caller (default) or an explicit component
     // path. Both go through <bx-frame>, so RBAC (frame-token/CanUseTile) still
     // applies; strip any traversal from a caller-supplied sub-path.
@@ -1251,16 +1267,13 @@ export class BxShell extends LitElement {
     if (w) { w.z = ++zTop; this.requestUpdate(); }
   }
 
-  // The per-tile admin window (D56): the same draggable/resizable chrome as a
-  // pop-out window, hosting <bx-tile-admin> instead of a frame. One per tile —
-  // reopening fronts it (and jumps to `section` when asked); Escape closes the
-  // top-most; a full-screen sheet on phones.
+  // The per-tile admin popover (D56): a wide, resizable panel next to the
+  // card hosting <bx-tile-admin> — context-menu manners: click outside or
+  // Escape closes it, nothing to drag, one at a time; a sheet on phones.
+  // Reopening for the same tile just jumps to `section`.
   _openAdminWin(path, section = null) {
-    const id = 'admin:' + path;
-    const ex = this._spawnWins.find((w) => w.id === id);
-    if (ex) {
-      if (section) { ex.section = section; this.renderRoot.querySelector(`bx-tile-admin[data-win="${CSS.escape(id)}"]`)?.show(section); }
-      this._spawnFront(id);
+    if (this._adminPop?.path === path) {
+      if (section) { this._adminPop = { ...this._adminPop, section }; this.renderRoot.querySelector('bx-tile-admin.apop')?.show(section); }
       return;
     }
     const W = window.innerWidth, H = window.innerHeight;
@@ -1269,13 +1282,10 @@ export class BxShell extends LitElement {
     const r = (this._gtile(path) ?? this._floatWin(path))?.getBoundingClientRect();
     const x = r ? clamp(r.right - w, 8, W - w - 8) : Math.round((W - w) / 2);
     const y = r ? clamp(r.top + 36, 8, H - h - 8) : Math.round((H - h) / 2.4);
-    this._spawnWins = [...this._spawnWins, {
-      id, kind: 'admin', from: 'shell', path, section, reply: () => {}, title: `⚙ ${path}`, x, y, w, h, z: ++zTop,
-    }];
+    this._adminPop = { path, section, x, y, w, h };
   }
 
   _spawnDragStart(e, id) {
-    if (this._mobile) return; // sheets don't move
     if (e.button !== 0 || e.target.closest('button')) return;
     e.preventDefault();
     this._spawnFront(id);
@@ -1298,21 +1308,32 @@ export class BxShell extends LitElement {
   }
 
   _spawnTemplate(w) {
-    const admin = w.kind === 'admin';
     return html`
-      <div class="spawn ${admin ? 'admin' : ''}" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
+      <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
           <span class="stitle">${w.title}</span>
-          ${admin ? nothing : html`<span class="sfrom">${w.from}</span>`}
+          <span class="sfrom">${w.from}</span>
           <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
         </div>
         <div class="sbody">
-          ${admin
-            ? html`<bx-tile-admin .path=${w.path} .section=${w.section} no-title data-win=${w.id}
-                     style="position:absolute; inset:0; overflow:auto"></bx-tile-admin>`
-            : html`<bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>`}
+          <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
         </div>
+      </div>`;
+  }
+
+  _adminPopTemplate() {
+    const a = this._adminPop;
+    if (!a) return nothing;
+    return html`
+      <div class="admin-pop-backdrop" @pointerdown=${() => { this._adminPop = null; }}
+           @contextmenu=${(e) => { e.preventDefault(); this._adminPop = null; }}></div>
+      <div class="admin-pop" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; height:${a.h}px">
+        <div class="ahead">
+          <span class="t">⚙ ${a.path}</span>
+          ${this._mobile ? html`<button title="close" @click=${() => { this._adminPop = null; }}>✕</button>` : nothing}
+        </div>
+        <bx-tile-admin class="apop" .path=${a.path} .section=${a.section} no-title></bx-tile-admin>
       </div>`;
   }
 
@@ -1324,6 +1345,9 @@ export class BxShell extends LitElement {
   _onContextMenu(e) {
     if (this._mobile && this._menu) { e.preventDefault(); return; } // Android fires one after a long-press
     if (e.target.closest('input, textarea, select, a, .prb, bx-menu, bx-dialog')) return;
+    // Inside a frame's pop-up (terminal, code, logs, proposals) the native menu stays.
+    if (e.composedPath().some((n) => n instanceof Element && (n.classList?.contains('pop')
+      || ['BX-TERMINAL', 'BX-CODE', 'BX-LOGS', 'BX-PRS'].includes(n.tagName)))) return;
     const card = e.target.closest('.card');
     const row = e.target.closest('.item[data-path]');
     if (card || row) { this._openTileMenu(e, (card ?? row).dataset.path); return; }
@@ -1353,6 +1377,10 @@ export class BxShell extends LitElement {
   _openTileMenu(e, path, anchorEl = null) {
     e?.preventDefault?.(); e?.stopPropagation?.();
     if (!this._components.some((c) => c.path === path)) return;
+    // A touch long-press inside a tile may be followed by the platform's own
+    // contextmenu ~50 ms later — don't reopen the same menu.
+    if (this._menu?.tile === path && Date.now() - (this._menuAt ?? 0) < 700) return;
+    this._menuAt = Date.now();
     this._menu = { items: this._tileMenuItems(path), x: e?.clientX ?? 0, y: e?.clientY ?? 0,
       anchor: anchorEl?.getBoundingClientRect?.() ?? null, sheet: this._mobile, title: path, tile: path };
   }
@@ -2603,7 +2631,8 @@ export class BxShell extends LitElement {
     const floating = kind === 'float';
     const frame = html`<bx-frame src=${o.path} no-edit height="100%"></bx-frame>`;
     return html`
-      <div class="card" data-path=${o.path}>
+      <div class="card" data-path=${o.path}
+           @bx-contextmenu=${(e) => { e.stopPropagation(); this._openTileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path); }}>
         <div class="head"
              @pointerdown=${(e) => { this._pressStart(e, () => this._openTileMenu(null, o.path)); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._pressMove(e)}
@@ -2914,6 +2943,7 @@ export class BxShell extends LitElement {
 
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
+      ${this._adminPopTemplate()}
       ${repeat(this._dialogs, (d) => d.id, (d) => html`
         <bx-dialog open .spec=${d.spec} from=${d.from}
           @bx-dialog-resolve=${(e) => this._resolveDialog(d.id, e.detail)}></bx-dialog>`)}
