@@ -25,7 +25,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   refused `custom…` ref snaps the select back and shows the reason inside
   the section, a tile you can't wire shows its wiring read-only, the root
   prompt and the ⚑ badge list only slots you may bind. The ⚙ popover also
-  sizes to its content instead of opening at 70 % of the window.
+  sizes to its content instead of opening at 70 % of the window. (v0.3.39
+  shipped the popover's snap-back reading a stale snapshot, so a
+  *successful* re-bind jumped back to the previous value until a second
+  pick — fixed right after.)
 
 - **Installer: missing distro tools are installed on every system run.**
   The package step (`uidmap`, `fuse3`, git/curl/tar) was only planned for a

@@ -420,8 +420,21 @@ async function netPickers(browser) {
     check(!s.disabled.includes('internet'), 'admin: internet stays enabled (inside devs-net)');
     check(s.height > 120 && s.height < s.inner * 0.7 - 1, `admin: popover sized to content (${Math.round(s.height)}px of ${s.inner})`);
     const before = s.value;
-    // a refused custom ref: outside the set → 400 → select snaps back, reason in-section
     const sel = page.locator('bx-shell bx-tile-admin details[data-sec="interfaces"] select').first();
+    // a successful re-bind must show the NEW value at once (it once jumped
+    // back to the old one until a second pick), and the server must agree
+    const boundNow = async () => [].concat((await (await ctx.request.get(`${URL}/api/xbin/bindings`)).json()).bindings?.['apps/pinned']?.net ?? [])[0];
+    await sel.selectOption('org');
+    await sleep(1500);
+    let v = await sel.inputValue();
+    check(v === 'org', `admin: select shows the new value right after a successful bind (now "${v}")`);
+    check((await boundNow()) === 'org', 'admin: server bound org');
+    await sel.selectOption(before);
+    await sleep(1500);
+    v = await sel.inputValue();
+    check(v === before, `admin: switching back shows "${before}" (now "${v}")`);
+    check((await boundNow()) === before, `admin: server bound ${before} again`);
+    // a refused custom ref: outside the set → 400 → select snaps back, reason in-section
     await sel.selectOption('__custom');
     await sleep(300);
     const form = page.locator('bx-shell bx-tile-admin details[data-sec="interfaces"] form');

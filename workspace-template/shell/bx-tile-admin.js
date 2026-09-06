@@ -383,7 +383,11 @@ export class BxTileAdmin extends LitElement {
     }), 'interfaces');
     const setFrom = async (el, slot, providers) => {
       await set(slot, providers);
-      if (el?.isConnected) el.value = boundOf(slot)[0] ?? '';
+      // What is REALLY bound now — read from the reloaded this._binds, not
+      // the snapshot this render closed over (that one still holds the old
+      // value and would jump a successful re-bind back to it).
+      const live = [].concat(this._binds?.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
+      if (el?.isConnected) el.value = live[0] ?? '';
     };
     const who = org ? `a workspace admin or an admin of org:${org.id}` : 'a workspace admin';
     return html`<div class="sec">
