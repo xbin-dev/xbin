@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-06
 
+- **Net pickers no longer show a refused bind as a success.** Picking
+  `host` (or any ref outside the owning org's network sets, or anything at
+  all on a tile you may not wire) in the ⚙ tile popover left the select on
+  the refused value and the refresh wiped the error — it looked granted
+  while the server had said no (the D54 gate itself held: host on an org
+  tile is 400 for everyone, a personal tile is wired by workspace admins
+  only). Now `GET /bindings` marks options the sets refuse `blocked` and
+  says which tiles the caller may wire (`approvable`, on the map and on
+  each pending row); every picker (tile popover, admin console binding tab,
+  organisations tile, the root bind prompt) greys refused options out, a
+  refused `custom…` ref snaps the select back and shows the reason inside
+  the section, a tile you can't wire shows its wiring read-only, the root
+  prompt and the ⚑ badge list only slots you may bind. The ⚙ popover also
+  sizes to its content instead of opening at 70 % of the window.
+
 - **Installer: missing distro tools are installed on every system run.**
   The package step (`uidmap`, `fuse3`, git/curl/tar) was only planned for a
   fresh build-from-source install; a prebuilt install, and any upgrade,

@@ -1535,6 +1535,10 @@ export class BxAdmin extends LitElement {
       this._ifaces = b; this._ingress = ing; this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
   }
+  // Resolves true when the bind went through. A refusal (400 "not covered",
+  // 403) is shown, and the caller snaps its <select> back — lit re-renders
+  // the same `selected` attributes, so the browser would keep showing the
+  // refused pick as if it had been applied.
   async _bindSet(component, slot, provider) {
     try {
       await api('/bindings', {
@@ -1543,7 +1547,8 @@ export class BxAdmin extends LitElement {
         body: JSON.stringify({ component, slot, provider }),
       });
       await this._loadIfaces();
-    } catch (e) { this._err = String(e.message ?? e); }
+      return true;
+    } catch (e) { this._err = String(e.message ?? e); return false; }
   }
   // Replace a multi slot's whole set (bx-multiselect emits the full selection).
   async _bindSetMulti(component, slot, providers) {
@@ -1605,11 +1610,12 @@ export class BxAdmin extends LitElement {
       <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">net</span></td>
       <td>
         <select @change=${(e) => {
-          const v = e.target.value;
-          if (v === '__custom') { this._setDraft(ck, cur && !known ? cur : ''); e.target.value = cur; return; }
-          this._dropDraft(ck); this._bindSet(r.comp, r.slot, v);
+          const v = e.target.value, el = e.target;
+          if (v === '__custom') { this._setDraft(ck, cur && !known ? cur : ''); el.value = cur; return; }
+          this._dropDraft(ck);
+          this._bindSet(r.comp, r.slot, v).then((ok) => { if (!ok && el.isConnected) el.value = cur; });
         }}>
-          ${opts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur}>${o.label}</option>`)}
+          ${opts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur} ?disabled=${!!o.disabled}>${o.label}</option>`)}
           ${cur && !known ? html`<option value=${cur} selected>${cur}</option>` : nothing}
         </select>
         ${custom !== undefined ? html`<form class="inline" style="display:inline-flex; gap:4px; margin-left:4px"

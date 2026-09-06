@@ -843,9 +843,13 @@ next persist (fail closed).
 **Surfaces.** Admin console → user management → **network sets** (typed-row
 editor with inline shape hints, reach preview, host warning) and the org
 card's **network** block (attach sets, see the reach); the binding tab and
-the tile popover offer `org`/`none`/`custom…` and label refused options
-"not covered"; the organisations tile shows org admins their reach and
-wiring picker with the default preselected; the terminal's scope menu lists
+the tile popover offer `org`/`none`/`custom…`, grey out refused options
+("not covered" — a pick never reaches the server) and snap the picker back
+with the reason inside the section when a typed `custom…` ref is refused;
+a tile whose wiring you may not change (your own personal tile, say — only
+a workspace admin binds there, and the org's sets do not govern personal
+tiles) shows its wiring read-only; the organisations tile shows org admins
+their reach and wiring picker with the default preselected; the terminal's scope menu lists
 🏢 *org network (devs-net)*. `bx netset ls|set|rm`, `bx org set --net`,
 `bx org ls` (`net:`/`reach:`), `bx bind <tile> net=org|none|lan:…`,
 `bx iface` (`default:org`, inert), `bx status` (`net org → …`), `bx doctor`.

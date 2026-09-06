@@ -780,12 +780,25 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                     zone,listen}|[…]}},
                                     components: [{component, interfaces, provides}],
                                     pending: [{component, slot, kind, service,
-                                              expose?, default?, options: [{id, label}]}],
-                                    inert: {comp: {slot: reason}}}.
+                                              expose?, default?, approvable,
+                                              options: [{id, label, blocked?}]}],
+                                    inert: {comp: {slot: reason}},
+                                    approvable: {comp: true}}.
                                    `pending` is the unbound slots + candidate
                                    providers — the bind-on-install prompt;
                                    expose:true rows are unpublished exposed
                                    endpoints (bind = publish, docs/ingress.md).
+                                   `approvable` (the map, and the flag on each
+                                   pending row) names the components whose
+                                   wiring THIS caller may change: every one
+                                   for a workspace admin, the tiles of orgs
+                                   they administer for an org admin (D26);
+                                   a tile you merely own or write is listed
+                                   but not approvable — UIs show its wiring
+                                   read-only. An option `blocked:true` is one
+                                   POST /bindings refuses for everyone (a net
+                                   ref outside the owning org's network
+                                   sets); pickers grey it out.
                                    default:"org" marks an unbound net slot on
                                    an org-owned tile with network sets — it
                                    is already satisfied (D54); binding only

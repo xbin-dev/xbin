@@ -131,15 +131,30 @@ export function orgNetLabel(org) {
 }
 
 /**
- * netOptions({tile, org, providers, pending}) → [{id, label, title}] for a
- * net slot's picker. `org` is the owning org (with netSets/resolvedNet) or
- * null; `providers` are provider-tile paths; `pending` is the server's
- * pending row (its `options` carry the authoritative labels + `default`).
+ * netOptions({tile, org, providers, pending}) → [{id, label, title,
+ * disabled?}] for a net slot's picker. `org` is the owning org (with
+ * netSets/resolvedNet) or null; `providers` are provider-tile paths;
+ * `pending` is the server's pending row (its `options` carry the
+ * authoritative labels, `default` and `blocked`). A choice the org's network
+ * sets refuse comes back `disabled` (and labelled "not covered") so a picker
+ * cannot submit it — the server would answer 400 and a <select> left on the
+ * refused value reads as a success.
  */
 export function netOptions({ org, providers = [], pending } = {}) {
   const byId = new Map((pending?.options ?? []).map((o) => [o.id, o]));
   const out = [];
   const serverLabel = (id, fallback) => byId.get(id)?.label ?? fallback;
+  // Coverage of the two builtins without a pending row (the slot is bound and
+  // the picker offers a re-bind): the org card's live reach says so.
+  const hasSets = !!(org && ((org.resolvedNet ?? []).length || org.netHost || (org.netSets ?? []).length));
+  const refused = (id) => {
+    const o = byId.get(id);
+    if (o) return !!o.blocked || /not covered/.test(o.label ?? '');
+    if (!hasSets) return false;
+    if (id === 'host') return !org.netHost;
+    if (id === 'internet') return !(org.resolvedNet ?? []).includes('internet') && !org.netHost;
+    return false;
+  };
   // Unbinding an org tile's net slot falls back to the org default (D54): the
   // server says so on a pending row; for a bound slot (no pending row) infer it
   // from the org's sets.
@@ -157,9 +172,10 @@ export function netOptions({ org, providers = [], pending } = {}) {
   for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
   if (org) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
   out.push({ id: '__custom', label: 'custom…', title: 'lan:<cidr> or internet:<host|cidr>[:port]' });
-  // Mark what the org's sets refuse (the server's label says so).
+  // Mark what the org's sets refuse (the server's label says so) and keep it
+  // out of reach.
   for (const o of out) {
-    if (/not covered/.test(byId.get(o.id)?.label ?? '')) o.label += ' — not covered';
+    if (o.id && o.id !== '__custom' && refused(o.id)) { o.label += ' — not covered'; o.disabled = true; }
   }
   return out;
 }

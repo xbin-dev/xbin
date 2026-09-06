@@ -437,6 +437,21 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	}
 	bindings := b.Reg.Workspace().Bindings
 	pending := b.pendingBindings()
+	// approvable: the components whose bindings THIS caller may wire as the
+	// consumer-side approver — every one for a workspace admin, the tiles of
+	// orgs they administer for an org admin (D26), nothing on a tile they
+	// merely own or write (bindings there are a workspace-admin act). UIs
+	// render other tiles' wiring read-only instead of offering a pick that
+	// POST /bindings would refuse.
+	approvable := map[string]bool{}
+	for _, c := range comps {
+		if !scoped || orgScope[c.Component] {
+			approvable[c.Component] = true
+		}
+	}
+	for i := range pending {
+		pending[i].Approvable = !scoped || orgScope[pending[i].Component]
+	}
 	if scoped { // scope every table to the viewer's tiles (+ their providers' consumers)
 		fb := map[string]map[string]registry.Binding{}
 		for comp, slots := range bindings {
@@ -472,6 +487,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		"components": comps,
 		"pending":    pending,
 		"inert":      inert,
+		"approvable": approvable,
 	})
 }
 
@@ -479,6 +495,10 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 type bindOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	// Blocked marks a choice POST /bindings would refuse for everyone — a net
+	// ref outside the owning org's network sets (D54). Pickers grey it out
+	// rather than let a click end in a 400 that looks like a success.
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 // pendingBind is a requested interface slot that is not yet bound, with the
@@ -499,6 +519,11 @@ type pendingBind struct {
 	// on an org-owned tile with network sets (D54). Such a slot is satisfied;
 	// binding it only narrows or overrides.
 	Default string `json:"default,omitempty"`
+	// Approvable: the viewer may wire this slot (workspace admin, or an admin
+	// of the org that owns the tile — D26). False on a tile the viewer merely
+	// owns or writes: the prompt lists it for information, bind is not
+	// offered (mirrors /grants pending[].approvable).
+	Approvable bool `json:"approvable"`
 }
 
 // pendingBindings lists every requested interface slot with no binding yet.
@@ -573,15 +598,18 @@ func (b *Broker) netBuiltinOptions(comp string) []bindOption {
 		}
 		out = append(out, bindOption{ID: NetRefOrg, Label: label})
 	}
-	uncovered := func(target string) string {
-		if ceil.HasNetSets() && !ceil.NetCovers(target) {
-			return " — not covered by the org's network sets"
+	uncovered := func(target string) bool { return ceil.HasNetSets() && !ceil.NetCovers(target) }
+	builtin := func(id, label, target string) bindOption {
+		o := bindOption{ID: id, Label: label}
+		if uncovered(target) {
+			o.Label += " — not covered by the org's network sets"
+			o.Blocked = true
 		}
-		return ""
+		return o
 	}
 	out = append(out,
-		bindOption{ID: "internet", Label: "internet — public internet (gVisor relay, no LAN; internet:<host|cidr>[:port][,…] filters to named destinations, D35)" + uncovered("net:internet")},
-		bindOption{ID: "host", Label: "host — share the host's network (powerful)" + uncovered("net:host")},
+		builtin("internet", "internet — public internet (gVisor relay, no LAN; internet:<host|cidr>[:port][,…] filters to named destinations, D35)", "net:internet"),
+		builtin("host", "host — share the host's network (powerful)", "net:host"),
 		bindOption{ID: NetRefNone, Label: "none — no egress, explicitly (deny-all)"},
 	)
 	return out
@@ -618,13 +646,14 @@ func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
 		}
 		for _, p := range b.Reg.Components() {
 			if p.Path != comp && providesNet(p) {
-				label := p.Path + " — net provider tile"
+				o := bindOption{ID: p.Path, Label: p.Path + " — net provider tile"}
 				if ceil.HasNetSets() && !ceil.NetCovers("net:provider:"+p.Path) {
-					if o, isOrg := b.Users.OwnerOrg(p.Path); !isOrg || o != ceil.OwnerOrg() {
-						label += " — not covered by the org's network sets"
+					if po, isOrg := b.Users.OwnerOrg(p.Path); !isOrg || po != ceil.OwnerOrg() {
+						o.Label += " — not covered by the org's network sets"
+						o.Blocked = true
 					}
 				}
-				tiles = append(tiles, bindOption{ID: p.Path, Label: label})
+				tiles = append(tiles, o)
 			}
 		}
 	case "http":

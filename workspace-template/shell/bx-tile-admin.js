@@ -49,6 +49,7 @@ export class BxTileAdmin extends LitElement {
     _accKind: { state: true },  // add-entry kind: user | org
     _secEdit: { state: true },  // vault key being re-set inline (name | null)
     _err: { state: true },
+    _errSec: { state: true },   // section whose action produced _err ('' = header)
     _busy: { state: true },
   };
 
@@ -147,8 +148,9 @@ export class BxTileAdmin extends LitElement {
       this._backups = backups?.versions ?? [];
       this._vault = vault;
       this._access = access;
-      this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
+      // A load error is reported like an action's; a successful reload does
+      // NOT clear an action's refusal — that message belongs to the person.
+    } catch (e) { this._err = String(e.message ?? e); this._errSec = ''; }
   }
 
   async _loadRuntime() {
@@ -159,11 +161,22 @@ export class BxTileAdmin extends LitElement {
     } catch (e) { this._rt = { err: String(e.message ?? e) }; }
   }
 
-  async _do(fn) {
+  // _do runs one action, then refreshes. A refusal stays on screen through
+  // the refresh (the reload must not wipe it — it did, which is how a
+  // rejected `host` bind once looked like a success) and is rendered inside
+  // the section that asked (`sec`), where the person is looking, not only in
+  // the header. Resolves true when the action went through.
+  async _do(fn, sec = '') {
     this._busy = true;
-    try { await fn(); this._err = ''; } catch (e) { this._err = String(e.message ?? e); }
+    let ok = true;
+    try { await fn(); this._err = ''; this._errSec = ''; } catch (e) { this._err = String(e.message ?? e); this._errSec = sec; ok = false; }
     this._busy = false;
     await this._loadCore();
+    return ok;
+  }
+
+  _secErr(sec) {
+    return this._err && this._errSec === sec ? html`<div class="err" role="alert">${this._err}</div>` : nothing;
   }
 
   // ---- sections ----
@@ -356,14 +369,30 @@ export class BxTileAdmin extends LitElement {
       }
       return out;
     };
+    // Who may wire this tile: the server says (ws admin, or an admin of the
+    // owning org — D26). An owner opening ⚙ on their personal tile sees the
+    // wiring read-only; a bind would be refused.
+    const mayBind = !!d.approvable?.[this.path];
+    const boundOf = (slot) => [].concat(d.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
+    // set() resolves after the reload; a <select> keeps a refused choice on
+    // screen (lit re-renders the same `selected` attributes, the browser keeps
+    // the picked index), so the caller snaps it back to what is really bound.
     const set = (slot, providers) => this._do(() => api('/bindings', {
       method: providers.length ? 'POST' : 'DELETE',
       ...jbody(providers.length ? { component: this.path, slot, providers } : { component: this.path, slot }),
-    }));
+    }), 'interfaces');
+    const setFrom = async (el, slot, providers) => {
+      await set(slot, providers);
+      if (el?.isConnected) el.value = boundOf(slot)[0] ?? '';
+    };
+    const who = org ? `a workspace admin or an admin of org:${org.id}` : 'a workspace admin';
     return html`<div class="sec">
+      ${this._secErr('interfaces')}
+      ${!mayBind && slots.length ? html`<div class="muted" style="margin-bottom:4px" data-readonly>
+        wiring is set by ${who} — shown read-only</div>` : nothing}
       <table>
         ${slots.map(([slot, def]) => {
-          const bound = [].concat(d.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
+          const bound = boundOf(slot);
           const opts = optsFor(def);
           if (def.kind === 'net' && !def.multi) {
             const pend = (d.pending ?? []).find((p) => p.component === this.path && p.slot === slot);
@@ -371,6 +400,14 @@ export class BxTileAdmin extends LitElement {
             const cur = bound[0] ?? '';
             const known = nopts.some((o) => o.id === cur);
             const inert = d.inert?.[this.path]?.[slot];
+            if (!mayBind) {
+              const shown = nopts.find((o) => o.id === cur);
+              return html`<tr>
+                <td class="ref" title=${slot}>${slot} <span class="pill">net</span>
+                  ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
+                <td class="ctl" style="width:62%"><span class="mono" title=${shown?.title ?? cur}>${shown?.label ?? cur ?? '— unbound —'}</span>
+                  ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}</td></tr>`;
+            }
             return html`<tr>
               <td class="ref" title=${slot}>${slot} <span class="pill">net</span>
                 ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
@@ -378,9 +415,9 @@ export class BxTileAdmin extends LitElement {
                 <select title=${cur || 'unbound'} @change=${(e) => {
                   const v = e.target.value;
                   if (v === '__custom') { this._netCustom = slot; e.target.value = cur; return; }
-                  this._netCustom = null; set(slot, v ? [v] : []);
+                  this._netCustom = null; setFrom(e.target, slot, v ? [v] : []);
                 }}>
-                  ${nopts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur}>${o.label}</option>`)}
+                  ${nopts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur} ?disabled=${!!o.disabled}>${o.label}</option>`)}
                   ${cur && !known ? html`<option value=${cur} selected>${cur}</option>` : nothing}
                 </select>
                 ${this._netCustom === slot ? html`<form class="row" style="justify-content:flex-end; margin-top:3px"
@@ -392,12 +429,17 @@ export class BxTileAdmin extends LitElement {
                 ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}
               </td></tr>`;
           }
+          if (!mayBind) {
+            return html`<tr>
+              <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
+              <td class="ctl" style="width:62%"><span class="mono" title=${bound.join(', ')}>${bound.length ? bound.join(', ') : '— unbound —'}</span></td></tr>`;
+          }
           return html`<tr>
             <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}${def.service ? ':' + def.service : ''}${def.multi ? ' ×N' : ''}</span></td>
             <td class="ctl" style="width:62%">${def.multi
               ? html`<bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
                   @change=${(e) => set(slot, e.detail.selected)}></bx-multiselect>`
-              : html`<select title=${bound[0] ?? 'unbound'} @change=${(e) => set(slot, e.target.value ? [e.target.value] : [])}>
+              : html`<select title=${bound[0] ?? 'unbound'} @change=${(e) => setFrom(e.target, slot, e.target.value ? [e.target.value] : [])}>
                   <option value="" ?selected=${!bound.length}>— unbound —</option>
                   ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
                 </select>`}</td></tr>`;
@@ -474,7 +516,7 @@ export class BxTileAdmin extends LitElement {
           : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>`}
         <button class="act" title="reload" @click=${() => { this._rt = null; this._loadCore(); }}>⟳</button>
       </div>
-      ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
+      ${this._err && !this._errSec ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
       <details open data-sec="lifecycle"><summary>lifecycle</summary>${this._lifecycle()}</details>
       <details data-sec="access"><summary>access</summary>${this._accessSec()}</details>
       <details data-sec="runtime" @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>

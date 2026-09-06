@@ -468,7 +468,9 @@ export class BxOrganisations extends LitElement {
   // optional listen). Existing bindings unbind here too (always allowed for
   // org admins; the slot then reappears above to re-route).
   _wiringView() {
-    const bindPending = this._binds?.pending ?? [];
+    // Only slots this org admin may wire (their orgs' tiles — the server's
+    // approvable flag); a personal tile in their view is not theirs to bind.
+    const bindPending = (this._binds?.pending ?? []).filter((p) => p.approvable !== false);
     const orgTiles = new Set((this._orgs ?? []).flatMap((o) => o.ownedTiles ?? []));
     const bound = [];
     for (const [comp, slots] of Object.entries(this._binds?.bindings ?? {})) {
@@ -501,7 +503,7 @@ export class BxOrganisations extends LitElement {
               if (e.target.value === '__custom') this._netCustom = ck(p);
               else if (this._netCustom === ck(p)) this._netCustom = null;
             }}>
-              ${p.options.map((op) => html`<option value=${op.id} title=${op.desc ?? ''} ?selected=${op.id === p.default}>${optLabel(p, op)}</option>`)}
+              ${p.options.map((op) => html`<option value=${op.id} title=${op.blocked ? 'refused by your org\'s network sets' : (op.desc ?? '')} ?selected=${op.id === p.default} ?disabled=${!!op.blocked}>${optLabel(p, op)}</option>`)}
               ${p.kind === 'net' && !p.expose ? html`<option value="__custom">custom…</option>` : nothing}
             </select>
             ${this._netCustom === ck(p) ? html`

@@ -276,8 +276,10 @@ export class BxShell extends LitElement {
     /* ---- per-tile admin popover (D56): wide, resizable, click-outside closes ---- */
     .admin-pop-backdrop { position: fixed; inset: 0; z-index: 2400; }
     .admin-pop {
+      /* sized by its content up to max-height (inline); the user may still
+         drag the corner to a fixed size */
       position: fixed; z-index: 2500; display: flex; flex-direction: column; box-sizing: border-box;
-      min-width: 300px; min-height: 160px; overflow: hidden; resize: both;
+      min-width: 300px; min-height: 120px; overflow: hidden; resize: both;
       background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
       border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
     }
@@ -1328,7 +1330,7 @@ export class BxShell extends LitElement {
     return html`
       <div class="admin-pop-backdrop" @pointerdown=${() => { this._adminPop = null; }}
            @contextmenu=${(e) => { e.preventDefault(); this._adminPop = null; }}></div>
-      <div class="admin-pop" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; height:${a.h}px">
+      <div class="admin-pop" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; max-height:${a.h}px">
         <div class="ahead">
           <span class="t">⚙ ${a.path}</span>
           ${this._mobile ? html`<button title="close" @click=${() => { this._adminPop = null; }}>✕</button>` : nothing}
@@ -2031,7 +2033,7 @@ export class BxShell extends LitElement {
         if (p.blocked) continue;
         if (!scoped || p.approvable || p.direction === 'mine') n += 1;
       }
-      n += (b?.pending ?? []).length;
+      n += (b?.pending ?? []).filter((p) => p.approvable !== false).length; // slots this person may wire
       n += (q?.requests ?? []).filter((x) => x.manage).length; // human requests you can grant (D36)
       this._pendingN = n;
     } catch { /* xbind restarting; next event refetches */ }

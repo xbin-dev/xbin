@@ -374,6 +374,99 @@ async function orgAdmin(browser, user, pass, tiles) {
   await ctx.close();
 }
 
+// Net pickers must never show a refused bind as a success (the "org admin
+// could still grant host" report). Asserts, not just screenshots: refused
+// options are disabled, a refused custom ref snaps the select back and the
+// reason lands inside the interfaces section, a tile the person may not wire
+// is read-only, the root prompt lists only approvable slots, and the ⚙
+// popover sizes to its content. Failures throw at the end of the pass.
+async function netPickers(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/net-pickers.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/net-pickers.txt`, '');
+  const openPop = async (page, tile) => {
+    await page.evaluate((p) => { document.querySelector('bx-shell')._openAdminWin(p, 'interfaces'); }, tile);
+    await sleep(1500);
+    return page.evaluate(() => {
+      const sh = document.querySelector('bx-shell');
+      const pop = sh.shadowRoot.querySelector('.admin-pop');
+      const ta = pop?.querySelector('bx-tile-admin');
+      const sec = ta?.shadowRoot.querySelector('details[data-sec="interfaces"]');
+      const sel = sec?.querySelector('select');
+      return {
+        height: pop?.getBoundingClientRect().height ?? 0, inner: window.innerHeight,
+        readonly: !!sec?.querySelector('[data-readonly]'),
+        hasSelect: !!sel,
+        value: sel?.value ?? null,
+        disabled: [...(sel?.options ?? [])].filter((o) => o.disabled).map((o) => o.value),
+        err: sec?.querySelector('.err')?.textContent?.trim() ?? '',
+      };
+    });
+  };
+  const closePop = (page) => page.evaluate(() => { document.querySelector('bx-shell')._adminPop = null; });
+  const openShell = async (page) => {
+    await page.goto(`${URL}/`);
+    await page.waitForSelector('bx-shell', { timeout: 15000 });
+    await sleep(1500);
+  };
+
+  // ---- workspace admin on an org tile (devs-net: internet + lan 10.42/16 + github, no host) ----
+  {
+    const { ctx, page } = await login(browser, 'admin', 'admin');
+    await openShell(page);
+    let s = await openPop(page, 'apps/pinned');
+    check(s.hasSelect, 'admin: org tile offers a net select');
+    check(s.disabled.includes('host'), `admin: host is disabled on apps/pinned (disabled=${s.disabled.join(',')})`);
+    check(!s.disabled.includes('internet'), 'admin: internet stays enabled (inside devs-net)');
+    check(s.height > 120 && s.height < s.inner * 0.7 - 1, `admin: popover sized to content (${Math.round(s.height)}px of ${s.inner})`);
+    const before = s.value;
+    // a refused custom ref: outside the set → 400 → select snaps back, reason in-section
+    const sel = page.locator('bx-shell bx-tile-admin details[data-sec="interfaces"] select').first();
+    await sel.selectOption('__custom');
+    await sleep(300);
+    const form = page.locator('bx-shell bx-tile-admin details[data-sec="interfaces"] form');
+    await form.locator('input[name="ref"]').fill('lan:10.0.0.0/8');
+    await form.locator('button[type="submit"]').click();
+    await sleep(1500);
+    await shot(page, 'net-picker-admin-refused', { fullPage: false });
+    s = await page.evaluate(() => {
+      const ta = document.querySelector('bx-shell').shadowRoot.querySelector('.admin-pop bx-tile-admin');
+      const sec = ta.shadowRoot.querySelector('details[data-sec="interfaces"]');
+      return { value: sec.querySelector('select')?.value, err: sec.querySelector('.err')?.textContent?.trim() ?? '',
+        headerErr: !!ta.shadowRoot.querySelector(':host > .err, .hd + .err') };
+    });
+    check(/not covered/.test(s.err), `admin: refusal shown inside the section ("${s.err.slice(0, 60)}")`);
+    check(s.value === before, `admin: select snapped back to "${before}" (now "${s.value}")`);
+    await closePop(page);
+    await ctx.close();
+  }
+
+  // ---- org admin dev1: own personal tile is read-only; org tile offers the picker minus host ----
+  {
+    const { ctx, page } = await login(browser, 'dev1', 'devpass123');
+    await openShell(page);
+    await page.evaluate(() => { const s = document.querySelector('bx-shell'); const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); } });
+    let s = await openPop(page, 'apps/dev1-notes');
+    await shot(page, 'net-picker-dev1-personal', { fullPage: false });
+    check(s.readonly && !s.hasSelect, `dev1: personal tile wiring is read-only (readonly=${s.readonly} select=${s.hasSelect})`);
+    await closePop(page);
+    s = await openPop(page, 'apps/pinned');
+    check(s.hasSelect && s.disabled.includes('host'), `dev1: org tile has a picker with host disabled (select=${s.hasSelect} disabled=${s.disabled.join(',')})`);
+    await closePop(page);
+    // the root bind prompt: only slots dev1 may wire (never the personal tile's)
+    const prompt = await page.evaluate(() => document.querySelector('bx-shell').shadowRoot.querySelector('bx-bindings')?.shadowRoot?.textContent ?? '');
+    check(!prompt.includes('apps/dev1-notes'), 'dev1: root bind prompt does not offer the personal tile');
+    // and the server view says the same
+    const r = await ctx.request.get(`${URL}/api/xbin/bindings`);
+    const d = await r.json();
+    check(d.approvable?.['apps/pinned'] === true && !d.approvable?.['apps/dev1-notes'], `dev1: approvable = ${JSON.stringify(d.approvable)}`);
+    const pin = (d.pending ?? []).find((p) => p.component === 'apps/dev1-notes');
+    check(!pin || pin.approvable === false, 'dev1: pending row for the personal tile is not approvable');
+    await ctx.close();
+  }
+  if (fails.length) throw new Error(`net-pickers: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 (async () => {
   const browser = await pw.chromium.launch();
   try {
@@ -383,6 +476,7 @@ async function orgAdmin(browser, user, pass, tiles) {
     await screens(browser);
     await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
+    await netPickers(browser);
   } finally {
     await browser.close();
   }
