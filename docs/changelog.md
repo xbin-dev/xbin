@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-06
 
+- **Installer: missing distro tools are installed on every system run.**
+  The package step (`uidmap`, `fuse3`, git/curl/tar) was only planned for a
+  fresh build-from-source install; a prebuilt install, and any upgrade,
+  skipped it even after preflight had said "will install uidmap" — so
+  `newuidmap`/`newgidmap` could stay missing and uid-range mapping degraded.
+  The step now runs whenever a required tool is absent, prebuilt or source,
+  fresh or upgrade.
+
 - **Menus polish.** A right-click (or touch long-press) anywhere inside a
   tile now opens its menu — the injected client relays the event out of the
   iframe, unless the tile handled it itself or the target is an input, link

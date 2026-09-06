@@ -993,13 +993,32 @@ INPLACE=()   # "already-done description"
 plan()    { STEPS+=("$1::$2"); }
 inplace() { INPLACE+=("$1"); }
 
+# missing_runtime_tools: the distro tools xbind needs at runtime that aren't
+# on PATH yet (uidmap's newuidmap/newgidmap, fuse3's fusermount3, git, …).
+missing_runtime_tools() {
+  local t out=
+  for t in newuidmap newgidmap fusermount3 git curl tar; do have "$t" || out="$out$t "; done
+  printf '%s' "${out% }"
+}
+
 build_plan() {
+  # Runtime packages (system mode): planned whenever a required tool is
+  # missing — prebuilt or source, fresh or UPGRADE. An upgrade onto a host
+  # that never got uidmap (preflight said "will install") must still get it;
+  # skipping this on upgrades is how newuidmap went missing after re-runs.
+  if [ "$MODE" = system ]; then
+    local missing; missing=$(missing_runtime_tools)
+    if [ -n "$missing" ]; then
+      plan install_deps "install packages via $PKG: $UIDMAP_PKG $FUSE_PKG $RUN_PKGS (missing: $missing)$([ "$BUILD_FROM_SOURCE" = 1 ] && echo ' (+make if missing)')"
+    elif [ "$BUILD_FROM_SOURCE" = 1 ] && [ "$UPGRADE" = 0 ]; then
+      plan install_deps "install packages via $PKG: $UIDMAP_PKG $FUSE_PKG $RUN_PKGS (+make if missing)"
+    else
+      inplace "distro tools present (newuidmap, fusermount3, git, curl, tar)"
+    fi
+  fi
   # Toolchain.
   if [ "$BUILD_FROM_SOURCE" = 1 ]; then
     if [ "$MODE" = system ]; then
-      if [ "$UPGRADE" = 0 ]; then
-        plan install_deps "install packages via $PKG: $UIDMAP_PKG $FUSE_PKG $RUN_PKGS (+make if missing)"
-      fi
       if go_ok; then inplace "Go $(go env GOVERSION 2>/dev/null | sed 's/^go//') ≥ $GO_MIN"
       else plan install_go "install Go $GO_VERSION to $GO_PREFIX/go"; fi
       if have podman || have docker; then
