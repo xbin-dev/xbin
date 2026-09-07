@@ -374,6 +374,97 @@ async function orgAdmin(browser, user, pass, tiles) {
   await ctx.close();
 }
 
+// Floating windows must always be reachable (the field report: a terminal
+// pop-up restored at x 2270 / y 1217 on a smaller viewport — working, and
+// invisible). Asserts: a persisted off-screen pop-up restores inside the
+// viewport, a shrinking browser window pulls an open pop-up back in, and the
+// canvas menu's "Bring windows on-screen" fixes a parked spawned window and
+// float tile. Failures throw at the end of the pass.
+async function windows(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/windows.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/windows.txt`, '');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  const inside = (r) => !!r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.right <= r.W + 0.5 && r.bottom <= r.H + 0.5;
+  const fmt = (r) => r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)} in ${r.W}×${r.H}` : 'none';
+  const rectOf = (sel) => page.evaluate((s) => {
+    const sh = document.querySelector('bx-shell');
+    const el = s.startsWith('pop:')
+      ? sh.shadowRoot.querySelector(`bx-frame[src="${s.slice(4)}"]`)?.shadowRoot?.querySelector('.pop')
+      : sh.shadowRoot.querySelector(s);
+    const r = el?.getBoundingClientRect();
+    return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height, W: innerWidth, H: innerHeight } : null;
+  }, sel);
+
+  // 1. a persisted off-screen pop-up restores inside the viewport
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await page.evaluate(() => localStorage.setItem('bx-term:apps/crawler', JSON.stringify({
+    open: true, active: 0, pop: { x: 2270, y: 1217, w: 1003, h: 868 },
+    sessions: [{ key: 'k1', id: null, net: null, gpu: 'none', api: true, name: '' }] })));
+  await page.reload();
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
+    if (!sh._isOpen('apps/crawler')) sh._toggle('apps/crawler');
+  });
+  await sleep(3000);
+  let r = await rectOf('pop:apps/crawler');
+  check(inside(r), `restored pop-up lands inside the viewport (${fmt(r)})`);
+  await shot(page, 'windows-restored', { fullPage: false });
+
+  // 2. a shrinking browser window pulls an open pop-up back in
+  await page.evaluate(() => {
+    const fr = document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="apps/crawler"]');
+    fr._pop = { x: 820, y: 560, w: 560, h: 320 };
+  });
+  await sleep(300);
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await sleep(800);
+  r = await rectOf('pop:apps/crawler');
+  check(inside(r), `pop-up follows a shrinking browser window (${fmt(r)})`);
+  await shot(page, 'windows-shrunk', { fullPage: false });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await sleep(500);
+
+  // 3. "Bring windows on-screen": a spawned window and a float tile parked off-screen
+  const hasItem = await page.evaluate(() => document.querySelector('bx-shell')._canvasMenuItems().some((i) => /on-screen/.test(i.label ?? '')));
+  check(hasItem, 'canvas menu offers "Bring windows on-screen"');
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    sh._spawnWins = [{ id: 'hw', from: 'apps/crawler', src: 'apps/crawler', reply() {}, title: 'parked', x: 5000, y: 4000, w: 400, h: 300, z: 3000 }];
+    if (!sh._isOpen('apps/offline')) sh._toggle('apps/offline');
+  });
+  await sleep(800);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    sh._mutateTiles((tiles) => tiles.map((o) => o.path === 'apps/offline' ? { ...o, float: { x: 5000, y: 4000, w: 400, h: 300, z: 100 } } : o));
+  });
+  await sleep(800);
+  r = await rectOf('.float[data-path="apps/offline"]');
+  check(inside(r), `a float saved off-screen renders inside the viewport (${fmt(r)})`);
+  await page.evaluate(() => document.querySelector('bx-shell')._fitWindows(true));
+  await sleep(800);
+  r = await rectOf('.spawn');
+  check(inside(r), `spawned window brought on-screen (${fmt(r)})`);
+  const saved = await page.evaluate(() => document.querySelector('bx-shell')._tiles.find((o) => o.path === 'apps/offline')?.float);
+  check(saved && saved.x + saved.w <= 1400 && saved.y + saved.h <= 900, `float geometry persisted on-screen (${JSON.stringify(saved)})`);
+  await shot(page, 'windows-fitted', { fullPage: false });
+
+  // tidy: the next pass starts from the seeded layout
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    sh._spawnWins = [];
+    if (sh._isOpen('apps/offline')) sh._toggle('apps/offline');
+    localStorage.removeItem('bx-term:apps/crawler');
+  });
+  await sleep(500);
+  await ctx.close();
+  if (fails.length) throw new Error(`windows: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 // Net pickers must never show a refused bind as a success (the "org admin
 // could still grant host" report). Asserts, not just screenshots: refused
 // options are disabled, a refused custom ref snaps the select back and the
@@ -490,6 +581,7 @@ async function netPickers(browser) {
     await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
     await netPickers(browser);
+    await windows(browser);
   } finally {
     await browser.close();
   }

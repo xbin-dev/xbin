@@ -44,6 +44,26 @@ let zTop = 2000;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+// clampBox keeps a viewport-fixed window reachable: never wider/taller than
+// the viewport (minus an 8px margin), never positioned outside it. Geometry
+// is persisted per tile and restored on another monitor, a smaller browser
+// window or a different zoom — a saved {x:2270, y:1217} once rendered a
+// perfectly working terminal nobody could see.
+export function clampBox(box, { minW = 200, minH = 140, margin = 8 } = {}) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const n = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const w = Math.max(Math.min(minW, W - 2 * margin), Math.min(n(box?.w, 560), W - 2 * margin));
+  const h = Math.max(Math.min(minH, H - 2 * margin), Math.min(n(box?.h, 320), H - 2 * margin));
+  const x = Math.max(margin, Math.min(n(box?.x, margin), W - w - margin));
+  const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
+  return { ...box, x, y, w, h };
+}
+
+// A browser window that shrinks pulls every open pop-up back inside it.
+window.addEventListener('resize', () => {
+  for (const f of mountedFrames) f.fitToViewport?.();
+});
+
 // Sandbox tokens for tile frames: scripts + forms + modals + downloads,
 // never allow-same-origin (that plus allow-scripts would void the sandbox).
 // Downloads are safe to allow (ND10): they cross no workspace/session/tile
@@ -313,7 +333,7 @@ export class BxFrame extends LitElement {
       api: s.api !== false, name: s.name || '', scopes: s.scopes || null, label: s.label || '',
     }));
     this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
-    if (saved.pop) this._pop = { ...saved.pop };
+    if (saved.pop) this._pop = clampBox(saved.pop); // never restore off-screen
     if (saved.open) {
       this.updateComplete.then(() => {
         this._termOpen = true;
@@ -442,22 +462,35 @@ export class BxFrame extends LitElement {
   // The shell's tile menu uses it for "terminal / logs / source / proposals".
   open(layout) {
     if (!this._termOpen) this._toggleTerm();
+    else this.fitToViewport(); // already open: make sure it can be seen
     if (layout) this._setLayout(layout);
     this.updateComplete.then(() => this._front());
+  }
+
+  // fitToViewport pulls an open pop-up back inside the browser window (after
+  // a resize, or on the shell's "bring windows on-screen"). Persists so the
+  // next restore starts from a reachable spot.
+  fitToViewport() {
+    if (!this._termOpen || !this._pop) return;
+    const el = this._popEl; // the native resize handle may have changed the size
+    const cur = el ? { ...this._pop, w: el.offsetWidth, h: el.offsetHeight } : this._pop;
+    const next = clampBox(cur);
+    if (next.x !== this._pop.x || next.y !== this._pop.y || next.w !== this._pop.w || next.h !== this._pop.h) {
+      this._pop = next;
+      this.requestUpdate(); // _pop is a plain field — the inline style needs a render
+      this._saveTerm();
+    }
   }
 
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {
-      // Anchor at the frame's top-right corner, clamped to the viewport.
+      // Anchor at the frame's top-right corner.
       const r = this.getBoundingClientRect();
       const w = 560, h = 320;
-      this._pop = {
-        x: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)),
-        y: Math.max(8, Math.min(r.top + 8, window.innerHeight - h - 8)),
-        w, h,
-      };
+      this._pop = { x: r.right - w, y: r.top + 8, w, h };
     }
+    this._pop = clampBox(this._pop); // fresh or restored: always on screen
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (this._sessions.length === 0) this._newTerm();
@@ -600,8 +633,7 @@ export class BxFrame extends LitElement {
     this._layout = l;
     if ((l === 'code' || l === 'split' || l === 'prs') && this._pop && this._pop.w < 760) {
       // widen for the code panel, keeping the window on screen
-      const w = Math.min(960, window.innerWidth - 16);
-      this._pop = { ...this._pop, w, x: Math.max(8, Math.min(this._pop.x, window.innerWidth - w - 8)) };
+      this._pop = clampBox({ ...this._pop, w: 960 });
       this._saveTerm?.();
     }
   }

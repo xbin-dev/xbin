@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-07
+
+- **Floating windows always stay reachable.** A tile's terminal / code /
+  logs pop-up remembers its position per tile in the browser; restored on a
+  smaller browser window, another monitor or a different zoom it could land
+  entirely off-screen — the terminal ran, the session streamed, nothing was
+  visible ("no terminal opens, no errors"). Every floating window (tile
+  pop-ups, `xbin.window()` windows, the ⚙ popover, float tiles) is now
+  clamped to the viewport when it opens or restores, is pulled back in when
+  the browser window shrinks (windows larger than the viewport shrink to
+  fit), and the canvas right-click menu gains **Bring windows on-screen**
+  for anything still parked out of reach (it also fixes up a float tile's
+  saved geometry). A caller-supplied `x`/`y` on `xbin.window()` is clamped
+  the same way.
+
 ## 2026-09-06
 
 - **Net pickers no longer show a refused bind as a success.** Picking

@@ -111,7 +111,10 @@ and embedded panel:
   sessions plus layout modes — terminal (`>_`), code browser/review (`{ }`),
   split (`⇋`), and a read-only backend-logs view (`▤`). Session state
   (including window geometry) persists in the browser and reattaches to the
-  still-running server-side PTYs across reloads. Per-session pickers for
+  still-running server-side PTYs across reloads; the window is clamped to
+  the viewport whenever it opens, restores or the browser window shrinks,
+  and the canvas menu's **Bring windows on-screen** recovers any floating
+  window still out of reach. Per-session pickers for
   network scope, live tile-API access, and GPU each restart the session —
   those properties are fixed at sandbox spawn. The whole terminal plane —
   what those sessions can see and do — is [09-terminals.md](09-terminals.md).

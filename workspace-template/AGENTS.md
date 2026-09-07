@@ -329,7 +329,9 @@ composed by `root/index.html`. Edit it like any component; shells nest
 runtime: gray static, blue go, green node, amber python, red cgi. Canvas
 cards drag by their title bar on a snappable grid. **Menus:** right-click
 the empty canvas for *open tile* (recent + find), *create a new tile* as an
-owner, *new screen*; right-click a card head or a sidebar row — or press
+owner, *new screen*, and *bring windows on-screen* (floating windows clamp
+to the viewport on open, restore and browser resize; this recovers any
+still out of reach); right-click a card head or a sidebar row — or press
 its ⋯ — for the tile menu (terminal · logs · source · proposals, then
 open/close/pin/full page and, for admins, lifecycle + the ⚙ sections). A
 right-click (or touch long-press) *inside* a tile reaches the shell too —

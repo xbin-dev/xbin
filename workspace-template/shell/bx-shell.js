@@ -98,6 +98,20 @@ let zTop = 100;
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
 // columns of DEF_W width, their tiles stacked top-to-bottom. Floating tiles get
 // a grid home too (used when pinned back).
+// clampWin keeps a viewport-fixed window (float tile, spawned window, admin
+// popover) reachable: no larger than the viewport minus an 8px margin, never
+// positioned outside it. Geometry saved on a big monitor must not vanish on
+// a small one.
+function clampWin(box, minW = 200, minH = 120, margin = 8) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const n = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const w = Math.max(Math.min(minW, W - 2 * margin), Math.min(n(box?.w, minW), W - 2 * margin));
+  const h = Math.max(Math.min(minH, H - 2 * margin), Math.min(n(box?.h, minH), H - 2 * margin));
+  const x = Math.max(margin, Math.min(n(box?.x, margin), W - w - margin));
+  const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
+  return { ...box, x, y, w, h };
+}
+
 function gridMigrate(tiles) {
   const nextY = {}; // col → next free y
   return (tiles ?? []).map((o) => {
@@ -765,10 +779,16 @@ export class BxShell extends LitElement {
       if (os && this._orgDrafts?.[os.id]?.dirty) { e.preventDefault(); this._saveOrgDraft(os.id); }
     };
     window.addEventListener('keydown', this._onKey);
+    // A shrinking browser window pulls every floating window back inside it
+    // (spawned windows, the admin popover, float tiles via their render;
+    // bx-frame pop-ups listen on their own).
+    this._onResize = () => this._fitWindows(false);
+    window.addEventListener('resize', this._onResize);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    window.removeEventListener('resize', this._onResize);
     this._off?.();
     window.removeEventListener('bx-spawn', this._onSpawn);
     window.removeEventListener('bx-spawn-close', this._onSpawnClose);
@@ -1242,9 +1262,12 @@ export class BxShell extends LitElement {
     const win = {
       id: d.id, from: d.from, src, reply: d.reply,
       title: d.spec.title || src,
-      x: d.spec.x ?? Math.round((window.innerWidth - w) / 2),
-      y: d.spec.y ?? Math.round((window.innerHeight - h) / 2.4),
-      w, h, z: ++zTop,
+      ...clampWin({ // a caller-supplied x/y can't park the window off-screen
+        x: d.spec.x ?? Math.round((window.innerWidth - w) / 2),
+        y: d.spec.y ?? Math.round((window.innerHeight - h) / 2.4),
+        w, h,
+      }, 200, 140),
+      z: ++zTop,
     };
     this._spawnWins = [...this._spawnWins, win];
   }
@@ -1267,6 +1290,34 @@ export class BxShell extends LitElement {
   _spawnFront(id) {
     const w = this._spawnWins.find((x) => x.id === id);
     if (w) { w.z = ++zTop; this.requestUpdate(); }
+  }
+
+  // _fitWindows brings every floating window back inside the viewport:
+  // spawned windows and the admin popover (state), every tile's pop-up
+  // (bx-frame.fitToViewport), and float tiles — those render clamped
+  // already; with `persist` (the menu action) their saved geometry is fixed
+  // up too, so the layout stops carrying an off-screen spot. Runs on window
+  // resize (persist=false: a resize must not rewrite a shared layout) and
+  // from the canvas menu's "Bring windows on-screen".
+  _fitWindows(persist) {
+    let moved = false;
+    for (const w of this._spawnWins) {
+      const c = clampWin(w, 200, 140);
+      if (c.x !== w.x || c.y !== w.y || c.w !== w.w || c.h !== w.h) { Object.assign(w, c); moved = true; }
+    }
+    if (this._adminPop) {
+      const c = clampWin(this._adminPop, 300, 120);
+      if (c.x !== this._adminPop.x || c.y !== this._adminPop.y || c.w !== this._adminPop.w || c.h !== this._adminPop.h) this._adminPop = c;
+    }
+    for (const fr of this.renderRoot.querySelectorAll('bx-frame')) fr.fitToViewport?.();
+    if (persist && this._canMutate && !this._mobile) {
+      for (const o of this._tiles) {
+        if (!o.float) continue;
+        const c = clampWin(o.float, MIN_W, MIN_H);
+        if (c.x !== o.float.x || c.y !== o.float.y || c.w !== o.float.w || c.h !== o.float.h) this._setFloat(o.path, c);
+      }
+    }
+    if (moved || !persist) this.requestUpdate(); // floats re-render clamped to the new viewport
   }
 
   // The per-tile admin popover (D56): a wide, resizable panel next to the
@@ -1414,6 +1465,9 @@ export class BxShell extends LitElement {
       items.push({ icon: '✦', label: 'Create a new tile…', disabled: true, hint: 'org-only policy — ask an org admin' });
     }
     items.push({ icon: '▦', label: 'New screen', action: () => this._addScreen() });
+    items.push({ kind: 'sep' });
+    items.push({ icon: '⧉', label: 'Bring windows on-screen', hint: 'pop-ups, floats',
+      action: () => this._fitWindows(true) });
     return items;
   }
   // "Open tile ▸": a find box, the five most recent tiles that aren't on this
@@ -2667,7 +2721,9 @@ export class BxShell extends LitElement {
   // between two DOM containers) — a brief reload, but any open terminal on it
   // reattaches via bx-frame's session persistence.
   _floatTemplate(o) {
-    const f = o.float;
+    // Rendered clamped to the CURRENT viewport (the saved geometry may come
+    // from a bigger monitor); dragging commits the on-screen position.
+    const f = this._mobile ? o.float : clampWin(o.float, MIN_W, MIN_H);
     return html`
       <div class="float" data-path=${o.path}
            style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
