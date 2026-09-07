@@ -2785,7 +2785,7 @@ export class BxShell extends LitElement {
       while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
       if (el?.tagName !== 'IFRAME') return;
       const host = el.getRootNode()?.host;
-      if (host?.reloading) return;
+      if (host?.reloading && !host.hovered) return; // a reload's focus grab, not a click
       const win = host?.closest?.('.float');
       if (win) this._floatFront(win.dataset.path);
     }, 0);

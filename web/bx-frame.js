@@ -418,26 +418,38 @@ export class BxFrame extends LitElement {
   // was. A genuine click during that window is not this frame's — the
   // pointer isn't over it — so hover is the tie-breaker.
   get reloading() { return this._reloadingUntil > Date.now(); }
+  // hovered: the pointer is over the tile's own area (not its pop-up) — a
+  // focus change then is the person's click, reload or not.
+  get hovered() { return !!this._hover; }
 
   _beginReload() {
+    // A burst of reloads (an editor saving several files) keeps the FIRST
+    // snapshot: by the second one the previous document may already hold
+    // the focus we want to give back.
+    if (!this.reloading) {
+      const f = deepActive();
+      this._focusBefore = f === this._iframe ? null : f; // null: it was ours already
+    }
+    this._inFlight = true;
     this._reloadingUntil = Date.now() + 15000; // until load; a cap if it never fires
-    this._focusBefore = deepActive();
-    if (this._focusBefore === this._iframe) this._focusBefore = null; // it was ours already
   }
 
   _onFrameLoad() {
-    if (!this._reloadingUntil) return;
-    const restore = () => {
+    if (!this._inFlight) return; // the initial load, not a reload
+    this._inFlight = false;
+    const gen = (this._loadGen = (this._loadGen || 0) + 1);
+    // The document's own scripts run after load; give them a beat, then hand
+    // focus back if they took it. A newer reload in the meantime supersedes
+    // this timer (its own load will run the restore).
+    this._reloadingUntil = Date.now() + 400;
+    setTimeout(() => {
+      if (gen !== this._loadGen || this._inFlight) return;
       this._reloadingUntil = 0;
       const prev = this._focusBefore;
       this._focusBefore = null;
       if (!prev || !prev.isConnected || this._hover) return;
       if (deepActive() === this._iframe) { try { prev.focus({ preventScroll: true }); } catch { /* not focusable any more */ } }
-    };
-    // The document's own scripts run after load; give them a beat, then hand
-    // focus back if they took it.
-    this._reloadingUntil = Date.now() + 400;
-    setTimeout(restore, 350);
+    }, 350);
   }
 
   _message(e) {

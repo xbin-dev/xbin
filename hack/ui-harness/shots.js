@@ -537,6 +537,14 @@ async function reloadFocus(browser) {
   await sleep(150);
   s = await state();
   check(s.zCrawler > s.zFocusy, `reload leaves the z-order alone (${JSON.stringify(s)})`);
+  // …but a real click into the reloading tile (pointer over it) still fronts it
+  await page.evaluate((f) => { const fr = eval(f); fr._hover = true; fr._iframe.focus(); document.querySelector('bx-shell')._raiseFocusedFloat(); }, frame('apps/focusy'));
+  await sleep(150);
+  s = await state();
+  check(s.zFocusy > s.zCrawler, `a real click into a reloading tile still fronts it (${JSON.stringify(s)})`);
+  // pointer away again, crawler back on top; finishing the reload hands focus back
+  await page.evaluate((f) => { eval(f)._hover = false; const sh = document.querySelector('bx-shell'); sh._setFloat('apps/crawler', { z: 200 }); sh._setFloat('apps/focusy', { z: 100 }); }, frame('apps/focusy'));
+  await sleep(200);
   await page.evaluate((f) => eval(f)._onFrameLoad(), frame('apps/focusy'));
   await sleep(500);
   s = await state();
