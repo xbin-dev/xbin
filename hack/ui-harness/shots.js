@@ -465,6 +465,94 @@ async function windows(browser) {
   if (fails.length) throw new Error(`windows: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
 }
 
+// A tile reload must not touch focus or z-order. apps/focusy focuses its
+// input on every load; with the crawler float (terminal pop-up open, focus in
+// the terminal) on top of it, a focusy reload must leave the floats' order
+// alone and hand the stolen focus back to the terminal. A negative control
+// first proves the tile really does grab focus in this browser.
+async function reloadFocus(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/reload-focus.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/reload-focus.txt`, '');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
+    for (const t of ['apps/crawler', 'apps/focusy']) if (!sh._isOpen(t)) sh._toggle(t);
+  });
+  await sleep(1000);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    sh._mutateTiles((tiles) => tiles.map((o) => {
+      if (o.path === 'apps/focusy') return { ...o, float: { x: 300, y: 120, w: 520, h: 380, z: 100 } };
+      if (o.path === 'apps/crawler') return { ...o, float: { x: 80, y: 80, w: 520, h: 360, z: 200 } };
+      return o;
+    }));
+  });
+  await sleep(2500);
+  const state = () => page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    let el = document.activeElement;
+    while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+    const z = (p) => sh._tiles.find((o) => o.path === p)?.float?.z;
+    const host = el?.getRootNode?.()?.host;
+    return { active: el?.tagName, activeSrc: host?.tagName === 'BX-FRAME' ? host.src : (host?.tagName ?? ''), zCrawler: z('apps/crawler'), zFocusy: z('apps/focusy') };
+  });
+  const frame = (p) => `document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="${p}"]')`;
+  const focusTerm = (p) => page.evaluate((f) => eval(f).shadowRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(), frame(p));
+  // open the crawler terminal and put the caret in it
+  await page.evaluate((f) => eval(f).open('term'), frame('apps/crawler'));
+  await sleep(3500);
+  await focusTerm('apps/crawler');
+  await sleep(300);
+  let s = await state();
+  check(s.active === 'TEXTAREA' && s.zCrawler > s.zFocusy, `setup: caret in the crawler terminal, crawler float on top (${JSON.stringify(s)})`);
+
+  // Control: focusing the tile's iframe fronts its float — the exact chain a
+  // reloaded document triggers when it grabs focus (iframe focus → window
+  // blur → the shell fronts that float). Parent-side iframe.focus() is the
+  // deterministic stand-in: a sandboxed tile can't steal focus in a headless
+  // browser without a user gesture, but the shell's blur path is identical.
+  await page.evaluate((f) => { eval(f)._iframe.focus(); document.querySelector('bx-shell')._raiseFocusedFloat(); }, frame('apps/focusy'));
+  await sleep(150);
+  s = await state();
+  check(s.zFocusy > s.zCrawler, `control: focusing a tile's iframe fronts its float (${JSON.stringify(s)})`);
+
+  // reset: crawler back on top, caret back in its terminal
+  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); sh._setFloat('apps/crawler', { z: 200 }); sh._setFloat('apps/focusy', { z: 100 }); });
+  await focusTerm('apps/crawler');
+  await sleep(200);
+
+  // Fix: the same focus-into-iframe DURING a reload must not front the float,
+  // and the focus the reload stole goes back to the terminal.
+  await page.evaluate((f) => {
+    const fr = eval(f);
+    fr._beginReload();  // reloading = true; captures the terminal as the prior focus
+    fr._iframe.focus(); // the reloaded document grabs focus
+    document.querySelector('bx-shell')._raiseFocusedFloat();
+  }, frame('apps/focusy'));
+  await sleep(150);
+  s = await state();
+  check(s.zCrawler > s.zFocusy, `reload leaves the z-order alone (${JSON.stringify(s)})`);
+  await page.evaluate((f) => eval(f)._onFrameLoad(), frame('apps/focusy'));
+  await sleep(500);
+  s = await state();
+  check(s.active === 'TEXTAREA', `reload hands focus back to the terminal (${JSON.stringify(s)})`);
+  await shot(page, 'reload-focus', { fullPage: false });
+  // tidy
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    for (const t of ['apps/crawler', 'apps/focusy']) if (sh._isOpen(t)) sh._toggle(t);
+    localStorage.removeItem('bx-term:apps/crawler');
+  });
+  await sleep(500);
+  await ctx.close();
+  if (fails.length) throw new Error(`reload-focus: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 // Net pickers must never show a refused bind as a success (the "org admin
 // could still grant host" report). Asserts, not just screenshots: refused
 // options are disabled, a refused custom ref snaps the select back and the
@@ -504,6 +592,8 @@ async function netPickers(browser) {
   // ---- workspace admin on an org tile (devs-net: internet + lan 10.42/16 + github, no host) ----
   {
     const { ctx, page } = await login(browser, 'admin', 'admin');
+    // deterministic start: pinned bound to internet (a fresh seed leaves it unbound)
+    await ctx.request.post(`${URL}/api/xbin/bindings`, { data: { component: 'apps/pinned', slot: 'net', provider: 'internet' } });
     await openShell(page);
     let s = await openPop(page, 'apps/pinned');
     check(s.hasSelect, 'admin: org tile offers a net select');
@@ -582,6 +672,7 @@ async function netPickers(browser) {
     await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
     await netPickers(browser);
     await windows(browser);
+    await reloadFocus(browser);
   } finally {
     await browser.close();
   }

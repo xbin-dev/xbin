@@ -53,6 +53,18 @@ mk apps/offline org:devs
 mk apps/racks   org:infra node
 mk apps/leads   org:sales
 mk apps/dev1-notes user:dev1
+# a tile whose document grabs focus on every load — the "reload hoists the
+# tile over my terminal" case (shots.js reloadFocus)
+mk apps/focusy org:devs
+cat > "$WS/apps/focusy/index.html" <<'EOF'
+<!doctype html><meta charset="utf-8"><title>focusy</title>
+<p>this tile focuses its input on every load</p>
+<input id="i" placeholder="steals focus">
+<script>
+  const grab = () => document.getElementById('i').focus();
+  grab(); addEventListener('load', grab);
+</script>
+EOF
 # an http provider with a deliberately long path + a consumer with a multi
 # slot — the tile-admin window's overflow case (D56)
 LONG=apps/a-provider-with-a-deliberately-long-component-path-for-overflow

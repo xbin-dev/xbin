@@ -25,6 +25,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   saved geometry). A caller-supplied `x`/`y` on `xbin.window()` is clamped
   the same way.
 
+- **A tile reload no longer steals focus or hoists the tile.** When a tile's
+  document focused an input on load (autofocus, a script), the shell read
+  the resulting window blur as a click into that tile and brought its float
+  to the front — over the terminal you were typing in, right after your
+  edit reloaded the tile. A frame now reports itself as reloading until the
+  new document has loaded, the shell leaves the z-order alone meanwhile, and
+  focus pulled into the reloaded frame goes back to where it was (unless the
+  pointer is over that tile, i.e. you really clicked it).
+
 ## 2026-09-06
 
 - **Net pickers no longer show a refused bind as a success.** Picking

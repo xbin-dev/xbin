@@ -2774,12 +2774,19 @@ export class BxShell extends LitElement {
   // iframe swallows the pointerdown, so .float's own handler can't fire). Walk
   // the shadow roots to the focused iframe and raise its floating window, so
   // clicking anywhere in a window — not just its title bar — brings it forward.
+  // A window blur with an iframe focused = the person clicked into that
+  // tile (the click itself never reaches us), so its float comes to the
+  // front — unless the frame is mid-reload: a reloaded document that focuses
+  // an input would otherwise hoist its tile over the terminal someone is
+  // typing in (bx-frame also hands that stolen focus back).
   _raiseFocusedFloat() {
     setTimeout(() => {
       let el = document.activeElement;
       while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
       if (el?.tagName !== 'IFRAME') return;
-      const win = el.getRootNode()?.host?.closest?.('.float');
+      const host = el.getRootNode()?.host;
+      if (host?.reloading) return;
+      const win = host?.closest?.('.float');
       if (win) this._floatFront(win.dataset.path);
     }, 0);
   }

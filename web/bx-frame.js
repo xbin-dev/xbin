@@ -49,6 +49,15 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 // is persisted per tile and restored on another monitor, a smaller browser
 // window or a different zoom — a saved {x:2270, y:1217} once rendered a
 // perfectly working terminal nobody could see.
+// deepActive: the focused element through open shadow roots (the shell,
+// frames and terminals all nest shadow DOM; document.activeElement stops at
+// the first host).
+function deepActive() {
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  return el;
+}
+
 export function clampBox(box, { minW = 200, minH = 140, margin = 8 } = {}) {
   const W = window.innerWidth, H = window.innerHeight;
   const n = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -389,6 +398,7 @@ export class BxFrame extends LitElement {
 
   _reload() {
     this._buildError = null;
+    this._beginReload();
     // Sandboxed frames are opaque origins — we can't reach contentWindow —
     // so reload by re-navigation (re-minting the bootstrap token when
     // credentialless, since the old one may have expired).
@@ -396,6 +406,38 @@ export class BxFrame extends LitElement {
     if (this._frame?.sandboxed) { const f = this._iframe; if (f) f.src = this._url(); return; }
     try { this._iframe?.contentWindow?.location.reload(); }
     catch { if (this._iframe) this._iframe.src = this._url(); }
+  }
+
+  // A reload must not mess with focus or z-order. A reloaded document that
+  // focuses an input (autofocus, a script) makes the window blur, which the
+  // shell reads as "the user clicked into that tile" and fronts its float —
+  // over the terminal the person was typing in. So: while a reload is in
+  // flight (until the new document's load event, plus a beat for its own
+  // scripts) `reloading` is true and the shell leaves the z-order alone; and
+  // if the reload pulled focus into this iframe, it goes back to where it
+  // was. A genuine click during that window is not this frame's — the
+  // pointer isn't over it — so hover is the tie-breaker.
+  get reloading() { return this._reloadingUntil > Date.now(); }
+
+  _beginReload() {
+    this._reloadingUntil = Date.now() + 15000; // until load; a cap if it never fires
+    this._focusBefore = deepActive();
+    if (this._focusBefore === this._iframe) this._focusBefore = null; // it was ours already
+  }
+
+  _onFrameLoad() {
+    if (!this._reloadingUntil) return;
+    const restore = () => {
+      this._reloadingUntil = 0;
+      const prev = this._focusBefore;
+      this._focusBefore = null;
+      if (!prev || !prev.isConnected || this._hover) return;
+      if (deepActive() === this._iframe) { try { prev.focus({ preventScroll: true }); } catch { /* not focusable any more */ } }
+    };
+    // The document's own scripts run after load; give them a beat, then hand
+    // focus back if they took it.
+    this._reloadingUntil = Date.now() + 400;
+    setTimeout(restore, 350);
   }
 
   _message(e) {
@@ -676,11 +718,13 @@ export class BxFrame extends LitElement {
     const style = this._autoHeight ? nothing
       : `--bx-frame-height: ${this.height || this.style.height}`;
     return html`
-      <div class="frame-wrap" style=${style ?? nothing}>
+      <div class="frame-wrap" style=${style ?? nothing}
+           @pointerenter=${() => { this._hover = true; }} @pointerleave=${() => { this._hover = false; }}>
         ${this._frame ? html`
           <iframe src=${this._frame.url} title=${this.src}
                   sandbox=${this._frame.sandboxed ? SANDBOX : nothing}
-                  credentialless=${this._frame.credentialless ? '' : nothing}></iframe>` : nothing}
+                  credentialless=${this._frame.credentialless ? '' : nothing}
+                  @load=${() => this._onFrameLoad()}></iframe>` : nothing}
         ${this._buildError !== null ? html`
           <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`

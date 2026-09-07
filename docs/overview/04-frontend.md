@@ -105,7 +105,9 @@ and embedded panel:
 - **Build errors as an overlay** — compiler output rendered over the tile on
   `build-error`, cleared on `build-ok` ([03-components.md](03-components.md)).
 - **Grant changes reload the frame**, so a frontend that was 403ing retries
-  against its new permissions without a manual refresh.
+  against its new permissions without a manual refresh. A reload (of any
+  cause) never changes the tile's z-order and hands back any focus its new
+  document grabbed — your caret stays in the terminal that made the edit.
 - **The edit button** (the 7×7 corner dot; the shell renders its own header
   button instead) opens the floating per-tile work window: tabbed terminal
   sessions plus layout modes — terminal (`>_`), code browser/review (`{ }`),
