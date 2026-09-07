@@ -561,6 +561,113 @@ async function reloadFocus(browser) {
   if (fails.length) throw new Error(`reload-focus: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
 }
 
+// The permission-set creator (D57): build a set from typed rows, see each
+// entry in words, get stopped on a bad field, create + attach in one save,
+// reopen it with the rows parsed back, and edit an org's extra entries with
+// the same rows. Asserts against the UI and the API. Failures throw.
+async function permSets(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/perm-sets.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/perm-sets.txt`, '');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  const LONGP = 'apps/a-provider-with-a-deliberately-long-component-path-for-overflow';
+  const jget = async (p) => (await ctx.request.get(`${URL}/api/xbin${p}`)).json();
+  // clean slate (a previous run may have died mid-way)
+  await ctx.request.patch(`${URL}/api/xbin/orgs/sales`, { data: { sets: [] } });
+  await ctx.request.delete(`${URL}/api/xbin/permission-sets/infra`);
+
+  await page.goto(`${URL}/c/tiles/admin/#permsets`);
+  await page.waitForSelector('text=new permission set', { timeout: 15000 });
+  await sleep(600);
+  await shot(page, 'permsets-empty');
+  await page.click('button[data-new-set]');
+  await sleep(300);
+  const ed = page.locator('.seteditor');
+  const row = (i) => ed.locator('.allowrow').nth(i);
+  await ed.locator('input[name=setname]').fill('infra');
+  // row 1 (default kind: use a tile) — the llm-gw case, on a seeded tile
+  await row(0).locator('input[name=value]').fill('apps/crawler');
+  await row(0).locator('select[name=role]').selectOption('writer');
+  await sleep(200);
+  let desc = await row(0).locator('.allow-desc').textContent();
+  check(/let their tiles use apps\/crawler as writer/.test(desc) && /tile:apps\/crawler@writer/.test(desc), `tile row reads back in words + entry ("${desc.trim()}")`);
+  // row 2: bind an interface, pinned to the seeded feed provider
+  await ed.locator('button[data-add-entry]').click();
+  await row(1).locator('select[name=kind]').selectOption('iface');
+  await row(1).locator('input[name=value]').fill('feed');
+  await row(1).locator('input[name=provider]').fill(LONGP);
+  await sleep(200);
+  desc = await row(1).locator('.allow-desc').textContent();
+  check(new RegExp(`bind a "feed" interface slot to ${LONGP.replace(/[-/]/g, '\\$&')}`).test(desc) && desc.includes(`iface:feed@${LONGP}`), `iface row reads back ("${desc.trim().slice(0, 80)}…")`);
+  // row 3: a host port — first an impossible one: save must be blocked with a reason
+  await ed.locator('button[data-add-entry]').click();
+  await row(2).locator('select[name=kind]').selectOption('ingress:listen');
+  await row(2).locator('input[name=value]').fill('99999');
+  await sleep(200);
+  const pill = await row(2).locator('.err-pill').textContent().catch(() => '');
+  const saveDisabled = await ed.locator('button[data-save-set]').isDisabled();
+  check(saveDisabled && /1–65535/.test(pill), `a bad port blocks create with a reason (disabled=${saveDisabled} "${pill}")`);
+  await row(2).locator('input[name=value]').fill('8080-8090');
+  await sleep(200);
+  check(!(await ed.locator('button[data-save-set]').isDisabled()), 'fixing the port re-enables create');
+  // an instance without a provider is refused too
+  await row(1).locator('input[name=provider]').fill('');
+  await row(1).locator('input[name=instance]').fill('dev');
+  await sleep(200);
+  check(await ed.locator('button[data-save-set]').isDisabled(), 'an instance without a provider blocks create');
+  await row(1).locator('input[name=provider]').fill(LONGP);
+  await row(1).locator('input[name=instance]').fill('');
+  await sleep(200);
+  // attach to sales (the multiselect is driven through the draft, as a person's picks would land)
+  await page.evaluate(() => { const a = document.querySelector('bx-admin'); a._setDraft('permset:new', { ...a._draft('permset:new'), orgs: ['sales'] }); });
+  await sleep(300);
+  await shot(page, 'permsets-creator');
+  await ed.locator('button[data-save-set]').click();
+  await sleep(1500);
+  let ps = await jget('/permission-sets');
+  const want = ['tile:apps/crawler@writer', `iface:feed@${LONGP}`, 'ingress:listen:8080-8090'];
+  check(JSON.stringify(ps.sets?.infra?.allow) === JSON.stringify(want), `set stored with the exact entries (${JSON.stringify(ps.sets?.infra?.allow)})`);
+  check((ps.attachedTo?.infra ?? []).includes('sales'), `attached to sales on create (${JSON.stringify(ps.attachedTo?.infra)})`);
+  const sales = (await jget('/orgs')).orgs.find((o) => o.id === 'sales');
+  check((sales?.resolvedAllow ?? []).includes('tile:apps/crawler@writer'), `sales' resolved allowance carries the entry (${JSON.stringify(sales?.resolvedAllow)})`);
+  // the card shows the entries in words; edit parses them back into typed rows
+  await page.waitForSelector('.setcard[data-set="infra"]', { timeout: 5000 });
+  const cardText = await page.locator('.setcard[data-set="infra"]').textContent();
+  check(/let their tiles use apps\/crawler as writer/.test(cardText) && /publish their tiles on host ports 8080-8090/.test(cardText), 'card describes the entries in words');
+  await shot(page, 'permsets-card');
+  await page.locator('.setcard[data-set="infra"] button', { hasText: 'edit' }).click();
+  await sleep(300);
+  const kinds = await page.locator('.seteditor .allowrow select[name=kind]').evaluateAll((els) => els.map((e) => e.value));
+  check(JSON.stringify(kinds) === JSON.stringify(['tile', 'iface', 'ingress:listen']), `edit reopens the rows typed (${JSON.stringify(kinds)})`);
+  const role = await page.locator('.seteditor .allowrow').nth(0).locator('select[name=role]').inputValue();
+  check(role === 'writer', `role cap restored (${role})`);
+  await page.locator('.seteditor button', { hasText: 'cancel' }).click();
+  // the org card's extra entries use the same rows
+  await gotoTab(page, 'orgs', 'network (ws-admin, D54)'); // hash-only navigation doesn't switch tabs
+  await sleep(600);
+  await page.locator('button[data-edit-allow]').first().click();
+  await sleep(300);
+  const oed = page.locator('.editor:has(button[data-save-allow])');
+  await oed.locator('button[data-add-entry]').click();
+  const orow = oed.locator('.allowrow').last();
+  await orow.locator('select[name=kind]').selectOption('cap');
+  await orow.locator('input[name=value]').fill('containers');
+  await sleep(200);
+  await oed.locator('button[data-save-allow]').click();
+  await sleep(1200);
+  let orgs = (await jget('/orgs')).orgs;
+  const edited = orgs.find((o) => (o.allow ?? []).includes('cap:containers'));
+  check(!!edited, `org extra allow saved through the typed rows (${edited?.id})`);
+  await shot(page, 'permsets-org-allow');
+  // tidy: detach + delete, drop the org entry
+  if (edited) await ctx.request.patch(`${URL}/api/xbin/orgs/${edited.id}`, { data: { allow: (edited.allow ?? []).filter((a) => a !== 'cap:containers') } });
+  await ctx.request.patch(`${URL}/api/xbin/orgs/sales`, { data: { sets: [] } });
+  const del = await ctx.request.delete(`${URL}/api/xbin/permission-sets/infra`);
+  check(del.ok(), `tidy: set deleted after detaching (${del.status()})`);
+  await ctx.close();
+  if (fails.length) throw new Error(`perm-sets: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 // Net pickers must never show a refused bind as a success (the "org admin
 // could still grant host" report). Asserts, not just screenshots: refused
 // options are disabled, a refused custom ref snaps the select back and the
@@ -681,6 +788,7 @@ async function netPickers(browser) {
     await netPickers(browser);
     await windows(browser);
     await reloadFocus(browser);
+    await permSets(browser);
   } finally {
     await browser.close();
   }

@@ -15,6 +15,7 @@ import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import '/vendor/bx-multiselect.js';
 import { RULE_KINDS, parseRule, fmtRule, ruleProblem, ruleLabel, setSummary, netOptions } from '/vendor/bx-netrules.js';
+import { ALLOW_KINDS, ROLE_CAPS, KNOWN_CAPS, allowKind, parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 
 // "stale" for the users table's offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -392,6 +393,12 @@ export class BxAdmin extends LitElement {
       border-radius: 6px; padding: 2px 6px; margin: 2px 4px 2px 0; font-size: 12px; }
     .editor { padding: 6px 8px; background: var(--bx-panel-2, #f7f8fa); border-radius: 6px; font-size: 12px; }
     .editor .orow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 2px 0; }
+    /* permission-set creator (D57): stored entries in words, rows with an in-words preview */
+    .allowlist { list-style: none; margin: 4px 0 0; padding: 0; font-size: 11.5px; }
+    .allowlist li { margin: 2px 0; }
+    .allow-desc { font-size: 11px; flex-basis: 100%; padding-left: 4px; }
+    .allow-desc .mono { opacity: .75; margin-left: 4px; }
+    .seteditor select[name=kind] { min-width: 150px; }
   `;
 
   // Two-level nav (deployments run to thousands of tiles, so the flat tab row
@@ -463,7 +470,7 @@ export class BxAdmin extends LitElement {
     this._codeComp = null;
     if (t === 'components' || t === 'resources') this._loadRuntime();
     if (t === 'map') this._loadMap();
-    if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose') this._loadIfaces();
+    if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose' || t === 'permsets' || t === 'orgs') this._loadIfaces(); // permsets/orgs: the service datalist
     if (t === 'backup') this._loadBackup();
     if (t === 'sessions') this._loadSessions();
   }
@@ -3436,13 +3443,15 @@ export class BxAdmin extends LitElement {
                 .options=${setNames.map((n) => ({ value: n, label: n }))}
                 .selected=${o.sets ?? []} placeholder="— none —"
                 @change=${(e) => this._orgAPI('PATCH', opath, { sets: e.detail.selected })}></bx-multiselect></label>
-            <label class="muted" style="font-size:11px">extra allow
-              <input size="30" placeholder="net:internet, cap:containers, …" .value=${(o.allow ?? []).join(', ')}
-                @change=${(e) => this._orgAPI('PATCH', opath, { allow: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}></label>
+            <span class="muted" style="font-size:11px">extra allow
+              ${(o.allow ?? []).length ? o.allow.map((a) => html`<span class="pill mono" title=${describeAllow(a)}>${a}</span>`) : html`<span class="muted">none</span>`}
+              <button class="act" data-edit-allow ?disabled=${!!this._draft(`orgallow:${o.id}`)}
+                @click=${() => this._setDraft(`orgallow:${o.id}`, { rows: (o.allow ?? []).map(parseAllow), err: '' })}>edit</button></span>
           </div>
+          ${this._draft(`orgallow:${o.id}`) ? this._orgAllowEditor(o, opath) : nothing}
           ${(o.resolvedAllow ?? []).length ? html`<div style="margin-top:3px">
             <span class="muted" style="font-size:10.5px">org admins may self-approve:</span>
-            ${o.resolvedAllow.map((a) => html`<span class="pill mono">${a}</span>`)}</div>`
+            ${o.resolvedAllow.map((a) => html`<span class="pill mono" title=${describeAllow(a)}>${a}</span>`)}</div>`
             : html`<div class="muted" style="font-size:10.5px; margin-top:3px">no allowances — every grant/binding goes through a workspace admin</div>`}
         </div>
 
@@ -3603,71 +3612,218 @@ export class BxAdmin extends LitElement {
     </div>`;
   }
 
-  // ---- permission sets (D28, ws-admin) ----
+  // ---- permission sets (D28, ws-admin) — the typed creator (D57) ----
+  // A set is built from rows that say in words what attached orgs' admins
+  // may approve on their own tiles; bx-allow formats each row into the
+  // grammar, flags problems inline before the round trip and describes
+  // stored entries back in plain words. One save writes the set AND attaches
+  // it to the chosen orgs.
   _permSetsView() {
     const sets = this._permsets?.sets ?? {};
     const attached = this._permsets?.attachedTo ?? {};
     const editKey = (n) => `permset:${n}`;
+    const creating = this._draft('permset:new');
     return html`
-      <p class="muted" style="max-width:66ch">Reusable bundles of org permissions, attached to orgs
-        <b>by reference</b> — edit a set once and every attached org follows. A set carries
-        <b>allow</b> entries (what its orgs' admins may self-approve), <b>ceiling rows</b>
-        (restrictive — a set can also impose fleet-wide denies), and member
-        <b>term-api/term-net</b> flags (term-net = internet in terminals on personal/workspace tiles;
-        what an org's <i>own</i> tiles and their terminals may reach is the
-        <a class="link" @click=${() => this._setTab('netsets')}>network sets</a> tab).</p>
+      ${this._targetDatalist()}
+      ${this._serviceDatalist()}
+      <p class="muted" style="max-width:72ch">A permission set says what the <b>admins of an organisation may
+        approve on their own tiles</b> without asking a workspace admin — "their tiles may use the LLM gateway
+        as writer", "may bind a feed interface to our provider". Attach one set to many orgs; edit it once and
+        every attached org follows. A set grants nothing by itself: a tile still <i>requests</i>, an org admin
+        <i>approves</i> (organisations tile → ⚑). What an org's tiles may <i>reach</i> on the network is the
+        <a class="link" @click=${() => this._setTab('netsets')}>network sets</a> tab.</p>
+      ${creating ? this._setEditor('permset:new', creating, null) : html`
+        <button class="act go" data-new-set @click=${() => this._setDraft('permset:new', this._newSetDraft())}>＋ new permission set</button>`}
       ${Object.entries(sets).sort(([a], [b]) => a.localeCompare(b)).map(([name, ps]) => {
-        const d = this._draft(editKey(name));
+        const key = editKey(name);
+        const d = this._draft(key);
+        const orgs = attached[name] ?? [];
         return html`
-        <div style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
+        <div class="setcard" data-set=${name} style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
           <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
             <b class="mono">⛭ ${name}</b>
-            ${(attached[name] ?? []).map((o) => html`<span class="pill">org ${o}</span>`)}
-            ${ps.termApi ? html`<span class="pill">term-api</span>` : nothing}
-            ${ps.termNet ? html`<span class="pill">term-net</span>` : nothing}
+            ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}
+            ${!orgs.length ? html`<span class="muted" style="font-size:11px">not attached to any org yet</span>` : nothing}
+            ${ps.termApi ? html`<span class="pill" title="members get a tile-scoped API token in their terminals">term-api</span>` : nothing}
+            ${ps.termNet ? html`<span class="pill" title="members get internet in terminals on personal/workspace tiles">term-net</span>` : nothing}
+            ${(ps.policy ?? []).length ? html`<span class="pill pol" title="ceiling rows (restrictive; edited via the API/bx for now)">⛔ ${ps.policy.length} ceiling row(s)</span>` : nothing}
             <span style="flex:1"></span>
-            <button class="act" @click=${() => this._toggleDraft(editKey(name), () => ({
-              allow: (ps.allow ?? []).join(', '), termApi: !!ps.termApi, termNet: !!ps.termNet }))}>edit</button>
-            <button class="act rm" title=${(attached[name] ?? []).length ? 'detach from its orgs first' : 'delete'}
+            <button class="act" ?disabled=${!!d} @click=${() => this._setDraft(key, this._setDraftFrom(name, ps, orgs))}>edit</button>
+            <button class="act rm" ?disabled=${orgs.length > 0} title=${orgs.length ? `detach from ${orgs.join(', ')} first (edit → attach)` : 'delete this set'}
               @click=${() => confirm(`Delete permission set ${name}?`) && this._orgAPI('DELETE', `/permission-sets/${encodeURIComponent(name)}`)}>del</button>
           </div>
-          <div style="margin-top:3px">${(ps.allow ?? []).length
-            ? ps.allow.map((a) => html`<span class="pill mono">${a}</span>`)
-            : html`<span class="muted" style="font-size:11px">no allow entries</span>`}
-            ${(ps.policy ?? []).length ? html`<span class="pill pol">⛔ ${ps.policy.length} ceiling row(s)</span>` : nothing}</div>
-          ${d ? html`<div style="margin-top:6px; padding:6px 8px; background:var(--bx-panel-2,#f7f8fa); border-radius:6px">
-            <label class="muted" style="font-size:11px">allow
-              <input size="44" .value=${d.allow} @input=${(e) => this._setDraft(editKey(name), { ...d, allow: e.target.value })}></label>
-            <label class="muted" style="font-size:11px"><input type="checkbox" .checked=${d.termApi}
-              @change=${(e) => this._setDraft(editKey(name), { ...d, termApi: e.target.checked })}> term-api</label>
-            <label class="muted" style="font-size:11px"><input type="checkbox" .checked=${d.termNet}
-              @change=${(e) => this._setDraft(editKey(name), { ...d, termNet: e.target.checked })}> term-net</label>
-            <button class="act go" @click=${async () => {
-              await this._orgAPI('PUT', `/permission-sets/${encodeURIComponent(name)}`, {
-                allow: d.allow.split(',').map((x) => x.trim()).filter(Boolean),
-                policy: ps.policy ?? [], termApi: d.termApi, termNet: d.termNet,
-              });
-              if (!this._err) this._dropDraft(editKey(name));
-            }}>save</button>
-            <button class="act" @click=${() => this._dropDraft(editKey(name))}>cancel</button>
-          </div>` : nothing}
+          ${(ps.allow ?? []).length ? html`<ul class="allowlist">
+            ${ps.allow.map((a) => html`<li><span class="pill mono" title=${a}>${a}</span> <span class="muted">${describeAllow(a)}</span></li>`)}
+          </ul>` : html`<div class="muted" style="font-size:11px; margin-top:3px">no entries — attached orgs' admins approve nothing beyond intra-org wiring</div>`}
+          ${d ? this._setEditor(key, d, name) : nothing}
         </div>`;
       })}
-      ${!Object.keys(sets).length ? html`<p class="muted">No permission sets yet.</p>` : nothing}
-      <h4>add set</h4>
-      <form class="inline" @submit=${(e) => { e.preventDefault();
-        const f = e.target;
-        this._orgAPI('PUT', `/permission-sets/${encodeURIComponent(f.name_.value.trim())}`, {
-          allow: f.allow.value.split(',').map((x) => x.trim()).filter(Boolean) });
-        if (!this._err) f.reset(); }}>
-        <input name="name_" placeholder="set name" size="14" required>
-        <input name="allow" placeholder="allow: net:internet, cap:containers" size="34">
-        <button class="act go">create</button>
-      </form>
-      <p class="muted" style="font-size:10.5px; margin-top:6px">
-        Allowance grammar: <span class="mono">res: gpu: cap: net:internet|host|lan:…|provider:…
-        iface:&lt;service&gt; ingress:host:|zone:|listen:&lt;lo-hi&gt; tile:&lt;pattern&gt;</span> —
-        the <span class="mono">xbin</span> capability family is never delegable.</p>`;
+      ${!Object.keys(sets).length && !creating ? html`<p class="muted">No permission sets yet — create one to delegate approvals to org admins.</p>` : nothing}`;
+  }
+
+  _newSetDraft() {
+    return { name: '', rows: [{ kind: 'tile', value: '', role: 'writer' }], termApi: false, termNet: false, orgs: [], err: '' };
+  }
+  _setDraftFrom(name, ps, orgs) {
+    return { name, rows: (ps.allow ?? []).map(parseAllow), termApi: !!ps.termApi, termNet: !!ps.termNet, orgs: [...orgs], err: '' };
+  }
+
+  // Services tiles provide or request (http interfaces) — the "bind an
+  // interface" row's datalist. Loaded with the wiring data when the tab opens.
+  _serviceDatalist() {
+    const svcs = new Set();
+    for (const c of this._ifaces?.components ?? []) {
+      for (const p of Object.values(c.provides ?? {})) if (p.service) svcs.add(p.service);
+      for (const p of Object.values(c.interfaces ?? {})) if (p.service) svcs.add(p.service);
+    }
+    return html`<datalist id="iface-services">${[...svcs].sort().map((s) => html`<option value=${s}></option>`)}</datalist>`;
+  }
+
+  // The set form: name (new sets), the typed allow rows, the members'
+  // terminal flags and the orgs to attach. Create/save is disabled until
+  // every field passes; a server refusal shows inside the form.
+  _setEditor(key, d, name) {
+    const isNew = name === null;
+    const set = (patch) => this._setDraft(key, { ...this._draft(key), ...patch });
+    const nameOk = /^[a-z0-9][a-z0-9._-]{0,31}$/.test(d.name);
+    const nameTaken = isNew && !!this._permsets?.sets?.[d.name];
+    const wire = d.rows.map(fmtAllow);
+    const problems = d.rows.map(allowProblem);
+    const dup = new Set(wire).size !== wire.length;
+    const ok = (isNew ? nameOk && !nameTaken : true) && !problems.some(Boolean) && !dup;
+    const orgIds = (this._orgs ?? []).map((o) => o.id);
+    return html`<div class="editor seteditor" data-editing=${isNew ? 'new' : name} style="margin-top:8px">
+      ${isNew ? html`<div class="orow">
+        <label class="muted">name <input name="setname" size="18" placeholder="infra" .value=${d.name}
+          @input=${(e) => set({ name: e.target.value.trim().toLowerCase() })}></label>
+        ${d.name && !nameOk ? html`<span class="err-pill">1–32 of a–z 0–9 . _ - starting with a letter or digit</span>` : nothing}
+        ${nameTaken ? html`<span class="err-pill">a set with this name already exists</span>` : nothing}
+      </div>` : nothing}
+      <div class="muted" style="margin:4px 0 2px"><b>Admins of attached orgs may approve, on their own tiles:</b></div>
+      ${this._allowRows(key, d.rows, (rows) => set({ rows }))}
+      <div class="muted" style="margin:8px 0 2px"><b>Members of attached orgs, in their terminals:</b></div>
+      <div class="orow">
+        <label class="muted" title="a tile-scoped API token in every terminal (bx works there)"><input type="checkbox" .checked=${d.termApi}
+          @change=${(e) => set({ termApi: e.target.checked })}> may use the tile API</label>
+        <label class="muted" title="internet in terminals on personal/workspace tiles — org tiles follow the org's network sets"><input type="checkbox" .checked=${d.termNet}
+          @change=${(e) => set({ termNet: e.target.checked })}> get internet on personal/workspace tiles</label>
+      </div>
+      <div class="muted" style="margin:8px 0 2px"><b>Attached to:</b></div>
+      <div class="orow">
+        <bx-multiselect style="min-width:180px" .options=${orgIds.map((o) => ({ value: o, label: o }))}
+          .selected=${d.orgs} placeholder="— no organisations yet —" @change=${(e) => set({ orgs: e.detail.selected })}></bx-multiselect>
+        <span class="muted" style="font-size:10.5px">a set can be attached later from an org's card too</span>
+      </div>
+      ${d.err ? html`<div class="err" role="alert">${d.err}</div>` : nothing}
+      <div class="orow" style="margin-top:6px">
+        <button class="act go" data-save-set ?disabled=${!ok}
+          title=${ok ? (isNew ? 'create the set and attach it' : 'save — every attached org follows at once') : 'fix the highlighted fields first'}
+          @click=${() => this._saveSet(key, d, isNew ? d.name : name)}>${isNew ? 'create set' : 'save'}</button>
+        <button class="act" @click=${() => this._dropDraft(key)}>cancel</button>
+        ${dup ? html`<span class="err-pill">duplicate entries</span>` : nothing}
+      </div>
+    </div>`;
+  }
+
+  // The typed rows: [what ▾] [that kind's fields] → the entry in words + the
+  // exact string, or the problem. Shared by permission sets and an org's
+  // extra allow entries.
+  _allowRows(key, rows, onChange) {
+    const upd = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    const rm = (i) => onChange(rows.filter((_, j) => j !== i));
+    const roleSel = (r, i) => {
+      const custom = !!r.role && !ROLE_CAPS.includes(r.role);
+      return html`<select name="role" title="cap the delegable role — a bare entry delegates ANY role, prefer the cap"
+          @change=${(e) => upd(i, { role: e.target.value === '__custom' ? 'custom' : e.target.value })}>
+        <option value="" ?selected=${!r.role}>any role</option>
+        ${ROLE_CAPS.map((x) => html`<option value=${x} ?selected=${r.role === x}>up to ${x}</option>`)}
+        <option value="__custom" ?selected=${custom}>custom role…</option>
+      </select>${custom ? html`<input name="rolename" size="10" placeholder="role name" .value=${r.role === 'custom' ? '' : r.role}
+        @input=${(e) => upd(i, { role: e.target.value.trim() || 'custom' })}>` : nothing}`;
+    };
+    const val = (r, i, extra = {}) => html`<input name="value" size=${extra.size ?? 26} list=${extra.list ?? nothing}
+      placeholder=${allowKind(r.kind).placeholder} title=${allowKind(r.kind).help} .value=${r.value ?? ''}
+      @input=${(e) => upd(i, { value: e.target.value })}>`;
+    const fields = (r, i) => {
+      switch (r.kind) {
+        case 'tile': return html`${val(r, i, { list: 'tile-targets', size: 28 })}${roleSel(r, i)}`;
+        case 'res': return html`${val(r, i, { size: 28 })}${roleSel(r, i)}`;
+        case 'iface': return html`${val(r, i, { list: 'iface-services', size: 14 })}
+          <span class="muted">to</span>
+          <input name="provider" list="tile-targets" size="24" placeholder="any provider tile" title="pin the provider tile (path or glob); empty = any provider of this service"
+            .value=${r.provider ?? ''} @input=${(e) => upd(i, { provider: e.target.value })}>
+          <input name="instance" size="10" placeholder="any instance" title="pin one provider instance (needs a provider tile)"
+            .value=${r.instance ?? ''} @input=${(e) => upd(i, { instance: e.target.value })}>`;
+        case 'cap': return html`${val(r, i, { list: 'cap-classes', size: 18 })}
+          <datalist id="cap-classes">${KNOWN_CAPS.map((c) => html`<option value=${c}></option>`)}</datalist>`;
+        case 'net': return html`${val(r, i, { list: 'tile-targets' })}
+          <a class="link" style="font-size:11px" @click=${() => this._setTab('netsets')}>prefer a network set</a>`;
+        default: return val(r, i);
+      }
+    };
+    return html`
+      ${rows.map((r, i) => {
+        const entry = fmtAllow(r), problem = allowProblem(r);
+        return html`<div class="orow allowrow" data-kind=${r.kind}>
+          <select name="kind" title=${allowKind(r.kind).help}
+            @change=${(e) => upd(i, { kind: e.target.value, role: (e.target.value === 'tile' || e.target.value === 'res') ? (r.role ?? '') : '' })}>
+            ${ALLOW_KINDS.map((k) => html`<option value=${k.id} ?selected=${k.id === r.kind} title=${k.help}>${k.icon} ${k.label}</option>`)}
+          </select>
+          ${fields(r, i)}
+          <button class="act rm" title="remove this entry" @click=${() => rm(i)}>✕</button>
+          ${problem ? html`<span class="err-pill">${problem}</span>`
+            : html`<span class="allow-desc muted">→ ${describeAllow(r)} <span class="mono">${entry}</span></span>`}
+        </div>`;
+      })}
+      <div class="orow">
+        <button class="act" data-add-entry @click=${() => onChange([...rows, { kind: 'tile', value: '', role: 'writer' }])}>+ entry</button>
+        <span class="muted" style="font-size:10.5px">${rows.length ? allowKind(rows[rows.length - 1].kind).help : 'pick what to allow, fill the fields — the entry is built for you'}</span>
+      </div>`;
+  }
+
+  async _saveSet(key, d, name) {
+    const wire = d.rows.map(fmtAllow).filter(Boolean);
+    const cur = this._permsets?.sets?.[name] ?? {};
+    const before = new Set(this._permsets?.attachedTo?.[name] ?? []);
+    const after = new Set(d.orgs);
+    const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    try {
+      await api(`/permission-sets/${encodeURIComponent(name)}`, json('PUT', { allow: wire, policy: cur.policy ?? [], termApi: d.termApi, termNet: d.termNet }));
+      for (const o of this._orgs ?? []) {
+        const had = before.has(o.id), want = after.has(o.id);
+        if (had === want) continue;
+        const sets = want ? [...(o.sets ?? []), name] : (o.sets ?? []).filter((s) => s !== name);
+        await api(`/orgs/${encodeURIComponent(o.id)}`, json('PATCH', { sets }));
+      }
+      this._err = '';
+      this._dropDraft(key);
+    } catch (e) {
+      this._setDraft(key, { ...this._draft(key), err: String(e.message ?? e) });
+    }
+    await this._refresh();
+  }
+
+  // An org's extra allow entries (on top of its sets): the same typed rows.
+  _orgAllowEditor(o, opath) {
+    const key = `orgallow:${o.id}`;
+    const d = this._draft(key);
+    const wire = d.rows.map(fmtAllow);
+    const ok = !d.rows.some((r) => allowProblem(r)) && new Set(wire).size === wire.length;
+    return html`<div class="editor" style="margin-top:6px">
+      <div class="muted" style="margin-bottom:2px">Extra entries for <b>this org only</b> (on top of its sets) — its admins may approve, on their own tiles:</div>
+      ${this._allowRows(key, d.rows, (rows) => this._setDraft(key, { ...this._draft(key), rows }))}
+      ${d.err ? html`<div class="err" role="alert">${d.err}</div>` : nothing}
+      <div class="orow" style="margin-top:6px">
+        <button class="act go" data-save-allow ?disabled=${!ok} @click=${async () => {
+          try {
+            await api(opath, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allow: wire.filter(Boolean) }) });
+            this._err = ''; this._dropDraft(key);
+          } catch (e) { this._setDraft(key, { ...this._draft(key), err: String(e.message ?? e) }); }
+          await this._refresh();
+        }}>save</button>
+        <button class="act" @click=${() => this._dropDraft(key)}>cancel</button>
+      </div>
+    </div>`;
   }
 
   _orgsView() {
@@ -3675,6 +3831,7 @@ export class BxAdmin extends LitElement {
     return html`
       ${this._targetDatalist()}
       ${this._groupsDatalist()}
+      ${this._serviceDatalist()}
       <h4>organizations</h4>
       ${orgs.length ? repeat(orgs, (o) => o.id, (o) => this._orgCard(o))
         : html`<p class="muted">No orgs. An org is a flat member list with org-wide roles on the

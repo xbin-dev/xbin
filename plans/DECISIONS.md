@@ -1291,3 +1291,39 @@ Deviations and refinements made while implementing; all deliberate:
   exporting `bx-menu` to tiles now (API still settling). Follow-ups: lazy
   per-section loads in the admin element; focusable sidebar rows + the
   ContextMenu key; `bx-menu` as a tile API once its schema settles.
+
+- **D57 — Permission sets are built from typed rows; the allowance grammar
+  gets one browser module (2026-09-07).** The permission-sets tab took the
+  D26/D32 allowance grammar as a comma-separated string next to a one-line
+  cheat sheet — to delegate "let devs' tiles call the LLM gateway as
+  writer" a ws-admin had to know that this is `tile:apps/llm-gw@writer` and
+  that the binding-plane twin is `iface:openai@apps/llm-gw`; a typo was a
+  400 from the server, and attaching the set to orgs was a second trip to
+  every org card. Shapes: (1) **one shared browser module,
+  `web/bx-allow.js`** (`ALLOW_KINDS`, `parseAllow`, `fmtAllow`,
+  `allowProblem`, `describeAllow`) that mirrors `parseAllowEntry` case by
+  case — the D54 `bx-netrules` precedent: the grammar is defined once
+  server-side and *interpreted* once client-side, so the creator, the org
+  card and the organisations tile agree; the server still validates for
+  real, the module only catches the typo before the round trip and says in
+  words what an entry does. (2) **Rows, not text**: each row is a kind
+  (use a tile · bind an interface · use a resource · hold a capability ·
+  use a GPU · publish hostname/zone/port · network reach · raw) with that
+  kind's fields (pattern + role cap; service + provider + instance; …),
+  datalists from what the workspace actually has (tiles, provided
+  services, capability classes), an in-words preview plus the exact entry,
+  and an inline problem that disables the save. Anything the parser can't
+  place becomes a `raw` row, so editing never loses an entry. (3) **One
+  save = the set + its attachments**: the form carries the orgs to attach
+  and PATCHes each org whose membership changed. (4) The same rows edit an
+  org's *extra* entries; the cards list stored entries in words. (5) `net:`
+  rows stay offered but point at network sets (D54: reach belongs in sets;
+  an extra wider than the sets is refused by the ceiling anyway). Rejected:
+  a server-side form schema endpoint (the grammar is small and stable; a
+  second source of truth), keeping free text with better hints (the
+  failure mode was not knowing the class, not the spelling), a wizard with
+  steps (a set is a flat list — rows read at a glance), editing ceiling
+  rows in the creator (the D20 policy editor stays where it is; the card
+  shows the count). Follow-ups: ceiling rows in the set form; a "what
+  would this let org X approve today" preview against the live grant
+  requests; the organisations tile describing an org's allowance in words.

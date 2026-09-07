@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-07
 
+- **Admin console: a proper permission-set creator (D57).** The permission
+  sets tab used to take the allowance grammar as free text. It now builds a
+  set from typed rows — *Use a tile* (path or pattern + role cap), *Bind an
+  interface* (service, optional provider tile + instance), *Use a resource*,
+  *Hold a capability*, *Use a GPU*, *Publish a hostname / under a zone / on
+  a host port*, *Network reach* (pointing at network sets), and a raw entry
+  for anything else — each row shows the entry in words and the exact
+  string, a bad field is flagged with the reason and blocks create/save,
+  and one save writes the set **and attaches it to the chosen
+  organisations**. Existing sets reopen with their entries parsed back into
+  rows; stored entries are listed in words on the card; an org's *extra
+  allow* entries use the same rows. The grammar lives in one shared browser
+  module (`web/bx-allow.js`: parse, format, validate, describe) that
+  mirrors the server's parser, so the UI, the org card and the organisations
+  tile cannot drift.
+
 - **Floating windows always stay reachable.** A tile's terminal / code /
   logs pop-up remembers its position per tile in the browser; restored on a
   smaller browser window, another monitor or a different zoom it could land

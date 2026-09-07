@@ -783,7 +783,13 @@ governs terminals on personal/workspace tiles only — org tiles follow the
 org's network sets, next section). Ws-admin only; deleting an attached set is
 refused. Managing ten orgs = editing one set. Permission sets answer *who may
 approve what*; **network sets** answer *what may this org reach* — two tabs
-on purpose.
+on purpose. The admin console builds a set from **typed rows** (D57) — *use
+a tile* + role cap, *bind an interface* + provider/instance, resource,
+capability, GPU, ingress hostname/zone/port, network reach — each shown in
+words next to the exact entry, a bad field flagged before the round trip,
+and one save that also attaches the set to the chosen orgs; the same rows
+edit an org's extra entries. `bx permset set <name> --allow …` and
+`PUT /permission-sets/<name>` take the raw grammar above.
 
 ## Network sets (D54)
 
