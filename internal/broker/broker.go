@@ -256,6 +256,9 @@ func (b *Broker) Register(srv *server.Server) {
 	}
 	srv.IsAdmin = b.IsAdmin
 	srv.Interfaces = b.HTTPInterfaces
+	// cap:open-links (ND11) widens a tile's iframe/CSP sandbox; the tokens are
+	// decided here and composed by the server in both layers.
+	srv.SandboxExtras = b.SandboxTokensFor
 	// The code[:<comp>] capability also opens the /c/ static plane: a
 	// code-granted backend reads sibling source either way (the 2026-08-02
 	// read-gate clamp had made instance tokens self-only even WITH the grant).
@@ -593,6 +596,10 @@ func (b *Broker) grantRestart(g registry.Grant) {
 	if b.OnGrantChange == nil {
 		return
 	}
+	// cap:open-links (ND11) is deliberately absent: it is frontend-only, its
+	// effect is the tile's next document load, and the `grants` event the
+	// caller publishes already makes bx-frame re-create the iframe — a backend
+	// restart would be an outage for nothing.
 	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") ||
 		g.Target == NetAdminCap || g.Target == ContainersCap {
 		b.OnGrantChange(g.From)

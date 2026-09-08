@@ -8,6 +8,12 @@
     { "from": "tiles/manager", "target": "xbin", "role": "writer" },
     // Admin console: full workspace administration (reads every vault,
     // manages grants/cron). Heavy — revoke to disarm the admin tile.
-    { "from": "tiles/admin", "target": "xbin", "role": "admin" }
+    { "from": "tiles/admin", "target": "xbin", "role": "admin" },
+    // The shipped tiles' "docs ↗" links open in a new tab: a sandboxed frame
+    // needs cap:open-links for that (ND11) — its iframe/CSP sandbox gains
+    // allow-popups + allow-popups-to-escape-sandbox. Revoke to take it back.
+    { "from": "tiles/admin", "target": "cap:open-links", "role": "writer" },
+    { "from": "tiles/apidocs", "target": "cap:open-links", "role": "writer" },
+    { "from": "apps/welcome", "target": "cap:open-links", "role": "writer" }
   ]
 }

@@ -20,6 +20,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import '/vendor/bx-multiselect.js';
 import { netOptions } from '/vendor/bx-netrules.js';
+import { capInfo } from '/vendor/bx-allow.js';
 
 const api = async (path, opts) => {
   const r = await fetch(`/api/xbin${path}`, opts);
@@ -324,7 +325,7 @@ export class BxTileAdmin extends LitElement {
         ${roles.map((r) => html`<span class="pill">${r}</span>`)}</div>` : nothing}
       <table class="fx">
         ${g.pending.map((p) => html`<tr style=${p.blocked ? 'opacity:.55' : ''}>
-          <td class="mono ref" style="font-size:10.5px" title=${p.blocked ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
+          <td class="mono ref" style="font-size:10.5px" title=${p.blocked ?? capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
           <td style="width:5.5em"><span class="pill">${p.role}</span></td>
           <td class="ctl" style="width:5em">${p.blocked
             ? html`<button class="act" disabled title=${p.blocked}>blocked</button>`
@@ -332,7 +333,7 @@ export class BxTileAdmin extends LitElement {
                 @click=${() => this._do(() => api('/grants', { method: 'POST', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>approve</button>`}</td>
         </tr>`)}
         ${g.grants.map((p) => html`<tr>
-          <td class="mono ref" style="font-size:10.5px" title="${p.from} → ${p.target}">${p.from} → ${p.target}</td>
+          <td class="mono ref" style="font-size:10.5px" title=${capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
           <td style="width:5.5em"><span class="pill">${p.role}</span></td>
           <td class="ctl" style="width:5em"><button class="act rm" ?disabled=${this._busy}
             @click=${() => this._do(() => api('/grants', { method: 'DELETE', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>revoke</button></td>

@@ -8,6 +8,10 @@
   // xbin:admin is heavy: it reads every vault secret and rewrites the
   // grant table. Grant it only to tiles you trust as you trust yourself.
   "uses": [
-    { "target": "xbin", "role": "admin" }
+    { "target": "xbin", "role": "admin" },
+    // Its "docs/…" links open the documentation in a new tab: a sandboxed
+    // frame may only do that with cap:open-links (ND11). Pre-approved by
+    // the template like xbin:admin above.
+    { "target": "cap:open-links", "role": "writer" }
   ]
 }

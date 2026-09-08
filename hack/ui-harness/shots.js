@@ -561,6 +561,75 @@ async function reloadFocus(browser) {
   if (fails.length) throw new Error(`reload-focus: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
 }
 
+// cap:open-links (ND11): a tile's target=_blank links are dead until the
+// grant; approving it re-keys the iframe with allow-popups +
+// allow-popups-to-escape-sandbox (the attribute AND the CSP header of a
+// direct open) and a click opens a page; revoking takes it back. Failures throw.
+async function openLinks(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/open-links.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/open-links.txt`, '');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  const grant = { from: 'apps/linky', target: 'cap:open-links', role: 'writer' };
+  const jget = async (p) => (await ctx.request.get(`${URL}/api/xbin${p}`)).json();
+  await ctx.request.delete(`${URL}/api/xbin/grants`, { data: grant }); // clean slate
+  const g = await jget('/grants');
+  check((g.pending ?? []).some((p) => p.from === grant.from && p.target === grant.target && p.role === 'writer'), 'the declared cap lands pending (never auto-granted)');
+
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
+    if (!sh._isOpen('apps/linky')) sh._toggle('apps/linky');
+  });
+  await sleep(3000);
+  const attr = () => page.evaluate(() => {
+    const f = document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="apps/linky"]')?._iframe;
+    return { sandbox: f?.getAttribute('sandbox') ?? '', credentialless: !!f?.hasAttribute('credentialless') };
+  });
+  const tileFrame = () => page.frames().find((f) => f.url().includes('/c/apps/linky/'));
+  const csp = async () => (await ctx.request.get(`${URL}/c/apps/linky/`)).headers()['content-security-policy'] ?? '';
+
+  let a = await attr();
+  check(a.sandbox.includes('allow-scripts') && !a.sandbox.includes('allow-popups'), `ungranted: attribute lacks allow-popups (${a.sandbox})`);
+  let h = await csp();
+  check(h.startsWith('sandbox') && !h.includes('allow-popups'), `ungranted: CSP lacks allow-popups (${h})`);
+  const before = ctx.pages().length;
+  await tileFrame().click('#ext');
+  await sleep(1200);
+  check(ctx.pages().length === before, 'ungranted: a click opens no page');
+
+  check((await ctx.request.post(`${URL}/api/xbin/grants`, { data: grant })).ok(), 'approve via API');
+  for (let i = 0; i < 40 && !(await attr()).sandbox.includes('allow-popups-to-escape-sandbox'); i++) await sleep(250);
+  a = await attr();
+  check(a.sandbox.includes('allow-popups') && a.sandbox.includes('allow-popups-to-escape-sandbox'), `granted: attribute carries both tokens (${a.sandbox}; credentialless=${a.credentialless})`);
+  h = await csp();
+  check(h.includes('allow-popups allow-popups-to-escape-sandbox'), `granted: CSP extended (${h})`);
+  await sleep(1500); // the re-keyed iframe's document
+  const [popup] = await Promise.all([
+    ctx.waitForEvent('page', { timeout: 6000 }).catch(() => null),
+    tileFrame().click('#ext'),
+  ]);
+  check(!!popup, `granted: a click opens a page (credentialless frame: ${a.credentialless})`);
+  if (popup) {
+    await popup.waitForLoadState().catch(() => {});
+    check(popup.url().startsWith(`${URL}/docs/`), `the page is the docs viewer (${popup.url()})`);
+    await popup.close();
+  }
+  await shot(page, 'open-links-granted', { fullPage: false });
+
+  await ctx.request.delete(`${URL}/api/xbin/grants`, { data: grant });
+  for (let i = 0; i < 40 && (await attr()).sandbox.includes('allow-popups'); i++) await sleep(250);
+  a = await attr();
+  check(!a.sandbox.includes('allow-popups'), `revoked: attribute back to base (${a.sandbox})`);
+  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); if (sh._isOpen('apps/linky')) sh._toggle('apps/linky'); });
+  await sleep(300);
+  await ctx.close();
+  if (fails.length) throw new Error(`open-links: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 // The permission-set creator (D57): build a set from typed rows, see each
 // entry in words, get stopped on a bad field, create + attach in one save,
 // reopen it with the rows parsed back, and edit an org's extra entries with
@@ -789,6 +858,7 @@ async function netPickers(browser) {
     await windows(browser);
     await reloadFocus(browser);
     await permSets(browser);
+    await openLinks(browser);
   } finally {
     await browser.close();
   }

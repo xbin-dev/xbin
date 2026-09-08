@@ -147,6 +147,28 @@ once; xbind enforces at every call.
   with "operation not permitted". A workspace/org policy `net` deny
   (`plans/orgs.md`) strips it, and it stays confined to the tile's own network
   namespace (the caps don't reach the host). Grant deliberately.
+- **`cap:containers`** — a **container-host** tile (rootless podman/docker
+  inside the tile; `plans/containers.md`) keeps its user-namespace
+  capabilities and gets only a minimal seccomp floor. Request
+  `uses {target:"cap:containers", role:"writer"}`; **admin-only to approve**,
+  lands pending on import; a policy `xbin-caps` deny strips it. Still
+  rootless — no host reach, no other-tile reach.
+- **`cap:open-links`** — the one **frontend** capability (ND11): the tile's
+  document may open new tabs/windows that **leave its sandbox** —
+  `<a target="_blank">`, `window.open` — because its iframe `sandbox`
+  attribute and its CSP `sandbox` header gain
+  `allow-popups allow-popups-to-escape-sandbox`, framed and when the tile is
+  opened full-page. Without it such links are silently dropped (the browser
+  console says why, naming this grant). Request
+  `uses {target:"cap:open-links", role:"writer"}`; **admin-only to approve**
+  (or an org admin whose allowance covers `cap:open-links`), lands pending;
+  a policy `xbin-caps` deny strips it; no backend restart — the frame
+  reloads on approval. Why a grant and not a default like downloads
+  (ND10): the opened window is a full-origin, cookie-bearing page at a URL
+  the tile chose — a hostile tile could open a look-alike page. The
+  workspace's own pages sever the opener (COOP), so add `rel="noopener"` on
+  your links too; `window.open()` returns `null` in a credentialless frame
+  (the tab still opens). Top navigation is never allowed.
 
 Enforcing in the callee is one middleware:
 
@@ -734,7 +756,8 @@ the warehouse, never admin on it; bare entries delegate any role — prefer
 the cap), and `iface:api@apps/warehouse#dev` pins an interface allowance to
 one provider tile and one *instance* — "the dev instance of the api, only"
 is expressible. Anything is delegable — a high-trust org can get
-`cap:containers` or publication rights — **except `xbin`/`xbin:*`**: an
+`cap:containers`, `cap:open-links` or publication rights — **except
+`xbin`/`xbin:*`**: an
 element granted `xbin@admin` *is* a workspace admin, so delegating it would
 make org admins ws-admins transitively (rejected at write, ignored at
 evaluation). Grants wholly inside one org's owned tiles (intra-org wiring)

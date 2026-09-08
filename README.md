@@ -51,11 +51,12 @@ wire protocol, and the CLI.
   its own user + mount + pid + ipc + uts + net namespaces over an overlay of a
   shared base rootfs; egress is **default-deny** through a transparent relay
   that enforces `net:*` grants (TCP/UDP/ICMP); capabilities dropped + a seccomp
-  block-list; enforced cgroup v2 limits (memory/pids/CPU). Two admin-only
+  block-list; enforced cgroup v2 limits (memory/pids/CPU). Three admin-only
   reserved grants relax one tile's profile when it needs to: `cap:net-admin`
-  (a router/firewall/VPN provider tile) and `cap:containers` (a container-host
+  (a router/firewall/VPN provider tile), `cap:containers` (a container-host
   tile that runs rootless Podman — the `devbox` builtin spins up dev sandboxes
-  you SSH into). Terminals share the base rootfs (Go/Node/Python + agent CLIs,
+  you SSH into) and `cap:open-links` (a tile whose frontend may open links in
+  new tabs out of its browser sandbox). Terminals share the base rootfs (Go/Node/Python + agent CLIs,
   zero setup) as a **persistent per-tile dev layer** (apt installs survive) and
   pick a per-session **network scope** — internet-only (own netns, no host
   interfaces), host, or offline.

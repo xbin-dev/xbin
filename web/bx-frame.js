@@ -31,7 +31,7 @@
  * See /docs/elements.md.
  */
 import { LitElement, html, css, nothing } from 'lit';
-import { repeat } from 'lit';
+import { repeat, keyed } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import { SCOPE_ICON } from '/vendor/bx-netrules.js';
 import '/vendor/bx-terminal.js';
@@ -73,31 +73,53 @@ window.addEventListener('resize', () => {
   for (const f of mountedFrames) f.fitToViewport?.();
 });
 
-// Sandbox tokens for tile frames: scripts + forms + modals + downloads,
+// Base sandbox tokens for tile frames: scripts + forms + modals + downloads,
 // never allow-same-origin (that plus allow-scripts would void the sandbox).
 // Downloads are safe to allow (ND10): they cross no workspace/session/tile
-// boundary and the browser's own download UI mediates; popups and top
-// navigation stay blocked. Must match the CSP sandbox header
-// (internal/server/static.go) — browsers intersect the two.
+// boundary and the browser's own download UI mediates. Popups need a grant:
+// cap:open-links (ND11) adds allow-popups + allow-popups-to-escape-sandbox
+// for THAT tile — the server decides and reports the extra tokens on
+// /components, and this file appends exactly what it was sent, so the
+// attribute and the CSP sandbox header (internal/server/static.go) never
+// drift (browsers intersect the two). Top navigation stays blocked always.
 const SANDBOX = 'allow-scripts allow-forms allow-modals allow-downloads';
 
 // <iframe credentialless> (Chromium 110+): loads the frame in an ephemeral
 // credential context — no ambient cookie even on the document navigation.
 const CREDENTIALLESS = 'credentialless' in HTMLIFrameElement.prototype;
 
-// Chrome components run UNSandboxed — they act as the signed-in human
-// (the shell itself, and manifest-flagged trusted chrome like
-// tiles/organisations). Fetched once; frames await it before creating their
-// iframe so the sandbox attribute applies to the FIRST load (changing it
-// later would not re-sandbox a loaded document).
-let _chromeSet;
-function chromeSet() {
-  _chromeSet ??= fetch('/api/xbin/components')
+// Per-component frame facts from /api/xbin/components: chrome (runs
+// UNsandboxed — the shell itself and manifest-flagged trusted chrome like
+// tiles/organisations act as the signed-in human) and the extra sandbox
+// tokens the tile's grants unlock. Fetched once; frames await it before
+// creating their iframe so the sandbox attribute is right for the FIRST load
+// — a changed attribute only applies to the NEXT navigation.
+let _info;
+function frameInfo() {
+  _info ??= fetch('/api/xbin/components')
     .then((r) => (r.ok ? r.json() : []))
-    .then((list) => new Set(list.filter((c) => c.chrome).map((c) => c.path)))
-    .catch(() => new Set());
-  return _chromeSet;
+    .then((list) => new Map(list.map((c) => [c.path, { chrome: !!c.chrome, sandbox: c.sandbox || [] }])))
+    .catch(() => new Map());
+  return _info;
 }
+// Longest-prefix lookup so an xbin.window() sub-path frame (apps/x/compose)
+// inherits its component's facts, as the server's CSP already does.
+async function infoFor(src) {
+  const m = await frameInfo();
+  let best = null;
+  for (const [p, i] of m) {
+    if ((src === p || src.startsWith(p + '/')) && (!best || p.length > best.p.length)) best = { p, i };
+  }
+  return best?.i ?? null;
+}
+// A grant changed for one component: refresh ITS entry in the shared map
+// (write-through, so a frame mounted later sees the new tokens too).
+async function refreshFrameInfo(path) {
+  const c = await fetch(`/api/xbin/components/${path}`)
+    .then((r) => (r.ok ? r.json() : null)).then((d) => d?.component ?? null).catch(() => null);
+  if (c) (await frameInfo()).set(path, { chrome: !!c.chrome, sandbox: c.sandbox || [] });
+}
+const sandboxAttr = (info) => (info?.chrome ? '' : [SANDBOX, ...(info?.sandbox ?? [])].join(' '));
 
 // Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
 let _gpuInv;
@@ -287,7 +309,13 @@ export class BxFrame extends LitElement {
   // by xbind, never forwarded) — minted here, in chrome context, where the
   // cookie principal may mint for any tile the human can read.
   async _prepareFrame() {
-    const sandboxed = !(await chromeSet()).has(this.src);
+    const info = await infoFor(this.src);
+    const sandboxed = !info?.chrome;
+    const sandbox = sandboxAttr(info);
+    // A changed token set (a cap:open-links grant approved or revoked) must
+    // reach a FRESH element: the attribute applies only to the next
+    // navigation, so re-keying the iframe keeps the flags unambiguous.
+    if (this._frame && this._frame.sandbox !== sandbox) this._frameKey = (this._frameKey ?? 0) + 1;
     let url = this._url(), credentialless = false;
     if (sandboxed && CREDENTIALLESS) {
       const tok = await fetch(`/api/xbin/frame-token?component=${encodeURIComponent(this.src)}`)
@@ -299,7 +327,23 @@ export class BxFrame extends LitElement {
       // No token (e.g. nested inside another tile): load WITHOUT
       // credentialless so the navigation can still authenticate by cookie.
     }
-    this._frame = { url, sandboxed, credentialless };
+    this._frame = { url, sandboxed, sandbox, credentialless };
+  }
+
+  // A grant for this component changed. If it moved the sandbox token set
+  // (cap:open-links), re-prepare — the re-keyed iframe loads the new document
+  // with the new flags; otherwise the plain reload so a frontend that was
+  // 403'ing retries against its new permissions.
+  async _regrant() {
+    const before = this._frame?.sandbox;
+    await refreshFrameInfo(this.src);
+    if (sandboxAttr(await infoFor(this.src)) !== before) {
+      this._buildError = null;
+      this._beginReload();
+      await this._prepareFrame();
+      return;
+    }
+    this._reload();
   }
 
   // Persist terminal session ids + window state per component, and save whenever
@@ -377,8 +421,9 @@ export class BxFrame extends LitElement {
         break;
       case 'grants':
         // A grant affecting this component changed — reload so a frontend
-        // that was 403'ing retries against the new permissions.
-        if (e.component === this.src) this._reload();
+        // that was 403'ing retries against the new permissions (and, for
+        // cap:open-links, re-create the iframe with the new sandbox tokens).
+        if (e.component === this.src) this._regrant();
         break;
       case 'pr':
         // Change-proposal activity on this tile — keep the PR tab badge live
@@ -732,11 +777,11 @@ export class BxFrame extends LitElement {
     return html`
       <div class="frame-wrap" style=${style ?? nothing}
            @pointerenter=${() => { this._hover = true; }} @pointerleave=${() => { this._hover = false; }}>
-        ${this._frame ? html`
+        ${this._frame ? keyed(this._frameKey ?? 0, html`
           <iframe src=${this._frame.url} title=${this.src}
-                  sandbox=${this._frame.sandboxed ? SANDBOX : nothing}
+                  sandbox=${this._frame.sandboxed ? this._frame.sandbox : nothing}
                   credentialless=${this._frame.credentialless ? '' : nothing}
-                  @load=${() => this._onFrameLoad()}></iframe>` : nothing}
+                  @load=${() => this._onFrameLoad()}></iframe>`) : nothing}
         ${this._buildError !== null ? html`
           <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`

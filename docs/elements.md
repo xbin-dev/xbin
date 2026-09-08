@@ -46,13 +46,16 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "setup": "apt-get update && apt-get install -y --no-install-recommends ruby && gem install --no-document sinatra",
 
   // Runtime call rights this component wants (docs/auth.md). Targets are
-  // component paths, resources ("res:<scope>/<name>"), or — under isolation
-  // (xbind --isolate) — GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All
-  // are owner-approved grants. (Network egress is NOT a use — it is a "net"
-  // interface the owner binds, below.)
+  // component paths, resources ("res:<scope>/<name>"), reserved capabilities
+  // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
+  // "cap:containers" — admin-only), or — under isolation (xbind --isolate) —
+  // GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All are owner-approved
+  // grants. (Network egress is NOT a use — it is a "net" interface the owner
+  // binds, below.)
   "uses": [
     { "target": "apps/calendar",         "role": "reader" },
     { "target": "res:apps/thing/db",     "role": "writer" },
+    { "target": "cap:open-links",        "role": "writer" },
     { "target": "gpu:0",                 "role": "egress" }
   ],
 
@@ -191,7 +194,12 @@ auto-height) works as before. **File downloads work** (the sandbox carries
 `<a href="${xbin.url('/api/'+xbin.self+'/export')}" download>` and a
 `Content-Disposition: attachment` response; build the URL at click time
 (the embedded token is short-lived). Trigger downloads from a user gesture —
-browsers throttle unprompted ones.
+browsers throttle unprompted ones. **Links in new tabs** (`target="_blank"`,
+`window.open`) need the `cap:open-links` grant (ND11): declare it in `uses`,
+an admin approves it, and your frame's sandbox gains
+`allow-popups allow-popups-to-escape-sandbox`; without it such links are
+silently dropped (the console says which grant). Use `rel="noopener"`.
+Top navigation is never allowed.
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it

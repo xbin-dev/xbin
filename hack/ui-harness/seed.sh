@@ -65,6 +65,15 @@ cat > "$WS/apps/focusy/index.html" <<'EOF'
   grab(); addEventListener('load', grab);
 </script>
 EOF
+# a tile whose link opens in a new tab — dead until cap:open-links is
+# granted (shots.js openLinks)
+mk apps/linky org:devs
+printf '{\n  "uses": [{ "target": "cap:open-links", "role": "writer" }]\n}\n' > "$WS/apps/linky/xbin.json"
+cat > "$WS/apps/linky/index.html" <<'EOF'
+<!doctype html><meta charset="utf-8"><title>linky</title>
+<p>a link that wants a new tab:</p>
+<a id="ext" href="/docs/" target="_blank" rel="noopener">docs ↗</a>
+EOF
 # an http provider with a deliberately long path + a consumer with a multi
 # slot — the tile-admin window's overflow case (D56)
 LONG=apps/a-provider-with-a-deliberately-long-component-path-for-overflow

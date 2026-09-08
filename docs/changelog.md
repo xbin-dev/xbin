@@ -10,6 +10,32 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-08
+
+- **Links in new tabs from a tile: the `cap:open-links` grant (ND11).**
+  The tile sandbox dropped every `<a target="_blank">` and `window.open`
+  silently — including the shipped tiles' own "docs ↗" links and the agent
+  template's markdown links. A tile now declares
+  `uses: [{target: "cap:open-links", role: "writer"}]`; once a workspace
+  admin (or an org admin whose allowance covers it) approves, that tile's
+  iframe sandbox **and** its CSP header gain `allow-popups
+  allow-popups-to-escape-sandbox`, so links and `window.open` work natively,
+  framed and full-page; the frame reloads on approval, no backend restart.
+  It is a grant, not a default like downloads, because the opened window is
+  a full-origin, cookie-bearing page at a URL the tile chose — add
+  `rel="noopener"` on your links; the workspace's own pages sever the
+  opener; in a credentialless frame `window.open()` returns `null` (the tab
+  still opens). Without the grant the console now says which grant a
+  blocked link needs. The shipped `tiles/admin`, `tiles/apidocs` and
+  `apps/welcome` declare it and a new workspace pre-approves it; the agent
+  template declares it (pending on instantiation). **Existing workspaces:**
+  see [changes/2026-09-08-open-links-cap.md](changes/2026-09-08-open-links-cap.md)
+  — update the shipped tiles and approve three pending rows. Also: the
+  approval prompts describe reserved capabilities in words (`cap:*` rows
+  used to show a bare target), `/components` reports `sandbox` (the extra
+  tokens a tile's grants unlock), and a git import / auth overview no longer
+  warns "no such component" for `cap:*` / `xbin:*` uses.
+
 ## 2026-09-07
 
 - **Admin console: a proper permission-set creator (D57).** The permission

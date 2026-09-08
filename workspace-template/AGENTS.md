@@ -243,8 +243,9 @@ are never scanned.
 
 Your HTML is served at `/c/<path>/` inside a **sandboxed iframe** (opaque
 origin — no parent/sibling DOM, no `localStorage`/IndexedDB/cookies, no
-ambient session cookie; only host-trusted `chrome: true` components run
-unsandboxed). xbind injects into `<head>`: the import map
+ambient session cookie, no new tabs unless granted `cap:open-links`; only
+host-trusted `chrome: true` components run unsandboxed). xbind injects into
+`<head>`: the import map
 (`import {LitElement, html, css} from 'lit'` just works, vendored/offline),
 identity metas, and `xbin-client.js`, which gives every component document:
 
@@ -648,6 +649,16 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   nested `/etc/subuid`+`/etc/subgid` in `setup`. Worked example: the `devbox`
   builtin tile (plans/containers.md, docs/changes/2026-07-14-container-tiles.md).
 
+  **If your frontend opens links in new tabs** (`<a target="_blank">`,
+  `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":
+  "writer" }]` (ND11). The tile sandbox has no `allow-popups`, so such links
+  are silently dropped (the console names this grant); once approved —
+  admin-only, or an org admin within a `cap:open-links` allowance — your
+  frame's sandbox gains `allow-popups allow-popups-to-escape-sandbox` and
+  links open natively, framed and full-page. It is a grant because the new
+  tab is a full-origin page at a URL you chose. Use `rel="noopener"`; in a
+  credentialless frame `window.open()` returns `null` (the tab still opens).
+
 - **`stream` — a raw TCP dependency on a sibling tile.** `"interfaces": {
   "db": { "kind": "stream" } }`, bound by the owner to another tile's
   exposed stream port (`bx bind <you> db=apps/postgres#pg`). Your backend
@@ -768,7 +779,9 @@ need an admin in the browser, or bx on the host.
   your backend or `/api/xbin/prefs`. Cross-origin fetches from a tile go out
   as `Origin: null` with no cookies — route external API calls through your
   backend. File **downloads** are allowed (`xbin.download` /
-  `xbin.url` + `<a download>`); popups and top-navigation are not.
+  `xbin.url` + `<a download>`); **links in new tabs** (`target="_blank"`,
+  `window.open`) need the `cap:open-links` grant (below); top-navigation
+  is never allowed.
 - **Don't hand-edit**: `deps/` (symlinks are reconciled from the manifest),
   `go.work` (generated — has a marker line; removing the marker takes
   ownership), the `grants` array in workspace `xbin.json` (use `bx grant`;

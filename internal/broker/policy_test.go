@@ -575,3 +575,63 @@ func TestContainersCapGrant(t *testing.T) {
 		t.Fatal("an xbin-caps deny must strip the container capability")
 	}
 }
+
+// cap:open-links (ND11) is the frontend capability: a grant row unlocks
+// exactly the two popup sandbox tokens for that tile; the ceiling's xbin-caps
+// deny strips it; a mayCall allow-list must not (the 2026-07-12 regression
+// class); a manifest that merely DECLARES it lands pending and unlocks nothing.
+func TestOpenLinksCapGrant(t *testing.T) {
+	b := testBroker(t)
+	st := b.Users
+
+	if b.OpenLinksFor("apps/email") || b.SandboxTokensFor("apps/email") != nil {
+		t.Fatal("ungranted tile must not unlock popups")
+	}
+	// Declare-only: pending, still nothing unlocked.
+	mf := filepath.Join(b.Reg.Root, "apps", "calendar", "xbin.json")
+	if err := os.WriteFile(mf, []byte(`{"uses":[{"target":"cap:open-links","role":"writer"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	pending := false
+	for _, p := range b.Pending() {
+		if p.From == "apps/calendar" && p.Target == OpenLinksCap {
+			pending = true
+		}
+	}
+	if !pending {
+		t.Fatal("a declared cap:open-links must land pending (never same-scope auto-granted)")
+	}
+	if b.OpenLinksFor("apps/calendar") {
+		t.Fatal("declaring the cap must not unlock it")
+	}
+
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/email", Target: OpenLinksCap, Role: "writer"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.OpenLinksFor("apps/email") {
+		t.Fatal("granted tile must hold cap:open-links")
+	}
+	if got := b.SandboxTokensFor("apps/email"); len(got) != 2 || got[0] != "allow-popups" || got[1] != "allow-popups-to-escape-sandbox" {
+		t.Fatalf("sandbox tokens: %v", got)
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", MayCall: []string{"nothing/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.OpenLinksFor("apps/email") {
+		t.Fatal("a mayCall allow-list must not strip cap:open-links")
+	}
+	if err := st.SetPolicy([]users.PolicyRow{{Tiles: "*", Deny: []string{users.PolicyDenyXbinCaps}}}); err != nil {
+		t.Fatal(err)
+	}
+	if b.OpenLinksFor("apps/email") || b.SandboxTokensFor("apps/email") != nil {
+		t.Fatal("an xbin-caps deny must strip cap:open-links")
+	}
+	if msg := b.ceilingBlockMsg("apps/email", OpenLinksCap); !strings.Contains(msg, users.PolicyDenyXbinCaps) {
+		t.Fatalf("the block message must name the deny class: %q", msg)
+	}
+}

@@ -181,8 +181,11 @@ with sandboxed tile frames `[ND8]`:
   `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals
   allow-downloads` (covers direct-tab opens) and framed by `bx-frame` with
   the matching `sandbox` attribute. (`allow-downloads` — ND10 — is the one
-  user-facing affordance the sandbox keeps: a download crosses no
-  workspace/session/tile boundary and the browser's download UI mediates.) The tile runs in an **opaque origin**: no parent or
+  user-facing affordance the sandbox keeps unconditionally: a download
+  crosses no workspace/session/tile boundary and the browser's download UI
+  mediates. `allow-popups allow-popups-to-escape-sandbox` — ND11 — is
+  per tile, unlocked by the admin-approved `cap:open-links` grant in both
+  layers from one server-side source.) The tile runs in an **opaque origin**: no parent or
   sibling DOM access (either direction), no localStorage/IDB/cookies/SW, and
   subresource requests carry no ambient credentials (Chromium; elsewhere the
   server gate below strips them). Communication with the shell is

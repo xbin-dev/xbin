@@ -19,9 +19,14 @@ Every route except `/healthz` and `/login` requires a principal
 **Browser-plane isolation (ND8):** the cookie proves the human, and humans
 act only from *chrome* (the shell, plus manifest `chrome: true` components).
 Non-chrome tile documents are served with `Content-Security-Policy: sandbox
-allow-scripts allow-forms allow-modals allow-downloads` and framed sandboxed by `bx-frame`
+allow-scripts allow-forms allow-modals allow-downloads` (plus
+`allow-popups allow-popups-to-escape-sandbox` for a tile granted
+`cap:open-links`, ND11 — the same extras `/components` reports as `sandbox`
+so `bx-frame`'s attribute matches) and framed sandboxed by `bx-frame`
 (plus `credentialless` where supported) — an opaque origin with no DOM access
-either way, no storage, no ambient cookie. Server-side, any request carrying
+either way, no storage, no ambient cookie. Served HTML also carries
+`<meta name="xbin-sandbox">` with the full token list (absent on chrome).
+Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
 `/ws/*` (form-POST CSRF) — has the **cookie dropped** before principal
@@ -201,7 +206,11 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    state? (lifecycle; absent = enabled),
                                    roles, uses, deps, manifestError,
                                    chrome? (trusted chrome — bx-frame does
-                                   not sandbox these)}]
+                                   not sandbox these),
+                                   sandbox? (extra iframe/CSP sandbox tokens
+                                   the tile's grants unlock — cap:open-links
+                                   → allow-popups allow-popups-to-escape-
+                                   sandbox, ND11; bx-frame appends them)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    (cookie) any tile they can read; a tile

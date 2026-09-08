@@ -87,7 +87,7 @@ func endpoints() []ep {
 		{"GET", "/openapi.json", "Identity", "This API description", "authenticated",
 			"The OpenAPI 3.1 document for the built-in API (this document).", nil, nil, "OpenAPI document"},
 		{"GET", "/components", "Components", "List components", "authenticated",
-			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, manifest errors, and the chrome flag (trusted chrome runs unsandboxed — bx-frame reads this).", nil, nil, "array of component summaries"},
+			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, manifest errors, the chrome flag (trusted chrome runs unsandboxed — bx-frame reads this) and `sandbox`: the extra iframe/CSP sandbox tokens the tile's grants unlock (cap:open-links → allow-popups allow-popups-to-escape-sandbox, ND11; absent when none).", nil, nil, "array of component summaries"},
 		{"GET", "/components/{path}", "Components", "Component detail + API.md", "authenticated",
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
@@ -240,8 +240,8 @@ func endpoints() []ep {
 
 		// --- grants ---
 		{"GET", "/grants", "Grants", "Grant table + pending", "admin", "", nil, nil, "{grants:[{from,target,role}], pending:[…]}"},
-		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, or gpu:… devices. (Network egress is not a grant — it's a `net` interface binding; see /bindings.)", nil,
-			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | gpu:0"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
+		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, gpu:… devices, or reserved capabilities (cap:net-admin, cap:containers, cap:open-links — the last widens the tile's frontend sandbox so links open in new tabs, ND11). (Network egress is not a grant — it's a `net` interface binding; see /bindings.)", nil,
+			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | gpu:0 | cap:open-links"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
 		{"DELETE", "/grants", "Grants", "Revoke a grant", "admin", "", nil,
 			jsonBody("grant to revoke", oapi{"from": str(""), "target": str(""), "role": str("")}, "from", "target", "role"), "ok"},
 		{"GET", "/bindings", "Grants", "Interface requests/providers + bindings", "admin", "Typed capability wiring (plans/interfaces.md). `pending` lists unbound interface slots with the providers that can satisfy each — the bind-on-install prompt; default:\"org\" marks a net slot already satisfied by the owning org's network sets (D54). `inert` lists net bindings stored but resolving to no egress, with the reason. Binding values are a ref string, or an array of refs for multi:true slots; refs are provider[#instance]. `instances` maps each instances-provider to its registered {id: pathPrefix}. `approvable` names the components whose wiring THIS caller may change (ws admin: all; org admin: their orgs' tiles); pending rows carry the same flag, and options POST would refuse for everyone (a net ref outside the owning org's network sets) are blocked:true.", nil, nil, "{bindings, instances, components:[{component,interfaces,provides}], pending:[{component,slot,kind,service,multi?,default?,approvable,options:[{id,label,blocked?}]}], inert:{comp:{slot:reason}}, approvable:{comp:true}}"},

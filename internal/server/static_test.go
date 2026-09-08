@@ -165,6 +165,131 @@ func TestStaticWarmIPGate(t *testing.T) {
 	}
 }
 
+// The sandbox is per component (ND11): the base CSP for every non-chrome
+// document, the base + what the SandboxExtras hook unlocks for a granted tile
+// (at BOTH emission sites — injected HTML and inject:false), mirrored into
+// the xbin-sandbox meta and the /components `sandbox` field; chrome gets no
+// sandbox and COOP instead. A sandboxed document must NEVER carry COOP: a
+// top-level response with a sandboxed origin and a COOP other than
+// unsafe-none is a network error per the HTML spec — direct-tab opens of
+// /c/<tile>/ would break.
+func TestSandboxHeaderPerComponent(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := `<!doctype html><html><head><title>t</title></head><body>t</body></html>`
+	mk("apps/plain/xbin.json", `{}`)
+	mk("apps/plain/index.html", page)
+	mk("apps/linky/xbin.json", `{"uses":[{"target":"cap:open-links","role":"writer"}]}`)
+	mk("apps/linky/index.html", page)
+	mk("apps/raw/xbin.json", `{"inject":false}`)
+	mk("apps/raw/index.html", page)
+	mk("tiles/chrome/xbin.json", `{"chrome":true}`)
+	mk("tiles/chrome/index.html", page)
+
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg, Auth: a}
+	extras := []string{"allow-popups", "allow-popups-to-escape-sandbox"}
+	s.SandboxExtras = func(c string) []string {
+		if c == "apps/linky" || c == "apps/raw" {
+			return extras
+		}
+		return nil
+	}
+	owner := auth.Principal{Owner: true}
+	get := func(url string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", url, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), owner))
+		w := httptest.NewRecorder()
+		s.handleComponentStatic(w, r)
+		return w
+	}
+	ext := sandboxCSP + " allow-popups allow-popups-to-escape-sandbox"
+
+	w := get("/c/apps/plain/index.html")
+	if got := w.Header().Get("Content-Security-Policy"); got != sandboxCSP {
+		t.Fatalf("plain CSP: %q", got)
+	}
+	if w.Header().Get("Cross-Origin-Opener-Policy") != "" {
+		t.Fatal("a sandboxed document must not carry COOP")
+	}
+	if !strings.Contains(w.Body.String(), `name="xbin-sandbox" content="allow-scripts allow-forms allow-modals allow-downloads"`) {
+		t.Fatalf("plain meta: %s", w.Body.String())
+	}
+
+	w = get("/c/apps/linky/index.html")
+	if got := w.Header().Get("Content-Security-Policy"); got != ext {
+		t.Fatalf("granted CSP: %q", got)
+	}
+	if w.Header().Get("Cross-Origin-Opener-Policy") != "" {
+		t.Fatal("a granted (still sandboxed) document must not carry COOP — network error per spec")
+	}
+	if !strings.Contains(w.Body.String(), `name="xbin-sandbox" content="allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"`) {
+		t.Fatalf("granted meta: %s", w.Body.String())
+	}
+
+	w = get("/c/apps/raw/index.html")
+	if got := w.Header().Get("Content-Security-Policy"); got != ext {
+		t.Fatalf("inject:false granted CSP: %q", got)
+	}
+	if strings.Contains(w.Body.String(), "xbin-sandbox") {
+		t.Fatal("inject:false is byte-exact — no meta")
+	}
+
+	w = get("/c/tiles/chrome/index.html")
+	if w.Header().Get("Content-Security-Policy") != "" {
+		t.Fatal("chrome must not be sandboxed")
+	}
+	if w.Header().Get("Cross-Origin-Opener-Policy") != "same-origin" {
+		t.Fatal("chrome keeps COOP same-origin")
+	}
+	if strings.Contains(w.Body.String(), "xbin-sandbox") {
+		t.Fatal("chrome carries no xbin-sandbox meta")
+	}
+	if sandboxHeader(nil) != sandboxCSP {
+		t.Fatal("no extras = the base header")
+	}
+
+	// /components reports the same extras (chrome: none), so bx-frame's
+	// attribute and the header stay one list.
+	r := httptest.NewRequest("GET", "/api/xbin/components", nil)
+	r = r.WithContext(auth.WithPrincipal(r.Context(), owner))
+	cw := httptest.NewRecorder()
+	s.apiComponents(cw, r)
+	var list []struct {
+		Path    string   `json:"path"`
+		Chrome  bool     `json:"chrome"`
+		Sandbox []string `json:"sandbox"`
+	}
+	if err := json.Unmarshal(cw.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, c := range list {
+		got[c.Path] = c.Sandbox
+	}
+	if len(got["apps/linky"]) != 2 || got["apps/linky"][1] != "allow-popups-to-escape-sandbox" {
+		t.Fatalf("linky sandbox field: %v", got["apps/linky"])
+	}
+	if got["apps/plain"] != nil || got["tiles/chrome"] != nil {
+		t.Fatalf("plain/chrome must report no extras: %v / %v", got["apps/plain"], got["tiles/chrome"])
+	}
+}
+
 // A code[:<comp>] grant opens the /c/ static plane for element principals
 // (the 2026-08-02 clamp made instance tokens self-only even WITH the grant —
 // tooling backends couldn't fetch sibling source). Grant-based reads must

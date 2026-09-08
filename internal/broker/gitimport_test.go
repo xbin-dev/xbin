@@ -1,6 +1,34 @@
 package broker
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Reserved capability targets (cap:*, xbin, xbin:*) are never component
+// paths — the import warning must not report them as "no such component"
+// (it did for cap:containers / cap:net-admin); a missing resource still warns.
+func TestUnresolvedUsesCapTargets(t *testing.T) {
+	b := testBroker(t)
+	dir := filepath.Join(b.Reg.Root, "apps", "linky")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mf := `{"uses":[{"target":"cap:open-links","role":"writer"},{"target":"cap:containers","role":"writer"},
+		{"target":"xbin:users","role":"writer"},{"target":"res:nope/x","role":"reader"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "xbin.json"), []byte(mf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	warns := b.unresolvedUses("apps/linky")
+	if len(warns) != 1 || !strings.Contains(warns[0], "res:nope/x") {
+		t.Fatalf("want exactly the missing-resource warning, got %v", warns)
+	}
+}
 
 func TestValidGitURL(t *testing.T) {
 	ok := []string{

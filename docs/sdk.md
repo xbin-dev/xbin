@@ -163,6 +163,11 @@ a.href = xbin.url(`/api/${xbin.self}/export.csv`);
 // gesture; browsers throttle unprompted downloads.
 xbin.download('report.csv', csvText, 'text/csv');
 
+// links in NEW TABS (<a target="_blank">, window.open) need the tile to
+// hold the cap:open-links grant (ND11: uses [{target:"cap:open-links",
+// role:"writer"}], admin-approved) — otherwise the sandbox drops them.
+// Use rel="noopener"; in a credentialless frame window.open() returns null.
+
 // bus (needs a reader grant on the resource)
 const off = xbin.bus.on('res:apps/thing/bus/events/', (topic, data) => {…});
 await xbin.bus.publish('res:apps/thing/bus', 'events/created', ev); // writer

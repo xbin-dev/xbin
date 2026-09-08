@@ -23,9 +23,45 @@ const frameTokenTTL = 15 * time.Minute
 // (plans/auth.md §6, ND8): scripts run, forms/modals/downloads work, but
 // never allow-same-origin — that plus allow-scripts would void the sandbox.
 // Downloads are allowed (ND10): they cross no workspace/session/tile
-// boundary and the browser's download UI mediates. Must match bx-frame's
-// iframe sandbox attribute — browsers intersect the two.
+// boundary and the browser's download UI mediates. This is the BASE list;
+// a tile's grants may unlock more (ND11: cap:open-links → allow-popups
+// allow-popups-to-escape-sandbox) through the SandboxExtras hook. Must
+// match bx-frame's iframe sandbox attribute — browsers intersect the two —
+// which is why bx-frame appends the extras /components reports rather than
+// keeping a list of its own.
 const sandboxCSP = "sandbox allow-scripts allow-forms allow-modals allow-downloads"
+
+// sandboxHeader composes the CSP for one document: the base plus whatever
+// its grants unlock.
+func sandboxHeader(extras []string) string {
+	if len(extras) == 0 {
+		return sandboxCSP
+	}
+	return sandboxCSP + " " + strings.Join(extras, " ")
+}
+
+// sandboxExtras: the hook, nil-safe.
+func (s *Server) sandboxExtras(comp string) []string {
+	if s.SandboxExtras == nil {
+		return nil
+	}
+	return s.SandboxExtras(comp)
+}
+
+// sandboxDocument sets the CSP sandbox header on a non-chrome document (the
+// one place both emission sites go through) and reports whether it did.
+// Never Cross-Origin-Opener-Policy here: a top-level response with a
+// sandboxed origin AND a COOP other than unsafe-none is a network error per
+// the HTML spec, which would break every direct-tab open of /c/<tile>/.
+// Opener severing lives on the popup targets instead (chrome pages and
+// /docs/ send COOP; tile authors use rel="noopener").
+func (s *Server) sandboxDocument(w http.ResponseWriter, compPath string, comp *registry.Component) bool {
+	if !sandboxedFrame(compPath, comp) {
+		return false
+	}
+	w.Header().Set("Content-Security-Policy", sandboxHeader(s.sandboxExtras(compPath)))
+	return true
+}
 
 // handleComponentStatic serves /c/<component-path>/<file> from the workspace.
 // HTML responses get the single sanctioned transform (decision D4): the merged
@@ -103,9 +139,7 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		// regardless (ND8) — bx-frame sandboxes it when framed; this header
 		// covers direct-tab opens. Without injection it holds no frame token
 		// either, so its frontend has no identity at all.
-		if owner := s.owningComponent(cleaned); sandboxedFrame(owner, comp) {
-			w.Header().Set("Content-Security-Policy", sandboxCSP)
-		}
+		s.sandboxDocument(w, s.owningComponent(cleaned), comp)
 	}
 	http.ServeFile(w, r, full)
 }
@@ -259,13 +293,22 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		}
 	}
 
+	// The sandbox this document runs in (full token list; absent for chrome)
+	// — the injected client reads it to tell "unsandboxed" from "sandboxed
+	// without popups" and say which grant a blocked target=_blank needs.
+	sandboxMeta := ""
+	if sandboxedFrame(compPath, comp) {
+		tokens := strings.TrimPrefix(sandboxHeader(s.sandboxExtras(compPath)), "sandbox ")
+		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
+	}
+
 	inject := fmt.Sprintf(
 		"\n<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s"+
+			"%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok, ifaceMeta)
+		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta)
 
 	var out []byte
 	if loc := headRe.FindIndex(body); loc != nil {
@@ -277,14 +320,13 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if sandboxedFrame(compPath, comp) {
-		// Browser-plane isolation (plans/auth.md §6): the document runs in an
-		// opaque origin — no parent/sibling DOM access, no storage, no ambient
-		// credentials on subresources; its only credential is the injected
-		// frame token. Delivered as a header (not just the iframe attribute)
-		// so direct-tab opens of /c/<tile>/ are confined identically.
-		w.Header().Set("Content-Security-Policy", sandboxCSP)
-	} else {
+	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
+	// in an opaque origin — no parent/sibling DOM access, no storage, no
+	// ambient credentials on subresources; its only credential is the injected
+	// frame token. Delivered as a header (not just the iframe attribute) so
+	// direct-tab opens of /c/<tile>/ are confined identically, with the same
+	// grant-unlocked extras (ND11).
+	if !s.sandboxDocument(w, compPath, comp) {
 		// Trusted chrome: keep popups it opens (full-page tile views, docs)
 		// in its own browsing-context group.
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
@@ -340,6 +382,9 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(rel, ".md") && r.URL.Query().Get("raw") == "" &&
 		strings.Contains(r.Header.Get("Accept"), "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// The popup target of every shipped tile's links (ND11): its own
+		// browsing-context group, so a tile that opened it keeps no handle.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		fmt.Fprintf(w, docViewerHTML, htmlEscape(rel))
 		return
 	}

@@ -17,6 +17,7 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { ruleLabel, orgNetLabel, SCOPE_ICON } from '/vendor/bx-netrules.js';
+import { capInfo } from '/vendor/bx-allow.js';
 
 const api = async (path, opts) => {
   const r = await fetch('/api/xbin' + path, opts);
@@ -442,7 +443,8 @@ export class BxOrganisations extends LitElement {
       <h3>pending approvals</h3>
       ${pending.length ? html`<div class="card">
         ${pending.map((p) => html`<div class="row" style="margin:3px 0">
-          <span class="mono">${p.from}</span> → <span class="mono">${p.target}</span>
+          <span class="mono">${p.from}</span> → <span class="mono" title=${capInfo(p.target)?.desc ?? ''}>${p.target}</span>
+          ${capInfo(p.target) ? html`<span class="muted" style="font-size:11px">${capInfo(p.target).label}</span>` : nothing}
           <span class="pill">${p.role}</span> ${dir(p)}
           <span style="flex:1"></span>
           <button class="go" @click=${() => this._do(() =>

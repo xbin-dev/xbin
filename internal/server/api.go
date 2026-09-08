@@ -104,6 +104,12 @@ type componentInfo struct {
 	// Chrome marks trusted workspace chrome (plans/auth.md §6): bx-frame does
 	// NOT sandbox these frames — they act as the signed-in human.
 	Chrome bool `json:"chrome,omitempty"`
+	// Sandbox lists the `sandbox` tokens this component's grants unlock beyond
+	// the base set (ND11: cap:open-links → allow-popups allow-popups-to-
+	// escape-sandbox). bx-frame appends them to its iframe attribute; the CSP
+	// header of the component's documents carries the same list. Absent for
+	// chrome and for tiles holding no such grant.
+	Sandbox []string `json:"sandbox,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +132,9 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.OwnerOf != nil {
 			ci.Owner = s.OwnerOf(c.Path)
+		}
+		if !ci.Chrome {
+			ci.Sandbox = s.sandboxExtras(c.Path)
 		}
 		if st := s.Reg.LifecycleState(c.Path); st != registry.StateEnabled {
 			ci.State = st
@@ -154,6 +163,9 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 		Chrome: isChrome(c.Path) || c.Manifest.Chrome,
+	}
+	if !ci.Chrome {
+		ci.Sandbox = s.sandboxExtras(c.Path)
 	}
 	if c.Manifest.Expose != nil {
 		ci.Roles = c.Manifest.Expose.Roles

@@ -6,6 +6,10 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
+import { capInfo } from '/vendor/bx-allow.js';
+
+// Reserved targets have no component to look role docs up on.
+const reservedTarget = (t) => /^(res:|cap:|gpu:|net:|xbin$|xbin:|code$|code:)/.test(t);
 
 export class BxGrants extends LitElement {
   static properties = {
@@ -89,7 +93,7 @@ export class BxGrants extends LitElement {
       this._scope = d.scope ?? '';
       // Pull role descriptions for pending component targets.
       for (const p of this._pending) {
-        if (p.target.startsWith('res:') || this._roleDocs[p.target] !== undefined) continue;
+        if (reservedTarget(p.target) || this._roleDocs[p.target] !== undefined) continue;
         const cr = await fetch(`/api/xbin/components/${p.target}`);
         this._roleDocs = {
           ...this._roleDocs,
@@ -142,9 +146,10 @@ export class BxGrants extends LitElement {
             <span class="who">${p.from} → ${p.target}</span>
             <span class="role">${p.role}</span>
             ${p.direction ? html`<span class="dir">${p.direction}</span>` : nothing}
-            <span class="desc" title=${p.blocked ?? ''}>${p.blocked
+            <span class="desc" title=${p.blocked ?? capInfo(p.target)?.desc ?? ''}>${p.blocked
               ? `blocked by policy — ${p.blocked}`
-              : this._roleDocs[p.target]?.[p.role] ?? ''}</span>
+              : p.target.startsWith('cap:') ? (capInfo(p.target)?.label ?? '')
+                : this._roleDocs[p.target]?.[p.role] ?? ''}</span>
             ${p.blocked
               ? html`<button disabled title=${p.blocked}>blocked</button>`
               : (scoped && !p.approvable)

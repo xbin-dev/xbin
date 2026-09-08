@@ -55,6 +55,15 @@ type Server struct {
 	// for injection into its frame (plans/interfaces.md). Installed by the broker.
 	Interfaces func(comp string) map[string]any
 
+	// SandboxExtras returns the `sandbox` tokens a component's grants unlock
+	// beyond the fixed base set (ND11: cap:open-links → allow-popups
+	// allow-popups-to-escape-sandbox). Composed into the CSP header of the
+	// component's documents and reported on /components so bx-frame appends
+	// the same list to its iframe attribute (browsers intersect the two).
+	// Installed by the broker; nil ⇒ base only. Consulted only for sandboxed
+	// (non-chrome) documents.
+	SandboxExtras func(comp string) []string
+
 	// CodeReadGrant reports whether element `from` holds a code[:<comp>]
 	// source-read grant covering `target` — opens the /c/ static plane for
 	// element principals beyond their own tile (installed by the broker;

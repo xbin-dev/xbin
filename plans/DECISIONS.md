@@ -140,6 +140,44 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   the plane users actually build in. *Amended by ND8: the token is now the tile's
   ONLY credential and cookie-without-token from a tile context is dropped, not
   honored.*
+- **ND11 — Tile popups are a per-tile grant: `cap:open-links` →
+  `allow-popups allow-popups-to-escape-sandbox` (2026-09-08).** ND8's sandbox
+  (ND10 included) dropped every `<a target="_blank">` and `window.open` in
+  every tile — silently, including the shipped tiles' own `/docs/…` links
+  and the agent template's markdown links. `allow-popups` alone would not
+  do: a popup inherits the sandbox and any external site breaks; the useful
+  pair is `allow-popups allow-popups-to-escape-sandbox`, and with it a tile
+  opens a fully privileged, cookie-bearing top-level page at a URL it chose
+  — the look-alike-page primitive. That is the higher-severity case ND10's
+  rationale reserved a grant for (a download is browser-mediated; this is
+  not), so it is a **reserved, admin-approved capability**:
+  `uses {target:"cap:open-links", role:"writer"}`, never same-scope
+  auto-granted, delegable to org admins only through a `cap:open-links`
+  allowance, stripped by the `xbin-caps` deny class. Enforced in BOTH
+  browser layers from ONE source: the broker maps the grant to the tokens
+  (`SandboxTokensFor`), the server composes the CSP `sandbox` header per
+  document (injected and `inject:false`, so direct-tab opens of `/c/<tile>/`
+  match) and reports the extras on `/components`, and `bx-frame` appends
+  exactly what it was sent — it keeps no token list of its own. Frontend-
+  only: no backend restart; the `grants` event makes `bx-frame` re-key its
+  iframe, because a changed `sandbox` attribute applies only to the next
+  navigation. Never COOP on the tile document — a sandboxed-origin top-level
+  response with COOP other than unsafe-none is a network error per the HTML
+  spec — so opener severing lives on the targets: chrome pages (already)
+  and `/docs/` send COOP same-origin, authors add `rel="noopener"`, and
+  Chromium credentialless frames force noopener on popups anyway. Shipped
+  tiles (admin, apidocs, welcome) declare it and the template workspace
+  pre-approves it; the agent template declares it (pending on
+  instantiation); existing workspaces update the tiles and approve three
+  rows by hand — a silent backfilled grant is what this decision avoids.
+  The injected client warns once on a blocked `target=_blank` click,
+  naming the grant. Rejected: global enablement (ND10's move — the
+  severity differs), a manifest self-flag (not a boundary), a
+  shell-relayed `xbin:open` with a confirm dialog (works without loosening
+  the sandbox, but `window.open` stays dead and activation transfer across
+  the frame boundary is browser-dependent — kept as the fallback design),
+  `allow-popups` alone, COOP on the tile document. Follow-up: a per-link
+  confirm relay for ungranted tiles if it turns out wanted.
 - **ND10 — Tile downloads: `allow-downloads` for every sandboxed frame
   (2026-08-24).** ND8's token list omitted `allow-downloads`, so any tile-
   initiated download — blob + `<a download>.click()` or a
@@ -150,7 +188,9 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   intersect them), unconditionally. Rationale: a download crosses no
   workspace/session/tile boundary — the residual risk is an unsolicited
   save prompt, and the browser's own download UI is the consent surface;
-  popups and top-navigation stay blocked. Rejected: a self-declared
+  popups and top-navigation stay blocked. *Amended by ND11: popups are now
+  a per-tile grant (`cap:open-links`); top-navigation stays blocked.*
+  Rejected: a self-declared
   manifest flag (not a security boundary — the tile author writes the
   manifest — so it buys only friction), an owner-approved capability grant
   (invents frontend-grant machinery for a low-severity, browser-mediated
@@ -198,7 +238,9 @@ broker — retrofitting enforcement later is exactly how honor systems calcify.
   CSP `sandbox` header, so direct-tab opens are confined too): no DOM access
   either way, no storage/cookies/SW; the frame token alone authenticates the
   tile (cookie-less renewal included). *Amended by ND10: the sandbox now
-  also carries `allow-downloads`.* Server-side, a Fetch-Metadata gate
+  also carries `allow-downloads`. Amended by ND11: a tile granted
+  `cap:open-links` also carries `allow-popups allow-popups-to-escape-
+  sandbox`, in both layers.* Server-side, a Fetch-Metadata gate
   (`Sec-Fetch-Site: cross-site` on non-navigations; non-GET navigations to
   `/api/*`/`/ws/*`) drops the session cookie out of tile contexts —
   unforgeable in both directions — so a hostile tile omitting its token can't

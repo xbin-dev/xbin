@@ -51,6 +51,23 @@ let ifaces = {};
 try { ifaces = JSON.parse(meta('xbin-interfaces') || '{}'); } catch { ifaces = {}; }
 const iface = (slot) => ifaces[slot] || null;
 
+// The sandbox this document runs in (absent on unsandboxed chrome). Without
+// allow-popups a target="_blank" link or window.open is dropped by the
+// browser with a console line that names the sandbox but not the fix — say
+// which grant it is (cap:open-links, ND11), once, on the first such click.
+const sandboxTokens = meta('xbin-sandbox');
+if (sandboxTokens && !sandboxTokens.split(' ').includes('allow-popups')) {
+  let warned = false;
+  document.addEventListener('click', (e) => {
+    if (warned) return;
+    const a = e.composedPath?.()[0]?.closest?.('a[target="_blank"]'); // composedPath: shadow DOM retargets e.target
+    if (!a) return;
+    warned = true;
+    console.warn(`[xbin] ${self}: links with target="_blank" (and window.open) are blocked by the tile sandbox — `
+      + 'declare {"target":"cap:open-links","role":"writer"} in "uses" and have a workspace admin approve it (docs/auth.md).');
+  }, true);
+}
+
 // --- token refresh (tokens are short-lived; see docs/auth.md) ---
 async function refreshToken() {
   try {

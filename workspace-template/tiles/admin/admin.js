@@ -15,7 +15,7 @@ import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import '/vendor/bx-multiselect.js';
 import { RULE_KINDS, parseRule, fmtRule, ruleProblem, ruleLabel, setSummary, netOptions } from '/vendor/bx-netrules.js';
-import { ALLOW_KINDS, ROLE_CAPS, KNOWN_CAPS, allowKind, parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
+import { ALLOW_KINDS, ROLE_CAPS, KNOWN_CAPS, allowKind, parseAllow, fmtAllow, allowProblem, describeAllow, capInfo } from '/vendor/bx-allow.js';
 
 // "stale" for the users table's offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -1488,7 +1488,7 @@ export class BxAdmin extends LitElement {
       ${this._filterBar('filter grants by caller, target or role…', null, pending.length + grants.length, total)}
       ${pending.length ? html`<h4>pending requests</h4>
         <table>${pending.map((g) => html`<tr>
-          <td class="mono">${g.from} → ${g.target}</td>
+          <td class="mono" title=${capInfo(g.target)?.desc ?? ''}>${g.from} → ${g.target}</td>
           <td><span class="pill">${g.role}</span></td>
           <td style="text-align:right">${g.blocked
             ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`

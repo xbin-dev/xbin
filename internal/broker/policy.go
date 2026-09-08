@@ -69,6 +69,8 @@ func (b *Broker) ceilingBlockWith(c users.Ceiling, from, target string) string {
 		return deny(users.PolicyDenyNet)
 	case target == ContainersCap: // container-host capability — a system cap; xbin-caps deny covers it
 		return deny(users.PolicyDenyXbinCaps)
+	case target == OpenLinksCap: // frontend popup capability (ND11) — xbin-caps deny covers it
+		return deny(users.PolicyDenyXbinCaps)
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets

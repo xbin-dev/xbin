@@ -21,8 +21,20 @@ import { ruleProblem, ruleLabel } from '/vendor/bx-netrules.js';
 // role — prefer the cap). Manifest-declared custom roles are allowed too.
 export const ROLE_CAPS = ['reader', 'writer', 'admin'];
 
-// Capability classes worth offering by name; anything else is a glob.
-export const KNOWN_CAPS = ['containers', 'net-admin'];
+// The reserved capability classes, with what each one means — the label and
+// description every approval surface shows (a pending `cap:` row has no
+// component to look a description up on). Anything else is a glob.
+export const CAP_INFO = {
+  'net-admin': { label: 'network admin (net-provider tile)',
+    desc: 'keeps CAP_NET_ADMIN / NET_RAW / NET_BIND_SERVICE inside the tile\'s own network namespace — routers, firewalls, VPNs' },
+  'containers': { label: 'container host',
+    desc: 'keeps user-namespace capabilities and a minimal seccomp floor so rootless podman/docker runs inside the tile' },
+  'open-links': { label: 'open links in new tabs',
+    desc: 'the tile\'s frontend may open browser tabs/windows that leave its sandbox (target="_blank", window.open) — full-origin pages at a URL the tile chose, so a hostile tile could open a look-alike page; approve for tiles you trust' },
+};
+export const KNOWN_CAPS = Object.keys(CAP_INFO);
+// capInfo('cap:open-links' | 'open-links') → {label, desc} | null
+export const capInfo = (t) => CAP_INFO[String(t ?? '').replace(/^cap:/, '')] ?? null;
 
 // One row of the typed editor: {kind, value, role?, provider?, instance?}.
 // `value` is the kind's main pattern (tile path, service, glob, port range,
@@ -186,7 +198,7 @@ export function describeAllow(x) {
       return `bind a "${v}" interface slot to ${p ? p + (inst ? ` (instance ${inst})` : '') : 'any provider'}`;
     }
     case 'res': return `let their tiles use resources matching ${v} ${as}`;
-    case 'cap': return `let their tiles hold the ${v} capability`;
+    case 'cap': return `let their tiles hold the ${capInfo(v)?.label ?? v} capability`;
     case 'gpu': return `let their tiles use GPUs matching ${v}`;
     case 'ingress:host': return `publish their tiles at hostnames matching ${v}`;
     case 'ingress:zone': return `publish their tiles under the ${v} zone`;

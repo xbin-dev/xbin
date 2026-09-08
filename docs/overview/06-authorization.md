@@ -117,6 +117,8 @@ regression):
 | `code:<component>` | read **one** component's source — governed exactly like *calling* that component (same-scope exempt, else `mayCall` must cover its path) | like a call |
 | `gpu:all` / `gpu:<index>` / `gpu:<uuid>` | the matching GPUs: device nodes + driver libs mounted into the sandbox at spawn | `gpu` |
 | `cap:net-admin` | keep CAP_NET_ADMIN/NET_RAW/NET_BIND_SERVICE inside the tile's own netns — required by net-**provider** tiles for their dataplane (D18a); admin-only to approve | `net` |
+| `cap:containers` | keep user-namespace capabilities + a minimal seccomp floor so rootless podman/docker runs inside the tile (container-host tiles, plans/containers.md); admin-only to approve | `xbin-caps` |
+| `cap:open-links` | the tile's **frontend** may open new tabs/windows that leave its sandbox (`target="_blank"`, `window.open`) — its iframe/CSP sandbox gains `allow-popups allow-popups-to-escape-sandbox` (ND11); admin-only to approve, no backend restart | `xbin-caps` |
 | `net:*` *(legacy)* | — rejected for new grants; egress is a `net` interface binding now | `net` |
 
 Notes worth internalizing:

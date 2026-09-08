@@ -58,3 +58,39 @@ func (b *Broker) ContainersFor(c *registry.Component) bool {
 	_, ok := b.grantedRole(c.Path, ContainersCap)
 	return ok
 }
+
+// OpenLinksCap is the reserved FRONTEND capability (ND11): the tile's
+// document may open new top-level windows that ESCAPE its sandbox — an
+// `<a target="_blank">`, `window.open` — so its iframe `sandbox` attribute
+// and its CSP `sandbox` header gain allow-popups + allow-popups-to-escape-
+// sandbox. Without the escape token a popup inherits the sandbox and any
+// external site breaks; with it the tile opens a fully privileged, cookie-
+// bearing top-level page at a URL of its choosing — the look-alike-page
+// primitive — which is why this is admin-only to approve (a reserved target,
+// never same-scope auto-granted) and why the `xbin-caps` deny class strips
+// it. Unlike the other caps it changes nothing in the backend sandbox: no
+// restart, the next document load carries the tokens.
+const OpenLinksCap = "cap:open-links"
+
+// openLinksSandbox: the sandbox tokens the grant unlocks, applied in BOTH
+// browser layers (browsers intersect the attribute and the header).
+var openLinksSandbox = []string{"allow-popups", "allow-popups-to-escape-sandbox"}
+
+// OpenLinksFor reports whether a component holds cap:open-links (path form:
+// the static server resolves paths, not components). grantedRole applies the
+// policy ceiling.
+func (b *Broker) OpenLinksFor(path string) bool {
+	_, ok := b.grantedRole(path, OpenLinksCap)
+	return ok
+}
+
+// SandboxTokensFor is the server's SandboxExtras hook: the `sandbox` tokens a
+// component's grants unlock beyond the fixed base set (nil = none). The
+// cap→token mapping lives here only; the server composes the CSP header from
+// it and reports it on /components so bx-frame appends exactly the same list.
+func (b *Broker) SandboxTokensFor(comp string) []string {
+	if b.OpenLinksFor(comp) {
+		return append([]string(nil), openLinksSandbox...)
+	}
+	return nil
+}

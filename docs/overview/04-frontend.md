@@ -68,8 +68,17 @@ against the module):
 | `xbin.iface(slot)` | a bound http interface: `{url, service}` (or `{service, multi, endpoints}` for a `multi:true` slot) — call a typed, swappable dependency instead of a hard-coded path ([11-interfaces.md](11-interfaces.md)) |
 | `xbin.bus.on(prefix, cb)` / `xbin.bus.publish(res, topic, data)` | pub/sub on granted bus resources ([10-resources.md](10-resources.md)) |
 | `xbin.events.on(cb)` | the raw event stream (reload / build / bus), over a frame-token-authenticated WS |
+| `xbin.url(path)` | a same-host URL carrying the current frame token as `?frame=` — for tag-driven requests that can't set headers (`<a download>`, media `src`); build it at click time, the token rotates |
+| `xbin.download(name, data, type?)` | hand a Blob/string to the browser's download UI (call from a user gesture) |
+| `xbin.status(state, msg?)` / `xbin.clearStatus()` / `xbin.notify(msg)` | report tile health / a one-off notification to the shell (`POST /tile-report`) |
 | `xbin.dialog(spec)` | a shell-rendered trusted modal → `Promise<{button, values}>` (in-frame fallback when standalone) |
 | `xbin.window(spec)` | a floating top-level workspace window framing one of your own sub-paths (or, via `spec.src`, another component — subject to normal tile RBAC) |
+
+Links that open a **new tab** (`<a target="_blank">`, `window.open`) need the
+tile to hold the `cap:open-links` grant (ND11): its frame's sandbox then
+carries `allow-popups allow-popups-to-escape-sandbox`, in the iframe
+attribute and the CSP header alike. Ungranted, such links are dropped and
+the console names the grant.
 
 The client also auto-refreshes the frame token every 10 minutes and reports
 the document's height to the embedding frame (with hysteresis) so

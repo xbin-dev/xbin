@@ -1,0 +1,8 @@
+{
+  // API docs browser (static). Its links into /docs/… open in a new tab,
+  // which a sandboxed frame may only do with cap:open-links (ND11) — the
+  // template workspace pre-approves it (see xbin.json at the root).
+  "uses": [
+    { "target": "cap:open-links", "role": "writer" }
+  ]
+}
