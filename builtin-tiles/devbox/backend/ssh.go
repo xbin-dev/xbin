@@ -209,7 +209,7 @@ func exitCode(err error) int {
 }
 
 // listenSSH binds the in-netns SSH port (exposed to a host TCP port by the
-// owner's ingress binding, plans/ingress.md).
+// owner's ingress binding, docs/ingress.md).
 func (p *sshProxy) listenSSH(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

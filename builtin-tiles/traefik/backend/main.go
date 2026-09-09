@@ -1,4 +1,4 @@
-// Traefik ingress terminator backend (plans/ingress.md, docs/ingress.md).
+// Traefik ingress terminator backend (docs/ingress.md).
 //
 // The shape: xbind owns the ROUTE TABLE (which public hostname → which tile,
 // bound by the owner); this tile owns TLS. It polls its slice of the route

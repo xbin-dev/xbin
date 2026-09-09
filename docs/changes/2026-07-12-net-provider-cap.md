@@ -2,7 +2,7 @@
 
 A **net-provider tile** — a router/firewall/VPN/meter tile that other tiles
 bind their `net` interface to, so their egress splices through it
-(`plans/interfaces.md`; the `egress-approver` builtin, `examples/netrouter`)
+(`docs/overview/11-interfaces.md`; the `egress-approver` builtin, `examples/netrouter`)
 — must now hold the reserved capability grant **`cap:net-admin`**.
 
 ## Why
@@ -52,4 +52,4 @@ network namespace**; nothing reaches the host network or the host's
 capabilities. Every other capability is still dropped and the backend seccomp
 block-list is unchanged. It's **admin-only to approve** (a reserved grant,
 never same-scope auto-granted), and a workspace/org policy `net` deny
-(`plans/orgs.md`) strips it — a tile denied network can't be a net provider.
+(`docs/overview/07-users-orgs.md`) strips it — a tile denied network can't be a net provider.

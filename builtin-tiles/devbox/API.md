@@ -50,4 +50,4 @@ SSH username; you land in a shell inside it (starting it first if stopped).
   fall back to single-uid and multi-user images break.
 - Security: the tile is still fully sandboxed (own namespaces, rootless, no
   host reach) — `cap:containers` only relaxes the seccomp floor + keeps its
-  userns caps (plans/containers.md). SSH is public-key only, default-deny.
+  userns caps (docs/changes/2026-07-14-container-tiles.md). SSH is public-key only, default-deny.

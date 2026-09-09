@@ -1,4 +1,4 @@
-// Devbox backend — a container-host tile (plans/containers.md). It runs three
+// Devbox backend — a container-host tile (docs/changes/2026-07-14-container-tiles.md). It runs three
 // things in one process:
 //
 //   - a control HTTP API (xbin.Serve, on the gateway socket) that the tile's

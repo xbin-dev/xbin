@@ -59,7 +59,7 @@ JSONC (comments and trailing commas allowed). Everything is optional.
     { "target": "gpu:0",                 "role": "egress" }
   ],
 
-  // Typed capability wiring (plans/interfaces.md). "interfaces" are slots this
+  // Typed capability wiring (docs/overview/11-interfaces.md). "interfaces" are slots this
   // component REQUESTS; the owner binds each to a provider (a builtin or a tile).
   // This is how a sandboxed backend gets network egress — with nothing bound it
   // has zero IP egress ("internet" never covers LAN/RFC1918). "provides" are
@@ -139,7 +139,7 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // so its frontend keeps the ambient session cookie and acts as the
   // signed-in human (like the shell itself — tiles/organisations works this
   // way). Without it, frames are sandboxed opaque origins and the frame
-  // token is the tile's only credential (plans/auth.md §6). Setting this is
+  // token is the tile's only credential (docs/auth.md §Who is calling). Setting this is
   // trusting the component with your session; it can only be set by editing
   // the manifest on the host, never via the create APIs or grants.
   "chrome": false,
@@ -147,7 +147,7 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // Marks this component a TEMPLATE — a blueprint, not a live tile. It runs
   // no backend and isn't openable; you instantiate it into an independent
   // named copy (Tile Manager → "New from template", or `bx template new`),
-  // which copies the files and strips this block. See plans/templates.md.
+  // which copies the files and strips this block. See docs/overview/03-components.md §Templates.
   "template": {
     "title": "AI Agent",
     "description": "A blank-slate agentic loop you clone and build up.",

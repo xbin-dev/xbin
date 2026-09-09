@@ -1,5 +1,5 @@
 {
-  // Devbox — a container-host tile (plans/containers.md, docs/changes/
+  // Devbox — a container-host tile (docs/changes/
   // 2026-07-14-container-tiles.md). Creates rootless **Podman** containers as
   // throwaway dev sandboxes and exposes each one's shell over SSH: point your
   // client at the tile's exposed SSH port and the container name is the SSH
@@ -32,7 +32,7 @@
   //   bx expose apps/devbox ssh=runtime --listen :2222
   // …then `ssh -p 2222 <container>@<xbin-host>`. (The in-tile Go SSH server
   // does the auth + routes to `podman exec` — the ingress relay just carries
-  // the raw TCP; plans/ingress.md.)
+  // the raw TCP; docs/ingress.md.)
   "exposes": {
     "ssh": { "kind": "stream", "proto": "tcp", "port": 2222 }
   },

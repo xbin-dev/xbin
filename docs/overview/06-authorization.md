@@ -11,7 +11,7 @@ clamps that stop privileged tiles from being used as confused deputies.
 **Related:** [05-identity.md](05-identity.md) ·
 [07-users-orgs.md](07-users-orgs.md) · [10-resources.md](10-resources.md) ·
 [11-interfaces.md](11-interfaces.md) · [/docs/auth.md](/docs/auth.md) ·
-[/docs/protocol.md](/docs/protocol.md) · plans/auth.md
+[/docs/protocol.md](/docs/protocol.md) · design record in the xbin repo: `auth`
 
 ## The shape
 
@@ -27,7 +27,7 @@ clamps that stop privileged tiles from being used as confused deputies.
 
 A `uses` entry is a **request**, not a grant. Whether it becomes authority
 is the owner's call (or automatic within a scope — below). The division of
-labor (plans/auth.md §3): roles are *defined by the callee*, *granted by
+labor (docs/auth.md §Roles and grants): roles are *defined by the callee*, *granted by
 the owner*, *verified by xbind*, *enforced at the callee* with one
 middleware (`xbin.Role("writer", h)`). Declaring `uses` is deliberately
 agent-safe: agents building tiles declare what they need and stop; approval
@@ -117,7 +117,7 @@ regression):
 | `code:<component>` | read **one** component's source — governed exactly like *calling* that component (same-scope exempt, else `mayCall` must cover its path) | like a call |
 | `gpu:all` / `gpu:<index>` / `gpu:<uuid>` | the matching GPUs: device nodes + driver libs mounted into the sandbox at spawn | `gpu` |
 | `cap:net-admin` | keep CAP_NET_ADMIN/NET_RAW/NET_BIND_SERVICE inside the tile's own netns — required by net-**provider** tiles for their dataplane (D18a); admin-only to approve | `net` |
-| `cap:containers` | keep user-namespace capabilities + a minimal seccomp floor so rootless podman/docker runs inside the tile (container-host tiles, plans/containers.md); admin-only to approve | `xbin-caps` |
+| `cap:containers` | keep user-namespace capabilities + a minimal seccomp floor so rootless podman/docker runs inside the tile (container-host tiles, docs/changes/2026-07-14-container-tiles.md); admin-only to approve | `xbin-caps` |
 | `cap:open-links` | the tile's **frontend** may open new tabs/windows that leave its sandbox (`target="_blank"`, `window.open`) — its iframe/CSP sandbox gains `allow-popups allow-popups-to-escape-sandbox` (ND11); admin-only to approve, no backend restart | `xbin-caps` |
 | `net:*` *(legacy)* | — rejected for new grants; egress is a `net` interface binding now | `net` |
 
@@ -210,7 +210,7 @@ somewhere durable if you need retention.
 
 The *model* on this page is enforced identically everywhere; **how hard it
 is to cheat from inside a hostile element** depends on the deployment tier
-(plans/auth.md §9, [/docs/auth.md](/docs/auth.md) → "Honesty"):
+([/docs/auth.md](/docs/auth.md) → "Honesty"):
 
 | Tier | Floor | Hostile element can still… |
 |---|---|---|

@@ -12,7 +12,7 @@ principal) · [06-authorization.md](06-authorization.md) (the tile-side grant
 model) · [09-terminals.md](09-terminals.md) (what the terminal flags actually
 do) · [13-ingress.md](13-ingress.md) (the `ingress` deny kind) ·
 [/docs/auth.md](/docs/auth.md) (reference: multi-user + "Organizations &
-teams") · plans/orgs.md, plans/multi-user.md, plans/DECISIONS.md (D16–D21).
+teams") · design records in the xbin repo: `orgs`, `multi-user`; decisions D16–D21.
 
 ## Two planes, one bridge
 

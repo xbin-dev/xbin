@@ -31,7 +31,7 @@ The capability only lifts the *kernel* blocks. The tile's own `setup` still
 installs the runtime and seeds nested rootless config — Podman, `uidmap`,
 `fuse-overlayfs`, `pasta`/`slirp4netns`, a `/etc/subuid`+`/etc/subgid` entry —
 and its manifest declares a `filesystem` resource for image storage and a `net`
-interface for container egress. See `plans/containers.md` and the `devbox`
+interface for container egress. See the `devbox`
 tile for the full recipe.
 
 ## Scope of the grant

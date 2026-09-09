@@ -13,7 +13,7 @@ reference: [/docs/elements.md](/docs/elements.md).
 (what a backend can reach), [11-interfaces.md](11-interfaces.md) (typed
 slots), [16-extending.md](16-extending.md) (SDK) ·
 [/docs/elements.md](/docs/elements.md), [/docs/sdk.md](/docs/sdk.md) ·
-plans/implementation.md, plans/component-env.md, plans/templates.md.
+design records in the xbin repo: `implementation`, `component-env`, `templates`.
 
 ## The component contract
 
@@ -232,7 +232,7 @@ The base rootfs is deliberately lean. A component that needs more (a
 language runtime, `imagemagick`, a vendor CLI) declares a `setup` shell
 script; xbind runs it **once** in a sandbox with `net:internet`, captures
 the filesystem delta as an overlay layer under `.xbin/env/`, and stacks that
-layer read-only under the backend's root from then on (plans/component-env.md).
+layer read-only under the backend's root from then on (docs/isolation.md §The dev layer).
 
 The layer is keyed by a content hash of the script plus the base-rootfs
 identity: editing the script or upgrading the base image builds a *fresh*
@@ -251,7 +251,7 @@ independent component — same capability gate as creating any component.
 Sources are the embedded builtin catalog and any workspace component
 carrying the block. Instances get a read-only `template` git remote pointing
 at the blueprint's repo, so upstream fixes can be pulled deliberately
-(plans/templates.md, plans/agent-v2.md).
+(D50).
 
 ## Creating components
 

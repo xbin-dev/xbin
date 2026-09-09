@@ -1,5 +1,5 @@
 /**
- * <bx-grants> — the owner's grant-approval panel (plans/auth.md §3).
+ * <bx-grants> — the owner's grant-approval panel (docs/auth.md §Roles and grants).
  * Shows pending `uses` requests with the callee's role descriptions and
  * one-click approve; lists and revokes existing grants. Renders nothing when
  * there is nothing to decide, so it can sit permanently in the root page.

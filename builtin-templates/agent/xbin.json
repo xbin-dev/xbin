@@ -1,5 +1,5 @@
 {
-  // A TEMPLATE component (plans/templates.md + plans/agent.md): a blank-slate
+  // A TEMPLATE component (docs/overview/03-components.md §Templates; API.md): a blank-slate
   // agentic loop. Instantiate it into a named copy (Tile Manager → "New from
   // template", or `bx template new agent as apps/my-agent`) and build it up
   // into a practical agent that moves data around xbin between components.

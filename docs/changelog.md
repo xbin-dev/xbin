@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **Design-record citations now point at pages you can open.** Every
+  citation of a design record by its repository path in the served docs,
+  the scaffolded `AGENTS.md`, the builtin tiles and the templates was a dead
+  path from inside a workspace (the design records are not shipped); they
+  now cite the docs page or the decision ID. Two new pages: [compat.md](/docs/compat.md) — what a
+  workspace can rely on across xbind upgrades — and
+  [maintenance.md](/docs/maintenance.md) for xbin contributors. `bx tile
+  import` and *new from template* now skip a stray `backend/backend` build
+  artefact instead of copying it into the new component (xbind builds
+  backends into `.xbin/build/`; a `cgi` handler binary is unaffected).
 - **Copy from a tile's context menu; paste stays native.** Right-clicking
   selected text inside a tile opened the tile menu with no way to copy: the
   native menu was suppressed and a sandboxed frame has no
@@ -438,7 +448,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   "Propose as PR" the primary action for customized/conflicted builtins;
   adopted units (no recorded base) — which `--merge` refuses — get a working
   ours→upstream proposal too. `--merge` remains as the legacy path.
-  Design: D49, `plans/builtin-updates.md` + `plans/code-prs.md`.
+  Design: D49 (building on the D48 PR channel).
 
 - **Cross-tile change proposals ("code PRs"): `bx code pr`.** A terminal can
   write only its own tile; changes for a *sibling* tile now travel as
@@ -456,7 +466,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   shell sidebar and card headers for tiles with open proposals, and a `pr`
   event on `/ws/events` (read-filtered). Agent workflow + rules (review
   before apply, close the loop): workspace `AGENTS.md` §Suggesting changes.
-  Design: `plans/code-prs.md`.
+  Design: D48.
 
 ## 2026-08-08
 
@@ -918,7 +928,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   visibility. Teams, `basePermission` and the `o/<org>/` path convention are
   removed — no released workspace used them, so there is no data migration.
   See [changes/2026-08-02-ownership.md](changes/2026-08-02-ownership.md),
-  docs/protocol.md, and plans/ownership.md (D24–D28).
+  docs/protocol.md, and docs/auth.md §Ownership (D24–D28).
 
 ## 2026-08-01
 
@@ -975,7 +985,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 ## 2026-07-14
 
 - **New capability: `cap:containers` — run containers inside a tile**
-  ([plans/containers.md](../plans/containers.md)). A **container-host tile**
+  ([container-host tiles](/docs/changes/2026-07-14-container-tiles.md)). A **container-host tile**
   (rootless Podman/Docker spawning sub-containers — the substrate for "dev
   sandbox" tiles) declares `uses: [{target:"cap:containers", role:"writer"}]`.
   It's an **admin-only** reserved grant (lands pending on import) that keeps the
@@ -1239,7 +1249,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   is pinned so no nested user/mount namespace can be created — so it can't
   regain privilege via `unshare -Ur` or mount over its masks. Admin/owner
   terminals are unchanged (full caps for dev work). Ships with xbind; dormant
-  until non-admin users exist. (plans/DECISIONS.md D18.)
+  until non-admin users exist. (D18.)
 
 ## 2026-07-10
 
@@ -1396,7 +1406,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `install.sh` preserves the old base as `rootfs-<version>` on upgrade (legacy
   unstamped bases become `rootfs-v0`); xbind aborts startup if a pinned base is
   missing and GCs preserved bases once no terminal pins them. Design:
-  `plans/component-env.md`.
+  `docs/isolation.md` §The dev layer.
 
 ## 2026-07-08
 
@@ -1451,7 +1461,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   agent-v2 program. Terminals now resolve the SDK's `http://xbin/…` gateway host
   for raw `git`/`curl` too (rewritten to `XBIN_URL` + owner bearer, scoped to
   xbind), so the `template` remote fetches. Existing instances (pre-Phase-7) add
-  the remote once by hand — see `plans/templates.md`.
+  the remote once by hand — see `docs/overview/03-components.md` §Templates.
 - New builtin tile **prometheus-viewer**: binds one or more components that
   expose Prometheus metrics (service `prometheus`, multi:true — e.g. llm-gw)
   and renders their `/metrics` as a live dashboard (per-source counters/gauges,
@@ -1463,7 +1473,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   per-model **cost** tracking, a Prometheus `GET /metrics` endpoint (bindable via
   the new `metrics`/`prometheus` provide interface), and transient-error
   **retry/backoff** on the proxy (429/5xx, pre-first-byte, honors `Retry-After`).
-  First slice of the agent-v2 program (`plans/agent-v2.md`).
+  First slice of the agent-v2 program.
 - agent template (v2, backend): model **tiers** (`general`/`code`/`memory`/
   `vlm`) — each empty tier resolved from llm-gw's preferred model for the mapped
   use-type, so a workspace sets models once and agents inherit; compaction and

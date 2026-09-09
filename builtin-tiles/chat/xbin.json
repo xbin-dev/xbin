@@ -1,6 +1,6 @@
 {
   // LLM chat tile — pure frontend. Two multi:true http interfaces
-  // (plans/interfaces.md), each bound by the owner in the admin Interfaces tab:
+  // (docs/overview/11-interfaces.md), each bound by the owner in the admin Interfaces tab:
   //
   //   "llm"  service "openai" — one or more OpenAI-compatible providers
   //          (e.g. apps/llm-gw). The model picker lists models from all of them.

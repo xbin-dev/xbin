@@ -55,7 +55,7 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
   `kv`/`blob` API calls return `503`. Everything resumes on unseal.
 - **Backups are plaintext.** `bx backup` and the archive interface stream
   *decrypted* data — encrypting the archive is the archiver tile's job
-  (`plans/vault-data.md`).
+  (see *Encryption at rest* above).
 
 Only an explicit `--insecure-vault` (or `--no-auth`) stores resource data
 plaintext, for throwaway/inspection setups.

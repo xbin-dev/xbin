@@ -1,6 +1,6 @@
 /**
  * <bx-prs component="apps/x"> — the change-proposal ("code PR") panel for the
- * terminal pop-up (plans/code-prs.md). Lists PRs targeting the component,
+ * terminal pop-up (docs/bx.md §code pr). Lists PRs targeting the component,
  * renders the proposed patch series through the same diff pipeline as
  * bx-code, shows the review thread, and carries the target-side actions:
  * comment, mark merged, reject. Applying is NOT a button — the patch lands

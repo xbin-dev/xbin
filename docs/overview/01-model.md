@@ -13,7 +13,7 @@ from.
 [03-components.md](03-components.md) · [05-identity.md](05-identity.md) ·
 [06-authorization.md](06-authorization.md) · [08-sandbox.md](08-sandbox.md) ·
 /docs/elements.md · /docs/auth.md · /docs/isolation.md · ARCHITECTURE.md ·
-plans/DECISIONS.md
+the decision log (`DECISIONS.md` in the xbin repo)
 
 ## Three levels
 
@@ -65,7 +65,7 @@ owner-approved `xbin: admin` grant like any other element would
 
 ## Two planes
 
-Everything in xbin belongs to one of two planes (plans/auth.md):
+Everything in xbin belongs to one of two planes (docs/auth.md):
 
 - **The editing plane** — terminals, `bx`, git. Humans (and agents driving
   shells) changing *files*. Scoped per tile and per user, guarded by tile
@@ -183,11 +183,11 @@ Production runs tier 3. The model is identical at every tier — lower tiers
 weaken enforcement, never semantics. When xbind starts as root on someone
 else's workspace it drops to the workspace owner's uid first (D13).
 
-## Organizational memory: plans/ and DECISIONS.md
+## Organizational memory: design records and DECISIONS.md
 
 The repository treats decisions as artifacts: every subsystem has a design
-doc under `plans/`, and every settled choice gets a numbered entry with
-rationale in plans/DECISIONS.md (D-numbers for core decisions, and per-domain
+doc in the repo's `plans` directory, and every settled choice gets a numbered
+entry with rationale in its `DECISIONS.md` (D-numbers for core decisions, and per-domain
 series: IFACE-*, ING-*, LC-*, ND-*). Overview and reference docs cite these
 IDs inline so "why is it like this?" always has a one-hop answer — and so
 agents don't re-litigate settled trade-offs.

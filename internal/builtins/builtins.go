@@ -186,7 +186,8 @@ func (s *TemplateSet) Instantiate(workspaceRoot, name, targetPath string) (strin
 	return targetPath, written, nil
 }
 
-// filesToSkip are catalog/dev artifacts never copied into a workspace.
+// skip reports catalog/dev artifacts never copied into a workspace (by path
+// alone; strayBuildOutput covers the content-based case).
 func skip(rel string) bool {
 	base := filepath.Base(rel)
 	if base == "tile.json" {
@@ -202,6 +203,23 @@ func skip(rel string) bool {
 		}
 	}
 	return false
+}
+
+// strayBuildOutput reports a compiled binary left behind by a bare `go build`
+// in a backend directory (`backend/backend`, `_backend/_backend`): an ELF file
+// named after its own directory. xbind never runs those — Go backends are
+// compiled into .xbin/build/ (internal/runner) — so copying one into a new
+// component would only ship a stale, multi-megabyte artifact. Deliberately
+// narrow: a `cgi` runtime's `backend/handler` may legitimately be a compiled
+// executable and is never matched.
+func strayBuildOutput(rel string, data []byte) bool {
+	dir, base := path.Split(rel)
+	return path.Base(strings.TrimSuffix(dir, "/")) == base && isELF(data)
+}
+
+// isELF reports whether data starts with the ELF magic.
+func isELF(data []byte) bool {
+	return len(data) >= 4 && data[0] == 0x7f && data[1] == 'E' && data[2] == 'L' && data[3] == 'F'
 }
 
 // setModulePath rewrites the `module …` line of a go.mod to modPath, keeping
@@ -302,6 +320,9 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, stripTempl
 		data, err := fs.ReadFile(srcFS, p)
 		if err != nil {
 			return err
+		}
+		if strayBuildOutput(rel, data) {
+			return nil
 		}
 		switch {
 		case rel == "go.mod.tile":

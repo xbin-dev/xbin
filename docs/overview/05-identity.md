@@ -10,8 +10,8 @@ principal may *do* — is the next page.
 **Related:** [06-authorization.md](06-authorization.md) ·
 [07-users-orgs.md](07-users-orgs.md) · [09-terminals.md](09-terminals.md) ·
 [13-ingress.md](13-ingress.md) · [/docs/auth.md](/docs/auth.md) ·
-[/docs/protocol.md](/docs/protocol.md) · plans/auth.md ·
-plans/terminal-tokens.md · plans/multi-user.md
+[/docs/protocol.md](/docs/protocol.md) · design records in the xbin repo: `auth`,
+`terminal-tokens`, `multi-user`
 
 ## Why identity is xbind's job
 
@@ -27,7 +27,7 @@ X-XBin-Role: <role granted on the callee>
 X-XBin-Ingress-Host: <public hostname>     (ingress traffic only)
 ```
 
-If a backend sees these headers, they are true (plans/auth.md §3). The SDK's
+If a backend sees these headers, they are true (docs/auth.md §Roles and grants). The SDK's
 `xbin.Caller(r)` is a header read, nothing more. This is what makes the rest
 of the system composable: every enforcement point downstream — role guards,
 grants, policy ceilings — consumes the same two verified facts.
@@ -81,7 +81,7 @@ root on the runtime plane. Two controls keep the token governable:
 
 ## Human users: server-side sessions
 
-Users (plans/multi-user.md, [07-users-orgs.md](07-users-orgs.md)) log in
+Users (docs/auth.md §Multi-user, [07-users-orgs.md](07-users-orgs.md)) log in
 with username/password (Argon2id-hashed in `data/users.json`). A successful
 login mints a **server-side session**; the cookie carries only a random id,
 so the server stays authoritative:
@@ -153,7 +153,7 @@ honesty section of [/docs/auth.md](/docs/auth.md).
 
 A terminal opened on a tile gets a per-session token whose principal is
 **the tile's element identity — never the human driving it**
-(plans/terminal-tokens.md). The shell (and any agent in it) holds
+(docs/overview/09-terminals.md). The shell (and any agent in it) holds
 min(user, tile): self-admin on its own tile, its approved grants and
 bindings, and nothing else. `IsAdmin()` is false inside a tile terminal
 *even for admin users* — admin work happens in the browser or with the
@@ -267,4 +267,4 @@ access lists. Consequences of the principle elsewhere in the system:
 
 The full endpoint/table reference is [/docs/auth.md](/docs/auth.md) and
 [/docs/protocol.md](/docs/protocol.md); the design rationale is
-plans/auth.md (§1–2, §6) and plans/terminal-tokens.md.
+[/docs/auth.md](/docs/auth.md) and [09-terminals.md](09-terminals.md).

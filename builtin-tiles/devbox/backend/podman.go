@@ -113,7 +113,7 @@ func (p *podman) create(name, image string, cmd []string) (string, error) {
 		args = append(args, "--network", p.network)
 	}
 	// No inner cgroup management: the tile's own cgroup already bounds every
-	// container it spawns (plans/containers.md), and rootless cgroup v2
+	// container it spawns (docs/changes/2026-07-14-container-tiles.md), and rootless cgroup v2
 	// delegation is often unavailable.
 	args = append(args, "--cgroups", "disabled", image)
 	if len(cmd) > 0 {

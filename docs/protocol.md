@@ -620,11 +620,11 @@ POST   /builtins/import            same authority as /create, checked on
                                    the resolved target (path? or the tile's
                                    defaultPath). body {name, path?, owner?}
                                    → {path, files, pendingGrants} — installs an
-                                   embedded tile (plans/tile-sharing.md).
+                                   embedded tile (docs/overview/14-lifecycle.md §Getting code in).
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
                                    a newer embedded version. [{id,installPath,
                                    fromVersion,toVersion,adopted,files:[{path,
-                                   status}],clean,conflicts}] (plans/builtin-updates.md)
+                                   status}],clean,conflicts}] (docs/overview/14-lifecycle.md §Keeping code fresh)
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
@@ -647,7 +647,7 @@ POST   /templates/new               same authority as /create on the
                                    source also needs READ. body {source,
                                    path?, owner?} → {path,
                                    files, pendingGrants} — instantiates a template
-                                   into a named copy (plans/templates.md). A
+                                   into a named copy (docs/overview/03-components.md §Templates). A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
                                    is SEEDED from the template's repo (D50):
@@ -703,7 +703,7 @@ POST   /git/import                 same authority as /create on the
                                    pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
-Cross-tile change proposals ("code PRs", plans/code-prs.md). READ visibility
+Cross-tile change proposals ("code PRs", docs/bx.md §code pr). READ visibility
 on the target is the whole gate (read = suggest, D48): admins; the target's
 own principals; terminals/frames whose driving user can read the tile (D40);
 elements holding code[:<target>]. xbind stores proposals under data/prs/ and
@@ -783,7 +783,7 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    at THEIR orgs' provider tiles (the
                                    consumption of their property). Typed
                                    interface wiring (see
-                                   plans/interfaces.md; manifest fields in
+                                   docs/overview/11-interfaces.md; manifest fields in
                                    docs/elements.md).
                                    {bindings: {comp: {slot: provider|{ref,host,
                                     zone,listen}|[…]}},
@@ -897,7 +897,7 @@ GET    /ingress                    admin. The whole ingress picture: {exposes:
 POST   /lifecycle                  admin, the tile's user-owner, or an
                                    owning-org admin (D24: lifecycle is the
                                    owner's). body {component, state} — component
-                                   lifecycle (plans/lifecycle.md). state
+                                   lifecycle (docs/overview/14-lifecycle.md). state
                                    also takes `hidden` — disabled + kept
                                    out of sidebars/listings until unhidden
                                    (D42; refused while offloaded). state:
@@ -922,7 +922,7 @@ POST   /restore                    admin. body {component, version?, file?}.
                                    archive; version defaults to latest). With file
                                    → stream one member back (recover without a full
                                    rollback). Restore is fully archive-driven — no
-                                   local metadata needed (plans/lifecycle.md).
+                                   local metadata needed (docs/overview/14-lifecycle.md).
                                    The archiver is chosen by the @archive binding:
                                    bindings["<comp>"] override, else bindings["*"]
                                    default (set via POST /bindings).
@@ -999,7 +999,7 @@ Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
 where the caller's access level is **terminal** (docs/auth.md), mounts its
 creator's `$HOME`, and carries a per-session `XBIN_TOKEN` scoped to that tile
-(plans/terminal-tokens.md). Under `--isolate` the workspace mounts read-only
+(docs/overview/09-terminals.md). Under `--isolate` the workspace mounts read-only
 (all tiles' source — for a non-admin, minus tiles below their read level,
 which are masked out) with `.xbin/`, `data/`, and other users' `homes/`
 **masked out** (docs/isolation.md), so the terminal can't read the owner
@@ -1060,7 +1060,7 @@ used by the UI to restart under a new scope); `204` on success, `404` unknown.
 base rootfs, killing any live session on it first; `204` on success. Each
 component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
-(`plans/component-env.md`). Workspace files and `$HOME` persist independently.
+(`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).

@@ -1,5 +1,5 @@
 {
-  // S3 archiver — an `archive` interface provider (plans/lifecycle.md). Bind a
+  // S3 archiver — an `archive` interface provider (docs/overview/14-lifecycle.md). Bind a
   // component's `@archive` to this tile (or set it as the workspace default:
   // `bx bind '*' @archive=apps/s3-archiver`) and xbind streams that component's
   // backups here to be stored in S3. Powers manual backup, scheduled backup, and
@@ -10,7 +10,7 @@
     { "target": "res:apps/s3-archiver/state", "role": "writer" }
   ],
   // This tile reaches the S3 endpoint over the network, so it needs egress — a
-  // `net` interface the owner binds (plans/interfaces.md). Under isolation it has
+  // `net` interface the owner binds (docs/overview/11-interfaces.md). Under isolation it has
   // ZERO egress until bound: `bx bind apps/s3-archiver net=internet` for a public
   // bucket (AWS/R2/B2), or bind it to a `lan:<cidr>` / a provider tile to reach a
   // LAN MinIO or route through a VPN/proxy. Backups fail with "dial tcp … refused"

@@ -1,6 +1,6 @@
 {
   // Prometheus viewer tile — pure frontend. One multi:true http interface
-  // (plans/interfaces.md), bound by the owner in the admin Interfaces tab:
+  // (docs/overview/11-interfaces.md), bound by the owner in the admin Interfaces tab:
   //
   //   "sources"  service "prometheus" — one or more components that export
   //              Prometheus metrics at "/metrics" (e.g. apps/llm-gw and, soon,

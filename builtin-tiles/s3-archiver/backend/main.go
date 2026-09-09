@@ -1,4 +1,4 @@
-// s3-archiver backend: an `archive` interface provider (plans/lifecycle.md)
+// s3-archiver backend: an `archive` interface provider (docs/overview/14-lifecycle.md)
 // that stores xbind's component backup tars in an S3 bucket. xbind (the owner)
 // PUTs a tar per version; this tile lists versions, streams a version back, or
 // extracts one file from a version. Config (endpoint/region/bucket/prefix) lives

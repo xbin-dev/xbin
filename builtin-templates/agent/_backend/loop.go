@@ -2,7 +2,7 @@
 // steps; each step is a journaled boundary (context assembly → optional
 // compaction → LLM call → tool execution) so a crash or backend unload resumes
 // cleanly. Control-flow tools park the run (sleeping/waiting) or end it; the
-// cron heartbeat re-drives due runs. See plans/agent.md.
+// cron heartbeat re-drives due runs. See API.md.
 package main
 
 import (
@@ -361,7 +361,7 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 	var sys strings.Builder
 	sys.WriteString(cfg.System)
 	// Date only (not a full timestamp) keeps the system prefix stable within a
-	// day, so prompt caching keeps hitting (plans/agent-v2.md).
+	// day, so prompt caching keeps hitting (API.md).
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	if len(mem) > 0 {
 		sys.WriteString("\n\n# Memory blocks\n")

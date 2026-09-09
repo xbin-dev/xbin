@@ -10,7 +10,7 @@ the shell chrome (sidebar, screens, grants panel, per-tile admin).
 [05-identity.md](05-identity.md) (frame tokens), [09-terminals.md](09-terminals.md)
 (the frame's terminal window), [07-users-orgs.md](07-users-orgs.md) (who sees
 which tiles) · [/docs/elements.md](/docs/elements.md) §Views,
-[/docs/sdk.md](/docs/sdk.md) §In-frame JS API · plans/DECISIONS.md (D4).
+[/docs/sdk.md](/docs/sdk.md) §In-frame JS API · decision D4.
 
 ## The no-build doctrine
 

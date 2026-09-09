@@ -1,6 +1,6 @@
 # S3 Archiver — API
 
-An `archive` interface provider (see `plans/lifecycle.md`). xbind, acting as the
+An `archive` interface provider (see `docs/overview/14-lifecycle.md`). xbind, acting as the
 owner, streams component backup tars here; this tile stores them in S3 as
 `<prefix>/<key>/<version>.tar` and serves them back. Bind a component's
 `@archive` to it, or make it the workspace default:

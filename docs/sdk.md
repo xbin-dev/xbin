@@ -132,7 +132,7 @@ manifest sets `inject: false`). No imports needed.
 ```js
 xbin.self                       // "apps/thing" — this component's path
 
-// a bound http interface (plans/interfaces.md): { url, service } or null. Call a
+// a bound http interface (docs/overview/11-interfaces.md): { url, service } or null. Call a
 // typed, swappable dependency instead of hard-coding a path — the owner binds
 // which provider satisfies it (bx bind / admin Interfaces tab), and the binding
 // is also the call grant.

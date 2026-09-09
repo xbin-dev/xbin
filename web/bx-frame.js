@@ -14,7 +14,7 @@
  *             reports its size via xbin-client.js)
  *   no-edit — hide the edit button
  *
- * Browser-plane isolation (plans/auth.md §6): non-chrome components load in a
+ * Browser-plane isolation (docs/auth.md §Who is calling): non-chrome components load in a
  * SANDBOXED iframe (opaque origin: no DOM access either way, no storage, no
  * ambient cookie — the tile's only credential is its injected frame token).
  * Chrome components (root, shell, manifest chrome:true) run unsandboxed and

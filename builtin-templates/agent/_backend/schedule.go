@@ -1,7 +1,7 @@
 // schedule.go — cron-agents: user- or agent-created schedules that start (or
 // re-drive) a run on a cadence. Each enabled schedule registers its OWN cron
 // job (so cron isn't a single always-on poller); firing it creates a fresh run
-// (or, for a watcher, re-drives one persistent run). See plans/agent-v2.md.
+// (or, for a watcher, re-drives one persistent run). See API.md.
 package main
 
 import (

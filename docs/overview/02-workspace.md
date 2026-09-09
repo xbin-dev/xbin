@@ -10,7 +10,7 @@ on-disk half of the trust model.
 [07-users-orgs.md](07-users-orgs.md) · [09-terminals.md](09-terminals.md) ·
 [10-resources.md](10-resources.md) · [14-lifecycle.md](14-lifecycle.md) ·
 /docs/elements.md · /docs/auth.md · /docs/resources.md · /docs/isolation.md ·
-plans/DECISIONS.md · plans/orgs.md
+design records in the xbin repo: the decision log, `orgs`
 
 ## The tree
 
@@ -26,7 +26,7 @@ plans/DECISIONS.md · plans/orgs.md
   tiles/             # workspace tooling tiles: admin console, tile manager, apidocs
   apps/              # your applications (scopes + components)
     welcome/         #   shipped starter tile
-    o/<org>/…        #   org-owned subtree (positional binding, plans/orgs.md D19)
+    o/<org>/…        #   org-owned subtree (positional binding, D19)
   lib/               # shared library components
   o/<org>/…          # org subtrees may also sit at top level
 
@@ -142,7 +142,7 @@ model itself.
 
 Why the run dir must be tmpfs: it is bind-mounted **read-write into every
 backend sandbox** (the listen socket lands there), and a sandbox must never
-receive a writable mount backed by host disk (plans/isolation.md) — only
+receive a writable mount backed by host disk (docs/isolation.md) — only
 tmpfs, gocryptfs, or read-only. xbind picks systemd's `RuntimeDirectory`
 (`/run/xbin`), then `$XDG_RUNTIME_DIR`, then `$TMPDIR`, and leaves the
 symlink at `.xbin/run` for discoverability; the short path also keeps unix

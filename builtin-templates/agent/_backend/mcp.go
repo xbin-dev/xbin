@@ -38,7 +38,7 @@ func (s MCPServer) httpClient() *http.Client {
 }
 
 // boundMCPServers reads the MCP servers bound to this agent's `mcp` interface
-// slot (multi:true) from the runner-injected env (plans/interfaces.md). Each
+// slot (multi:true) from the runner-injected env (docs/overview/11-interfaces.md). Each
 // bound provider exposes the Streamable-HTTP endpoint at /mcp under itself.
 func boundMCPServers() []MCPServer {
 	raw := os.Getenv("XBIN_IFACE_MCP")

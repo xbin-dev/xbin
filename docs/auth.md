@@ -4,7 +4,7 @@ xbin has two planes with different rules:
 
 - **Editing plane** — terminals, `bx`, git. Full *filesystem* access to the
   component being edited; the shell's API token, though, is **scoped to the
-  tile the terminal is opened on** (plans/terminal-tokens.md). Owner-
+  tile the terminal is opened on** (docs/overview/09-terminals.md). Owner-
   privileged automation lives on the host (`.xbin/token`).
 - **Runtime plane** — running elements (backends and their frontends).
   Default-deny: an element can call exactly its own API plus whatever it was
@@ -121,8 +121,8 @@ once; xbind enforces at every call.
   the host-side owner token, are never blocked. (A *terminal's* `$XBIN_TOKEN`
   is not the owner — it's scoped to the terminal's tile.)
 - **Sandbox capability targets** (under `--isolate`): besides components and
-  `res:*`, `uses` can request `net:*` egress (`plans/isolation.md`) and `gpu:*`
-  GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`plans/gpu.md`). Same
+  `res:*`, `uses` can request `net:*` egress (`docs/isolation.md`) and `gpu:*`
+  GPUs — `gpu:all` / `gpu:<index>` / `gpu:<uuid>` (`docs/overview/06-authorization.md` §Reserved capability targets). Same
   owner-approval flow; ungranted means the sandbox gets no egress / no GPU.
 - **`code:<component>`** (one component) / **`code`** (all components) —
   read-only access to another component's **source**: its files + git
@@ -138,17 +138,17 @@ once; xbind enforces at every call.
   target's tree except `.git` internals / `node_modules` / `data`; `code`
   (all) even more so. Grant deliberately.
 - **`cap:net-admin`** — a **net-provider** tile (a router/firewall/VPN that
-  splices other tiles' egress; `plans/interfaces.md`) builds its own dataplane
+  splices other tiles' egress; `docs/overview/11-interfaces.md`) builds its own dataplane
   — routing tables, `ip_forward`, `AF_PACKET` sockets — which needs the
   network-admin capabilities (CAP_NET_ADMIN, CAP_NET_RAW, CAP_NET_BIND_SERVICE)
   the sandbox otherwise drops from every backend. Request
   `uses {target:"cap:net-admin", role:"writer"}`; **admin-only to approve**
   and it lands pending on import. Without it the provider's gate setup fails
   with "operation not permitted". A workspace/org policy `net` deny
-  (`plans/orgs.md`) strips it, and it stays confined to the tile's own network
+  (`docs/overview/07-users-orgs.md`) strips it, and it stays confined to the tile's own network
   namespace (the caps don't reach the host). Grant deliberately.
 - **`cap:containers`** — a **container-host** tile (rootless podman/docker
-  inside the tile; `plans/containers.md`) keeps its user-namespace
+  inside the tile; `docs/changes/2026-07-14-container-tiles.md`) keeps its user-namespace
   capabilities and gets only a minimal seccomp floor. Request
   `uses {target:"cap:containers", role:"writer"}`; **admin-only to approve**,
   lands pending on import; a policy `xbin-caps` deny strips it. Still
@@ -241,7 +241,7 @@ or disk snapshot is just ciphertext.
   in memory (mlock'd best-effort) until seal or restart.
 - The barrier also encrypts **resource data** (kv/filesystem/sqlite/blob) at
   rest, not just secrets ([resources.md](/docs/resources.md),
-  `plans/vault-data.md`). So while sealed, components that use those resources
+  `docs/resources.md` §Encryption at rest). So while sealed, components that use those resources
   are **held** (won't spawn) and come alive on unseal — sealing a configured
   vault takes the stateful workspace offline until an admin unseals.
 
@@ -334,7 +334,7 @@ depends on the tier:
 | 2 (`--scope-uids`, xbind runs as root) | each scope's backends get their own uid | abuse only what it was granted. Also: **elements can't write source, even their own** — editing is terminal-only; vault/data enforced by file perms |
 | 3 (`--isolate`, rootless — production) | each backend in its own user+mount+pid+ipc+uts+net namespaces over an overlay rootfs; **all Linux capabilities dropped** + a **seccomp block-list** (a net-provider tile keeps net-admin caps in its own netns, D18a); **default-deny egress** via the `net:*` relay; **enforced cgroup limits** (memory/pids/CPU) | almost nothing at the OS layer: no sibling `/proc` or env, no sibling sockets, only granted files are mounted, no network beyond its `net:*` grants, and it can't exceed its memory/pids budget |
 
-Tier 3 is the OS-level sandbox (`plans/isolation.md`, `plans/runtime.md`) and the
+Tier 3 is the OS-level sandbox (`docs/isolation.md`, `docs/overview/08-sandbox.md`) and the
 production model: rootless (unprivileged user namespaces), run on a VM/host
 xbind controls (README → Running it). Backends already drop all capabilities,
 carry a seccomp block-list, and run under enforced cgroup v2 limits
@@ -363,7 +363,7 @@ you need retention.
 
 ## Multi-user (users, roles, tile access)
 
-xbin can have **human users** on top of the root token (plans/multi-user.md).
+xbin can have **human users** on top of the root token (D16–D17).
 
 - **Root token** (`XBIN_TOKEN`) — the admin/bootstrap service credential.
   Full admin; used by `bx`, terminals, automation. Always valid.
@@ -680,7 +680,7 @@ net-provider tile and bind through it.
 
 ## Ownership, organizations & delegated approval
 
-The multi-user grouping model (plans/ownership.md, DECISIONS D24–D28).
+The multi-user grouping model (D24–D28).
 Everything lives in the identity store (`data/users.json`) — outside the
 workspace, so no terminal or tile can edit it.
 
@@ -892,7 +892,7 @@ frame's `scopes`/`netNote`.
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
 - CLI/scripts use `Authorization: Bearer`. **Inside a terminal**, `$XBIN_TOKEN`
   is a per-session token scoped to that tile (the tile's element principal —
-  self-admin + its approved grants, never the owner; plans/terminal-tokens.md);
+  self-admin + its approved grants, never the owner; docs/overview/09-terminals.md);
   it dies with the session, and deleting the user kills it immediately. The
   root terminal is disabled. The *owner* token lives only on the host
   (`.xbin/token`) for host-side `bx`/automation — and under `--isolate` a

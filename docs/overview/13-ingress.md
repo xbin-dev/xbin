@@ -15,8 +15,8 @@ extends) · [12-egress.md](12-egress.md) (the relay this plane reuses) ·
 (the policy ceiling) · [08-sandbox.md](08-sandbox.md) ·
 [15-operations.md](15-operations.md). Builder how-to:
 [/docs/ingress.md](/docs/ingress.md); wire reference:
-[/docs/protocol.md](/docs/protocol.md); design record: plans/ingress.md,
-decisions ING-1..ING-6 in plans/DECISIONS.md.
+[/docs/protocol.md](/docs/protocol.md); design record in the xbin repo: `ingress`;
+decisions ING-1..ING-6.
 
 ## The third direction on the binding graph (ING-1)
 

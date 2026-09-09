@@ -2,7 +2,7 @@
 
 A durable agentic loop. State lives in this component's sqlite (`db`); the LLM
 is reached through `apps/llm-gw`; a cron heartbeat (`beat`) re-drives sleeping
-and stalled runs on demand. Design: `plans/agent.md`, `plans/agent-v2.md`.
+and stalled runs on demand. Design records `agent` and `agent-v2` live in the xbin repo.
 
 All endpoints are **admin-only** — the tile is self (always admin of itself)
 and the owner. There is no public surface. Paths below are relative to

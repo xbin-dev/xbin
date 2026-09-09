@@ -12,7 +12,7 @@ inbound router links, and (as a third direction) publishing to the outside world
 [06-authorization.md](06-authorization.md) (grants this composes with) ·
 [14-lifecycle.md](14-lifecycle.md) (the `@archive` pseudo-slot) ·
 reference: [/docs/elements.md](/docs/elements.md), [/docs/protocol.md](/docs/protocol.md) ·
-design: plans/interfaces.md, plans/ingress.md.
+design records in the xbin repo: `interfaces`, `ingress`.
 
 ## Why typed slots instead of hard-coded paths
 

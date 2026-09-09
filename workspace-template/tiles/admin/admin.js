@@ -1405,7 +1405,7 @@ export class BxAdmin extends LitElement {
       ${(!rt.resources || !rt.resources.length) ? html`<p class="muted">no brokered resources provisioned yet — declare them in a <span class="mono">scope.json</span> (kv, blob, bus, cron, sqlite, filesystem). See <a href="/docs/resources.md" target="_blank">docs/resources.md</a>.</p>` : nothing}`;
   }
 
-  // Lifecycle toggle (plans/lifecycle.md). Static/CGI components with no backend
+  // Lifecycle toggle (docs/overview/14-lifecycle.md). Static/CGI components with no backend
   // still list, but only a running-backend runtime benefits — offer the toggle
   // for any runtime the owner may want paused.
   _lifecycleCell(k) {
@@ -1535,7 +1535,7 @@ export class BxAdmin extends LitElement {
       </table>`;
   }
 
-  // ---- interfaces (typed capability wiring; plans/interfaces.md) ----
+  // ---- interfaces (typed capability wiring; docs/overview/11-interfaces.md) ----
   async _loadIfaces() {
     try {
       const [b, ing] = await Promise.all([api('/bindings'), api('/ingress')]);
@@ -1700,7 +1700,7 @@ export class BxAdmin extends LitElement {
       </table>`;
   }
 
-  // ---- ingress (published endpoints; plans/ingress.md) ----
+  // ---- ingress (published endpoints; docs/ingress.md) ----
   _ingKey(comp, slot) { return comp + '\x00' + slot; }
   _ingEditFor(e) {
     // The working row state: pending edits over the current binding.
@@ -1837,7 +1837,7 @@ export class BxAdmin extends LitElement {
         </table>` : nothing}`;
   }
 
-  // ---- backup (plans/lifecycle.md) ----
+  // ---- backup (docs/overview/14-lifecycle.md) ----
   async _loadBackup() {
     try {
       const [ifaces, sched] = await Promise.all([api('/bindings'), api('/backup-schedule')]);
@@ -1942,7 +1942,7 @@ export class BxAdmin extends LitElement {
     return html`
       <p class="muted">Back up a component (its source + data + terminal layer) to an archiver, offload to
         free disk, or restore a version/file. Vault is not backed up. See
-        <a href="/docs/protocol.md" target="_blank">plans/lifecycle.md</a>.</p>
+        <a href="/docs/overview/14-lifecycle.md" target="_blank">the lifecycle overview</a>.</p>
       <h3>Default archiver</h3>
       <select @change=${(e) => this._setArchiver('*', e.target.value)}>
         <option value="" ?selected=${!defArch}>— none —</option>
@@ -1981,7 +1981,7 @@ export class BxAdmin extends LitElement {
       ${open ? html`<tr><td colspan="5">${this._versionsList(c.path)}</td></tr>` : nothing}`;
   }
 
-  // Guided lifecycle controls (plans/lifecycle.md). Offload is deliberately a
+  // Guided lifecycle controls (docs/overview/14-lifecycle.md). Offload is deliberately a
   // two-step, safe flow: you must DISABLE first (stops the backend → a consistent
   // db), then take a backup, and only then does offload un-gray — so you never
   // free local data without a verified, stopped-state snapshot.
@@ -3151,7 +3151,7 @@ export class BxAdmin extends LitElement {
     `;
   }
 
-  // ---- owner reassignment (D39, plans/transfer.md): picker → preview → confirm ----
+  // ---- owner reassignment (D39, docs/auth.md §Ownership): picker → preview → confirm ----
   _xferReport(rep) {
     if (!rep) return nothing;
     const lv = rep.callerLevel;
@@ -3205,7 +3205,7 @@ export class BxAdmin extends LitElement {
     </div>`;
   }
 
-  // ---- ownership & organisations (docs/auth.md; plans/ownership.md D24–D28) ----
+  // ---- ownership & organisations (docs/auth.md §Ownership, D24–D28) ----
   // Orgs are flat member lists with org-wide roles on org-OWNED tiles; the
   // ws-admin delegates approval via allowances/permission sets. This tab is
   // the workspace-admin console — org admins use tiles/organisations.

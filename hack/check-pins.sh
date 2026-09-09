@@ -48,6 +48,22 @@ check_eol() { # product version label
   fi
 }
 
+echo "== vendored frontend deps (web/vendor ↔ hack/vendor.sha256)"
+
+# hack/vendor.sh writes the list; a vendored file edited by hand, or a CDN
+# serving different bytes for a pinned version, shows up here. Offline.
+if [ ! -f "$repo/hack/vendor.sha256" ]; then
+  fail "hack/vendor.sha256 missing — run ./hack/vendor.sh"
+else
+  if (cd "$repo/web/vendor" && sha256sum -c --quiet --strict "$repo/hack/vendor.sha256" >/dev/null 2>&1); then
+    ok "web/vendor matches hack/vendor.sha256 ($(grep -c . "$repo/hack/vendor.sha256") files)"
+  else
+    fail "web/vendor differs from hack/vendor.sha256 — $(cd "$repo/web/vendor" && sha256sum -c --quiet "$repo/hack/vendor.sha256" 2>&1 | tr '\n' ' ')(re-run ./hack/vendor.sh if the change is intended)"
+  fi
+  unlisted=$(cd "$repo/web/vendor" && ls -1 | grep -vxF -f <(awk '{print $2}' "$repo/hack/vendor.sha256") || true)
+  [ -z "$unlisted" ] || fail "web/vendor has files not in hack/vendor.sha256: $(echo "$unlisted" | tr '\n' ' ')"
+fi
+
 echo "== pinned build inputs"
 
 # --- Alpine: static-binary build containers + the installer's egress probe --

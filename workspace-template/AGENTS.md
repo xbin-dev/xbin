@@ -45,7 +45,7 @@ import maps).
 | `XBIN_TOKEN` | this terminal's **tile-scoped** token — acts as THIS component, never the owner; `bx` and curl use it |
 | `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
 
-Your API identity is **this component** (plans/terminal-tokens.md):
+Your API identity is **this component** (docs/overview/09-terminals.md):
 `XBIN_TOKEN` is a per-session token resolving to this tile's element
 principal — admin of *this* component (its API, resources, vault keys —
 though vault VALUES are readable only by the running backend, D30: from the
@@ -108,7 +108,7 @@ runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
 (e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
 Import tab). Imported tiles bring their own `uses` — cross-scope grants land
-pending for the owner. Sharing model + roadmap: `plans/tile-sharing.md`.
+pending for the owner. Sharing model + roadmap: `docs/overview/14-lifecycle.md` §Getting code in.
 
 **Update copied builtins:** the scaffold (shell, manager/admin tiles) and
 imported tiles are copies you own; a newer xbind can carry newer versions.
@@ -126,7 +126,7 @@ sharing history with its blueprint: when a newer xbind improves the template
 (`bx template updates` lists instances that are behind; the Tile Manager's
 Template tab shows the same), apply from the instance's terminal with
 `git fetch template && git merge template/main` (or cherry-pick — you choose
-what to adopt). Design: `plans/builtin-updates.md`.
+what to adopt). Design: `docs/overview/14-lifecycle.md` §Keeping code fresh.
 
 The same scaffolder is exposed as `POST /api/xbin/create`
 (`{path, runtime?, title?, expose?}`) — that's what the **Tile Manager**
@@ -595,7 +595,7 @@ you set up in it survive across terminal sessions (your workspace files and
 `setup` layer — install what you need for interactive work in the terminal
 itself. "Reset sandbox" (⟲ in the terminal window) wipes it back to clean.
 
-## Interfaces — typed, swappable dependencies (plans/interfaces.md)
+## Interfaces — typed, swappable dependencies (docs/overview/11-interfaces.md)
 
 An **interface** is a typed capability slot: a component **requests** slots
 (`interfaces`), builtins or tiles **provide** them (`provides`), and the **owner
@@ -641,7 +641,7 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   without this grant your dataplane setup fails with *"operation not
   permitted"* (`ip_forward`, `ip route`, `AF_PACKET`). It's **admin-only** to
   approve and lands pending on import; it keeps CAP_NET_ADMIN/NET_RAW/
-  NET_BIND_SERVICE inside your own netns only (docs/auth.md, plans/interfaces.md).
+  NET_BIND_SERVICE inside your own netns only (docs/auth.md, docs/overview/11-interfaces.md).
 
   **If you BUILD a container-host tile** (rootless podman/docker spawning
   sub-containers — a "dev sandbox"), declare `"uses": [{ "target":
@@ -652,7 +652,7 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   rootless, still fully namespaced — no host reach. Add a `filesystem` resource
   for image storage (`--root`) and a `net` binding for container egress; seed
   nested `/etc/subuid`+`/etc/subgid` in `setup`. Worked example: the `devbox`
-  builtin tile (plans/containers.md, docs/changes/2026-07-14-container-tiles.md).
+  builtin tile (docs/changes/2026-07-14-container-tiles.md).
 
   **If your frontend opens links in new tabs** (`<a target="_blank">`,
   `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":

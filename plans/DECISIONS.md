@@ -1375,3 +1375,35 @@ Deviations and refinements made while implementing; all deliberate:
   shows the count). Follow-ups: ceiling rows in the set form; a "what
   would this let org X approve today" preview against the live grant
   requests; the organisations tile describing an org's allowance in words.
+
+- **D58 — Shipped trees are guarded by tests, and the upgrade contract is
+  a served page (2026-09-09).** The five embedded trees (`web/`, `docs/`,
+  `workspace-template/`, `builtin-tiles/`, `builtin-templates/`) ride in
+  every xbind and are copied into workspaces, yet nothing checked what
+  `go:embed all:` picked up: a stray `go build` binary in
+  `builtin-tiles/devbox/backend` shipped in every release for a month
+  (+10 MB per xbind, and `bx tile import` would have copied it), and 160
+  `plans/…` citations pointed workspace readers — including the coding
+  agents the scaffolded `AGENTS.md` briefs — at files that only exist in
+  this repo. Shapes: (1) **`assets_test.go` walks the real embed** and
+  refuses ELF files, files over 512 KB outside `web/vendor/`, nested
+  repos/dependency trees, and any `plans/` pointer; inside the shipped
+  trees design records are cited by served page or decision ID, and the
+  overview index says where the records live. (2) The copier skips an
+  ELF named after its own directory (`backend/backend`,
+  `_backend/_backend`) — the `go build` shape — and nothing else, so a
+  `cgi` handler that is a compiled executable still instantiates. (3)
+  `.gitignore` covers build output; `hack/vendor.sha256` pins the
+  vendored frontend deps and the release preflight verifies it; gofmt
+  runs over an explicit `GOFMT_DIRS`. (4) **`docs/compat.md`** states the
+  never-break-users contract (API additive-only, frozen `/vendor/` URLs,
+  additive scaffold layouts, theme fallbacks kept, CLI superset,
+  idempotent migrations with fixture tests, warn-before-error) and
+  **`docs/maintenance.md`** documents every guard — both served, because
+  the contract is what builders rely on and a maintainer returning after
+  months needs the guards explained next to the docs they protect.
+  Rejected: embedding `plans/` (18k lines of internal design prose in
+  every workspace), an allowlist of "known" pointers (rots), keeping
+  contributor docs out of `docs/` (the guards would again live only in
+  heads), and skipping every executable in the copier (`backend/handler`
+  is a legitimate executable).

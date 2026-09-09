@@ -93,5 +93,5 @@ rather than advisory for tile frontends, on a single origin, with no
 subdomains or extra ports — the constraints `http://127.0.0.1` development
 and single-domain deployment impose. The remaining gap is a shared renderer
 *process* (a browser exploit, not tile JS); closing that still requires
-separate origins and stays on the roadmap. See plans/auth.md §6 and
-plans/DECISIONS.md ND8.
+separate origins and stays on the roadmap. See docs/auth.md §Who is calling and
+decision ND8.

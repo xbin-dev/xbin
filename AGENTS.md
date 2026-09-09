@@ -34,11 +34,18 @@ make integration    # end-to-end; compiles real Go backends (network on first
                     # fs suites (test/containerfs/): those need bin/gocryptfs
                     # (`make gocryptfs`) + unprivileged userns, and skip with
                     # instructions when missing
-make fmt-check vet  # CI mirrors exactly these
-./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked)
+make fmt-check vet  # CI mirrors exactly these (gofmt scope: GOFMT_DIRS in the Makefile)
+./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256
 ```
 
 - `devws/` is throwaway state; never ship anything that lives there.
+- Build output is ignored (`bin/`, `dist/`, `/bx`, `*/backend/backend`);
+  `git status` after a build must be clean. The five embedded trees (`web/`,
+  `docs/`, `workspace-template/`, `builtin-tiles/`, `builtin-templates/`)
+  ship inside every xbind and are guarded by `assets_test.go`: no binaries,
+  nothing over 512 KB outside `web/vendor/`, no nested repos, and **no
+  `plans/` pointers** — inside those trees cite the served docs and decision
+  IDs (`docs/maintenance.md` → "Embedded assets").
 - Frontend has no test harness: `node --check` every touched `.js` (for
   inline `<script type="module">` extract it first), then click through in
   `make dev`. Say so honestly in the commit if you couldn't drive the UI.
@@ -67,6 +74,13 @@ make fmt-check vet  # CI mirrors exactly these
   `X-XBin-*`, default-deny for element principals, owner is admin.
 - Never hardcode an install path in tiles OR persist one into workspace
   state — paths change under rename/clone.
+- **Never break an existing workspace.** `docs/compat.md` is the contract
+  and every change to shipped files, routes, manifests, `bx`, the SDK or
+  boot-time migrations is checked against it: API additive-only, shipped
+  URLs frozen, scaffold layouts additive (entry files keep their names, new
+  siblings imported relatively, no bare import-map specifiers), theme
+  fallbacks kept, CLI a superset, migrations idempotent with a fixture test.
+  A silent path that must become an error warns for one release first.
 
 ## Docs discipline — docs are the contract
 
@@ -79,6 +93,8 @@ the same commit as the change**, per this table:
 | HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | `docs/protocol.md` **and** `internal/server/openapi.go` |
 | builder-visible behavior | the relevant `docs/*.md`, `workspace-template/AGENTS.md`, and the welcome tile notes (`workspace-template/apps/welcome/notes.js`) if it teaches that area |
 | a design decision | `plans/<area>.md` + an entry in `plans/DECISIONS.md` |
+| a guard, budget or check | `docs/maintenance.md` (what it protects, how to satisfy it) |
+| the upgrade contract | `docs/compat.md` — and a changelog line when a rule gains a warned transition |
 | `bx` | `docs/bx.md` + the usage strings in `cmd/bx` |
 | **anything builder-visible** | **a `docs/changelog.md` entry (see below)** |
 | **a breaking change** | **also `docs/changes/YYYY-MM-DD-<slug>.md`, linked from the changelog** |

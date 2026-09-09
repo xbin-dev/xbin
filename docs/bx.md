@@ -102,7 +102,7 @@ bx vault ls|set|rm <component> [key] [value]
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
 bx cron ls                             scheduled jobs
-bx enable | disable <component>        lifecycle: pause/resume a tile (plans/lifecycle.md)
+bx enable | disable <component>        lifecycle: pause/resume a tile (docs/overview/14-lifecycle.md)
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
 bx backup <component>                  snapshot to the bound @archive provider
@@ -127,7 +127,7 @@ scaffolding, frame it somewhere:
 read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
 Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
 
-**`bx bind`** — wires a component's interface slots (plans/interfaces.md).
+**`bx bind`** — wires a component's interface slots (docs/overview/11-interfaces.md).
 Net slots take the builtin refs `internet`, `host`, `lan:<cidr>` — or the
 FILTERED form `internet:<host|ip|cidr>[:port][,…]` (D35), restricting egress
 to the named destinations (hostnames enforced by the relay's DNS pinning) —
@@ -141,7 +141,7 @@ that a later set edit or transfer leaves outside the sets goes **inert**
 `slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
 runtime-registered sub-slots of a provider (`bx iface` lists them).
 
-**`bx code pr`** — the cross-tile suggestion channel (plans/code-prs.md).
+**`bx code pr`** — the cross-tile suggestion channel (D48).
 You can *read* sibling tiles but write only your own, so changes to another
 tile travel as a PR: clone its repo out of the read-only mount, commit,
 `git format-patch`, file the series. Opening needs no approval — the

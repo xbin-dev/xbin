@@ -1,5 +1,5 @@
 /**
- * <bx-organisations> — the delegated management surface (plans/ownership.md,
+ * <bx-organisations> — the delegated management surface (docs/auth.md §Ownership,
  * D24–D28). Raw fetch = the signed-in USER's cookie principal, so the server's
  * ownership/org-admin gates decide per person; sections render by capability
  * and 403s degrade to friendly notes.
@@ -220,7 +220,7 @@ export class BxOrganisations extends LitElement {
     </div>`;
   }
 
-  // Transfer runs preview-first (D39, plans/transfer.md): pick a target →
+  // Transfer runs preview-first (D39, docs/auth.md §Ownership): pick a target →
   // the impact report (your access after, bindings that will be UNBOUND,
   // grants going inert) renders in the confirm → transfer. The static
   // consequence line stays as the fallback when preview isn't available.

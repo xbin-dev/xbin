@@ -30,6 +30,11 @@ overview is the map that puts them in context.
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
   upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
+- [compat.md](/docs/compat.md) — what a workspace can rely on across xbind
+  upgrades (API additive-only, frozen URLs, additive scaffold layouts, CLI
+  superset)
+- [maintenance.md](/docs/maintenance.md) — for xbin contributors: the guards
+  CI runs and the checklists behind them
 
 All of these are served by xbind at `/docs/` in every workspace and live in
 the xbin repo under `docs/`. They are plain markdown — readable with `less`

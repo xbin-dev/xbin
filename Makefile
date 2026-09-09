@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check vendor dev-reset website
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -81,8 +81,16 @@ integration:
 vet:
 	go vet ./...
 
+# Every tree that holds Go sources — listed explicitly so gofmt never walks
+# devws*/ or .rootfs/ (a whole distro of files; the old `gofmt -l .` spent
+# seconds filtering them out and silently depended on the grep).
+GOFMT_DIRS := $(wildcard *.go) ./cmd ./internal ./sdk ./test ./builtin-tiles ./builtin-templates ./examples
+
 fmt-check:
-	@test -z "$$(gofmt -l . | grep -vE '^(devws|\.rootfs)')" || (gofmt -l . | grep -vE '^(devws|\.rootfs)'; echo 'gofmt needed'; exit 1)
+	@out="$$(gofmt -l $(GOFMT_DIRS))"; test -z "$$out" || (echo "$$out"; echo 'gofmt needed (make fmt)'; exit 1)
+
+fmt:
+	gofmt -w $(GOFMT_DIRS)
 
 vendor:
 	./hack/vendor.sh

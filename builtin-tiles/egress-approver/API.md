@@ -1,6 +1,6 @@
 # Egress Approver — API
 
-A default-deny **net provider** tile (see `plans/interfaces.md`). Bind another
+A default-deny **net provider** tile (see `docs/overview/11-interfaces.md`). Bind another
 component's `net` interface to `apps/egress-approver` and its egress is routed
 through here; every new destination IP is held for the owner to approve or deny.
 This tile's own `net` interface must be bound to what provides its internet

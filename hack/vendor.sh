@@ -23,4 +23,9 @@ curl -fsSL "https://cdn.jsdelivr.net/npm/marked@${MARKED}/lib/marked.esm.js" -o 
 # (syntax highlighting in the Admin code/diff viewer).
 curl -fsSL "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@${HLJS}/es/highlight.min.js" -o "$V/highlight.min.js"
 
+# Pin what was fetched: hack/check-pins.sh verifies the tree against this
+# list (a hand-edited vendored file, or a CDN serving different bytes for
+# the same version, fails the release preflight).
+(cd "$V" && sha256sum ./*) | sed 's| \./| |' > hack/vendor.sha256
+
 echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT marked@$MARKED highlight.js@$HLJS"

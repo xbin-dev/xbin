@@ -12,7 +12,8 @@ purely from the binding graph.
 [08-sandbox.md](08-sandbox.md) (the netns and capability model) ·
 [06-authorization.md](06-authorization.md) (the policy ceiling) ·
 reference: [/docs/isolation.md](/docs/isolation.md), [/docs/auth.md](/docs/auth.md) ·
-design: plans/interfaces.md, plans/isolation.md, docs/changes/2026-07-12-net-provider-cap.md.
+design records in the xbin repo: `interfaces`, `isolation`;
+docs/changes/2026-07-12-net-provider-cap.md.
 
 ## Default-deny is the ground truth
 

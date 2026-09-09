@@ -16,8 +16,8 @@ run through) · [10-resources.md](10-resources.md) (resource data & the vault
 barrier this interacts with) · [11-interfaces.md](11-interfaces.md) (the
 binding model `@archive` reuses) · [09-terminals.md](09-terminals.md) (the
 terminal dev layer that travels in backups) — reference:
-[/docs/protocol.md](/docs/protocol.md), plans/lifecycle.md,
-plans/tile-sharing.md, plans/builtin-updates.md.
+[/docs/protocol.md](/docs/protocol.md); design records in the xbin repo:
+`lifecycle`, `tile-sharing`, `builtin-updates`.
 
 ## Runtime lifecycle states (LC-1)
 
@@ -100,11 +100,11 @@ Two honesty notes. **Backups are plaintext tars**: xbind reads resources
 through the decrypted view and re-encrypts on restore, so backing up (and
 restoring) **requires the vault to be unsealed** when encrypted resources
 are involved — encryption-at-rest is the *archiver's* responsibility, not
-the tar's (plans/vault-data.md). And **sqlite is copied as files** (the db
+the tar's (docs/resources.md §Encryption at rest). And **sqlite is copied as files** (the db
 plus its `-wal`/`-shm` sidecars), not `VACUUM INTO`-checkpointed yet: the
 copy is guaranteed-consistent when the backend is stopped — which is what
 the disable-first offload gate above ensures — while a backup of a live,
-mid-write component is best-effort (plans/lifecycle.md lists the checkpoint
+mid-write component is best-effort (the design record lists a checkpoint
 driver as a drop-in hardening).
 
 ## The archiver is an interface (LC-3)
@@ -222,15 +222,15 @@ for the owner to approve — imported code never arrives pre-authorized.
 
 | road | mechanics |
 |---|---|
-| **Builtin tiles** (`bx tile import`, Tile Manager) | A curated catalog embedded in the xbind binary (`tile.json` metadata: title, default path, version, changelog) — trusted like the binary itself, but *not* auto-installed (plans/tile-sharing.md rung 1). Import copies the files; installing under a non-default path rewrites the tile's *own* authored path in its text files (self-references, its scope's `res:` ids) and sets a unique Go module path — a Go backend ships as `go.mod.tile` (restored to `go.mod` on import) because `go:embed` skips nested modules. Cross-tile references stay intact. Never overwrites an existing component. |
+| **Builtin tiles** (`bx tile import`, Tile Manager) | A curated catalog embedded in the xbind binary (`tile.json` metadata: title, default path, version, changelog) — trusted like the binary itself, but *not* auto-installed (rung 1 of the sharing ladder). Import copies the files; installing under a non-default path rewrites the tile's *own* authored path in its text files (self-references, its scope's `res:` ids) and sets a unique Go module path — a Go backend ships as `go.mod.tile` (restored to `go.mod` on import) because `go:embed` skips nested modules. Cross-tile references stay intact. Never overwrites an existing component. |
 | **Git import** (`POST /git/import`, Tile Manager "from git") | Any https/ssh/scp-style remote (local paths, `file://`, and git's `ext::` transports are rejected; URLs are option-injection-guarded). The UI first inspects the remote (default branch + version-sorted tags) so you can pick a ref. The clone keeps its `origin`, so updating later is `git pull`. A repo that isn't a component (no `xbin.json`/`index.html`) — or whose `uses` reference resources/components that don't exist — is **removed again and rejected**, not half-installed. |
 | **Clone** (`POST /clone`, `bx`/manager) | Fork an existing component: copies the directory *including `.git`* (the fork stays related to its source history), rewrites whole-word occurrences of the old path (so `apps/x` never corrupts `apps/x2`), and commits the rewrite. Requires **read on the source** — attributed through element principals, so a manager-style tile can't be driven into source exfiltration. Vault secrets and resource *data* are deliberately not copied: a fork is a new app. |
-| **Templates** (`POST /templates/new`, `bx template new`) | A template is a component carrying a `template` block in its manifest — a blueprint that never runs. Instantiation copies it (builtin or workspace template) and **strips the block**, producing a normal, independent component. Builtin templates are additionally materialized as read-only git repos under `.xbin/template-repos/` and served over dumb HTTP; each instance gets that repo as a **`template` remote**, so a builder pulls upstream fixes with `git fetch template && git merge` — the fork-upstream model, with the builder in control (plans/agent-v2.md). |
+| **Templates** (`POST /templates/new`, `bx template new`) | A template is a component carrying a `template` block in its manifest — a blueprint that never runs. Instantiation copies it (builtin or workspace template) and **strips the block**, producing a normal, independent component. Builtin templates are additionally materialized as read-only git repos under `.xbin/template-repos/` and served over dumb HTTP; each instance gets that repo as a **`template` remote**, so a builder pulls upstream fixes with `git fetch template && git merge` — the fork-upstream model, with the builder in control (D50). |
 
 ## Keeping code fresh
 
 Builtins are copied once and then **owned by you** — so updates can't be
-blind overwrites. The updater (plans/builtin-updates.md) records
+blind overwrites. The updater (D49) records
 **provenance at install time**: an origin marker (`.xbin/builtins.json`)
 plus a full **base snapshot** of the installed form (`.xbin/builtins/<id>/`)
 for every imported tile and every scaffold component seeded at `xbind init`.

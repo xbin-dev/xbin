@@ -13,8 +13,8 @@ encryptable at rest (the broker owns every byte's path to disk).
 [06-authorization.md](06-authorization.md) (the grant grammar) ·
 [14-lifecycle.md](14-lifecycle.md) (what backup captures) ·
 reference: [/docs/resources.md](/docs/resources.md),
-[/docs/auth.md](/docs/auth.md) · design: plans/auth.md §4–5,
-plans/vault-data.md.
+[/docs/auth.md](/docs/auth.md) · design records in the xbin repo: `auth` §4–5,
+`vault-data`.
 
 ## Why brokered state
 
@@ -169,7 +169,7 @@ catch up.
 ## The vault — per-element secrets
 
 Every element has a private key→value vault for third-party credentials
-(plans/auth.md §4), so secrets stay out of source trees, env files, and
+(docs/auth.md §Vault), so secrets stay out of source trees, env files, and
 other elements' reach:
 
 - **Value reads are self-only — absolutely.** `GET
@@ -195,7 +195,7 @@ other elements' reach:
 
 ## The encryption barrier
 
-`internal/vault` is the root of every at-rest key (plans/vault-data.md). It
+`internal/vault` is the root of every at-rest key (docs/resources.md §Encryption at rest). It
 mirrors the property that makes HashiCorp Vault's model meaningful: **the
 master key never lives in the at-rest data.**
 
@@ -230,7 +230,7 @@ defends data *at rest*, not a root-compromised live host while unsealed.
 ## Encryption at rest for resource data
 
 Resource state is **always encrypted — there is no plaintext resource path**
-(VD-1). The mechanism splits by delivery mode (plans/vault-data.md):
+(VD-1). The mechanism splits by delivery mode (docs/resources.md §Encryption at rest):
 
 - **Broker-mediated** (`kv`, `blob` API bodies): encrypted by the broker —
   kv values are envelope-encrypted per bucket under a derived subkey

@@ -1,7 +1,7 @@
 // agent backend — a durable, debuggable agentic loop persisted in in-component
 // sqlite, driven against the llm-gw component, with tools, subagents, MCP,
 // compaction, and self-scheduling via a cron heartbeat. This is a TEMPLATE:
-// instantiate it and build it up. See plans/agent.md and API.md.
+// instantiate it and build it up. See API.md.
 package main
 
 import (
@@ -97,7 +97,7 @@ func main() {
 
 	// Resume anything left sleeping/mid-drive by a restart, and turn the wake
 	// heartbeat on only if something needs it (it's not always-on — a workspace
-	// session or the agent itself schedules work; see plans/agent-v2.md).
+	// session or the agent itself schedules work; see API.md).
 	go agent.startupResume()
 
 	mux := http.NewServeMux()

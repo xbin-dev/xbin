@@ -1,4 +1,4 @@
-// skills.go — a self-improving skill library (Hermes-inspired, plans/agent-v2.md).
+// skills.go — a self-improving skill library (Hermes-inspired; see API.md).
 // A skill is a named, described procedure the agent authored from experience.
 // The compact list (name + description) is injected into context; the agent
 // loads a full skill on demand with skill_view, writes one with skill_manage,

@@ -27,7 +27,7 @@
  * It also reports the document's height to the embedding <bx-frame> so
  * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
  *
- * Isolation (plans/auth.md §6): non-chrome tiles run in a SANDBOXED opaque
+ * Isolation (docs/auth.md §Who is calling): non-chrome tiles run in a SANDBOXED opaque
  * origin — no parent/sibling DOM, no localStorage/IDB/cookies, and the
  * ambient session cookie is worthless on requests out of a tile frame. The
  * frame token below is the tile's ONLY credential; xbin.fetch/xbin.ws attach
@@ -44,7 +44,7 @@ const PARENT = '*';
 const self = meta('xbin-component');
 let frameToken = meta('xbin-frame-token');
 
-// Resolved http interface slots this component is bound to (plans/interfaces.md):
+// Resolved http interface slots this component is bound to (docs/overview/11-interfaces.md):
 // { <slot>: { url, service } }. xbin.iface(slot) returns the bound provider so a
 // component calls a *typed, swappable* dependency instead of a hard-coded path.
 let ifaces = {};

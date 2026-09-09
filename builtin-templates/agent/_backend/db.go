@@ -1,7 +1,7 @@
 // db.go — the agent's durable state, in an in-component sqlite file
 // (XBIN_RES_DB). Everything the loop needs to resume after a crash or backend
 // unload lives here: runs, the transcript, the visibility journal, and
-// self-edited memory blocks. See plans/agent.md.
+// self-edited memory blocks. See API.md.
 package main
 
 import (

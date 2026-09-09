@@ -7,8 +7,8 @@ something is explicitly wired:
 - **The runtime plane** — a component's **backend**, a least-privileged tenant.
 - **The owner/editing plane** — **terminals**, where you (or an agent) edit code.
 
-The mechanism is Linux namespaces over an overlay rootfs (design in
-`plans/isolation.md` / `plans/runtime.md`); this page is the builder-facing
+The mechanism is Linux namespaces over an overlay rootfs (design records
+`isolation` / `runtime` in the xbin repo); this page is the builder-facing
 summary of what that means for you.
 
 ## The backend sandbox (runtime plane)
@@ -153,7 +153,7 @@ tier — while still running `apt`:
   of `clone`/`clone3`/`unshare`) **and then drops `CAP_SYS_RESOURCE`**, so the
   shell can't raise those limits back — it can neither nest a userns nor reach
   `mount`. A seccomp filter denying the namespace-creating syscalls backs this up
-  on kernels where the knob doesn't take (see `plans/DECISIONS.md` D18).
+  on kernels where the knob doesn't take (see decision D18).
 - **Source visibility cut to the allow-list.** An admin's terminal sees every
   tile's source read-only; a non-admin's mounts ONLY the tiles at/above their
   `read` level (the D40 allow-list view — unreadable tiles are absent, names
@@ -205,7 +205,7 @@ state, and dotfiles live there once and follow you into every terminal you
 open, and they **survive xbind upgrades** (workspace data, not part of any
 rootfs). Other users get their own homes — configs don't mix. (Hygiene, not a
 security boundary — the filesystem user is the same; the API credential,
-though, is per-session and tile-scoped, see plans/terminal-tokens.md.)
+though, is per-session and tile-scoped, see docs/overview/09-terminals.md.)
 
 ## The dev layer — persistent, per-component, resettable
 
@@ -281,7 +281,7 @@ authorization — a component can never self-bind). Providers include:
 The full interface model (request / provide / bind, plus `http` service
 contracts and the `@archive` slot used by backups) lives in
 [protocol.md](/docs/protocol.md); the design rationale is in
-`plans/interfaces.md`.
+`docs/overview/11-interfaces.md`.
 
 ---
 

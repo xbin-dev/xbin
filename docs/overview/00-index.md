@@ -3,8 +3,9 @@
 This series is the top-down tour of xbin: how the subsystems compose, why
 they are shaped the way they are, and where each boundary actually is. It
 complements the reference docs (which stay the endpoint/field-level truth —
-every file links its own) and the design records under `plans/` (cited by
-decision ID, e.g. D4, D18a, ING-5 → plans/DECISIONS.md).
+every file links its own) and the design records in the xbin source repository (cited by
+decision ID, e.g. D4, D18a, ING-5 → the decision log, `DECISIONS.md` in the
+repo's `plans` directory).
 
 **Start here** if you're meeting the system: read 01 → 02 → 03, then follow
 your interest. Each file stands alone.
@@ -95,5 +96,5 @@ Three ideas carry everything else:
 /docs/elements.md · /docs/auth.md · /docs/resources.md · /docs/isolation.md ·
 /docs/ingress.md · /docs/sdk.md · /docs/bx.md · /docs/protocol.md ·
 /docs/getting-started.md · /docs/changelog.md (+ migration notes under
-/docs/changes/). Design records: `plans/` in the xbin repo — every
-non-obvious choice has a decision ID in plans/DECISIONS.md.
+/docs/changes/). Design records: the `plans` directory of the xbin repo — every
+non-obvious choice has a decision ID in its `DECISIONS.md`.

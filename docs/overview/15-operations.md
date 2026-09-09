@@ -11,8 +11,8 @@ unconfined*, and the security boundary is the host it runs on.
 [09-terminals.md](09-terminals.md) (base images & dev layers),
 [13-ingress.md](13-ingress.md) (the public listeners),
 [14-lifecycle.md](14-lifecycle.md) (backup/restore/offload),
-[/docs/getting-started.md](/docs/getting-started.md) · plans/deployment.md,
-plans/isolation.md.
+[/docs/getting-started.md](/docs/getting-started.md) · design records in the xbin repo: `deployment`,
+`isolation`.
 
 ## The reference deployment
 
@@ -114,7 +114,7 @@ The directives that ARE there are load-bearing:
 
 | Directive | Why |
 |---|---|
-| `RuntimeDirectory=xbin` (mode 0700) | a **tmpfs** at `/run/xbin` for xbind's IPC sockets (the gateway socket + each backend's listen socket). The run dir is bind-mounted **read-write into every sandbox**, and the isolation model forbids RW host-disk mounts in sandboxes — tmpfs only (plans/isolation.md). xbind picks it up via `$RUNTIME_DIRECTORY`; without one it falls back to `$XDG_RUNTIME_DIR`/`$TMPDIR` and warns if no tmpfs is found. |
+| `RuntimeDirectory=xbin` (mode 0700) | a **tmpfs** at `/run/xbin` for xbind's IPC sockets (the gateway socket + each backend's listen socket). The run dir is bind-mounted **read-write into every sandbox**, and the isolation model forbids RW host-disk mounts in sandboxes — tmpfs only (docs/isolation.md). xbind picks it up via `$RUNTIME_DIRECTORY`; without one it falls back to `$XDG_RUNTIME_DIR`/`$TMPDIR` and warns if no tmpfs is found. |
 | `Delegate=yes` | xbind manages its own cgroup-v2 subtree: one leaf per backend with memory (`XBIN_LIMIT_MEM`, default 2 GiB), pids (≥512, scaled by CPUs), and CPU-weight caps — a runaway tile OOMs *alone*. |
 | `LimitNOFILE=1048576`, `TasksMax=infinity`, `OOMPolicy=continue` | a busy workspace holds many watches, sockets and child processes; one component's OOM must not take the daemon down. |
 | `Restart=on-failure`, `RestartSec=15` | restart on a crash, but wait 15 s first: a workspace's delegated cgroup subtree (sandboxes, rootless podman) has to drain before the new instance can attach, or the immediate restart fails `219/CGROUP` ("cgroup busy") and flaps. |

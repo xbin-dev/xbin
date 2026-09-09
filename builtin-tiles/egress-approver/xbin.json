@@ -1,5 +1,5 @@
 {
-  // Egress manual approver — a `net` PROVIDER tile (plans/interfaces.md) that
+  // Egress manual approver — a `net` PROVIDER tile (docs/overview/11-interfaces.md) that
   // is a default-deny firewall with a human in the loop. Bind other components'
   // `net` interface to this tile (admin Interfaces tab / `bx bind <comp>
   // net=apps/egress-approver`); their egress is spliced through here. Every new
@@ -28,7 +28,7 @@
   // (routing tables, ip_forward, AF_PACKET), which needs the network-admin
   // capabilities the sandbox drops from ordinary tiles. It's admin-only to
   // approve and lands PENDING in the grants panel on import; without it the
-  // gate setup fails with "operation not permitted" (plans/interfaces.md,
+  // gate setup fails with "operation not permitted" (docs/overview/11-interfaces.md,
   // DECISIONS D18a).
   "uses": [
     { "target": "res:apps/egress-approver/approvals", "role": "writer" },

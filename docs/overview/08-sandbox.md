@@ -11,8 +11,8 @@ cannot do.
 machinery, opposite defaults) · [10-resources.md](10-resources.md) (the only
 things that persist) · [11-interfaces.md](11-interfaces.md) · [12-egress.md](12-egress.md)
 · [13-ingress.md](13-ingress.md) · reference: [/docs/isolation.md](/docs/isolation.md),
-[/docs/auth.md](/docs/auth.md) · design: plans/isolation.md, plans/isolation-impl.md,
-plans/runtime.md.
+[/docs/auth.md](/docs/auth.md) · design records in the xbin repo: `isolation`, `isolation-impl`,
+`runtime`.
 
 ## Three honesty tiers
 
@@ -28,12 +28,12 @@ you turn tiers on.
 | 2 | `--scope-uids` (xbind as root) | a per-scope uid | abuse only what it was granted; can't even write its own source (editing is terminal-only); vault/data enforced by file perms |
 | 3 | `--isolate --rootfs <dir>` | its own full namespace set | almost nothing at the OS layer — no sibling `/proc`, no sibling sockets, only granted files mounted, no network beyond its bound `net` |
 
-**Production is tier 3** (`plans/runtime.md`). Everything below describes it.
+**Production is tier 3** ([/docs/isolation.md](/docs/isolation.md)). Everything below describes it.
 Tiers compose with the same daemon: `--scope-uids` and `--isolate` are
 independent flags; the standard deployment uses `--isolate` rootless
 (unprivileged user namespaces, no root needed) on a VM/host xbind controls.
 Do not market tier 1 as element isolation — it is attribution + seatbelts,
-not a jail (D9; `plans/DECISIONS.md`).
+not a jail (D9).
 
 ## Anatomy of one backend (tier 3)
 
@@ -71,7 +71,7 @@ The root filesystem is an overlay. Its **lowers** (read-only) are the base
 rootfs — Go/node/python toolchains and core tools — plus, if the component
 declares a `setup` script, its prebuilt **env layer** (extra apt/runtime deps,
 content-hashed and cached; see [10-resources.md](10-resources.md) and
-`plans/component-env.md`). The **upper** is a throwaway tmpfs. So a backend can
+`docs/isolation.md` §The dev layer). The **upper** is a throwaway tmpfs. So a backend can
 write anywhere on `/` and it will *work* for the life of that process — and
 then vanish on the next restart. **Persist only through a resource bind or a
 brokered API.** This is not a quota; it is a design boundary: state lives in

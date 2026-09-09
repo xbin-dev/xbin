@@ -1,4 +1,4 @@
-// Egress approver backend: a default-deny net provider (plans/interfaces.md)
+// Egress approver backend: a default-deny net provider (docs/overview/11-interfaces.md)
 // with a human in the loop.
 //
 // Dataplane. xbind splices each bound client's egress into a point-to-point

@@ -40,7 +40,7 @@ func asString(v any) string {
 // ModelTiers is the per-job model set. Any empty tier is resolved at runtime
 // from llm-gw's workspace "preferred" model for the mapped use-type (general←
 // agent, code←coding, memory←summarizing, vlm←vlm), so a workspace sets its
-// models once in llm-gw and every agent inherits them. See plans/agent-v2.md.
+// models once in llm-gw and every agent inherits them. See API.md.
 type ModelTiers struct {
 	General string `json:"general,omitempty"` // the main loop
 	Code    string `json:"code,omitempty"`    // code-heavy work / code subagents
@@ -115,7 +115,7 @@ type wireMsg struct {
 	// Content is usually a string, but a multimodal user message carries the
 	// OpenAI content-parts array (text + image_url); contentValue keeps a stored
 	// JSON-array string as raw JSON so it marshals as an array, not a quoted
-	// string (plans/agent-v2.md §multimodal).
+	// string (API.md).
 	Content    any        `json:"content,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
@@ -217,7 +217,7 @@ type streamReq struct {
 	StreamOptions *streamOpts `json:"stream_options,omitempty"`
 }
 
-// --- model tier resolution (plans/agent-v2.md) --------------------------
+// --- model tier resolution (API.md) --------------------------
 
 var (
 	prefMu    sync.Mutex

@@ -1,6 +1,6 @@
 # 2026-08-02 — ownership replaces teams & positional org paths (BREAKING)
 
-The multi-user grouping model was rewritten (plans/ownership.md, D24–D28).
+The multi-user grouping model was rewritten (docs/auth.md §Ownership, D24–D28).
 **No released workspace used orgs/teams or `o/` paths**, so there is no data
 migration — but API clients and scripts touching the org surface must update.
 

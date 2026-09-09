@@ -5,6 +5,18 @@ go.work.sum
 *.log
 *_scrot.png
 
+# Build output and release bundles. The embedded trees (web/, docs/,
+# workspace-template/, builtin-tiles/, builtin-templates/) ship inside
+# xbind byte-for-byte, so a stray `go build` binary in a tile's backend dir
+# would be embedded too — assets_test.go refuses that; this keeps it out of
+# `git add -A` as well.
+dist/
+/bx
+website/dist/
+builtin-tiles/*/backend/backend
+builtin-templates/*/_backend/_backend
+examples/*/backend/backend
+
 # Local Claude/agent backups — NEVER publish (contain credentials, cache, debug)
 bak*.tar
 dotclaude-bak*/

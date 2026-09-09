@@ -11,8 +11,8 @@ mount picture and the guards that hold it up.
 [05-identity.md](05-identity.md) (terminal tokens) · [07-users-orgs.md](07-users-orgs.md)
 (who can see which tile) · [12-egress.md](12-egress.md) · reference:
 [/docs/isolation.md](/docs/isolation.md), [/docs/protocol.md](/docs/protocol.md)
-(`/ws/term` wire protocol) · design: plans/terminal-tokens.md, plans/runtime.md,
-plans/component-env.md, `plans/DECISIONS.md` D6/D16/D17/D17a/D18.
+(`/ws/term` wire protocol) · design records in the xbin repo: `terminal-tokens`, `runtime`,
+`component-env`; decisions D6/D16/D17/D17a/D18.
 
 ## Two planes, opposite defaults
 
@@ -195,7 +195,7 @@ read guards still apply underneath — defense in depth, not a replacement.
 ## Terminal identity: the shell acts as the tile
 
 The shell's API credential is a **per-session tile-scoped terminal token**
-(`plans/terminal-tokens.md`). Its `XBIN_TOKEN` resolves to *the tile's element
+([/docs/isolation.md](/docs/isolation.md) §Terminal isolation). Its `XBIN_TOKEN` resolves to *the tile's element
 principal* — self-admin plus the tile's approved grants — **never** the driving
 user's privilege, and **never** the owner token (which is filtered out of the
 env entirely; `getenv` is first-match, so it's stripped, not just overridden).

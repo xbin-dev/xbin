@@ -12,7 +12,7 @@ slots — the middlebox pattern is xbin's extension mechanism.
 [04-frontend.md](04-frontend.md) (views & `window.xbin`),
 [11-interfaces.md](11-interfaces.md) (slots & binding),
 [/docs/sdk.md](/docs/sdk.md) · [/docs/bx.md](/docs/bx.md) ·
-[/docs/protocol.md](/docs/protocol.md) · plans/interfaces.md.
+[/docs/protocol.md](/docs/protocol.md) · design record in the xbin repo: `interfaces`.
 
 ## Backends: the contract is env + a socket
 
