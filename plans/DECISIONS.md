@@ -1481,3 +1481,35 @@ Deviations and refinements made while implementing; all deliberate:
   "improving" `OwnerOf`'s empty-string overloading (the request-access page
   switches on it). Next: the broker split (I6d) targets this interface —
   the kernel that answers it is what becomes `internal/authz`.
+- **D62 — The daemon is a package; its configuration is one struct
+  (2026-09-09).** `cmd/xbind/main.go` was 1,235 lines with a 680-line
+  `serve()` taking eleven parameters, fifteen boot-time migrations whose
+  ordering edges were unwritten, `os.Exit` in five places plus the signal
+  handler, and 26 `XBIN_*` variables read lazily by eleven packages with
+  three parsers — none of it testable without the binary. Shapes: (1)
+  `internal/boot.Config` is the flag block plus every env-only setting,
+  with struct tags (`flag`, `env`, `def`, `doc`, `readBy`, `secret`) that
+  both declare the flags (`RegisterFlags`; a flag's default is its env
+  value, so precedence stays flag > env > default) and render
+  `docs/config.md` (a test fails when the page is stale; `UPDATE_DOCS=1`
+  rewrites it). Settings other packages read where they are used stay
+  there but are listed with `readBy`, so the reference is complete
+  without threading five values through the tree. (2) `boot.Run(ctx,
+  cfg)` runs `boot.Steps` — sixteen named stages in an order a test
+  asserts (workspace before privileges, users before homes, registry
+  before broker, …) — then serves until the context ends; every failure
+  is an error, `main` owns the log level, `signal.NotifyContext` and the
+  exit code. `Privileges` (the setuid path), the console `Listener`, a
+  `Ready` callback and `Stdout` are injectable. (3) The five inline
+  handlers that read across runner, broker and ingress (`/backends`,
+  `/runtime`, `/ingress`, `/tile-status`, `/term-net`) moved to
+  `boot/api.go` rather than into the broker: they are cross-cutting by
+  nature and the broker does not know the runner. (4) `ResolveVaultMode`
+  is the boot's one pure decision, table-tested. (5) `Broker.Close`
+  releases the KV database's file lock, the cron scheduler and the disk
+  monitor — the daemon relied on process exit, and a second in-process
+  boot of the same workspace blocked on bbolt's flock. Proof of value:
+  the legacy-workspace fixture now boots twice in-process in 0.2 s (the
+  binary twin takes ~30 s) and is part of `make check`. Rejected: moving
+  every lazily read variable into Config now (five packages would gain
+  parameters for a documentation gain the `readBy` column delivers).

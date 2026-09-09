@@ -149,6 +149,40 @@ nothing at all. A second test asserts the hard stop when both `home/` and
 (docs/compat.md rule 9): add what it may touch to the allowed list with
 the reason, and make sure the second boot still changes nothing.
 
+The same fixture boots **in-process** in `internal/boot`
+(`TestLegacyWorkspaceBootsTwiceInProcess`, part of `make check`, 0.2 s):
+`boot.Run(ctx, cfg)` with a `:0` listener, `NoPrivileges`, and a cancel
+once `/healthz` answers. Extend both when a migration lands — the
+in-process one is the fast loop, the binary one proves the packaging.
+
+## Boot (`internal/boot`)
+
+`cmd/xbind/main.go` parses the command line and owns the log level, the
+signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
+
+- **`boot.Config` is the one list of settings.** Its struct tags declare
+  the flags (`RegisterFlags`: a flag's default is its env value, so the
+  precedence is flag > env > default) and render
+  [config.md](/docs/config.md); `TestConfigDoc` fails when the page is
+  stale — `UPDATE_DOCS=1 go test ./internal/boot -run TestConfigDoc`
+  rewrites it. A setting another package reads where it is used gets a
+  `readBy` tag instead of a code move, so the reference stays complete.
+  Adding a flag or variable: a field with tags, then regenerate the page.
+- **`boot.Steps` is the boot order.** Sixteen named stages; the edges
+  that carry migrations (workspace before privileges, users before homes,
+  registry before broker, …) are comments on the list and assertions in
+  `TestStepsOrder`. A new migration is a step (or a line in the step that
+  owns its data) plus a line in the fixture test's allowed list.
+- **Nothing in `boot` exits or handles signals.** Failures are errors
+  prefixed by the step name; the console listener, the privilege drop
+  (`Privileges`), a `Ready` callback and stdout are injectable, which is
+  what lets a test boot a workspace in-process. `Broker.Close` releases
+  what a boot holds (the KV database's file lock, cron, the disk
+  monitor) so the same process can boot the workspace again.
+- **`ResolveVaultMode`** is the one pure decision (passphrase → env
+  unseal; `--insecure-vault`/`--no-auth` → plaintext; `--dev` → dev key;
+  else sealed or locked), table-tested.
+
 ## Server helpers and durable writes
 
 - **Every non-2xx answer of the built-in API goes through
@@ -354,7 +388,7 @@ On this box: `PLAYWRIGHT_DIR=~/lcad-wasm` (Playwright + its Chromium) and
 ## Route inventory (routes ↔ OpenAPI ↔ protocol.md)
 
 `internal/apicheck` mounts the broker on a server exactly as the daemon does
-(plus the handlers `cmd/xbind/main.go` registers inline, read from its
+(plus the runtime handlers `internal/boot/api.go` registers, read from its
 source) and reconciles three lists:
 
 - what is mounted — `Server.APIRoutes()` (every `RegisterAPI` pattern) and

@@ -9,7 +9,7 @@
 # Go (non-test)
 internal/users/orgs.go 1600
 internal/term/term.go 1300
-cmd/xbind/main.go 1250
+cmd/xbind/main.go 85
 internal/broker/netfn.go 1170
 cmd/bx/main.go 1150
 internal/runner/runner.go 930

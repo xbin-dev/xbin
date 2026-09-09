@@ -109,6 +109,22 @@ type Broker struct {
 
 // SetBuiltins installs the embedded builtin tile catalog (from main, which
 // owns the embedded FS). Call before Register.
+// Close releases what a boot holds open for the daemon's lifetime — the KV
+// database (its file lock would block the next open of the same
+// workspace), the cron scheduler and the disk monitor — so a process can
+// boot the same workspace again (the in-process boot tests do).
+func (b *Broker) Close() {
+	if b.cron != nil && b.cron.sched != nil {
+		b.cron.sched.Stop()
+	}
+	if b.disk != nil {
+		b.disk.close()
+	}
+	if b.kv != nil && b.kv.db != nil {
+		_ = b.kv.db.Close()
+	}
+}
+
 func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
 
 // SetBuiltinTemplates installs the embedded builtin template catalog. Call

@@ -117,7 +117,7 @@ func (r route) matches(d route) bool {
 }
 
 // mount builds the broker on an empty workspace and mounts everything the
-// daemon mounts, except the handlers cmd/xbind/main.go registers inline
+// daemon mounts, except the handlers internal/boot/api.go registers inline
 // (those are read from its source by mainRoutes).
 func mount(t *testing.T) *server.Server {
 	t.Helper()
@@ -147,10 +147,11 @@ func mount(t *testing.T) *server.Server {
 
 var registerLit = regexp.MustCompile(`RegisterAPI\("([^"]+)"`)
 
-// mainRoutes returns the patterns cmd/xbind/main.go registers inline.
+// mainRoutes returns the patterns internal/boot/api.go (the runtime API the
+// boot mounts across runner, broker and ingress) registers inline.
 func mainRoutes(t *testing.T) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "cmd", "xbind", "main.go"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "internal", "boot", "api.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestRouteInventory(t *testing.T) {
 		api = append(api, parseMux(p, "RegisterAPI"))
 	}
 	for _, p := range mainRoutes(t) {
-		api = append(api, parseMux(p, "cmd/xbind/main.go"))
+		api = append(api, parseMux(p, "internal/boot/api.go"))
 	}
 	var core []route
 	for _, p := range srv.CoreRoutes() {

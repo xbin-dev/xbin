@@ -41,6 +41,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   shows and does, and how a save's answer is classified, are unit-tested
   by `make check` (`node --test`, no browser). An older workspace keeps
   its single-file shell.
+- **Every `xbind` flag and `XBIN_*` variable is on one page.**
+  [config.md](/docs/config.md) is generated from the daemon's
+  configuration struct, so it is complete by construction: the flag, its
+  environment variable, the default, which package reads it and what it
+  does — including the settings that were only ever documented in the
+  source (`XBIN_LIMIT_MEM`, `XBIN_LIMIT_DISK`, `XBIN_BIN`,
+  `XBIN_GOCRYPTFS`, `XBIN_FUSE_OVERLAYFS`, `XBIN_SANDBOX_DEBUG`). Flags,
+  variables and precedence are unchanged; a boot failure's message now
+  names the stage it failed in (`vault: …`, `isolation: …`).
 - **A reload no longer flashes the first org screen.** While the layout
   loaded, the shell briefly made the first shared org screen active and
   mounted its tiles (spawning their backends, restoring their terminals)

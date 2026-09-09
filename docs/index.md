@@ -28,6 +28,8 @@ overview is the map that puts them in context.
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [bx.md](/docs/bx.md) — the `bx` CLI
+- [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
+  generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
   upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile

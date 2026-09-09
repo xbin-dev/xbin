@@ -50,6 +50,8 @@ type diskMon struct {
 	quota      int64
 	scopeUsage func() map[string]int64 // scopeKey → bytes (injected: uses resource dirs)
 	extra      func() []Alert          // extra alerts (cgroup at-limit), optional
+	stop       chan struct{}           // closed by close(): the scan loop ends
+	stopOnce   sync.Once
 
 	mu       sync.RWMutex
 	blocked  map[string]string // scopeKey → reason (over quota / low-disk offender)
@@ -89,16 +91,25 @@ func newDiskMon(root string, quota int64, scopeUsage func() map[string]int64) *d
 	if quota <= 0 {
 		quota = defaultQuotaBytes
 	}
-	return &diskMon{root: root, quota: quota, scopeUsage: scopeUsage, blocked: map[string]string{}}
+	return &diskMon{root: root, quota: quota, scopeUsage: scopeUsage, blocked: map[string]string{}, stop: make(chan struct{})}
 }
 
-// run scans every interval until ctx-less stop isn't needed (daemon lifetime).
+// run scans every interval until stop() (the daemon's shutdown).
 func (d *diskMon) run() {
 	d.scan()
-	for range time.Tick(45 * time.Second) {
-		d.scan()
+	t := time.NewTicker(45 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			d.scan()
+		case <-d.stop:
+			return
+		}
 	}
 }
+
+func (d *diskMon) close() { d.stopOnce.Do(func() { close(d.stop) }) }
 
 func (d *diskMon) scan() {
 	usage := d.scopeUsage()
