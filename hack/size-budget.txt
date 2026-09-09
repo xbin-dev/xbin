@@ -20,5 +20,5 @@ internal/users/users.go 840
 internal/broker/orgsapi.go 820
 # JS / HTML (shipped + harness)
 workspace-template/tiles/admin/admin.js 3200
-workspace-template/shell/bx-shell.js 3150
+workspace-template/shell/bx-shell.js 2650
 workspace-template/apps/welcome/notes.js 1050
