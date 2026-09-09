@@ -1,5 +1,7 @@
 # Component lifecycle + backup / archive
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Two related capabilities:
 
 1. **Lifecycle** — a component is no longer always-on. It has a state the owner

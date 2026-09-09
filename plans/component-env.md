@@ -1,5 +1,7 @@
 # Component environment layers (per-component build-time deps)
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Companion to `plans/isolation.md` (sandbox mechanics) and `plans/runtime.md`
 (base rootfs). This is how a component declares extra system/runtime dependencies
 — "this component needs Ruby / imagemagick / a gem / anything" — without bloating

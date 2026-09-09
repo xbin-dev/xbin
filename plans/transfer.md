@@ -1,5 +1,7 @@
 # Tile ownership transfer — semantics, impacts, surfaces (D39)
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 > 2026-08-02. Transfers existed since D24 as a bare storage move with
 > membership-gated authz. This spec makes them a first-class operation:
 > create-bound authorization, an impact PREVIEW before every confirm, active

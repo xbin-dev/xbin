@@ -1,5 +1,7 @@
 # Per-component isolation — implementation research & plan
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Implementation companion to `plans/isolation.md` (mechanics) and
 `plans/runtime.md` (deployment). This is the concrete build: package layout,
 the rootless-namespace launch pattern, rootfs assembly, and the egress relay.

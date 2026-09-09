@@ -1,5 +1,7 @@
 # XBin — Deployment Flow
 
+> Status: **historical** — describes a state or plan that no longer applies; kept for history.
+
 > **OBSOLETE (kept for history).** The single-Docker-container deployment
 > described below has been **dropped** — it was container-as-boundary with no
 > per-component isolation, and less secure than the sandbox runtime. Production

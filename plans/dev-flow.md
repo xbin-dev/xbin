@@ -1,5 +1,7 @@
 # XBin — Development Flow
 
+> Status: **live** — still steers work; edit it when the design moves.
+
 Two distinct loops: **working on XBin core** (this repo) and **working inside a
 XBin workspace** (the product experience). Both must stay fast; the second is the
 product, the first is our daily life.

@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -91,6 +91,35 @@ fmt-check:
 
 fmt:
 	gofmt -w $(GOFMT_DIRS)
+
+# The definition of done (docs/maintenance.md). CI runs this, then
+# `make integration`. Each guard is its own target so a failure names itself.
+check: fmt-check vet js-check shellcheck pins-offline test
+	@echo ">> make check: green"
+
+# Parse every shipped .js and every inline <script type="module"> block.
+js-check:
+	@node hack/check-js.mjs
+
+shellcheck:
+	@./hack/check-sh.sh
+
+# Pinned inputs: vendor checksums, Go versions agreeing across files, alpine
+# pins (offline); `make pins` adds EOL + reachability checks (network).
+pins-offline:
+	@./hack/check-pins.sh --offline
+pins:
+	@./hack/check-pins.sh
+
+# Install the sub-second pre-commit hook (.githooks/pre-commit).
+hooks:
+	git config core.hooksPath .githooks
+	@echo ">> pre-commit hook active: make fmt-check js-check"
+
+# The whole release: make release TAG=vX.Y.Z (hack/release.sh — checks, tag,
+# push, build+publish from a detached worktree, watch CI, prune dist/).
+release:
+	@./hack/release.sh $(TAG) $(RELEASE_FLAGS)
 
 vendor:
 	./hack/vendor.sh

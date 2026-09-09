@@ -9,5 +9,6 @@ use (
 	./examples/calendar
 	./examples/counter-go
 	./examples/email
+	./examples/netrouter
 	./sdk
 )

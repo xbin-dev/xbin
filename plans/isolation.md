@@ -1,5 +1,7 @@
 # Per-component isolation — design (enforcement Tier 3)
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 This specifies **Tier 3** of the enforcement roadmap (`plans/auth.md` §9,
 ARCHITECTURE §8): OS-level containment of the **runtime plane** so a component
 backend can touch *only what it was granted* — its own files, granted deps and

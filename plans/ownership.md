@@ -1,5 +1,7 @@
 # Ownership, orgs v2, delegated approvals — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Rewrite of the multi-user grouping model (supersedes `plans/orgs.md`, D19–D21).
 No production workspace used orgs/teams or `o/` paths yet, so this is a clean
 replacement — **no data migration**, only doc/decision supersession.

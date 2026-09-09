@@ -1,5 +1,7 @@
 # Template components — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 A **template component** is a component blueprint: it isn't a live tile until
 you **instantiate** it, at which point its files are copied into a new,
 independently-named component you can build on. Templates let xbin ship

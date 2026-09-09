@@ -1,5 +1,7 @@
 # XBin — Decision Log
 
+> Status: **live** — the decision log; every non-obvious choice gets an entry here.
+
 Status meanings:
 - **NEEDS CALL** — blocks or shapes early work; want an explicit decision.
 - **DEFAULT SET** — a default is picked and the plans assume it; veto if wrong.
@@ -660,6 +662,12 @@ Deviations and refinements made while implementing; all deliberate:
   two offload depths (data, or data+source+term-env).
 - **LC-5** — backups schedule on the existing cron engine as owner jobs; retention
   prunes versions.
+
+- **D23 — Creator sharing (reserved 2026-07, never shipped as such).**
+  `plans/user-org-ux.md` reserved this id for letting a tile's creator share
+  it without an admin. The ownership rewrite (D24–D28) made that an
+  *ownership right* instead — a tile's user-owner manages its ACL — so no
+  separate mechanism landed. Kept so the citations resolve.
 
 - **D24 — Component ownership (NPM-style), replacing positional org paths.**
   (2026-08-02) Every component may have an owner — `user:<id>` or `org:<id>` —

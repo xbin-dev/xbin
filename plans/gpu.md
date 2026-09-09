@@ -1,5 +1,7 @@
 # NVIDIA GPU access via scope grants (multi-GPU aware)
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Companion to `plans/isolation.md` (sandbox mechanics) and `plans/component-env.md`
 (the env layer that pairs with this to bring CUDA userland). Lets a component or
 terminal be granted specific GPUs through the same owner-approved grant model as

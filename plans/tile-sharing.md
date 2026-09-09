@@ -1,5 +1,7 @@
 # Tile sharing — design
 
+> Status: **live** — still steers work; edit it when the design moves.
+
 How tiles move between people once a community forms. The premise stays the
 same as everything else in xbin: **a tile is a directory, its path is its
 identity, and importing is copying files into a workspace.** Sharing is

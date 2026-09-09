@@ -1,5 +1,7 @@
 # Orgs & teams — design
 
+> Status: **superseded** — replaced by a later design — read that one; kept for history.
+
 > **SUPERSEDED (2026-08-02)** by [`plans/ownership.md`](ownership.md): teams
 > and positional `o/<org>/` paths are being replaced by NPM-style per-tile
 > **ownership** (user- or org-owned, transferable), flat org roles, and

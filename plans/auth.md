@@ -1,5 +1,7 @@
 # XBin — Auth & Inter-Element Security Design
 
+> Status: **live** — still steers work; edit it when the design moves.
+
 Supersedes the "single token, honor system" sketch (old D3/D9). Mental model:
 **Notion, but every block is a modifiable component** that may talk to components
 above/below/sibling and to global resources (databases, search, cron, …). The human

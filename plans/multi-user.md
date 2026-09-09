@@ -1,5 +1,7 @@
 # Multi-user auth & RBAC — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Today xbin is single-user: one root token = admin-of-everything. This adds
 **human users** with tile-level permissions, keeps the token as a root/admin
 service credential, gates terminals (root access) behind an explicit

@@ -1,5 +1,7 @@
 # Interfaces — typed capability wiring (request · provide · bind)
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Supersedes the flat capability-grant strings (`net:*`, `gpu:*`, `res:*`) with one
 uniform model. A component **requests** typed interface slots; a **provider**
 (a xbind builtin or a tile) satisfies them; the **owner binds** each request to

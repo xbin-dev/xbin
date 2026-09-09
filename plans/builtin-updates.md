@@ -1,5 +1,7 @@
 # Updating builtin components in existing workspaces — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 > **Addendum (2026-08-10, D49):** the conflict path below gained a better
 > vehicle — update mode **"pr"** files the update as a cross-tile change
 > proposal (`plans/code-prs.md`) instead of writing merge-file conflict

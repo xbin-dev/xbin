@@ -1,5 +1,7 @@
 # Runtime & deployment model — the holy-grail runtime
 
+> Status: **live** — still steers work; edit it when the design moves.
+
 Companion to `plans/isolation.md` (the isolation *mechanics*). This is the
 *where it runs*: the deployment shift that makes proper per-component isolation
 possible, and the component userland (a fat OCI rootfs) that keeps terminals a

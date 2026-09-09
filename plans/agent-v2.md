@@ -1,5 +1,7 @@
 # Agent v2 + llm-gw overhaul + observability — plan
 
+> Status: **live** — still steers work; edit it when the design moves.
+
 Follow-up to `plans/agent.md` and the Hermes/Pi comparison. Scope is large, so
 this lands in **dependency-ordered phases**, each independently committable with
 docs + tests. Decisions here are load-bearing; log the notable ones in

@@ -1,5 +1,7 @@
 # cap:containers — running containers inside a tile
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 A **container-host tile** runs rootless Podman (or Docker) inside its own
 sandbox to spawn sub-containers — the substrate for "dev sandbox" tiles. It is
 the third reserved sandbox capability, built on the exact pattern of

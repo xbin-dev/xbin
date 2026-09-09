@@ -12,17 +12,65 @@ test or a Makefile target next to the thing that needs remembering.
 ## Definition of done
 
 ```
-make fmt-check vet      # gofmt over GOFMT_DIRS, go vet ./...
-make test               # unit tests, incl. the embed guard (assets_test.go)
-node --check <file.js>  # every touched .js (extract inline <script type=module> first)
+make check              # fmt-check vet js-check shellcheck pins-offline test
 make integration        # when the runner / sandbox / broker path changed
+make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly `make fmt-check`, `make vet`,
-`make test`, `make integration`. Builder-visible behaviour also needs a
-`docs/changelog.md` entry and the relevant `docs/*.md` update; every
+CI (`.github/workflows/ci.yml`) runs exactly `make check` then
+`make integration`; a release (`make release TAG=vX.Y.Z`) runs `make check`
+and the online pin checks before building. Builder-visible behaviour also
+needs a `docs/changelog.md` entry and the relevant `docs/*.md` update; every
 non-obvious choice gets a numbered entry in the decision log
-(`plans/DECISIONS.md` in the repo). Releases run `hack/check-pins.sh` first.
+(`plans/DECISIONS.md` in the repo). Each guard below is its own Makefile
+target, so a red line names the guard that failed.
+
+| Guard | Target | Protects |
+|---|---|---|
+| gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
+| `go vet ./...` | `vet` | the usual |
+| `node --check` over every shipped script and inline module block | `js-check` | a syntax error in a tile's inline `<script type="module">`, which nothing else parses before a user's browser does |
+| shellcheck at warning level over `deploy/`, `hack/`, `.githooks/` | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests) |
+| vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
+| unit tests incl. the embed guard, route inventory, docs check | `test` | see the sections below |
+
+## Docs check (decision ids, links, plan status)
+
+`internal/docscheck` fails `make test` when:
+
+- a decision id (`D48`, `ND8`, `ING-3`, `IFACE-1`, `VD-2`, …) cited anywhere
+  in `docs/`, `plans/`, `internal/`, `web/`, `workspace-template/`, `cmd/`,
+  `sdk/` or the builtin trees has no definition — a bullet or heading opening
+  with the bold id — in any `plans/*.md` (core `D`/`ND` numbers live in
+  `plans/DECISIONS.md`; the per-domain series in their design record). A
+  trailing letter (`D17a`) names a labelled sub-point of the base entry and
+  resolves to it;
+- a relative or `/docs/`-absolute markdown link in `docs/` or `plans/` points
+  at a file that does not exist;
+- a `plans/*.md` has no `> Status: live | implemented | superseded |
+  historical` line in its first 12 lines. *live* = still steers work;
+  *implemented* = shipped as described, kept as rationale; *superseded* =
+  read the newer record; *historical* = no longer applies.
+
+So a new decision is written once, in the log, and cited by id everywhere
+else; a design record that stops being true gets its status flipped rather
+than deleted.
+
+## Releasing
+
+```
+make release TAG=v0.3.44            # hack/release.sh
+make release TAG=v0.3.44 RELEASE_FLAGS=--dry-run
+```
+
+The script: preflight (tag shape, clean tree, on master, `gh` authenticated)
+→ `make check` → annotated tag + push of the branch and the tag → build and
+publish from a **detached worktree of the tag** (`deploy/publish-release.sh`
+builds whatever checkout it runs in; an edit on master during the build must
+not leak into the bundles) → watch the commit's CI runs → `gh release view`
+→ prune `dist/` to the two newest tags' bundles. `--no-check`, `--arch`,
+`--no-watch`, `--keep N`, `--allow-branch` exist for the unusual day; the
+release notes and the changelog entry are still yours to write.
 
 ## Embedded assets
 
@@ -89,14 +137,27 @@ Adding a route is therefore three edits in one commit — `RegisterAPI` (or
 `Handler`), an `openapi.go` row, a `protocol.md` row — and `make test` says
 which one you forgot.
 
-## Vendored frontend deps
+## Pins (`hack/check-pins.sh`)
 
-`hack/vendor.sh` fetches the pinned builds into `web/vendor/` and writes
-`hack/vendor.sha256`; `hack/check-pins.sh` (the release preflight) fails when
-the tree and the list disagree or a file is unlisted. To bump a dependency:
-edit the version in `hack/vendor.sh`, run it, commit `web/vendor/` and the
-checksum file together. Never edit a vendored file by hand — the checksum
-check exists so that a hand edit cannot survive to a release unnoticed.
+Offline (`make pins-offline`, part of `make check`):
+
+- `web/vendor/` matches `hack/vendor.sha256` and every file is listed.
+  `hack/vendor.sh` fetches the pinned builds and rewrites the list; to bump
+  a dependency edit the version there, run it, commit both. Never edit a
+  vendored file by hand — the checksum exists so a hand edit cannot reach a
+  release unnoticed.
+- Go versions agree: `go.mod` and `deploy/install.sh` (`XBIN_GO_VERSION`)
+  are equal; `ci.yml`'s `go-version` is go.mod's major.minor (gofmt output
+  differs across minors); the rootfs-baked toolchain
+  (`docker/rootfs.Dockerfile` `GO_VERSION`) satisfies every shipped `go`
+  directive (sdk, builtin tiles' `go.mod.tile`, examples), because terminals
+  build tiles with it.
+- The alpine pins in `hack/build-*.sh` and `deploy/install.sh` agree.
+
+Online (`make pins`, run by every release): EOL dates of the pinned Alpine
+and Ubuntu releases against endoflife.date, and a HEAD request for every
+tarball a build or a tile setup script downloads (Alpine APKINDEX, the Go
+toolchains, the traefik release the builtin tile fetches).
 
 ## gofmt scope
 

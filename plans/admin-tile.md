@@ -1,5 +1,7 @@
 # Admin tile — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 A privileged tile (`tiles/admin`) that is a full owner-console into the
 running workspace: vaults (password-manager style), roles & grants, cron,
 and an auth/system overview. It works by holding an **admin capability**,

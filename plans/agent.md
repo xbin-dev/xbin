@@ -1,5 +1,7 @@
 # Agent template — design
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 The first builtin **template component** (plans/templates.md): a blank-slate
 **agentic loop** you instantiate into a named copy (`apps/support-agent`, …)
 and build up into a practical agent that pulls and pushes data around xbin

@@ -34,7 +34,10 @@ make integration    # end-to-end; compiles real Go backends (network on first
                     # fs suites (test/containerfs/): those need bin/gocryptfs
                     # (`make gocryptfs`) + unprivileged userns, and skip with
                     # instructions when missing
-make fmt-check vet  # CI mirrors exactly these (gofmt scope: GOFMT_DIRS in the Makefile)
+make check          # the definition of done: fmt-check vet js-check shellcheck
+                    # pins-offline test — CI runs exactly this, then integration
+make hooks          # once per clone: fmt-check + js-check run pre-commit
+make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing)
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256
 ```
 
@@ -46,9 +49,10 @@ make fmt-check vet  # CI mirrors exactly these (gofmt scope: GOFMT_DIRS in the M
   nothing over 512 KB outside `web/vendor/`, no nested repos, and **no
   `plans/` pointers** — inside those trees cite the served docs and decision
   IDs (`docs/maintenance.md` → "Embedded assets").
-- Frontend has no test harness: `node --check` every touched `.js` (for
-  inline `<script type="module">` extract it first), then click through in
-  `make dev`. Say so honestly in the commit if you couldn't drive the UI.
+- Frontend has no unit-test runner: `make js-check` parses every shipped
+  `.js` and inline `<script type="module">` block (part of `make check`);
+  behaviour is verified by clicking through in `make dev` or the harness
+  below. Say so honestly in the commit if you couldn't drive the UI.
   To *look* without a browser session, `hack/ui-harness/run.sh` seeds a
   throwaway workspace (orgs, network sets, users, org tiles in every binding
   state) and writes Playwright screenshots + `<select>` option dumps of the
@@ -59,9 +63,9 @@ make fmt-check vet  # CI mirrors exactly these (gofmt scope: GOFMT_DIRS in the M
   `cd builtin-tiles/<t> && cp go.mod.tile go.mod`, write a throwaway
   `go.work` with `replace github.com/xbin-dev/xbin/sdk => ../../sdk`, build,
   then **delete both** (never commit them).
-- Verify with the whole pyramid before pushing: `go build ./...`,
-  `make fmt-check vet`, `make test`, JS parse checks — and `make integration`
-  when you touched the runner/sandbox/broker path.
+- Verify before pushing: `make check` (every guard, under a minute) — and
+  `make integration` when you touched the runner/sandbox/broker path. The
+  guards and what each protects: `docs/maintenance.md`.
 
 ## Hard rules
 

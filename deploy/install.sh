@@ -160,7 +160,7 @@ LISTEN="${XBIN_LISTEN:-127.0.0.1:8642}"
 # non-root run knows whether this box already runs xbin — the chooser then
 # leads with "upgrade" instead of presenting two fresh installs, and a user
 # instance next to a system one moves off its port instead of colliding.
-SYS_INSTALLED=0 SYS_VERSION= SYS_RUNNING=no SYS_LISTEN=
+SYS_INSTALLED=0 SYS_VERSION='' SYS_RUNNING=no SYS_LISTEN=''
 USR_INSTALLED=0
 detect_existing() {
   local p="${XBIN_PREFIX:-/opt/xbin}"
@@ -193,9 +193,9 @@ port_in_use() {
 # USER install auto-moves off a busy default port (the system install case)
 # and says so; an explicitly requested busy port is a recorded blocker, not
 # a doomed install.
-LISTEN_NOTE= LISTEN_BLOCKED=
+LISTEN_NOTE='' LISTEN_BLOCKED=''
 resolve_listen() {
-  LISTEN_NOTE= LISTEN_BLOCKED=
+  LISTEN_NOTE='' LISTEN_BLOCKED=''
   if [ -n "${XBIN_LISTEN:-}" ]; then
     LISTEN="$XBIN_LISTEN"
     if [ "$UPGRADE" = 0 ] && port_in_use "${LISTEN%:*}" "${LISTEN##*:}"; then
@@ -406,8 +406,7 @@ preflight_user() {
     if ! have podman && ! have docker; then missing_bins+=("podman"); missing_pkgs+=("$PODMAN_PKG"); fi
   fi
   if [ ${#missing_bins[@]} -gt 0 ]; then
-    # shellcheck disable=SC2086
-    local uniq; uniq=$(printf '%s\n' ${missing_pkgs[*]:-} | awk 'NF && !seen[$0]++' | tr '\n' ' ')
+    local uniq; uniq=$(printf '%s\n' "${missing_pkgs[@]:-}" | awk 'NF && !seen[$0]++' | tr '\n' ' ')
     fail "missing tools (a user install can't add packages): ${missing_bins[*]}"
     warn "  run once as root:  $(pkg_install_hint ${uniq})"
     PREFLIGHT_FATAL=1
@@ -497,8 +496,8 @@ SRC=
 SRC_KIND=   # env | cwd | clone
 resolve_source() { # read-only: decide where source comes from (for the plan)
   [ "$BUILD_FROM_SOURCE" = 1 ] || return 0
-  if [ -n "$XBIN_SRC" ]; then SRC="$XBIN_SRC"; SRC_KIND=env
-  elif [ -f ./go.mod ] && grep -q 'module github.com/xbin-dev/xbin' ./go.mod 2>/dev/null; then SRC="$(pwd)"; SRC_KIND=cwd
+  if [ -n "$XBIN_SRC" ]; then SRC="$XBIN_SRC"; SRC_KIND='env'
+  elif [ -f ./go.mod ] && grep -q 'module github.com/xbin-dev/xbin' ./go.mod 2>/dev/null; then SRC="$(pwd)"; SRC_KIND='cwd'
   else SRC="$BUILD_DIR/xbin"; SRC_KIND=clone; fi
 }
 fetch_source() {

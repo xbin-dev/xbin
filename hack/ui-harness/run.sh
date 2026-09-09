@@ -38,7 +38,7 @@ stop() {
 start() {
   (cd "$REPO" && nohup bin/xbind --dev --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
-  for i in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
+  for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind); }

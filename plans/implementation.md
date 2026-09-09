@@ -1,5 +1,7 @@
 # XBin — Implementation Plan
 
+> Status: **historical** — describes a state or plan that no longer applies; kept for history.
+
 Companion to `../ARCHITECTURE.md`. Phases are strictly incremental: each ends in a
 runnable, demoable state, and nothing in a later phase requires reworking an earlier
 one (the Runner interface and manifest-as-truth rules exist precisely to guarantee

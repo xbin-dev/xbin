@@ -1,5 +1,7 @@
 # User / Org / Team UX — audit & fix plan
 
+> Status: **superseded** — replaced by a later design — read that one; kept for history.
+
 > **Update (2026-08-02):** the org/team *model* is being rewritten —
 > [`plans/ownership.md`](ownership.md) (D24–D27). That rewrite subsumes this
 > plan's D23 (creator sharing — now an ownership right), most of M2's sharing

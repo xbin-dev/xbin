@@ -1,5 +1,7 @@
 # Ownership model — five-story UX review
 
+> Status: **historical** — a point-in-time review; its findings were folded into D29–D39 and the docs.
+
 > 2026-08-02, immediately after D22/D24–D28 shipped. Method: five parallel
 > reviewers — four user stories (solo self-hoster; security-split family;
 > 40-person corporate multi-org; discord friend group on shared hardware)

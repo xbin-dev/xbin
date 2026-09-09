@@ -1,5 +1,7 @@
 # Vault-backed encryption at rest for tile data
 
+> Status: **implemented** — shipped as described (later changes are in DECISIONS.md and docs/); kept as the design rationale.
+
 Extends the vault barrier (`plans/auth.md` §4, `internal/vault`) from protecting
 *secrets* to protecting all **tile state** — the data a component's resources
 hold — so a stolen workspace dir / disk image / backup snapshot yields only
