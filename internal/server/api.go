@@ -75,13 +75,13 @@ func apiErr(w http.ResponseWriter, code int, msg string) {
 }
 
 // admin reports whether the request's principal may use admin-capable
-// endpoints (owner, or xbin:admin via the broker-installed hook).
+// endpoints (owner, or xbin:admin via the installed Policy).
 func (s *Server) admin(r *http.Request) bool {
 	p := auth.PrincipalOf(r)
 	if p.Owner {
 		return true
 	}
-	return s.IsAdmin != nil && s.IsAdmin(p)
+	return s.policy().IsAdmin(p)
 }
 
 // apiRotateToken swaps the owner token (admin). The new token is returned
@@ -160,9 +160,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 			Chrome: isChrome(c.Path) || c.Manifest.Chrome,
 		}
-		if s.OwnerOf != nil {
-			ci.Owner = s.OwnerOf(c.Path)
-		}
+		ci.Owner = s.policy().OwnerOf(c.Path)
 		if !ci.Chrome {
 			ci.Sandbox = s.sandboxExtras(c.Path)
 		}

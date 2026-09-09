@@ -40,36 +40,11 @@ type Server struct {
 	// proxy). The request it receives has the caller principal in context.
 	ComponentAPI http.Handler
 
-	// BusFilter authorizes bus events per subscriber (installed by the broker).
-	BusFilter func(p auth.Principal, e events.Event) bool
-
-	// OwnerOf reports a component's owner ref (D24; installed by the broker
-	// so /components can carry it — "" when unowned or single-user mode).
-	OwnerOf func(path string) string
-
-	// IsAdmin reports whether a principal may use admin-capable endpoints
-	// (owner, or an element granted xbin:admin). Installed by the broker;
-	// nil ⇒ owner-only.
-	IsAdmin func(p auth.Principal) bool
-
-	// Interfaces resolves a component's http interface slots to {url, service}
-	// for injection into its frame (plans/interfaces.md). Installed by the broker.
-	Interfaces func(comp string) map[string]any
-
-	// SandboxExtras returns the `sandbox` tokens a component's grants unlock
-	// beyond the fixed base set (ND11: cap:open-links → allow-popups
-	// allow-popups-to-escape-sandbox). Composed into the CSP header of the
-	// component's documents and reported on /components so bx-frame appends
-	// the same list to its iframe attribute (browsers intersect the two).
-	// Installed by the broker; nil ⇒ base only. Consulted only for sandboxed
-	// (non-chrome) documents.
-	SandboxExtras func(comp string) []string
-
-	// CodeReadGrant reports whether element `from` holds a code[:<comp>]
-	// source-read grant covering `target` — opens the /c/ static plane for
-	// element principals beyond their own tile (installed by the broker;
-	// nil ⇒ grants don't open /c/, only the code API).
-	CodeReadGrant func(from, target string) bool
+	// Pol is what the broker decides for the server (see Policy): admin
+	// status, tile owners, bus visibility, interface meta, sandbox tokens,
+	// code grants on the static plane. Installed by the broker at boot
+	// (InstallPolicy); nil ⇒ NoopPolicy, the single-user server.
+	Pol Policy
 
 	// Overlay is a directory whose files shadow the workspace's on the /c/
 	// static plane (--dev-overlay, dev only): `make dev` points it at the
@@ -533,10 +508,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		if p.IsAdmin() {
 			return true
 		}
-		if s.BusFilter == nil {
-			return false
-		}
-		return s.BusFilter(p, e)
+		return s.policy().BusAllows(p, e)
 	}
 	serveEventsWS(w, r, s.Hub, filter)
 }

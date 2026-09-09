@@ -247,22 +247,31 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerLogs(srv)
 	b.registerPrefs(srv)
 	b.registerStatus(srv)
-	srv.BusFilter = b.busFilter
-	srv.OwnerOf = func(path string) string {
-		if b.Users == nil {
-			return ""
-		}
-		return b.Users.Owner(path)
+	srv.InstallPolicy(brokerPolicy{b})
+}
+
+// brokerPolicy is the broker's answers to the server's Policy: who is admin,
+// who owns a tile (D24), which bus events a subscriber sees, the interface
+// meta a document gets, the sandbox tokens its grants unlock (cap:open-links,
+// ND11 — decided here, composed by the server into the CSP header and the
+// iframe attribute) and whether a code[:<comp>] grant opens the /c/ static
+// plane (a code-granted backend reads sibling source either way; the
+// 2026-08-02 read-gate clamp had made instance tokens self-only even WITH
+// the grant).
+type brokerPolicy struct{ b *Broker }
+
+func (p brokerPolicy) IsAdmin(pr auth.Principal) bool { return p.b.IsAdmin(pr) }
+func (p brokerPolicy) OwnerOf(path string) string {
+	if p.b.Users == nil {
+		return ""
 	}
-	srv.IsAdmin = b.IsAdmin
-	srv.Interfaces = b.HTTPInterfaces
-	// cap:open-links (ND11) widens a tile's iframe/CSP sandbox; the tokens are
-	// decided here and composed by the server in both layers.
-	srv.SandboxExtras = b.SandboxTokensFor
-	// The code[:<comp>] capability also opens the /c/ static plane: a
-	// code-granted backend reads sibling source either way (the 2026-08-02
-	// read-gate clamp had made instance tokens self-only even WITH the grant).
-	srv.CodeReadGrant = b.codeGrantAllows
+	return p.b.Users.Owner(path)
+}
+func (p brokerPolicy) BusAllows(pr auth.Principal, e events.Event) bool { return p.b.busFilter(pr, e) }
+func (p brokerPolicy) Interfaces(comp string) map[string]any            { return p.b.HTTPInterfaces(comp) }
+func (p brokerPolicy) SandboxExtras(comp string) []string               { return p.b.SandboxTokensFor(comp) }
+func (p brokerPolicy) CodeReadGrant(from, target string) bool {
+	return p.b.codeGrantAllows(from, target)
 }
 
 // --- resource identity -------------------------------------------------

@@ -1464,3 +1464,20 @@ Deviations and refinements made while implementing; all deliberate:
   behaviour change for old clients, so they decode by hand with a
   comment), and a `RequireCap` helper (the two guards that exist read
   better than a predicate-taking generic).
+- **D61 — The broker's decisions reach the server through one interface
+  (2026-09-09).** `server.Server` carried six nullable func fields —
+  `IsAdmin`, `OwnerOf`, `BusFilter`, `Interfaces`, `SandboxExtras`,
+  `CodeReadGrant` — each installed by the broker at boot and each read
+  through its own nil-default at the call site (owner-only, unowned, no
+  bus events, no meta, base sandbox, no code plane). `server.Policy` names
+  the six questions as one interface; `NoopPolicy` is those defaults in
+  one place and what a server without a broker (tests, apicheck) runs;
+  the broker installs `brokerPolicy` through `InstallPolicy`. Wire-identical:
+  every answer is the same value the hooks returned, and `Interfaces` keeps
+  its `map[string]any` shape because the single-slot and multi-slot forms
+  are marshalled verbatim into the `xbin-interfaces` meta that shipped
+  tiles read. Rejected: typing `Interfaces` as a struct (an empty
+  `endpoints: []` would be dropped by `omitempty`, changing the meta) and
+  "improving" `OwnerOf`'s empty-string overloading (the request-access page
+  switches on it). Next: the broker split (I6d) targets this interface —
+  the kernel that answers it is what becomes `internal/authz`.

@@ -11,10 +11,7 @@ import (
 // the human mirror of the elements' pending-grant loop. Served only to
 // session principals; elements and anonymous callers keep the bare 403.
 func (s *Server) serveRequestAccessPage(w http.ResponseWriter, tile string) {
-	owner := ""
-	if s.OwnerOf != nil {
-		owner = s.OwnerOf(tile)
-	}
+	owner := s.policy().OwnerOf(tile)
 	ownerLine := "a workspace admin manages this tile"
 	switch {
 	case strings.HasPrefix(owner, "org:"):

@@ -204,12 +204,12 @@ func TestSandboxHeaderPerComponent(t *testing.T) {
 	}
 	s := &Server{Reg: reg, Auth: a}
 	extras := []string{"allow-popups", "allow-popups-to-escape-sandbox"}
-	s.SandboxExtras = func(c string) []string {
+	s.Pol = testPolicy{sandbox: func(c string) []string {
 		if c == "apps/linky" || c == "apps/raw" {
 			return extras
 		}
 		return nil
-	}
+	}}
 	owner := auth.Principal{Owner: true}
 	get := func(url string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", url, nil)
@@ -319,9 +319,9 @@ func TestStaticCodeGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{Reg: reg, Auth: a}
-	s.CodeReadGrant = func(from, target string) bool {
+	s.Pol = testPolicy{code: func(from, target string) bool {
 		return from == "apps/scanner" && target == "apps/lib"
-	}
+	}}
 
 	get := func(url string, p auth.Principal) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", url, nil)
@@ -404,11 +404,28 @@ func TestComponentsCodeGrant(t *testing.T) {
 		t.Fatalf("ungranted element listing = %v", got)
 	}
 	// Bare-code-style grant (hook says yes to everything): all components list.
-	s.CodeReadGrant = func(from, target string) bool { return from == "apps/code-stats" }
+	s.Pol = testPolicy{code: func(from, target string) bool { return from == "apps/code-stats" }}
 	got := list(el)
 	for _, want := range []string{"apps/a", "apps/b", "apps/code-stats"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("code-granted element listing = %v, missing %s", got, want)
 		}
 	}
+}
+
+// testPolicy answers one or two of the Policy questions over NoopPolicy.
+type testPolicy struct {
+	NoopPolicy
+	sandbox func(string) []string
+	code    func(string, string) bool
+}
+
+func (p testPolicy) SandboxExtras(c string) []string {
+	if p.sandbox == nil {
+		return nil
+	}
+	return p.sandbox(c)
+}
+func (p testPolicy) CodeReadGrant(from, target string) bool {
+	return p.code != nil && p.code(from, target)
 }

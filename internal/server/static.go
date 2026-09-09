@@ -41,13 +41,8 @@ func sandboxHeader(extras []string) string {
 	return sandboxCSP + " " + strings.Join(extras, " ")
 }
 
-// sandboxExtras: the hook, nil-safe.
-func (s *Server) sandboxExtras(comp string) []string {
-	if s.SandboxExtras == nil {
-		return nil
-	}
-	return s.SandboxExtras(comp)
-}
+// sandboxExtras: the Policy's extra sandbox tokens for a component.
+func (s *Server) sandboxExtras(comp string) []string { return s.policy().SandboxExtras(comp) }
 
 // sandboxDocument sets the CSP sandbox header on a non-chrome document (the
 // one place both emission sites go through) and reports whether it did.
@@ -169,10 +164,10 @@ func (s *Server) overlayFile(cleaned, full string) string {
 }
 
 // codeGranted reports whether an element principal holds a code[:<target>]
-// source-read grant on target (broker-installed hook). Element principals
+// source-read grant on target (Policy.CodeReadGrant). Element principals
 // only — humans use their per-tile RBAC (CanReadTile).
 func (s *Server) codeGranted(p auth.Principal, target string) bool {
-	return p.Component != "" && s.CodeReadGrant != nil && s.CodeReadGrant(p.Component, target)
+	return p.Component != "" && s.policy().CodeReadGrant(p.Component, target)
 }
 
 // tileSubresource reports whether r is a credential-less subresource load
@@ -310,11 +305,9 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	}
 
 	ifaceMeta := ""
-	if s.Interfaces != nil {
-		if ifaces := s.Interfaces(compPath); len(ifaces) > 0 {
-			j, _ := json.Marshal(ifaces)
-			ifaceMeta = fmt.Sprintf("<meta name=\"xbin-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
-		}
+	if ifaces := s.policy().Interfaces(compPath); len(ifaces) > 0 {
+		j, _ := json.Marshal(ifaces)
+		ifaceMeta = fmt.Sprintf("<meta name=\"xbin-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
 	}
 
 	// The sandbox this document runs in (full token list; absent for chrome)

@@ -162,6 +162,15 @@ the reason, and make sure the second boot still changes nothing.
   ignored by the workspace watcher). `WriteFileAtomicIn` creates the parent
   first. A plain `os.WriteFile` is for content that is not state: a
   scaffold file being seeded, a clone's rewritten source.
+- **What the broker decides for the server is one interface,
+  `server.Policy`** (`internal/server/policy.go`): admin status, tile
+  owners, bus visibility, the interface meta a document gets, the sandbox
+  tokens its grants unlock, code grants on the static plane. The broker
+  installs `brokerPolicy` at boot (`InstallPolicy`); a server without one
+  runs `NoopPolicy` — owner-only and fail-closed — which is also what
+  tests start from (embed it and override one answer). A new question the
+  server must ask the broker is a method on `Policy`, never another
+  nullable func field.
 
 ## Builtin tiles and templates
 
