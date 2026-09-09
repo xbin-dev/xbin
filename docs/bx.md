@@ -194,6 +194,16 @@ Run it first when something "doesn't reload".
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
 generation is delimited by a `--- gen N start …` line.
 
+## Unknown flags
+
+A flag a command does not know is an error (`unknown flag --x`), so a typo
+never turns into a positional argument or a silent no-op. Four commands
+used to ignore unknown flags — `bx restore`, `bx backup-schedule`,
+`bx builtin update`, `bx org add` — and for one release they print a
+warning on stderr and carry on, so scripts get told before they break; the
+next release makes them errors like every other command. A flag that
+needs a value and is last on the line is `--x needs a value`, never a crash.
+
 ## Environment
 
 | Var | Default | Meaning |

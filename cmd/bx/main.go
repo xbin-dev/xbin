@@ -710,6 +710,12 @@ func cmdBackupSchedule(args []string) error {
 				fmt.Sscanf(args[i], "%d", &keep)
 			}
 		default:
+			if isFlag(args[i]) {
+				if err := unknownFlag("backup-schedule", args[i], true); err != nil {
+					return err
+				}
+				continue
+			}
 			comp = args[i]
 		}
 	}
@@ -815,6 +821,12 @@ func cmdRestore(args []string) error {
 				file = args[i]
 			}
 		default:
+			if isFlag(args[i]) {
+				if err := unknownFlag("restore", args[i], true); err != nil {
+					return err
+				}
+				continue
+			}
 			comp = args[i]
 		}
 	}

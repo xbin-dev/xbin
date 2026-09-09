@@ -17,3 +17,17 @@ func TestNextArg(t *testing.T) {
 		t.Fatalf("i advanced on error: %d", i)
 	}
 }
+
+func TestUnknownFlag(t *testing.T) {
+	if err := unknownFlag("x", "--nope", false); err == nil || err.Error() != "unknown flag --nope" {
+		t.Errorf("strict: %v", err)
+	}
+	if err := unknownFlag("x", "--nope", true); err != nil {
+		t.Errorf("lenient must warn, not fail: %v", err)
+	}
+	for a, want := range map[string]bool{"--x": true, "-x": true, "-": false, "apps/x": false, "": false} {
+		if got := isFlag(a); got != want {
+			t.Errorf("isFlag(%q) = %v", a, got)
+		}
+	}
+}

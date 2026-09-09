@@ -77,6 +77,8 @@ func cmdOrg(args []string) error {
 					return err
 				}
 				body["name"] = v
+			} else if err := unknownFlag("org add", args[i], true); err != nil {
+				return err
 			}
 		}
 		if err := apiJSON("POST", "/api/xbin/orgs", body, nil); err != nil {

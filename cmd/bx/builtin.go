@@ -66,6 +66,10 @@ func cmdBuiltin(args []string) error {
 				mode = "replace"
 			case "--pr":
 				mode = "pr"
+			default:
+				if err := unknownFlag("builtin update", a, true); err != nil {
+					return err
+				}
 			}
 		}
 		if mode == "pr" {

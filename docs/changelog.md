@@ -55,6 +55,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   mounted its tiles (spawning their backends, restoring their terminals)
   before switching to the screen you were on; it now waits for the
   layout.
+- **`bx` warns on a flag it does not know, everywhere.** `bx restore`,
+  `bx backup-schedule`, `bx builtin update` and `bx org add` used to ignore
+  an unknown flag — a typo'd `--versoin` became the component name, or
+  nothing at all. They now print `warning: unknown flag … ignored` on
+  stderr and carry on for this release; the next one makes them errors,
+  as every other command already is ([bx.md](/docs/bx.md) "Unknown
+  flags"). Scripts that pass a real flag are unaffected.
 - **`bx org add|set` no longer crash on a flag without its value.**
   `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
   --name`) printed a Go index panic; they now say `--name needs a value`.
