@@ -132,3 +132,39 @@ export async function setLifecycle(path, state) {
   await api('/lifecycle', jbody({ component: path, state }, 'POST'));
   return true;
 }
+
+// WithFilter(Base): the list-view filter primitive (views scale to 1000s of
+// tiles) — a query + optional category chips + a result count. The element
+// declares `_q: { state: true }, _cats: { state: true }` and seeds
+// `this._q = ''; this._cats = new Set()` in its constructor.
+export const WithFilter = (Base) => class extends Base {
+  // _match tests any of the given strings against the query (case-insensitive substring).
+  _match(...parts) {
+    const q = (this._q || '').trim().toLowerCase();
+    if (!q) return true;
+    return parts.some((p) => (p || '').toString().toLowerCase().includes(q));
+  }
+  _catActive(c) { return this._cats.size === 0 || this._cats.has(c); }
+  _toggleCat(c) {
+    const s = new Set(this._cats); s.has(c) ? s.delete(c) : s.add(c); this._cats = s;
+  }
+  _filterBar(placeholder, cats, shown, total) {
+    return html`<div class="filterbar">
+      <input class="q" type="search" placeholder=${placeholder} .value=${this._q}
+             @input=${(e) => { this._q = e.target.value; }}>
+      ${cats && cats.length ? html`<div class="chips">
+        ${cats.map((c) => html`<span class="chip ${this._cats.has(c) ? 'on' : ''}"
+          @click=${() => this._toggleCat(c)}>${c}</span>`)}
+      </div>` : nothing}
+      ${total != null ? html`<span class="count-note">${shown}/${total}</span>` : nothing}
+    </div>`;
+  }
+  // The scope/org category a component path falls in (for chips): its org
+  // (o/<org>), else its top-level segment ("apps", "lib", …).
+  _catOf(path) {
+    const s = (path || '').split('/');
+    if (s[0] === 'o' && s[1]) return 'org:' + s[1];
+    if (s[1] === 'o' && s[2]) return 'org:' + s[2];
+    return s[0] || '—';
+  }
+};

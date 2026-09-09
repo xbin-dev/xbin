@@ -13,8 +13,8 @@
 import { LitElement, html, css, nothing, svg, repeat } from 'lit';
 import { unsafeHTML } from 'lit';
 import '/vendor/bx-multiselect.js';
-import { ruleLabel, netOptions } from '/vendor/bx-netrules.js';
-import { parseAllow, fmtAllow, allowProblem, describeAllow, capInfo } from '/vendor/bx-allow.js';
+import { ruleLabel } from '/vendor/bx-netrules.js';
+import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 
 // "stale" for the users table's offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -31,6 +31,8 @@ import './tabs/permsets.js';
 import './tabs/vault.js';
 import './tabs/cron.js';
 import './tabs/backup.js';
+import './tabs/binding.js';
+import './tabs/ingress.js';
 import { targetOptions, targetDatalist, serviceOptions, serviceDatalist, allowRows, fmtBytes, fmtDur, setLifecycle } from './shared.js';
 
 export class BxAdmin extends LitElement {
@@ -66,8 +68,6 @@ export class BxAdmin extends LitElement {
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
-    _ingress: { state: true },  // {exposes, routes, streams, …} — published endpoints
-    _ingEdit: { state: true },  // per-row route edits before publish (comp\x00slot → {…})
     _busy: { state: true },      // comp path mid heavy op (offload/restore/backup)
     _err: { state: true },
     _denied: { state: true },
@@ -287,7 +287,7 @@ export class BxAdmin extends LitElement {
     // list); _openCode re-sets _codeComp right after calling this to drill in.
     this._codeComp = null;
     if (t === 'components' || t === 'resources') this._loadRuntime();
-    if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose' || t === 'permsets' || t === 'orgs') this._loadIfaces(); // permsets/orgs: the service datalist
+    if (t === 'permsets' || t === 'orgs') this._loadIfaces(); // the service datalist
     if (t === 'sessions') this._loadSessions();
   }
 
@@ -315,7 +315,7 @@ export class BxAdmin extends LitElement {
     // Prime the data the initial tab needs (constructor set _tab from the hash
     // but doesn't fetch; _setTab does that on later clicks).
     if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
-    if (['providers', 'wiring', 'endpoints', 'expose'].includes(this._tab)) this._loadIfaces();
+    if (this._tab === 'permsets' || this._tab === 'orgs') this._loadIfaces();
     if (this._tab === 'sessions') this._loadSessions();
     // Live backend/resource data: poll while a runtime-data tab is active.
     // The sessions tab polls too (logins/logouts raise no event), at 1/5 rate.
@@ -418,18 +418,6 @@ export class BxAdmin extends LitElement {
       if (String(e.message).includes('admin')) this._denied = true;
       else this._err = String(e.message ?? e);
     }
-  }
-
-  // ---- grants ----
-  async _grant(from, target, role) {
-    await api('/grants', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, target, role }) });
-    this._refresh();
-  }
-  async _revoke(g) {
-    await api('/grants', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(g) });
-    this._refresh();
   }
 
   // ---- code & history (a drill-in from the overview; no separate tab) ----
@@ -543,12 +531,8 @@ export class BxAdmin extends LitElement {
           : tab === 'components' ? (this._codeComp ? this._codeView() : this._componentsView())
           : tab === 'resources' ? this._resourcesView()
           : tab === 'vault' ? html`<bx-admin-vault .vaults=${this._vaults} .vaultStatus=${this._vaultStatus} .components=${this._ov?.components ?? []}></bx-admin-vault>`
-          : tab === 'roles' ? this._rolesCatalogView()
-          : tab === 'grants' ? this._grantsView()
-          : tab === 'providers' ? this._providersView()
-          : tab === 'wiring' ? this._bindingView()
-          : tab === 'endpoints' ? this._ingressEndpointsView()
-          : tab === 'expose' ? this._ingressExposeView()
+          : ['roles', 'grants', 'providers', 'wiring'].includes(tab) ? html`<bx-admin-binding view=${tab} .ov=${this._ov} .orgs=${this._orgs}></bx-admin-binding>`
+          : tab === 'endpoints' || tab === 'expose' ? html`<bx-admin-ingress view=${tab}></bx-admin-ingress>`
           : tab === 'backup' ? html`<bx-admin-backup .components=${this._ov?.components ?? []}></bx-admin-backup>`
           : html`<bx-admin-cron .cron=${this._cron}></bx-admin-cron>`}
       </div>`;
@@ -1100,366 +1084,6 @@ export class BxAdmin extends LitElement {
       await this._refresh();
     } catch (e) { this._err = String(e.message ?? e); }
     finally { this._busy = null; }
-  }
-
-  // ---- binding → grants: the grant table + approvals ----
-  _grantsView() {
-    const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
-    const comps = ov.components ?? [];
-    const pending = (ov.pending ?? []).filter((g) => this._match(g.from, g.target, g.role));
-    const grants = (ov.grants ?? []).filter((g) => this._match(g.from, g.target, g.role));
-    const total = (ov.grants ?? []).length + (ov.pending ?? []).length;
-    return html`
-      ${this._filterBar('filter grants by caller, target or role…', null, pending.length + grants.length, total)}
-      ${pending.length ? html`<h4>pending requests</h4>
-        <table>${pending.map((g) => html`<tr>
-          <td class="mono" title=${capInfo(g.target)?.desc ?? ''}>${g.from} → ${g.target}</td>
-          <td><span class="pill">${g.role}</span></td>
-          <td style="text-align:right">${g.blocked
-            ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
-            : html`<button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button>`}</td>
-        </tr>`)}</table>` : nothing}
-
-      <h4>active grants</h4>
-      <table>${grants.length ? grants.map((g) => html`<tr>
-        <td class="mono">${g.from} → ${g.target}</td>
-        <td><span class="pill">${g.role}</span></td>
-        <td style="text-align:right"><button class="act rm" @click=${() => this._revoke(g)}>revoke</button></td>
-      </tr>`) : html`<tr><td class="muted">${this._q ? 'no matching grants' : 'none'}</td></tr>`}</table>
-
-      <h4>add grant</h4>
-      <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
-          if (f.from.value && f.target.value && f.role.value) this._grant(f.from.value, f.target.value.trim(), f.role.value.trim());
-          f.reset(); }}>
-        <select name="from">${comps.map((k) => html`<option>${k.path}</option>`)}</select>
-        <span class="muted">→</span>
-        <input name="target" placeholder="apps/other or res:…/… or xbin" size="20">
-        <span class="muted">:</span>
-        <input name="role" placeholder="reader" size="8" value="reader">
-        <button class="act go">grant</button>
-      </form>`;
-  }
-
-  // ---- binding → roles: the exposed-role catalog ----
-  _rolesCatalogView() {
-    const ov = this._ov; if (!ov) return html`<span class="muted">loading…</span>`;
-    const rows = (ov.components ?? []).filter((k) => k.roles)
-      .flatMap((k) => Object.entries(k.roles).map(([role, desc]) => ({ path: k.path, role, desc })))
-      .filter((r) => this._match(r.path, r.role, r.desc));
-    return html`
-      <p class="muted">Every role a component <b>exposes</b> for others to be granted (manifest
-        <code>expose.roles</code>). Callers request them in <code>uses</code>; you approve in
-        <a class="link" @click=${() => this._setTab('grants')}>grants</a>.</p>
-      ${this._filterBar('filter roles by component, role or description…', null, rows.length, rows.length)}
-      <table>
-        <tr><th>component</th><th>role</th><th>description</th></tr>
-        ${rows.map((r) => html`<tr>
-          <td class="mono">${r.path}</td><td><span class="pill">${r.role}</span></td>
-          <td class="muted">${r.desc}</td></tr>`)}
-        ${rows.length === 0 ? html`<tr><td class="muted" colspan="3">no exposed roles${this._q ? ' match' : ''}</td></tr>` : nothing}
-      </table>`;
-  }
-
-  // ---- interfaces (typed capability wiring; docs/overview/11-interfaces.md) ----
-  async _loadIfaces() {
-    try {
-      const [b, ing] = await Promise.all([api('/bindings'), api('/ingress')]);
-      this._ifaces = b; this._ingress = ing; this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-  // Resolves true when the bind went through. A refusal (400 "not covered",
-  // 403) is shown, and the caller snaps its <select> back — lit re-renders
-  // the same `selected` attributes, so the browser would keep showing the
-  // refused pick as if it had been applied.
-  async _bindSet(component, slot, provider) {
-    try {
-      await api('/bindings', {
-        method: provider ? 'POST' : 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ component, slot, provider }),
-      });
-      await this._loadIfaces();
-      return true;
-    } catch (e) { this._err = String(e.message ?? e); return false; }
-  }
-  // Replace a multi slot's whole set (bx-multiselect emits the full selection).
-  async _bindSetMulti(component, slot, providers) {
-    try {
-      await api('/bindings', {
-        method: providers.length ? 'POST' : 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(providers.length ? { component, slot, providers } : { component, slot }),
-      });
-      await this._loadIfaces();
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-  // Shared iface model: the provider roster (by kind, service-aware, instances
-  // expanded) and the request list — consumed by both providers + binding views.
-  _ifaceModel() {
-    const d = this._ifaces || {};
-    const comps = d.components || [];
-    const instances = d.instances || {};
-    const providersByKind = {};
-    for (const c of comps)
-      for (const def of Object.values(c.provides || {})) {
-        const list = (providersByKind[def.kind] ||= []);
-        if (def.instances) {
-          for (const id of Object.keys(instances[c.component] || {}).sort())
-            list.push({ ref: `${c.component}#${id}`, service: def.service });
-        } else {
-          list.push({ ref: c.component, service: def.service });
-        }
-      }
-    // Net builtins are NOT a fixed list any more: the owning org's network
-    // sets decide (org / none / "not covered") — see _netBindRow (D54).
-    const builtins = {};
-    const requests = comps.flatMap((c) =>
-      Object.entries(c.interfaces || {}).map(([slot, def]) => ({ comp: c.component, slot, def })));
-    return { d, comps, instances, providersByKind, builtins, requests };
-  }
-
-  // The org that owns a tile (null for personal/workspace tiles) — the org
-  // list already carries every org's ownedTiles.
-  _orgOfTile(comp) {
-    return (this._orgs ?? []).find((o) => (o.ownedTiles ?? []).includes(comp)) ?? null;
-  }
-
-  // One net slot's row (D54): options come from bx-netrules (the org's sets
-  // decide what is offered and what is "not covered"), an unlisted bound ref
-  // (lan:… / internet:… from `custom…`) shows as its own option, an inert
-  // binding carries the server's reason, and `custom…` reveals a free-text
-  // input for the D35 filtered forms.
-  _netBindRow(r, d, bound, providers) {
-    const pend = (d.pending ?? []).find((p) => p.component === r.comp && p.slot === r.slot);
-    const org = this._orgOfTile(r.comp);
-    const opts = netOptions({ org, providers, pending: pend });
-    const cur = bound[0] ?? '';
-    const known = opts.some((o) => o.id === cur);
-    const inert = d.inert?.[r.comp]?.[r.slot];
-    const ck = `bindcustom:${r.comp}:${r.slot}`;
-    const custom = this._draft(ck);
-    return html`<tr>
-      <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">net</span></td>
-      <td>
-        <select @change=${(e) => {
-          const v = e.target.value, el = e.target;
-          if (v === '__custom') { this._setDraft(ck, cur && !known ? cur : ''); el.value = cur; return; }
-          this._dropDraft(ck);
-          this._bindSet(r.comp, r.slot, v).then((ok) => { if (!ok && el.isConnected) el.value = cur; });
-        }}>
-          ${opts.map((o) => html`<option value=${o.id} title=${o.title} ?selected=${o.id === cur} ?disabled=${!!o.disabled}>${o.label}</option>`)}
-          ${cur && !known ? html`<option value=${cur} selected>${cur}</option>` : nothing}
-        </select>
-        ${custom !== undefined ? html`<form class="inline" style="display:inline-flex; gap:4px; margin-left:4px"
-            @submit=${(e) => { e.preventDefault(); const v = e.target.ref.value.trim(); if (!v) return; this._dropDraft(ck); this._bindSet(r.comp, r.slot, v); }}>
-            <input name="ref" size="28" placeholder="lan:10.0.0.0/8 · internet:api.example.com:443" .value=${custom}
-              title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — hostnames are DNS-pinned; no globs in bindings">
-            <button class="act go">bind</button>
-            <button class="act" type="button" @click=${() => this._dropDraft(ck)}>✕</button></form>` : nothing}
-        ${inert ? html`<span class="pill pol" title=${inert}>inert</span> <span class="warn-line" style="display:inline">${inert}</span>` : nothing}
-        ${org ? html`<span class="muted" style="font-size:10.5px" title="owned by org:${org.id} — its network sets bound this list">🏢 ${org.id}</span>` : nothing}
-      </td></tr>`;
-  }
-
-  // ---- binding → interface providers ----
-  _providersView() {
-    if (!this._ifaces) return html`<div class="muted">loading…</div>`;
-    const { comps, instances, providersByKind } = this._ifaceModel();
-    const rows = comps.flatMap((c) => Object.entries(c.provides || {})
-      .map(([slot, def]) => ({ comp: c.component, slot, def })))
-      .filter((r) => this._match(r.comp, r.slot, r.def.kind, r.def.service));
-    return html`
-      <p class="muted">Tiles that <b>provide</b> a typed interface others can bind to — net providers,
-        service (<code>http</code>) endpoints, ingress terminators. See
-        <a href="/docs/elements.md" target="_blank">docs/elements.md</a>.</p>
-      ${this._filterBar('filter providers by tile, slot, kind or service…', null, rows.length, rows.length)}
-      <table class="tbl">
-        <tr><th>tile</th><th>slot</th><th>kind</th><th>instances</th></tr>
-        ${rows.map((r) => html`<tr>
-          <td class="mono">${r.comp}</td><td>${r.slot}</td>
-          <td><span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}</span></td>
-          <td class="mono">${r.def.instances
-            ? (Object.keys(instances[r.comp] || {}).sort().map((id) => html`<span class="pill">#${id}</span>`) || nothing)
-            : html`<span class="muted">—</span>`}</td></tr>`)}
-        ${rows.length === 0 ? html`<tr><td class="muted" colspan="4">no provider tiles${this._q ? ' match' : ''}${!this._q && Object.keys(providersByKind).length === 0 ? '' : ''}</td></tr>` : nothing}
-      </table>`;
-  }
-
-  // ---- binding → binding: wire each requested slot to a provider ----
-  _bindingView() {
-    if (!this._ifaces) return html`<div class="muted">loading…</div>`;
-    const { d, providersByKind, builtins, requests } = this._ifaceModel();
-    const rows = requests.filter((r) => this._match(r.comp, r.slot, r.def.kind, r.def.service));
-    return html`
-      <p class="muted">Each component <b>requests</b> typed interface slots; you <b>bind</b> each to a
-        provider. The binding is the authorization — unbound means no capability. Public exposure is
-        under <a class="link" @click=${() => this._setTab('expose')}>ingress → services / expose</a>.</p>
-      ${this._filterBar('filter by component, slot, kind or service…', null, rows.length, requests.length)}
-      <table class="tbl">
-        <tr><th>component</th><th>slot</th><th>kind</th><th>bound to</th></tr>
-        ${rows.map((r) => {
-          const raw = d.bindings?.[r.comp]?.[r.slot];
-          const bound = [].concat(raw ?? []).map((x) => (x && x.ref) ? x.ref : x); // string|{ref}|array → refs
-          const own = (p) => p === r.comp || p.startsWith(r.comp + '#');
-          const opts = [...(builtins[r.def.kind] || []),
-            ...(providersByKind[r.def.kind] || [])
-              .filter((e) => !own(e.ref) &&
-                (r.def.kind !== 'http' || !r.def.service || e.service === r.def.service))
-              .map((e) => e.ref)];
-          const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
-          if (r.def.kind === 'net' && !r.def.multi) return this._netBindRow(r, d, bound, opts);
-          if (r.def.multi) {
-            return html`<tr>
-              <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
-              <td><bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
-                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, e.detail.selected)}></bx-multiselect></td></tr>`;
-          }
-          return html`<tr>
-            <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
-            <td><select @change=${(e) => this._bindSet(r.comp, r.slot, e.target.value)}>
-              <option value="" ?selected=${bound.length === 0}>— unbound —</option>
-              ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
-            </select></td></tr>`;
-        })}
-        ${rows.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces${this._q ? ' match' : ''}</td></tr>` : nothing}
-      </table>`;
-  }
-
-  // ---- ingress (published endpoints; docs/ingress.md) ----
-  _ingKey(comp, slot) { return comp + '\x00' + slot; }
-  _ingEditFor(e) {
-    // The working row state: pending edits over the current binding.
-    return this._ingEdit?.[this._ingKey(e.component, e.slot)]
-      ?? { source: e.source || '', host: e.host || '', zone: e.zone || '', listen: e.listen || '' };
-  }
-  _ingSetEdit(e, patch) {
-    const k = this._ingKey(e.component, e.slot);
-    this._ingEdit = { ...(this._ingEdit || {}), [k]: { ...this._ingEditFor(e), ...patch } };
-  }
-  async _ingPublish(e) {
-    const ed = this._ingEditFor(e);
-    if (!ed.source) return;
-    const body = { component: e.component, slot: e.slot, provider: ed.source };
-    if (e.kind === 'http') {
-      // Exactly one of host/zone — send whichever is filled (server validates).
-      if (ed.zone) body.zone = ed.zone; else body.host = ed.host;
-    } else if (ed.listen) body.listen = ed.listen;
-    try {
-      await api('/bindings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const k = this._ingKey(e.component, e.slot);
-      const { [k]: _, ...rest } = this._ingEdit || {}; this._ingEdit = rest;
-      await this._loadIfaces();
-    } catch (err) { this._err = String(err.message ?? err); }
-  }
-  async _ingUnpublish(e) {
-    try {
-      await api('/bindings', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ component: e.component, slot: e.slot }) });
-      await this._loadIfaces();
-    } catch (err) { this._err = String(err.message ?? err); }
-  }
-  // ---- ingress → services / expose: publish tiles to the outside ----
-  _ingressExposeView() {
-    const d = this._ingress;
-    if (!d) return html`<span class="muted">loading…</span>`;
-    const streams = d.streams || [];
-    const sources = (kind) => kind === 'http' ? ['runtime', ...(d.terminators || [])] : ['runtime'];
-    const all = d.exposes || [];
-    const exposes = all.filter((e) => this._match(e.component, e.slot, e.kind, e.host, e.zone));
-    return html`
-      <p class="muted">Tiles declare <code>exposes</code> in their manifest; <b>binding a slot to an
-        ingress source publishes it</b> to the outside — anonymous traffic, confined to the tile's
-        declared public paths. Unbound = unreachable, exactly like interfaces.
-        See <a href="/docs/ingress.md" target="_blank">docs/ingress.md</a>.</p>
-      ${all.length === 0 ? html`<div class="muted">No tile declares <code>exposes</code> yet. Add an
-        <span class="mono">exposes</span> block to a tile's <span class="mono">xbin.json</span>
-        (http paths, or a tcp/udp port), or import the <b>Public HTTPS (Traefik)</b> tile.</div>` : html`
-      ${this._filterBar('filter exposed endpoints…', null, exposes.length, all.length)}
-      <table class="tbl">
-        <tr><th>tile</th><th>endpoint</th><th>source</th><th>route</th><th></th><th>state</th></tr>
-        ${exposes.map((e) => {
-          const ed = this._ingEditFor(e);
-          const bound = !!e.source;
-          const dirty = ed.source !== (e.source || '') || ed.host !== (e.host || '')
-            || ed.zone !== (e.zone || '') || ed.listen !== (e.listen || '');
-          const endpoint = e.kind === 'http'
-            ? html`<span class="pill">http</span> <span class="muted">${(e.paths || []).join(' ')}</span>`
-            : html`<span class="pill">${e.proto}:${e.port}</span>`;
-          const routeEd = e.kind === 'http'
-            ? html`<input class="mono" style="width:12em" placeholder="host (blog.example.com)"
-                     .value=${ed.zone ? '' : ed.host} ?disabled=${!!ed.zone}
-                     @input=${(ev) => this._ingSetEdit(e, { host: ev.target.value.trim(), zone: '' })}>
-                   <input class="mono" style="width:11em" placeholder="or zone (*.sites.…)"
-                     .value=${ed.zone}
-                     @input=${(ev) => this._ingSetEdit(e, { zone: ev.target.value.trim() })}>`
-            : html`<input class="mono" style="width:8em" placeholder=":${e.port} (host port)"
-                     .value=${ed.listen}
-                     @input=${(ev) => this._ingSetEdit(e, { listen: ev.target.value.trim() })}>`;
-          let state = html`<span class="muted">unbound — not reachable</span>`;
-          if (e.blocked) state = html`<span class="st-failed">⛔ ${e.blocked}</span>`;
-          else if (bound && e.kind === 'http') state = html`<span class="st-healthy">public: ${e.zone || e.host}</span>`;
-          else if (bound) {
-            const st = streams.find((s) => s.component === e.component && s.slot === e.slot);
-            state = st?.error ? html`<span class="st-failed">⚠ ${st.error}</span>`
-              : html`<span class="st-healthy">host ${e.listen || ':' + e.port} → :${e.port}${st ? ` (${st.active} active)` : ''}</span>`;
-          }
-          return html`<tr>
-            <td class="mono">${e.component}</td><td>${e.slot} ${endpoint}</td>
-            <td><select ?disabled=${!!e.blocked} @change=${(ev) => this._ingSetEdit(e, { source: ev.target.value })}>
-              <option value="" ?selected=${!ed.source}>— unbound —</option>
-              ${sources(e.kind).map((s) => html`<option value=${s} ?selected=${ed.source === s}>${s}</option>`)}
-            </select></td>
-            <td>${routeEd}</td>
-            <td>
-              ${ed.source && (dirty || !bound) ? html`<button class="act go" @click=${() => this._ingPublish(e)}>publish</button>` : nothing}
-              ${bound ? html`<button class="act rm" @click=${() => this._ingUnpublish(e)}>unpublish</button>` : nothing}
-            </td>
-            <td>${state}</td></tr>`;
-        })}
-        ${exposes.length === 0 ? html`<tr><td class="muted" colspan="6">no matching endpoints</td></tr>` : nothing}
-      </table>`}`;
-  }
-
-  // ---- ingress → endpoints: live routes, listeners, terminators ----
-  _ingressEndpointsView() {
-    const d = this._ingress;
-    if (!d) return html`<span class="muted">loading…</span>`;
-    const routes = (d.routes || []).filter((r) => this._match(r.host, r.component, r.slot, r.source));
-    const streams = d.streams || [];
-    const forwards = d.forwards || [];
-    const lst = d.httpListener || {};
-    return html`
-      <p class="muted">The live public routing table — what the outside can reach right now. Publish
-        or unpublish under <a class="link" @click=${() => this._setTab('expose')}>services / expose</a>.</p>
-      <div class="muted" style="margin:2px 0 10px">
-        builtin HTTP listener: ${lst.listen ? html`<b>${lst.listen}</b> (${lst.tls ? 'TLS' : 'no TLS — front it, or use the Traefik tile'})` : 'off — start xbind with --ingress-listen'}
-      </div>
-      <h4>HTTP routes</h4>
-      ${this._filterBar('filter routes by host or tile…', null, routes.length, (d.routes || []).length)}
-      <table class="tbl">
-        <tr><th>public host</th><th>→ tile</th><th>via</th></tr>
-        ${routes.map((r) => html`<tr>
-          <td class="mono">${r.host}</td>
-          <td class="mono">${r.component}.${r.slot}</td>
-          <td>${r.source}${r.zone ? html` <span class="muted">(zone ${r.zone})</span>` : nothing}</td></tr>`)}
-        ${routes.length === 0 ? html`<tr><td class="muted" colspan="3">no HTTP routes${this._q ? ' match' : ''}</td></tr>` : nothing}
-      </table>
-      ${streams.length ? html`<h4>stream listeners (tcp / udp)</h4>
-        <table class="tbl">
-          <tr><th>host listen</th><th>→ tile</th><th>proto</th><th>state</th></tr>
-          ${streams.map((s) => html`<tr>
-            <td class="mono">${s.listen}</td>
-            <td class="mono">${s.component}.${s.slot} → :${s.port}</td>
-            <td>${s.proto}</td>
-            <td>${s.error ? html`<span class="st-failed">⚠ ${s.error}</span>` : html`<span class="st-healthy">${s.active} active</span>`}</td></tr>`)}
-        </table>` : nothing}
-      ${forwards.length ? html`<h4>terminator forward doors</h4>
-        <table class="tbl">
-          <tr><th>terminator tile</th><th>state</th></tr>
-          ${forwards.map((f) => html`<tr>
-            <td class="mono">${f.source}</td>
-            <td>${f.error ? html`<span class="st-failed">⚠ ${f.error}</span>` : html`<span class="st-healthy">up</span>`}</td></tr>`)}
-        </table>` : nothing}`;
   }
 
   // ---- users ----
@@ -2247,7 +1871,7 @@ export class BxAdmin extends LitElement {
     const a = this;
     // Drafts live on the tab element that owns the namespace; the rest here.
     const owner = (k) => {
-      const tag = k.startsWith('permset:') ? 'bx-admin-permsets' : k.startsWith('netset:') ? 'bx-admin-netsets' : null;
+      const tag = k.startsWith('permset:') ? 'bx-admin-permsets' : k.startsWith('netset:') ? 'bx-admin-netsets' : k.startsWith('bindcustom:') ? 'bx-admin-binding' : null;
       return (tag && a.renderRoot.querySelector(tag)?.testApi()) || { draft: (x) => a._draft(x), setDraft: (x, v) => a._setDraft(x, v), dropDraft: (x) => a._dropDraft(x) };
     };
     return {
@@ -2258,6 +1882,12 @@ export class BxAdmin extends LitElement {
     };
   }
   _toggleDraft(k, seed) { this._draft(k) ? this._dropDraft(k) : this._setDraft(k, seed()); }
+
+  // The service datalist (permission-set and org editors) needs the wiring
+  // data; the binding/ingress tabs load their own.
+  async _loadIfaces() {
+    try { this._ifaces = await api('/bindings'); } catch (e) { this._err = String(e.message ?? e); }
+  }
 
   // Target / service suggestions (shared.js) rendered once per view as a
   // <datalist> the row editors' inputs attach to.
