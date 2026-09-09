@@ -108,20 +108,25 @@ func (p *podman) version() (string, error) {
 // can exec into it repeatedly); most dev images (ubuntu/debian/alpine/fedora)
 // carry sleep. cmd overrides the keep-alive command when non-empty.
 func (p *podman) create(name, image string, cmd []string) (string, error) {
+	return p.run(createArgs(p.network, name, image, cmd)...)
+}
+
+// createArgs is the container spec — pure, so the test pins it. No inner
+// cgroup management: the tile's own cgroup already bounds every container it
+// spawns (docs/changes/2026-07-14-container-tiles.md), and rootless cgroup v2
+// delegation is often unavailable.
+func createArgs(network, name, image string, cmd []string) []string {
 	args := []string{"run", "-d", "--name", name}
-	if p.network != "" {
-		args = append(args, "--network", p.network)
+	if network != "" {
+		args = append(args, "--network", network)
 	}
-	// No inner cgroup management: the tile's own cgroup already bounds every
-	// container it spawns (docs/changes/2026-07-14-container-tiles.md), and rootless cgroup v2
-	// delegation is often unavailable.
 	args = append(args, "--cgroups", "disabled", image)
 	if len(cmd) > 0 {
 		args = append(args, cmd...)
 	} else {
 		args = append(args, "sleep", "infinity")
 	}
-	return p.run(args...)
+	return args
 }
 
 func (p *podman) remove(name string) (string, error) {

@@ -23,6 +23,12 @@ func main() {
 Your handler sees paths with the `/api/<component>` prefix already stripped.
 `xbin.Self()` returns your component path.
 
+```go
+xbin.WriteJSON(w, http.StatusOK, out)         // Content-Type + status + body
+xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shape
+                                              // xbin's own API uses
+```
+
 ### Callers and roles
 
 ```go

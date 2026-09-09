@@ -275,16 +275,6 @@ func main() {
 	xbin.Serve(mux)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
 // ---- settings ----
 
 func handleGetConfig(w http.ResponseWriter, r *http.Request) {
@@ -298,7 +288,7 @@ func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	for _, n := range backendNames(c) {
 		out = append(out, beOut{Name: n, BaseURL: c.Backends[n].BaseURL, HasToken: tokenFor(n) != ""})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{
 		"backends": out, "aliases": c.Aliases,
 		"preferred": c.Preferred, "pricing": c.Pricing, "useTypes": useTypes,
 	})
@@ -310,10 +300,10 @@ func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 func handlePreferred(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
 	if use := r.URL.Query().Get("use"); use != "" {
-		writeJSON(w, http.StatusOK, map[string]any{"use": use, "model": c.Preferred[use]})
+		xbin.WriteJSON(w, http.StatusOK, map[string]any{"use": use, "model": c.Preferred[use]})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred, "useTypes": useTypes})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred, "useTypes": useTypes})
 }
 
 // handlePutPreferred sets (or clears, with an empty model) one use-type's
@@ -321,12 +311,12 @@ func handlePreferred(w http.ResponseWriter, r *http.Request) {
 func handlePutPreferred(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Use, Model string }
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "need JSON body: {use, model}")
+		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {use, model}")
 		return
 	}
 	body.Use = strings.TrimSpace(body.Use)
 	if body.Use == "" {
-		writeErr(w, http.StatusBadRequest, "use required")
+		xbin.WriteError(w, http.StatusBadRequest, "use required")
 		return
 	}
 	cfgMu.Lock()
@@ -338,10 +328,10 @@ func handlePutPreferred(w http.ResponseWriter, r *http.Request) {
 		c.Preferred[body.Use] = m
 	}
 	if err := saveConfig(c); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred})
 }
 
 // handleMetrics renders per-backend counters in Prometheus text format.
@@ -383,17 +373,17 @@ func handlePutBackend(w http.ResponseWriter, r *http.Request) {
 		BaseURL string `json:"baseURL"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "need JSON body: {name, baseURL}")
+		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {name, baseURL}")
 		return
 	}
 	name := strings.TrimSpace(body.Name)
 	u := strings.TrimRight(strings.TrimSpace(body.BaseURL), "/")
 	if !backendNameRe.MatchString(name) {
-		writeErr(w, http.StatusBadRequest, "bad backend name (lowercase letters, digits, . _ -)")
+		xbin.WriteError(w, http.StatusBadRequest, "bad backend name (lowercase letters, digits, . _ -)")
 		return
 	}
 	if u == "" {
-		writeErr(w, http.StatusBadRequest, "baseURL required")
+		xbin.WriteError(w, http.StatusBadRequest, "baseURL required")
 		return
 	}
 	cfgMu.Lock()
@@ -401,10 +391,10 @@ func handlePutBackend(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
 	c.Backends[name] = backend{BaseURL: u}
 	if err := saveConfig(c); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func handleDelBackend(w http.ResponseWriter, r *http.Request) {
@@ -413,15 +403,15 @@ func handleDelBackend(w http.ResponseWriter, r *http.Request) {
 	defer cfgMu.Unlock()
 	c := loadConfig()
 	if len(c.Backends) == 1 {
-		writeErr(w, http.StatusBadRequest, "can't remove the last backend")
+		xbin.WriteError(w, http.StatusBadRequest, "can't remove the last backend")
 		return
 	}
 	delete(c.Backends, name)
 	if err := saveConfig(c); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func handlePutConfig(w http.ResponseWriter, r *http.Request) {
@@ -429,7 +419,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		Aliases map[string]string `json:"aliases"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "need JSON body: {aliases?}")
+		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {aliases?}")
 		return
 	}
 	cfgMu.Lock()
@@ -447,10 +437,10 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		c.Aliases = aliases
 	}
 	if err := saveConfig(c); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"aliases": c.Aliases})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"aliases": c.Aliases})
 }
 
 func handleStats(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +459,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	statsMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"backends": out})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"backends": out})
 }
 
 // ---- OpenAI-compatible surface ----
@@ -567,7 +557,7 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 		resp["error"] = strings.Join(parts, " · ")
 	}
-	writeJSON(w, http.StatusOK, resp)
+	xbin.WriteJSON(w, http.StatusOK, resp)
 }
 
 var usageRe = regexp.MustCompile(`"prompt_tokens"\s*:\s*(\d+)[\s\S]*?"completion_tokens"\s*:\s*(\d+)`)
@@ -588,7 +578,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(ct, "application/json") {
 		raw, rerr := io.ReadAll(io.LimitReader(r.Body, 32<<20))
 		if rerr != nil {
-			writeErr(w, http.StatusBadRequest, "failed reading request body")
+			xbin.WriteError(w, http.StatusBadRequest, "failed reading request body")
 			return
 		}
 		if len(raw) > 0 {
@@ -612,12 +602,12 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	be, ok := c.Backends[beName]
 	if !ok {
-		writeErr(w, http.StatusBadGateway, "no such backend: "+beName)
+		xbin.WriteError(w, http.StatusBadGateway, "no such backend: "+beName)
 		return
 	}
 	tok := tokenFor(beName)
 	if tok == "" {
-		writeErr(w, http.StatusBadGateway, "no API token configured for backend "+beName+" — set one in the llm-gw tile")
+		xbin.WriteError(w, http.StatusBadGateway, "no API token configured for backend "+beName+" — set one in the llm-gw tile")
 		return
 	}
 
@@ -638,7 +628,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		upReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, reqBody)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if ct != "" {
@@ -656,7 +646,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			bumpStats(beName, 0, 0, 0)
-			writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s %s: %s", r.Method, target, derr.Error()))
+			xbin.WriteError(w, http.StatusBadGateway, fmt.Sprintf("%s %s: %s", r.Method, target, derr.Error()))
 			return
 		}
 		if replayable && attempt < maxRetries && retryableStatus(resp.StatusCode) {
@@ -666,7 +656,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			if sleepBackoff(r.Context(), attempt, ra) {
 				continue
 			}
-			writeErr(w, http.StatusGatewayTimeout, "canceled during retry backoff")
+			xbin.WriteError(w, http.StatusGatewayTimeout, "canceled during retry backoff")
 			return
 		}
 		break

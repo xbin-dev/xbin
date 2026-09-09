@@ -151,7 +151,7 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://xbin/api/apps/"+gwPath()+"/v1/models", nil)
 	resp, err := xbin.Client().Do(req)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		xbin.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	defer resp.Body.Close()
@@ -168,7 +168,7 @@ func handleFeatures(w http.ResponseWriter, r *http.Request) {
 	for _, k := range featureKeys {
 		state[k] = cfg.feature(k)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": featureKeys, "features": state})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": featureKeys, "features": state})
 }
 
 // reconcileBeat keeps the wake heartbeat registered ONLY while runs need waking
@@ -240,13 +240,13 @@ func (ag *Agent) stopBeat() bool {
 func handleListRuns(w http.ResponseWriter, r *http.Request) {
 	runs, err := agent.db.listRuns()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	if runs == nil {
 		runs = []*Run{}
 	}
-	writeJSON(w, 200, runs)
+	xbin.WriteJSON(w, 200, runs)
 }
 
 func handleNewRun(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Goal == "" {
-		writeErr(w, 400, "need {goal}")
+		xbin.WriteError(w, 400, "need {goal}")
 		return
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
@@ -269,7 +269,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := agent.db.createRun(title, string(cfgJSON), 0)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System})
@@ -277,14 +277,14 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	agent.db.journal(id, "note", map[string]string{"text": "run created"})
 	agent.driveAsync(id)
 	run, _ := agent.db.getRun(id)
-	writeJSON(w, 200, run)
+	xbin.WriteJSON(w, 200, run)
 }
 
 func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	run, err := agent.db.getRun(id)
 	if err != nil {
-		writeErr(w, 404, "no such run")
+		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	msgs, _ := agent.db.messages(id, false)
@@ -297,15 +297,15 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	if steps == nil {
 		steps = []*Step{}
 	}
-	writeJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "draft": agent.getDraft(id)})
+	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "draft": agent.getDraft(id)})
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	if err := agent.db.deleteRun(pathID(r)); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleMessage(w http.ResponseWriter, r *http.Request) {
@@ -313,17 +313,17 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Text string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Text == "" {
-		writeErr(w, 400, "need {text}")
+		xbin.WriteError(w, 400, "need {text}")
 		return
 	}
 	if _, err := agent.db.getRun(id); err != nil {
-		writeErr(w, 404, "no such run")
+		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
 	_ = agent.db.setStatus(id, statusIdle, 0, "", "")
 	agent.driveAsync(id)
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleApprove(w http.ResponseWriter, r *http.Request) {
@@ -332,12 +332,12 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	run, err := agent.db.getRun(id)
 	if err != nil {
-		writeErr(w, 404, "no such run")
+		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	var pend pending
 	if run.Pending == "" || json.Unmarshal([]byte(run.Pending), &pend) != nil || pend.Kind != "approval" {
-		writeErr(w, 400, "no pending approval")
+		xbin.WriteError(w, 400, "no pending approval")
 		return
 	}
 	if body.Approve {
@@ -351,7 +351,7 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 		_ = agent.db.setStatus(id, statusRunning, 0, "", "")
 	}
 	agent.driveAsync(id)
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleInterrupt(w http.ResponseWriter, r *http.Request) {
@@ -359,20 +359,20 @@ func handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	agent.requestStop(id)
 	_ = agent.db.setStatus(id, statusIdle, 0, "interrupted", "")
 	agent.db.journal(id, "note", map[string]string{"text": "interrupted by user"})
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleResume(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	agent.driveAsync(id)
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleCompact(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	run, err := agent.db.getRun(id)
 	if err != nil {
-		writeErr(w, 404, "no such run")
+		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	cfg, _ := agent.db.runConfig(id)
@@ -380,7 +380,7 @@ func handleCompact(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	agent.maybeCompact(ctx, run, cfg)
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
@@ -388,54 +388,54 @@ func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Key, Value string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Key == "" {
-		writeErr(w, 400, "need {key}")
+		xbin.WriteError(w, 400, "need {key}")
 		return
 	}
 	if err := agent.db.memorySet(id, body.Key, body.Value); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	key := r.URL.Query().Get("key")
 	if err := agent.db.memoryDelete(id, key); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, parseConfig(agent.db.getSetting("config")))
+	xbin.WriteJSON(w, 200, parseConfig(agent.db.getSetting("config")))
 }
 
 func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg Config
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeErr(w, 400, "bad config")
+		xbin.WriteError(w, 400, "bad config")
 		return
 	}
 	b, _ := json.Marshal(cfg)
 	if err := agent.db.putSetting("config", string(b)); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, cfg)
+	xbin.WriteJSON(w, 200, cfg)
 }
 
 func handleTick(w http.ResponseWriter, r *http.Request) {
 	ids, err := agent.db.dueRuns()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	for _, id := range ids {
 		agent.driveAsync(id)
 	}
-	writeJSON(w, 200, map[string]any{"driving": len(ids)})
+	xbin.WriteJSON(w, 200, map[string]any{"driving": len(ids)})
 }
 
 // --- helpers ------------------------------------------------------------
@@ -443,16 +443,6 @@ func handleTick(w http.ResponseWriter, r *http.Request) {
 func pathID(r *http.Request) int64 {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	return id
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
 }
 
 // publishEvent emits a run lifecycle event on the bus (best-effort).

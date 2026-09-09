@@ -267,94 +267,94 @@ func (ag *Agent) markWatcherChanged(runID int64) {
 func handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	list, err := agent.db.listSchedules()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	if list == nil {
 		list = []*Schedule{}
 	}
-	writeJSON(w, 200, list)
+	xbin.WriteJSON(w, 200, list)
 }
 
 func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 	var s Schedule
 	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-		writeErr(w, 400, "need JSON body: {name, cron, goal, watcher?, system?}")
+		xbin.WriteError(w, 400, "need JSON body: {name, cron, goal, watcher?, system?}")
 		return
 	}
 	s.Cron, s.Goal = strings.TrimSpace(s.Cron), strings.TrimSpace(s.Goal)
 	if s.Cron == "" || s.Goal == "" {
-		writeErr(w, 400, "need {cron, goal}")
+		xbin.WriteError(w, 400, "need {cron, goal}")
 		return
 	}
 	if s.Watcher && !parseConfig(agent.db.getSetting("config")).feature("watcher") {
-		writeErr(w, 400, "watcher mode is disabled in the agent's Features")
+		xbin.WriteError(w, 400, "watcher mode is disabled in the agent's Features")
 		return
 	}
 	id, err := agent.db.createSchedule(&s)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	s.ID, s.Enabled = id, true
 	if err := agent.registerScheduleCron(&s); err != nil {
 		// Roll back a schedule the gateway rejected (e.g. bad cron expr).
 		_ = agent.db.deleteSchedule(id)
-		writeErr(w, 400, "bad schedule: "+err.Error())
+		xbin.WriteError(w, 400, "bad schedule: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, s)
+	xbin.WriteJSON(w, 200, s)
 }
 
 func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	cur, err := agent.db.getSchedule(id)
 	if err != nil {
-		writeErr(w, 404, "no such schedule")
+		xbin.WriteError(w, 404, "no such schedule")
 		return
 	}
 	// Decode onto the current record so omitted fields keep their value.
 	if err := json.NewDecoder(r.Body).Decode(cur); err != nil {
-		writeErr(w, 400, "bad body")
+		xbin.WriteError(w, 400, "bad body")
 		return
 	}
 	cur.ID = id
 	if err := agent.db.updateSchedule(cur); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	if cur.Enabled {
 		if err := agent.registerScheduleCron(cur); err != nil {
-			writeErr(w, 400, "bad schedule: "+err.Error())
+			xbin.WriteError(w, 400, "bad schedule: "+err.Error())
 			return
 		}
 	} else {
 		agent.unregisterScheduleCron(id)
 	}
-	writeJSON(w, 200, cur)
+	xbin.WriteJSON(w, 200, cur)
 }
 
 func handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	agent.unregisterScheduleCron(id)
 	if err := agent.db.deleteSchedule(id); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 // handleFireSchedule is the cron target; handleTriggerSchedule is a manual run.
 func handleFireSchedule(w http.ResponseWriter, r *http.Request) {
 	s, err := agent.db.getSchedule(pathID(r))
 	if err != nil {
-		writeErr(w, 404, "no such schedule")
+		xbin.WriteError(w, 404, "no such schedule")
 		return
 	}
 	if s.Enabled {
 		agent.fireSchedule(s)
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func readAllLimited(r interface{ Read([]byte) (int, error) }) (string, error) {

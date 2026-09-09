@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // fmtStr coerces a tool argument to a string ("" for nil).
@@ -128,39 +130,39 @@ func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) 
 func handleListSkills(w http.ResponseWriter, r *http.Request) {
 	skills, err := agent.db.listSkills()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	if skills == nil {
 		skills = []*Skill{}
 	}
-	writeJSON(w, 200, skills)
+	xbin.WriteJSON(w, 200, skills)
 }
 
 func handleSaveSkill(w http.ResponseWriter, r *http.Request) {
 	var s Skill
 	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-		writeErr(w, 400, "need JSON body: {name, description?, content}")
+		xbin.WriteError(w, 400, "need JSON body: {name, description?, content}")
 		return
 	}
 	s.Name = strings.TrimSpace(s.Name)
 	if s.Name == "" || s.Content == "" {
-		writeErr(w, 400, "need {name, content}")
+		xbin.WriteError(w, 400, "need {name, content}")
 		return
 	}
 	if err := agent.db.upsertSkill(&s); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, s)
+	xbin.WriteJSON(w, 200, s)
 }
 
 func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	if err := agent.db.deleteSkill(r.PathValue("name")); err != nil {
-		writeErr(w, 500, err.Error())
+		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 // handleLearn injects the "distill this run into a skill" prompt and resumes the
@@ -168,13 +170,13 @@ func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 func handleLearn(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	if _, err := agent.db.getRun(id); err != nil {
-		writeErr(w, 404, "no such run")
+		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: learnPrompt})
 	_ = agent.db.setStatus(id, statusIdle, 0, "", "")
 	agent.driveAsync(id)
-	writeJSON(w, 200, map[string]string{"ok": "true"})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 const learnPrompt = "Review what you accomplished in this run. If it's a reusable procedure worth keeping, author a concise skill — a short name, a one-line description, and the steps/knowledge needed to repeat it — and save it with skill_manage(action:\"save\", name, description, content). If nothing here is worth saving as a skill, just say so."

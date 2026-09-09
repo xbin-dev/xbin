@@ -218,7 +218,7 @@ func (a *approver) handleState(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(approved, byRecent(approved))
 	sort.Slice(denied, byRecent(denied))
 
-	writeJSON(w, map[string]any{
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{
 		"pending": pending, "approved": approved, "denied": denied,
 		"clients": clients, "egressReady": egress,
 	})
@@ -235,7 +235,7 @@ func (a *approver) handleDecision(cmd string) http.HandlerFunc {
 			http.Error(w, `{"error":`+jsonQuote(err.Error())+`}`, http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 
@@ -252,13 +252,13 @@ func (a *approver) handleDetail(w http.ResponseWriter, r *http.Request) {
 	if rdns == "" {
 		rdns = lookupPTR(ip)
 	}
-	writeJSON(w, map[string]any{"ip": ip, "rdns": rdns, "rdap": rdapLookup(ip)})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ip": ip, "rdns": rdns, "rdap": rdapLookup(ip)})
 }
 
 func (a *approver) handleStatus(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	writeJSON(w, map[string]any{"clients": a.clients, "egress": a.egress, "approved": len(a.approved)})
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"clients": a.clients, "egress": a.egress, "approved": len(a.approved)})
 }
 
 func main() {
@@ -285,11 +285,6 @@ func main() {
 	mux.HandleFunc("GET /detail", a.handleDetail)
 	mux.HandleFunc("GET /status", a.handleStatus)
 	xbin.Serve(mux)
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 // jsonQuote JSON-quotes a string (small helper for inline error bodies).

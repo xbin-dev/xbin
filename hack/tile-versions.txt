@@ -1,0 +1,10 @@
+# hack/tile-versions.txt — every builtin tile's tile.json version and a rollup hash of
+# its files (tile.json excluded). internal/builtins TestTileVersions fails when a tile's
+# files change without a version bump; regenerate with UPDATE_TILE_VERSIONS=1 (see the test).
+chat 2 sha256:e78a0c745fcfa1e7634d1b6ef6d5945e80ccbfbb20fc814c96e1a29d685dd99c
+devbox 3 sha256:d83ccf037205156fc6be56425320cf5b720c7a9a2b14aeb9dc3c430d9434bd1b
+egress-approver 2 sha256:18e2455061af1bfc0d9ee559792e44f3325ed271f42dc4e8355de68f33689493
+llm-gw 3 sha256:673a53c4d129cc0b599dfc63a5313051dbd352351b89033d9325e39fbc77459e
+prometheus-viewer 1 sha256:d3eb4c5c13fb349fe29b1a38ba7b0c1b0a71c9e9d3e84c1605d96e98691c3a9c
+s3-archiver 1 sha256:35cec5b3d0aff7ca69734527b2f900e424cd389cf1f04b8991c8e2a2b7ccf891
+traefik 3 sha256:e508701873f174033bc9868d8ff7602e88987f4e5e5c9de8666d665798f4c66d

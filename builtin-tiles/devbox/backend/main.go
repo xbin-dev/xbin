@@ -68,7 +68,7 @@ func main() {
 		} else if listErr != nil {
 			errStr = listErr.Error()
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		xbin.WriteJSON(w, http.StatusOK, map[string]any{
 			"podmanVersion": ver,
 			"containers":    cs,
 			"keys":          st.list(),
@@ -84,27 +84,27 @@ func main() {
 			Image string `json:"image"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Image == "" {
-			writeErr(w, http.StatusBadRequest, "need {name, image}")
+			xbin.WriteError(w, http.StatusBadRequest, "need {name, image}")
 			return
 		}
 		if !validName(body.Name) {
-			writeErr(w, http.StatusBadRequest, "name must be a short dns-ish label (it's also the SSH username)")
+			xbin.WriteError(w, http.StatusBadRequest, "name must be a short dns-ish label (it's also the SSH username)")
 			return
 		}
 		if out, err := pod.create(body.Name, body.Image, nil); err != nil {
-			writeErr(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
+			xbin.WriteError(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+		xbin.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 	}))
 
 	mux.Handle("DELETE /containers/{name}", xbin.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if out, err := pod.remove(name); err != nil {
-			writeErr(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
+			xbin.WriteError(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+		xbin.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 	}))
 
 	// Lifecycle: start/stop a container without removing it.
@@ -118,14 +118,14 @@ func main() {
 		case "stop":
 			out, err = pod.stop(name)
 		default:
-			writeErr(w, http.StatusBadRequest, "action must be start|stop")
+			xbin.WriteError(w, http.StatusBadRequest, "action must be start|stop")
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
+			xbin.WriteError(w, http.StatusBadGateway, firstLine(out)+" — "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+		xbin.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 	}))
 
 	// Authorized SSH keys — the SSH proxy is default-deny until you add one.
@@ -134,36 +134,26 @@ func main() {
 			Key string `json:"key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Key == "" {
-			writeErr(w, http.StatusBadRequest, "need {key: \"ssh-ed25519 AAAA… you@host\"}")
+			xbin.WriteError(w, http.StatusBadRequest, "need {key: \"ssh-ed25519 AAAA… you@host\"}")
 			return
 		}
 		k, err := st.add(body.Key)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			xbin.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, k)
+		xbin.WriteJSON(w, http.StatusOK, k)
 	}))
 
 	mux.Handle("DELETE /keys/{fp...}", xbin.RoleFunc("writer", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.remove(r.PathValue("fp")); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+		xbin.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 	}))
 
 	xbin.Serve(mux)
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
 }
 
 func firstLine(s string) string {

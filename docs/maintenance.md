@@ -222,6 +222,16 @@ signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
   purpose; both stay.
 - A tile's `tile.json` `version` bumps whenever its files change, with a
   changelog line — that is how `bx builtin updates` offers the update.
+  `internal/builtins` `TestTileVersions` enforces it: `hack/tile-versions.txt`
+  records each tile's version and a rollup hash of its files (tile.json
+  excluded); a changed hash with an unchanged version is a red line. After
+  the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
+  TestTileVersions` moves the baseline.
+- The pure cores have tests that run under `make tile-check`: traefik's
+  static/dynamic config renderers are pinned verbatim, devbox's container
+  spec (`createArgs`) and the egress approver's packet decoding likewise.
+  Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
+  SDK — a backend defining its own `writeJSON` is a copy to delete.
 
 ## Frontend kit and theme fallbacks
 

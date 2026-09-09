@@ -55,6 +55,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   mounted its tiles (spawning their backends, restoring their terminals)
   before switching to the screen you were on; it now waits for the
   layout.
+- **SDK: `xbin.WriteJSON` and `xbin.WriteError`.** The response helpers
+  every builtin backend and the agent template carried a copy of are in
+  the SDK (zero-dependency as ever): `WriteJSON(w, status, v)` sets the
+  content type, status and body; `WriteError(w, status, msg)` writes the
+  `{"error": msg}` shape xbin's own API uses, so a tile's refusals read
+  the same way in `bx` and in the in-frame client. Additive; existing
+  backends keep working unchanged.
 - **`bx` warns on a flag it does not know, everywhere.** `bx restore`,
   `bx backup-schedule`, `bx builtin update` and `bx org add` used to ignore
   an unknown flag — a typo'd `--versoin` became the component name, or
