@@ -29,7 +29,7 @@ target, so a red line names the guard that failed.
 |---|---|---|
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
-| `node --check` over every shipped script and inline module block | `js-check` | a syntax error in a tile's inline `<script type="module">`, which nothing else parses before a user's browser does |
+| `node --check` over every shipped script and inline module block; named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">`, or an import of a renamed or mislocated export — neither is parsed by anything else before a user's browser |
 | `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`) and revisioned-draft helpers (`shell/rev-draft.js`): every branch a menu can show, how a stale save is classified — without a browser |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/` | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests) |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
@@ -275,9 +275,25 @@ the shell reaches the cards through `frameFor` / `frameOpen` / `frames`
 `canvasCss` slice of `shell-css.js` (the badge rule, `prbCss`, is shared
 with the sidebar rows). A `.pop`, `.card` or `.float` locator in the
 harness still resolves: Playwright's CSS engine pierces open shadow
-roots. Next: `bx-side`, `bx-screens`, `bx-toasts` the same way.
-`bx-shell.js` keeps its name and imports the siblings relatively (compat
-rule 4). The harness passes `windows`, `screens`,
+roots.
+
+The sidebar is `bx-side.js`: the owner-sectioned tree (personal folders,
+each section's shared curated folders, tiles, org screens), the filter
+and owner filter, the show-hidden toggle, the organisations button and
+the admin footers. It is coupled to more of the shell's state than props
+and events would carry cleanly, so it renders from one `state` view the
+shell builds in `_sideState()` and acts through one `actions` object
+from `_sideActions()` — every mutation (filing, folders, drafts,
+screens, opening a tile or a menu) stays the shell's, which keeps one
+owner for layout persistence and the draft flows. Its own state is the
+filter text and the drag-hover highlights. The host element is the
+aside: the shell sizes it and marks it `drawer`/`open` on phones; its
+stylesheet is `sideCss`, with `statusCss` (level colours, dot, breathe)
+shared with the screen tabs. `shell-kit.js` also carries the pure tree
+helpers both sides use (`isScreenItem`, `screenIdOf`, `scopeOf`,
+`sectionOf`, `ownerKeyOf`, `worstStatus`). Next: `bx-screens`,
+`bx-toasts` the same way. `bx-shell.js` keeps its name and imports the
+siblings relatively (compat rule 4). The harness passes `windows`, `screens`,
 `menus`, `mobile`, `reloadFocus` and `contextCopy` are the gate for every
 slice.
 

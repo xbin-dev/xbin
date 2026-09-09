@@ -26,10 +26,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   scaffold:tiles/admin` delivers the split as new files beside the old
   entry ([compat.md](/docs/compat.md) rule 4). Contributors:
   [maintenance.md](/docs/maintenance.md) → "The admin console's tabs".
-- **The shell's tile surface is its own element; the shell's helpers
-  are modules.** The scaffold's `shell/` gained `bx-canvas.js` (the
-  snappable grid, the cards and the floating windows with every drag,
-  resize, pin and menu gesture on them), `menus.js` (the canvas menu,
+- **The shell's tile surface and sidebar are their own elements; the
+  shell's helpers are modules.** The scaffold's `shell/` gained
+  `bx-canvas.js` (the snappable grid, the cards and the floating windows
+  with every drag, resize, pin and menu gesture on them), `bx-side.js`
+  (the sidebar: sections, folders, filter, footers), `menus.js` (the canvas menu,
   the tile menu and the "Open tile" list as pure functions),
   `rev-draft.js` (the revisioned-draft flow org screens, shared folders
   and share-to-org all use: publish naming the base revision, a stale

@@ -70,3 +70,31 @@ export function prBadge(n, onOpen = null) {
                    @click=${(e) => { e.stopPropagation(); onOpen(); }}>⇄${n}</button>`
     : html`<span class="prb" title=${title}>⇄${n}</span>`;
 }
+
+// Tree items: '#screen:<id>' parks a personal tab, '#orgscreen:<id>' references
+// an org screen (D55) — the live screen either way, never a snapshot.
+export const isScreenItem = (s) => typeof s === 'string' && s.startsWith('#screen:');
+export const isOrgScreenItem = (s) => typeof s === 'string' && s.startsWith('#orgscreen:');
+export const screenIdOf = (s) => s.slice(s.indexOf(':') + 1);
+
+// Owner sections (D24) ↔ shared-folder scopes (D55): 'workspace' ↔ 'ws',
+// 'org:<id>' ↔ itself, 'mine' has no shared set.
+export const scopeOf = (sectionKey) => (sectionKey === 'workspace' ? 'ws' : sectionKey?.startsWith('org:') ? sectionKey : null);
+export const sectionOf = (scope) => (scope === 'ws' ? 'workspace' : scope);
+// Which section a component lists under: mine (the caller owns it), its org, or workspace.
+export function ownerKeyOf(c, myId) {
+  const owner = c?.owner ?? '';
+  if (myId && owner === 'user:' + myId) return 'mine';
+  return owner.startsWith('org:') ? owner : 'workspace';
+}
+
+// Highest-severity status among the given component paths (null if none).
+export function worstStatus(status, paths) {
+  const rank = { ok: 0, info: 1, warn: 2, error: 3 };
+  let best = null, bestR = -1;
+  for (const p of paths) {
+    const s = status?.[p];
+    if (s && (rank[s.level] ?? -1) > bestR) { best = s.level; bestR = rank[s.level]; }
+  }
+  return best;
+}

@@ -11,7 +11,7 @@
 // Exit 1 on the first-found syntax errors (all are printed).
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, relative, extname } from 'node:path';
+import { join, relative, extname, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
@@ -91,6 +91,53 @@ function checkKitDuplicates(file) {
   });
 }
 
+// Named imports must exist as exports of the module they name — a relative
+// import (./x.js, ../x.js) or a kit URL (/vendor/x.js → web/x.js). `node
+// --check` parses each file alone, so a renamed or mislocated export only
+// failed in the browser (the harness found one that way). Bare specifiers
+// (the import map) and vendored bundles are not this check's business.
+const IMPORT = /^import\s+(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gm;
+const EXPORTS = new Map(); // resolved file → Set of names, or null when unknowable
+function exportsOf(file) {
+  if (EXPORTS.has(file)) return EXPORTS.get(file);
+  let names = null;
+  try {
+    const src = readFileSync(file, 'utf8');
+    names = new Set();
+    for (const m of src.matchAll(/^export\s+(?:async\s+)?(?:const|let|var|function\*?|class)\s+([\w$]+)/gm)) names.add(m[1]);
+    for (const m of src.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+      for (const part of m[1].split(',')) { const p = part.trim().split(/\s+as\s+/); if (p[0]) names.add((p[1] || p[0]).trim()); }
+    }
+    if (/^export\s+default\b/m.test(src)) names.add('default');
+    if (/^export\s+\*\s+from/m.test(src)) names = null; // re-exports everything: not enumerable here
+    if (names) names.src = src;
+  } catch { names = null; }
+  EXPORTS.set(file, names);
+  return names;
+}
+function resolveImport(file, spec) {
+  if (spec.startsWith('./') || spec.startsWith('../')) return join(dirname(file), spec);
+  if (spec.startsWith('/vendor/') && !spec.includes('.min.')) return join(ROOT, 'web', spec.slice('/vendor/'.length));
+  return null;
+}
+function checkImports(file) {
+  const rel = relative(ROOT, file);
+  const src = readFileSync(file, 'utf8');
+  for (const m of src.matchAll(IMPORT)) {
+    const target = resolveImport(file, m[2]);
+    if (!target) continue;
+    const names = exportsOf(target);
+    if (!names) continue;
+    for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/)[0].trim();
+      if (!name || names.has(name)) continue;
+      // `export const a = 1, b = 2` and friends: accept a name any export line mentions
+      if (new RegExp('^export\\b[^\\n]*\\b' + name.replace(/\$/g, '\\$') + '\\b', 'm').test(names.src)) continue;
+      problems.push(`${rel}: imports ${name} from ${m[2]}, which does not export it`);
+    }
+  }
+}
+
 for (const file of files) {
   const ext = extname(file);
   if (ext === '.js' || ext === '.mjs') {
@@ -98,6 +145,7 @@ for (const file of files) {
     const err = nodeCheck(file);
     if (err) problems.push(`${relative(ROOT, file)}:\n${err.trim()}`);
     checkKitDuplicates(file);
+    checkImports(file);
   } else if (ext === '.html') {
     checkHTML(file);
   }
@@ -106,7 +154,7 @@ rmSync(tmp, { recursive: true, force: true });
 
 if (problems.length) {
   console.error(problems.join('\n\n'));
-  console.error(`\njs-check: ${problems.length} file(s) with syntax errors (${checked} inputs checked)`);
+  console.error(`\njs-check: ${problems.length} problem(s) (${checked} inputs checked)`);
   process.exit(1);
 }
 console.log(`js-check: ${checked} scripts parse (files + inline module blocks)`);
