@@ -86,9 +86,6 @@ export const shellCss = css`
     .orgbar button.act:hover { background: var(--bx-panel-2, #2b3038); }
     .orgbar button.act.go { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
     .orgbar button.act.go:disabled { opacity: .45; cursor: default; }
-    /* view mode of a shared screen: no grab cursor, no resize handles */
-    .canvas.ro .card .head { cursor: default; }
-    .canvas.ro .rz { display: none; }
 
     /* ---- body ---- */
     .body { display: flex; flex: 1; min-height: 0; }
@@ -202,14 +199,6 @@ export const shellCss = css`
       content: ''; position: absolute; left: 0; top: 3px; bottom: 3px; width: 2px;
       border-radius: 0 2px 2px 0; background: var(--st); }
     .group.folder .stdot { margin-left: 2px; }
-    /* ⇄ open change-proposal badge (sidebar rows + card headers) */
-    .prb { flex: none; margin-left: 4px; padding: 0 4px; border-radius: 3px;
-      font-size: 9.5px; line-height: 15px; letter-spacing: .02em;
-      color: var(--bx-amber, #f2a71b);
-      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent);
-      background: color-mix(in srgb, var(--bx-amber, #f2a71b) 10%, transparent); }
-    button.prb { cursor: pointer; font-family: inherit; }
-    button.prb:hover { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 22%, transparent); }
     .tab.st-warn, .tab.st-error { color: var(--st); }
     .tab .stdot { margin-left: 2px; }
     .tab.on.st-warn, .tab.on.st-error { box-shadow: inset 0 -2px 0 var(--st); }
@@ -382,6 +371,68 @@ export const shellCss = css`
     main { flex: 1; min-width: 0; overflow: auto; padding: 14px; }
     .grants { margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
 
+    /* ======================= mobile layout (≤ 820px) ======================= */
+    /* The desktop shell is mouse-driven (fixed sidebar, absolute snap-grid,
+       floating windows). On narrow screens we switch interaction models: the
+       sidebar becomes an off-canvas drawer, tiles stack full-width (no drag or
+       resize — content scrolls inside), and floating windows / terminals become
+       full-screen sheets. */
+    .ham {
+      flex: none; border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
+      color: var(--bx-text, #d4d9e0); font-size: 16px; line-height: 1; cursor: pointer;
+      border-radius: 6px; padding: 5px 9px;
+    }
+    @media (max-width: 820px) {
+      .top { gap: 8px; padding: 6px 10px; }
+      .top .ws-chip { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tab { padding: 8px 13px; }               /* larger tap targets */
+      main { padding: 8px; }
+      .grants { margin-bottom: 8px; }
+
+      /* sidebar → off-canvas drawer, slid in over a backdrop */
+      .body.mobile aside.drawer {
+        position: fixed; left: 0; top: 0; bottom: 0; z-index: 3600;
+        width: min(290px, 84vw) !important;
+        transform: translateX(-100%); transition: transform .2s ease;
+        border-right: 1px solid var(--bx-border, #363c45);
+        box-shadow: 6px 0 24px rgba(0, 0, 0, .4);
+      }
+      .body.mobile aside.drawer.open { transform: none; }
+      .drawer-backdrop { position: fixed; inset: 0; z-index: 3550; background: rgba(0, 0, 0, .45); }
+
+      /* sidebar rows: tap-sized, long-press opens the tile menu (no callout/selection) */
+      .item { padding: 7px 12px 7px 16px; -webkit-touch-callout: none; user-select: none; }
+      main { -webkit-touch-callout: none; }
+
+      /* the tile-admin popover → a sheet under the bars (tap above to close) */
+      .admin-pop-backdrop { background: rgba(0, 0, 0, .45); }
+      .admin-pop {
+        left: 0 !important; right: 0; top: 48px !important; bottom: 0;
+        width: auto !important; height: auto !important;
+        resize: none; border-radius: 12px 12px 0 0; border: 0;
+      }
+    }
+`;
+
+// The ⇄ change-proposal badge: sidebar rows (the shell) and card heads (bx-canvas).
+export const prbCss = css`
+    /* ⇄ open change-proposal badge (sidebar rows + card headers) */
+    .prb { flex: none; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+      font-size: 9.5px; line-height: 15px; letter-spacing: .02em;
+      color: var(--bx-amber, #f2a71b);
+      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent);
+      background: color-mix(in srgb, var(--bx-amber, #f2a71b) 10%, transparent); }
+    button.prb { cursor: pointer; font-family: inherit; }
+    button.prb:hover { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 22%, transparent); }
+`;
+
+// bx-canvas: the snappable grid, its cards, the floating windows — and their
+// mobile shape (stacked cards, full-screen sheets).
+export const canvasCss = css`
+    :host { display: block; }
+    /* view mode of a shared screen: no grab cursor, no resize handles */
+    .canvas.ro .card .head { cursor: default; }
+    .canvas.ro .rz { display: none; }
     /* ---- fixed snappable grid canvas ---- */
     /* Absolutely-positioned tiles on a GRID-px module; positions never reflow on
        window resize. Height grows to fit the lowest tile — floored to the
@@ -463,35 +514,7 @@ export const shellCss = css`
     }
     .float > .card { border: 0; border-radius: 0; box-shadow: none; }
 
-    /* ======================= mobile layout (≤ 820px) ======================= */
-    /* The desktop shell is mouse-driven (fixed sidebar, absolute snap-grid,
-       floating windows). On narrow screens we switch interaction models: the
-       sidebar becomes an off-canvas drawer, tiles stack full-width (no drag or
-       resize — content scrolls inside), and floating windows / terminals become
-       full-screen sheets. */
-    .ham {
-      flex: none; border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
-      color: var(--bx-text, #d4d9e0); font-size: 16px; line-height: 1; cursor: pointer;
-      border-radius: 6px; padding: 5px 9px;
-    }
     @media (max-width: 820px) {
-      .top { gap: 8px; padding: 6px 10px; }
-      .top .ws-chip { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .tab { padding: 8px 13px; }               /* larger tap targets */
-      main { padding: 8px; }
-      .grants { margin-bottom: 8px; }
-
-      /* sidebar → off-canvas drawer, slid in over a backdrop */
-      .body.mobile aside.drawer {
-        position: fixed; left: 0; top: 0; bottom: 0; z-index: 3600;
-        width: min(290px, 84vw) !important;
-        transform: translateX(-100%); transition: transform .2s ease;
-        border-right: 1px solid var(--bx-border, #363c45);
-        box-shadow: 6px 0 24px rgba(0, 0, 0, .4);
-      }
-      .body.mobile aside.drawer.open { transform: none; }
-      .drawer-backdrop { position: fixed; inset: 0; z-index: 3550; background: rgba(0, 0, 0, .45); }
-
       /* tiles → stacked full-width cards (keep each tile's own height inline) */
       .canvas {
         position: static !important; min-width: 0 !important; min-height: 0 !important;
@@ -504,22 +527,11 @@ export const shellCss = css`
       .gtile .rz { display: none; }             /* no resize on touch */
       .gtile .card .head { cursor: default; }   /* no drag on touch */
       .card .head button { font-size: 16px; padding: 0 8px; } /* tap targets */
-      /* sidebar rows: tap-sized, long-press opens the tile menu (no callout/selection) */
-      .item { padding: 7px 12px 7px 16px; -webkit-touch-callout: none; user-select: none; }
-      main { -webkit-touch-callout: none; }
-
       /* floating windows → full-screen sheets */
       .float {
         position: fixed !important; inset: 0 !important;
         width: auto !important; height: auto !important;
         resize: none !important; border-radius: 0; border: 0;
-      }
-      /* the tile-admin popover → a sheet under the bars (tap above to close) */
-      .admin-pop-backdrop { background: rgba(0, 0, 0, .45); }
-      .admin-pop {
-        left: 0 !important; right: 0; top: 48px !important; bottom: 0;
-        width: auto !important; height: auto !important;
-        resize: none; border-radius: 12px 12px 0 0; border: 0;
       }
     }
 `;

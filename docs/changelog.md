@@ -26,17 +26,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   scaffold:tiles/admin` delivers the split as new files beside the old
   entry ([compat.md](/docs/compat.md) rule 4). Contributors:
   [maintenance.md](/docs/maintenance.md) → "The admin console's tabs".
-- **The shell's context menus and draft flows are their own modules.**
-  The scaffold's `shell/` gained `menus.js` (the canvas menu, the tile
-  menu and the "Open tile" list as pure functions), `rev-draft.js` (the
-  revisioned-draft flow org screens, shared folders and share-to-org all
-  use: publish naming the base revision, a stale save becomes the
-  "someone saved first" dialog) and `zorder.js` (the one z counter
-  floating and spawned windows share); `bx-shell.js` imports them
-  relatively and behaves as before. What each menu line shows and does,
-  and how a save's answer is classified, are unit-tested by `make check`
-  (`node --test`, no browser). An older workspace keeps its single-file
-  shell.
+- **The shell's tile surface is its own element; the shell's helpers
+  are modules.** The scaffold's `shell/` gained `bx-canvas.js` (the
+  snappable grid, the cards and the floating windows with every drag,
+  resize, pin and menu gesture on them), `menus.js` (the canvas menu,
+  the tile menu and the "Open tile" list as pure functions),
+  `rev-draft.js` (the revisioned-draft flow org screens, shared folders
+  and share-to-org all use: publish naming the base revision, a stale
+  save becomes the "someone saved first" dialog), `zorder.js` (the one z
+  counter floating and spawned windows share) and `shell-kit.js` (the
+  grid module, runtime colours, long-press, the ⇄ badge); `bx-shell.js`
+  imports them relatively and behaves as before. What each menu line
+  shows and does, and how a save's answer is classified, are unit-tested
+  by `make check` (`node --test`, no browser). An older workspace keeps
+  its single-file shell.
+- **A reload no longer flashes the first org screen.** While the layout
+  loaded, the shell briefly made the first shared org screen active and
+  mounted its tiles (spawning their backends, restoring their terminals)
+  before switching to the screen you were on; it now waits for the
+  layout.
 - **`bx org add|set` no longer crash on a flag without its value.**
   `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
   --name`) printed a Go index panic; they now say `--name needs a value`.

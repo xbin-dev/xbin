@@ -258,11 +258,26 @@ draft maps, `publish(url, body)` classifying a PUT's answer into
 `ok | conflict | error | offline`, `conflictDialog(…)` for the "someone
 saved first" dialog, and `ago()` — tested in `hack/rev-draft.test.mjs`
 with an injected `fetch`. `zorder.js` is the one z counter floats and
-spawned windows share (`nextZ()`, `raiseTo(z)`), so it survives the
-canvas becoming its own element. Next: children (`bx-side`,
-`bx-screens`, `bx-canvas`, `bx-toasts`) once the harness's `testApi()`
-surface covers what moves. `bx-shell.js` keeps its name and imports the
-siblings relatively (compat rule 4). The harness passes `windows`, `screens`,
+spawned windows share (`nextZ()`, `raiseTo(z)`). `shell-kit.js` holds
+what the shell and its children share: the grid module (`GRID`, `GAP`,
+`DEF_W/H`, `MIN_W/H`, `snap`), `RUNTIME_COLOR`, the `LongPress` gesture,
+`selectedText()` and the `prBadge()` template.
+
+The first child element is `bx-canvas.js` — the snappable grid of cards
+and the floating windows, with every pointer gesture on them (grid
+drag/resize, float drag/raise/resize-commit, pin/unpin, long-press and
+right-click). The tiles array is a property; each geometry change comes
+back as one `bx-tiles` event carrying the new array, which the shell
+persists (`_mutateTiles`). What needs the shell arrives as events —
+`bx-tile-menu`, `bx-canvas-menu`, `bx-admin-win`, `bx-toggle-tile` — and
+the shell reaches the cards through `frameFor` / `frameOpen` / `frames`
+/ `rectOf` / `raiseFocusedFloat` / `togglePin`. Its stylesheet is the
+`canvasCss` slice of `shell-css.js` (the badge rule, `prbCss`, is shared
+with the sidebar rows). A `.pop`, `.card` or `.float` locator in the
+harness still resolves: Playwright's CSS engine pierces open shadow
+roots. Next: `bx-side`, `bx-screens`, `bx-toasts` the same way.
+`bx-shell.js` keeps its name and imports the siblings relatively (compat
+rule 4). The harness passes `windows`, `screens`,
 `menus`, `mobile`, `reloadFocus` and `contextCopy` are the gate for every
 slice.
 

@@ -42,38 +42,19 @@ import './bx-tile-admin.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 
-// Fixed snappable grid. Tiles are absolutely positioned + sized in multiples of
-// GRID px, so resizing the browser window never reflows them, and a tile's own
-// content can't stretch it (fixed size — the frame scrolls inside). GAP is the
-// gutter drawn between neighbouring tiles. Tiles must be usable at MIN_W with no
-// horizontal scroll (see AGENTS.md).
-const GRID = 48;
-const GAP = 8;
-const DEF_W = 12 * GRID; // default new-tile size: 576×384
-const DEF_H = 8 * GRID;
-const MIN_W = 4 * GRID; // resize floor: 192×144
-const MIN_H = 3 * GRID;
-const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
-
-const RUNTIME_COLOR = {
-  '': 'var(--bx-muted, #868f9a)',
-  static: 'var(--bx-muted, #868f9a)',
-  go: 'var(--bx-accent, #f5a623)',
-  node: 'var(--bx-green, #4caf50)',
-  python: 'var(--bx-amber, #f2a71b)',
-  cgi: 'var(--bx-red, #ef5350)',
-};
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
-import { shellCss } from './shell-css.js';
+import { shellCss, prbCss } from './shell-css.js';
+import './bx-canvas.js';
+import { DEF_W, DEF_H, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge } from './shell-kit.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
-import { nextZ, raiseTo } from './zorder.js';
+import { nextZ } from './zorder.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -141,7 +122,7 @@ export class BxShell extends LitElement {
     _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
   };
 
-  static styles = shellCss;
+  static styles = [shellCss, prbCss];
 
   constructor() {
     super();
@@ -160,8 +141,7 @@ export class BxShell extends LitElement {
     this._menu = null;
     this._adminPop = null;
     this._recent = [];             // recently opened tile paths, newest first (layout pref)
-    this._pendingFrameOpen = new Map(); // path → layout to open once its card exists
-    this._press = null;            // long-press timer (touch)
+    this._press = new LongPress(); // sidebar rows + main's padding (the canvas has its own)
     this._create = null;
     this._folderEdit = null;
     this._settings = { fontSize: 13 };
@@ -288,9 +268,12 @@ export class BxShell extends LitElement {
         this._wsDefault = Array.isArray(d.default?.tiles) ? d.default.tiles : null;
         this._sharedFolders = d.folders ?? {};
         this._reconcileDrafts();
-        // The active org screen vanished (deleted / membership lost) → first tab.
+        // The active org screen vanished (deleted / membership lost) → first
+        // tab. Only once the layout is in: before that the personal screens
+        // aren't known yet, and picking the first org screen here rendered
+        // it (and mounted its tiles) for a moment on every load.
         const vis = this._visibleTabs();
-        if (vis.length && !vis.some((t) => t.id === this._active)) this._active = vis[0].id;
+        if (this._layoutLoaded && vis.length && !vis.some((t) => t.id === this._active)) this._active = vis[0].id;
       }
     } catch { /* offline / restarting */ }
   }
@@ -751,7 +734,7 @@ export class BxShell extends LitElement {
       const c = clampBox(this._adminPop, { minW: 300, minH: 120 });
       if (c.x !== this._adminPop.x || c.y !== this._adminPop.y || c.w !== this._adminPop.w || c.h !== this._adminPop.h) this._adminPop = c;
     }
-    for (const fr of this.renderRoot.querySelectorAll('bx-frame')) fr.fitToViewport?.();
+    for (const fr of [...this.renderRoot.querySelectorAll('bx-frame'), ...(this._canvas?.frames() ?? [])]) fr.fitToViewport?.();
     if (persist && this._canMutate && !this._mobile) {
       for (const o of this._tiles) {
         if (!o.float) continue;
@@ -774,7 +757,7 @@ export class BxShell extends LitElement {
     const W = window.innerWidth, H = window.innerHeight;
     const w = Math.min(560, W - 24), h = Math.min(Math.round(H * 0.7), H - 24);
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
-    const r = (this._gtile(path) ?? this._floatWin(path))?.getBoundingClientRect();
+    const r = this._canvas?.rectOf(path);
     const x = r ? clamp(r.right - w, 8, W - w - 8) : Math.round((W - w) / 2);
     const y = r ? clamp(r.top + 36, 8, H - h - 8) : Math.round((H - h) / 2.4);
     this._adminPop = { path, section, x, y, w, h };
@@ -847,34 +830,10 @@ export class BxShell extends LitElement {
     this._openCanvasMenu(e);
   }
 
-  // Selected text in the shell's own document — toString() of the document
-  // selection (Chromium and Firefox both read it through nested shadow
-  // roots for real, selectable text) or of Chromium's non-standard
-  // ShadowRoot.getSelection(). Not getComposedRanges: it also reports ranges
-  // over user-select:none chrome (card heads, sidebar rows — which no person
-  // can select) and retargets nested-shadow ranges to the host, so a caret
-  // left by a click read as "text selected" and swallowed every right-click.
-  _selectedText() {
-    for (const root of [this.renderRoot, document]) {
-      const t = root?.getSelection?.()?.toString?.() ?? '';
-      if (t.trim()) return t;
-    }
-    return '';
-  }
-  // Long-press (touch/pen, phones only — the mouse keeps right-click): hold
-  // ~450 ms without moving 8px to open the menu the right-click would. A
-  // scroll cancels (pointercancel), and the menu's backdrop ignores the
-  // press's own pointerup/click.
-  _pressStart(e, fire) {
-    if (!this._mobile || e.pointerType === 'mouse' || e.button !== 0) return;
-    this._pressCancel();
-    const x = e.clientX, y = e.clientY;
-    this._press = { x, y, t: setTimeout(() => { this._press = null; fire(); }, 450) };
-  }
-  _pressMove(e) {
-    if (this._press && Math.hypot(e.clientX - this._press.x, e.clientY - this._press.y) > 8) this._pressCancel();
-  }
-  _pressCancel() { if (this._press) { clearTimeout(this._press.t); this._press = null; } }
+  _selectedText() { return selectedText(this.renderRoot); }
+  _pressStart(e, fire) { this._press.start(e, fire, this._mobile); }
+  _pressMove(e) { this._press.move(e); }
+  _pressCancel() { this._press.cancel(); }
 
   _openCanvasMenu(e) {
     e?.preventDefault?.();
@@ -900,7 +859,8 @@ export class BxShell extends LitElement {
         { kind: 'sep' });
     }
     this._menu = { items, x: e?.clientX ?? 0, y: e?.clientY ?? 0,
-      anchor: anchorEl?.getBoundingClientRect?.() ?? null, sheet: this._mobile, title: path, tile: path };
+      anchor: typeof anchorEl?.getBoundingClientRect === 'function' ? anchorEl.getBoundingClientRect() : anchorEl ?? null,
+      sheet: this._mobile, title: path, tile: path };
   }
 
   // Runs synchronously from the menu's click (bx-menu closes, refocuses the
@@ -945,7 +905,7 @@ export class BxShell extends LitElement {
       discardDraft: (id) => this._discardDraft(id), copyOrgScreen: (id) => this._copyOrgScreen(id),
       newTileDialog: (...x) => this._newTileDialog(...x), addScreen: () => this._addScreen(),
       fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p),
-      toggle: (p) => this._toggle(p), togglePin: (p) => this._togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l),
+      toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l),
       openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
       openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
     };
@@ -962,24 +922,13 @@ export class BxShell extends LitElement {
       if (!r.ok) { const d = await r.json().catch(() => ({})); this._pushToast(path, { level: 'error', message: d.error ?? `failed (${r.status})` }); }
     } catch { this._pushToast(path, { level: 'error', message: 'offline — try again' }); }
   }
-  // Open a tile's pop-up (terminal / logs / source / proposals). A tile that
-  // isn't on the screen is opened first; the frame call runs once its card
-  // exists (see updated()).
-  _frameOf(path) { return this.renderRoot.querySelector(`.card[data-path="${CSS.escape(path)}"] bx-frame`); }
+  // The cards live in <bx-canvas>; a pop-up (terminal / logs / source /
+  // proposals) on a tile that isn't on the screen opens it first — the
+  // canvas runs the call once the card exists.
+  get _canvas() { return this.renderRoot.querySelector('bx-canvas'); }
+  _frameOf(path) { return this._canvas?.frameFor(path) ?? null; }
   _frameOpen(path, layout) {
-    const fr = this._frameOf(path);
-    if (fr) { fr.open?.(layout); return; }
-    this._pendingFrameOpen.set(path, layout);
-    this._openFromMenu(path);
-  }
-  updated() {
-    if (!this._pendingFrameOpen.size) return;
-    for (const [p, l] of [...this._pendingFrameOpen]) {
-      const fr = this._frameOf(p);
-      if (!fr) continue;
-      this._pendingFrameOpen.delete(p);
-      fr.updateComplete?.then(() => fr.open?.(l));
-    }
+    if (!this._canvas?.frameOpen(path, layout)) this._openFromMenu(path);
   }
 
   // New-tile dialog: names a static tile under apps/, creates it, opens it on
@@ -1377,16 +1326,6 @@ export class BxShell extends LitElement {
       if (r.ok) this._prs = (await r.json()).counts || {};
     } catch { /* transient */ }
   }
-  _prBadge(path, interactive = false) {
-    const n = this._prs[path];
-    if (!n) return nothing;
-    const title = `${n} open change proposal${n === 1 ? '' : 's'} — review in the tile's terminal window (⇄ tab)`;
-    return interactive
-      ? html`<button class="prb" title=${title}
-                     @pointerdown=${(e) => e.stopPropagation()}
-                     @click=${(e) => { e.stopPropagation(); this._frameOpen(path, 'prs'); }}>⇄${n}</button>`
-      : html`<span class="prb" title=${title}>⇄${n}</span>`;
-  }
   // Highest-severity status among the given component paths (null if none).
   _worstStatus(paths) {
     const rank = { ok: 0, info: 1, warn: 2, error: 3 };
@@ -1768,7 +1707,7 @@ export class BxShell extends LitElement {
            @click=${() => this._toggle(c.path)}>
         <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
         <span>${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
-        ${this._prBadge(c.path)}
+        ${prBadge(this._prs[c.path])}
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${this._hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
@@ -1935,10 +1874,6 @@ export class BxShell extends LitElement {
     if (this._mobile) this._drawer = false;
   }
 
-  _runtimeOf(path) {
-    return this._components.find((c) => c.path === path)?.runtime ?? '';
-  }
-
   // ---- screens ----
   _switchScreen(id) { this._active = id; this._save(); }
   _addScreen() {
@@ -1991,229 +1926,12 @@ export class BxShell extends LitElement {
     this._save();
   }
 
-  // ---- grid drag + resize ----
-  // Both manipulate the tile's DOM directly during the gesture (so its
-  // <bx-frame> isn't re-rendered/reloaded mid-move) and commit snapped geometry
-  // on release. The tile is a `.gtile` at (x, y) sized (w−GAP)×(h−GAP) — the GAP
-  // is the gutter — so committed w/h add GAP back.
-  _gtile(path) { return this.renderRoot.querySelector(`.gtile[data-path="${path}"]`); }
-
-  _gridDragStart(ev, path) {
-    if (this._mobile) return; // tiles are stacked (no free grid) on mobile
-    if (!this._canMutate) return; // shared screen in view mode (D55)
-    if (ev.button !== 0 || ev.target.closest('button, select, .rz')) return;
-    ev.preventDefault();
-    const el = this._gtile(path);
-    if (!el) return;
-    el.classList.add('dragging');
-    const dx = ev.clientX - el.offsetLeft, dy = ev.clientY - el.offsetTop;
-    dragPointer({
-      onMove: (e) => {
-        el.style.left = snap(Math.max(0, e.clientX - dx)) + 'px';
-        el.style.top = snap(Math.max(0, e.clientY - dy)) + 'px';
-      },
-      onUp: () => {
-        el.classList.remove('dragging');
-        this._setGeom(path, { x: el.offsetLeft, y: el.offsetTop });
-      },
-    });
-  }
-
-  _gridResizeStart(ev, path) {
-    if (this._mobile || ev.button !== 0) return;
-    if (!this._canMutate) return; // shared screen in view mode (D55)
-    ev.preventDefault(); ev.stopPropagation();
-    const el = this._gtile(path);
-    if (!el) return;
-    const sx = ev.clientX, sy = ev.clientY;
-    const w0 = el.offsetWidth + GAP, h0 = el.offsetHeight + GAP; // full cell size
-    dragPointer({
-      cursor: 'nwse-resize',
-      onMove: (e) => {
-        el.style.width = (snap(Math.max(MIN_W, w0 + (e.clientX - sx))) - GAP) + 'px';
-        el.style.height = (snap(Math.max(MIN_H, h0 + (e.clientY - sy))) - GAP) + 'px';
-      },
-      onUp: () => this._setGeom(path, { w: el.offsetWidth + GAP, h: el.offsetHeight + GAP }),
-    });
-  }
-
-  _setGeom(path, patch) {
-    this._mutateTiles((tiles) => tiles.map((o) =>
-      o.path === path && !o.float ? { ...o, ...patch } : o));
-  }
-
-  _gridCard(o) {
-    return html`
-      <div class="gtile" data-path=${o.path}
-           style="left:${o.x}px; top:${o.y}px; width:${o.w - GAP}px; height:${o.h - GAP}px;">
-        ${this._cardTemplate(o, 'grid')}
-        <div class="rz" title="drag to resize" @pointerdown=${(e) => this._gridResizeStart(e, o.path)}></div>
-      </div>`;
-  }
-
-  // Content bounds so the (absolute-positioned) canvas scrolls to fit its tiles,
-  // floored to the visible pane so the dot field fills it even on a near-empty
-  // screen. main's padding (14px) and the grants bar sit above the canvas.
-  _gridExtent() {
-    const g = this._tiles.filter((o) => !o.float);
-    const main = this.renderRoot?.querySelector('main');
-    const grants = this.renderRoot?.querySelector('.grants');
-    const vw = main ? main.clientWidth - 28 : 0;
-    const vh = main ? main.clientHeight - 28 - (grants?.offsetHeight ?? 0) : 0;
-    return {
-      w: Math.max(vw, g.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID),
-      h: Math.max(vh, g.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID),
-    };
-  }
-
-  // Open/close the terminal of the card's own frame (the header >_ button —
-  // integrated here so tiles don't need the tiny corner button).
-  _cardTerm(e) {
-    e.stopPropagation();
-    e.currentTarget.closest('.card')?.querySelector('bx-frame')?.toggleTerminal?.();
-  }
-
-  // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window).
-  // Both are fixed-size: the frame fills a fixed body and scrolls inside.
-  _cardTemplate(o, kind = 'grid') {
-    const floating = kind === 'float';
-    const frame = html`<bx-frame src=${o.path} no-edit height="100%"></bx-frame>`;
-    return html`
-      <div class="card" data-path=${o.path}
-           @bx-contextmenu=${(e) => { e.stopPropagation(); this._openTileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, { selection: e.detail.selection || '' }); }}>
-        <div class="head"
-             @pointerdown=${(e) => { this._pressStart(e, () => this._openTileMenu(null, o.path)); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
-             @pointermove=${(e) => this._pressMove(e)}
-             @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()} @pointerleave=${() => this._pressCancel()}>
-          <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
-          <span class="t">${o.path}</span>
-          ${this._prBadge(o.path, true)}
-          <span class="spacer"></span>
-          <button class="term" title="terminal on ${o.path}"
-                  @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => this._cardTerm(e)}>&gt;_</button>
-          ${!this._mobile && this._canAdminTile(o.path) ? html`<button title="tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)"
-                  @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => { e.stopPropagation(); this._openAdminWin(o.path); }}>⚙</button>` : nothing}
-          ${!this._mobile && this._canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
-                  @click=${() => this._togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>` : nothing}
-          <button title="tile menu (terminal · logs · source · proposals · admin)"
-                  @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => this._openTileMenu(e, o.path, e.currentTarget)}>⋯</button>
-          ${!this._mobile && this._canMutate ? html`<button title="close" @click=${() => this._toggle(o.path)}>✕</button>` : nothing}
-        </div>
-        <div class="cbody">${frame}</div>
-      </div>`;
-  }
-
-  // ---- floating (unpinned) windows ----
-  // A tile with a `float:{x,y,w,h,z}` is rendered as a viewport-fixed window
-  // instead of on the grid; the geometry is part of the tile, so it persists in
-  // the saved layout. Pinning/unpinning re-creates the tile's <bx-frame> (moving
-  // between two DOM containers) — a brief reload, but any open terminal on it
-  // reattaches via bx-frame's session persistence.
-  _floatTemplate(o) {
-    // Rendered clamped to the CURRENT viewport (the saved geometry may come
-    // from a bigger monitor); dragging commits the on-screen position.
-    const f = this._mobile ? o.float : clampBox(o.float, { minW: MIN_W, minH: MIN_H });
-    return html`
-      <div class="float" data-path=${o.path}
-           style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
-           @contextmenu=${(e) => this._onContextMenu(e)}
-           @pointerdown=${() => this._floatFront(o.path)}
-           @pointerup=${(e) => this._floatCommit(e, o.path)}>
-        ${this._cardTemplate(o, 'float')}
-      </div>`;
-  }
-
-  _togglePin(path) {
-    // Read the current on-screen rect before the mutation re-renders.
-    const init = this._initialFloat(path);
-    this._mutateTiles((tiles) => tiles.map((o) => {
-      if (o.path !== path) return o;
-      if (o.float) { const { float, ...rest } = o; return rest; } // pin back to its column
-      return { ...o, float: init };                                // unpin → floating window
-    }));
-  }
-
-  _initialFloat(path) {
-    const el = this.renderRoot.querySelector(`.card[data-path="${path}"]`);
-    const r = el?.getBoundingClientRect();
-    const w = Math.round(Math.min(r?.width || 480, window.innerWidth - 16));
-    const h = Math.round(Math.min(r?.height || 340, 520, window.innerHeight - 16));
-    const x = Math.max(8, Math.min(Math.round((r?.left ?? 120) + 28), window.innerWidth - w - 8));
-    const y = Math.max(8, Math.min(Math.round((r?.top ?? 90) + 20), window.innerHeight - h - 8));
-    return { x, y, w, h, z: nextZ() };
-  }
-
-  _floatWin(path) { return this.renderRoot.querySelector(`.float[data-path="${path}"]`); }
-
-  // Raise a floating window to the top — but only if it isn't already there, so
-  // repeatedly clicking the front window doesn't churn the layout. z is part of
-  // the tile, so the stacking order persists.
-  _floatFront(path) {
-    const floats = this._tiles.filter((o) => o.float);
-    if (floats.length < 2) return;
-    const o = floats.find((t) => t.path === path);
-    if (!o) return;
-    const maxZ = Math.max(...floats.map((t) => t.float.z ?? 100));
-    if ((o.float.z ?? 100) >= maxZ) return; // already on top
-    this._setFloat(path, { z: raiseTo(maxZ + 1) });
-  }
-
-  // A click inside a tile's <iframe> focuses it and blurs the top window (the
-  // iframe swallows the pointerdown, so .float's own handler can't fire). Walk
-  // the shadow roots to the focused iframe and raise its floating window, so
-  // clicking anywhere in a window — not just its title bar — brings it forward.
-  // A window blur with an iframe focused = the person clicked into that
-  // tile (the click itself never reaches us), so its float comes to the
-  // front — unless the frame is mid-reload: a reloaded document that focuses
-  // an input would otherwise hoist its tile over the terminal someone is
-  // typing in (bx-frame also hands that stolen focus back).
-  _raiseFocusedFloat() {
-    setTimeout(() => {
-      let el = document.activeElement;
-      while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-      if (el?.tagName !== 'IFRAME') return;
-      const host = el.getRootNode()?.host;
-      if (host?.reloading && !host.hovered) return; // a reload's focus grab, not a click
-      const win = host?.closest?.('.float');
-      if (win) this._floatFront(win.dataset.path);
-    }, 0);
-  }
-
-  // Commit a resize (via the CSS resize handle) back into the tile; skip clicks
-  // that didn't change the size, so buttons don't churn the layout.
-  _floatCommit(e, path) {
-    const win = e.currentTarget;
-    const o = this._tiles.find((t) => t.path === path);
-    if (!o?.float) return;
-    if (win.offsetWidth === o.float.w && win.offsetHeight === o.float.h) return;
-    this._setFloat(path, { w: win.offsetWidth, h: win.offsetHeight });
-  }
-
-  _floatDragStart(ev, path) {
-    if (this._mobile) return; // floats are full-screen sheets on mobile
-    if (ev.button !== 0 || ev.target.closest('button, select')) return;
-    ev.preventDefault();
-    this._floatFront(path);
-    const win = this._floatWin(path);
-    if (!win) return;
-    const dx = ev.clientX - win.offsetLeft, dy = ev.clientY - win.offsetTop;
-    dragPointer({
-      onMove: (e) => {
-        const x = Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40));
-        const y = Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24));
-        win.style.left = x + 'px'; win.style.top = y + 'px';
-      },
-      onUp: () => this._setFloat(path, { x: win.offsetLeft, y: win.offsetTop }),
-    });
-  }
-
+  // ---- the tile surface is <bx-canvas> (grid + floats); these are the shell's ends of it ----
   _setFloat(path, patch) {
     this._mutateTiles((tiles) => tiles.map((o) =>
       o.path === path && o.float ? { ...o, float: { ...o.float, ...patch } } : o));
   }
+  _raiseFocusedFloat() { this._canvas?.raiseFocusedFloat(); }
 
   // ---- test surface (hack/ui-harness) ----
   // Stable names over the shell's private state so the harness never reaches
@@ -2251,7 +1969,7 @@ export class BxShell extends LitElement {
       adminWindowElement: () => s.renderRoot.querySelector('.admin-pop'),
       tileAdminElement: () => s.renderRoot.querySelector('bx-tile-admin'),
       // an element of the shell's own DOM (.float[data-path], .spawn, bx-grants…)
-      query: (sel) => s.renderRoot.querySelector(sel),
+      query: (sel) => s.renderRoot.querySelector(sel) ?? s._canvas?.renderRoot.querySelector(sel) ?? null,
       openCanvasMenu: (at) => s._openCanvasMenu({ clientX: at?.x ?? 0, clientY: at?.y ?? 0, preventDefault() {} }),
       canvasMenuItems: () => s._canvasMenuItems(),
       get menuOpen() { return !!s._menu; },
@@ -2428,23 +2146,23 @@ export class BxShell extends LitElement {
         ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
           @click=${() => { this._drawer = false; }}></div>` : nothing}
         <main @contextmenu=${(e) => this._onContextMenu(e)}
-              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, .orgbar, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
+              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .orgbar, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
           ${this._orgBar()}
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
-          <div class="canvas ${this._canMutate ? '' : 'ro'}" style="min-height:${this._gridExtent().h}px; min-width:${this._gridExtent().w}px">
-            ${repeat(this._tiles.filter((o) => !o.float), (o) => o.path, (o) => this._gridCard(o))}
-          </div>
-          ${this._tiles.filter((o) => !o.float).length === 0 && !this._tiles.some((o) => o.float)
-            ? html`<div class="empty">${this._activeOrgScreen && !this._canMutate
-              ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}</div>` : nothing}
+          <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
+            .canMutate=${this._canMutate} .mobile=${this._mobile} .menuOpen=${!!this._menu}
+            .canAdminTile=${(p) => this._canAdminTile(p)}
+            .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
+            @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
+            @bx-toggle-tile=${(e) => this._toggle(e.detail)}
+            @bx-tile-menu=${(e) => this._openTileMenu(e.detail.at, e.detail.path, e.detail.anchor, { selection: e.detail.selection })}
+            @bx-canvas-menu=${(e) => this._openCanvasMenu(e.detail)}
+            @bx-admin-win=${(e) => this._openAdminWin(e.detail)}></bx-canvas>
           <slot style="display:none"></slot>
         </main>
       </div>
-
-      ${repeat(this._tiles.filter((o) => o.float), (o) => o.path, (o) => this._floatTemplate(o))}
-
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}
       ${this._adminPopTemplate()}
