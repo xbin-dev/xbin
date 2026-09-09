@@ -7,9 +7,8 @@
 // xbin.fetch attributes calls to this element (self → admin of its own backend).
 import { marked } from '/vendor/marked.esm.js';
 
-const base = `/api/${xbin.self}`;
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
 
@@ -36,16 +35,6 @@ const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return
 // Group digits for readability: 123123 → "123 123" (narrow no-break space).
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
-const api = async (method, path, body) => {
-  const r = await xbin.fetch(base + path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || r.status);
-  return d;
-};
 
 let sel = null;          // selected run id
 let lastDetailKey = '';  // cheap change-detection for the timeline
@@ -62,7 +51,7 @@ let skillSel = null;     // name of the skill being edited (null = new)
 
 async function loadRuns() {
   let runs;
-  try { runs = await api('GET', '/runs'); } catch { return; }
+  try { runs = await api('/runs'); } catch { return; }
   const host = $('runs');
   if (!runs.length) { host.innerHTML = '<div class="empty">no runs yet</div>'; return; }
   host.innerHTML = '';
@@ -192,7 +181,7 @@ function pendingOf(run) {
 async function loadDetail() {
   if (sel == null) return;
   let d;
-  try { d = await api('GET', `/runs/${sel}`); } catch { return; }
+  try { d = await api(`/runs/${sel}`); } catch { return; }
   detail = d;
   const run = d.run;
   const pend = pendingOf(run);
@@ -240,7 +229,7 @@ async function loadDetail() {
     const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
     tl.innerHTML = html || '<div class="empty">…</div>';
     tl.querySelectorAll('[data-ap]').forEach((b) => b.onclick = async () => {
-      try { await api('POST', `/runs/${sel}/approve`, { approve: b.dataset.ap === '1' }); } catch (e) { alert(e.message); }
+      try { await api(`/runs/${sel}/approve`, jbody({ approve: b.dataset.ap === '1' }, 'POST')); } catch (e) { alert(e.message); }
       lastDetailKey = ''; loadDetail();
     });
     if (atBottom) tl.scrollTop = tl.scrollHeight;
@@ -255,7 +244,7 @@ async function control(action) {
   if (action === 'mem') return openSettings('memory');
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
-    try { await api('DELETE', `/runs/${sel}`); } catch (e) { return alert(e.message); }
+    try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
     sel = null; detail = null; lastDetailKey = '';
     $('top').innerHTML = '<span class="muted">select or start a run</span>';
     $('timeline').innerHTML = '<div class="empty">—</div>';
@@ -264,7 +253,7 @@ async function control(action) {
     return loadRuns();
   }
   // resume | interrupt | compact | learn → POST /runs/{id}/{action}
-  try { await api('POST', `/runs/${sel}/${action}`); } catch (e) { alert(e.message); }
+  try { await api(`/runs/${sel}/${action}`, { method: 'POST' }); } catch (e) { alert(e.message); }
   lastDetailKey = ''; loadDetail();
 }
 
@@ -278,7 +267,7 @@ async function send() {
   // (the backend aliases them, but this keeps intent explicit).
   const run = detail && detail.run;
   const waiting = run && run.status === 'waiting_input' && pendingOf(run).kind !== 'approval';
-  try { await api('POST', `/runs/${sel}/${waiting ? 'answer' : 'message'}`, { text: t }); } catch (e) { alert(e.message); }
+  try { await api(`/runs/${sel}/${waiting ? 'answer' : 'message'}`, jbody({ text: t }, 'POST')); } catch (e) { alert(e.message); }
   lastDetailKey = ''; loadDetail();
 }
 $('send').onclick = send;
@@ -291,7 +280,7 @@ $('n-create').onclick = async (e) => {
   const goal = $('n-goal').value.trim();
   if (!goal) { e.preventDefault(); return; }
   try {
-    const run = await api('POST', '/runs', { goal, title: $('n-title').value.trim(), system: $('n-system').value.trim() });
+    const run = await api('/runs', jbody({ goal, title: $('n-title').value.trim(), system: $('n-system').value.trim() }, 'POST'));
     sel = run.id; lastDetailKey = '';
   } catch (err) { alert(err.message); }
   loadRuns(); loadDetail();
@@ -327,14 +316,14 @@ document.querySelectorAll('#tabs .tab[data-tab]').forEach((b) => b.onclick = () 
 
 async function ensureModels(force) {
   if (models.length && !force) return;
-  try { const d = await api('GET', '/models'); models = (d.data || []).map((x) => x.id).filter(Boolean); }
+  try { const d = await api('/models'); models = (d.data || []).map((x) => x.id).filter(Boolean); }
   catch { if (!models.length) models = []; }
 }
 
 // Config tab: model tiers + system prompt + limits + behavior. Saves the FULL
 // merged config (preserving features/mcp/legacy model) via PUT /config.
 async function tabConfig(bd) {
-  const c = await api('GET', '/config');
+  const c = await api('/config');
   cfgCache = c;
   await ensureModels(true);
   const m = c.models || {};
@@ -370,7 +359,7 @@ async function tabConfig(bd) {
       subagents: $('cf-sub').checked, approve: $('cf-appr').checked,
     };
     try {
-      await api('PUT', '/config', next); cfgCache = next;
+      await api('/config', jbody(next, 'PUT')); cfgCache = next;
       $('cf-msg').textContent = 'saved ✓';
       setTimeout(() => { const e = $('cf-msg'); if (e) e.textContent = ''; }, 1500);
     } catch (e) { $('cf-msg').textContent = e.message; }
@@ -380,7 +369,7 @@ async function tabConfig(bd) {
 // Features tab: a checkbox per capability. Toggling fetches the current config,
 // merges {features:{...}}, and PUTs it back.
 async function tabFeatures(bd) {
-  const f = await api('GET', '/features');
+  const f = await api('/features');
   const keys = f.keys || [];
   const st = f.features || {};
   const desc = {
@@ -397,9 +386,9 @@ async function tabFeatures(bd) {
     <div class="hint">Each toggle merges into the agent's default config.</div></div>`;
   bd.querySelectorAll('[data-f]').forEach((b) => b.onchange = async () => {
     try {
-      const c = await api('GET', '/config');
+      const c = await api('/config');
       c.features = { ...(c.features || {}), [b.dataset.f]: b.checked };
-      await api('PUT', '/config', c); cfgCache = c;
+      await api('/config', jbody(c, 'PUT')); cfgCache = c;
     } catch (e) { alert(e.message); }
     tabFeatures(bd);
   });
@@ -408,7 +397,7 @@ async function tabFeatures(bd) {
 // Memory tab: the SELECTED run's memory blocks (key→value): edit/add/delete.
 async function tabMemory(bd) {
   if (sel == null) { bd.innerHTML = '<div class="empty">select a run to edit its memory blocks</div>'; return; }
-  const d = await api('GET', `/runs/${sel}`);
+  const d = await api(`/runs/${sel}`);
   detail = d;
   const entries = Object.entries(d.memory || {});
   const keys = entries.map((e) => e[0]);
@@ -424,20 +413,20 @@ async function tabMemory(bd) {
   </div>`;
   bd.querySelectorAll('[data-set]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.set;
-    try { await api('PUT', `/runs/${sel}/memory`, { key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }); }
+    try { await api(`/runs/${sel}/memory`, jbody({ key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }, 'PUT')); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); loadDetail();
   });
   bd.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.del;
-    try { await api('DELETE', `/runs/${sel}/memory?key=${encodeURIComponent(keys[i])}`); }
+    try { await api(`/runs/${sel}/memory?key=${encodeURIComponent(keys[i])}`, { method: 'DELETE' }); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); loadDetail();
   });
   $('madd').onclick = async () => {
     const k = $('mk').value.trim();
     if (!k) return;
-    try { await api('PUT', `/runs/${sel}/memory`, { key: k, value: $('mv').value }); }
+    try { await api(`/runs/${sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); loadDetail();
   };
@@ -446,7 +435,7 @@ async function tabMemory(bd) {
 // Schedules tab: cron-agents — list with enable/disable, run-now, delete, and a
 // create form. A bad cron expression comes back as a 400 error we surface.
 async function tabSchedules(bd) {
-  const list = await api('GET', '/schedules');
+  const list = await api('/schedules');
   schedCache = list || [];
   bd.innerHTML = `
     <div class="sec"><h4>Cron-agents</h4>
@@ -475,32 +464,32 @@ async function tabSchedules(bd) {
     </div>`;
   bd.querySelectorAll('[data-en]').forEach((b) => b.onchange = async () => {
     const s = schedCache[+b.dataset.en];
-    try { await api('PUT', `/schedules/${s.id}`, { enabled: b.checked }); } catch (e) { alert(e.message); }
+    try { await api(`/schedules/${s.id}`, jbody({ enabled: b.checked }, 'PUT')); } catch (e) { alert(e.message); }
     tabSchedules(bd);
   });
   bd.querySelectorAll('[data-fire]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.fire];
-    try { await api('POST', `/schedules/${s.id}/trigger`); } catch (e) { return alert(e.message); }
+    try { await api(`/schedules/${s.id}/trigger`, { method: 'POST' }); } catch (e) { return alert(e.message); }
     loadRuns();
   });
   bd.querySelectorAll('[data-delsc]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.delsc];
     if (!confirm(`Delete schedule "${s.name || s.id}"?`)) return;
-    try { await api('DELETE', `/schedules/${s.id}`); } catch (e) { return alert(e.message); }
+    try { await api(`/schedules/${s.id}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
     tabSchedules(bd);
   });
   $('sc-create').onclick = async () => {
     const name = $('sc-name').value.trim(), cron = $('sc-cron').value.trim(), goal = $('sc-goal').value.trim();
     $('sc-err').textContent = '';
     if (!cron || !goal) { $('sc-err').textContent = 'need a cron expression and a goal'; return; }
-    try { await api('POST', '/schedules', { name, cron, goal, watcher: $('sc-watch').checked }); tabSchedules(bd); }
+    try { await api('/schedules', jbody({ name, cron, goal, watcher: $('sc-watch').checked }, 'POST')); tabSchedules(bd); }
     catch (e) { $('sc-err').textContent = e.message; }
   };
 }
 
 // Skills tab: the self-authored skill library — list, view/edit, save, delete.
 async function tabSkills(bd) {
-  const list = await api('GET', '/skills');
+  const list = await api('/skills');
   skillsCache = list || [];
   const cur = skillSel != null ? skillsCache.find((s) => s.name === skillSel) : null;
   bd.innerHTML = `
@@ -527,7 +516,7 @@ async function tabSkills(bd) {
   bd.querySelectorAll('[data-skdel]').forEach((b) => b.onclick = async () => {
     const s = skillsCache[+b.dataset.skdel];
     if (!confirm(`Delete skill "${s.name}"?`)) return;
-    try { await api('DELETE', `/skills/${encodeURIComponent(s.name)}`); } catch (e) { return alert(e.message); }
+    try { await api(`/skills/${encodeURIComponent(s.name)}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
     if (skillSel === s.name) skillSel = null;
     tabSkills(bd);
   });
@@ -537,7 +526,7 @@ async function tabSkills(bd) {
     $('sk-err').textContent = '';
     if (!name || !$('sk-content').value.trim()) { $('sk-err').textContent = 'need a name and content'; return; }
     try {
-      await api('PUT', '/skills', { name, description: $('sk-desc').value.trim(), content: $('sk-content').value });
+      await api('/skills', jbody({ name, description: $('sk-desc').value.trim(), content: $('sk-content').value }, 'PUT'));
       skillSel = name; tabSkills(bd);
     } catch (e) { $('sk-err').textContent = e.message; }
   };

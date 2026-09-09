@@ -212,8 +212,13 @@ automatic.
   import '/vendor/bx-terminal.js';  // <bx-terminal cwd="…"> (bx-frame uses it)
   import '/vendor/bx-grants.js';    // <bx-grants> owner approval panel
   import '/vendor/bx-dialog.js';    // <bx-dialog> modal (xbin.dialog fallback)
+  import { xbinApi, jbody } from '/vendor/bx-kit.js'; // the helper kit
 </script>
 ```
+
+Every module a tile may import — and the shell-only ones — is listed in
+[frontend-kit.md](/docs/frontend-kit.md); always import by absolute
+`/vendor/…` URL.
 
 `lit` is importable everywhere via the injected import map
 (`import { LitElement, html, css } from 'lit'`) — vendored, no CDN, works

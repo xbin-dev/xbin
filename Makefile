@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -97,8 +97,12 @@ fmt:
 
 # The definition of done (docs/maintenance.md). CI runs this, then
 # `make integration`. Each guard is its own target so a failure names itself.
-check: fmt-check vet js-check shellcheck pins-offline test
+check: fmt-check vet js-check theme-check shellcheck pins-offline test
 	@echo ">> make check: green"
+
+# Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
+theme-check:
+	@node hack/theme-fallbacks.mjs
 
 # Parse every shipped .js and every inline <script type="module"> block; and
 # the UI harness may only drive the elements' testApi() (never a `_member`

@@ -243,7 +243,10 @@ its card**. To float over the whole workspace, a tile asks the **shell** to
 spawn it. Two APIs on the in-frame `xbin` global (see [sdk.md](/docs/sdk.md)):
 (The shell's own context menus are `<bx-menu>`, served at
 `/vendor/bx-menu.js` — shell chrome with action closures, not a tile API;
-tiles keep using the two calls below. Right-clicking selected text in a
+tiles keep using the two calls below. Which `/vendor/` modules *are* for
+tiles — `bx-kit`, `bx-dialog`, `bx-multiselect`, `bx-netrules`, `bx-allow`,
+`bx-code`, `events-socket`, `theme.css` — is listed in
+[frontend-kit.md](/docs/frontend-kit.md). Right-clicking selected text in a
 tile carries the text to the shell, whose tile menu leads with **Copy**;
 inputs and editable text keep the native menu.)
 

@@ -117,22 +117,22 @@ export class BxTerminal extends HTMLElement {
           :host(:hover) .gear, .gear:focus, .gear.open{opacity:.85}
           .gear:hover{background:rgba(140,148,161,.34)}
           .tmenu{position:absolute; top:30px; right:10px; z-index:7; min-width:210px;
-            background:var(--bx-panel,#23272e); color:var(--bx-text,#d7dce5);
-            border:1px solid var(--bx-border,#39414d); border-radius:8px; padding:8px;
+            background:var(--bx-panel,#23272e); color:var(--bx-text, #d4d9e0);
+            border:1px solid var(--bx-border, #363c45); border-radius:8px; padding:8px;
             box-shadow:0 10px 30px rgba(0,0,0,.5); font:12px/1.4 system-ui,sans-serif;}
           .tmenu[hidden]{display:none}
           .tmenu .hd{font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
-            color:var(--bx-muted,#8794a1); font-weight:600; margin:0 2px 6px;}
+            color:var(--bx-muted, #868f9a); font-weight:600; margin:0 2px 6px;}
           .tmenu .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 2px;}
           .tmenu select{flex:1; min-width:0; font:inherit; font-size:12px; padding:3px 6px;
-            border:1px solid var(--bx-border,#39414d); border-radius:5px;
-            background:var(--bx-bg,#1b1e24); color:var(--bx-text,#d7dce5);}
+            border:1px solid var(--bx-border, #363c45); border-radius:5px;
+            background:var(--bx-bg,#1b1e24); color:var(--bx-text, #d4d9e0);}
           .tmenu .fs{display:flex; align-items:center; gap:6px;}
           .tmenu .fs b{min-width:30px; text-align:center; font-variant-numeric:tabular-nums;}
-          .tmenu .step{width:22px; height:22px; border:1px solid var(--bx-border,#39414d);
-            border-radius:5px; background:var(--bx-bg,#1b1e24); color:var(--bx-text,#d7dce5);
+          .tmenu .step{width:22px; height:22px; border:1px solid var(--bx-border, #363c45);
+            border-radius:5px; background:var(--bx-bg,#1b1e24); color:var(--bx-text, #d4d9e0);
             cursor:pointer; font:inherit; line-height:1;}
-          .tmenu .step:hover{background:var(--bx-panel-2,#2b313a);}
+          .tmenu .step:hover{background:var(--bx-panel-2, #2b3038);}
         </style>` +
         `<div class="host"></div>` +
         `<button class="gear" title="terminal settings" aria-label="terminal settings">🔧</button>` +

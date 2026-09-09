@@ -315,10 +315,12 @@ Embedding other components:
 ```
 
 (`bx-frame`/`bx-grants` are importable via `import '/vendor/bx-frame.js'`
-etc.) Frames live-reload on save; backend build errors overlay the frame
-with compiler output until the next good save.
+etc.; `import { xbinApi, jbody, esc } from '/vendor/bx-kit.js'` is the helper
+kit — docs/frontend-kit.md lists every module a tile may import, always by
+absolute URL, never a bare specifier.) Frames live-reload on save; backend
+build errors overlay the frame with compiler output until the next good save.
 
-**Theme & shell.** The workspace look is a light, dense theme defined by
+**Theme & shell.** The workspace look is a dark-steel, dense theme defined by
 CSS tokens in `/vendor/theme.css` — link it and use `--bx-bg/-panel/
 -panel-2/-border/-text/-muted/-accent/-green/-amber/-red/-radius/-shadow/
 -font/-mono` (plus `body.bx` base and the `.bx-label` small-caps class).

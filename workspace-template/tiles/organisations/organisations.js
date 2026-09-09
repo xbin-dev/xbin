@@ -19,15 +19,7 @@ import { LitElement, html, css, nothing } from 'lit';
 import { ruleLabel, orgNetLabel, SCOPE_ICON } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 
-const api = async (path, opts) => {
-  const r = await fetch('/api/xbin' + path, opts);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error ?? `error ${r.status}`);
-  return d;
-};
-const jbody = (method, body) => ({
-  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-});
+import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 
 export class BxOrganisations extends LitElement {
   static properties = {
@@ -52,31 +44,31 @@ export class BxOrganisations extends LitElement {
 
   static styles = css`
     :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif);
-      color: var(--bx-text, #33414e); padding: 12px 16px 24px; }
+      color: var(--bx-text, #d4d9e0); padding: 12px 16px 24px; }
     h3 { font-size: 14px; margin: 14px 0 6px; }
     h3:first-of-type { margin-top: 2px; }
-    .muted { color: var(--bx-muted, #8794a1); }
+    .muted { color: var(--bx-muted, #868f9a); }
     .mono { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
-    .pill { display: inline-block; border: 1px solid var(--bx-border, #e4e8ed);
+    .pill { display: inline-block; border: 1px solid var(--bx-border, #363c45);
       border-radius: 999px; padding: 0 8px; font-size: 11px; margin: 1px 2px; }
     .pill.on { border-color: var(--bx-accent, #f5a623);
       background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent); }
-    .card { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;
-      padding: 8px 10px; margin: 6px 0; background: var(--bx-panel, #fff); }
+    .card { border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
+      padding: 8px 10px; margin: 6px 0; background: var(--bx-panel, #23272e); }
     table { border-collapse: collapse; width: 100%; }
     th { text-align: left; font-size: 10.5px; text-transform: uppercase;
-      letter-spacing: .05em; color: var(--bx-muted, #8794a1); padding: 2px 6px; }
-    td { padding: 3px 6px; border-top: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 55%, transparent); }
-    button { font: inherit; font-size: 12px; border: 1px solid var(--bx-border, #e4e8ed);
-      background: var(--bx-panel, #fff); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
-    button:hover { border-color: var(--bx-muted, #8794a1); }
-    button.go { background: var(--bx-green, #43a047); border-color: var(--bx-green, #43a047); color: #fff; }
-    button.rm { color: var(--bx-red, #e5484d); }
+      letter-spacing: .05em; color: var(--bx-muted, #868f9a); padding: 2px 6px; }
+    td { padding: 3px 6px; border-top: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 55%, transparent); }
+    button { font: inherit; font-size: 12px; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel, #23272e); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
+    button:hover { border-color: var(--bx-muted, #868f9a); }
+    button.go { background: var(--bx-green, #4caf50); border-color: var(--bx-green, #4caf50); color: #fff; }
+    button.rm { color: var(--bx-red, #ef5350); }
     select, input { font: inherit; font-size: 12px; padding: 2px 6px;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
-      background: var(--bx-panel, #fff); color: inherit; }
-    .err { color: var(--bx-red, #e5484d); font-size: 12px; margin: 6px 0; }
-    .note { color: var(--bx-green, #2f9e44); font-size: 12px; margin: 6px 0; }
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel, #23272e); color: inherit; }
+    .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 6px 0; }
+    .note { color: var(--bx-green, #4caf50); font-size: 12px; margin: 6px 0; }
     .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   `;
 
@@ -188,13 +180,13 @@ export class BxOrganisations extends LitElement {
         ${(a.entries ?? []).map((e) => html`<tr>
           <td>${e.kind}</td><td class="mono">${e.id}</td>
           <td>${e.source === 'exact' ? html`<select @change=${(ev) =>
-              this._do(() => api('/access', jbody('PUT', { tile: a.tile, kind: e.kind, id: e.id, level: ev.target.value })), 'updated')}>
+              this._do(() => api('/access', jbody({ tile: a.tile, kind: e.kind, id: e.id, level: ev.target.value }, 'PUT')), 'updated')}>
               ${(e.kind === 'user' ? ['read', 'write', 'terminal', 'none'] : ['read', 'write', 'terminal'])
                 .map((l) => html`<option value=${l} ?selected=${e.level === l}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
             </select>` : e.level}</td>
           <td class="muted">${e.source}</td>
           <td>${e.source === 'exact' ? html`<button class="rm" @click=${() =>
-              this._do(() => api('/access', jbody('PUT', { tile: a.tile, kind: e.kind, id: e.id, level: '' })), 'removed')}>✕</button>` : nothing}</td>
+              this._do(() => api('/access', jbody({ tile: a.tile, kind: e.kind, id: e.id, level: '' }, 'PUT')), 'removed')}>✕</button>` : nothing}</td>
         </tr>`)}
       </table>
       <div class="row" style="margin-top:6px">
@@ -211,8 +203,8 @@ export class BxOrganisations extends LitElement {
         <button class="go" @click=${() => {
           const g = (id) => this.renderRoot.getElementById(id).value;
           if (!g('acl-id')) return;
-          this._do(() => api('/access', jbody('PUT', {
-            tile: a.tile, kind: g('acl-kind'), id: g('acl-id'), level: g('acl-level') })), 'shared');
+          this._do(() => api('/access', jbody({
+            tile: a.tile, kind: g('acl-kind'), id: g('acl-id'), level: g('acl-level') }, 'PUT')), 'shared');
         }}>share</button>
         <span class="muted" style="font-size:11px">read = see it · write = use/edit · terminal = shell on it ·
           an exact user entry is authoritative (none = exclude, D31)</span>
@@ -231,9 +223,9 @@ export class BxOrganisations extends LitElement {
     const lv = rep.callerLevel;
     return html`<div style="margin-top:5px; font-size:11.5px">
       ${lv && lv.before !== lv.after ? html`<div>your access will drop: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
-      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red,#e5484d)">
+      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red, #ef5350)">
         binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
-      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red,#e5484d)">
+      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red, #ef5350)">
         grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
       ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
     </div>`;
@@ -262,7 +254,7 @@ export class BxOrganisations extends LitElement {
           } catch (e) { this._xfer = { ...x, rep: null, perr: String(e.message ?? e) }; }
         }}>preview…</button>` : html`<button class="go" @click=${() => {
           this._xfer = null;
-          this._do(() => api('/owner', jbody('POST', { tile: x.tile, to })), 'transferred');
+          this._do(() => api('/owner', jbody({ tile: x.tile, to }, 'POST')), 'transferred');
         }}>confirm transfer</button>`}
         <button @click=${() => { this._xfer = null; }}>cancel</button>
       </div>
@@ -279,7 +271,7 @@ export class BxOrganisations extends LitElement {
   // ---- org admin: member management ----
   _memberEditor(o) {
     const save = (members, note) => this._do(() =>
-      api('/orgs/' + encodeURIComponent(o.id), jbody('PATCH', { members })), note);
+      api('/orgs/' + encodeURIComponent(o.id), jbody({ members }, 'PATCH')), note);
     const memberIds = new Set((o.members ?? []).map((m) => m.id));
     const addable = (this._dir ?? []).filter((u) => !memberIds.has(u.id));
     return html`
@@ -340,7 +332,7 @@ export class BxOrganisations extends LitElement {
   _inviteBox() {
     const inv = this._invite;
     if (!inv) return nothing;
-    return html`<div class="card" style="border-color: var(--bx-green, #43a047)">
+    return html`<div class="card" style="border-color: var(--bx-green, #4caf50)">
       <div class="row"><b style="font-size:12px">reset link for ${inv.id}</b>
         <input class="mono" size="42" readonly .value=${inv.link} @focus=${(e) => e.target.select()}>
         <button @click=${() => navigator.clipboard?.writeText(inv.link)}>copy</button>
@@ -360,7 +352,7 @@ export class BxOrganisations extends LitElement {
       <span class="muted" style="font-size:11px">(set by a workspace admin — approvals can't cross these)</span>
       ${rows.map((r) => html`<div class="row" style="margin:2px 0">
         <span class="pill mono">${r.tiles}</span>
-        ${(r.deny ?? []).map((d) => html`<span class="pill" style="color:var(--bx-red,#e5484d)">deny ${d}</span>`)}
+        ${(r.deny ?? []).map((d) => html`<span class="pill" style="color:var(--bx-red, #ef5350)">deny ${d}</span>`)}
         ${(r.mayCall ?? []).length ? html`<span class="muted" style="font-size:11px">may call only:
           ${r.mayCall.map((m) => html`<span class="pill mono">${m}</span>`)}</span>` : nothing}
       </div>`)}
@@ -377,7 +369,7 @@ export class BxOrganisations extends LitElement {
       ${rows.map((x) => html`<div class="row" style="margin:2px 0">
         <span class="mono">${x.user}</span> · <span class="mono">${x.tile}</span>
         <span class="pill">${x.level}</span>
-        ${x.excluded ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title="an exact none entry — deliberate exclusion (D31)">excluded</span>` : nothing}
+        ${x.excluded ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title="an exact none entry — deliberate exclusion (D31)">excluded</span>` : nothing}
         ${x.clamps ? html`<span class="pill" style="color:var(--bx-amber,#f2a71b)"
           title="this exact entry is BELOW the member's org level and overrides it (D31) — remove it in the tile's sharing editor to follow the org">clamps org level</span>` : nothing}
       </div>`)}
@@ -401,7 +393,7 @@ export class BxOrganisations extends LitElement {
     const rename = (x) => {
       const name = prompt('Org screen name:', x.name);
       if (name == null || !name.trim() || name.trim() === x.name) return;
-      this._do(() => api('/screens/org', jbody('PUT', { id: x.id, org: x.org, name: name.trim() })), 'renamed');
+      this._do(() => api('/screens/org', jbody({ id: x.id, org: x.org, name: name.trim() }, 'PUT')), 'renamed');
     };
     return html`<div class="card">
       <b style="font-size:12px">org screens</b>
@@ -410,13 +402,13 @@ export class BxOrganisations extends LitElement {
         <button title="rename (members see the new name at once)" @click=${() => rename(x)}>✎</button>
         <span class="muted" style="font-size:11px">editable by</span>
         <select @change=${(e) => this._do(() => api('/screens/org',
-            jbody('PUT', { id: x.id, org: x.org, edit: e.target.value })), 'updated')}>
+            jbody({ id: x.id, org: x.org, edit: e.target.value }, 'PUT')), 'updated')}>
           ${['admins', 'write', 'members'].map((v) => html`<option value=${v} ?selected=${x.edit === v}>${v === 'write' ? 'write-level members' : v === 'members' ? 'all members' : 'org admins'}</option>`)}
         </select>
         <span class="muted" style="font-size:11px" title=${x.updatedAt ?? ''}>rev ${x.rev ?? 1}${x.updatedBy ? ` · saved by ${x.updatedBy} ${ago(x.updatedAt)}` : ''}</span>
         <span style="flex:1"></span>
         <button class="rm" @click=${() => this._do(() =>
-          api('/screens/org', jbody('DELETE', { id: x.id, org: x.org })), 'deleted')}>delete</button>
+          api('/screens/org', jbody({ id: x.id, org: x.org }, 'DELETE')), 'deleted')}>delete</button>
       </div>`)}
       ${!rows.length ? html`<p class="muted" style="font-size:11px; margin:2px 0">no org screens — share one from the shell's 🔧 menu ("share screen to org")</p>` : nothing}
       <p class="muted" style="font-size:11px; margin:6px 0 0">
@@ -448,7 +440,7 @@ export class BxOrganisations extends LitElement {
           <span class="pill">${p.role}</span> ${dir(p)}
           <span style="flex:1"></span>
           <button class="go" @click=${() => this._do(() =>
-            api('/grants', jbody('POST', { from: p.from, target: p.target, role: p.role })), 'approved')}>approve</button>
+            api('/grants', jbody({ from: p.from, target: p.target, role: p.role }, 'POST')), 'approved')}>approve</button>
         </div>`)}
       </div>` : nothing}
       ${mine.length ? html`<div class="card">
@@ -533,7 +525,7 @@ export class BxOrganisations extends LitElement {
               } else if (p.expose && get('listen')) {
                 body.listen = get('listen');
               }
-              this._do(() => api('/bindings', jbody('POST', body)), p.expose ? 'published' : 'bound');
+              this._do(() => api('/bindings', jbody(body, 'POST')), p.expose ? 'published' : 'bound');
             }}>${p.expose ? 'publish' : 'bind'}</button>` : html`<span class="muted">no provider available</span>`}
         </div>`)}
       </div>` : nothing}
@@ -544,10 +536,10 @@ export class BxOrganisations extends LitElement {
           <span class="muted">→ ${b.ref === 'org'
             ? html`<span title=${(orgOf(b.comp)?.resolvedNet ?? []).map(ruleLabel).join('\n')}>${SCOPE_ICON.org} ${orgNetLabel(orgOf(b.comp))}</span>`
             : b.ref === 'none' ? `${SCOPE_ICON.none} none — explicitly offline` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
-          ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
+          ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" title="unbind — the slot reappears above to re-route" @click=${() => this._do(() =>
-            api('/bindings', jbody('DELETE', { component: b.comp, slot: b.slot })), 'unbound')}>unbind</button>
+            api('/bindings', jbody({ component: b.comp, slot: b.slot }, 'DELETE')), 'unbound')}>unbind</button>
         </div>`)}
       </div>` : nothing}
       <p class="muted" style="font-size:11px; margin:2px 0 0">
@@ -570,7 +562,7 @@ export class BxOrganisations extends LitElement {
     return html`<p class="muted" style="font-size:11px">
       network: <b>${sets.join(' + ')}</b> <span class="muted">(set by a workspace admin)</span> —
       org tiles reach ${rules.map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
-      ${o.netHost ? html`<span class="pill" style="color:var(--bx-red,#e5484d)" title="org-bound tiles and terminals share the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
+      ${o.netHost ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title="org-bound tiles and terminals share the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
       ${!rules.length && !o.netHost ? html`<span>nothing (the sets carry no rules)</span>` : nothing}
       · org tiles bind <span class="mono">net=org</span> by default; terminals on them get this reach.</p>`;
   }
@@ -595,10 +587,10 @@ export class BxOrganisations extends LitElement {
           <button class="go" @click=${() => {
             const sel = this.renderRoot.getElementById(`rq-${q.user}-${q.tile}`);
             this._do(() => api('/access-requests/approve',
-              jbody('POST', { user: q.user, tile: q.tile, level: sel?.value || q.level })), 'granted');
+              jbody({ user: q.user, tile: q.tile, level: sel?.value || q.level }, 'POST')), 'granted');
           }}>approve</button>
           <button class="rm" @click=${() => this._do(() =>
-            api('/access-requests', jbody('DELETE', { user: q.user, tile: q.tile })), 'dismissed')}>dismiss</button>
+            api('/access-requests', jbody({ user: q.user, tile: q.tile }, 'DELETE')), 'dismissed')}>dismiss</button>
         </div>`)}
         <p class="muted" style="font-size:11px; margin:2px 0 0">
           Approving writes an exact entry at the chosen level (authoritative, D31).</p>
@@ -610,7 +602,7 @@ export class BxOrganisations extends LitElement {
           <span class="muted" style="font-size:11px">— pending with the tile's owner/org admins</span>
           <span style="flex:1"></span>
           <button @click=${() => this._do(() =>
-            api('/access-requests', jbody('DELETE', { tile: q.tile })), 'withdrawn')}>withdraw</button>
+            api('/access-requests', jbody({ tile: q.tile }, 'DELETE')), 'withdrawn')}>withdraw</button>
         </div>`)}
       </div>` : nothing}`;
   }
@@ -649,7 +641,7 @@ export class BxOrganisations extends LitElement {
           ${g.approvedBy ? html`<span class="muted" style="font-size:11px">approved by ${g.approvedBy}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" @click=${() => this._do(() =>
-            api('/grants', jbody('DELETE', { from: g.from, target: g.target, role: g.role })), 'revoked')}>revoke</button>
+            api('/grants', jbody({ from: g.from, target: g.target, role: g.role }, 'DELETE')), 'revoked')}>revoke</button>
         </div>`)}
       </div>` : nothing}
       ${boundIn.length ? html`<div class="card">

@@ -13,59 +13,59 @@ const md = (s) => unsafeHTML(marked.parse(s || '', { async: false }));
 // Capability → colour hint.
 const CAP_COLOR = (c) => {
   if (!c) return 'var(--bx-muted)';
-  if (c.includes('admin') || c === 'owner') return 'var(--bx-red, #e5484d)';
+  if (c.includes('admin') || c === 'owner') return 'var(--bx-red, #ef5350)';
   if (c.includes('writer') || c.includes('users')) return 'var(--bx-amber, #f2a71b)';
-  if (c.includes('reader')) return 'var(--bx-green, #43a047)';
-  return 'var(--bx-muted, #8794a1)';
+  if (c.includes('reader')) return 'var(--bx-green, #4caf50)';
+  return 'var(--bx-muted, #868f9a)';
 };
 const METHOD_COLOR = {
-  get: 'var(--bx-green, #43a047)', post: 'var(--bx-amber, #f2a71b)',
-  put: 'var(--bx-accent, #f5a623)', patch: '#8957e5', delete: 'var(--bx-red, #e5484d)',
+  get: 'var(--bx-green, #4caf50)', post: 'var(--bx-amber, #f2a71b)',
+  put: 'var(--bx-accent, #f5a623)', patch: '#8957e5', delete: 'var(--bx-red, #ef5350)',
 };
 
 export class BxApiDocs extends LitElement {
   static properties = { _spec: { state: true }, _q: { state: true }, _open: { state: true }, _err: { state: true } };
 
   static styles = css`
-    :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif); color: var(--bx-text, #33414e);
-            background: var(--bx-panel, #fff); }
+    :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif); color: var(--bx-text, #d4d9e0);
+            background: var(--bx-panel, #23272e); }
     .top { position: sticky; top: 0; z-index: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-           padding: 10px 14px; border-bottom: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel-2, #f7f8fa); }
+           padding: 10px 14px; border-bottom: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); }
     .top h2 { margin: 0; font-size: 15px; }
     .top .spacer { flex: 1; }
-    .top input { flex: 0 1 240px; background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+    .top input { flex: 0 1 240px; background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
       border-radius: 6px; padding: 4px 9px; font: inherit; font-size: 12px; color: var(--bx-text); }
     .top a { font-size: 12px; color: var(--bx-accent, #f5a623); text-decoration: none; }
     .top a:hover { text-decoration: underline; }
     .body { padding: 8px 14px 24px; }
-    .intro { font-size: 13px; color: var(--bx-text); border: 1px solid var(--bx-border, #e4e8ed);
-      border-radius: 8px; padding: 4px 14px; margin: 10px 0 14px; background: var(--bx-panel-2, #f7f8fa); }
+    .intro { font-size: 13px; color: var(--bx-text); border: 1px solid var(--bx-border, #363c45);
+      border-radius: 8px; padding: 4px 14px; margin: 10px 0 14px; background: var(--bx-panel-2, #2b3038); }
     .intro h2 { font-size: 13px; margin: 12px 0 4px; }
-    .intro code { font: 11.5px var(--bx-mono, monospace); background: var(--bx-panel, #fff);
+    .intro code { font: 11.5px var(--bx-mono, monospace); background: var(--bx-panel, #23272e);
       border: 1px solid var(--bx-border); border-radius: 4px; padding: 0 4px; }
     .intro ul { margin: 4px 0; padding-left: 18px; }
-    h3.tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bx-muted, #8794a1);
-      margin: 18px 0 6px; border-bottom: 1px solid var(--bx-border, #e4e8ed); padding-bottom: 3px; }
-    .op { border: 1px solid var(--bx-border, #e4e8ed); border-radius: 7px; margin-bottom: 6px; overflow: hidden; }
+    h3.tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bx-muted, #868f9a);
+      margin: 18px 0 6px; border-bottom: 1px solid var(--bx-border, #363c45); padding-bottom: 3px; }
+    .op { border: 1px solid var(--bx-border, #363c45); border-radius: 7px; margin-bottom: 6px; overflow: hidden; }
     .op .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; cursor: pointer; }
-    .op .row:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .op .row:hover { background: var(--bx-panel-2, #2b3038); }
     .m { font: 700 10.5px var(--bx-mono, monospace); text-transform: uppercase; color: #fff; padding: 1px 7px;
       border-radius: 4px; min-width: 46px; text-align: center; }
     .path { font: 12.5px var(--bx-mono, monospace); }
-    .op .sum { color: var(--bx-muted, #8794a1); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .op .sum { color: var(--bx-muted, #868f9a); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .op .spacer { flex: 1; }
     .cap { font-size: 10px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
-    .detail { border-top: 1px solid var(--bx-border, #e4e8ed); padding: 8px 12px; background: var(--bx-panel-2, #f7f8fa); }
+    .detail { border-top: 1px solid var(--bx-border, #363c45); padding: 8px 12px; background: var(--bx-panel-2, #2b3038); }
     .detail .desc :first-child { margin-top: 0; }
     .detail code { font: 11.5px var(--bx-mono, monospace); }
     .detail h5 { margin: 12px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
     th { text-align: left; font-size: 10px; text-transform: uppercase; color: var(--bx-muted); padding: 2px 8px 2px 0; }
-    td { padding: 2px 8px 2px 0; border-top: 1px solid var(--bx-border, #e4e8ed); vertical-align: top; }
+    td { padding: 2px 8px 2px 0; border-top: 1px solid var(--bx-border, #363c45); vertical-align: top; }
     .mono { font-family: var(--bx-mono, monospace); }
-    .muted { color: var(--bx-muted, #8794a1); }
-    .req { color: var(--bx-red, #e5484d); font-size: 10px; }
-    .err { color: var(--bx-red, #e5484d); padding: 20px 14px; }
+    .muted { color: var(--bx-muted, #868f9a); }
+    .req { color: var(--bx-red, #ef5350); font-size: 10px; }
+    .err { color: var(--bx-red, #ef5350); padding: 20px 14px; }
   `;
 
   constructor() { super(); this._q = ''; this._open = new Set(); }

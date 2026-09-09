@@ -38,35 +38,20 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
+import { deepActive, clampBox } from '/vendor/bx-kit.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-// clampBox keeps a viewport-fixed window reachable: never wider/taller than
-// the viewport (minus an 8px margin), never positioned outside it. Geometry
-// is persisted per tile and restored on another monitor, a smaller browser
-// window or a different zoom — a saved {x:2270, y:1217} once rendered a
-// perfectly working terminal nobody could see.
-// deepActive: the focused element through open shadow roots (the shell,
-// frames and terminals all nest shadow DOM; document.activeElement stops at
-// the first host).
-function deepActive() {
-  let el = document.activeElement;
-  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-  return el;
-}
-
-export function clampBox(box, { minW = 200, minH = 140, margin = 8 } = {}) {
-  const W = window.innerWidth, H = window.innerHeight;
-  const n = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-  const w = Math.max(Math.min(minW, W - 2 * margin), Math.min(n(box?.w, 560), W - 2 * margin));
-  const h = Math.max(Math.min(minH, H - 2 * margin), Math.min(n(box?.h, 320), H - 2 * margin));
-  const x = Math.max(margin, Math.min(n(box?.x, margin), W - w - margin));
-  const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
-  return { ...box, x, y, w, h };
-}
+// clampBox (bx-kit) keeps a viewport-fixed window reachable: never wider/
+// taller than the viewport (minus an 8px margin), never positioned outside
+// it. Geometry is persisted per tile and restored on another monitor, a
+// smaller browser window or a different zoom — a saved {x:2270, y:1217} once
+// rendered a perfectly working terminal nobody could see. Re-exported here
+// because importers of this module relied on it before the kit existed.
+export { clampBox };
 
 // A browser window that shrinks pulls every open pop-up back inside it.
 window.addEventListener('resize', () => {
@@ -181,22 +166,22 @@ export class BxFrame extends LitElement {
     .edit:hover { opacity: 1; }
     .overlay {
       position: absolute; inset: 0; z-index: 9; overflow: auto;
-      background: color-mix(in srgb, var(--bx-panel, #fff) 96%, var(--bx-red, #e5484d));
-      color: var(--bx-red, #b3261e);
+      background: color-mix(in srgb, var(--bx-panel, #23272e) 96%, var(--bx-red, #ef5350));
+      color: var(--bx-red, #ef5350);
       font: 11.5px/1.55 var(--bx-mono, ui-monospace, monospace);
       padding: 10px 12px; margin: 0; white-space: pre-wrap;
-      border-top: 2px solid var(--bx-red, #e5484d);
+      border-top: 2px solid var(--bx-red, #ef5350);
     }
-    .overlay b { color: var(--bx-red, #b3261e); }
+    .overlay b { color: var(--bx-red, #ef5350); }
 
     /* ---- floating terminal window ---- */
     .pop {
       position: fixed;
       display: flex; flex-direction: column;
-      background: var(--bx-panel, #fff);
-      border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e);
+      border: 1px solid var(--bx-border, #363c45);
       border-radius: 8px;
-      box-shadow: 0 8px 28px rgba(16, 24, 40, 0.20), var(--bx-shadow, 0 1px 2px rgba(16,24,40,.05));
+      box-shadow: 0 8px 28px rgba(16, 24, 40, 0.20), var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
       resize: both; overflow: hidden;
       min-width: 380px; min-height: 220px;
     }
@@ -207,14 +192,14 @@ export class BxFrame extends LitElement {
     }
     .titlebar {
       display: flex; align-items: center; gap: 2px;
-      background: var(--bx-panel-2, #f7f8fa);
-      border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel-2, #2b3038);
+      border-bottom: 1px solid var(--bx-border, #363c45);
       padding: 3px 6px; user-select: none; cursor: grab;
       touch-action: none; flex: none;
     }
     .titlebar:active { cursor: grabbing; }
     .titlebar .path {
-      color: var(--bx-text, #33414e); font-weight: 600;
+      color: var(--bx-text, #d4d9e0); font-weight: 600;
       font: 11px var(--bx-mono, ui-monospace, monospace);
       padding: 0 8px 0 4px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
@@ -222,16 +207,16 @@ export class BxFrame extends LitElement {
     .titlebar .spacer { flex: 1; }
     .titlebar button {
       border: 1px solid transparent; background: transparent;
-      color: var(--bx-muted, #8794a1);
+      color: var(--bx-muted, #868f9a);
       font: 11px var(--bx-mono, ui-monospace, monospace); padding: 1px 7px;
       border-radius: 4px; cursor: pointer;
     }
     .titlebar button.on {
-      background: var(--bx-panel, #fff);
-      border-color: var(--bx-border, #e4e8ed);
-      color: var(--bx-text, #33414e);
+      background: var(--bx-panel, #23272e);
+      border-color: var(--bx-border, #363c45);
+      color: var(--bx-text, #d4d9e0);
     }
-    .titlebar button:hover { color: var(--bx-text, #33414e); }
+    .titlebar button:hover { color: var(--bx-text, #d4d9e0); }
     .titlebar button.upgrade {
       color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
       border-radius: 5px; padding: 1px 8px; white-space: nowrap;
@@ -242,25 +227,25 @@ export class BxFrame extends LitElement {
     .titlebar .tab {
       display: inline-flex; align-items: center; gap: 2px; max-width: 150px;
       border: 1px solid transparent; border-radius: 4px; padding: 1px 3px 1px 7px;
-      color: var(--bx-muted, #8794a1);
+      color: var(--bx-muted, #868f9a);
       font: 11px var(--bx-mono, ui-monospace, monospace); cursor: pointer;
     }
     .titlebar .tab.on {
-      background: var(--bx-panel, #fff);
-      border-color: var(--bx-border, #e4e8ed);
-      color: var(--bx-text, #33414e);
+      background: var(--bx-panel, #23272e);
+      border-color: var(--bx-border, #363c45);
+      color: var(--bx-text, #d4d9e0);
     }
-    .titlebar .tab:hover { color: var(--bx-text, #33414e); }
+    .titlebar .tab:hover { color: var(--bx-text, #d4d9e0); }
     .titlebar .tab .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .titlebar .tab .tabx {
       flex: none; padding: 0 3px; border: 0; border-radius: 3px;
       background: transparent; color: inherit; opacity: .45;
       font-size: 12px; line-height: 1; cursor: pointer;
     }
-    .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #e4e8ed); }
+    .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #363c45); }
     .titlebar select.scope {
-      margin-left: 2px; border: 1px solid var(--bx-border, #e4e8ed);
-      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
+      margin-left: 2px; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
       font: 11px var(--bx-mono, ui-monospace, monospace);
       padding: 1px 4px; border-radius: 4px; cursor: pointer;
       /* the org scope's label names the sets ("org network (devs-net + …)")
@@ -268,13 +253,13 @@ export class BxFrame extends LitElement {
       max-width: 24ch; text-overflow: ellipsis;
     }
     .panels { display: flex; flex: 1; min-height: 0; }
-    bx-code { min-width: 0; overflow: hidden; border-right: 1px solid var(--bx-border, #e4e8ed); }
-    .vsplit { flex: none; width: 5px; cursor: col-resize; background: var(--bx-border, #e4e8ed); }
-    .vsplit:hover { background: var(--bx-accent, #f2a71b); }
+    bx-code { min-width: 0; overflow: hidden; border-right: 1px solid var(--bx-border, #363c45); }
+    .vsplit { flex: none; width: 5px; cursor: col-resize; background: var(--bx-border, #363c45); }
+    .vsplit:hover { background: var(--bx-accent, #f5a623); }
     .term-host { flex: 1; min-height: 0; min-width: 0; background: var(--bx-term-bg, #262c36); }
     .lyt { display: inline-flex; margin-left: 2px; }
     .lyt button { padding: 1px 6px; }
-    .lyt button.on { background: var(--bx-panel, #fff); border-color: var(--bx-border, #e4e8ed); color: var(--bx-text, #33414e); }
+    .lyt button.on { background: var(--bx-panel, #23272e); border-color: var(--bx-border, #363c45); color: var(--bx-text, #d4d9e0); }
   `;
 
   constructor() {

@@ -11,7 +11,7 @@
   <style>
     html, body { margin: 0; }
     body { padding: 10px 14px 14px; box-sizing: border-box; font: 13px/1.45 system-ui, sans-serif;
-           color: var(--bx-text); background: var(--bx-bg, transparent); }
+           color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
     .top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
     .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
               text-transform: uppercase; color: var(--bx-muted); }
@@ -22,7 +22,7 @@
     .row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px;
            border: 1px solid var(--bx-border); background: var(--bx-panel); margin-bottom: 4px; }
     .row.pending { border-left: 3px solid var(--bx-amber, #f2a71b); }
-    .row.approved { border-left: 3px solid var(--bx-green, #43a047); }
+    .row.approved { border-left: 3px solid var(--bx-green, #4caf50); }
     .ip { font: 12px var(--bx-mono); font-weight: 600; min-width: 118px; }
     .rdns { color: var(--bx-muted); font-size: 11.5px; flex: 1; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -30,14 +30,14 @@
     .stat b { color: var(--bx-text); font-weight: 600; }
     button { border: 0; border-radius: 5px; padding: 3px 10px; cursor: pointer;
              font: inherit; font-size: 11.5px; font-weight: 600; }
-    .approve { background: var(--bx-green, #43a047); color: #fff; }
-    .deny { background: var(--bx-panel); color: var(--bx-red, #e5484d);
-            border: 1px solid color-mix(in srgb, var(--bx-red,#e5484d) 40%, transparent); }
+    .approve { background: var(--bx-green, #4caf50); color: #fff; }
+    .deny { background: var(--bx-panel); color: var(--bx-red, #ef5350);
+            border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 40%, transparent); }
     .info { background: transparent; color: var(--bx-muted); border: 1px solid var(--bx-border);
             font-weight: 500; padding: 3px 8px; }
     .rm { background: var(--bx-panel); color: var(--bx-muted); border: 1px solid var(--bx-border);
           font-weight: 500; }
-    .detail { font: 11px var(--bx-mono); color: var(--bx-text); background: var(--bx-panel-2, #f6f8fa);
+    .detail { font: 11px var(--bx-mono); color: var(--bx-text); background: var(--bx-panel-2, #2b3038);
               border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 9px;
               margin: -1px 0 6px 6px; white-space: pre-wrap; }
     .detail .k { color: var(--bx-muted); }

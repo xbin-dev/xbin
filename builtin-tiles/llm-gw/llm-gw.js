@@ -9,21 +9,10 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 
-const api = async (path, opts) => {
-  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opts);
-  const text = await r.text();
-  let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!r.ok) throw new Error(data?.error ?? r.status);
-  return data;
-};
+import { selfApi as api, xbinApi } from '/vendor/bx-kit.js';
 
-const vault = async (key, opts) => {
-  const r = await xbin.fetch(`/api/xbin/vault/${xbin.self}/${encodeURIComponent(key)}`, opts);
-  const text = await r.text();
-  let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!r.ok) throw new Error(data?.error ?? r.status);
-  return data;
-};
+// This tile's own vault (write-only for humans; the backend reads it).
+const vault = (key, opts) => xbinApi(`/vault/${xbin.self}/${encodeURIComponent(key)}`, opts);
 
 const AUTO_REFRESH_MS = 60_000;
 
@@ -48,47 +37,47 @@ export class BxLlmGw extends LitElement {
 
   static styles = css`
     :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-            color: var(--bx-text, #33414e); background: var(--bx-panel, #fff); }
+            color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     .body { padding: 12px 14px; }
-    .err { color: var(--bx-red, #e5484d); font-size: 12px; margin: 4px 0; }
+    .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 4px 0; }
     h4 { margin: 16px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
-         text-transform: uppercase; color: var(--bx-muted, #8794a1); }
+         text-transform: uppercase; color: var(--bx-muted, #868f9a); }
     h4:first-child { margin-top: 0; }
-    .muted { color: var(--bx-muted, #8794a1); }
+    .muted { color: var(--bx-muted, #868f9a); }
     .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
     label.f { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
       font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
-      color: var(--bx-muted, #8794a1); flex: 1 1 220px; }
+      color: var(--bx-muted, #868f9a); flex: 1 1 220px; }
     input, select { font: inherit; font-size: 12px; padding: 3px 7px;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
-      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); }
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
     input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
-    button.act { border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
-      color: var(--bx-text, #33414e); border-radius: 5px; font: inherit; font-size: 11px;
+    button.act { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
+      color: var(--bx-text, #d4d9e0); border-radius: 5px; font: inherit; font-size: 11px;
       padding: 3px 10px; cursor: pointer; white-space: nowrap; }
-    button.act:hover { background: var(--bx-panel-2, #f7f8fa); }
+    button.act:hover { background: var(--bx-panel-2, #2b3038); }
     button.act:disabled { opacity: .5; cursor: default; }
-    button.go { background: var(--bx-accent, #1e88e5); color: #fff; border-color: transparent; }
-    button.rm { color: var(--bx-red, #e5484d); border-color: color-mix(in srgb, var(--bx-red) 40%, transparent); }
+    button.go { background: var(--bx-accent, #f5a623); color: #fff; border-color: transparent; }
+    button.rm { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red) 40%, transparent); }
     .pill { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px;
-      background: var(--bx-panel-2, #f7f8fa); border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
       margin: 1px 4px 1px 0; }
-    .ok { color: var(--bx-green, #43a047); }
+    .ok { color: var(--bx-green, #4caf50); }
     .warn { color: var(--bx-amber, #f2a71b); }
     .mono { font-family: var(--bx-mono, monospace); }
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
     th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-         color: var(--bx-muted, #8794a1); font-weight: 600; padding: 3px 8px 3px 0; }
-    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border, #e4e8ed);
+         color: var(--bx-muted, #868f9a); font-weight: 600; padding: 3px 8px 3px 0; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border, #363c45);
          vertical-align: middle; }
     .search { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
-    .models { max-height: 260px; overflow: auto; border: 1px solid var(--bx-border, #e4e8ed);
+    .models { max-height: 260px; overflow: auto; border: 1px solid var(--bx-border, #363c45);
       border-radius: 6px; }
     .models table { width: 100%; }
-    .models th { position: sticky; top: 0; background: var(--bx-panel-2, #f7f8fa);
+    .models th { position: sticky; top: 0; background: var(--bx-panel-2, #2b3038);
       padding-left: 8px; }
     .models td { padding-left: 8px; }
-    .count { font-size: 11px; color: var(--bx-muted, #8794a1); margin-bottom: 4px; }
+    .count { font-size: 11px; color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
     .models-head { display: flex; align-items: baseline; justify-content: space-between; }
     .spin { display: inline-block; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }

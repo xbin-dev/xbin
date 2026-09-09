@@ -1415,3 +1415,32 @@ Deviations and refinements made while implementing; all deliberate:
   contributor docs out of `docs/` (the guards would again live only in
   heads), and skipping every executable in the copier (`backend/handler`
   is a legitimate executable).
+
+- **D59 — The frontend kit is named and homed; the theme is never injected
+  (2026-09-09).** A de-facto kit had grown under `/vendor/` beside the
+  vendored libraries — `bx-netrules` (5 importers), `bx-allow` (4),
+  `events-socket` (4), `bx-multiselect`, `bx-dialog`, `bx-frame`'s
+  `clampBox` — undocumented (docs/elements.md called `bx-menu` "not a tile
+  API" while shipped tiles imported its siblings), while `api()` was
+  hand-rolled nine times with four signatures, `deepActive` four times,
+  the viewport clamp twice, and the admin tile carried a copy of the code
+  viewer's highlighter. Shapes: (1) **`web/bx-kit.js`** holds `api` /
+  `xbinApi` / `selfApi`, `jbody`, `esc`, `deepActive`, `pathHas`,
+  `clampBox`; `bx-code.js` exports its `hl` / `langFor`; `make js-check`
+  refuses a second definition of any of them, and `clampBox` stays
+  re-exported from `bx-frame.js` (URLs are frozen, docs/compat.md rule 3).
+  (2) **`docs/frontend-kit.md`** is the contract: the tile-importable
+  list, the shell-only list, absolute-URL imports only (the import map
+  lives in each workspace's `xbin.json` and is never rewritten, so a bare
+  specifier would 404 in older workspaces), and the lit pitfalls.
+  (3) **Theme fallbacks are kept and regenerated** — `make theme-check`
+  keeps every `var(--bx-x, <literal>)` equal to `theme.css` — and
+  **`theme.css` is not injected** into tile documents: it sets
+  `color-scheme: dark`, which would flip the default colours of a
+  third-party tile that never opted in, and a tile using one token with
+  its own background could lose contrast. The fallbacks therefore ARE the
+  theme for bare documents. Rejected: a `/kit/` URL prefix (reserving
+  `kit` as a top-level name could break a workspace that has one; nothing
+  is gained over `/vendor/`), injecting a tokens-only sheet (the
+  contrast case above; revisit only with an opt-in signal from the tile),
+  and moving modules between URLs.

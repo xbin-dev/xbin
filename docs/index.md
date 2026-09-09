@@ -30,6 +30,8 @@ overview is the map that puts them in context.
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
   upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
+- [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
+  may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the URL rules, lit pitfalls
 - [compat.md](/docs/compat.md) — what a workspace can rely on across xbind
   upgrades (API additive-only, frozen URLs, additive scaffold layouts, CLI
   superset)

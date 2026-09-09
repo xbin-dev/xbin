@@ -74,12 +74,30 @@ function checkHTML(file) {
   }
 }
 
+// The frontend kit (web/bx-kit.js, docs/frontend-kit.md) is the one home of
+// these helpers; a second definition anywhere shipped is the drift this
+// check exists to stop. bx-code.js keeps the highlight helpers it exports.
+const KIT = { 'web/bx-kit.js': /^(?:export )?(?:const|function|async function) (api|xbinApi|selfApi|jbody|esc|deepActive|pathHas|clampBox|clampWin)\b/,
+  'web/bx-code.js': /^(?:export )?(?:const|function) (escHTML|langFor|hl|diffHTML|LANG_BY_EXT)\b/ };
+function checkKitDuplicates(file) {
+  const rel = relative(ROOT, file);
+  if (rel.startsWith('hack/')) return;
+  const src = readFileSync(file, 'utf8');
+  src.split('\n').forEach((line, i) => {
+    for (const [home, re] of Object.entries(KIT)) {
+      const m = line.match(re);
+      if (m && rel !== home) problems.push(`${rel}:${i + 1}: defines ${m[1]}() — import it from /vendor/${home.slice(4)} instead (docs/frontend-kit.md)`);
+    }
+  });
+}
+
 for (const file of files) {
   const ext = extname(file);
   if (ext === '.js' || ext === '.mjs') {
     checked++;
     const err = nodeCheck(file);
     if (err) problems.push(`${relative(ROOT, file)}:\n${err.trim()}`);
+    checkKitDuplicates(file);
   } else if (ext === '.html') {
     checkHTML(file);
   }

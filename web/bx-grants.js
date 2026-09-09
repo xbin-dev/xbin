@@ -25,46 +25,46 @@ export class BxGrants extends LitElement {
     :host {
       display: block;
       font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-      color: var(--bx-text, #33414e);
+      color: var(--bx-text, #d4d9e0);
     }
     .panel {
-      background: var(--bx-panel, #fff);
-      border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e);
+      border: 1px solid var(--bx-border, #363c45);
       border-left: 3px solid var(--bx-amber, #f2a71b);
       border-radius: var(--bx-radius, 6px);
-      box-shadow: var(--bx-shadow, 0 1px 2px rgba(16,24,40,.05));
+      box-shadow: var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
       padding: 8px 12px;
     }
     h4 {
       margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
       letter-spacing: .08em; text-transform: uppercase;
-      color: var(--bx-muted, #8794a1);
+      color: var(--bx-muted, #868f9a);
     }
     .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .who { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
     .role { color: var(--bx-accent, #f5a623); font-size: 12px; font-weight: 600; }
-    .desc { color: var(--bx-muted, #8794a1); font-size: 12px; flex: 1;
+    .desc { color: var(--bx-muted, #868f9a); font-size: 12px; flex: 1;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     button {
-      background: var(--bx-green, #43a047); color: #fff; border: 0;
+      background: var(--bx-green, #4caf50); color: #fff; border: 0;
       border-radius: 5px; padding: 2px 10px; cursor: pointer;
       font: inherit; font-size: 12px; font-weight: 600;
     }
     button.rm {
-      background: var(--bx-panel, #fff); color: var(--bx-red, #e5484d);
-      border: 1px solid color-mix(in srgb, var(--bx-red, #e5484d) 40%, transparent);
+      background: var(--bx-panel, #23272e); color: var(--bx-red, #ef5350);
+      border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 40%, transparent);
       font-weight: 500;
     }
-    a { color: var(--bx-muted, #8794a1); font-size: 12px; cursor: pointer; }
+    a { color: var(--bx-muted, #868f9a); font-size: 12px; cursor: pointer; }
     a:hover { color: var(--bx-accent, #f5a623); }
     .dir {
       font-size: 10px; padding: 0 5px; border-radius: 999px;
-      border: 1px solid var(--bx-border, #e4e8ed); color: var(--bx-muted, #8794a1);
+      border: 1px solid var(--bx-border, #363c45); color: var(--bx-muted, #868f9a);
       text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
     }
-    .ask { color: var(--bx-muted, #8794a1); font-size: 11.5px; white-space: nowrap; }
-    .by { color: var(--bx-muted, #8794a1); font-size: 11px; white-space: nowrap; }
-    .err { color: var(--bx-red, #e5484d); font-size: 12px; padding: 2px 0; }
+    .ask { color: var(--bx-muted, #868f9a); font-size: 11.5px; white-space: nowrap; }
+    .by { color: var(--bx-muted, #868f9a); font-size: 11px; white-space: nowrap; }
+    .err { color: var(--bx-red, #ef5350); font-size: 12px; padding: 2px 0; }
   `;
 
   constructor() {

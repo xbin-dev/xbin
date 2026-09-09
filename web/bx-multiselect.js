@@ -29,21 +29,21 @@ export class BxMultiselect extends LitElement {
     :host { display: inline-block; position: relative; min-width: 150px; font: inherit; }
     .control {
       width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
-      border-radius: 5px; color: var(--bx-text, #33414e); font: inherit; font-size: 12px;
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
+      border-radius: 5px; color: var(--bx-text, #d4d9e0); font: inherit; font-size: 12px;
       padding: 3px 7px; cursor: pointer; text-align: left;
     }
     .control:focus-visible { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 40%, transparent); }
     .sum { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sum.ph { color: var(--bx-muted, #8794a1); }
-    .caret { color: var(--bx-muted, #8794a1); font-size: 9px; flex: none; }
+    .sum.ph { color: var(--bx-muted, #868f9a); }
+    .caret { color: var(--bx-muted, #868f9a); font-size: 9px; flex: none; }
     .menu {
       position: fixed; z-index: 3900; box-sizing: border-box;
       /* Size to the widest option (at least the control's width) — long
          provider refs must not squeeze into the control column and scroll. */
       width: max-content; max-width: min(480px, 92vw);
       max-height: 300px; overflow: auto; overscroll-behavior: contain;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
       border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); padding: 3px;
     }
     .menu.hidden { visibility: hidden; }
@@ -51,9 +51,9 @@ export class BxMultiselect extends LitElement {
       display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 4px;
       font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap;
     }
-    .opt:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .opt:hover { background: var(--bx-panel-2, #2b3038); }
     .opt input { margin: 0; flex: none; accent-color: var(--bx-accent, #f5a623); }
-    .empty { padding: 6px 8px; color: var(--bx-muted, #8794a1); font-size: 11.5px; }
+    .empty { padding: 6px 8px; color: var(--bx-muted, #868f9a); font-size: 11.5px; }
   `;
 
   constructor() {

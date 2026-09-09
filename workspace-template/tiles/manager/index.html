@@ -460,8 +460,8 @@
       const ver = u.fromVersion === u.toVersion ? `v${u.toVersion}` : `v${u.fromVersion}→v${u.toVersion}`;
       const counts = [];
       if (u.clean) counts.push(`${u.clean} clean`);
-      if (u.conflicts) counts.push(`<span style="color:var(--bx-amber,#d9a441)">${u.conflicts} conflict</span>`);
-      if (u.adopted) counts.push('<span style="color:var(--bx-amber,#d9a441)">adopted — no base</span>');
+      if (u.conflicts) counts.push(`<span style="color:var(--bx-amber, #f2a71b)">${u.conflicts} conflict</span>`);
+      if (u.adopted) counts.push('<span style="color:var(--bx-amber, #f2a71b)">adopted — no base</span>');
       el.innerHTML = `
         <div class="h"><span class="title">${esc(u.id)}</span>
           <span class="name">${esc(u.installPath)} · ${ver}</span><span class="spacer"></span></div>

@@ -119,6 +119,25 @@ the registry read those and grants, chrome and inject state must agree with
 what is served; a file the workspace lacks is not added by the overlay
 either. `internal/server/overlay_test.go` pins all three rules.
 
+## Frontend kit and theme fallbacks
+
+`web/bx-kit.js` is the one home of the helpers every frontend used to copy
+(`api`/`xbinApi`/`selfApi`, `jbody`, `esc`, `deepActive`, `pathHas`,
+`clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
+`diffHTML`). `make js-check` refuses a second definition of any of them in
+the shipped trees — import from `/vendor/…` by absolute URL instead
+([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
+why bare specifiers are banned).
+
+`make theme-check` (`hack/theme-fallbacks.mjs`) fails when a
+`var(--bx-x, <literal>)` fallback in `web/`, `workspace-template/` or the
+builtin trees disagrees with `web/theme.css`; `--fix` rewrites them. The
+fallbacks are the theme for a document that never linked `theme.css` — the
+sheet is deliberately **not** injected into tile documents: it sets
+`color-scheme: dark` and would flip a third-party tile's default colours
+([compat.md](/docs/compat.md) rule 5). Font tokens are exempt (a fallback may
+abbreviate the stack).
+
 ## UI harness (`hack/ui-harness`)
 
 The frontend has no unit-test runner; browser behaviour is pinned by

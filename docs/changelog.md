@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **`/vendor/bx-kit.js` — the frontend helper kit, and a page saying what
+  tiles may import.** `api`/`xbinApi`/`selfApi` (fetch through the in-frame
+  client, JSON out, the server's `error` thrown), `jbody`, `esc`,
+  `deepActive`, `pathHas`, `clampBox` — the helpers the shell, the admin and
+  organisations tiles, llm-gw and the agent template each carried a copy
+  of. [frontend-kit.md](/docs/frontend-kit.md) lists every `/vendor/` module
+  a tile may import, the shell-only ones, the absolute-URL rule, and the lit
+  pitfalls met in this codebase. `bx-code.js` additionally exports `hl` and
+  `langFor`. The literal fallbacks core elements carry for the theme tokens
+  now equal `theme.css` (they had drifted to an old light palette), so a
+  core element embedded in a document that never linked the theme renders
+  in the workspace's colours; the theme is still never injected into a
+  tile's document.
 - **`/api/xbin/openapi.json` now describes the whole built-in API.** 27
   endpoints that existed but were missing from the OpenAPI document are
   in (permission sets, ownership transfer, access requests, code PRs,

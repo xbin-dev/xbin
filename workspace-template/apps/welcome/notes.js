@@ -817,7 +817,7 @@ class WelcomeNotes extends LitElement {
 
   static styles = css`
     :host { display: block; }
-    p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text, #33414e); }
+    p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text, #d4d9e0); }
     ul { margin: 6px 0 0; padding-left: 18px; }
     li { font-size: 12.5px; margin-top: 4px; }
     code {
@@ -839,14 +839,14 @@ class WelcomeNotes extends LitElement {
     .crumbs {
       display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
       margin: 2px 0 10px;
-      font-size: 11px; color: var(--bx-muted, #8794a1);
+      font-size: 11px; color: var(--bx-muted, #868f9a);
     }
     .crumbs button {
       background: none; border: none; padding: 0; cursor: pointer;
       font: inherit; color: var(--bx-accent, #f5a623);
     }
     .crumbs button:hover { text-decoration: underline; }
-    .crumbs .here { color: var(--bx-text, #33414e); font-weight: 600; }
+    .crumbs .here { color: var(--bx-text, #d4d9e0); font-weight: 600; }
 
     /* ---- sticky notes ---- */
     .board {
@@ -865,7 +865,7 @@ class WelcomeNotes extends LitElement {
       cursor: pointer;
       transform: rotate(-1deg);
       transition: transform 0.12s ease, box-shadow 0.12s ease;
-      text-align: left; font: inherit; color: var(--bx-text, #33414e);
+      text-align: left; font: inherit; color: var(--bx-text, #d4d9e0);
     }
     .board .note:nth-child(even) { transform: rotate(1.1deg); }
     .board .note:nth-child(3n)   { transform: rotate(-0.4deg); }
@@ -882,11 +882,11 @@ class WelcomeNotes extends LitElement {
     }
     .note h3 {
       margin: 0; font-size: 12.5px; font-weight: 700;
-      color: var(--bx-text, #33414e);
+      color: var(--bx-text, #d4d9e0);
     }
     .note .teaser {
       margin: 4px 0 0; font-size: 11.5px; font-style: italic;
-      color: color-mix(in srgb, var(--bx-text, #33414e) 72%, transparent);
+      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 72%, transparent);
     }
     .board.sub { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 
@@ -904,7 +904,7 @@ class WelcomeNotes extends LitElement {
     .note.featured h3 { font-size: 15px; }
     .note.featured .teaser {
       font-size: 12.5px; margin-top: 5px; font-style: normal;
-      color: color-mix(in srgb, var(--bx-text, #33414e) 80%, transparent);
+      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 80%, transparent);
     }
     .note .badge {
       position: absolute; top: -9px; right: 14px;
@@ -934,7 +934,7 @@ class WelcomeNotes extends LitElement {
       display: block; margin: 16px 0 2px;
       font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: color-mix(in srgb, var(--bx-text, #33414e) 55%, transparent);
+      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 55%, transparent);
     }
     .sheet .docs-link { margin-top: 12px; font-size: 11px; }
   `;

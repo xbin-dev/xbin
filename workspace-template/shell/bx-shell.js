@@ -69,26 +69,18 @@ function dragShield(cursor = 'grabbing') {
 }
 
 const RUNTIME_COLOR = {
-  '': 'var(--bx-muted, #8794a1)',
-  static: 'var(--bx-muted, #8794a1)',
+  '': 'var(--bx-muted, #868f9a)',
+  static: 'var(--bx-muted, #868f9a)',
   go: 'var(--bx-accent, #f5a623)',
-  node: 'var(--bx-green, #43a047)',
+  node: 'var(--bx-green, #4caf50)',
   python: 'var(--bx-amber, #f2a71b)',
-  cgi: 'var(--bx-red, #e5484d)',
+  cgi: 'var(--bx-red, #ef5350)',
 };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
-const deepActive = () => {
-  let el = document.activeElement;
-  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-  return el;
-};
-// pathHas: does any element along the event's composed path match? e.target
-// is retargeted at shadow boundaries, so an <input> inside bx-grants /
-// bx-bindings / bx-multiselect never matches a plain e.target.closest().
-const pathHas = (e, sel) => e.composedPath().some((n) => n instanceof Element && n.matches(sel));
+import { deepActive, pathHas, clampBox } from '/vendor/bx-kit.js';
 
 // ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
 function ago(iso) {
@@ -109,19 +101,10 @@ let zTop = 100;
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
 // columns of DEF_W width, their tiles stacked top-to-bottom. Floating tiles get
 // a grid home too (used when pinned back).
-// clampWin keeps a viewport-fixed window (float tile, spawned window, admin
-// popover) reachable: no larger than the viewport minus an 8px margin, never
-// positioned outside it. Geometry saved on a big monitor must not vanish on
-// a small one.
-function clampWin(box, minW = 200, minH = 120, margin = 8) {
-  const W = window.innerWidth, H = window.innerHeight;
-  const n = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-  const w = Math.max(Math.min(minW, W - 2 * margin), Math.min(n(box?.w, minW), W - 2 * margin));
-  const h = Math.max(Math.min(minH, H - 2 * margin), Math.min(n(box?.h, minH), H - 2 * margin));
-  const x = Math.max(margin, Math.min(n(box?.x, margin), W - w - margin));
-  const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
-  return { ...box, x, y, w, h };
-}
+// clampBox (bx-kit) keeps a viewport-fixed window (float tile, spawned
+// window, admin popover) reachable: no larger than the viewport minus an 8px
+// margin, never positioned outside it. Geometry saved on a big monitor must
+// not vanish on a small one.
 
 function gridMigrate(tiles) {
   const nextY = {}; // col → next free y
@@ -183,80 +166,80 @@ export class BxShell extends LitElement {
   static styles = css`
     :host {
       display: flex; flex-direction: column; height: 100vh;
-      background: var(--bx-bg, #f0f2f5);
-      color: var(--bx-text, #33414e);
+      background: var(--bx-bg, #1b1e24);
+      color: var(--bx-text, #d4d9e0);
       font: var(--bx-font, 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif);
     }
 
     /* ---- top bar ---- */
     .top {
       display: flex; align-items: center; gap: 10px;
-      background: var(--bx-panel, #fff);
-      border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e);
+      border-bottom: 1px solid var(--bx-border, #363c45);
       padding: 7px 12px; flex: none;
     }
     .logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; letter-spacing: .04em; }
     .logo .mark { flex: none; }
     .ws-chip {
-      font-size: 11.5px; color: var(--bx-muted, #8794a1);
-      background: var(--bx-panel-2, #f7f8fa); border: 1px solid var(--bx-border, #e4e8ed);
+      font-size: 11.5px; color: var(--bx-muted, #868f9a);
+      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
       border-radius: 999px; padding: 1px 10px;
     }
     .top .spacer { flex: 1; }
     .top a.chip {
       display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-      color: var(--bx-text, #33414e); text-decoration: none;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 6px;
-      padding: 3px 10px; background: var(--bx-panel, #fff);
+      color: var(--bx-text, #d4d9e0); text-decoration: none;
+      border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
+      padding: 3px 10px; background: var(--bx-panel, #23272e);
     }
-    .top a.chip:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .top a.chip:hover { background: var(--bx-panel-2, #2b3038); }
     .top a.chip .c { width: 7px; height: 7px; border-radius: 2px; }
 
     /* ---- screen tabs ---- */
     .tabs {
       display: flex; align-items: stretch; gap: 2px; flex: none;
-      background: var(--bx-panel-2, #f7f8fa);
-      border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel-2, #2b3038);
+      border-bottom: 1px solid var(--bx-border, #363c45);
       padding: 4px 8px 0; overflow-x: auto;
     }
     .tab {
       display: flex; align-items: center; gap: 6px; cursor: pointer;
-      font-size: 12.5px; color: var(--bx-muted, #8794a1);
+      font-size: 12.5px; color: var(--bx-muted, #868f9a);
       background: transparent; border: 1px solid transparent; border-bottom: none;
       border-radius: 6px 6px 0 0; padding: 4px 10px; white-space: nowrap; user-select: none;
     }
     .tab.on {
-      background: var(--bx-bg, #f0f2f5); color: var(--bx-text, #33414e);
-      border-color: var(--bx-border, #e4e8ed); margin-bottom: -1px;
+      background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
+      border-color: var(--bx-border, #363c45); margin-bottom: -1px;
     }
     .tab .x {
-      border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+      border: 0; background: transparent; color: var(--bx-muted, #868f9a);
       cursor: pointer; font-size: 12px; line-height: 1; padding: 0 1px; opacity: .6;
     }
-    .tab .x:hover { opacity: 1; color: var(--bx-red, #e5484d); }
-    .tab.add { color: var(--bx-muted, #8794a1); font-weight: 600; }
+    .tab .x:hover { opacity: 1; color: var(--bx-red, #ef5350); }
+    .tab.add { color: var(--bx-muted, #868f9a); font-weight: 600; }
     .tab .dirty { color: var(--bx-amber, #f2a71b); font-size: 10px; }
 
     /* ---- shared org screen bar (D55): view info, or the draft's save/discard ---- */
     .orgbar {
       position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 8px;
       margin: 0 0 6px; padding: 5px 10px; font-size: 11.5px; border-radius: 6px;
-      color: var(--bx-muted, #8794a1); background: var(--bx-panel, #fff);
-      border: 1px solid var(--bx-border, #e4e8ed);
+      color: var(--bx-muted, #868f9a); background: var(--bx-panel, #23272e);
+      border: 1px solid var(--bx-border, #363c45);
     }
-    .orgbar.editing { color: var(--bx-text, #33414e);
+    .orgbar.editing { color: var(--bx-text, #d4d9e0);
       border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
-      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #fff)); }
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #23272e)); }
     .orgbar .ico { flex: none; }
     .orgbar .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .orgbar .spacer { flex: 1; }
     .orgbar .muted { font-size: 11px; opacity: .8; }
     .orgbar .newer { color: var(--bx-amber, #f2a71b); white-space: nowrap; }
     .orgbar .newer a { cursor: pointer; text-decoration: underline; }
-    .orgbar button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #e4e8ed);
-      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); border-radius: 5px;
+    .orgbar button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); border-radius: 5px;
       padding: 2px 9px; cursor: pointer; white-space: nowrap; }
-    .orgbar button.act:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .orgbar button.act:hover { background: var(--bx-panel-2, #2b3038); }
     .orgbar button.act.go { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
     .orgbar button.act.go:disabled { opacity: .45; cursor: default; }
     /* view mode of a shared screen: no grab cursor, no resize handles */
@@ -267,35 +250,35 @@ export class BxShell extends LitElement {
     .body { display: flex; flex: 1; min-height: 0; }
     aside {
       width: 224px; flex: none; display: flex; flex-direction: column;
-      background: var(--bx-panel, #fff);
+      background: var(--bx-panel, #23272e);
       padding: 4px 0 0; overflow: hidden;
     }
     .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 12px; }
     .sysfoot {
-      flex: none; border-top: 1px solid var(--bx-border, #e4e8ed);
+      flex: none; border-top: 1px solid var(--bx-border, #363c45);
       padding: 8px 12px 10px; font-size: 10.5px;
     }
     .sysrow { display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px; }
     .sysrow .l { text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
-      color: var(--bx-muted, #8794a1); font-size: 9.5px; }
-    .sysrow .v { font-family: var(--bx-mono, monospace); font-size: 10px; color: var(--bx-text, #33414e); }
-    .sysrow .v.ok { color: var(--bx-green, #43a047); }
-    .sysrow .v.bad { color: var(--bx-red, #e5484d); font-weight: 700; }
-    .sysbar { height: 4px; border-radius: 2px; background: var(--bx-panel-2, #f7f8fa);
+      color: var(--bx-muted, #868f9a); font-size: 9.5px; }
+    .sysrow .v { font-family: var(--bx-mono, monospace); font-size: 10px; color: var(--bx-text, #d4d9e0); }
+    .sysrow .v.ok { color: var(--bx-green, #4caf50); }
+    .sysrow .v.bad { color: var(--bx-red, #ef5350); font-weight: 700; }
+    .sysbar { height: 4px; border-radius: 2px; background: var(--bx-panel-2, #2b3038);
       overflow: hidden; margin-top: 2px; }
     .sysbar .fill { height: 100%; border-radius: 2px;
       background: var(--bx-accent, #f5a623); transition: width .6s ease; }
 
     /* ---- xbind build commit (sidebar bottom) ---- */
     .buildfoot {
-      flex: none; border-top: 1px solid var(--bx-border, #e4e8ed);
+      flex: none; border-top: 1px solid var(--bx-border, #363c45);
       padding: 6px 12px 8px; display: flex; align-items: baseline; gap: 6px; font-size: 10px;
     }
-    .buildfoot .glyph { color: var(--bx-muted, #8794a1); }
+    .buildfoot .glyph { color: var(--bx-muted, #868f9a); }
     .buildfoot .label { text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
-      color: var(--bx-muted, #8794a1); font-size: 9.5px; }
+      color: var(--bx-muted, #868f9a); font-size: 9.5px; }
     .buildfoot .ver { margin-left: auto; font-family: var(--bx-mono, monospace);
-      color: var(--bx-text, #33414e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      color: var(--bx-text, #d4d9e0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .buildfoot .ver.dirty { color: var(--bx-amber, #f2a71b); }
 
     /* ---- per-tile admin popover (D56): wide, resizable, click-outside closes ---- */
@@ -305,49 +288,49 @@ export class BxShell extends LitElement {
          drag the corner to a fixed size */
       position: fixed; z-index: 2500; display: flex; flex-direction: column; box-sizing: border-box;
       min-width: 300px; min-height: 120px; overflow: hidden; resize: both;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
       border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, .45);
     }
     .admin-pop .ahead {
       flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-      border-bottom: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel-2, #f7f8fa);
+      border-bottom: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038);
       font: 600 12px var(--bx-mono, ui-monospace, monospace); user-select: none;
     }
     .admin-pop .ahead .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .admin-pop .ahead button { border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+    .admin-pop .ahead button { border: 0; background: transparent; color: var(--bx-muted, #868f9a);
       font-size: 14px; padding: 2px 6px; cursor: pointer; }
     .admin-pop > bx-tile-admin { flex: 1; min-height: 0; overflow: auto; }
     /* orgs & teams management popover (org admins + ws admins) — centered. */
     .orgbtn {
       display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px;
-      border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
-      color: var(--bx-text, #33414e); border-radius: 6px; padding: 4px 8px;
+      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
+      color: var(--bx-text, #d4d9e0); border-radius: 6px; padding: 4px 8px;
       font: inherit; font-size: 11px; cursor: pointer; text-align: left;
     }
-    .orgbtn:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .orgbtn:hover { background: var(--bx-panel-2, #2b3038); }
     .orgbtn .n { margin-left: auto; font-family: var(--bx-mono, monospace);
-      font-size: 10px; color: var(--bx-muted, #8794a1); }
+      font-size: 10px; color: var(--bx-muted, #868f9a); }
 
     /* ---- tile-spawned pop-out windows ---- */
     .spawn {
       position: fixed; display: flex; flex-direction: column;
-      border: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 55%, var(--bx-muted, #8794a1));
-      border-radius: var(--bx-radius, 6px); background: var(--bx-panel, #fff);
+      border: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 55%, var(--bx-muted, #868f9a));
+      border-radius: var(--bx-radius, 6px); background: var(--bx-panel, #23272e);
       box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 3px 8px 18px rgba(0, 0, 0, .45), 8px 18px 44px rgba(0, 0, 0, .3);
       overflow: hidden; resize: both; min-width: 200px; min-height: 120px;
     }
     .spawn .shead {
       display: flex; align-items: center; gap: 8px; flex: none;
       padding: 5px 6px 5px 10px; cursor: grab; user-select: none; touch-action: none;
-      background: var(--bx-panel-2, #f7f8fa); border-bottom: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel-2, #2b3038); border-bottom: 1px solid var(--bx-border, #363c45);
     }
     .spawn .shead:active { cursor: grabbing; }
     .spawn .stitle { font-size: 12px; font-weight: 600; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; }
-    .spawn .sfrom { margin-left: auto; font: 10px var(--bx-mono, monospace); color: var(--bx-muted, #8794a1); }
-    .spawn .shead button { border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+    .spawn .sfrom { margin-left: auto; font: 10px var(--bx-mono, monospace); color: var(--bx-muted, #868f9a); }
+    .spawn .shead button { border: 0; background: transparent; color: var(--bx-muted, #868f9a);
       cursor: pointer; font-size: 12px; padding: 0 2px; }
-    .spawn .shead button:hover { color: var(--bx-red, #e5484d); }
+    .spawn .shead button:hover { color: var(--bx-red, #ef5350); }
     .spawn .sbody { flex: 1; min-height: 0; position: relative; }
 
     /* ---- background context menu ---- */
@@ -362,12 +345,12 @@ export class BxShell extends LitElement {
 
     /* ---- component status: sidebar dots + tab tint + toasts (tiles → workspace) ---- */
     /* level → colour, carried as --st so the dot + breathe ring inherit it */
-    .st-ok    { --st: var(--bx-green, #43a047); }
+    .st-ok    { --st: var(--bx-green, #4caf50); }
     .st-info  { --st: #61afef; }
     .st-warn  { --st: var(--bx-amber, #f2a71b); }
-    .st-error { --st: var(--bx-red, #e5484d); }
+    .st-error { --st: var(--bx-red, #ef5350); }
     .stdot { flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--st, var(--bx-muted, #8794a1)); }
+      background: var(--st, var(--bx-muted, #868f9a)); }
     .item { position: relative; }
     .item .stdot { margin-left: 4px; }
     .item.st-warn, .item.st-error { background: color-mix(in srgb, var(--st) 9%, transparent); }
@@ -400,88 +383,88 @@ export class BxShell extends LitElement {
     .toasts { position: fixed; right: 14px; bottom: 14px; z-index: 4000;
       display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
     .toast { display: flex; align-items: center; gap: 8px; cursor: pointer;
-      padding: 9px 12px; border-radius: 8px; font-size: 12.5px; color: var(--bx-text, #33414e);
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
-      border-left: 3px solid var(--st, var(--bx-muted, #8794a1));
+      padding: 9px 12px; border-radius: 8px; font-size: 12.5px; color: var(--bx-text, #d4d9e0);
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
+      border-left: 3px solid var(--st, var(--bx-muted, #868f9a));
       box-shadow: 0 8px 24px rgba(0, 0, 0, .28); animation: bx-toast-in .18s ease-out; }
     .toast .tmsg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .toast b { font-family: var(--bx-mono, monospace); font-weight: 700; }
     @keyframes bx-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
     .wsmenu {
       position: fixed; top: 42px; right: 12px; z-index: 3001; min-width: 220px; padding: 8px 10px;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
       border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-size: 12px;
     }
     .wsmenu .hd { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
-      color: var(--bx-muted, #8794a1); font-weight: 600; margin-bottom: 6px; }
+      color: var(--bx-muted, #868f9a); font-weight: 600; margin-bottom: 6px; }
     .wsmenu .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .wsmenu .fs { display: flex; align-items: center; gap: 6px; }
     .wsmenu .fs b { min-width: 24px; text-align: center; font-variant-numeric: tabular-nums; }
-    .wsmenu .step { width: 22px; height: 22px; border: 1px solid var(--bx-border, #e4e8ed);
-      border-radius: 5px; background: var(--bx-panel, #fff); color: var(--bx-text, #33414e);
+    .wsmenu .step { width: 22px; height: 22px; border: 1px solid var(--bx-border, #363c45);
+      border-radius: 5px; background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
       cursor: pointer; font: inherit; line-height: 1; }
-    .wsmenu .step:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .wsmenu .step:hover { background: var(--bx-panel-2, #2b3038); }
 
     .group.folder { cursor: grab; }
     .group.folder .ficon { flex: none; font-size: 12px; line-height: 1; margin-right: 1px; }
     .item.dropinto { box-shadow: inset 0 2px 0 var(--bx-accent, #f5a623); }
     aside.collapsed {
       width: 22px; padding: 4px 0;
-      border-right: 1px solid var(--bx-border, #e4e8ed);
+      border-right: 1px solid var(--bx-border, #363c45);
     }
     aside.collapsed .expand {
       width: 100%; border: 0; background: none; cursor: pointer;
-      color: var(--bx-muted, #8794a1); font-size: 12px; padding: 6px 0;
+      color: var(--bx-muted, #868f9a); font-size: 12px; padding: 6px 0;
     }
     aside.collapsed .expand:hover { color: var(--bx-accent, #f5a623); }
     .side-handle {
       flex: none; width: 5px; cursor: col-resize;
-      background: var(--bx-border, #e4e8ed); opacity: .55;
+      background: var(--bx-border, #363c45); opacity: .55;
     }
     .side-handle:hover { opacity: 1; background: var(--bx-accent, #f5a623); }
     .side-top { display: flex; align-items: center; padding: 2px 8px 4px; }
     .mini {
       border: 0; background: none; cursor: pointer; font: inherit;
-      font-size: 10.5px; color: var(--bx-muted, #8794a1); padding: 2px 4px;
+      font-size: 10.5px; color: var(--bx-muted, #868f9a); padding: 2px 4px;
     }
     .mini:hover { color: var(--bx-accent, #f5a623); }
     /* sidebar filter */
     .side-search { display: flex; align-items: center; gap: 4px; padding: 0 8px 5px; }
     .side-q { flex: 1; min-width: 0; font: inherit; font-size: 11.5px; padding: 3px 7px;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
-      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
-    .side-q::placeholder { color: var(--bx-muted, #8794a1); }
-    .qx { flex: none; border: 0; background: none; color: var(--bx-muted, #8794a1);
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
+    .side-q::placeholder { color: var(--bx-muted, #868f9a); }
+    .qx { flex: none; border: 0; background: none; color: var(--bx-muted, #868f9a);
       cursor: pointer; font-size: 11px; padding: 2px 4px; }
-    .qx:hover { color: var(--bx-red, #e5484d); }
+    .qx:hover { color: var(--bx-red, #ef5350); }
     /* a screen (tab) parked in the folder tree */
     .item.hid { opacity: .55; }
     .item .hidb { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
-      color: var(--bx-muted, #8794a1); border: 1px solid var(--bx-border, #2a2f36);
+      color: var(--bx-muted, #868f9a); border: 1px solid var(--bx-border, #363c45);
       border-radius: 3px; padding: 0 4px; }
     .hidtoggle { display: block; width: calc(100% - 16px); margin: 4px 8px; padding: 3px 6px;
-      font-size: 10.5px; color: var(--bx-muted, #8794a1); background: none;
-      border: 1px dashed var(--bx-border, #2a2f36); border-radius: 4px; cursor: pointer; }
-    .hidtoggle:hover { color: var(--bx-text, #dde3ea); }
-    .item.screen { color: var(--bx-muted, #8794a1); }
+      font-size: 10.5px; color: var(--bx-muted, #868f9a); background: none;
+      border: 1px dashed var(--bx-border, #363c45); border-radius: 4px; cursor: pointer; }
+    .hidtoggle:hover { color: var(--bx-text, #d4d9e0); }
+    .item.screen { color: var(--bx-muted, #868f9a); }
     .item.screen .sic { flex: none; color: var(--bx-accent, #f5a623); font-size: 11px; }
     .item.screen .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .item.screen .pk { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
-      color: var(--bx-muted, #8794a1); border: 1px solid var(--bx-border, #e4e8ed); border-radius: 999px; padding: 0 5px; }
+      color: var(--bx-muted, #868f9a); border: 1px solid var(--bx-border, #363c45); border-radius: 999px; padding: 0 5px; }
     .item.screen .xt { flex: none; border: 0; background: none; cursor: pointer;
-      color: var(--bx-muted, #8794a1); font-size: 10px; opacity: 0; padding: 0 3px; }
+      color: var(--bx-muted, #868f9a); font-size: 10px; opacity: 0; padding: 0 3px; }
     .item.screen:hover .xt { opacity: .7; }
-    .item.screen .xt:hover { opacity: 1; color: var(--bx-red, #e5484d); }
+    .item.screen .xt:hover { opacity: 1; color: var(--bx-red, #ef5350); }
     .tab[draggable="true"] { cursor: grab; }
     .group.folder { cursor: pointer; user-select: none; align-items: center; }
     .group.folder .tri { flex: none; font-size: 9px; width: 10px; }
     .group.folder .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .group.folder .fx {
       margin-left: auto; border: 0; background: none; cursor: pointer;
-      color: var(--bx-muted, #8794a1); font-size: 10px; opacity: 0; padding: 0 2px;
+      color: var(--bx-muted, #868f9a); font-size: 10px; opacity: 0; padding: 0 2px;
     }
     .group.folder:hover .fx { opacity: .7; }
-    .group.folder .fx:hover { opacity: 1; color: var(--bx-red, #e5484d); }
+    .group.folder .fx:hover { opacity: 1; color: var(--bx-red, #ef5350); }
     .group.folder.dropping {
       color: var(--bx-accent, #f5a623);
       background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent);
@@ -491,7 +474,7 @@ export class BxShell extends LitElement {
     /* ✎ on an owner header: curate that section's shared folders (D55) */
     .group.owner .pen {
       margin-left: auto; border: 0; background: none; cursor: pointer; padding: 0 3px;
-      color: var(--bx-muted, #8794a1); font-size: 11px; opacity: 0;
+      color: var(--bx-muted, #868f9a); font-size: 11px; opacity: 0;
     }
     .group.owner:hover .pen { opacity: .8; }
     .group.owner .pen:hover { opacity: 1; color: var(--bx-accent, #f5a623); }
@@ -500,8 +483,8 @@ export class BxShell extends LitElement {
     .secbar {
       margin: 2px 8px 4px; padding: 5px 7px; border-radius: 6px; font-size: 10.5px;
       border: 1px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
-      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #fff));
-      color: var(--bx-text, #33414e);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #23272e));
+      color: var(--bx-text, #d4d9e0);
     }
     .secbar .l { margin-bottom: 3px; }
     .secbar .newer { color: var(--bx-amber, #f2a71b); margin-bottom: 3px; }
@@ -509,31 +492,31 @@ export class BxShell extends LitElement {
     .secbar .r { display: flex; align-items: center; gap: 4px; }
     .secbar .mini.go { color: #23272e; background: var(--bx-accent, #f5a623); border-radius: 4px; padding: 1px 6px; font-weight: 600; }
     .secbar .mini.go:disabled { opacity: .45; cursor: default; }
-    .group.owner { cursor: pointer; user-select: none; color: var(--bx-text, #33414e);
-      border-top: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 60%, transparent); margin-top: 4px; }
+    .group.owner { cursor: pointer; user-select: none; color: var(--bx-text, #d4d9e0);
+      border-top: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 60%, transparent); margin-top: 4px; }
     .group.owner .tri { flex: none; font-size: 9px; width: 10px; }
     .side-owner { display: flex; align-items: center; gap: 4px; padding: 0 8px 5px; }
     .side-owner select { flex: 1; min-width: 0; font: inherit; font-size: 11px; padding: 2px 5px;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
-      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
     .tab .ob { font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
       color: var(--bx-accent, #f5a623); border: 1px solid color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent);
       border-radius: 999px; padding: 0 5px; }
-    .tab .ro { font-size: 10px; color: var(--bx-muted, #8794a1); }
+    .tab .ro { font-size: 10px; color: var(--bx-muted, #868f9a); }
     .wsmenu input { font: inherit; font-size: 11.5px; padding: 3px 7px;
-      border: 1px solid var(--bx-border, #e4e8ed); border-radius: 5px;
-      background: var(--bx-panel-2, #f7f8fa); color: var(--bx-text, #33414e); }
-    .wsmenu .menu-msg.ok { color: var(--bx-green, #43a047); font-size: 11px; }
-    .wsmenu .menu-msg.bad { color: var(--bx-red, #e5484d); font-size: 11px; }
-    .wsmenu button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #e4e8ed);
-      background: var(--bx-panel, #fff); color: var(--bx-text, #33414e); border-radius: 5px;
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
+    .wsmenu .menu-msg.ok { color: var(--bx-green, #4caf50); font-size: 11px; }
+    .wsmenu .menu-msg.bad { color: var(--bx-red, #ef5350); font-size: 11px; }
+    .wsmenu button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); border-radius: 5px;
       padding: 3px 8px; cursor: pointer; }
-    .wsmenu button.act:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .wsmenu button.act:hover { background: var(--bx-panel-2, #2b3038); }
 
     .group {
       display: flex; align-items: baseline; gap: 6px; padding: 10px 12px 3px;
       font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
-      text-transform: uppercase; color: var(--bx-muted, #8794a1);
+      text-transform: uppercase; color: var(--bx-muted, #868f9a);
     }
     .group .n { font-weight: 500; color: var(--bx-accent, #f5a623); }
     .item {
@@ -541,16 +524,16 @@ export class BxShell extends LitElement {
       cursor: pointer; font-size: 12.5px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
     }
-    .item:hover { background: var(--bx-panel-2, #f7f8fa); }
+    .item:hover { background: var(--bx-panel-2, #2b3038); }
     .item.open { color: var(--bx-accent, #f5a623); font-weight: 600; }
     /* ⋯ opens the tile menu; shown on hover/focus, always on phones */
-    .item .more { flex: none; border: 0; background: none; color: var(--bx-muted, #8794a1);
+    .item .more { flex: none; border: 0; background: none; color: var(--bx-muted, #868f9a);
       font: inherit; font-size: 12px; line-height: 1; padding: 0 3px; opacity: 0; cursor: pointer; }
     .item:hover .more, .item:focus-within .more, .body.mobile .item .more { opacity: .7; }
     .item .more:hover { opacity: 1; color: var(--bx-accent, #f5a623); }
     .item .c { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-    .item .err { color: var(--bx-red, #e5484d); font-size: 10px; }
-    .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #8794a1); }
+    .item .err { color: var(--bx-red, #ef5350); font-size: 10px; }
+    .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #868f9a); }
 
     main { flex: 1; min-width: 0; overflow: auto; padding: 14px; }
     .grants { margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -582,22 +565,22 @@ export class BxShell extends LitElement {
     .gtile .rz {
       position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
       cursor: nwse-resize; z-index: 3; touch-action: none;
-      background: linear-gradient(135deg, transparent 50%, var(--bx-border, #c7cdd4) 50%);
+      background: linear-gradient(135deg, transparent 50%, var(--bx-border, #363c45) 50%);
       border-bottom-right-radius: var(--bx-radius, 6px); opacity: .6;
     }
     .gtile .rz:hover { opacity: 1; }
     .card {
       flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
-      background: var(--bx-panel, #fff); border: 1px solid var(--bx-border, #e4e8ed);
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
       border-radius: var(--bx-radius, 6px);
-      box-shadow: var(--bx-shadow, 0 1px 2px rgba(16,24,40,.05));
+      box-shadow: var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
       overflow: hidden;
     }
     .card .head {
       flex: none;
       display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px;
-      border-bottom: 1px solid var(--bx-border, #e4e8ed);
-      background: var(--bx-panel-2, #f7f8fa);
+      border-bottom: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel-2, #2b3038);
       cursor: grab; user-select: none; touch-action: none;
     }
     .card .head:active { cursor: grabbing; }
@@ -608,16 +591,16 @@ export class BxShell extends LitElement {
     }
     .card .head .spacer { flex: 1; }
     .card .head button {
-      border: 0; background: transparent; color: var(--bx-muted, #8794a1);
+      border: 0; background: transparent; color: var(--bx-muted, #868f9a);
       cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1;
     }
-    .card .head button:hover { color: var(--bx-text, #33414e); }
+    .card .head button:hover { color: var(--bx-text, #d4d9e0); }
     .card .head button.term { font-family: var(--bx-mono, monospace); font-size: 9.5px;
       font-weight: 700; letter-spacing: -.5px; }
     /* the tile body: fixed height, content scrolls inside — never stretches the card */
     .card .cbody { flex: 1; min-height: 0; overflow: hidden; position: relative; }
     .card .cbody > bx-frame { position: absolute; inset: 0; }
-    .empty { color: var(--bx-muted, #8794a1); font-size: 12.5px; padding: 24px; text-align: center; }
+    .empty { color: var(--bx-muted, #868f9a); font-size: 12.5px; padding: 24px; text-align: center; }
 
     /* ---- floating (unpinned) tile windows ---- */
     .float {
@@ -626,9 +609,9 @@ export class BxShell extends LitElement {
       /* Dual edge so same-colored overlapping windows stay distinct: a border
          brighter than panel seams, ringed by a tight dark outline, over a
          deep ambient shadow. */
-      border: 1px solid color-mix(in srgb, var(--bx-border, #e4e8ed) 55%, var(--bx-muted, #8794a1));
+      border: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 55%, var(--bx-muted, #868f9a));
       border-radius: var(--bx-radius, 6px);
-      background: var(--bx-panel, #fff);
+      background: var(--bx-panel, #23272e);
       box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5),
                   3px 8px 18px rgba(0, 0, 0, 0.45),
                   8px 18px 44px rgba(0, 0, 0, 0.3);
@@ -643,8 +626,8 @@ export class BxShell extends LitElement {
        resize — content scrolls inside), and floating windows / terminals become
        full-screen sheets. */
     .ham {
-      flex: none; border: 1px solid var(--bx-border, #e4e8ed); background: var(--bx-panel, #fff);
-      color: var(--bx-text, #33414e); font-size: 16px; line-height: 1; cursor: pointer;
+      flex: none; border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
+      color: var(--bx-text, #d4d9e0); font-size: 16px; line-height: 1; cursor: pointer;
       border-radius: 6px; padding: 5px 9px;
     }
     @media (max-width: 820px) {
@@ -659,7 +642,7 @@ export class BxShell extends LitElement {
         position: fixed; left: 0; top: 0; bottom: 0; z-index: 3600;
         width: min(290px, 84vw) !important;
         transform: translateX(-100%); transition: transform .2s ease;
-        border-right: 1px solid var(--bx-border, #e4e8ed);
+        border-right: 1px solid var(--bx-border, #363c45);
         box-shadow: 6px 0 24px rgba(0, 0, 0, .4);
       }
       .body.mobile aside.drawer.open { transform: none; }
@@ -1279,11 +1262,11 @@ export class BxShell extends LitElement {
     const win = {
       id: d.id, from: d.from, src, reply: d.reply,
       title: d.spec.title || src,
-      ...clampWin({ // a caller-supplied x/y can't park the window off-screen
+      ...clampBox({ // a caller-supplied x/y can't park the window off-screen
         x: d.spec.x ?? Math.round((window.innerWidth - w) / 2),
         y: d.spec.y ?? Math.round((window.innerHeight - h) / 2.4),
         w, h,
-      }, 200, 140),
+      }, { minW: 200, minH: 140 }),
       z: ++zTop,
     };
     this._spawnWins = [...this._spawnWins, win];
@@ -1319,18 +1302,18 @@ export class BxShell extends LitElement {
   _fitWindows(persist) {
     let moved = false;
     for (const w of this._spawnWins) {
-      const c = clampWin(w, 200, 140);
+      const c = clampBox(w, { minW: 200, minH: 140 });
       if (c.x !== w.x || c.y !== w.y || c.w !== w.w || c.h !== w.h) { Object.assign(w, c); moved = true; }
     }
     if (this._adminPop) {
-      const c = clampWin(this._adminPop, 300, 120);
+      const c = clampBox(this._adminPop, { minW: 300, minH: 120 });
       if (c.x !== this._adminPop.x || c.y !== this._adminPop.y || c.w !== this._adminPop.w || c.h !== this._adminPop.h) this._adminPop = c;
     }
     for (const fr of this.renderRoot.querySelectorAll('bx-frame')) fr.fitToViewport?.();
     if (persist && this._canMutate && !this._mobile) {
       for (const o of this._tiles) {
         if (!o.float) continue;
-        const c = clampWin(o.float, MIN_W, MIN_H);
+        const c = clampBox(o.float, { minW: MIN_W, minH: MIN_H });
         if (c.x !== o.float.x || c.y !== o.float.y || c.w !== o.float.w || c.h !== o.float.h) this._setFloat(o.path, c);
       }
     }
@@ -2793,7 +2776,7 @@ export class BxShell extends LitElement {
   _floatTemplate(o) {
     // Rendered clamped to the CURRENT viewport (the saved geometry may come
     // from a bigger monitor); dragging commits the on-screen position.
-    const f = this._mobile ? o.float : clampWin(o.float, MIN_W, MIN_H);
+    const f = this._mobile ? o.float : clampBox(o.float, { minW: MIN_W, minH: MIN_H });
     return html`
       <div class="float" data-path=${o.path}
            style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
@@ -3009,8 +2992,8 @@ export class BxShell extends LitElement {
             ${this._accountMenu()}
             ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
           </div>` : nothing}
-        <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green,#43a047)"></span>docs</a>
-        <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red,#e5484d)"></span>sign out</a>
+        <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green, #4caf50)"></span>docs</a>
+        <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red, #ef5350)"></span>sign out</a>
       </div>
 
       <div class="tabs">
