@@ -174,8 +174,14 @@ What the shell provides:
   a sidebar row (or press its ⋯) for the **tile menu**: four squares —
   terminal · logs · source · change proposals — then open/close, pin,
   full page, and for admins the lifecycle actions plus one line per admin
-  section that opens the ⚙ window there. On phones the same menus open as
-  bottom sheets from ⋯ or a long-press.
+  section that opens the ⚙ window there. Native menus stay where they
+  belong: inputs, textareas, editable text and links, in the shell and inside
+  tiles (that is where paste lives), and any right-click on selected shell
+  text. Selected text *inside a tile* is relayed with the right-click and the
+  tile menu leads with **Copy**; the shell writes the clipboard
+  (`navigator.clipboard` on https / localhost, `execCommand('copy')` on plain
+  http) and toasts *copied*. On phones the same menus open as bottom sheets
+  from ⋯ or a long-press; a live selection defers to the platform toolbar.
 - **The grants panel** (`<bx-grants>`) — pending `uses` requests with the
   callee's role descriptions and one-click approve; rows a policy ceiling
   blocks are greyed with the blocking row named; renders nothing when

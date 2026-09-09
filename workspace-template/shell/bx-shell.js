@@ -79,6 +79,17 @@ const RUNTIME_COLOR = {
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+// deepActive: the focused element through open shadow roots.
+const deepActive = () => {
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  return el;
+};
+// pathHas: does any element along the event's composed path match? e.target
+// is retargeted at shadow boundaries, so an <input> inside bx-grants /
+// bx-bindings / bx-multiselect never matches a plain e.target.closest().
+const pathHas = (e, sel) => e.composedPath().some((n) => n instanceof Element && n.matches(sel));
+
 // ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
 function ago(iso) {
   if (!iso) return '';
@@ -1397,15 +1408,33 @@ export class BxShell extends LitElement {
   // a tile's iframe never reach here at all.
   _onContextMenu(e) {
     if (this._mobile && this._menu) { e.preventDefault(); return; } // Android fires one after a long-press
-    if (e.target.closest('input, textarea, select, a, .prb, bx-menu, bx-dialog')) return;
+    // The native menu stays for inputs, links, editable text and the PR badge
+    // (paste lives there) — through nested shadow roots too (pathHas) — and
+    // for any selected shell text (copy lives there).
+    if (pathHas(e, 'input, textarea, select, a, [contenteditable]:not([contenteditable="false"]), .prb, bx-menu, bx-dialog')) return;
     // Inside a frame's pop-up (terminal, code, logs, proposals) the native menu stays.
-    if (e.composedPath().some((n) => n instanceof Element && (n.classList?.contains('pop')
-      || ['BX-TERMINAL', 'BX-CODE', 'BX-LOGS', 'BX-PRS'].includes(n.tagName)))) return;
+    if (pathHas(e, '.pop, bx-terminal, bx-code, bx-logs, bx-prs')) return;
+    if (this._selectedText()) return;
     const card = e.target.closest('.card');
     const row = e.target.closest('.item[data-path]');
     if (card || row) { this._openTileMenu(e, (card ?? row).dataset.path); return; }
-    if (e.target.closest('button, bx-frame, aside, .spawn, .orgbar')) return;
+    if (pathHas(e, 'button, bx-frame, aside, .spawn, .orgbar')) return;
     this._openCanvasMenu(e);
+  }
+
+  // Selected text in the shell's own document — toString() of the document
+  // selection (Chromium and Firefox both read it through nested shadow
+  // roots for real, selectable text) or of Chromium's non-standard
+  // ShadowRoot.getSelection(). Not getComposedRanges: it also reports ranges
+  // over user-select:none chrome (card heads, sidebar rows — which no person
+  // can select) and retargets nested-shadow ranges to the host, so a caret
+  // left by a click read as "text selected" and swallowed every right-click.
+  _selectedText() {
+    for (const root of [this.renderRoot, document]) {
+      const t = root?.getSelection?.()?.toString?.() ?? '';
+      if (t.trim()) return t;
+    }
+    return '';
   }
   // Long-press (touch/pen, phones only — the mouse keeps right-click): hold
   // ~450 ms without moving 8px to open the menu the right-click would. A
@@ -1427,15 +1456,50 @@ export class BxShell extends LitElement {
     this._menu = { items: this._canvasMenuItems(), x: e?.clientX ?? 0, y: e?.clientY ?? 0, anchor: null,
       sheet: this._mobile, title: this._screen?.name ?? '' };
   }
-  _openTileMenu(e, path, anchorEl = null) {
+  _openTileMenu(e, path, anchorEl = null, opts = {}) {
     e?.preventDefault?.(); e?.stopPropagation?.();
     if (!this._components.some((c) => c.path === path)) return;
     // A touch long-press inside a tile may be followed by the platform's own
     // contextmenu ~50 ms later — don't reopen the same menu.
     if (this._menu?.tile === path && Date.now() - (this._menuAt ?? 0) < 700) return;
     this._menuAt = Date.now();
-    this._menu = { items: this._tileMenuItems(path), x: e?.clientX ?? 0, y: e?.clientY ?? 0,
+    const items = this._tileMenuItems(path);
+    // Selected text inside the tile rode along with the right-click: lead
+    // with Copy — the sandboxed frame has no clipboard of its own, the shell
+    // writes it.
+    if (opts.selection) {
+      const one = opts.selection.replace(/\s+/g, ' ').trim();
+      items.unshift(
+        { icon: '⎘', label: 'Copy', hint: one.length > 40 ? one.slice(0, 39) + '…' : one,
+          title: one.length > 200 ? one.slice(0, 200) + '…' : one, action: () => this._copyText(opts.selection, path) },
+        { kind: 'sep' });
+    }
+    this._menu = { items, x: e?.clientX ?? 0, y: e?.clientY ?? 0,
       anchor: anchorEl?.getBoundingClientRect?.() ?? null, sheet: this._mobile, title: path, tile: path };
+  }
+
+  // Runs synchronously from the menu's click (bx-menu closes, refocuses the
+  // opener, THEN calls the action — still inside the user activation).
+  // navigator.clipboard exists only in a secure context (https / localhost);
+  // an http LAN deployment falls back to execCommand('copy') on a scratch
+  // textarea. Either way the person sees a "copied" toast.
+  _copyText(text, path) {
+    const done = () => this._pushToast(path, { level: 'ok', message: 'copied' }, 2500);
+    const legacy = () => {
+      const prev = deepActive();
+      const ta = Object.assign(document.createElement('textarea'), { value: text, readOnly: true });
+      ta.setAttribute('aria-hidden', 'true');
+      ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.appendChild(ta);
+      ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, text.length);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { /* no command */ }
+      ta.remove();
+      if (prev?.isConnected) { try { prev.focus({ preventScroll: true }); } catch { /* fine */ } }
+      if (ok) done(); else this._pushToast(path, { level: 'warn', message: 'copy failed — select the text and press Ctrl+C' }, 4000);
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, legacy);
+    else legacy();
   }
 
   // ---- the canvas menu: org-screen draft lines, open tile, create, new screen ----
@@ -1982,10 +2046,10 @@ export class BxShell extends LitElement {
     const mark = worst === 'error' ? '🔴 ' : worst === 'warn' ? '🟡 ' : '';
     document.title = mark + (this.name ? `${this.name} · xbin` : 'xbin');
   }
-  _pushToast(comp, d) {
+  _pushToast(comp, d, ttl = 6500) {
     const id = uid();
     this._toasts = [...this._toasts, { id, comp, level: d.level || 'info', message: d.message || '' }];
-    setTimeout(() => this._dismissToast(id), 6500);
+    setTimeout(() => this._dismissToast(id), ttl);
   }
   _dismissToast(id) { this._toasts = this._toasts.filter((t) => t.id !== id); }
 
@@ -2688,7 +2752,7 @@ export class BxShell extends LitElement {
     const frame = html`<bx-frame src=${o.path} no-edit height="100%"></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}
-           @bx-contextmenu=${(e) => { e.stopPropagation(); this._openTileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path); }}>
+           @bx-contextmenu=${(e) => { e.stopPropagation(); this._openTileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, { selection: e.detail.selection || '' }); }}>
         <div class="head"
              @pointerdown=${(e) => { this._pressStart(e, () => this._openTileMenu(null, o.path)); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._pressMove(e)}

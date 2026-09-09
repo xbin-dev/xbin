@@ -630,6 +630,101 @@ async function openLinks(browser) {
   if (fails.length) throw new Error(`open-links: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
 }
 
+// Copy from the tile menu (D56 amendment): selected text inside a tile rides
+// the relay and the menu leads with Copy; inputs and selected shell text keep
+// the native menu (Playwright shows none — ours must simply not open). The
+// plain-http path (no navigator.clipboard) goes through execCommand('copy').
+async function contextCopy(browser) {
+  const fails = [];
+  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/context-copy.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  fs.writeFileSync(`${OUT}/context-copy.txt`, '');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });
+  await page.goto(`${URL}/`);
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await sleep(1500);
+  await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
+    if (!sh._isOpen('apps/focusy')) sh._toggle('apps/focusy');
+  });
+  await sleep(2500);
+  await page.bringToFront();
+  const menu = () => page.evaluate(() => !!document.querySelector('bx-shell')._menu);
+  const frame = page.frames().find((f) => f.url().includes('/c/apps/focusy/'));
+  check(!!frame, 'the focusy frame is up');
+  const selectP = () => frame.evaluate(() => {
+    const p = document.querySelector('p'); const r = document.createRange(); r.selectNodeContents(p);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString();
+  });
+
+  // (a) selected text in the tile → our menu with Copy on top; Copy writes the clipboard
+  const want = await selectP();
+  check(want === 'this tile focuses its input on every load', `selection made in the tile (${JSON.stringify(want)})`);
+  const pb = await frame.locator('p').boundingBox();
+  await page.mouse.click(pb.x + 12, pb.y + pb.height / 2, { button: 'right' });
+  await sleep(600);
+  check(await menu(), 'right-click on selected tile text opens the tile menu');
+  const first = page.locator('bx-menu .it').first();
+  check(((await first.locator('.lb').textContent().catch(() => '')) ?? '').trim() === 'Copy', 'Copy is the first row');
+  check(((await first.locator('.hint').textContent().catch(() => '')) ?? '').includes('focuses its input'), 'the hint shows the snippet');
+  await shot(page, 'menu-tile-copy', { fullPage: false });
+  await first.click();
+  await sleep(500);
+  check(!(await menu()), 'the menu closed on Copy');
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  check(clip === want, `clipboard holds the selection (${JSON.stringify(clip)})`);
+  check(await page.evaluate(() => document.querySelector('bx-shell')._toasts.some((t) => t.message === 'copied')), 'a "copied" toast showed');
+
+  // (d) the plain-http path: no navigator.clipboard → execCommand('copy') on a scratch textarea
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
+  await selectP();
+  await page.mouse.click(pb.x + 12, pb.y + pb.height / 2, { button: 'right' });
+  await sleep(600);
+  await page.locator('bx-menu .it', { hasText: 'Copy' }).click();
+  await sleep(500);
+  await page.evaluate(() => { delete navigator.clipboard; }); // back to the prototype getter
+  const clip2 = await page.evaluate(() => navigator.clipboard.readText());
+  check(clip2 === want, `execCommand fallback wrote the clipboard (${JSON.stringify(clip2)})`);
+  check(await page.evaluate(() => !document.querySelector('body > textarea')), 'the scratch textarea is gone');
+
+  // (b) right-click on the tile's <input> → native menu; ours must not open
+  const ib = await frame.locator('#i').boundingBox();
+  await page.mouse.click(ib.x + 10, ib.y + ib.height / 2, { button: 'right' });
+  await sleep(600);
+  check(!(await menu()), 'right-click on an input inside the tile leaves the native menu');
+
+  // (c) selected text in the shell's own chrome → native menu. Card heads and
+  // sidebar rows are user-select:none (nobody can select them); the grants /
+  // bindings panels carry real selectable text, in a nested shadow root.
+  const who = page.locator('bx-shell bx-grants .who, bx-shell bx-bindings .who').first();
+  const whoText = ((await who.textContent().catch(() => '')) ?? '').trim();
+  const shellSel = await page.evaluate(() => {
+    const sh = document.querySelector('bx-shell');
+    const el = sh.shadowRoot.querySelector('bx-grants')?.shadowRoot?.querySelector('.who')
+      ?? sh.shadowRoot.querySelector('bx-bindings')?.shadowRoot?.querySelector('.who');
+    if (!el) return null;
+    const r = document.createRange(); r.selectNodeContents(el);
+    const s = document.getSelection(); s.removeAllRanges(); s.addRange(r);
+    return sh._selectedText();
+  });
+  check(!!whoText && shellSel !== null && shellSel.trim() === whoText, `shell-side selection detected (${JSON.stringify(shellSel)} vs ${JSON.stringify(whoText)})`);
+  await who.click({ button: 'right' });
+  await sleep(600);
+  check(!(await menu()), 'right-click on selected shell text leaves the native menu');
+  await page.mouse.click(1300, 860); // a left click on the canvas clears the selection
+  await sleep(300);
+  await who.click({ button: 'right' });
+  await sleep(500);
+  check(await menu(), 'the same text without a selection opens the shell menu');
+  await page.keyboard.press('Escape');
+  await sleep(200);
+
+  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); if (sh._isOpen('apps/focusy')) sh._toggle('apps/focusy'); });
+  await ctx.close();
+  if (fails.length) throw new Error(`context-copy: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+}
+
 // The permission-set creator (D57): build a set from typed rows, see each
 // entry in words, get stopped on a bad field, create + attach in one save,
 // reopen it with the rows parsed back, and edit an org's extra entries with
@@ -859,6 +954,7 @@ async function netPickers(browser) {
     await reloadFocus(browser);
     await permSets(browser);
     await openLinks(browser);
+    await contextCopy(browser);
   } finally {
     await browser.close();
   }

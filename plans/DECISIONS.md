@@ -1333,6 +1333,12 @@ Deviations and refinements made while implementing; all deliberate:
   exporting `bx-menu` to tiles now (API still settling). Follow-ups: lazy
   per-section loads in the admin element; focusable sidebar rows + the
   ContextMenu key; `bx-menu` as a tile API once its schema settles.
+  *Amended 2026-09-09: the native menu is never fully lost — inputs,
+  editable text and links keep it (paste), selected shell text keeps it
+  (copy), and a selection inside a tile rides the relay so the tile menu
+  leads with Copy, the shell writing the clipboard on the sandboxed frame's
+  behalf (`navigator.clipboard`, `execCommand` fallback on plain http); on
+  touch a live selection defers to the platform toolbar.*
 
 - **D57 — Permission sets are built from typed rows; the allowance grammar
   gets one browser module (2026-09-07).** The permission-sets tab took the

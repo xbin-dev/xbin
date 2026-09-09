@@ -512,14 +512,19 @@ export class BxFrame extends LitElement {
 
     // A right-click / long-press inside the tile: relay it upward in viewport
     // coordinates so the shell can open the tile menu (the iframe swallows
-    // the native event).
+    // the native event) — and, for a mouse right-click, the text selected in
+    // the tile, so the menu can lead with Copy (the frame has no clipboard).
     if (d.type === 'xbin:contextmenu') {
       const r = this._iframe?.getBoundingClientRect();
       if (!r) return;
       const clampN = (v, hi) => Math.max(0, Math.min(Number(v) || 0, hi));
       this.dispatchEvent(new CustomEvent('bx-contextmenu', {
         bubbles: true, composed: true,
-        detail: { x: r.left + clampN(d.x, r.width), y: r.top + clampN(d.y, r.height) },
+        detail: {
+          x: r.left + clampN(d.x, r.width), y: r.top + clampN(d.y, r.height),
+          // Clamped again here: the sender is a tile.
+          selection: typeof d.selection === 'string' ? d.selection.slice(0, 65536) : '',
+        },
       }));
       return;
     }

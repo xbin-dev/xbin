@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-09
+
+- **Copy from a tile's context menu; paste stays native.** Right-clicking
+  selected text inside a tile opened the tile menu with no way to copy: the
+  native menu was suppressed and a sandboxed frame has no
+  `navigator.clipboard`. The injected client now sends the selection (up to
+  64 KiB) along with the relayed right-click and the tile menu leads with
+  **Copy** (the snippet as its hint); the shell writes the clipboard —
+  `navigator.clipboard` on https / localhost, `execCommand('copy')` elsewhere
+  — and toasts *copied*. Inputs, textareas, editable text and links keep the
+  native menu (Paste lives there), as does any right-click on selected text
+  in the shell's chrome — now also inside nested panels such as grants and
+  bindings, where a shadow-retargeting gap let the shell menu open over
+  their inputs. On touch a live selection defers to the platform's selection
+  toolbar. Terminal, code, logs and proposals pop-ups are unchanged.
+
 ## 2026-09-08
 
 - **Links in new tabs from a tile: the `cap:open-links` grant (ND11).**

@@ -243,7 +243,9 @@ its card**. To float over the whole workspace, a tile asks the **shell** to
 spawn it. Two APIs on the in-frame `xbin` global (see [sdk.md](/docs/sdk.md)):
 (The shell's own context menus are `<bx-menu>`, served at
 `/vendor/bx-menu.js` — shell chrome with action closures, not a tile API;
-tiles keep using the two calls below.)
+tiles keep using the two calls below. Right-clicking selected text in a
+tile carries the text to the shell, whose tile menu leads with **Copy**;
+inputs and editable text keep the native menu.)
 
 - **`xbin.dialog(spec) → Promise<{button, values}>`** — a modal the shell
   renders from a plain-data `spec` (`title`, `message`, `fields`, `buttons`).

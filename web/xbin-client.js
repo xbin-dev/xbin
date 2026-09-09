@@ -261,22 +261,35 @@ function openWindow(spec = {}) {
 // A right-click (or a touch long-press) on the tile's body opens the SHELL's
 // tile menu — the iframe would otherwise swallow it. A tile that handles
 // contextmenu itself (preventDefault) keeps its own menu; inputs, links and
-// editable text keep the native one.
+// editable text keep the native one (paste lives there). Selected text rides
+// along with a mouse right-click so the shell's menu can lead with Copy — a
+// sandboxed (opaque-origin) frame has no navigator.clipboard of its own, the
+// shell writes the clipboard on its behalf. On touch a live selection belongs
+// to the platform's selection toolbar, not to our sheet.
 if (embedded) {
+  const SEL_MAX = 65536; // 64 KiB: any prose selection, negligible to clone
   const native = (t) => !!(t instanceof Element && t.closest('input, textarea, select, a[href], [contenteditable]:not([contenteditable="false"])'));
-  const send = (x, y) => window.parent.postMessage({ type: 'xbin:contextmenu', x, y }, PARENT);
+  const selected = () => { const t = document.getSelection()?.toString() ?? ''; return t.trim() ? t.slice(0, SEL_MAX) : ''; };
+  const send = (x, y, selection = '') => window.parent.postMessage({ type: 'xbin:contextmenu', x, y, selection }, PARENT);
+  let lastType = 'mouse', sentAt = 0;
   document.addEventListener('contextmenu', (e) => {
     if (e.defaultPrevented || native(e.target)) return;
+    const touch = (e.pointerType || lastType) !== 'mouse'; // keyboard (Shift+F10) counts as mouse
+    const sel = selected();
+    // Touch + a live selection: the platform toolbar owns it — unless this is
+    // the contextmenu Android fires right after OUR long-press already sent.
+    if (touch && sel && Date.now() - sentAt > 700) return;
     e.preventDefault();
-    send(e.clientX, e.clientY);
+    send(e.clientX, e.clientY, touch ? '' : sel);
   });
   let press = null;
   const cancel = () => { if (press) { clearTimeout(press.t); press = null; } };
   document.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' || e.button !== 0 || native(e.target)) return;
+    lastType = e.pointerType || 'mouse';
+    if (e.pointerType === 'mouse' || e.button !== 0 || native(e.target) || selected()) return;
     cancel();
     const x = e.clientX, y = e.clientY;
-    press = { x, y, t: setTimeout(() => { press = null; send(x, y); }, 450) };
+    press = { x, y, t: setTimeout(() => { press = null; sentAt = Date.now(); send(x, y); }, 450) };
   }, true);
   document.addEventListener('pointermove', (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) cancel(); }, true);
   document.addEventListener('pointerup', cancel, true);

@@ -337,7 +337,12 @@ its ⋯ — for the tile menu (terminal · logs · source · proposals, then
 open/close/pin/full page and, for admins, lifecycle + the ⚙ sections). A
 right-click (or touch long-press) *inside* a tile reaches the shell too —
 the injected client relays it unless the tile handled the event itself or
-the target is an input, link or editable text. On phones the menus are
+the target is an input, link or editable text (those keep the native menu;
+paste lives there). Right-click *selected* text in a tile and the tile menu
+leads with **Copy** — the text rides the relay and the shell writes the
+clipboard, since a sandboxed frame has none; selected text in the shell's
+own chrome keeps the native menu. On touch a live selection belongs to the
+platform's toolbar. On phones the menus are
 bottom sheets (⋯ or long-press) and the ⚙ admin popover is a sheet.
 
 **Tile sizing (design constraint).** The shell lays tiles on a **fixed
