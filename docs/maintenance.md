@@ -203,12 +203,12 @@ abbreviate the stack).
 `admin.js` is the router: the two-level nav (`GROUPS`), hash deep-links and
 their alias map, `_refresh()` (the shared lists: overview, users, orgs,
 policy, sets, defaults, requests, sessions), the global `.err` /
-`.notice` slots, and — still inline — the runtime group (components,
-the code drill-in, live stats, resources). Every other tab is its own
-element under `tabs/<name>.js` (`map`, `netsets`, `permsets`, `vault`,
-`cron`, `backup`, `binding` for grants/roles/providers/wiring, `ingress`
-for expose/endpoints, `orgs` for org cards, policy ceilings and the
-workspace defaults, `users`, `signin`, `sessions`); the
+`.notice` slots — about 300 lines. Every tab is its own element under
+`tabs/<name>.js` (`runtime` for components + the code drill-in + live
+stats + resources, `map`, `netsets`, `permsets`, `vault`, `cron`,
+`backup`, `binding` for grants/roles/providers/wiring, `ingress` for
+expose/endpoints, `orgs` for org cards, policy ceilings and the workspace
+defaults, `users`, `signin`, `sessions`); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an

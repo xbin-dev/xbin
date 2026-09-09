@@ -12,11 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
-- **The admin console is being split into one element per tab.** The
-  scaffold's `tiles/admin` gained `tabs/*.js` (access map, network sets,
-  permission sets, vault, cron, backup, binding, ingress, organisations,
-  users, sign-in, sessions), `admin-css.js` and `shared.js`; `admin.js`
-  stays the entry and the router, importing the siblings relatively.
+- **The admin console is one element per tab.** The scaffold's
+  `tiles/admin` gained `tabs/*.js` (runtime — components, code drill-in,
+  live stats, resources — access map, network sets, permission sets,
+  vault, cron, backup, binding, ingress, organisations, users, sign-in,
+  sessions), `admin-css.js` and `shared.js`; `admin.js` stays the entry
+  and is now a 300-line router, importing the siblings relatively.
   Nothing changes on screen, except that a minted invite link or a
   rotated owner token now lives on its tab: switch tabs and the copy box
   is gone (mint or rotate again if you need it).
