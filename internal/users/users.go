@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -758,11 +759,7 @@ func (s *Store) persistLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return fsutil.WriteFileAtomic(s.path, b, 0o600)
 }
 
 func normalizeID(id string) string {

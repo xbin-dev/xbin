@@ -499,13 +499,13 @@ func (b *Broker) apiBackupNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct{ Component string }
-	if err := decodeJSON(r, &body); err != nil || body.Component == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {component}")
 		return
 	}
 	version, err := b.doBackup(body.Component)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "version": version})
@@ -523,7 +523,7 @@ func (b *Broker) apiBackupList(w http.ResponseWriter, r *http.Request) {
 	}
 	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions", nil)
 	if err != nil || code >= 400 {
-		server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "archiver: " + firstLine(string(body))})
+		server.WriteError(w, http.StatusBadGateway, "archiver: "+firstLine(string(body)))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -535,8 +535,8 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct{ Component, Version, File string }
-	if err := decodeJSON(r, &body); err != nil || body.Component == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, version?, file?}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {component, version?, file?}")
 		return
 	}
 	// Restore a single file: stream it back without touching live state.
@@ -548,7 +548,7 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		code, data, err := b.archiveDo("GET", provider, "/archive/"+backupKey(body.Component)+"/versions/"+ver+"/file?path="+body.File, nil)
 		if err != nil || code >= 400 {
-			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "archiver: " + firstLine(string(data))})
+			server.WriteError(w, http.StatusBadGateway, "archiver: "+firstLine(string(data)))
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -557,7 +557,7 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := b.doRestore(body.Component, body.Version)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	// A restored component is enabled + rescanned/provisioned.

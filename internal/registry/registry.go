@@ -15,7 +15,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/jsonc"
+
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -567,9 +569,5 @@ func (r *Registry) MutateWorkspace(fn func(*WorkspaceManifest)) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(r.Root, ".xbin.json.tmp")
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(r.Root, "xbin.json"))
+	return fsutil.WriteFileAtomic(filepath.Join(r.Root, "xbin.json"), b, 0o644)
 }

@@ -31,14 +31,14 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		To    string `json:"to"`
 		Owner string `json:"owner"` // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, to, owner?}"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {from, to, owner?}")
 		return
 	}
 	from := strings.Trim(strings.TrimSpace(body.From), "/")
 	to := strings.Trim(strings.TrimSpace(body.To), "/")
 	if from == "" || to == "" || from == to {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, to} with distinct paths"})
+		server.WriteError(w, http.StatusBadRequest, "need {from, to} with distinct paths")
 		return
 	}
 	// Cloning creates a tile at `to` — same authority as /create (a user's
@@ -48,49 +48,47 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	owner, msg := b.resolveCreateOwner(p, body.Owner)
 	if msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if ok, msg := b.canCreateAt(p, to, owner); !ok {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if !b.attributedCanRead(p, from) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "cloning copies the source — your account has no read access to " + from, "docs": "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusForbidden, "cloning copies the source — your account has no read access to "+from, "/docs/auth.md")
 		return
 	}
 	src, ok := b.Reg.Component(from)
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + from})
+		server.WriteError(w, http.StatusNotFound, "no such component: "+from)
 		return
 	}
 	if !util.ComponentPathOK(to) || util.ReservedTop[strings.Split(to, "/")[0]] {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved clone path: " + to})
+		server.WriteError(w, http.StatusBadRequest, "bad or reserved clone path: "+to)
 		return
 	}
 	// Nesting either way is a mess: not inside an existing component, not a
 	// subtree containing one, and no nesting with the clone source.
 	if err := b.guardNewComponentTree(to); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	if strings.HasPrefix(to+"/", from+"/") || strings.HasPrefix(from+"/", to+"/") {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "clone destination must not nest with the source"})
+		server.WriteError(w, http.StatusBadRequest, "clone destination must not nest with the source")
 		return
 	}
 	target, _, err := util.SafeJoin(b.Reg.Root, to)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := os.Stat(target); err == nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": to + " already exists"})
+		server.WriteError(w, http.StatusConflict, to+" already exists")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

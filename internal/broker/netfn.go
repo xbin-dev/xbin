@@ -402,7 +402,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !scoped {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
+			server.WriteError(w, http.StatusForbidden, "admin only")
 			return
 		}
 	}
@@ -710,8 +710,8 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		Zone      string   `json:"zone"`      // exposes http: delegated wildcard zone
 		Listen    string   `json:"listen"`    // exposes stream: host listen address
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Component == "" || body.Slot == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, slot, provider|providers}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" || body.Slot == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {component, slot, provider|providers}")
 		return
 	}
 	refs := body.Providers
@@ -736,7 +736,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if !del {
 		if err := b.validateBinding(body.Component, body.Slot, binding); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -755,7 +755,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		}
 		ws.Bindings[body.Component][body.Slot] = binding
 	}); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "grants", Component: body.Component})
@@ -775,7 +775,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if b.OnIngressChange != nil {
 		b.OnIngressChange() // stream listeners / forward sockets may have changed
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // validateBinding checks a binding set before it lands: slot exists (except
@@ -1070,30 +1070,30 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		Component string            `json:"component"`
 		Instances map[string]string `json:"instances"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Instances == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {instances: {\"<id>\": \"/provider-relative/prefix\"}} (path may be \"\")"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Instances == nil {
+		server.WriteError(w, http.StatusBadRequest, "need {instances: {\"<id>\": \"/provider-relative/prefix\"}} (path may be \"\")")
 		return
 	}
 	comp := body.Component
 	switch {
 	case p.Component != "":
 		if comp != "" && comp != p.Component {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "a provider registers only its own instances"})
+			server.WriteError(w, http.StatusForbidden, "a provider registers only its own instances")
 			return
 		}
 		comp = p.Component
 	case b.IsAdmin(p):
 		if comp == "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component} when called as admin"})
+			server.WriteError(w, http.StatusBadRequest, "need {component} when called as admin")
 			return
 		}
 	default:
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "providers or admin only"})
+		server.WriteError(w, http.StatusForbidden, "providers or admin only")
 		return
 	}
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + comp})
+		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
 	hasInstances := false
@@ -1104,16 +1104,16 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !hasInstances {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": comp + " does not declare provides {kind:http, instances:true}"})
+		server.WriteError(w, http.StatusBadRequest, comp+" does not declare provides {kind:http, instances:true}")
 		return
 	}
 	for id, path := range body.Instances {
 		if id == "" || strings.ContainsAny(id, "#/ \t") {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad instance id " + id + " (no #, /, or whitespace)"})
+			server.WriteError(w, http.StatusBadRequest, "bad instance id "+id+" (no #, /, or whitespace)")
 			return
 		}
 		if path != "" && !strings.HasPrefix(path, "/") {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "instance path for " + id + " must start with / (or be empty)"})
+			server.WriteError(w, http.StatusBadRequest, "instance path for "+id+" must start with / (or be empty)")
 			return
 		}
 		// Paths are PROVIDER-RELATIVE: xbind injects /api/<provider><path>.
@@ -1122,9 +1122,7 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		// provider, where the mistake is fixable (and don't let install paths
 		// leak into persisted state: they'd go stale on rename/clone).
 		if path == "/api" || strings.HasPrefix(path, "/api/") {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "instance path for " + id + " must be provider-relative (e.g. \"/m/1\") — xbind composes /api/<provider>+path; do not register \"/api/" + comp + "/…\"",
-			})
+			server.WriteError(w, http.StatusBadRequest, "instance path for "+id+" must be provider-relative (e.g. \"/m/1\") — xbind composes /api/<provider>+path; do not register \"/api/"+comp+"/…\"")
 			return
 		}
 		if trimmed := strings.TrimRight(path, "/"); trimmed != path {
@@ -1141,7 +1139,7 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		}
 		ws.IfaceInstances[comp] = body.Instances
 	}); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Requesters bound to this provider get their URLs re-injected.

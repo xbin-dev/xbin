@@ -49,7 +49,10 @@ func ignoreFile(name string) bool {
 	case strings.HasSuffix(base, ".swp"), strings.HasSuffix(base, ".swx"),
 		strings.HasSuffix(base, "~"), strings.HasPrefix(base, ".#"),
 		base == "4913", // vim's permission probe
-		strings.HasPrefix(base, ".goutputstream"):
+		strings.HasPrefix(base, ".goutputstream"),
+		// xbind's own durable writes (internal/fsutil): ".<name>.<random>.tmp"
+		// appears and is renamed away — the rename target is the change.
+		strings.HasPrefix(base, ".") && strings.HasSuffix(base, ".tmp"):
 		return true
 	}
 	return false

@@ -14,7 +14,9 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
+
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -84,14 +86,10 @@ func (b *Broker) registerPRs(srv *server.Server) {
 func (b *Broker) prsRoot() string            { return filepath.Join(b.Reg.Root, "data", "prs") }
 func (b *Broker) prDir(target string) string { return filepath.Join(b.prsRoot(), util.CompKey(target)) }
 
-// prWriteFile writes tmp-then-rename (same idiom as prefs/vault) so a crash
-// never leaves a torn meta/series behind.
+// prWriteFile writes durably (fsutil) so a crash never leaves a torn
+// meta/series behind.
 func prWriteFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteFileAtomic(path, data, 0o644)
 }
 
 // canReadPRs is the whole PR visibility/suggestion gate (read = suggest):
@@ -157,11 +155,11 @@ func (b *Broker) prPublish(action, target string, n int, state string) {
 func (b *Broker) prTarget(w http.ResponseWriter, target string) (string, bool) {
 	target = strings.Trim(target, "/")
 	if !util.ComponentPathOK(target) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad component path"})
+		server.WriteError(w, http.StatusBadRequest, "bad component path")
 		return "", false
 	}
 	if _, ok := b.Reg.Component(target); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
+		server.WriteError(w, http.StatusNotFound, "no such component")
 		return "", false
 	}
 	return target, true
@@ -256,7 +254,7 @@ func (b *Broker) apiPROpen(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxPRSeriesBytes+256<<10)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request: " + err.Error()})
+		server.WriteError(w, http.StatusBadRequest, "bad request: "+err.Error())
 		return
 	}
 	target, ok := b.prTarget(w, body.Target)
@@ -265,25 +263,22 @@ func (b *Broker) apiPROpen(w http.ResponseWriter, r *http.Request) {
 	}
 	p := auth.PrincipalOf(r)
 	if !b.canReadPRs(p, target) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "proposing changes to " + target + " needs read access to it (or a code:" + target + " grant)",
-			"docs":  "/docs/protocol.md",
-		})
+		server.WriteError(w, http.StatusForbidden, "proposing changes to "+target+" needs read access to it (or a code:"+target+" grant)", "/docs/protocol.md")
 		return
 	}
 	title := strings.TrimSpace(body.Title)
 	switch {
 	case title == "" || len(title) > 200:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "title required (≤200 chars)"})
+		server.WriteError(w, http.StatusBadRequest, "title required (≤200 chars)")
 		return
 	case len(body.Message) > maxPRTextBytes:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "message too large"})
+		server.WriteError(w, http.StatusBadRequest, "message too large")
 		return
 	case len(body.Series) > maxPRSeriesBytes:
-		server.WriteJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "series exceeds 4 MiB — split the proposal"})
+		server.WriteError(w, http.StatusRequestEntityTooLarge, "series exceeds 4 MiB — split the proposal")
 		return
 	case !strings.Contains(body.Series, "diff --git "):
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "series is not a git patch (expected format-patch/mbox output containing \"diff --git\")"})
+		server.WriteError(w, http.StatusBadRequest, "series is not a git patch (expected format-patch/mbox output containing \"diff --git\")")
 		return
 	}
 	now := time.Now().UTC()
@@ -302,7 +297,7 @@ func (b *Broker) apiPROpen(w http.ResponseWriter, r *http.Request) {
 	err := b.prCreateLocked(m, body.Series)
 	b.prsMu.Unlock()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.prPublish("open", target, m.Number, "")
@@ -415,7 +410,7 @@ func (b *Broker) apiPRList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !b.canReadPRs(p, target) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no read access to " + target})
+			server.WriteError(w, http.StatusForbidden, "no read access to "+target)
 			return
 		}
 		list := filter(b.prList(target))
@@ -425,7 +420,7 @@ func (b *Broker) apiPRList(w http.ResponseWriter, r *http.Request) {
 
 	mine := r.URL.Query().Get("from") != ""
 	if !mine && !p.IsAdmin() {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need ?target=<component> or ?from=1"})
+		server.WriteError(w, http.StatusBadRequest, "need ?target=<component> or ?from=1")
 		return
 	}
 	all := []*prMeta{}
@@ -470,17 +465,17 @@ func (b *Broker) prByQuery(w http.ResponseWriter, r *http.Request) (*prMeta, boo
 		return nil, false
 	}
 	if !b.canReadPRs(auth.PrincipalOf(r), target) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no read access to " + target})
+		server.WriteError(w, http.StatusForbidden, "no read access to "+target)
 		return nil, false
 	}
 	n, err := strconv.Atoi(r.URL.Query().Get("n"))
 	if err != nil || n < 1 {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad pr number"})
+		server.WriteError(w, http.StatusBadRequest, "bad pr number")
 		return nil, false
 	}
 	m, err := b.prLoad(target, n)
 	if err != nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such pr"})
+		server.WriteError(w, http.StatusNotFound, "no such pr")
 		return nil, false
 	}
 	return m, true
@@ -502,7 +497,7 @@ func (b *Broker) apiPRSeries(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(filepath.Join(b.prDir(m.Target), strconv.Itoa(m.Number), "series.mbox"))
 	if err != nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "series missing"})
+		server.WriteError(w, http.StatusNotFound, "series missing")
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -520,12 +515,12 @@ func (b *Broker) apiPRComment(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxPRTextBytes+4<<10)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request: " + err.Error()})
+		server.WriteError(w, http.StatusBadRequest, "bad request: "+err.Error())
 		return
 	}
 	text := strings.TrimSpace(body.Body)
 	if text == "" || len(text) > maxPRTextBytes {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "comment required (≤64 KiB)"})
+		server.WriteError(w, http.StatusBadRequest, "comment required (≤64 KiB)")
 		return
 	}
 	target, ok := b.prTarget(w, body.Target)
@@ -534,7 +529,7 @@ func (b *Broker) apiPRComment(w http.ResponseWriter, r *http.Request) {
 	}
 	p := auth.PrincipalOf(r)
 	if !b.canReadPRs(p, target) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no read access to " + target})
+		server.WriteError(w, http.StatusForbidden, "no read access to "+target)
 		return
 	}
 
@@ -547,7 +542,7 @@ func (b *Broker) apiPRComment(w http.ResponseWriter, r *http.Request) {
 	}
 	b.prsMu.Unlock()
 	if err != nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such pr"})
+		server.WriteError(w, http.StatusNotFound, "no such pr")
 		return
 	}
 	b.prPublish("comment", target, body.N, "")
@@ -566,7 +561,7 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxPRTextBytes+4<<10)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request: " + err.Error()})
+		server.WriteError(w, http.StatusBadRequest, "bad request: "+err.Error())
 		return
 	}
 	if !prStates[body.State] {
@@ -574,7 +569,7 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Comment) > maxPRTextBytes {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "comment too large"})
+		server.WriteError(w, http.StatusBadRequest, "comment too large")
 		return
 	}
 	target, ok := b.prTarget(w, body.Target)
@@ -587,7 +582,7 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 	m, err := b.prLoad(target, body.N)
 	if err != nil {
 		b.prsMu.Unlock()
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such pr"})
+		server.WriteError(w, http.StatusNotFound, "no such pr")
 		return
 	}
 	allowed := false
@@ -602,12 +597,12 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 		if body.State == "withdrawn" {
 			who = "the PR's author"
 		}
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": body.State + " is " + who + "'s call"})
+		server.WriteError(w, http.StatusForbidden, body.State+" is "+who+"'s call")
 		return
 	}
 	if m.State != "open" {
 		b.prsMu.Unlock()
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "pr is already " + m.State})
+		server.WriteError(w, http.StatusConflict, "pr is already "+m.State)
 		return
 	}
 	now := time.Now().UTC()
@@ -617,7 +612,7 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 	err = b.prSave(m)
 	b.prsMu.Unlock()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// A builtin-update proposal closing merged means the tile's plane applied

@@ -28,17 +28,15 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 		scaffold.Options
 		Owner string `json:"owner"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Path == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "need {path, runtime?, title?, expose?, owner?}", "docs": "/docs/protocol.md",
-		})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Path == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {path, runtime?, title?, expose?, owner?}", "/docs/protocol.md")
 		return
 	}
 	o := body.Options
 	// No nesting either way: not inside an existing component, and not a
 	// subtree that already contains one.
 	if err := b.guardNewComponentTree(strings.Trim(o.Path, "/")); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -48,17 +46,17 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	// know which authority applies.
 	owner, msg := b.resolveCreateOwner(p, body.Owner)
 	if msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if ok, msg := b.canCreateAt(p, o.Path, owner); !ok {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 
 	files, err := scaffold.Create(b.Reg.Root, o)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.assignOwner(o.Path, owner)

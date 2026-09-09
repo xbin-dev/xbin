@@ -35,7 +35,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/users"
+
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -318,11 +320,7 @@ func (a *Auth) IsOwnerToken(tok string) bool {
 // Host-side bx/automation must re-read the file.
 func (a *Auth) RotateOwnerToken() (string, error) {
 	tok := util.RandomToken(32)
-	tmp := a.tokenPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(tok+"\n"), 0o600); err != nil {
-		return "", err
-	}
-	if err := os.Rename(tmp, a.tokenPath); err != nil {
+	if err := fsutil.WriteFileAtomic(a.tokenPath, []byte(tok+"\n"), 0o600); err != nil {
 		return "", err
 	}
 	a.mu.Lock()

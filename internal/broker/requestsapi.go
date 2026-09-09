@@ -41,7 +41,7 @@ func (b *Broker) apiRequestCreate(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	uid := requestHuman(p)
 	if uid == "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "access requests are filed by signed-in users (elements use the grants queue)"})
+		server.WriteError(w, http.StatusForbidden, "access requests are filed by signed-in users (elements use the grants queue)")
 		return
 	}
 	var body struct {
@@ -49,8 +49,8 @@ func (b *Broker) apiRequestCreate(w http.ResponseWriter, r *http.Request) {
 		Level string `json:"level"`
 		Note  string `json:"note"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Tile == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tile, level: read|write|terminal, note?}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {tile, level: read|write|terminal, note?}")
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
@@ -58,15 +58,15 @@ func (b *Broker) apiRequestCreate(w http.ResponseWriter, r *http.Request) {
 		body.Level = users.LevelRead
 	}
 	if _, ok := b.Reg.Component(body.Tile); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such tile"})
+		server.WriteError(w, http.StatusNotFound, "no such tile")
 		return
 	}
 	if lvlSatisfied(p, body.Tile, body.Level) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "you already have " + body.Level + " on " + body.Tile})
+		server.WriteError(w, http.StatusBadRequest, "you already have "+body.Level+" on "+body.Tile)
 		return
 	}
 	if err := st.CreateAccessRequest(uid, body.Tile, body.Level, body.Note); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -101,7 +101,7 @@ func (b *Broker) apiRequestsList(w http.ResponseWriter, r *http.Request) {
 	uid := requestHuman(p)
 	admin := b.canManageUsers(p)
 	if uid == "" && !admin {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin or signed-in users only"})
+		server.WriteError(w, http.StatusForbidden, "admin or signed-in users only")
 		return
 	}
 	out := []requestView{}
@@ -125,8 +125,8 @@ func (b *Broker) apiRequestApprove(w http.ResponseWriter, r *http.Request) {
 		Tile  string `json:"tile"`
 		Level string `json:"level"` // optional override; default = as requested
 	}
-	if err := decodeJSON(r, &body); err != nil || body.User == "" || body.Tile == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {user, tile, level?}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.User == "" || body.Tile == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {user, tile, level?}")
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
@@ -146,15 +146,15 @@ func (b *Broker) apiRequestApprove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such request"})
+		server.WriteError(w, http.StatusNotFound, "no such request")
 		return
 	}
 	if err := st.SetUserTile(body.User, body.Tile, level); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := st.DeleteAccessRequest(body.User, body.Tile, false); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -170,8 +170,8 @@ func (b *Broker) apiRequestDelete(w http.ResponseWriter, r *http.Request) {
 		User string `json:"user"`
 		Tile string `json:"tile"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Tile == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {user?, tile}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {user?, tile}")
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
@@ -181,18 +181,18 @@ func (b *Broker) apiRequestDelete(w http.ResponseWriter, r *http.Request) {
 		body.User = uid // withdraw your own
 	}
 	if body.User != uid && !b.mayManageTile(p, body.Tile) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "withdraw your own requests; dismissing others' needs the tile's manager (D36)"})
+		server.WriteError(w, http.StatusForbidden, "withdraw your own requests; dismissing others' needs the tile's manager (D36)")
 		return
 	}
 	// A manager removing someone ELSE's request is a dismissal — it starts
 	// the re-file cooldown; withdrawing your own doesn't.
 	found, err := st.DeleteAccessRequest(body.User, body.Tile, body.User != uid)
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !found {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such request"})
+		server.WriteError(w, http.StatusNotFound, "no such request")
 		return
 	}
 	b.usersEvent()

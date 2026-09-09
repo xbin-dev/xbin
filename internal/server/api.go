@@ -40,8 +40,38 @@ func WriteJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// WriteError writes the built-in API's error shape — {"error": msg}, plus
+// "docs": the page to read when one is given (docs/protocol.md "Errors").
+// Every non-2xx answer of /api/xbin/* goes through here; the shape is a
+// wire contract (docs/compat.md rule 2), so it never grows a field
+// silently.
+func WriteError(w http.ResponseWriter, code int, msg string, docs ...string) {
+	m := map[string]string{"error": msg}
+	if len(docs) > 0 && docs[0] != "" {
+		m["docs"] = docs[0]
+	}
+	WriteJSON(w, code, m)
+}
+
+// WriteOK writes {"ok":"true"} — the historical success shape of the
+// mutating endpoints (a string, not a bool; kept as is for old clients).
+func WriteOK(w http.ResponseWriter) {
+	WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+// DecodeJSON decodes a request body strictly — unknown fields are errors,
+// so a misspelled key is a 400 instead of a silently ignored setting — and
+// closes it. Handlers that must accept unknown fields (bodies produced by
+// older clients) decode by hand.
+func DecodeJSON(r *http.Request, v any) error {
+	defer r.Body.Close()
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}
+
 func apiErr(w http.ResponseWriter, code int, msg string) {
-	WriteJSON(w, code, map[string]string{"error": msg, "docs": "/docs/protocol.md"})
+	WriteError(w, code, msg, "/docs/protocol.md")
 }
 
 // admin reports whether the request's principal may use admin-capable

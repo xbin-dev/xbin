@@ -52,9 +52,7 @@ func (b *Broker) requireUsersCap(w http.ResponseWriter, r *http.Request) bool {
 	if b.canManageUsers(auth.PrincipalOf(r)) {
 		return true
 	}
-	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "user management needs admin or the xbin:users capability", "docs": "/docs/auth.md",
-	})
+	server.WriteError(w, http.StatusForbidden, "user management needs admin or the xbin:users capability", "/docs/auth.md")
 	return false
 }
 
@@ -181,7 +179,7 @@ func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
 
 func (b *Broker) usersStore(w http.ResponseWriter) *users.Store {
 	if b.Users == nil {
-		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user store unavailable"})
+		server.WriteError(w, http.StatusServiceUnavailable, "user store unavailable")
 		return nil
 	}
 	return b.Users
@@ -266,48 +264,47 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body userBody
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.ID) == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, name?, role?, tiles?, canCreate?, termApi?, termNet?, email?, password? | sso:true}"})
+	if err := server.DecodeJSON(r, &body); err != nil || strings.TrimSpace(body.ID) == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {id, name?, role?, tiles?, canCreate?, termApi?, termNet?, email?, password? | sso:true}")
 		return
 	}
 	if body.SSO {
 		if body.Email == nil || strings.TrimSpace(*body.Email) == "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "an SSO account needs an email to bind the IdP identity to"})
+			server.WriteError(w, http.StatusBadRequest, "an SSO account needs an email to bind the IdP identity to")
 			return
 		}
 		if body.Password != "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "an SSO account takes no password (sign-in is the IdP); drop sso or the password"})
+			server.WriteError(w, http.StatusBadRequest, "an SSO account takes no password (sign-in is the IdP); drop sso or the password")
 			return
 		}
 	}
 	if body.Password != "" {
 		if msg := weakPassword(body.Password); msg != "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			server.WriteError(w, http.StatusBadRequest, msg)
 			return
 		}
 	}
 	if _, exists := st.Get(body.ID); exists {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
+		server.WriteError(w, http.StatusConflict, "user already exists")
 		return
 	}
 	// SSO-only mode (D53): a non-admin can't be given a password path — the
 	// invite link would mint one.
 	if st.PasswordLoginDisabled() && body.Role != users.RoleAdmin && !body.SSO && body.Password == "" {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{
-			"error": "password sign-in is disabled for non-admins — create the account with sso:true and an email"})
+		server.WriteError(w, http.StatusConflict, "password sign-in is disabled for non-admins — create the account with sso:true and an email")
 		return
 	}
 	// Orgs are validated BEFORE the account exists so a typo never leaves a
 	// half-provisioned user behind.
 	for _, o := range body.Orgs {
 		if _, ok := st.Org(o.Org); !ok {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "no such org " + o.Org})
+			server.WriteError(w, http.StatusBadRequest, "no such org "+o.Org)
 			return
 		}
 	}
 	tiles, err := users.ParseTiles(body.Tiles, body.Terminal != nil && *body.Terminal)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	nu := users.User{
@@ -338,7 +335,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		u, err = st.Upsert(nu, body.Password)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	for _, o := range body.Orgs {
@@ -397,16 +394,16 @@ func (b *Broker) apiAccountPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	p := auth.PrincipalOf(r)
 	if p.Component != "" || p.User == nil {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "password change is for signed-in users (the bootstrap token has no password)"})
+		server.WriteError(w, http.StatusForbidden, "password change is for signed-in users (the bootstrap token has no password)")
 		return
 	}
 	var body struct{ Current, New string }
-	if err := decodeJSON(r, &body); err != nil || body.New == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {current, new}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.New == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {current, new}")
 		return
 	}
 	if err := st.ChangePassword(p.User.ID, body.Current, body.New); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -439,20 +436,19 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !allowed {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "invites are minted by admins — or by an org admin for a non-admin member of their org (reset-by-link, D38)"})
+			server.WriteError(w, http.StatusForbidden, "invites are minted by admins — or by an org admin for a non-admin member of their org (reset-by-link, D38)")
 			return
 		}
 	}
 	if st.PasswordLoginDisabled() {
 		if target, ok := st.Get(r.PathValue("id")); ok && !target.IsAdmin() {
-			server.WriteJSON(w, http.StatusConflict, map[string]string{
-				"error": "password sign-in is disabled for non-admins — this account signs in through the IdP (bind its email instead)"})
+			server.WriteError(w, http.StatusConflict, "password sign-in is disabled for non-admins — this account signs in through the IdP (bind its email instead)")
 			return
 		}
 	}
 	tok, err := st.CreateInvite(r.PathValue("id"), 0)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -477,21 +473,21 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 	id := r.PathValue("id")
 	cur, ok := st.Get(id)
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+		server.WriteError(w, http.StatusNotFound, "no such user")
 		return
 	}
 	// Start from current, overlay provided fields (string fields by prefill;
 	// tiles/flags by presence — absent keeps the current value, and password
 	// only when non-empty).
 	body := userBody{ID: cur.ID, Name: cur.Name, Role: cur.Role}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "bad body")
 		return
 	}
 	body.ID = cur.ID         // id is immutable
 	if body.Password != "" { // only when actually changing it (empty keeps the old hash)
 		if msg := weakPassword(body.Password); msg != "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			server.WriteError(w, http.StatusBadRequest, msg)
 			return
 		}
 	}
@@ -499,7 +495,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 	if body.Tiles != nil {
 		var err error
 		if tiles, err = users.ParseTiles(body.Tiles, body.Terminal != nil && *body.Terminal); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	} else if body.Terminal != nil {
@@ -547,7 +543,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 				self = p.User.ID
 			}
 			if self == cur.ID {
-				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "you can't disable your own account"})
+				server.WriteError(w, http.StatusBadRequest, "you can't disable your own account")
 				return
 			}
 			if cur.IsAdmin() {
@@ -559,7 +555,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 					}
 				}
 				if !others {
-					server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to disable the last enabled admin user"})
+					server.WriteError(w, http.StatusBadRequest, "refusing to disable the last enabled admin user")
 					return
 				}
 			}
@@ -568,7 +564,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 	}
 	u, err := st.Upsert(nu, body.Password)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if nu.Disabled && !cur.Disabled && srv != nil && srv.Auth != nil {
@@ -588,7 +584,7 @@ func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *ht
 	}
 	orphaned, err := st.Delete(r.PathValue("id"))
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if srv != nil && srv.Auth != nil {
@@ -613,7 +609,7 @@ func (b *Broker) apiUsersSignout(srv *server.Server, w http.ResponseWriter, r *h
 	}
 	u, ok := st.Get(r.PathValue("id"))
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+		server.WriteError(w, http.StatusNotFound, "no such user")
 		return
 	}
 	n := 0
@@ -637,8 +633,8 @@ func (b *Broker) apiSSOTest(srv *server.Server, w http.ResponseWriter, r *http.R
 		SSO *users.SSOConfig `json:"sso"`
 	}
 	if r.ContentLength != 0 {
-		if err := decodeJSON(r, &body); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {} or {sso: {kind, preset?, issuer?, clientId, …}}"})
+		if err := server.DecodeJSON(r, &body); err != nil {
+			server.WriteError(w, http.StatusBadRequest, "need {} or {sso: {kind, preset?, issuer?, clientId, …}}")
 			return
 		}
 	}
@@ -744,8 +740,8 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		SSO                   json.RawMessage `json:"sso"`
 		PasswordLoginDisabled *bool           `json:"passwordLoginDisabled"`
 	}
-	if err := decodeJSON(r, &body); err != nil || (body.TokenLoginDisabled == nil && body.SSO == nil && body.PasswordLoginDisabled == nil) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tokenLoginDisabled: bool} and/or {sso: {...}|null} and/or {passwordLoginDisabled: bool}"})
+	if err := server.DecodeJSON(r, &body); err != nil || (body.TokenLoginDisabled == nil && body.SSO == nil && body.PasswordLoginDisabled == nil) {
+		server.WriteError(w, http.StatusBadRequest, "need {tokenLoginDisabled: bool} and/or {sso: {...}|null} and/or {passwordLoginDisabled: bool}")
 		return
 	}
 	// SSO config: an object replaces (empty clientSecret keeps the stored
@@ -754,17 +750,17 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.SSO != nil {
 		if string(body.SSO) == "null" {
 			if err := st.SetSSO(nil); err != nil {
-				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				server.WriteError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 		} else {
 			var c users.SSOConfig
 			if err := json.Unmarshal(body.SSO, &c); err != nil {
-				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad sso object: " + err.Error()})
+				server.WriteError(w, http.StatusBadRequest, "bad sso object: "+err.Error())
 				return
 			}
 			if err := st.SetSSO(&c); err != nil {
-				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				server.WriteError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 		}
@@ -774,12 +770,11 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	// predicate GET reports as canDisablePassword.
 	if body.PasswordLoginDisabled != nil {
 		if *body.PasswordLoginDisabled && !b.ssoReady(st) {
-			server.WriteJSON(w, http.StatusConflict, map[string]string{
-				"error": "SSO must be configured and --external-url set before disabling password sign-in"})
+			server.WriteError(w, http.StatusConflict, "SSO must be configured and --external-url set before disabling password sign-in")
 			return
 		}
 		if err := st.SetPasswordLoginDisabled(*body.PasswordLoginDisabled); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -795,14 +790,12 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		// (frame-token principal, user id attributed); rejects the bootstrap
 		// owner token, whose own browser session this would invalidate.
 		if !b.attributedAdminUser(auth.PrincipalOf(r)) {
-			server.WriteJSON(w, http.StatusConflict, map[string]string{
-				"error": "sign in as an admin user (not the bootstrap token) before disabling token login",
-			})
+			server.WriteError(w, http.StatusConflict, "sign in as an admin user (not the bootstrap token) before disabling token login")
 			return
 		}
 	}
 	if err := st.SetTokenLoginDisabled(*body.TokenLoginDisabled); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{

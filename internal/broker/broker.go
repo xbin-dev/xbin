@@ -541,7 +541,7 @@ func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
 			server.WriteJSON(w, http.StatusOK, map[string]any{"grants": grants, "pending": pending, "scope": scope})
 			return
 		}
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin only"})
+		server.WriteError(w, http.StatusForbidden, "admin only")
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
@@ -615,8 +615,8 @@ func (b *Broker) grantRestart(g registry.Grant) {
 func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {
 	p := auth.PrincipalOf(r)
 	var g registry.Grant
-	if err := decodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {from, target, role}"})
+	if err := server.DecodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {from, target, role}")
 		return registry.Grant{}, false
 	}
 	if !b.IsAdmin(p) {
@@ -632,7 +632,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	// net:* grants loudly (rather than storing a silent no-op); DELETE still
 	// works so a stale net:* grant from an older workspace can be cleaned up.
 	if r.Method == http.MethodPost && strings.HasPrefix(g.Target, "net:") {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)"})
+		server.WriteError(w, http.StatusBadRequest, "network egress is not a grant — bind a `net` interface instead: `bx bind "+g.From+" net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)")
 		return registry.Grant{}, false
 	}
 	// Policy ceiling (D20): approving a grant the ceiling would nullify is a
@@ -640,7 +640,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	// is always allowed so over-ceiling rows can be cleaned up.
 	if r.Method == http.MethodPost {
 		if msg := b.ceilingBlockMsg(g.From, g.Target); msg != "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			server.WriteError(w, http.StatusBadRequest, msg)
 			return registry.Grant{}, false
 		}
 	}
@@ -660,10 +660,10 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 		slog.Info("grant revoked", "from", g.From, "target", g.Target, "role", g.Role, "by", by)
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { apply(ws, g) }); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return registry.Grant{}, false
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 	return g, true
 }
 

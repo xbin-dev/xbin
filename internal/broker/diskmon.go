@@ -230,9 +230,7 @@ func (b *Broker) quotaOK(w http.ResponseWriter, scope, want string) bool {
 		return true
 	}
 	if reason, blocked := b.disk.Blocked(util.ScopeKey(scope)); blocked {
-		server.WriteJSON(w, http.StatusInsufficientStorage, map[string]string{
-			"error": "disk write blocked: " + reason, "docs": "/docs/isolation.md",
-		})
+		server.WriteError(w, http.StatusInsufficientStorage, "disk write blocked: "+reason, "/docs/isolation.md")
 		return false
 	}
 	return true

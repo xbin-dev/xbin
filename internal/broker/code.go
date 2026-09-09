@@ -43,12 +43,12 @@ func (b *Broker) registerCode(srv *server.Server) {
 func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
 	if !util.ComponentPathOK(comp) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad component path"})
+		server.WriteError(w, http.StatusBadRequest, "bad component path")
 		return "", "", false
 	}
 	dir := filepath.Join(b.Reg.Root, filepath.FromSlash(comp))
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
+		server.WriteError(w, http.StatusNotFound, "no such component")
 		return "", "", false
 	}
 	return comp, dir, true
@@ -208,12 +208,12 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("file")
 	p, _, err := util.SafeJoin(dir, rel)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad file path"})
+		server.WriteError(w, http.StatusBadRequest, "bad file path")
 		return
 	}
 	fi, err := os.Stat(p)
 	if err != nil || fi.IsDir() {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such file"})
+		server.WriteError(w, http.StatusNotFound, "no such file")
 		return
 	}
 	if fi.Size() > maxFileBytes {
@@ -222,7 +222,7 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if bytes.IndexByte(firstN(data, 8<<10), 0) >= 0 {
@@ -396,7 +396,7 @@ func (b *Broker) apiGitDiff(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if !revRE.MatchString(rev) {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad revision"})
+			server.WriteError(w, http.StatusBadRequest, "bad revision")
 			return
 		}
 		out, err = runGitIn(dir, "show", "--no-color", rev)

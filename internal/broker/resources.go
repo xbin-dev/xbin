@@ -173,7 +173,7 @@ func openKV(root string) (*kvStore, error) {
 func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (bucket, key string, ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	if !strings.HasPrefix(rest, "res:") {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "docs": "/docs/resources.md"})
+		server.WriteError(w, http.StatusBadRequest, "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "/docs/resources.md")
 		return "", "", false
 	}
 	// Find the declared resource by longest prefix.
@@ -183,7 +183,7 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 			key = strings.TrimPrefix(rest, probe)
 			key = strings.TrimPrefix(key, "/")
 			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
-				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return "", "", false
 			}
 			if !b.quotaOK(w, rt.Scope, want) {
@@ -197,7 +197,7 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 		}
 		probe = probe[:i]
 	}
-	server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such kv resource", "docs": "/docs/resources.md"})
+	server.WriteError(w, http.StatusNotFound, "no such kv resource", "/docs/resources.md")
 	return "", "", false
 }
 
@@ -234,12 +234,12 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if val == nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such key"})
+		server.WriteError(w, http.StatusNotFound, "no such key")
 		return
 	}
 	plain, err := b.decodeKV(bucket, val)
 	if err != nil {
-		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vault sealed — unseal to read encrypted resource data", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusServiceUnavailable, "vault sealed — unseal to read encrypted resource data", "/docs/auth.md")
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -252,17 +252,17 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "missing key"})
+		server.WriteError(w, http.StatusBadRequest, "missing key")
 		return
 	}
 	val, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	stored, err := b.encodeKV(bucket, val)
 	if err != nil {
-		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vault sealed — unseal to write encrypted resource data", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusServiceUnavailable, "vault sealed — unseal to write encrypted resource data", "/docs/auth.md")
 		return
 	}
 	err = b.kv.db.Update(func(tx *bolt.Tx) error {
@@ -273,10 +273,10 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 		return bk.Put([]byte(key), stored)
 	})
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
@@ -291,10 +291,10 @@ func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- blob ------------------------------------------------------------------
@@ -306,7 +306,7 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 		if rt, res, found := b.parseRes(probe); found && res != nil && res.Type == "blob" {
 			rel = strings.TrimPrefix(strings.TrimPrefix(rest, probe), "/")
 			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
-				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return "", "", false
 			}
 			if !b.quotaOK(w, rt.Scope, want) {
@@ -316,13 +316,13 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 			// (vault sealed / gocryptfs missing) so we never read or write plaintext
 			// into the bare mountpoint.
 			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
-				server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource unavailable — vault sealed or encryption not ready", "docs": "/docs/auth.md"})
+				server.WriteError(w, http.StatusServiceUnavailable, "resource unavailable — vault sealed or encryption not ready", "/docs/auth.md")
 				return "", "", false
 			}
 			base := b.fsResPath(rt.Scope, rt.Name, false) // decrypted gocryptfs mount
 			full, _, err := util.SafeJoin(base, rel)
 			if err != nil {
-				server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad path"})
+				server.WriteError(w, http.StatusBadRequest, "bad path")
 				return "", "", false
 			}
 			return full, rel, true
@@ -333,7 +333,7 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 		}
 		probe = probe[:i]
 	}
-	server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such blob resource", "docs": "/docs/resources.md"})
+	server.WriteError(w, http.StatusNotFound, "no such blob resource", "/docs/resources.md")
 	return "", "", false
 }
 
@@ -344,7 +344,7 @@ func (b *Broker) apiBlobGet(w http.ResponseWriter, r *http.Request) {
 	}
 	fi, err := os.Stat(full)
 	if err != nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		server.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if fi.IsDir() {
@@ -369,24 +369,24 @@ func (b *Broker) apiBlobPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rel == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "missing blob path"})
+		server.WriteError(w, http.StatusBadRequest, "missing blob path")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	f, err := os.Create(full)
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer f.Close()
 	if _, err := io.Copy(f, io.LimitReader(r.Body, 256<<20)); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiBlobDelete(w http.ResponseWriter, r *http.Request) {
@@ -395,14 +395,14 @@ func (b *Broker) apiBlobDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rel == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "missing blob path"})
+		server.WriteError(w, http.StatusBadRequest, "missing blob path")
 		return
 	}
 	if err := os.Remove(full); err != nil {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		server.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- bus ---------------------------------------------------------------
@@ -413,17 +413,17 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		Topic    string `json:"topic"`
 		Data     any    `json:"data"`
 	}
-	if err := decodeJSON(r, &msg); err != nil || msg.Resource == "" || msg.Topic == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {resource, topic, data?}", "docs": "/docs/resources.md"})
+	if err := server.DecodeJSON(r, &msg); err != nil || msg.Resource == "" || msg.Topic == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {resource, topic, data?}", "/docs/resources.md")
 		return
 	}
 	rt, res, ok := b.parseRes(msg.Resource)
 	if !ok || res == nil || res.Type != "bus" {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such bus resource", "docs": "/docs/resources.md"})
+		server.WriteError(w, http.StatusNotFound, "no such bus resource", "/docs/resources.md")
 		return
 	}
 	if err := b.allowRes(auth.PrincipalOf(r), rt.String(), "writer"); err != nil {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
 	b.Hub.Publish(events.Event{
@@ -432,7 +432,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		Data:  msg.Data,
 	})
 	b.countBusEvent(rt.String())
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // busFilter authorizes bus event delivery to a WS subscriber (installed as

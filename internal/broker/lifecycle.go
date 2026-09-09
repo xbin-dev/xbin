@@ -21,8 +21,8 @@ import (
 // admin must be able to stop their runaway tile without paging a ws-admin.
 func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Component, State string }
-	if err := decodeJSON(r, &body); err != nil || body.Component == "" || body.State == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, state}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" || body.State == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {component, state}")
 		return
 	}
 	if p := auth.PrincipalOf(r); !b.IsAdmin(p) && !b.mayManageTile(p, body.Component) {
@@ -33,7 +33,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	// registry; only reject truly-unknown components.
 	cur := b.Reg.LifecycleState(body.Component)
 	if _, ok := b.Reg.Component(body.Component); !ok && cur == registry.StateEnabled {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
+		server.WriteError(w, http.StatusNotFound, "no such component")
 		return
 	}
 	// Heavy transitions run before the state flips, so a failure leaves the
@@ -46,7 +46,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	case registry.StateEnabled:
 		if registry.IsOffloaded(cur) {
 			if _, err := b.doRestore(body.Component, ""); err != nil {
-				server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "restore failed: " + err.Error()})
+				server.WriteError(w, http.StatusBadGateway, "restore failed: "+err.Error())
 				return
 			}
 			filesChanged = true
@@ -58,18 +58,18 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		// movement — but never from an offloaded state: overwriting the
 		// marker would orphan the archived data.
 		if registry.IsOffloaded(cur) {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "restore the component before hiding it (it is " + cur + ")"})
+			server.WriteError(w, http.StatusBadRequest, "restore the component before hiding it (it is "+cur+")")
 			return
 		}
 	case registry.StateOffloaded:
 		if err := b.offload(body.Component, false); err != nil {
-			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		filesChanged = true
 	case registry.StateOffloadedFull:
 		if err := b.offload(body.Component, true); err != nil {
-			server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		filesChanged = true
@@ -93,7 +93,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		ws.Lifecycle[body.Component] = body.State
 		ws.LifecycleAt[body.Component] = now
 	}); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Disabling/offloading stops the backend now (free compute); enabling lets

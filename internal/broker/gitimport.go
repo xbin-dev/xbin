@@ -63,7 +63,7 @@ func (b *Broker) apiGitRemoteInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	url := strings.TrimSpace(r.URL.Query().Get("url"))
 	if !validGitURL(url) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "provide a git URL (https://…, git@…:…, ssh://…)"})
+		server.WriteError(w, http.StatusBadRequest, "provide a git URL (https://…, git@…:…, ssh://…)")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -72,7 +72,7 @@ func (b *Broker) apiGitRemoteInfo(w http.ResponseWriter, r *http.Request) {
 	cmd.Env = gitEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "cannot reach the repo: " + firstLine(string(out))})
+		server.WriteError(w, http.StatusBadGateway, "cannot reach the repo: "+firstLine(string(out)))
 		return
 	}
 	var defaultBranch string
@@ -114,8 +114,8 @@ func dedupSortTags(tags []string) []string {
 // apiGitImport (POST /git/import {url, path?, ref?}) clones a remote component in.
 func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	var body struct{ URL, Path, Ref, Owner string } // owner as /create (D24/D52)
-	if err := decodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {url, path?, ref?, owner?} with a valid git URL"})
+	if err := server.DecodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
+		server.WriteError(w, http.StatusBadRequest, "need {url, path?, ref?, owner?} with a valid git URL")
 		return
 	}
 	url := strings.TrimSpace(body.URL)
@@ -127,28 +127,28 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	// patterns work; the confused-deputy clamp applies to attributed humans).
 	owner, msg := b.resolveCreateOwner(auth.PrincipalOf(r), body.Owner)
 	if msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), path, owner); !ok {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if !util.ComponentPathOK(path) || util.ReservedTop[strings.Split(path, "/")[0]] {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad or reserved import path: " + path})
+		server.WriteError(w, http.StatusBadRequest, "bad or reserved import path: "+path)
 		return
 	}
 	if err := b.guardNewComponentTree(path); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	target := filepath.Join(b.Reg.Root, filepath.FromSlash(path))
 	if _, err := os.Stat(target); err == nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": path + " already exists"})
+		server.WriteError(w, http.StatusConflict, path+" already exists")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -158,20 +158,20 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	clone.Env = gitEnv()
 	if out, err := clone.CombinedOutput(); err != nil {
 		_ = os.RemoveAll(target)
-		server.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": "clone failed: " + firstLine(string(out))})
+		server.WriteError(w, http.StatusBadGateway, "clone failed: "+firstLine(string(out)))
 		return
 	}
 	if ref := strings.TrimSpace(body.Ref); ref != "" {
 		if out, err := runGitIn(target, "checkout", "--quiet", ref); err != nil {
 			_ = os.RemoveAll(target)
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "no such tag/branch " + ref + ": " + firstLine(err.Error()) + firstLine(out)})
+			server.WriteError(w, http.StatusBadRequest, "no such tag/branch "+ref+": "+firstLine(err.Error())+firstLine(out))
 			return
 		}
 	}
 	// It must actually be a xbin component.
 	if !fileExists(filepath.Join(target, "xbin.json")) && !fileExists(filepath.Join(target, "index.html")) {
 		_ = os.RemoveAll(target)
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "not a xbin component (no xbin.json or index.html at the repo root)"})
+		server.WriteError(w, http.StatusBadRequest, "not a xbin component (no xbin.json or index.html at the repo root)")
 		return
 	}
 

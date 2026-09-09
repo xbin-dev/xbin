@@ -71,8 +71,8 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		Path   string `json:"path"`   // target component path (optional)
 		Owner  string `json:"owner"`  // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Source == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {source, path?, owner?}", "docs": "/docs/protocol.md"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Source == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {source, path?, owner?}", "/docs/protocol.md")
 		return
 	}
 	// Resolve the source and the effective target FIRST — instantiating
@@ -85,7 +85,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	if !isBuiltin {
 		c, ok := b.Reg.Component(body.Source)
 		if !ok || !c.IsTemplate() {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such template: " + body.Source})
+			server.WriteError(w, http.StatusNotFound, "no such template: "+body.Source)
 			return
 		}
 		srcComp = c
@@ -102,21 +102,19 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	}
 	owner, msg := b.resolveCreateOwner(p, body.Owner)
 	if msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if ok, msg := b.canCreateAt(p, target, owner); !ok {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if srcComp != nil && !b.attributedCanRead(p, srcComp.Path) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "instantiating copies the template — your account has no read access to " + srcComp.Path, "docs": "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusForbidden, "instantiating copies the template — your account has no read access to "+srcComp.Path, "/docs/auth.md")
 		return
 	}
 	if err := b.guardNewComponentTree(target); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 
@@ -134,7 +132,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		installed, files, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

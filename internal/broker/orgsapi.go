@@ -128,7 +128,7 @@ func (b *Broker) apiOrgsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(out) == 0 && !b.canManageUsers(p) && humanID(p) == "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management is admin/org-admin only", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, "org management is admin/org-admin only", "/docs/auth.md")
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"orgs": out})
@@ -146,13 +146,13 @@ func (b *Broker) apiOrgCreate(w http.ResponseWriter, r *http.Request) {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.ID == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, name?}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.ID == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {id, name?}")
 		return
 	}
 	o, err := st.UpsertOrg(users.Org{ID: body.ID, Name: body.Name})
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -170,12 +170,12 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 	org := r.PathValue("org")
 	p := auth.PrincipalOf(r)
 	if !b.canManageOrg(p, org) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management needs workspace admin or org admin", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, "org management needs workspace admin or org admin", "/docs/auth.md")
 		return
 	}
 	cur, ok := st.Org(org)
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		server.WriteError(w, http.StatusNotFound, "no such org")
 		return
 	}
 	// members replaces the whole list; provenance (via/viaGroups) is
@@ -187,8 +187,8 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 		Allow   []string       `json:"allow"`
 		NetSets []string       `json:"netSets"` // D54, ws-admin only
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "bad body")
 		return
 	}
 	if (body.Sets != nil || body.Allow != nil || body.NetSets != nil) && !b.canManageUsers(p) {
@@ -204,24 +204,24 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 		up.Members = body.Members
 	}
 	if _, err := st.UpsertOrg(up); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Sets != nil {
 		if err := st.SetOrgSets(org, body.Sets); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.Allow != nil {
 		if err := st.SetOrgAllow(org, body.Allow); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.NetSets != nil {
 		if err := st.SetOrgNetSets(org, body.NetSets); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		slog.Info("org net sets", "org", org, "sets", body.NetSets, "by", humanID(p))
@@ -243,7 +243,7 @@ func (b *Broker) apiOrgMemberPut(w http.ResponseWriter, r *http.Request) {
 	}
 	org, user := r.PathValue("org"), r.PathValue("user")
 	if !b.canManageOrg(auth.PrincipalOf(r), org) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management needs workspace admin or org admin", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, "org management needs workspace admin or org admin", "/docs/auth.md")
 		return
 	}
 	var body struct {
@@ -253,26 +253,26 @@ func (b *Broker) apiOrgMemberPut(w http.ResponseWriter, r *http.Request) {
 		Suspended *bool   `json:"suspended"`
 		Via       *string `json:"via"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {level?, create?, admin?, suspended?, via?: \"\"}"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {level?, create?, admin?, suspended?, via?: \"\"}")
 		return
 	}
 	if body.Via != nil && *body.Via != "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "provenance is written by SSO sync only — via may only be \"\" (detach)"})
+		server.WriteError(w, http.StatusBadRequest, "provenance is written by SSO sync only — via may only be \"\" (detach)")
 		return
 	}
 	if _, ok := st.Org(org); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		server.WriteError(w, http.StatusNotFound, "no such org")
 		return
 	}
 	if _, ok := st.Get(user); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+		server.WriteError(w, http.StatusNotFound, "no such user")
 		return
 	}
 	if _, err := st.SetOrgMember(org, user, users.MemberPatch{
 		Level: body.Level, Create: body.Create, Admin: body.Admin, Suspended: body.Suspended, Detach: body.Via != nil,
 	}); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -290,7 +290,7 @@ func (b *Broker) apiOrgMemberDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	org, user := r.PathValue("org"), r.PathValue("user")
 	if !b.canManageOrg(auth.PrincipalOf(r), org) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org management needs workspace admin or org admin", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, "org management needs workspace admin or org admin", "/docs/auth.md")
 		return
 	}
 	m, err := st.RemoveOrgMember(org, user)
@@ -299,7 +299,7 @@ func (b *Broker) apiOrgMemberDelete(w http.ResponseWriter, r *http.Request) {
 		if err == users.ErrNotMember {
 			code = http.StatusNotFound
 		}
-		server.WriteJSON(w, code, map[string]string{"error": err.Error()})
+		server.WriteError(w, code, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -328,16 +328,16 @@ func (b *Broker) apiOrgSSOGroupsPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Rules []users.GroupRule `json:"rules"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Rules == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {rules: [{group, level?, create?, admin?}]}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Rules == nil {
+		server.WriteError(w, http.StatusBadRequest, "need {rules: [{group, level?, create?, admin?}]}")
 		return
 	}
 	if _, ok := st.Org(org); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		server.WriteError(w, http.StatusNotFound, "no such org")
 		return
 	}
 	if err := st.SetOrgSSOGroups(org, body.Rules); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
@@ -354,11 +354,11 @@ func (b *Broker) apiOrgDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := st.DeleteOrg(r.PathValue("org")); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- permission sets (D28, ws-admin only) -----------------------------------
@@ -389,16 +389,16 @@ func (b *Broker) apiPermSetPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body users.PermissionSet
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad body"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "bad body")
 		return
 	}
 	if err := st.UpsertPermissionSet(r.PathValue("name"), body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiPermSetDelete(w http.ResponseWriter, r *http.Request) {
@@ -410,11 +410,11 @@ func (b *Broker) apiPermSetDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := st.DeletePermissionSet(r.PathValue("name")); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- ownership (D24) ---------------------------------------------------------
@@ -447,7 +447,7 @@ func (b *Broker) apiOwnerGet(w http.ResponseWriter, r *http.Request) {
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	p := auth.PrincipalOf(r)
 	if tile == "" || !p.CanReadTile(tile) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no access to this tile"})
+		server.WriteError(w, http.StatusForbidden, "no access to this tile")
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"tile": tile, "owner": st.Owner(tile)})
@@ -468,18 +468,18 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 		Tile string `json:"tile"`
 		To   string `json:"to"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Tile == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tile, to: \"user:<id>\"|\"org:<id>\"|\"\"}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {tile, to: \"user:<id>\"|\"org:<id>\"|\"\"}")
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
 	if _, _, err := users.ParseOwner(body.To); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	p := auth.PrincipalOf(r)
 	if msg := b.transferAllowed(p, st, body.Tile, body.To); msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	// The impact report is computed BEFORE the move (callerLevel "before"
@@ -487,7 +487,7 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 	// identical either side of SetOwner.
 	rep := b.transferPreview(p, st, body.Tile, body.To)
 	if err := st.SetOwner(body.Tile, body.To); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	rep.Unbound = b.executeTransferEffects(body.Tile, rep)
@@ -513,7 +513,7 @@ func (b *Broker) apiAccessGet(w http.ResponseWriter, r *http.Request) {
 	}
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	if tile == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need ?tile="})
+		server.WriteError(w, http.StatusBadRequest, "need ?tile=")
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -583,8 +583,8 @@ func (b *Broker) apiAccessPut(w http.ResponseWriter, r *http.Request) {
 		ID    string `json:"id"`
 		Level string `json:"level"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Tile == "" || body.ID == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {tile, kind: user|org, id, level|\"\"}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" || body.ID == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {tile, kind: user|org, id, level|\"\"}")
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
@@ -600,16 +600,16 @@ func (b *Broker) apiAccessPut(w http.ResponseWriter, r *http.Request) {
 	case "org":
 		err = st.SetOrgTile(body.ID, body.Tile, body.Level)
 	default:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "kind must be user or org"})
+		server.WriteError(w, http.StatusBadRequest, "kind must be user or org")
 		return
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	slog.Info("access set", "tile", body.Tile, "kind", body.Kind, "id", body.ID, "level", body.Level)
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- access matrix (ws-admin console) ---------------------------------------
@@ -695,19 +695,19 @@ func (b *Broker) apiPolicyGet(w http.ResponseWriter, r *http.Request) {
 		// Org rows are READABLE by that org's admins too — they need to see
 		// the ceilings their approvals can trip on (writes stay ws-admin).
 		if !b.canManageOrg(p, org) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org policy is readable by its admins; edits are workspace-admin only"})
+			server.WriteError(w, http.StatusForbidden, "org policy is readable by its admins; edits are workspace-admin only")
 			return
 		}
 		o, ok := st.Org(org)
 		if !ok {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+			server.WriteError(w, http.StatusNotFound, "no such org")
 			return
 		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{"policy": o.Policy})
 		return
 	}
 	if !b.canManageUsers(p) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "policy is workspace-admin only"})
+		server.WriteError(w, http.StatusForbidden, "policy is workspace-admin only")
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"policy": st.Policy()})
@@ -715,7 +715,7 @@ func (b *Broker) apiPolicyGet(w http.ResponseWriter, r *http.Request) {
 
 func (b *Broker) apiPolicyPut(w http.ResponseWriter, r *http.Request) {
 	if !b.canManageUsers(auth.PrincipalOf(r)) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "policy is workspace-admin only"})
+		server.WriteError(w, http.StatusForbidden, "policy is workspace-admin only")
 		return
 	}
 	st := b.usersStore(w)
@@ -725,8 +725,8 @@ func (b *Broker) apiPolicyPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Policy []users.PolicyRow `json:"policy"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {policy: [rows]}"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {policy: [rows]}")
 		return
 	}
 	var err error
@@ -736,11 +736,11 @@ func (b *Broker) apiPolicyPut(w http.ResponseWriter, r *http.Request) {
 		err = st.SetPolicy(body.Policy)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.usersEvent()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // --- workspace defaults (D27 + D52, ws-admin) --------------------------------
@@ -785,27 +785,25 @@ func (b *Broker) apiDefaultsPut(w http.ResponseWriter, r *http.Request) {
 		NewUsers     *users.NewUserDefaults `json:"newUsers"`
 		TileCreation *string                `json:"tileCreation"`
 	}
-	if err := decodeJSON(r, &body); err != nil || (body.DefaultTiles == nil && body.NewUsers == nil && body.TileCreation == nil) {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "need {defaultTiles?: {pattern: level}, newUsers?: {tiles, canCreate, termApi, termNet, orgs:[{org, level, create}]}, tileCreation?: any|org-only}",
-		})
+	if err := server.DecodeJSON(r, &body); err != nil || (body.DefaultTiles == nil && body.NewUsers == nil && body.TileCreation == nil) {
+		server.WriteError(w, http.StatusBadRequest, "need {defaultTiles?: {pattern: level}, newUsers?: {tiles, canCreate, termApi, termNet, orgs:[{org, level, create}]}, tileCreation?: any|org-only}")
 		return
 	}
 	if body.DefaultTiles != nil {
 		if err := st.SetDefaultTiles(body.DefaultTiles); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.NewUsers != nil {
 		if err := st.SetNewUserDefaults(*body.NewUsers); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.TileCreation != nil {
 		if err := st.SetTileCreation(*body.TileCreation); err != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}

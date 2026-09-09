@@ -26,9 +26,7 @@ func (b *Broker) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if b.IsAdmin(auth.PrincipalOf(r)) {
 		return true
 	}
-	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "admin only — needs the xbin:admin capability", "docs": "/docs/auth.md",
-	})
+	server.WriteError(w, http.StatusForbidden, "admin only — needs the xbin:admin capability", "/docs/auth.md")
 	return false
 }
 

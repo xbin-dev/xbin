@@ -458,30 +458,30 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		Component string   `json:"component"`
 		Hosts     []string `json:"hosts"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Hosts == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {hosts: [\"name.zone.example.com\", …]} (empty list clears)"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Hosts == nil {
+		server.WriteError(w, http.StatusBadRequest, "need {hosts: [\"name.zone.example.com\", …]} (empty list clears)")
 		return
 	}
 	comp := body.Component
 	switch {
 	case p.Component != "":
 		if comp != "" && comp != p.Component {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "a tile registers only its own ingress hosts"})
+			server.WriteError(w, http.StatusForbidden, "a tile registers only its own ingress hosts")
 			return
 		}
 		comp = p.Component
 	case b.IsAdmin(p):
 		if comp == "" {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component} when called as admin"})
+			server.WriteError(w, http.StatusBadRequest, "need {component} when called as admin")
 			return
 		}
 	default:
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "tiles or admin only"})
+		server.WriteError(w, http.StatusForbidden, "tiles or admin only")
 		return
 	}
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + comp})
+		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
 	// The authority boundary: every host must fall inside a zone the OWNER
@@ -493,7 +493,7 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(zones) == 0 && len(body.Hosts) > 0 {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": comp + " has no delegated-zone ingress binding — the owner binds a zone first (bx expose " + comp + " <slot>=<source> --zone '*.…')"})
+		server.WriteError(w, http.StatusBadRequest, comp+" has no delegated-zone ingress binding — the owner binds a zone first (bx expose "+comp+" <slot>=<source> --zone '*.…')")
 		return
 	}
 	seen := map[string]bool{}
@@ -501,11 +501,11 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		h = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h), "."))
 		body.Hosts[i] = h
 		if !ingress.ValidHost(h) {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad hostname " + h})
+			server.WriteError(w, http.StatusBadRequest, "bad hostname "+h)
 			return
 		}
 		if seen[h] {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "duplicate hostname " + h})
+			server.WriteError(w, http.StatusBadRequest, "duplicate hostname "+h)
 			return
 		}
 		seen[h] = true
@@ -517,11 +517,11 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !inZone {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": h + " is outside this tile's delegated zone(s) — registrations are bounded to the authority the owner drew (plans/ingress.md ING-2)"})
+			server.WriteError(w, http.StatusForbidden, h+" is outside this tile's delegated zone(s) — registrations are bounded to the authority the owner drew (plans/ingress.md ING-2)")
 			return
 		}
 		if err := b.ingressHostConflict(comp, h); err != nil {
-			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			server.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
 	}
@@ -536,7 +536,7 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(body.Hosts)
 		ws.IngressHosts[comp] = body.Hosts
 	}); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "grants", Component: comp})
@@ -583,7 +583,7 @@ func (b *Broker) apiIngressRoutes(w http.ResponseWriter, r *http.Request) {
 	case p.Component != "":
 		c, ok := b.Reg.Component(p.Component)
 		if !ok || !providesIngress(c) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "only ingress terminator tiles read routes"})
+			server.WriteError(w, http.StatusForbidden, "only ingress terminator tiles read routes")
 			return
 		}
 		scoped := routes[:0]
@@ -594,7 +594,7 @@ func (b *Broker) apiIngressRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		routes = scoped
 	default:
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin or terminator tiles only"})
+		server.WriteError(w, http.StatusForbidden, "admin or terminator tiles only")
 		return
 	}
 	if routes == nil {

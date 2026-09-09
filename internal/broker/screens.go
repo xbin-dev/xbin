@@ -12,6 +12,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -109,11 +110,7 @@ func (b *Broker) screensWrite(d screensDoc) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, bts, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return fsutil.WriteFileAtomic(p, bts, 0o644)
 }
 
 func (b *Broker) registerScreens(srv *server.Server) {
@@ -188,7 +185,7 @@ func (b *Broker) membershipsOf(p auth.Principal) map[string]users.OrgMembership 
 func (b *Broker) apiScreensGet(w http.ResponseWriter, r *http.Request) {
 	d, err := b.screensRead()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -239,7 +236,7 @@ func (b *Broker) apiScreensDefaultPut(w http.ResponseWriter, r *http.Request) {
 		err = b.screensWrite(d)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "users"})
@@ -250,8 +247,8 @@ func (b *Broker) apiScreensDefaultPut(w http.ResponseWriter, r *http.Request) {
 func readScreenBody(w http.ResponseWriter, r *http.Request) (json.RawMessage, bool) {
 	var raw json.RawMessage
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	if err := decodeJSON(r, &raw); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be JSON (≤64K)"})
+	if err := server.DecodeJSON(r, &raw); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "body must be JSON (≤64K)")
 		return nil, false
 	}
 	return raw, true
@@ -290,8 +287,8 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		Force bool            `json:"force"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	if err := decodeJSON(r, &body); err != nil || body.Org == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id?, org, name?, edit?, tiles?, rev?, force?} (≤64K)"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Org == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, tiles?, rev?, force?} (≤64K)")
 		return
 	}
 	hasTiles := rawPresent(body.Tiles)
@@ -300,7 +297,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 	var m users.OrgMembership
 	if !admin {
 		if p.Component != "" || p.User == nil {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "org screens are managed by signed-in members"})
+			server.WriteError(w, http.StatusForbidden, "org screens are managed by signed-in members")
 			return
 		}
 		found := false
@@ -310,34 +307,34 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !found || m.Suspended {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not a member of org " + body.Org})
+			server.WriteError(w, http.StatusForbidden, "not a member of org "+body.Org)
 			return
 		}
 	}
 	if body.Edit != "" && body.Edit != "admins" && body.Edit != "write" && body.Edit != "members" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "edit must be admins|write|members"})
+		server.WriteError(w, http.StatusBadRequest, "edit must be admins|write|members")
 		return
 	}
 	if _, ok := st.Org(body.Org); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+		server.WriteError(w, http.StatusNotFound, "no such org")
 		return
 	}
 	screensMu.Lock()
 	defer screensMu.Unlock()
 	d, err := b.screensRead()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	by, at := stampOf(p)
 	var cur orgScreen
 	if body.ID == "" { // create: org admins / ws-admin only
 		if !admin && !m.Admin {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "creating org screens needs an org admin"})
+			server.WriteError(w, http.StatusForbidden, "creating org screens needs an org admin")
 			return
 		}
 		if !hasTiles {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "creating a screen needs tiles ([] for an empty one)"})
+			server.WriteError(w, http.StatusBadRequest, "creating a screen needs tiles ([] for an empty one)")
 			return
 		}
 		if body.Name == "" {
@@ -359,23 +356,23 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if idx < 0 {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such screen"})
+			server.WriteError(w, http.StatusNotFound, "no such screen")
 			return
 		}
 		cur = d.Org[idx]
 		metaChange := (body.Name != "" && body.Name != cur.Name) ||
 			(body.Edit != "" && body.Edit != cur.Edit)
 		if !hasTiles && !metaChange {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "nothing to change: send tiles and/or name/edit"})
+			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles and/or name/edit")
 			return
 		}
 		if !admin && !m.Admin {
 			if hasTiles && !screenEditable(cur, m) {
-				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "this screen is read-only for you (edit: " + cur.Edit + ")"})
+				server.WriteError(w, http.StatusForbidden, "this screen is read-only for you (edit: "+cur.Edit+")")
 				return
 			}
 			if metaChange {
-				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "renaming or changing who may edit needs an org admin"})
+				server.WriteError(w, http.StatusForbidden, "renaming or changing who may edit needs an org admin")
 				return
 			}
 		}
@@ -405,7 +402,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		d.Org[idx] = cur
 	}
 	if err := b.screensWrite(d); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "users"})
@@ -421,8 +418,8 @@ func (b *Broker) apiScreensOrgDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct{ ID, Org string }
-	if err := decodeJSON(r, &body); err != nil || body.ID == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, org}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.ID == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {id, org}")
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -436,7 +433,7 @@ func (b *Broker) apiScreensOrgDelete(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !ok {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "deleting org screens needs an org admin"})
+			server.WriteError(w, http.StatusForbidden, "deleting org screens needs an org admin")
 			return
 		}
 	}
@@ -454,7 +451,7 @@ func (b *Broker) apiScreensOrgDelete(w http.ResponseWriter, r *http.Request) {
 		err = b.screensWrite(d)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "users"})
@@ -474,9 +471,9 @@ func (b *Broker) apiScreensFoldersPut(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	bad := func() {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {scope:'ws'|'org:<id>', folders:[…], rev} (≤64K)"})
+		server.WriteError(w, http.StatusBadRequest, "need {scope:'ws'|'org:<id>', folders:[…], rev} (≤64K)")
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Rev == nil || !rawPresent(body.Folders) {
+	if err := server.DecodeJSON(r, &body); err != nil || body.Rev == nil || !rawPresent(body.Folders) {
 		bad()
 		return
 	}
@@ -498,7 +495,7 @@ func (b *Broker) apiScreensFoldersPut(w http.ResponseWriter, r *http.Request) {
 		}
 		org := strings.TrimPrefix(body.Scope, "org:")
 		if _, ok := st.Org(org); !ok {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such org"})
+			server.WriteError(w, http.StatusNotFound, "no such org")
 			return
 		}
 		if !b.IsAdmin(p) {
@@ -511,7 +508,7 @@ func (b *Broker) apiScreensFoldersPut(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if !ok {
-				server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "curating " + body.Scope + " folders needs an org admin"})
+				server.WriteError(w, http.StatusForbidden, "curating "+body.Scope+" folders needs an org admin")
 				return
 			}
 		}
@@ -523,7 +520,7 @@ func (b *Broker) apiScreensFoldersPut(w http.ResponseWriter, r *http.Request) {
 	defer screensMu.Unlock()
 	d, err := b.screensRead()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	cur := d.Folders[body.Scope]
@@ -543,7 +540,7 @@ func (b *Broker) apiScreensFoldersPut(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Folders[body.Scope] = next
 	if err := b.screensWrite(d); err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "users"})

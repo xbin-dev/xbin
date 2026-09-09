@@ -208,19 +208,19 @@ func (b *Broker) apiOwnerPreview(w http.ResponseWriter, r *http.Request) {
 	to := r.URL.Query().Get("to")
 	p := auth.PrincipalOf(r)
 	if tile == "" || !p.CanReadTile(tile) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no access to this tile"})
+		server.WriteError(w, http.StatusForbidden, "no access to this tile")
 		return
 	}
 	if _, ok := b.Reg.Component(tile); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
+		server.WriteError(w, http.StatusNotFound, "no such component")
 		return
 	}
 	if _, _, err := users.ParseOwner(to); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := st.ValidateNewTile(to); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, b.transferPreview(p, st, tile, to))

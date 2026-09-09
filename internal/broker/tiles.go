@@ -41,7 +41,7 @@ func (b *Broker) apiBuiltinsList(w http.ResponseWriter, r *http.Request) {
 
 func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 	if b.tiles == nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "no builtin tiles embedded"})
+		server.WriteError(w, http.StatusInternalServerError, "no builtin tiles embedded")
 		return
 	}
 	var body struct {
@@ -49,8 +49,8 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		Path  string `json:"path"`
 		Owner string `json:"owner"` // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Name == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {name, path?, owner?}", "docs": "/docs/protocol.md"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Name == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {name, path?, owner?}", "/docs/protocol.md")
 		return
 	}
 	// Importing a tile creates a component at the (possibly default) target:
@@ -60,27 +60,27 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 	if target == "" {
 		m, ok := b.tiles.Get(body.Name)
 		if !ok {
-			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such builtin tile: " + body.Name})
+			server.WriteError(w, http.StatusNotFound, "no such builtin tile: "+body.Name)
 			return
 		}
 		target = m.DefaultPath
 	}
 	owner, msg := b.resolveCreateOwner(auth.PrincipalOf(r), body.Owner)
 	if msg != "" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if ok, msg := b.canCreateAt(auth.PrincipalOf(r), target, owner); !ok {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, msg, "/docs/auth.md")
 		return
 	}
 	if err := b.guardNewComponentTree(target); err != nil {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	installed, files, err := b.tiles.Import(b.Reg.Root, body.Name, target)
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Record provenance so this tile can be offered updates later
@@ -124,10 +124,7 @@ func (b *Broker) requireWriter(w http.ResponseWriter, r *http.Request) bool {
 	if p.Component != "" && ok && roleSatisfies(role, "writer", nil) {
 		return true
 	}
-	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "this needs the workspace-management grant (xbin:writer) — the same as creating components",
-		"docs":  "/docs/auth.md",
-	})
+	server.WriteError(w, http.StatusForbidden, "this needs the workspace-management grant (xbin:writer) — the same as creating components", "/docs/auth.md")
 	return false
 }
 
@@ -138,7 +135,7 @@ func (b *Broker) apiBuiltinsUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 	ups, err := b.updater.Updates()
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if ups == nil {
@@ -152,15 +149,15 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.updater == nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "update tracking unavailable"})
+		server.WriteError(w, http.StatusInternalServerError, "update tracking unavailable")
 		return
 	}
 	var body struct {
 		ID   string `json:"id"`
 		Mode string `json:"mode"` // "replace" | "merge" | "pr" | "pin" | "unpin"
 	}
-	if err := decodeJSON(r, &body); err != nil || body.ID == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {id, mode}", "docs": "/docs/protocol.md"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.ID == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {id, mode}", "/docs/protocol.md")
 		return
 	}
 	body.ID = b.updater.ResolveID(body.ID) // accept bare names (tiles/organisations)
@@ -169,7 +166,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.Mode == "pr" {
 		m, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
 		if perr != nil {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": perr.Error()})
+			server.WriteError(w, http.StatusBadRequest, perr.Error())
 			return
 		}
 		server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
@@ -189,11 +186,11 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	case "unpin":
 		err = b.updater.Pin(body.ID, false)
 	default:
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "mode must be replace|merge|pr|pin|unpin"})
+		server.WriteError(w, http.StatusBadRequest, "mode must be replace|merge|pr|pin|unpin")
 		return
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// A scaffold/tile update can add or change a Go backend — reconcile deps and

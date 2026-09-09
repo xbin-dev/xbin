@@ -67,8 +67,8 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 		Transient bool   `json:"transient"`
 		Component string `json:"component"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {level, message?, transient?}"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {level, message?, transient?}")
 		return
 	}
 	comp := p.Component
@@ -78,12 +78,12 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 		comp = strings.Trim(body.Component, "/")
 	}
 	if comp == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "no target component — an element reports its own status; the owner may pass ?component="})
+		server.WriteError(w, http.StatusBadRequest, "no target component — an element reports its own status; the owner may pass ?component=")
 		return
 	}
 	// An element reports only for itself; admin/owner may report for any.
 	if !b.IsAdmin(p) && p.Component != comp {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "a component may only report its own status"})
+		server.WriteError(w, http.StatusForbidden, "a component may only report its own status")
 		return
 	}
 	level := strings.ToLower(strings.TrimSpace(body.Level))
@@ -91,7 +91,7 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 		level = "ok"
 	}
 	if !statusLevels[level] {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "level must be one of ok|info|warn|error"})
+		server.WriteError(w, http.StatusBadRequest, "level must be one of ok|info|warn|error")
 		return
 	}
 	msg := strings.TrimSpace(body.Message)
@@ -102,7 +102,7 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 
 	if body.Transient {
 		b.publishStatus(comp, rec, true)
-		server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+		server.WriteOK(w)
 		return
 	}
 	b.statusMu.Lock()
@@ -113,7 +113,7 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	}
 	b.statusMu.Unlock()
 	b.publishStatus(comp, rec, false)
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) publishStatus(comp string, rec statusRec, transient bool) {

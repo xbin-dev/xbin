@@ -51,7 +51,7 @@ func (b *Broker) canReadLogs(p auth.Principal, comp string) bool {
 func (b *Broker) apiLogs(w http.ResponseWriter, r *http.Request) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
 	if _, ok := b.Reg.Component(comp); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component: " + comp})
+		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
 	if !b.canReadLogs(auth.PrincipalOf(r), comp) {
@@ -69,7 +69,7 @@ func (b *Broker) apiLogs(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Join(b.Reg.Root, ".xbin", "log", util.CompKey(comp)+".log")
 	f, err := os.Open(path)
 	if err != nil && !follow {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no logs yet — the backend hasn't started"})
+		server.WriteError(w, http.StatusNotFound, "no logs yet — the backend hasn't started")
 		return
 	}
 	defer func() {

@@ -51,15 +51,12 @@ func (b *Broker) apiNetSetPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Rules []string `json:"rules"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Rules == nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "need {rules: [\"internet\" | \"internet:<host|host-glob|ip|cidr>[:port]\" | \"lan:<cidr>\" | \"host\" | \"provider:<tile-glob>\", …]}",
-			"docs":  "/docs/auth.md",
-		})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Rules == nil {
+		server.WriteError(w, http.StatusBadRequest, "need {rules: [\"internet\" | \"internet:<host|host-glob|ip|cidr>[:port]\" | \"lan:<cidr>\" | \"host\" | \"provider:<tile-glob>\", …]}", "/docs/auth.md")
 		return
 	}
 	if err := st.UpsertNetSet(name, users.NetSet{Rules: body.Rules}); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ns, _ := st.NetSet(name)
@@ -87,7 +84,7 @@ func (b *Broker) apiNetSetDelete(w http.ResponseWriter, r *http.Request) {
 		} else if strings.Contains(err.Error(), "no such") {
 			code = http.StatusNotFound
 		}
-		server.WriteJSON(w, code, map[string]string{"error": err.Error()})
+		server.WriteError(w, code, err.Error())
 		return
 	}
 	slog.Info("net set deleted", "name", name, "by", humanID(auth.PrincipalOf(r)))

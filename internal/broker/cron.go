@@ -16,6 +16,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 )
@@ -101,8 +102,7 @@ func (cr *cronRunner) persist() {
 	cr.mu.Unlock()
 	sort.Slice(jobs, func(i, k int) bool { return jobs[i].Name < jobs[k].Name })
 	bts, _ := json.MarshalIndent(jobs, "", "  ")
-	_ = os.MkdirAll(filepath.Dir(cr.storePath()), 0o755)
-	_ = os.WriteFile(cr.storePath(), bts, 0o644)
+	_ = fsutil.WriteFileAtomicIn(cr.storePath(), bts, 0o644)
 }
 
 func jobKey(j cronJob) string { return j.Component + "\x00" + j.Name }
@@ -206,32 +206,32 @@ func (b *Broker) apiCronList(w http.ResponseWriter, r *http.Request) {
 
 func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 	var j cronJob
-	if err := decodeJSON(r, &j); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "docs": "/docs/resources.md"})
+	if err := server.DecodeJSON(r, &j); err != nil {
+		server.WriteError(w, http.StatusBadRequest, err.Error(), "/docs/resources.md")
 		return
 	}
 	p := auth.PrincipalOf(r)
 	if !b.IsAdmin(p) {
 		j.Component = p.Component // elements schedule only themselves
 	} else if j.Component == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "owner-registered jobs need \"component\""})
+		server.WriteError(w, http.StatusBadRequest, "owner-registered jobs need \"component\"")
 		return
 	}
 	rt, res, ok := b.parseRes(j.Resource)
 	if !ok || res == nil || res.Type != "cron" {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such cron resource (declare one in scope.json)", "docs": "/docs/resources.md"})
+		server.WriteError(w, http.StatusNotFound, "no such cron resource (declare one in scope.json)", "/docs/resources.md")
 		return
 	}
 	if err := b.allowRes(p, rt.String(), "writer"); err != nil {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
 	if err := b.cron.add(j); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	b.cron.persist()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
@@ -242,9 +242,9 @@ func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
 		comp = p.Component // unprivileged callers can only delete their own
 	}
 	if !b.cron.remove(comp, name) {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such job"})
+		server.WriteError(w, http.StatusNotFound, "no such job")
 		return
 	}
 	b.cron.persist()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }

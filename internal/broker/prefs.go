@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -67,17 +68,13 @@ func (b *Broker) prefsWrite(p auth.Principal, m map[string]json.RawMessage) erro
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, bts, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteFileAtomic(path, bts, 0o644)
 }
 
 func (b *Broker) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
 	m, err := b.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, m)
@@ -86,12 +83,12 @@ func (b *Broker) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
 	m, err := b.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	v, ok := m[r.PathValue("key")]
 	if !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such pref"})
+		server.WriteError(w, http.StatusNotFound, "no such pref")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -101,8 +98,8 @@ func (b *Broker) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	var raw json.RawMessage
-	if err := decodeJSON(r, &raw); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be JSON"})
+	if err := server.DecodeJSON(r, &raw); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "body must be JSON")
 		return
 	}
 	m, err := b.prefsRead(p)
@@ -111,10 +108,10 @@ func (b *Broker) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
 		err = b.prefsWrite(p, m)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiPrefsDelete(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +122,8 @@ func (b *Broker) apiPrefsDelete(w http.ResponseWriter, r *http.Request) {
 		err = b.prefsWrite(p, m)
 	}
 	if err != nil {
-		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }

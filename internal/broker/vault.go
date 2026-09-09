@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
+
 	"github.com/xbin-dev/xbin/internal/vault"
 )
 
@@ -105,11 +107,7 @@ func (b *Broker) vaultWrite(comp string, m map[string]string) error {
 	} else {
 		return errVaultUnconfigured
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, bts, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return fsutil.WriteFileAtomic(p, bts, 0o600)
 }
 
 // migrateVaults re-encrypts any legacy plaintext vault files now that the
@@ -142,9 +140,7 @@ func (b *Broker) migrateVaults() {
 			continue
 		}
 		out, _ := json.MarshalIndent(vaultEnvelope{Enc: 1, Data: ct}, "", "  ")
-		tmp := p + ".tmp"
-		if os.WriteFile(tmp, out, 0o600) == nil {
-			_ = os.Rename(tmp, p)
+		if fsutil.WriteFileAtomic(p, out, 0o600) == nil {
 			slog.Info("vault: migrated legacy plaintext to encrypted", "file", e.Name())
 		}
 	}
@@ -156,7 +152,7 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	c, remainder, found := b.Reg.Resolve(rest)
 	if !found {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component", "docs": "/docs/auth.md"})
+		server.WriteError(w, http.StatusNotFound, "no such component", "/docs/auth.md")
 		return "", "", false
 	}
 	p := auth.PrincipalOf(r)
@@ -169,17 +165,11 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 	// can merely open a tile must not see or edit its secrets — route secret
 	// use through the backend.
 	if p.Via == "frame" {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "the vault API is not reachable from a tile frontend — secrets are handled by the tile's backend (D30)",
-			"docs":  "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusForbidden, "the vault API is not reachable from a tile frontend — secrets are handled by the tile's backend (D30)", "/docs/auth.md")
 		return "", "", false
 	}
 	if p.Component != c.Path && !b.IsAdmin(p) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{
-			"error": "vaults are private to their element; cross-vault access needs xbin:admin",
-			"docs":  "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusForbidden, "vaults are private to their element; cross-vault access needs xbin:admin", "/docs/auth.md")
 		return "", "", false
 	}
 	return c.Path, remainder, true
@@ -218,7 +208,7 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 	}
 	v, found := m[key]
 	if !found {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such key"})
+		server.WriteError(w, http.StatusNotFound, "no such key")
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"value": v})
@@ -230,14 +220,14 @@ func (b *Broker) apiVaultPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "missing key"})
+		server.WriteError(w, http.StatusBadRequest, "missing key")
 		return
 	}
 	var body struct {
 		Value string `json:"value"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {\"value\": …}"})
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {\"value\": …}")
 		return
 	}
 	m, err := b.vaultRead(comp)
@@ -249,7 +239,7 @@ func (b *Broker) apiVaultPut(w http.ResponseWriter, r *http.Request) {
 		b.vaultError(w, err)
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiVaultDelete(w http.ResponseWriter, r *http.Request) {
@@ -266,26 +256,21 @@ func (b *Broker) apiVaultDelete(w http.ResponseWriter, r *http.Request) {
 		b.vaultError(w, err)
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 // vaultError maps a sealed barrier to 503 (retry after unseal) and anything
 // else to 500.
 func (b *Broker) vaultError(w http.ResponseWriter, err error) {
 	if errors.Is(err, vault.ErrSealed) {
-		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "vault is sealed — unseal it first (bx vault unseal, or the admin console)",
-			"docs":  "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusServiceUnavailable, "vault is sealed — unseal it first (bx vault unseal, or the admin console)", "/docs/auth.md")
 		return
 	}
 	if errors.Is(err, errVaultUnconfigured) {
-		server.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": err.Error(), "docs": "/docs/auth.md",
-		})
+		server.WriteError(w, http.StatusServiceUnavailable, err.Error(), "/docs/auth.md")
 		return
 	}
-	server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	server.WriteError(w, http.StatusInternalServerError, err.Error())
 }
 
 // --- seal/unseal API (owner or xbin:admin) ---
@@ -322,8 +307,8 @@ func (b *Broker) apiVaultUnseal(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Passphrase string `json:"passphrase"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Passphrase == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {\"passphrase\": …}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.Passphrase == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {\"passphrase\": …}")
 		return
 	}
 	inited := b.barrier.Initialized()
@@ -332,7 +317,7 @@ func (b *Broker) apiVaultUnseal(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, vault.ErrBadPassphrase) {
 			code = http.StatusForbidden
 		}
-		server.WriteJSON(w, code, map[string]string{"error": err.Error()})
+		server.WriteError(w, code, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
@@ -361,32 +346,25 @@ func (b *Broker) apiVaultRekey(w http.ResponseWriter, r *http.Request) {
 		Current string `json:"current"`
 		New     string `json:"new"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.New == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {\"current\": …, \"new\": …}"})
+	if err := server.DecodeJSON(r, &body); err != nil || body.New == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {\"current\": …, \"new\": …}")
 		return
 	}
 	if !b.barrier.Initialized() {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "no barrier yet — set the first passphrase via unseal"})
+		server.WriteError(w, http.StatusConflict, "no barrier yet — set the first passphrase via unseal")
 		return
 	}
 	if b.barrier.Sealed() {
-		server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "vault is sealed — unseal before changing the passphrase"})
+		server.WriteError(w, http.StatusConflict, "vault is sealed — unseal before changing the passphrase")
 		return
 	}
 	if err := b.barrier.CheckPassphrase(body.Current); err != nil {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "current passphrase is wrong"})
+		server.WriteError(w, http.StatusForbidden, "current passphrase is wrong")
 		return
 	}
 	if err := b.barrier.Rekey(body.New); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"rekeyed": true})
-}
-
-func decodeJSON(r *http.Request, v any) error {
-	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(v)
 }

@@ -120,6 +120,20 @@ what is served; a file only the overlay has (a scaffold file you just added)
 is served too, so no re-init is needed. `internal/server/overlay_test.go`
 pins the rules.
 
+## Server helpers and durable writes
+
+- **Every non-2xx answer of the built-in API goes through
+  `server.WriteError(w, code, msg[, docs])`** — the `{"error", "docs"}`
+  shape is a wire contract; `server.WriteOK(w)` writes the historical
+  `{"ok":"true"}`; `server.DecodeJSON(r, v)` decodes strictly (unknown
+  fields are 400s). A handler that must accept unknown fields from older
+  clients decodes by hand and says so in a comment.
+- **Every on-disk store writes through `fsutil.WriteFileAtomic`** (same-dir
+  temp, fsync, rename, fsync dir; the temp name `.<name>.<random>.tmp` is
+  ignored by the workspace watcher). `WriteFileAtomicIn` creates the parent
+  first. A plain `os.WriteFile` is for content that is not state: a
+  scaffold file being seeded, a clone's rewritten source.
+
 ## Frontend kit and theme fallbacks
 
 `web/bx-kit.js` is the one home of the helpers every frontend used to copy

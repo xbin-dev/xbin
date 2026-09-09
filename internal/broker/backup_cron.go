@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
 )
 
@@ -50,8 +51,7 @@ func (cr *cronRunner) persistBackups() {
 	cr.mu.Unlock()
 	sort.Slice(scheds, func(i, j int) bool { return scheds[i].Component < scheds[j].Component })
 	bts, _ := json.MarshalIndent(scheds, "", "  ")
-	_ = os.MkdirAll(filepath.Dir(cr.backupPath()), 0o755)
-	_ = os.WriteFile(cr.backupPath(), bts, 0o644)
+	_ = fsutil.WriteFileAtomicIn(cr.backupPath(), bts, 0o644)
 }
 
 func (cr *cronRunner) addBackup(s backupSchedule) error {
@@ -138,20 +138,20 @@ func (b *Broker) apiBackupScheduleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var s backupSchedule
-	if err := decodeJSON(r, &s); err != nil || s.Component == "" || s.Schedule == "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "need {component, schedule, retention?}"})
+	if err := server.DecodeJSON(r, &s); err != nil || s.Component == "" || s.Schedule == "" {
+		server.WriteError(w, http.StatusBadRequest, "need {component, schedule, retention?}")
 		return
 	}
 	if _, ok := b.Reg.Component(s.Component); !ok {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no such component"})
+		server.WriteError(w, http.StatusNotFound, "no such component")
 		return
 	}
 	if err := b.cron.addBackup(s); err != nil {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad schedule: " + err.Error()})
+		server.WriteError(w, http.StatusBadRequest, "bad schedule: "+err.Error())
 		return
 	}
 	b.cron.persistBackups()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }
 
 func (b *Broker) apiBackupScheduleDelete(w http.ResponseWriter, r *http.Request) {
@@ -160,9 +160,9 @@ func (b *Broker) apiBackupScheduleDelete(w http.ResponseWriter, r *http.Request)
 	}
 	comp := r.URL.Query().Get("component")
 	if !b.cron.removeBackup(comp) {
-		server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "no schedule for that component"})
+		server.WriteError(w, http.StatusNotFound, "no schedule for that component")
 		return
 	}
 	b.cron.persistBackups()
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	server.WriteOK(w)
 }

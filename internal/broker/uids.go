@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
@@ -63,7 +64,7 @@ func (a *uidAllocator) uidFor(scope string) int {
 	a.next++
 	a.byKey[scope] = uid
 	b, _ := json.MarshalIndent(a.byKey, "", "  ")
-	_ = os.WriteFile(a.path, b, 0o644)
+	_ = fsutil.WriteFileAtomic(a.path, b, 0o644)
 	return uid
 }
 

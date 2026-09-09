@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -325,11 +326,7 @@ func (b *Barrier) persist(kf *keyfile) error {
 	if err != nil {
 		return err
 	}
-	tmp := b.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, b.path)
+	return fsutil.WriteFileAtomic(b.path, data, 0o600)
 }
 
 func gcmSeal(key, plaintext []byte) ([]byte, error) {

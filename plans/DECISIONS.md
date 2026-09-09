@@ -1444,3 +1444,23 @@ Deviations and refinements made while implementing; all deliberate:
   is gained over `/vendor/`), injecting a tokens-only sheet (the
   contrast case above; revisit only with an opt-in signal from the tile),
   and moving modules between URLs.
+
+- **D60 — One error writer, one durable file write (2026-09-09).** The
+  broker wrote its API errors as 305 inline `map[string]string{"error": …}`
+  literals (with `"docs"` on 34 of them), decoded bodies through a helper
+  that lived in vault.go, and persisted nine stores with their own
+  tmp-then-rename — none of which fsync'd — while three more (cron,
+  backup schedules, the uid map whose corruption would orphan chowned
+  sqlite files) wrote in place. Shapes: (1) `server.WriteError(w, code,
+  msg[, docs])`, `server.WriteOK(w)` and `server.DecodeJSON(r, v)` are
+  the API's error / success / body helpers; the migration was mechanical
+  and wire-identical (`{"error"}` plus `"docs"` only where a page was
+  named; `{"ok":"true"}` stays a string). (2) `internal/fsutil.
+  WriteFileAtomic` — same-directory temp named `.<name>.<random>.tmp`,
+  chmod to the target mode before writing, write, fsync, close, rename,
+  fsync the directory, temp removed on any error — and every store uses
+  it; the watcher ignores the temp name. Rejected: making the prs.go body
+  decoders strict (they accept unknown fields today; tightening is a
+  behaviour change for old clients, so they decode by hand with a
+  comment), and a `RequireCap` helper (the two guards that exist read
+  better than a predicate-taking generic).
