@@ -13,8 +13,9 @@ import (
 
 // --dev-overlay shadows workspace files on the /c/ plane so `make dev` serves
 // the shell and admin tile from workspace-template/ without copying. Files
-// only: a manifest is never overlaid (the registry read the real one), and a
-// path the overlay lacks falls through to the workspace.
+// only: a manifest is never overlaid (the registry read the real one); a path
+// the overlay lacks falls through to the workspace; a file only the overlay
+// has is served too (new scaffold files need no re-init).
 func TestDevOverlay(t *testing.T) {
 	root, overlay := t.TempDir(), t.TempDir()
 	mk := func(base, rel, content string) {
@@ -52,18 +53,19 @@ func TestDevOverlay(t *testing.T) {
 		return w
 	}
 	cases := []struct{ url, want string }{
-		{"/c/apps/x/app.js", "overlay app"},               // overlaid file
-		{"/c/apps/x/index.html", "overlay index"},         // overlaid document (injected)
-		{"/c/apps/x/", "overlay index"},                   // directory index resolves through the overlay too
-		{"/c/apps/x/only-ws.js", "only in the workspace"}, // no overlay copy → workspace
-		{"/c/apps/x/xbin.json", `{"chrome":true}`},        // manifests are never overlaid
-		{"/c/apps/x/only-overlay.js", ""},                 // not in the workspace → 404, the overlay adds nothing
+		{"/c/apps/x/app.js", "overlay app"},                  // overlaid file
+		{"/c/apps/x/index.html", "overlay index"},            // overlaid document (injected)
+		{"/c/apps/x/", "overlay index"},                      // directory index resolves through the overlay too
+		{"/c/apps/x/only-ws.js", "only in the workspace"},    // no overlay copy → workspace
+		{"/c/apps/x/xbin.json", `{"chrome":true}`},           // manifests are never overlaid
+		{"/c/apps/x/only-overlay.js", "only in the overlay"}, // a new scaffold file: served from the overlay alone
+		{"/c/apps/x/missing.js", ""},                         // in neither → 404
 	}
 	for _, c := range cases {
 		w := get(c.url)
 		if c.want == "" {
 			if w.Code != 404 {
-				t.Errorf("%s: want 404 (overlay must not add files), got %d", c.url, w.Code)
+				t.Errorf("%s: want 404, got %d", c.url, w.Code)
 			}
 			continue
 		}

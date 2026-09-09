@@ -108,6 +108,7 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	full = s.overlayFile(cleaned, full) // dev overlay: a file it carries wins
 	fi, err := os.Stat(full)
 	if err != nil {
 		http.NotFound(w, r)
@@ -122,12 +123,12 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		dirIndex = true
 		full = filepath.Join(full, "index.html")
 		cleaned = path.Join(cleaned, "index.html")
+		full = s.overlayFile(cleaned, full)
 		if _, err := os.Stat(full); err != nil {
 			http.NotFound(w, r)
 			return
 		}
 	}
-	full = s.overlayFile(cleaned, full)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -148,8 +149,10 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // overlayFile returns the --dev-overlay copy of a workspace file when one
-// exists, else the workspace path. Files only, never manifests: the registry
-// walks the real tree, so xbin.json / scope.json must be what it read.
+// exists (whether or not the workspace has the file — a scaffold file added
+// in the source tree shows up without re-initialising the dev workspace),
+// else the workspace path. Files only, never manifests: the registry walks
+// the real tree, so xbin.json / scope.json must be what it read.
 func (s *Server) overlayFile(cleaned, full string) string {
 	if s.Overlay == "" {
 		return full

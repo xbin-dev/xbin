@@ -116,8 +116,9 @@ UI harness pass `workspace-template/`, so an edit to `bx-shell.js` or
 `admin.js` is live on reload with nothing copied into `devws/`. Files only —
 manifests (`xbin.json`, `scope.json`) always come from the workspace, because
 the registry read those and grants, chrome and inject state must agree with
-what is served; a file the workspace lacks is not added by the overlay
-either. `internal/server/overlay_test.go` pins all three rules.
+what is served; a file only the overlay has (a scaffold file you just added)
+is served too, so no re-init is needed. `internal/server/overlay_test.go`
+pins the rules.
 
 ## Frontend kit and theme fallbacks
 
