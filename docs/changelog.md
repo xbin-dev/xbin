@@ -14,9 +14,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 - **The admin console is being split into one element per tab.** The
   scaffold's `tiles/admin` gained `tabs/*.js` (access map, network sets,
-  permission sets, vault, cron, backup, binding, ingress, organisations),
-  `admin-css.js` and `shared.js`; `admin.js` stays the entry and the
-  router, importing the siblings relatively. Nothing changes on screen.
+  permission sets, vault, cron, backup, binding, ingress, organisations,
+  users, sign-in, sessions), `admin-css.js` and `shared.js`; `admin.js`
+  stays the entry and the router, importing the siblings relatively.
+  Nothing changes on screen, except that a minted invite link or a
+  rotated owner token now lives on its tab: switch tabs and the copy box
+  is gone (mint or rotate again if you need it).
   A workspace scaffolded before this keeps its single-file console and
   works unchanged against the new xbind; `bx builtin update
   scaffold:tiles/admin` delivers the split as new files beside the old

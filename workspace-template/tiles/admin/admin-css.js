@@ -165,3 +165,30 @@ export const orgsCss = css`
     .flowtab td { padding: 1px 6px 1px 0; }
     .pill.sync { border-style: dashed; }   /* membership / role synced from an IdP group */
 `;
+
+// the users tab: the per-row <details> menu and the accounts table
+export const usersCss = css`
+    /* per-row "more ▾" menu: a native <details>, no JS state (users table) */
+    details.menu { position: relative; display: inline-block; }
+    details.menu > summary { list-style: none; display: inline-block; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); border-radius: 5px;
+      font-size: 11px; padding: 1px 8px; cursor: pointer; user-select: none; }
+    details.menu > summary::-webkit-details-marker { display: none; }
+    details.menu > summary:hover, details.menu[open] > summary { background: var(--bx-panel-2, #2b3038); }
+    details.menu > .items { position: absolute; right: 0; top: calc(100% + 3px); z-index: 30; min-width: 14em;
+      display: flex; flex-direction: column; padding: 3px; text-align: left; white-space: nowrap;
+      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+    details.menu > .items button { border: 0; background: none; color: inherit; font: inherit; font-size: 12px;
+      text-align: left; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+    details.menu > .items button:hover { background: var(--bx-panel-2, #2b3038); }
+    details.menu > .items button.rm { color: var(--bx-red, #ef5350); }
+    details.menu > .items button:disabled { opacity: .45; cursor: not-allowed; }
+    details.menu > .items hr { border: 0; border-top: 1px solid var(--bx-border, #363c45); margin: 3px 0; }
+    /* users table */
+    td.user .sub { font-size: 10.5px; color: var(--bx-muted, #868f9a); font-family: var(--bx-mono, ui-monospace, monospace); }
+    .pill.off { color: var(--bx-red, #ef5350); border-color: var(--bx-red, #ef5350); }
+    .pill.sync { border-style: dashed; }   /* membership / role synced from an IdP group */
+    .never { color: var(--bx-amber, #f2a71b); font-weight: 600; }
+    .chip .n { opacity: .7; margin-left: 3px; }
+`;

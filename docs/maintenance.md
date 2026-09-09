@@ -203,11 +203,12 @@ abbreviate the stack).
 `admin.js` is the router: the two-level nav (`GROUPS`), hash deep-links and
 their alias map, `_refresh()` (the shared lists: overview, users, orgs,
 policy, sets, defaults, requests, sessions), the global `.err` /
-`.notice` slots, and — still inline — the users, sign-in, sessions,
-components and resources tabs. Every other tab is its own element under
-`tabs/<name>.js` (`map`, `netsets`, `permsets`, `vault`, `cron`, `backup`,
-`binding` for grants/roles/providers/wiring, `ingress` for expose/endpoints,
-`orgs` for org cards, policy ceilings and the workspace defaults); the
+`.notice` slots, and — still inline — the runtime group (components,
+the code drill-in, live stats, resources). Every other tab is its own
+element under `tabs/<name>.js` (`map`, `netsets`, `permsets`, `vault`,
+`cron`, `backup`, `binding` for grants/roles/providers/wiring, `ingress`
+for expose/endpoints, `orgs` for org cards, policy ceilings and the
+workspace defaults, `users`, `signin`, `sessions`); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an
@@ -234,7 +235,7 @@ older workspace's monolith keeps working while a fresh one gets the split
 - keeps the markup hooks the harness locates (`.mcell`, `.maprow`,
   `[data-set]`, `[data-netset]`, `[data-edit-allow]`, …) and, if it holds
   drafts, is routed to from the router's `testApi()` by key namespace
-  (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`).
+  (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
 `render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
@@ -292,7 +293,8 @@ Rules that keep it cheap to maintain:
   for a negative ("no menu appears") or a timer inside the element.
 - One `lib.js` holds login, the in-page plumbing (`sh`, `fr`), waits,
   screenshots and the checker; a new pass is a function added to
-  `PASSES` in `shots.js`.
+  `PASSES` in `shots.js` — as its own module under `passes/<name>.js`
+  (`shots.js` is at its size budget; `passes/users.js` is the model).
 
 On this box: `PLAYWRIGHT_DIR=~/lcad-wasm` (Playwright + its Chromium) and
 `HARNESS_DIR` somewhere outside the repo.

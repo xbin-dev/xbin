@@ -116,7 +116,7 @@ tile-check:
 # that a refactor renames).
 js-check:
 	@node hack/check-js.mjs
-	@! grep -nE '\._[a-zA-Z]' hack/ui-harness/*.js || (echo 'js-check: hack/ui-harness drives private members — use testApi() (docs/maintenance.md → "UI harness")'; exit 1)
+	@! grep -nE '\._[a-zA-Z]' hack/ui-harness/*.js hack/ui-harness/passes/*.js || (echo 'js-check: hack/ui-harness drives private members — use testApi() (docs/maintenance.md → "UI harness")'; exit 1)
 
 shellcheck:
 	@./hack/check-sh.sh

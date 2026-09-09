@@ -245,6 +245,16 @@ export const WithRouter = (Base) => class extends Base {
   _dropMembership(orgId, uid) {
     return this._orgAPI('DELETE', `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(uid)}`);
   }
+  // End every session of a user (they can sign in again); the router
+  // reloads the sessions list. Offered by the users and sessions tabs.
+  async _signOutUser(id) {
+    if (!confirm(`Sign out ${id} everywhere? All their browser sessions and terminal tokens end now; they can sign in again.`)) return;
+    try {
+      const d = await api(`/users/${encodeURIComponent(id)}/sessions`, { method: 'DELETE' });
+      this._ok(); this._emit('bx-admin-notice', `signed out ${id} (${d.dropped} session${d.dropped === 1 ? '' : 's'})`);
+    } catch (e) { this._fail(e); }
+    this._emit('bx-admin-refresh');
+  }
 };
 
 // Member presets (D25 UI): admin / developer / viewer over the three
@@ -267,3 +277,19 @@ export function presetOf(m) {
 export const groupsDatalist = (known) => html`<datalist id="idp-groups-seen">
   ${(known ?? []).map((g) => html`<option value=${g}></option>`)}
 </datalist>`;
+
+// ruleFor(orgs, group): the first org whose IdP-group rules name this group.
+export function ruleFor(orgs, group) {
+  const g = String(group).toLowerCase();
+  return (orgs ?? []).find((o) => (o.ssoGroups ?? []).some((r) => r.group.toLowerCase() === g))?.id ?? null;
+}
+
+// agoCoarse(unixSec): "just now" / "5m ago" / "3h ago" / "12d ago" / "2mo ago".
+export function agoCoarse(unixSec) {
+  const s = Math.max(0, (Date.now() / 1000) - unixSec);
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400 * 2) return `${Math.round(s / 3600)}h ago`;
+  if (s < 86400 * 60) return `${Math.round(s / 86400)}d ago`;
+  return `${Math.round(s / (86400 * 30))}mo ago`;
+}
