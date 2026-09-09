@@ -129,6 +129,7 @@ func main() {
 		wsFlag        = flag.String("workspace", envOr("XBIN_WORKSPACE", "/workspace"), "workspace directory")
 		listen        = flag.String("listen", envOr("XBIN_LISTEN", "127.0.0.1:8642"), "listen address")
 		dev           = flag.Bool("dev", false, "dev mode: web/docs served from source tree, debug logs")
+		devOverlay    = flag.String("dev-overlay", envOr("XBIN_DEV_OVERLAY", ""), "dev only (needs --dev): a directory whose files shadow the workspace's on the /c/ static plane — `make dev` points it at workspace-template/ so the shell and admin tile are served from source without copying them into the workspace; manifests are never overlaid")
 		noAuth        = flag.Bool("no-auth", false, "disable auth (dev only; every request is admin)")
 		scopeUIDs     = flag.Bool("scope-uids", false, "run each scope's backends under a dedicated uid (requires root; auth tier 2)")
 		insecureVault = flag.Bool("insecure-vault", false, "store secrets AND resource data as PLAINTEXT at rest (not recommended; --no-auth implies it; a bare --dev instead auto-encrypts with a dev key)")
@@ -158,12 +159,24 @@ func main() {
 	if err != nil {
 		fatal("%v", err)
 	}
+	overlay := ""
+	if *devOverlay != "" {
+		if !*dev {
+			fatal("--dev-overlay needs --dev (it serves unreviewed files over the workspace's)")
+		}
+		if overlay, err = filepath.Abs(*devOverlay); err != nil {
+			fatal("%v", err)
+		}
+		if fi, err := os.Stat(overlay); err != nil || !fi.IsDir() {
+			fatal("--dev-overlay %q is not a directory", overlay)
+		}
+	}
 	// --dev serves web/docs from the source tree and turns on debug logs; it
 	// no longer implies --no-auth, so `make dev` can exercise multi-user auth
 	// while live-editing core elements. Use --no-auth explicitly (or
 	// `make dev-noauth`) for the frictionless admin-everything mode.
 	if err := serve(ws, *listen, *dev, *noAuth, *scopeUIDs, *insecureVault, *isolate, *rootfs,
-		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}, trusted, extURL); err != nil {
+		ingressOpts{Listen: *ingressListen, Cert: *ingressCert, Key: *ingressKey}, trusted, extURL, overlay); err != nil {
 		fatal("%v", err)
 	}
 }
@@ -193,7 +206,7 @@ func parseTrustedProxies(s string) ([]netip.Prefix, error) {
 // ingressOpts is the builtin HTTP terminator's config (plans/ingress.md ING-3).
 type ingressOpts struct{ Listen, Cert, Key string }
 
-func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts, trustedProxies []netip.Prefix, externalURL string) error {
+func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate bool, rootfs string, ing ingressOpts, trustedProxies []netip.Prefix, externalURL, devOverlay string) error {
 	lvl := slog.LevelInfo
 	if dev {
 		lvl = slog.LevelDebug
@@ -653,6 +666,10 @@ func serve(ws, listen string, dev, noAuth, scopeUIDs, insecureVault, isolate boo
 		ComponentAPI: px, Version: version,
 		TrustedProxies: trustedProxies,
 		ExternalURL:    externalURL,
+		Overlay:        devOverlay,
+	}
+	if devOverlay != "" {
+		slog.Info("dev overlay: /c/ files shadowed from disk (manifests excluded)", "dir", devOverlay)
 	}
 	// One client-IP resolver for everything: login throttle, session IP
 	// attribution, and the /c/ warm-IP gate (all trusted-proxy aware).

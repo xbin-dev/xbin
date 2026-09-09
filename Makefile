@@ -41,18 +41,21 @@ gocryptfs: $(GOCRYPTFS)
 
 # The core loop: xbind from source against ./devws, isolated.
 # Live-editable core assets + debug logs, with auth ON (multi-user works).
+# --dev-overlay serves the scaffold (shell, admin tile, organisations, …)
+# straight from workspace-template/ over devws's copies — edit the source,
+# reload the page; nothing to copy or commit inside devws.
 # First run seeds a dev admin: login 'admin' / 'admin'. The token URL is also
 # printed for the root admin. Use `make dev-noauth` for admin-everything.
 dev: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # Frictionless mode: no auth, every request is admin (still isolated).
 dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # A bare `make dev` encrypts tile data at rest by default (a built-in dev key;
 # plans/vault-data.md) — filesystem/sqlite/blob become gocryptfs mounts and kv
@@ -63,7 +66,7 @@ dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 dev-plaintext: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	go build -o bin/bx ./cmd/bx
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:
 	rm -rf devws

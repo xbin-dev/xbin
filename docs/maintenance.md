@@ -106,6 +106,19 @@ decision, and `assets_test.go` refuses:
 The test walks the real embed, so it catches anything `go:embed` picked up —
 run `make test` after adding files under those trees.
 
+## Editing the scaffold: the dev overlay
+
+A workspace owns its copies of `workspace-template/` (the shell, the admin
+and organisations tiles, the welcome app…) from `xbind init` on, and `--dev`
+only serves `web/` and `docs/` from the source tree. `--dev-overlay DIR`
+(dev only) makes the `/c/` static plane look in DIR first: `make dev` and the
+UI harness pass `workspace-template/`, so an edit to `bx-shell.js` or
+`admin.js` is live on reload with nothing copied into `devws/`. Files only —
+manifests (`xbin.json`, `scope.json`) always come from the workspace, because
+the registry read those and grants, chrome and inject state must agree with
+what is served; a file the workspace lacks is not added by the overlay
+either. `internal/server/overlay_test.go` pins all three rules.
+
 ## Route inventory (routes ↔ OpenAPI ↔ protocol.md)
 
 `internal/apicheck` mounts the broker on a server exactly as the daemon does

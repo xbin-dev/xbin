@@ -239,6 +239,7 @@ Shutdown (SIGTERM): close the HTTP server, stop every backend, exit.
 | `--workspace` (`XBIN_WORKSPACE`) | `/workspace` | workspace directory |
 | `--listen` (`XBIN_LISTEN`) | `127.0.0.1:8642` | console listener |
 | `--dev` | off | web/docs from source tree, debug logs, dev vault key, dev admin seed |
+| `--dev-overlay DIR` (`XBIN_DEV_OVERLAY`) | off | dev only (needs `--dev`): files under DIR shadow the workspace's on the `/c/` plane — `make dev` points it at the repo's `workspace-template/`; manifests are never overlaid |
 | `--no-auth` | off | every request is admin (dev only; element identity still enforced) |
 | `--isolate` + `--rootfs` (`XBIN_ROOTFS`) | off | per-component sandboxes (tier 3) — production always sets this |
 | `--scope-uids` | off | tier-2 per-scope uids (needs root) |

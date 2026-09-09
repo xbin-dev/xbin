@@ -41,7 +41,10 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256
 ```
 
-- `devws/` is throwaway state; never ship anything that lives there.
+- `devws/` is throwaway state; never ship anything that lives there. `make
+  dev` serves the scaffold (shell, admin tile, …) from `workspace-template/`
+  via `--dev-overlay`, so edit the source and reload — never copy files into
+  `devws/` (docs/maintenance.md → "the dev overlay").
 - Build output is ignored (`bin/`, `dist/`, `/bx`, `*/backend/backend`);
   `git status` after a build must be clean. The five embedded trees (`web/`,
   `docs/`, `workspace-template/`, `builtin-tiles/`, `builtin-templates/`)

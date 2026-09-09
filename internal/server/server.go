@@ -71,6 +71,15 @@ type Server struct {
 	// nil ⇒ grants don't open /c/, only the code API).
 	CodeReadGrant func(from, target string) bool
 
+	// Overlay is a directory whose files shadow the workspace's on the /c/
+	// static plane (--dev-overlay, dev only): `make dev` points it at the
+	// repo's workspace-template/ so the shell and admin tile are served from
+	// source without copying them into devws/. Serve-only — manifests
+	// (xbin.json, scope.json) are never overlaid, because the registry reads
+	// the real tree and an overlaid manifest would disagree with grants,
+	// chrome and inject state. Empty = off.
+	Overlay string
+
 	// TrustedProxies are the reverse-proxy IPs/CIDRs whose X-Forwarded-For
 	// header is honored when resolving client IPs (login throttle, session
 	// IP attribution, the /c/ warm-IP gate). Empty = trust nobody: the peer

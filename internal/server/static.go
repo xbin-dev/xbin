@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -120,11 +121,13 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 		dirIndex = true
 		full = filepath.Join(full, "index.html")
+		cleaned = path.Join(cleaned, "index.html")
 		if _, err := os.Stat(full); err != nil {
 			http.NotFound(w, r)
 			return
 		}
 	}
+	full = s.overlayFile(cleaned, full)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -142,6 +145,24 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		s.sandboxDocument(w, s.owningComponent(cleaned), comp)
 	}
 	http.ServeFile(w, r, full)
+}
+
+// overlayFile returns the --dev-overlay copy of a workspace file when one
+// exists, else the workspace path. Files only, never manifests: the registry
+// walks the real tree, so xbin.json / scope.json must be what it read.
+func (s *Server) overlayFile(cleaned, full string) string {
+	if s.Overlay == "" {
+		return full
+	}
+	switch path.Base(cleaned) {
+	case "xbin.json", "scope.json":
+		return full
+	}
+	alt := filepath.Join(s.Overlay, filepath.FromSlash(cleaned))
+	if fi, err := os.Stat(alt); err == nil && fi.Mode().IsRegular() {
+		return alt
+	}
+	return full
 }
 
 // codeGranted reports whether an element principal holds a code[:<target>]

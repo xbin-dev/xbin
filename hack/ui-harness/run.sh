@@ -35,27 +35,21 @@ stop() {
   pkill -f "bin/[x]bind --dev .*--listen 127.0.0.1:$PORT" 2>/dev/null || true
   sleep 0.5
 }
+# A workspace holds its own copies of the scaffold (xbind init); --dev-overlay
+# serves the repo's workspace-template/ over them, so the shell and tiles
+# under test are always the source tree (web/ is served from source by --dev).
 start() {
-  (cd "$REPO" && nohup bin/xbind --dev --workspace "$WS" --listen "127.0.0.1:$PORT" \
+  (cd "$REPO" && nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind); }
-# A workspace holds its own copies of the template tiles/shell (xbind init);
-# web/ is served from the source tree in --dev, these are not — copy them in.
-sync() {
-  [[ -d "$WS/tiles/admin" ]] || return 0
-  cp "$REPO/workspace-template/tiles/admin/admin.js" "$WS/tiles/admin/admin.js"
-  cp "$REPO/workspace-template/tiles/organisations/organisations.js" "$WS/tiles/organisations/organisations.js"
-  cp "$REPO/workspace-template/shell/bx-tile-admin.js" "$WS/shell/bx-tile-admin.js"
-  cp "$REPO/workspace-template/shell/bx-shell.js" "$WS/shell/bx-shell.js"
-}
 
 case "$mode" in
   --stop) stop; exit 0 ;;
-  --shots) sync ;;
-  --restart) stop; build; sync; start ;;
+  --shots) ;;
+  --restart) stop; build; start ;;
   *)
     stop; build
     rm -rf "$WS"; "$REPO/bin/xbind" init "$WS" >/dev/null
