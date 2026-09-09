@@ -12,7 +12,7 @@ test or a Makefile target next to the thing that needs remembering.
 ## Definition of done
 
 ```
-make check              # fmt-check vet js-check shellcheck pins-offline test
+make check              # fmt-check vet js-check js-test theme-check shellcheck pins-offline test
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
@@ -30,6 +30,7 @@ target, so a red line names the guard that failed.
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block | `js-check` | a syntax error in a tile's inline `<script type="module">`, which nothing else parses before a user's browser does |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`): every branch a menu can show, without a browser |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/` | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests) |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
 | unit tests incl. the embed guard, route inventory, docs check | `test` | see the sections below |
@@ -245,14 +246,19 @@ and fails on an empty or `.err` body (`hack/ui-harness/shots.js`).
 
 `bx-shell.js` is being taken apart the same way as the admin console: its
 stylesheet is `shell-css.js` (`shellCss`), every pointer drag goes through
-the kit's `dragPointer`, and the next steps are pure menu builders
-(`menus.js`), one `revDraft` module for the three identical draft flows
-(org screens, folders, share-to-org), and children (`bx-side`,
-`bx-screens`, `bx-canvas`, `bx-toasts`) once the harness's `testApi()`
-surface covers what moves. `bx-shell.js` keeps its name and imports the
-siblings relatively (compat rule 4). The harness passes `windows`,
-`screens`, `menus`, `mobile`, `reloadFocus` and `contextCopy` are the
-gate for every slice.
+the kit's `dragPointer`, and the context menus are pure builders in
+`menus.js` — `canvasMenuItems(state, actions)`, `tileMenuItems(path,
+state, actions)`, `openTileItems` — over the plain state view and the
+actions object the shell assembles in `_menuState()` / `_menuActions()`.
+A new menu line is a builder change plus a case in `hack/menus.test.mjs`
+(`make js-test`); the module imports nothing, so it runs under node. Next
+steps: one `revDraft` module for the three identical draft flows (org
+screens, folders, share-to-org), and children (`bx-side`, `bx-screens`,
+`bx-canvas`, `bx-toasts`) once the harness's `testApi()` surface covers
+what moves. `bx-shell.js` keeps its name and imports the siblings
+relatively (compat rule 4). The harness passes `windows`, `screens`,
+`menus`, `mobile`, `reloadFocus` and `contextCopy` are the gate for every
+slice.
 
 ## UI harness (`hack/ui-harness`)
 

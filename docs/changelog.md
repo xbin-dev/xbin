@@ -26,6 +26,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   scaffold:tiles/admin` delivers the split as new files beside the old
   entry ([compat.md](/docs/compat.md) rule 4). Contributors:
   [maintenance.md](/docs/maintenance.md) → "The admin console's tabs".
+- **The shell's context menus are built by `shell/menus.js`.** The
+  scaffold's `shell/` gained a dependency-free module with the canvas
+  menu, the tile menu and the "Open tile" list as pure functions;
+  `bx-shell.js` imports it relatively and renders the same menus. What
+  each line shows and does is now unit-tested by `make check` (`node
+  --test`, no browser). An older workspace keeps its single-file shell.
 - **`bx org add|set` no longer crash on a flag without its value.**
   `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
   --name`) printed a Go index panic; they now say `--name needs a value`.

@@ -71,6 +71,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 // deepActive: the focused element through open shadow roots.
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
 import { shellCss } from './shell-css.js';
+import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 
 // ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
 function ago(iso) {
@@ -575,12 +576,12 @@ export class BxShell extends LitElement {
 
   // Offloaded tiles are archived — not openable; hidden from the sidebar and
   // closed if open. (offloaded / offloaded-full.)
-  _offloaded(c) { return c?.state === 'offloaded' || c?.state === 'offloaded-full'; }
+  _offloaded(c) { return offloaded(c); }
 
   // Hidden tiles (D42): disabled + filtered out of the sidebar unless the
   // show-hidden toggle is on. Screens are left alone — a placed tile stays
   // placed and renders its disabled state.
-  _hidden(c) { return c?.state === 'hidden'; }
+  _hidden(c) { return hidden(c); }
   get _hiddenCount() {
     return this._components.filter((c) => c.path !== 'root' && !c.template && this._hidden(c)).length;
   }
@@ -960,102 +961,34 @@ export class BxShell extends LitElement {
     else legacy();
   }
 
-  // ---- the canvas menu: org-screen draft lines, open tile, create, new screen ----
-  _canvasMenuItems() {
-    const items = [];
+  // ---- context menus: the item lists are pure builders (menus.js) ----
+  // over this view of the shell's state and these actions, so the branches
+  // (org-screen draft lines, open-tile listing, the admin block) are
+  // unit-tested by `make check` without a browser.
+  _menuState() {
     const os = this._activeOrgScreen;
-    if (os) {
-      const d = this._orgDrafts?.[os.id];
-      if (!d && os.canEdit) items.push({ icon: '✎', label: 'Edit this org screen', action: () => this._enterEdit(os.id) });
-      if (d) {
-        items.push({ icon: '💾', label: 'Save and update for everyone', disabled: !d.dirty, action: () => this._saveOrgDraft(os.id) });
-        items.push({ icon: '↺', label: 'Discard draft', action: () => this._discardDraft(os.id) });
-      }
-      items.push({ icon: '⧉', label: 'Copy to my screens', action: () => this._copyOrgScreen(os.id) });
-      items.push({ kind: 'sep' });
-    }
-    items.push({ icon: '▸', label: 'Open tile', items: this._openTileItems() });
-    const owners = this._ownerOptions();
-    const tidy = (l) => l.replace(/^— | —$/g, '');
-    if (owners.length >= 2) {
-      items.push({ icon: '✦', label: 'Create a new tile', items: owners.map((o) => ({
-        label: tidy(o.label), action: () => this._newTileDialog('', '', o.value, { fixed: true }) })) });
-    } else if (owners.length === 1) {
-      items.push({ icon: '✦', label: 'Create a new tile…', hint: tidy(owners[0].label),
-        action: () => this._newTileDialog('', '', owners[0].value, { fixed: true }) });
-    } else {
-      items.push({ icon: '✦', label: 'Create a new tile…', disabled: true, hint: 'org-only policy — ask an org admin' });
-    }
-    items.push({ icon: '▦', label: 'New screen', action: () => this._addScreen() });
-    items.push({ kind: 'sep' });
-    items.push({ icon: '⧉', label: 'Bring windows on-screen', hint: 'pop-ups, floats',
-      action: () => this._fitWindows(true) });
-    return items;
+    return {
+      orgScreen: os, draft: os ? (this._orgDrafts?.[os.id] ?? null) : null, owners: this._ownerOptions(),
+      components: this._components, tiles: this._tiles, recent: this._recent ?? [], showHidden: this._showHidden,
+      canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
+    };
   }
-  // "Open tile ▸": a find box, the five most recent tiles that aren't on this
-  // screen yet, and every other readable tile behind the filter.
-  _openTileItems() {
-    const readable = this._components.filter((c) => c.path !== 'root' && !c.template && !this._offloaded(c)
-      && !(this._hidden(c) && !this._showHidden));
-    const byPath = new Map(readable.map((c) => [c.path, c]));
-    const open = new Set(this._tiles.map((o) => o.path));
-    const recent = (this._recent ?? []).filter((p) => byPath.has(p) && !open.has(p)).slice(0, 5);
-    const base = (p) => p.slice(p.lastIndexOf('/') + 1);
-    const dir = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
-    const row = (p, extra = {}) => ({ label: base(p), keywords: p, hint: dir(p), mono: true, action: () => this._openFromMenu(p), ...extra });
-    const rest = readable.filter((c) => !recent.includes(c.path)).sort((a, b) => base(a.path).localeCompare(base(b.path)));
-    return [
-      { kind: 'input', placeholder: 'find a tile…', empty: 'no tile matches', hint: 'type to find a tile — recently opened ones list here' },
-      ...(recent.length ? [{ kind: 'header', label: 'recent' }, ...recent.map((p) => row(p))] : []),
-      ...rest.map((c) => row(c.path, open.has(c.path) ? { quiet: true, disabled: true, hint: 'open' } : { quiet: true })),
-    ];
+  _menuActions() {
+    return {
+      enterEdit: (id) => this._enterEdit(id), saveOrgDraft: (id) => this._saveOrgDraft(id),
+      discardDraft: (id) => this._discardDraft(id), copyOrgScreen: (id) => this._copyOrgScreen(id),
+      newTileDialog: (...x) => this._newTileDialog(...x), addScreen: () => this._addScreen(),
+      fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p),
+      toggle: (p) => this._toggle(p), togglePin: (p) => this._togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l),
+      openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
+      openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
+    };
   }
+  _canvasMenuItems() { return canvasMenuItems(this._menuState(), this._menuActions()); }
+  _tileMenuItems(path) { return tileMenuItems(path, this._menuState(), this._menuActions()); }
   _openFromMenu(path) { if (!this._isOpen(path)) this._toggle(path); }
   _noteRecent(path) { this._recent = [path, ...(this._recent ?? []).filter((p) => p !== path)].slice(0, 20); }
 
-  // ---- the tile menu: the four panels, screen actions, the admin lines ----
-  _tileMenuItems(path) {
-    const c = this._components.find((x) => x.path === path);
-    const state = c?.state ?? 'enabled';
-    const open = this._isOpen(path);
-    const tile = this._tiles.find((o) => o.path === path);
-    const os = this._activeOrgScreen;
-    const draft = os ? this._orgDrafts?.[os.id] : null;
-    const items = [{ kind: 'grid', cells: [
-      { icon: '>_', mono: true, label: 'terminal', title: `terminal on ${path}`, action: () => this._frameOpen(path, 'term') },
-      { icon: '▤', label: 'logs', title: 'backend logs', action: () => this._frameOpen(path, 'logs') },
-      { icon: '{ }', mono: true, label: 'source', title: 'code browser + review', action: () => this._frameOpen(path, 'code') },
-      { icon: '⇄', label: 'proposals', badge: this._prs[path] || null, title: 'change proposals from other tiles', action: () => this._frameOpen(path, 'prs') },
-    ] }, { kind: 'sep' }];
-    if (open) {
-      items.push({ icon: '✕', label: 'Close on this screen', disabled: !this._canMutate, hint: this._canMutate ? '' : 'view mode',
-        action: () => this._toggle(path) });
-      items.push({ icon: tile?.float ? '▣' : '⧉', label: tile?.float ? 'Pin to the grid' : 'Unpin into a window',
-        disabled: !this._canMutate, action: () => this._togglePin(path) });
-    } else {
-      items.push({ icon: '▢', label: os && !os.canEdit ? 'Open on my screen' : os && !draft ? 'Open here (starts a draft)' : 'Open on this screen',
-        action: () => this._openFromMenu(path) });
-    }
-    items.push({ icon: '⤢', label: 'Open full page', action: () => window.open(`/c/${path}/`, '_blank') });
-    if (this._canAdminTile(path)) {
-      items.push({ kind: 'sep' }, { kind: 'header', label: 'admin' });
-      if (state !== 'enabled') {
-        items.push({ icon: '▶', label: state === 'hidden' ? 'Unhide' : 'Enable', action: () => this._lifecycle(path, 'enabled') });
-      } else {
-        items.push({ icon: '⏸', label: 'Disable', danger: true,
-          action: () => confirm(`Disable ${path}? Its backend stops now.`) && this._lifecycle(path, 'disabled') });
-      }
-      if (state !== 'hidden' && !this._offloaded(c)) {
-        items.push({ icon: '⊘', label: 'Hide', danger: true,
-          action: () => confirm(`Hide ${path}? It is disabled and drops out of sidebars until unhidden.`) && this._lifecycle(path, 'hidden') });
-      }
-      for (const [sec, label] of [['access', 'Access…'], ['runtime', 'Runtime…'], ['vault', 'Vault…'], ['grants', 'Roles & grants…'],
-        ['interfaces', 'Interfaces…'], ['backup', 'Backup…'], ['cron', 'Cron…']]) {
-        items.push({ icon: sec === 'access' ? '⚙' : '', label, action: () => this._openAdminWin(path, sec) });
-      }
-    }
-    return items;
-  }
   async _lifecycle(path, state) {
     try {
       const r = await fetch('/api/xbin/lifecycle', { method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -97,8 +97,13 @@ fmt:
 
 # The definition of done (docs/maintenance.md). CI runs this, then
 # `make integration`. Each guard is its own target so a failure names itself.
-check: fmt-check vet js-check theme-check shellcheck pins-offline test
+check: fmt-check vet js-check js-test theme-check shellcheck pins-offline test
 	@echo ">> make check: green"
+
+# Unit tests for pure frontend modules (node's built-in runner, no deps):
+# hack/*.test.mjs — the shell's menu builders today.
+js-test:
+	@node --test hack/*.test.mjs
 
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:
