@@ -90,7 +90,7 @@ the same commit as the change**, per this table:
 
 | You changed | Update |
 |---|---|
-| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | `docs/protocol.md` **and** `internal/server/openapi.go` |
+| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | `docs/protocol.md` **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
 | builder-visible behavior | the relevant `docs/*.md`, `workspace-template/AGENTS.md`, and the welcome tile notes (`workspace-template/apps/welcome/notes.js`) if it teaches that area |
 | a design decision | `plans/<area>.md` + an entry in `plans/DECISIONS.md` |
 | a guard, budget or check | `docs/maintenance.md` (what it protects, how to satisfy it) |

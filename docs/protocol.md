@@ -173,6 +173,9 @@ GET    /runtime                    admin. full runtime visibility →
                                    netSource = "org:<id> (<sets>)" for org
                                    reach, netNote = why a stored binding is
                                    inert (D54)
+GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
+                                   the terminal picker → {gpus:[{index,uuid,
+                                   name,node}]}
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
@@ -995,6 +998,13 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 
 ### `/ws/term` — terminals (admins + users with a terminal-level tile)
 
+```
+GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session (below)
+DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
+DELETE /ws/term/env?cwd=<p>        owner only: wipe the component's persistent
+                                   terminal layer back to the base rootfs → 204
+```
+
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
 where the caller's access level is **terminal** (docs/auth.md), mounts its
@@ -1066,6 +1076,11 @@ Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).
 
 ### `/ws/events` — event stream
+
+```
+GET    /ws/events?frame=<token>    WebSocket upgrade → the event stream (below;
+                                   ?frame= only for elements — humans use the cookie)
+```
 
 Auth: cookie (owner) or `?frame=<frame-token>` (element; standalone — no
 cookie required). JSON text frames:

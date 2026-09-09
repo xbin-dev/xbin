@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,6 +91,8 @@ type Server struct {
 	ssoStateKey   []byte
 
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
+	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
+	corePatterns  []string       // the top-level mux patterns Handler mounted
 	loginThrottle *loginThrottle
 }
 
@@ -100,41 +103,57 @@ func (s *Server) RegisterAPI(pattern string, h http.HandlerFunc) {
 		s.apiMux = http.NewServeMux()
 	}
 	s.apiMux.HandleFunc(pattern, h)
+	s.apiPatterns = append(s.apiPatterns, pattern)
 }
+
+// APIRoutes returns every pattern mounted with RegisterAPI so far, in
+// registration order — the inventory the route-drift test
+// (internal/apicheck) reconciles against openapi.go and docs/protocol.md.
+func (s *Server) APIRoutes() []string { return slices.Clone(s.apiPatterns) }
+
+// CoreRoutes returns the top-level mux patterns the last Handler() call
+// mounted (login, /c/, /vendor/, /docs/, /api/, the WebSockets).
+func (s *Server) CoreRoutes() []string { return slices.Clone(s.corePatterns) }
 
 func (s *Server) Handler() http.Handler {
 	s.loginThrottle = newLoginThrottle()
 	mux := http.NewServeMux()
+	s.corePatterns = nil
+	handle := func(pattern string, h http.Handler) {
+		s.corePatterns = append(s.corePatterns, pattern)
+		mux.Handle(pattern, h)
+	}
+	handleFunc := func(pattern string, h http.HandlerFunc) { handle(pattern, h) }
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	handleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	mux.HandleFunc("GET /login", s.handleLogin)
-	mux.HandleFunc("POST /login", s.handleLogin)
-	mux.HandleFunc("POST /login/invite", s.handleInviteRedeem)
-	mux.HandleFunc("GET /login/sso", s.handleSSOStart)             // SSO: to the IdP (sso.go)
-	mux.HandleFunc("GET /login/sso/callback", s.handleSSOCallback) // SSO: back from it
-	mux.HandleFunc("POST /logout", s.handleLogout)
+	handleFunc("GET /login", s.handleLogin)
+	handleFunc("POST /login", s.handleLogin)
+	handleFunc("POST /login/invite", s.handleInviteRedeem)
+	handleFunc("GET /login/sso", s.handleSSOStart)             // SSO: to the IdP (sso.go)
+	handleFunc("GET /login/sso/callback", s.handleSSOCallback) // SSO: back from it
+	handleFunc("POST /logout", s.handleLogout)
 
-	mux.Handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
 	})))
 
-	mux.Handle("/c/", s.authedStatic(http.HandlerFunc(s.handleComponentStatic)))
+	handle("/c/", s.authedStatic(http.HandlerFunc(s.handleComponentStatic)))
 	// /vendor/ is UNAUTHENTICATED on purpose: it's xbind's own shipped code
 	// (core elements, vendored libs — public by nature), and sandboxed/
 	// credential-less tile frames must load xbin-client.js, lit, and
 	// theme.css as bare subresources, which carry no credentials by design.
-	mux.Handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
-	mux.Handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
+	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
+	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
 
-	mux.Handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
+	handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
 
-	mux.Handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
-	mux.Handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
-	mux.Handle("DELETE /ws/term/env", s.authedTerminal(http.HandlerFunc(s.handleTermReset)))
-	mux.Handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
+	handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
+	handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
+	handle("DELETE /ws/term/env", s.authedTerminal(http.HandlerFunc(s.handleTermReset)))
+	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
 	return logRequests(nullOriginCORS(mux))

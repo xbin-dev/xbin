@@ -58,6 +58,37 @@ decision, and `assets_test.go` refuses:
 The test walks the real embed, so it catches anything `go:embed` picked up —
 run `make test` after adding files under those trees.
 
+## Route inventory (routes ↔ OpenAPI ↔ protocol.md)
+
+`internal/apicheck` mounts the broker on a server exactly as the daemon does
+(plus the handlers `cmd/xbind/main.go` registers inline, read from its
+source) and reconciles three lists:
+
+- what is mounted — `Server.APIRoutes()` (every `RegisterAPI` pattern) and
+  `Server.CoreRoutes()` (login, `/c/`, `/vendor/`, `/docs/`, `/api/`, the
+  WebSockets);
+- `internal/server/openapi.go` — the `/api/xbin` surface with the capability
+  each operation needs (served at `/api/xbin/openapi.json`);
+- `docs/protocol.md` — every route row inside a code fence, i.e. a line
+  starting at column 0 with `GET|POST|PUT|PATCH|DELETE|ANY` and a path
+  (continuation lines are indented, so prose never matches).
+
+Rules: every mounted API route has an OpenAPI entry **and** a protocol.md
+row; every core route has a protocol.md row; every documented row is a
+mounted route; every `RegisterAPI("…")` literal under `cmd/` and `internal/`
+is one the fixture mounts (a new registration site must be wired into the
+test, or it silently stops being covered). Wildcards reconcile as you would
+expect: a mux `{rest...}` covers one or more documented segments, so
+`GET /vault/{rest...}` is documented as both `/vault/<component>` and
+`/vault/<component>/<key>`; `<x>`, `{x}`, `[x]` and `res:<scope>` segments
+are all "one segment"; `?query` suffixes are ignored — which is why an
+*optional* query goes in the row as `?frame=<token>`, never `[?frame=…]`
+(the bracket would turn the segment into a wildcard).
+
+Adding a route is therefore three edits in one commit — `RegisterAPI` (or
+`Handler`), an `openapi.go` row, a `protocol.md` row — and `make test` says
+which one you forgot.
+
 ## Vendored frontend deps
 
 `hack/vendor.sh` fetches the pinned builds into `web/vendor/` and writes

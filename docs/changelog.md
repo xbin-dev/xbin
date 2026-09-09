@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **`/api/xbin/openapi.json` now describes the whole built-in API.** 27
+  endpoints that existed but were missing from the OpenAPI document are
+  in (permission sets, ownership transfer, access requests, code PRs,
+  ingress, template updates and repos, tile status, alerts, invites,
+  password change, token rotation), and three rows for the removed
+  org-teams endpoints are gone. `docs/protocol.md` gained the `GET /gpus`
+  row and route rows for the `/ws/term` and `/ws/events` WebSockets. A
+  test now reconciles the mounted routes, the OpenAPI document and
+  protocol.md on every build, so the three cannot drift again.
 - **Design-record citations now point at pages you can open.** Every
   citation of a design record by its repository path in the served docs,
   the scaffolded `AGENTS.md`, the builtin tiles and the templates was a dead
