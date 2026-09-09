@@ -38,7 +38,7 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
-import { deepActive, clampBox } from '/vendor/bx-kit.js';
+import { deepActive, clampBox, dragPointer } from '/vendor/bx-kit.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -114,17 +114,6 @@ function gpuInventory() {
     .then((d) => d.gpus || [])
     .catch(() => []);
   return _gpuInv;
-}
-
-// dragShield lays a transparent full-viewport layer over the page during a
-// title-bar drag, so tile <iframe>s (this one and any others) can't capture the
-// pointer when the cursor races ahead of the window — which otherwise stalls
-// the drag until the cursor re-enters the workspace background. Returns cleanup.
-function dragShield(cursor = 'grabbing') {
-  const el = document.createElement('div');
-  el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
-  document.body.appendChild(el);
-  return () => el.remove();
 }
 
 export class BxFrame extends LitElement {
@@ -625,23 +614,19 @@ export class BxFrame extends LitElement {
     ev.preventDefault();
     const startX = ev.clientX - el.offsetLeft;
     const startY = ev.clientY - el.offsetTop;
-    const shield = dragShield();
-    const move = (e) => {
-      const x = Math.max(-el.offsetWidth + 60, Math.min(e.clientX - startX, window.innerWidth - 40));
-      const y = Math.max(0, Math.min(e.clientY - startY, window.innerHeight - 24));
-      el.style.left = x + 'px';
-      el.style.top = y + 'px';
-      this._pop.x = x; this._pop.y = y;
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      shield();
-      this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
-      this._saveTerm();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      onMove: (e) => {
+        const x = Math.max(-el.offsetWidth + 60, Math.min(e.clientX - startX, window.innerWidth - 40));
+        const y = Math.max(0, Math.min(e.clientY - startY, window.innerHeight - 24));
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        this._pop.x = x; this._pop.y = y;
+      },
+      onUp: () => {
+        this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
+        this._saveTerm();
+      },
+    });
   }
 
   _popDown() {
@@ -755,17 +740,10 @@ export class BxFrame extends LitElement {
     e.preventDefault();
     const panels = e.currentTarget.parentElement;
     const rect = panels.getBoundingClientRect();
-    const un = dragShield('col-resize');
-    const move = (ev) => {
-      this._codeW = Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      un();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      cursor: 'col-resize',
+      onMove: (ev) => { this._codeW = Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100)); },
+    });
   }
 
   // Toggle whether this terminal can call the live tile (and xbin) API. The

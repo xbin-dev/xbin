@@ -57,17 +57,6 @@ const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
 
-// dragShield lays a transparent full-viewport layer over the page for the
-// duration of a pointer drag, so tile <iframe>s can't swallow the pointer when
-// the cursor races over them (which otherwise stalls window pointermove until
-// the cursor leaves the iframe). Returns a cleanup fn.
-function dragShield(cursor = 'grabbing') {
-  const el = document.createElement('div');
-  el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
-  document.body.appendChild(el);
-  return () => el.remove();
-}
-
 const RUNTIME_COLOR = {
   '': 'var(--bx-muted, #868f9a)',
   static: 'var(--bx-muted, #868f9a)',
@@ -80,7 +69,7 @@ const RUNTIME_COLOR = {
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
-import { deepActive, pathHas, clampBox } from '/vendor/bx-kit.js';
+import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
 import { shellCss } from './shell-css.js';
 
 // ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
@@ -831,19 +820,13 @@ export class BxShell extends LitElement {
     const w = this._spawnWins.find((x) => x.id === id);
     if (!w) return;
     const ox = e.clientX - w.x, oy = e.clientY - w.y;
-    const unshield = dragShield();
-    const move = (ev) => {
-      w.x = Math.max(-w.w + 60, Math.min(ev.clientX - ox, window.innerWidth - 40));
-      w.y = Math.max(0, Math.min(ev.clientY - oy, window.innerHeight - 24));
-      this.requestUpdate();
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      unshield();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      onMove: (ev) => {
+        w.x = Math.max(-w.w + 60, Math.min(ev.clientX - ox, window.innerWidth - 40));
+        w.y = Math.max(0, Math.min(ev.clientY - oy, window.innerHeight - 24));
+        this.requestUpdate();
+      },
+    });
   }
 
   _spawnTemplate(w) {
@@ -1794,17 +1777,11 @@ export class BxShell extends LitElement {
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX, startW = this._side.width || 224;
-    const unshield = dragShield('col-resize');
-    const move = (ev) => {
-      this._side = { ...this._side, width: Math.min(480, Math.max(140, startW + ev.clientX - startX)) };
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      unshield(); this._save();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      cursor: 'col-resize',
+      onMove: (ev) => { this._side = { ...this._side, width: Math.min(480, Math.max(140, startW + ev.clientX - startX)) }; },
+      onUp: () => this._save(),
+    });
   }
 
   // The owner-sectioned tree (D55): every section — mine / each org /
@@ -2145,20 +2122,16 @@ export class BxShell extends LitElement {
     if (!el) return;
     el.classList.add('dragging');
     const dx = ev.clientX - el.offsetLeft, dy = ev.clientY - el.offsetTop;
-    const shield = dragShield('grabbing');
-    const move = (e) => {
-      el.style.left = snap(Math.max(0, e.clientX - dx)) + 'px';
-      el.style.top = snap(Math.max(0, e.clientY - dy)) + 'px';
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      shield();
-      el.classList.remove('dragging');
-      this._setGeom(path, { x: el.offsetLeft, y: el.offsetTop });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      onMove: (e) => {
+        el.style.left = snap(Math.max(0, e.clientX - dx)) + 'px';
+        el.style.top = snap(Math.max(0, e.clientY - dy)) + 'px';
+      },
+      onUp: () => {
+        el.classList.remove('dragging');
+        this._setGeom(path, { x: el.offsetLeft, y: el.offsetTop });
+      },
+    });
   }
 
   _gridResizeStart(ev, path) {
@@ -2169,19 +2142,14 @@ export class BxShell extends LitElement {
     if (!el) return;
     const sx = ev.clientX, sy = ev.clientY;
     const w0 = el.offsetWidth + GAP, h0 = el.offsetHeight + GAP; // full cell size
-    const shield = dragShield('nwse-resize');
-    const move = (e) => {
-      el.style.width = (snap(Math.max(MIN_W, w0 + (e.clientX - sx))) - GAP) + 'px';
-      el.style.height = (snap(Math.max(MIN_H, h0 + (e.clientY - sy))) - GAP) + 'px';
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      shield();
-      this._setGeom(path, { w: el.offsetWidth + GAP, h: el.offsetHeight + GAP });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      cursor: 'nwse-resize',
+      onMove: (e) => {
+        el.style.width = (snap(Math.max(MIN_W, w0 + (e.clientX - sx))) - GAP) + 'px';
+        el.style.height = (snap(Math.max(MIN_H, h0 + (e.clientY - sy))) - GAP) + 'px';
+      },
+      onUp: () => this._setGeom(path, { w: el.offsetWidth + GAP, h: el.offsetHeight + GAP }),
+    });
   }
 
   _setGeom(path, patch) {
@@ -2348,20 +2316,14 @@ export class BxShell extends LitElement {
     const win = this._floatWin(path);
     if (!win) return;
     const dx = ev.clientX - win.offsetLeft, dy = ev.clientY - win.offsetTop;
-    const shield = dragShield();
-    const move = (e) => {
-      const x = Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40));
-      const y = Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24));
-      win.style.left = x + 'px'; win.style.top = y + 'px';
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      shield();
-      this._setFloat(path, { x: win.offsetLeft, y: win.offsetTop });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragPointer({
+      onMove: (e) => {
+        const x = Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40));
+        const y = Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24));
+        win.style.left = x + 'px'; win.style.top = y + 'px';
+      },
+      onUp: () => this._setFloat(path, { x: win.offsetLeft, y: win.offsetTop }),
+    });
   }
 
   _setFloat(path, patch) {

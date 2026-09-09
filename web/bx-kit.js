@@ -74,3 +74,33 @@ export function clampBox(box, { minW = 200, minH = 140, margin = 8, defW = 560, 
   const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
   return { ...box, x, y, w, h };
 }
+
+// dragShield(cursor): a transparent full-viewport layer for the duration of
+// a pointer drag, so tile <iframe>s cannot swallow the pointer when the cursor
+// races over them (which otherwise stalls window pointermove until the cursor
+// leaves the iframe). Returns the cleanup.
+export function dragShield(cursor = 'grabbing') {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
+  document.body.appendChild(el);
+  return () => el.remove();
+}
+
+// dragPointer({cursor, onMove, onUp}): the window-level pointer drag every
+// draggable window, grid tile and divider shares — shield up, onMove on each
+// pointermove, then on pointerup the listeners and the shield go and onUp
+// commits. Guards (which button, which target, mobile) stay with the caller.
+// Returns a function that ends the drag early.
+export function dragPointer({ cursor = 'grabbing', onMove, onUp } = {}) {
+  const unshield = dragShield(cursor);
+  const move = (e) => onMove?.(e);
+  const up = (e) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    unshield();
+    onUp?.(e);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  return up;
+}

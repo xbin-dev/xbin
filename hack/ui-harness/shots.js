@@ -357,7 +357,9 @@ async function windows(browser) {
   const hasItem = await sh(page, (t) => t.canvasMenuItems().some((i) => /on-screen/.test(i.label ?? '')));
   check(hasItem, 'canvas menu offers "Bring windows on-screen"');
   await sh(page, (t) => {
-    t.setSpawnWindows([{ id: 'hw', from: 'apps/crawler', src: 'apps/crawler', reply() {}, title: 'parked', x: 5000, y: 4000, w: 400, h: 300, z: 3000 }]);
+    // src is a tile WITHOUT a terminal state: a spawned bx-frame of apps/crawler
+    // would restore the same pop-up and sit over the drag handles below
+    t.setSpawnWindows([{ id: 'hw', from: 'apps/crawler', src: 'apps/pinned', reply() {}, title: 'parked', x: 5000, y: 4000, w: 400, h: 300, z: 3000 }]);
     t.openTile('apps/offline');
   });
   await waitSel(page, '.card[data-path="apps/offline"], .float[data-path="apps/offline"]', { state: 'attached' });
@@ -372,6 +374,39 @@ async function windows(browser) {
   const saved = await sh(page, (t) => t.floatOf('apps/offline'));
   check(saved && saved.x + saved.w <= 1400 && saved.y + saved.h <= 900, `float geometry persisted on-screen (${JSON.stringify(saved)})`);
   await shot(page, 'windows-fitted', { fullPage: false });
+
+  // 4. real pointer drags (every drag goes through bx-kit's dragPointer): a
+  // float, a spawned window and a grid tile each move by the mouse delta and
+  // the shell persists the new geometry.
+  // the restored crawler pop-up (1003×868) would sit over every drag handle
+  await fr(page, 'apps/crawler', (f) => f.closeTerminal());
+  await waitSel(page, 'bx-frame[src="apps/crawler"] .pop', { state: 'hidden' });
+  const drag = async (sel, dx, dy) => {
+    const box = await page.locator(sel).first().boundingBox();
+    await page.mouse.move(box.x + Math.min(40, box.width / 2), box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + Math.min(40, box.width / 2) + dx, box.y + box.height / 2 + dy, { steps: 6 });
+    await page.mouse.up();
+    await settle(page);
+  };
+  await sh(page, (t) => t.setFloat('apps/offline', { x: 40, y: 560 })); // bottom-left: clear of the crawler card (≈532,423) and the fitted windows
+  await settle(page);
+  const fl0 = await sh(page, (t) => t.floatOf('apps/offline'));
+  await drag('.float[data-path="apps/offline"] .head', 90, 50);
+  const fl1 = await sh(page, (t) => t.floatOf('apps/offline'));
+  check(fl1 && Math.abs(fl1.x - fl0.x - 90) <= 2 && Math.abs(fl1.y - fl0.y - 50) <= 2, `float drag persisted the move (${JSON.stringify(fl0)} → ${JSON.stringify(fl1)})`);
+  const sw0 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
+  await drag('.spawn .shead', -60, 30);
+  const sw1 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
+  check(Math.abs(sw1.x - sw0.x + 60) <= 2 && Math.abs(sw1.y - sw0.y - 30) <= 2, `spawned window drag moved it (${JSON.stringify(sw0)} → ${JSON.stringify(sw1)})`);
+  const g0 = await sh(page, (t) => { const o = t.openTiles.find((x) => x.path === 'apps/crawler'); return o && { x: o.x, y: o.y }; });
+  // downwards into empty grid rows: a sideways move can land on an occupied
+  // cell, which the grid resolves by leaving the tile where it was
+  await drag('.card[data-path="apps/crawler"] .head', 0, 420);
+  const g1 = await sh(page, (t) => { const o = t.openTiles.find((x) => x.path === 'apps/crawler'); return o && { x: o.x, y: o.y }; });
+  check(g0 && g1 && g1.y > g0.y && g1.x === g0.x, `grid tile drag snapped and persisted (${JSON.stringify(g0)} → ${JSON.stringify(g1)})`);
+  await sh(page, (t, g) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/crawler' ? { ...o, ...g } : o)), g0); // back where it was
+  check(await page.evaluate(() => !document.querySelector('body > div[style*="2147483647"]')), 'the drag shield is gone after pointerup');
 
   // tidy: the next pass starts from the seeded layout
   await sh(page, (t) => { t.setSpawnWindows([]); t.closeTile('apps/offline'); localStorage.removeItem('bx-term:apps/crawler'); });
