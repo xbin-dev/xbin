@@ -34,6 +34,18 @@ target, so a red line names the guard that failed.
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
 | unit tests incl. the embed guard, route inventory, docs check | `test` | see the sections below |
 
+## Size budget (the ratchet)
+
+`internal/sizebudget` reads `hack/size-budget.txt` (`<path> <max-lines>`)
+and fails `make test` when a listed file grows past its budget, when an
+unlisted non-test Go file passes 800 lines or a shipped `.js`/`.mjs`/`.html`
+passes 900, or when a listed file has shrunk below 90 % of its budget —
+then the number in the file comes down, so a split never quietly regrows.
+Raising a budget is the wrong fix; splitting the file is the right one
+(the admin console's tabs and the shell's children are the pattern). The
+seed numbers are the sizes on 2026-09-09; `notes.js` (prose in JS) is
+listed deliberately.
+
 ## Docs check (decision ids, links, plan status)
 
 `internal/docscheck` fails `make test` when:

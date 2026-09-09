@@ -1,0 +1,24 @@
+# hack/size-budget.txt — the size ratchet (internal/sizebudget).
+#
+# <path> <max-lines>. A listed file may not GROW past its budget; an unlisted
+# Go file may not exceed 800 lines, an unlisted JS/HTML file 900. When a
+# listed file shrinks below 90 % of its budget the test asks you to lower the
+# number here — the file is a ratchet, not a monument. Seeded 2026-09-09 from
+# the sizes at the time; every number only ever goes down.
+#
+# Go (non-test)
+internal/users/orgs.go 1600
+internal/term/term.go 1300
+cmd/xbind/main.go 1250
+internal/broker/netfn.go 1170
+cmd/bx/main.go 1150
+internal/runner/runner.go 930
+internal/auth/auth.go 890
+internal/broker/usersapi.go 860
+internal/builtins/updates.go 850
+internal/users/users.go 840
+internal/broker/orgsapi.go 820
+# JS / HTML (shipped + harness)
+workspace-template/tiles/admin/admin.js 3200
+workspace-template/shell/bx-shell.js 3150
+workspace-template/apps/welcome/notes.js 1050
