@@ -12,6 +12,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **`bx org add|set` no longer crash on a flag without its value.**
+  `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
+  --name`) printed a Go index panic; they now say `--name needs a value`.
 - **SDK: a tile granted a bus alias role now passes the matching guard.**
   `xbin.RoleSatisfies` (and so `xbin.Role` / `RoleFunc`) folds
   `subscriber` onto `reader` and `publisher` onto `writer`, exactly as

@@ -72,8 +72,11 @@ func cmdOrg(args []string) error {
 		body := map[string]any{"id": args[1]}
 		for i := 2; i < len(args); i++ {
 			if args[i] == "--name" {
-				i++
-				body["name"] = args[i]
+				v, err := nextArg(args, &i)
+				if err != nil {
+					return err
+				}
+				body["name"] = v
 			}
 		}
 		if err := apiJSON("POST", "/api/xbin/orgs", body, nil); err != nil {
@@ -90,23 +93,26 @@ func cmdOrg(args []string) error {
 		body := map[string]any{}
 		var setMods, allowMods, netMods []string
 		for i := 2; i < len(args); i++ {
-			switch args[i] {
-			case "--name":
-				i++
-				body["name"] = args[i]
-			case "--sets":
-				i++
-				setMods = append(setMods, splitList(args[i])...)
-			case "--net":
-				// Network sets (D54): +name attaches, -name detaches.
-				i++
-				netMods = append(netMods, splitList(args[i])...)
-			case "--allow":
-				i++
-				allowMods = append(allowMods, splitList(args[i])...)
-			default:
-				return fmt.Errorf("unknown flag %s", args[i])
+			flag := args[i]
+			if flag == "--name" || flag == "--sets" || flag == "--net" || flag == "--allow" {
+				v, err := nextArg(args, &i)
+				if err != nil {
+					return err
+				}
+				switch flag {
+				case "--name":
+					body["name"] = v
+				case "--sets":
+					setMods = append(setMods, splitList(v)...)
+				case "--net":
+					// Network sets (D54): +name attaches, -name detaches.
+					netMods = append(netMods, splitList(v)...)
+				case "--allow":
+					allowMods = append(allowMods, splitList(v)...)
+				}
+				continue
 			}
+			return fmt.Errorf("unknown flag %s", flag)
 		}
 		if len(setMods) > 0 || len(allowMods) > 0 || len(netMods) > 0 {
 			cur, err := findOrg(id)
