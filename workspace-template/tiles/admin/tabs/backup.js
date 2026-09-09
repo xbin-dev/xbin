@@ -7,11 +7,11 @@
  * bx-admin-refresh.
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
-import { fmtBytes, setLifecycle } from '../shared.js';
+import { fmtBytes, setLifecycle, WithRouter } from '../shared.js';
 
-export class BxAdminBackup extends LitElement {
+export class BxAdminBackup extends WithRouter(LitElement) {
   static properties = {
     components: { attribute: false }, // the roster (path, state, stateAt …)
     _ifaces: { state: true },    // /bindings (archivers + @archive bindings)
@@ -23,10 +23,7 @@ export class BxAdminBackup extends LitElement {
   };
   static styles = [base];
 
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   // fail(e) reports a refusal to the router's global slot; ok() clears it.
-  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
-  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
 
   constructor() {
     super();

@@ -12,8 +12,9 @@
 import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, mapCss } from '../admin-css.js';
+import { WithRouter } from '../shared.js';
 
-export class BxAdminMap extends LitElement {
+export class BxAdminMap extends WithRouter(LitElement) {
   static properties = {
     users: { attribute: false },     // [{id, name, role, …}] from the router
     orgs: { attribute: false },      // [{id, name, members, sets, policy, ownedTiles, …}]
@@ -36,7 +37,6 @@ export class BxAdminMap extends LitElement {
   }
   // refresh(): the router calls it when the workspace changed under us.
   refresh() { return this.load(true); }
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
 
   async load(force = false) {
     if (this._matrix && !force) return;

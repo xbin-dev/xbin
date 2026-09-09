@@ -7,12 +7,12 @@
  * (bx-admin-err / bx-admin-refresh).
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { RULE_KINDS, parseRule, fmtRule, ruleProblem, ruleLabel, setSummary } from '/vendor/bx-netrules.js';
 import { base } from '../admin-css.js';
-import { targetDatalist, WithDrafts } from '../shared.js';
+import { targetDatalist, WithDrafts, WithRouter } from '../shared.js';
 
-export class BxAdminNetsets extends WithDrafts(LitElement) {
+export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
   static properties = {
     netsets: { attribute: false }, // {sets: {name: {rules, created}}, attachedTo} from /net-sets
     targets: { attribute: false }, // tile-target datalist options (shared.targetOptions)
@@ -21,19 +21,8 @@ export class BxAdminNetsets extends WithDrafts(LitElement) {
   };
   static styles = [base];
 
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   // The harness surface (routed here by the admin router's testApi).
   testApi() { return this.draftApi(); }
-  // One write, then the router reloads the shared lists; the error (or its
-  // clearing) lands in the router's global slot and in _err for `if (!this._err)`.
-  async _orgAPI(method, path, body) {
-    try {
-      await api(path, body === undefined ? { method } : jbody(body, method));
-      this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-    this._emit('bx-admin-err', this._err);
-    this._emit('bx-admin-refresh');
-  }
 
   // Named reach rules attached to orgs by reference. A separate tab from
   // permission sets on purpose: these answer "what can this org reach", those

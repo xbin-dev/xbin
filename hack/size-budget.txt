@@ -19,7 +19,7 @@ internal/builtins/updates.go 850
 internal/users/users.go 840
 internal/broker/orgsapi.go 820
 # JS / HTML (shipped + harness)
-workspace-template/tiles/admin/admin.js 3200
+workspace-template/tiles/admin/admin.js 1974
 workspace-template/shell/bx-shell.js 2650
 workspace-template/apps/welcome/notes.js 1050
 # the harness passes: one function per feature; split into passes/*.js past this

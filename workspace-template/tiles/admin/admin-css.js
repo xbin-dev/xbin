@@ -158,3 +158,10 @@ export const mapCss = css`
     .matrix .mcell.msel { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
       outline-offset: -2px; }
 `;
+
+// the organisations tab: policy-row tables and synced-membership pills
+export const orgsCss = css`
+    .flowtab { width: 100%; font-size: 11px; }
+    .flowtab td { padding: 1px 6px 1px 0; }
+    .pill.sync { border-style: dashed; }   /* membership / role synced from an IdP group */
+`;

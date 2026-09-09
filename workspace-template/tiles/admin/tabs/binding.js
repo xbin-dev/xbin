@@ -7,14 +7,14 @@
  * itself and reports through bx-admin-err / bx-admin-refresh / bx-admin-tab.
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { netOptions } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import '/vendor/bx-multiselect.js';
 import { base } from '../admin-css.js';
-import { WithDrafts, WithFilter } from '../shared.js';
+import { WithDrafts, WithFilter, WithRouter } from '../shared.js';
 
-export class BxAdminBinding extends WithFilter(WithDrafts(LitElement)) {
+export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement))) {
   static properties = {
     view: { type: String },        // grants | roles | providers | wiring
     ov: { attribute: false },      // /auth-overview (components, grants, pending) for grants + roles
@@ -39,9 +39,6 @@ export class BxAdminBinding extends WithFilter(WithDrafts(LitElement)) {
   async load() {
     try { this._ifaces = await api('/bindings'); this._ok(); } catch (e) { this._fail(e); }
   }
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
-  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
-  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
   testApi() { return this.draftApi(); }
 
   render() {

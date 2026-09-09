@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **The admin console is being split into one element per tab.** The
+  scaffold's `tiles/admin` gained `tabs/*.js` (access map, network sets,
+  permission sets, vault, cron, backup, binding, ingress, organisations),
+  `admin-css.js` and `shared.js`; `admin.js` stays the entry and the
+  router, importing the siblings relatively. Nothing changes on screen.
+  A workspace scaffolded before this keeps its single-file console and
+  works unchanged against the new xbind; `bx builtin update
+  scaffold:tiles/admin` delivers the split as new files beside the old
+  entry ([compat.md](/docs/compat.md) rule 4). Contributors:
+  [maintenance.md](/docs/maintenance.md) → "The admin console's tabs".
 - **`bx org add|set` no longer crash on a flag without its value.**
   `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
   --name`) printed a Go index panic; they now say `--name needs a value`.

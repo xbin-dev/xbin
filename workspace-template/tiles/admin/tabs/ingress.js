@@ -8,9 +8,9 @@
 import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
-import { WithFilter } from '../shared.js';
+import { WithFilter, WithRouter } from '../shared.js';
 
-export class BxAdminIngress extends WithFilter(LitElement) {
+export class BxAdminIngress extends WithRouter(WithFilter(LitElement)) {
   static properties = {
     view: { type: String },     // expose | endpoints
     _ingress: { state: true },  // /ingress {exposes, routes, streams, forwards, httpListener, terminators}
@@ -33,9 +33,6 @@ export class BxAdminIngress extends WithFilter(LitElement) {
   async load() {
     try { this._ingress = await api('/ingress'); this._ok(); } catch (e) { this._fail(e); }
   }
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
-  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
-  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
 
   render() { return this.view === 'endpoints' ? this._ingressEndpointsView() : this._ingressExposeView(); }
 

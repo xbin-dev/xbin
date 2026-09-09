@@ -6,10 +6,11 @@
  * report through bx-admin-err / bx-admin-refresh.
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
+import { WithRouter } from '../shared.js';
 
-export class BxAdminVault extends LitElement {
+export class BxAdminVault extends WithRouter(LitElement) {
   static properties = {
     vaults: { attribute: false },      // [{component, keys}] (null while sealed)
     vaultStatus: { attribute: false }, // {initialized, sealed, mode, insecure}
@@ -19,10 +20,7 @@ export class BxAdminVault extends LitElement {
   };
   static styles = [base];
 
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   // fail(e) reports a refusal to the router's global slot; ok() clears it.
-  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
-  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
 
   // The admin console never reads secret values back — they're private to the
   // owning element (the vault lockdown). It can only list keys and set/rotate.

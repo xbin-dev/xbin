@@ -7,13 +7,13 @@
  * with composed events (bx-admin-err / bx-admin-refresh / bx-admin-tab).
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 import '/vendor/bx-multiselect.js';
 import { base } from '../admin-css.js';
-import { targetDatalist, serviceDatalist, allowRows, WithDrafts } from '../shared.js';
+import { targetDatalist, serviceDatalist, allowRows, WithDrafts, WithRouter } from '../shared.js';
 
-export class BxAdminPermsets extends WithDrafts(LitElement) {
+export class BxAdminPermsets extends WithRouter(WithDrafts(LitElement)) {
   static properties = {
     permsets: { attribute: false }, // {sets, attachedTo} from /permission-sets
     orgs: { attribute: false },     // the orgs a set can attach to
@@ -24,19 +24,8 @@ export class BxAdminPermsets extends WithDrafts(LitElement) {
   };
   static styles = [base];
 
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   // The harness surface (routed here by the admin router's testApi).
   testApi() { return this.draftApi(); }
-  // One write, then the router reloads the shared lists; the error (or its
-  // clearing) lands in the router's global slot and in _err for `if (!this._err)`.
-  async _orgAPI(method, path, body) {
-    try {
-      await api(path, body === undefined ? { method } : jbody(body, method));
-      this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-    this._emit('bx-admin-err', this._err);
-    this._emit('bx-admin-refresh');
-  }
 
   // A set is built from rows that say in words what attached orgs' admins
   // may approve on their own tiles; bx-allow formats each row into the

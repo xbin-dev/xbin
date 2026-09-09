@@ -202,28 +202,43 @@ abbreviate the stack).
 
 `admin.js` is the router: the two-level nav (`GROUPS`), hash deep-links and
 their alias map, `_refresh()` (the shared lists: overview, users, orgs,
-policy, sets, defaults, requests, sessions), and the global `.err` /
-`.notice` slots. Each tab is being moved into its own element under
-`tabs/<name>.js` (the access map is the first); the router renders it with
-its inputs as properties and imports it **relatively** (`./tabs/map.js`) —
-a sandboxed tile may import its own siblings, and `bx builtin update`
-delivers new files inside the unit, so an older workspace's monolith keeps
-working while a fresh one gets the split ([compat.md](/docs/compat.md)
-rule 4). A tab element:
+policy, sets, defaults, requests, sessions), the global `.err` /
+`.notice` slots, and — still inline — the users, sign-in, sessions,
+components and resources tabs. Every other tab is its own element under
+`tabs/<name>.js` (`map`, `netsets`, `permsets`, `vault`, `cron`, `backup`,
+`binding` for grants/roles/providers/wiring, `ingress` for expose/endpoints,
+`orgs` for org cards, policy ceilings and the workspace defaults); the
+router renders it with its inputs as properties and imports it
+**relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
+siblings, and `bx builtin update` delivers new files inside the unit, so an
+older workspace's monolith keeps working while a fresh one gets the split
+([compat.md](/docs/compat.md) rule 4). A tab element:
 
-- loads its own data in `connectedCallback` and exposes `refresh()` for
-  the router's event-driven refresh;
+- either takes its data as properties from the router's shared lists or
+  loads its own in `connectedCallback` and exposes `refresh()` for the
+  router's event-driven refresh;
 - owns its state, endpoints and CSS: `static styles = [base, <slice>]`
   from `admin-css.js` (synchronous — never a `<link>` or a `fetch()`);
+- extends the mixins in `shared.js` it needs: `WithRouter` (the composed
+  events below, `_fail`/`_ok`, and `_orgAPI` = one write then a refresh),
+  `WithDrafts` (`_draft`/`_setDraft`/`_dropDraft`/`_toggleDraft`, the
+  `_tilesEditor` / `_patternsEditor` row editors, `draftApi()` for the
+  harness) and `WithFilter` (`_match`, `_filterBar`, category chips);
+  `shared.js` also holds the datalists (`targetDatalist`,
+  `serviceDatalist`, `groupsDatalist`), `allowRows`, the membership
+  presets (`PRESETS`, `presetOf`) and `setLifecycle`;
 - reports through composed events the router already handles:
-  `bx-admin-err` (message), `bx-admin-notice` (message),
-  `bx-admin-refresh` (reload the shared lists), and any shared toggle it
-  changes (`bx-admin-show-hidden`);
+  `bx-admin-err` (message; `''` clears), `bx-admin-notice` (message),
+  `bx-admin-refresh` (reload the shared lists), `bx-admin-tab` (navigate),
+  and any shared toggle it changes (`bx-admin-show-hidden`);
 - keeps the markup hooks the harness locates (`.mcell`, `.maprow`,
-  `[data-set]`, `[data-netset]`, …).
+  `[data-set]`, `[data-netset]`, `[data-edit-allow]`, …) and, if it holds
+  drafts, is routed to from the router's `testApi()` by key namespace
+  (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
-`render()`, a harness pass that opens it (`hack/ui-harness/shots.js`).
+`render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
+and fails on an empty or `.err` body (`hack/ui-harness/shots.js`).
 
 ## The shell (`workspace-template/shell`)
 

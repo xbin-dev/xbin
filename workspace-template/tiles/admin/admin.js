@@ -13,8 +13,6 @@
 import { LitElement, html, css, nothing, svg, repeat } from 'lit';
 import { unsafeHTML } from 'lit';
 import '/vendor/bx-multiselect.js';
-import { ruleLabel } from '/vendor/bx-netrules.js';
-import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 
 // "stale" for the users table's offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -33,9 +31,10 @@ import './tabs/cron.js';
 import './tabs/backup.js';
 import './tabs/binding.js';
 import './tabs/ingress.js';
-import { targetOptions, targetDatalist, serviceOptions, serviceDatalist, allowRows, fmtBytes, fmtDur, setLifecycle } from './shared.js';
+import './tabs/orgs.js';
+import { targetOptions, targetDatalist, serviceOptions, serviceDatalist, fmtBytes, fmtDur, setLifecycle, WithDrafts, PRESETS, presetOf, groupsDatalist } from './shared.js';
 
-export class BxAdmin extends LitElement {
+export class BxAdmin extends WithDrafts(LitElement) {
   static properties = {
     _tab: { state: true },
     _ov: { state: true },       // auth-overview
@@ -62,7 +61,6 @@ export class BxAdmin extends LitElement {
     _sessQ: { state: true },     // sessions table user filter
     _ssoTest: { state: true },   // last "test connection" result (null | {busy} | report)
     _bulkBusy: { state: true },  // bulk disable in flight
-    _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
     _showHidden: { state: true }, // reveal hidden (state=hidden) tiles in lists (D42)
     _authSettings: { state: true },
@@ -522,7 +520,10 @@ export class BxAdmin extends LitElement {
         ${tab === 'users' ? this._usersView()
           : tab === 'sign-in' ? this._signInView()
           : tab === 'sessions' ? this._sessionsView()
-          : tab === 'orgs' ? this._orgsView()
+          : tab === 'orgs' ? html`<bx-admin-orgs .orgs=${this._orgs} .users=${this._users} .wsPolicy=${this._wsPolicy}
+              .permsets=${this._permsets} .netsets=${this._netsets} .defaults=${this._defaults} .newUsers=${this._newUsers}
+              .tileCreation=${this._tileCreation} .authSettings=${this._authSettings}
+              .targets=${this._targetOptions()} .services=${serviceOptions(this._ifaces)}></bx-admin-orgs>`
           : tab === 'permsets' ? html`<bx-admin-permsets .permsets=${this._permsets} .orgs=${this._orgs}
               .targets=${this._targetOptions()} .services=${serviceOptions(this._ifaces)}></bx-admin-permsets>`
           : tab === 'netsets' ? html`<bx-admin-netsets .netsets=${this._netsets} .targets=${this._targetOptions()}></bx-admin-netsets>`
@@ -1100,7 +1101,7 @@ export class BxAdmin extends LitElement {
     if (signin === 'sso') body.sso = true;
     else if (signin === 'password') body.password = f.password.value;
     const org = f.org?.value;
-    if (org) body.orgs = [{ org, ...BxAdmin.PRESETS[f.orgPreset?.value || 'developer'] }];
+    if (org) body.orgs = [{ org, ...PRESETS[f.orgPreset?.value || 'developer'] }];
     try {
       const d = await api('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body) });
@@ -1306,11 +1307,7 @@ export class BxAdmin extends LitElement {
       default: return 'Values arrive exactly as the IdP emits them (ID token, then UserInfo) — check "groups seen" below for the spelling.';
     }
   }
-  _groupsDatalist() {
-    return html`<datalist id="idp-groups-seen">
-      ${(this._authSettings?.sso?.groupSync?.knownGroups ?? []).map((g) => html`<option value=${g}></option>`)}
-    </datalist>`;
-  }
+  _groupsDatalist() { return groupsDatalist(this._authSettings?.sso?.groupSync?.knownGroups); }
   // What the IdP has actually been sending, with where each group lands.
   _groupsSeenView(c) {
     const known = c.groupSync?.knownGroups ?? [];
@@ -1415,7 +1412,7 @@ export class BxAdmin extends LitElement {
     return (o?.members ?? []).find((m) => m.id === uid) ?? null;
   }
   _presetLabel(m) {
-    const p = this._presetOf(m);
+    const p = presetOf(m);
     return p !== 'custom' ? p : `${m.level}${m.create ? '+create' : ''}`;
   }
   _setMembership(orgId, uid, patch) {
@@ -1753,13 +1750,13 @@ export class BxAdmin extends LitElement {
         const ruleMatches = !!m && !synced && groups.some((g) => (o.ssoGroups ?? []).some((r) => r.group.toLowerCase() === g.toLowerCase()));
         return html`<div class="orow">
           <label style="min-width:16ch"><input type="checkbox" .checked=${!!m} @change=${(e) => {
-              if (e.target.checked) return this._setMembership(o.id, u.id, BxAdmin.PRESETS.developer);
+              if (e.target.checked) return this._setMembership(o.id, u.id, PRESETS.developer);
               if (synced && !confirm(`${u.id} is in ${o.id} via IdP group ${(m.viaGroups ?? []).join(', ')}. Removing them here lasts until their next sign-in — remove them from the group, or delete the rule on the org card. Remove anyway?`)) { e.target.checked = true; return; }
               return this._dropMembership(o.id, u.id);
             }}> <span class="mono">${o.id}</span>${o.name && o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}</label>
           ${m ? html`
-            <select title="role preset" ?disabled=${synced} @change=${(e) => { const p = BxAdmin.PRESETS[e.target.value]; if (p) this._setMembership(o.id, u.id, p); }}>
-              ${['admin', 'developer', 'viewer', 'custom'].map((p) => html`<option value=${p} ?selected=${this._presetOf(m) === p} ?disabled=${p === 'custom'}>${p}</option>`)}
+            <select title="role preset" ?disabled=${synced} @change=${(e) => { const p = PRESETS[e.target.value]; if (p) this._setMembership(o.id, u.id, p); }}>
+              ${['admin', 'developer', 'viewer', 'custom'].map((p) => html`<option value=${p} ?selected=${presetOf(m) === p} ?disabled=${p === 'custom'}>${p}</option>`)}
             </select>
             <select title="org-wide level on tiles the org owns" ?disabled=${synced} @change=${(e) => this._setMembership(o.id, u.id, { level: e.target.value })}>
               ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${m.level === l}>${l}</option>`)}
@@ -1842,28 +1839,11 @@ export class BxAdmin extends LitElement {
         disabling the account (users tab) also blocks future sign-ins.</p>`;
   }
 
-  // ---- click-through editors (shared by the users + orgs tabs) ----
+  // ---- click-through editors (the users tab; the orgs tab has its own) ----
   // Workspaces are small, so everything about permissions is enumerable and
-  // clickable: people are picked from chip dropdowns, tile targets from a
-  // datalist of real paths + patterns — no free-text specs to mistype.
-
-  // _peoplePicker: chip dropdown over the workspace's users. onChange fires
-  // with the full selection on every toggle (immediate save — click-through).
-  _peoplePicker(selected, onChange, only = null) {
-    const ids = only ?? (this._users ?? []).map((u) => u.id);
-    const opts = ids.map((id) => {
-      const u = (this._users ?? []).find((x) => x.id === id);
-      return { value: id, label: u?.name && u.name !== id ? `${id} — ${u.name}` : id };
-    });
-    return html`<bx-multiselect style="min-width:120px" .options=${opts} .selected=${selected ?? []}
-      placeholder="— nobody —" @change=${(e) => onChange(e.detail.selected)}></bx-multiselect>`;
-  }
-
-  // Draft plumbing for the row editors, keyed by a context id
-  // ("user:bob:tiles", "team:sales/backend:create", …).
-  _draft(k) { return this._drafts?.[k]; }
-  _setDraft(k, v) { this._drafts = { ...(this._drafts ?? {}), [k]: v }; }
-  _dropDraft(k) { const d = { ...(this._drafts ?? {}) }; delete d[k]; this._drafts = d; }
+  // clickable: tile targets come from a datalist of real paths + patterns —
+  // no free-text specs to mistype. The draft plumbing and the row editors
+  // (_tilesEditor, _patternsEditor) are shared.js's WithDrafts mixin.
 
   // ---- test surface (hack/ui-harness) ----
   // Stable names over the tile's private state (see bx-shell's testApi).
@@ -1871,7 +1851,8 @@ export class BxAdmin extends LitElement {
     const a = this;
     // Drafts live on the tab element that owns the namespace; the rest here.
     const owner = (k) => {
-      const tag = k.startsWith('permset:') ? 'bx-admin-permsets' : k.startsWith('netset:') ? 'bx-admin-netsets' : k.startsWith('bindcustom:') ? 'bx-admin-binding' : null;
+      const tag = k.startsWith('permset:') ? 'bx-admin-permsets' : k.startsWith('netset:') ? 'bx-admin-netsets'
+        : k.startsWith('bindcustom:') ? 'bx-admin-binding' : k.startsWith('orgallow:') || k.startsWith('ws:') ? 'bx-admin-orgs' : null;
       return (tag && a.renderRoot.querySelector(tag)?.testApi()) || { draft: (x) => a._draft(x), setDraft: (x, v) => a._setDraft(x, v), dropDraft: (x) => a._dropDraft(x) };
     };
     return {
@@ -1881,7 +1862,6 @@ export class BxAdmin extends LitElement {
       dropDraft: (k) => owner(k).dropDraft(k),
     };
   }
-  _toggleDraft(k, seed) { this._draft(k) ? this._dropDraft(k) : this._setDraft(k, seed()); }
 
   // The service datalist (permission-set and org editors) needs the wiring
   // data; the binding/ingress tabs load their own.
@@ -1895,509 +1875,6 @@ export class BxAdmin extends LitElement {
   _targetDatalist() { return targetDatalist(this._targetOptions()); }
   _serviceDatalist() { return serviceDatalist(serviceOptions(this._ifaces)); }
 
-  // _tilesEditor: rows of [target (datalist)] [level] [×] editing a
-  // pattern→level map; save calls onSave(map). orgID adds the inert warning.
-  _tilesEditor(ctx, onSave, orgID = null) {
-    const d = this._draft(ctx) ?? [];
-    const upd = (i, patch) => this._setDraft(ctx, d.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-    return html`
-      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
-        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
-          <input list="tile-targets" size="26" placeholder="path, prefix/* or *" .value=${r.target}
-            @input=${(e) => upd(i, { target: e.target.value })}>
-          <select @change=${(e) => upd(i, { level: e.target.value })}>
-            ${['read', 'write', 'terminal', 'none'].map((l) => html`<option value=${l} ?selected=${r.level === l}
-              title=${l === 'none' ? 'authoritative: overrides org membership, patterns and defaults (D31)' : ''}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
-          </select>
-          <button class="act rm" title="remove entry" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
-        </div>`)}
-        <div style="display:flex; gap:5px; align-items:center">
-          <button class="act" @click=${() => this._setDraft(ctx, [...d, { target: '', level: 'write' }])}>+ entry</button>
-          <button class="act go" @click=${async () => {
-            const tiles = {};
-            for (const r of d) if (r.target.trim()) tiles[r.target.trim()] = r.level;
-            await onSave(tiles);
-            if (!this._err) this._dropDraft(ctx);
-          }}>save</button>
-          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
-          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it ·
-            exact entries are authoritative (none = exclude, D31)</span>
-        </div>
-      </div>`;
-  }
-
-  // _patternsEditor: same, for plain pattern lists (canCreate).
-  _patternsEditor(ctx, onSave, orgID = null) {
-    const d = this._draft(ctx) ?? [];
-    const upd = (i, v) => this._setDraft(ctx, d.map((r, j) => (j === i ? v : r)));
-    return html`
-      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
-        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
-          <input list="tile-targets" size="26" placeholder="prefix/* (create namespace)" .value=${r}
-            @input=${(e) => upd(i, e.target.value)}>
-          <button class="act rm" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
-        </div>`)}
-        <div style="display:flex; gap:5px; align-items:center">
-          <button class="act" @click=${() => this._setDraft(ctx, [...d, ''])}>+ pattern</button>
-          <button class="act go" @click=${async () => {
-            await onSave(d.map((s) => s.trim()).filter(Boolean));
-            if (!this._err) this._dropDraft(ctx);
-          }}>save</button>
-          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
-          <span class="muted" style="font-size:10.5px">creating a tile auto-grants the creator terminal on it</span>
-        </div>
-      </div>`;
-  }
-
-  // ---- ownership & organisations (docs/auth.md §Ownership, D24–D28) ----
-  // Orgs are flat member lists with org-wide roles on org-OWNED tiles; the
-  // ws-admin delegates approval via allowances/permission sets. This tab is
-  // the workspace-admin console — org admins use tiles/organisations.
-  async _orgAPI(method, path, body) {
-    try {
-      await api(path, body === undefined ? { method }
-        : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-    await this._refresh();
-  }
-
-  // ---- policy-row editor (workspace + per-org ceilings, D20) ----
-  _polDraft(key) { return this._polEdit?.[key]; }
-  _polSet(key, rows) { this._polEdit = { ...(this._polEdit ?? {}), [key]: rows }; }
-  _polStop(key) { const e = { ...(this._polEdit ?? {}) }; delete e[key]; this._polEdit = e; }
-
-  async _polSave(key) {
-    const rows = (this._polDraft(key) ?? [])
-      .map((r) => {
-        const mayCall = r.mayCallText.split(',').map((s) => s.trim()).filter(Boolean);
-        const row = { tiles: r.tiles.trim() };
-        if (r.deny.length) row.deny = r.deny;
-        if (mayCall.length) row.mayCall = mayCall;
-        return row;
-      })
-      .filter((r) => r.tiles);
-    await this._orgAPI('PUT', key ? `/orgs/${encodeURIComponent(key)}/policy` : '/policy', { policy: rows });
-    if (!this._err) this._polStop(key);
-  }
-
-  _policyEditor(key, rows) {
-    const draft = this._polDraft(key);
-    if (!draft) {
-      return html`
-        ${(rows ?? []).map((r) => html`<div class="mono" style="font-size:11px">
-          tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}</div>`)}
-        ${!(rows ?? []).length ? html`<div class="muted" style="font-size:11px">no rows (no ceiling)</div>` : nothing}
-        <button class="act" style="margin-top:3px" @click=${() => this._polSet(key,
-          (rows ?? []).map((r) => ({ tiles: r.tiles, deny: [...(r.deny ?? [])], mayCallText: (r.mayCall ?? []).join(', ') })))}>edit</button>`;
-    }
-    const upd = (i, patch) => this._polSet(key, draft.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-    return html`
-      <table class="flowtab" style="margin-top:4px">
-        ${draft.map((r, i) => html`<tr>
-          <td><input size="14" placeholder="* (all covered tiles)" .value=${r.tiles}
-                @input=${(e) => upd(i, { tiles: e.target.value })}></td>
-          <td style="white-space:nowrap">${['net', 'gpu', 'xbin-caps', 'ingress'].map((k) => html`
-            <label class="muted" style="font-size:10.5px; margin-right:5px">
-              <input type="checkbox" .checked=${r.deny.includes(k)}
-                @change=${(e) => upd(i, { deny: e.target.checked ? [...r.deny, k] : r.deny.filter((d) => d !== k) })}>deny ${k}</label>`)}</td>
-          <td><input size="20" placeholder="mayCall: a/*, res:a/* (empty = any)" .value=${r.mayCallText}
-                @input=${(e) => upd(i, { mayCallText: e.target.value })}></td>
-          <td><button class="act rm" title="remove row" @click=${() => this._polSet(key, draft.filter((_, j) => j !== i))}>✕</button></td>
-        </tr>`)}
-      </table>
-      <div style="margin-top:4px">
-        <button class="act" @click=${() => this._polSet(key, [...draft, { tiles: '*', deny: [], mayCallText: '' }])}>+ row</button>
-        <button class="act go" @click=${() => this._polSave(key)}>save</button>
-        <button class="act" @click=${() => this._polStop(key)}>cancel</button>
-        <span class="muted" style="font-size:10.5px; margin-left:6px">
-          deny strips the capability; mayCall allow-lists external call targets
-          (a tile's own scope is always exempt); deny beats every allowance</span>
-      </div>`;
-  }
-
-  async _createOrg(f) {
-    await this._orgAPI('POST', '/orgs', { id: f.id.value.trim(), name: f.orgname.value.trim() });
-    if (!this._err) f.reset();
-  }
-
-  // Member presets (D25 UI): admin / developer / viewer over the three knobs.
-  static PRESETS = {
-    admin: { level: 'terminal', create: true, admin: true },
-    developer: { level: 'terminal', create: true, admin: false },
-    viewer: { level: 'read', create: false, admin: false },
-  };
-  _presetOf(m) {
-    for (const [name, p] of Object.entries(BxAdmin.PRESETS)) {
-      if (m.level === p.level && !!m.create === p.create && !!m.admin === p.admin) return name;
-    }
-    return 'custom';
-  }
-
-  // One membership row on the org card: every control is one PUT on the
-  // single-membership route. Synced rows (⟳) are read-mostly — their knobs
-  // follow the IdP-group rule at every sign-in — so they're disabled until
-  // detached; suspension stays editable (it survives a re-sync).
-  _memberRow(o, m) {
-    const save = (patch) => this._setMembership(o.id, m.id, patch);
-    const synced = m.via === 'sso';
-    const lock = synced ? 'synced from an IdP group — detach to edit by hand' : '';
-    return html`<tr style=${m.suspended ? 'opacity:.55' : ''}>
-      <td class="mono">${m.id}${m.suspended ? html` <span class="pill">suspended</span>` : nothing}${synced ? html` <span class="pill sync"
-          title="synced from IdP group ${(m.viaGroups ?? []).join(', ')} — follows the group at every sign-in">⟳ ${(m.viaGroups ?? []).join(', ')}</span>` : nothing}</td>
-      <td><select title=${lock || 'role preset'} ?disabled=${synced} @change=${(e) => {
-            const p = BxAdmin.PRESETS[e.target.value];
-            if (p) save(p);
-          }}>
-          ${['admin', 'developer', 'viewer', 'custom'].map((p) => html`<option value=${p} ?selected=${this._presetOf(m) === p} ?disabled=${p === 'custom'}>${p}</option>`)}
-        </select></td>
-      <td><select title=${lock || 'org-wide level on tiles the org OWNS'} ?disabled=${synced} @change=${(e) => save({ level: e.target.value })}>
-          ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${m.level === l}>${l}</option>`)}
-        </select></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.create} ?disabled=${synced}
-            @change=${(e) => save({ create: e.target.checked })} title=${lock || 'may create org-owned tiles'}> create</label></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.admin} ?disabled=${synced}
-            @change=${(e) => save({ admin: e.target.checked })} title=${lock || 'org management: members, ACLs, transfers, allowance approvals'}> admin</label></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.suspended}
-            @change=${(e) => save({ suspended: e.target.checked })}
-            title="pause this membership — it confers nothing while suspended, but keeps its knobs (D34)"> susp</label></td>
-      <td style="text-align:right; white-space:nowrap">
-        ${synced ? html`<button class="act" title="stop syncing this membership; it becomes manual"
-          @click=${async () => { await save({ via: '' }); if (!this._err) this._flash(`${o.id}: ${m.id} is now a manual member`); }}>detach</button>` : nothing}
-        <button class="act rm" title=${synced ? 'removes now — comes back at their next sign-in while the rule stands' : 'remove from the org'}
-          @click=${() => this._dropMembership(o.id, m.id)}>remove</button></td>
-    </tr>`;
-  }
-
-  // Add-member row: pick a person and a preset (not just "developer").
-  _addMemberRow(o, addable) {
-    return html`<div style="margin-top:4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-      <select id="add-${o.id}">
-        <option value="">add member…</option>
-        ${addable.map((u) => html`<option value=${u.id}>${u.id}${u.name && u.name !== u.id ? ` — ${u.name}` : ''}</option>`)}
-      </select>
-      <select id="addp-${o.id}" title="role in the org">
-        <option value="developer">as developer</option>
-        <option value="viewer">as viewer</option>
-        <option value="admin">as org admin</option>
-      </select>
-      <button class="act go" @click=${() => {
-        const sel = this.renderRoot.querySelector(`#add-${CSS.escape(o.id)}`);
-        const p = this.renderRoot.querySelector(`#addp-${CSS.escape(o.id)}`)?.value || 'developer';
-        if (!sel?.value) return;
-        this._setMembership(o.id, sel.value, BxAdmin.PRESETS[p]);
-      }}>add</button>
-      <span class="muted" style="font-size:10.5px">or add an IdP-group rule below</span>
-    </div>`;
-  }
-
-  // IdP groups → members: the org's rules (docs/auth.md §Group sync, D53).
-  _idpGroupsEditor(o) {
-    const rules = o.ssoGroups ?? [];
-    const sso = this._authSettings?.sso ?? {};
-    const hint = this._idpGroupHint(sso.preset);
-    const known = (sso.groupSync?.knownGroups ?? []).filter((g) => !rules.some((r) => r.group.toLowerCase() === g.toLowerCase()));
-    const save = (next) => this._orgAPI('PUT', `/orgs/${encodeURIComponent(o.id)}/sso-groups`, { rules: next });
-    const knobs = (r) => ({ level: r.level, create: !!r.create, admin: !!r.admin });
-    return html`<div style="margin-top:8px">
-      <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">IdP groups → members</span>
-      <div style="margin-top:3px">
-        ${rules.map((r) => html`<span class="rule">
-          <span class="mono">${r.group}</span> →
-          <select title="role preset for members synced from this group" @change=${(e) => {
-              const p = BxAdmin.PRESETS[e.target.value];
-              if (p) save(rules.map((x) => (x.group === r.group ? { group: r.group, ...p } : x)));
-            }}>
-            ${['admin', 'developer', 'viewer', 'custom'].map((p) => html`<option value=${p} ?selected=${this._presetOf(knobs(r)) === p} ?disabled=${p === 'custom'}>${p}</option>`)}
-          </select>
-          <button class="act rm" title="delete the rule (synced members stay until their next sign-in)"
-            @click=${() => save(rules.filter((x) => x.group !== r.group))}>✕</button>
-        </span>`)}
-        ${!rules.length ? html`<span class="muted" style="font-size:11px">no rules — members are added by hand</span>` : nothing}
-      </div>
-      <div style="margin-top:4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-        <input id="rule-${o.id}" list="idp-groups-seen" size="28" placeholder=${hint.placeholder}
-          @keydown=${(e) => { if (e.key === 'Enter') e.target.nextElementSibling?.nextElementSibling?.click(); }}>
-        <select id="rulep-${o.id}" title="role for members synced from the group">
-          <option value="developer">as developer</option>
-          <option value="viewer">as viewer</option>
-          <option value="admin">as org admin</option>
-        </select>
-        <button class="act go" @click=${() => {
-          const inp = this.renderRoot.querySelector(`#rule-${CSS.escape(o.id)}`);
-          const p = this.renderRoot.querySelector(`#rulep-${CSS.escape(o.id)}`)?.value || 'developer';
-          const g = inp?.value.trim();
-          if (!g) return;
-          if (rules.some((x) => x.group.toLowerCase() === g.toLowerCase())) { this._err = `rule for ${g} already exists`; return; }
-          save([...rules, { group: g, ...BxAdmin.PRESETS[p] }]).then(() => { if (!this._err && inp) inp.value = ''; });
-        }}>add rule</button>
-        ${known.length ? html`<span class="muted" style="font-size:10.5px">${known.length} unmapped group${known.length === 1 ? '' : 's'} seen at sign-ins — start typing</span>` : nothing}
-      </div>
-      <div class="muted" style="font-size:10.5px; margin-top:3px">${hint.text} Synced members show ⟳ and follow the group at
-        every sign-in — leave the group, lose the membership. ${!sso.enabled ? 'SSO is off — rules take effect once a provider is active (sign-in tab).' : ''}</div>
-    </div>`;
-  }
-  _idpGroupHint(preset) {
-    switch (preset) {
-      case 'google': return { placeholder: 'sales@corp.com', text: 'Google Workspace: name the group by its email address.' };
-      case 'github': return { placeholder: 'acme/infra', text: 'GitHub: name a team as org/team-slug (or an org by its login).' };
-      case 'entra': return { placeholder: 'group object id', text: 'Entra: match the group values in the ID token (object IDs unless the app emits names).' };
-      case 'keycloak': return { placeholder: '/sales', text: 'Keycloak: group paths as emitted by the Group Membership mapper.' };
-      default: return { placeholder: 'group name', text: 'Rules match the groups claim exactly as sent — see sign-in › groups seen for the spelling.' };
-    }
-  }
-
-  async _transferTile(tile) {
-    const to = prompt(`Transfer ${tile} to (user:<id>, org:<id>, or "workspace"):`);
-    if (to == null) return;
-    await this._orgAPI('POST', '/owner', { tile, to: to.trim() === 'workspace' ? '' : to.trim() });
-  }
-
-  _orgCard(o) {
-    const opath = `/orgs/${encodeURIComponent(o.id)}`;
-    const memberIds = new Set((o.members ?? []).map((m) => m.id));
-    const addable = (this._users ?? []).filter((u) => !memberIds.has(u.id));
-    const setNames = Object.keys(this._permsets?.sets ?? {});
-    const allowKey = `org:${o.id}:allow`;
-    const members = o.members ?? [];
-    const synced = members.filter((m) => m.via === 'sso').length;
-    return html`
-      <div style="border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:8px 10px; margin:8px 0">
-        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
-          <b class="mono">${o.id}</b>
-          <span class="muted">${o.name !== o.id ? o.name : ''}</span>
-          <span class="muted" style="font-size:11px">${members.length} member${members.length === 1 ? '' : 's'}${synced ? ` · ${synced} synced` : ''}</span>
-          <span style="flex:1"></span>
-          <button class="act rm" title=${(o.ownedTiles ?? []).length ? 'transfer its owned tiles away first' : 'delete the org'}
-            @click=${() => confirm(`Delete org ${o.id}?`) && this._orgAPI('DELETE', opath)}>del</button>
-        </div>
-
-        <table style="margin-top:6px">
-          ${members.length ? html`<tr><th>member</th><th>preset</th><th>level</th><th>create</th><th>admin</th><th>susp</th><th></th></tr>` : nothing}
-          ${repeat(members, (m) => m.id, (m) => this._memberRow(o, m))}
-        </table>
-        ${this._addMemberRow(o, addable)}
-        ${this._idpGroupsEditor(o)}
-
-        <div style="margin-top:8px">
-          <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">delegation (ws-admin, D26/D28)</span>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:3px">
-            <label class="muted" style="font-size:11px">sets
-              <bx-multiselect style="min-width:130px"
-                .options=${setNames.map((n) => ({ value: n, label: n }))}
-                .selected=${o.sets ?? []} placeholder="— none —"
-                @change=${(e) => this._orgAPI('PATCH', opath, { sets: e.detail.selected })}></bx-multiselect></label>
-            <span class="muted" style="font-size:11px">extra allow
-              ${(o.allow ?? []).length ? o.allow.map((a) => html`<span class="pill mono" title=${describeAllow(a)}>${a}</span>`) : html`<span class="muted">none</span>`}
-              <button class="act" data-edit-allow ?disabled=${!!this._draft(`orgallow:${o.id}`)}
-                @click=${() => this._setDraft(`orgallow:${o.id}`, { rows: (o.allow ?? []).map(parseAllow), err: '' })}>edit</button></span>
-          </div>
-          ${this._draft(`orgallow:${o.id}`) ? this._orgAllowEditor(o, opath) : nothing}
-          ${(o.resolvedAllow ?? []).length ? html`<div style="margin-top:3px">
-            <span class="muted" style="font-size:10.5px">org admins may self-approve:</span>
-            ${o.resolvedAllow.map((a) => html`<span class="pill mono" title=${describeAllow(a)}>${a}</span>`)}</div>`
-            : html`<div class="muted" style="font-size:10.5px; margin-top:3px">no allowances — every grant/binding goes through a workspace admin</div>`}
-        </div>
-
-        ${this._orgNetBlock(o, opath)}
-
-        ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:8px">
-          <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">owned tiles</span>
-          <div style="margin-top:3px">${o.ownedTiles.map((p) => html`
-            <span class="pill mono">${p} <a class="link" title="transfer ownership"
-              @click=${() => this._transferTile(p)}>⇄</a></span>`)}</div>
-        </div>` : nothing}
-
-        <div style="margin-top:8px">
-          <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">org policy ceiling (applies to owned tiles)</span>
-          ${this._policyEditor(o.id, o.policy)}
-        </div>
-        <span class="muted" style="display:block; margin-top:4px; font-size:10.5px" data-k=${allowKey}>
-          allowance grammar: res:/gpu:/cap:/net:internet|host|lan:…|provider:…/iface:&lt;svc&gt;/ingress:host|zone|listen:&lt;range&gt;/tile:&lt;pat&gt; — xbin is never delegable</span>
-      </div>`;
-  }
-
-  // Org card → network (D54): which network sets the org holds, what its own
-  // tiles therefore reach, and the one-line semantics. ws-admin only (the
-  // server refuses the field from org admins).
-  _orgNetBlock(o, opath) {
-    const names = Object.keys(this._netsets?.sets ?? {}).sort();
-    const sets = o.netSets ?? [];
-    const rules = o.resolvedNet ?? [];
-    return html`<div style="margin-top:8px">
-      <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">network (ws-admin, D54)</span>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:3px">
-        <label class="muted" style="font-size:11px">network sets
-          <bx-multiselect style="min-width:130px"
-            .options=${names.map((n) => ({ value: n, label: n }))}
-            .selected=${sets} placeholder="— none —"
-            @change=${(e) => this._orgAPI('PATCH', opath, { netSets: e.detail.selected })}></bx-multiselect></label>
-        ${!names.length ? html`<a class="link" style="font-size:11px" @click=${() => this._setTab('netsets')}>create one in network sets →</a>` : nothing}
-      </div>
-      ${sets.length ? html`
-        <div style="margin-top:3px">
-          <span class="muted" style="font-size:10.5px">org tiles reach:</span>
-          ${rules.filter((r) => r !== 'host').map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
-          ${o.netHost ? html`<span class="pill pol" title="a set grants host networking: every org-bound tile and terminal shares the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
-          ${!rules.length ? html`<span class="muted" style="font-size:11px">nothing — the attached sets carry no rules (airgapped, incl. DNS)</span>` : nothing}
-        </div>
-        <div class="muted" style="font-size:10.5px; margin-top:3px">org-owned tiles that declare
-          <span class="mono">net</span> bind to <span class="mono">org</span> by default; org admins may bind
-          anything inside it; terminals on org tiles get the same reach — no term-net needed.</div>`
-        : html`<div class="muted" style="font-size:10.5px; margin-top:3px">no network sets — org tiles'
-          <span class="mono">net</span> slots stay unbound until a workspace admin binds them explicitly;
-          terminals on them fall back to term-net.</div>`}
-    </div>`;
-  }
-
-  // An org's extra allow entries (on top of its sets): the same typed rows.
-  _orgAllowEditor(o, opath) {
-    const key = `orgallow:${o.id}`;
-    const d = this._draft(key);
-    const wire = d.rows.map(fmtAllow);
-    const ok = !d.rows.some((r) => allowProblem(r)) && new Set(wire).size === wire.length;
-    return html`<div class="editor" style="margin-top:6px">
-      <div class="muted" style="margin-bottom:2px">Extra entries for <b>this org only</b> (on top of its sets) — its admins may approve, on their own tiles:</div>
-      ${allowRows(d.rows, (rows) => this._setDraft(key, { ...this._draft(key), rows }), { gotoTab: (x) => this._setTab(x) })}
-      ${d.err ? html`<div class="err" role="alert">${d.err}</div>` : nothing}
-      <div class="orow" style="margin-top:6px">
-        <button class="act go" data-save-allow ?disabled=${!ok} @click=${async () => {
-          try {
-            await api(opath, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allow: wire.filter(Boolean) }) });
-            this._err = ''; this._dropDraft(key);
-          } catch (e) { this._setDraft(key, { ...this._draft(key), err: String(e.message ?? e) }); }
-          await this._refresh();
-        }}>save</button>
-        <button class="act" @click=${() => this._dropDraft(key)}>cancel</button>
-      </div>
-    </div>`;
-  }
-
-  _orgsView() {
-    const orgs = this._orgs ?? [];
-    return html`
-      ${this._targetDatalist()}
-      ${this._groupsDatalist()}
-      ${this._serviceDatalist()}
-      <h4>organizations</h4>
-      ${orgs.length ? repeat(orgs, (o) => o.id, (o) => this._orgCard(o))
-        : html`<p class="muted">No orgs. An org is a flat member list with org-wide roles on the
-          tiles the org <b>owns</b> (ownership is assigned at create and transferable — D24/D25).
-          Attach permission sets to delegate grant/binding approval to its admins.</p>`}
-
-      <h4>add org</h4>
-      <form class="inline" @submit=${(e) => { e.preventDefault(); this._createOrg(e.target); }}>
-        <input name="id" placeholder="org id" size="14" required>
-        <input name="orgname" placeholder="display name" size="14">
-        <button class="act go">create</button>
-      </form>
-
-      <h4>workspace defaults</h4>
-      <p class="muted" style="font-size:11px; max-width:60ch">
-        Baseline visibility every user gets (D27) — pattern → level.</p>
-      ${this._defaultsEditor()}
-
-      <h4>new accounts</h4>
-      <p class="muted" style="font-size:11px; max-width:60ch">
-        What every NEW account starts with (D52) — copied onto the row at creation
-        (admin-added, invited, or SSO auto-provisioned) on top of what the creator
-        specifies; editable per user afterwards. This is where "everyone from the
-        SSO domain lands in org X as a developer" lives. Never grants admin.</p>
-      ${this._newUsersEditor()}
-
-      <h4>tile creation</h4>
-      <p class="muted" style="font-size:11px; max-width:60ch">
-        Who may create tiles outside an organisation (D52). Workspace-owned tiles
-        are always an admin act; this governs non-admins' personal tiles.</p>
-      <select @change=${(e) => this._putDefaults({ tileCreation: e.target.value })}>
-        <option value="any" ?selected=${(this._tileCreation ?? 'any') === 'any'}>any — users create personal tiles, and org-owned ones where they hold Create</option>
-        <option value="org-only" ?selected=${this._tileCreation === 'org-only'}>org-only — non-admins may only create organisation-owned tiles (needs Create in an org)</option>
-      </select>
-
-      <h4>workspace policy</h4>
-      <p class="muted" style="font-size:11px; max-width:60ch">
-        Pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (org and
-        permission-set rows add on top; any deny wins; deny beats every allowance).</p>
-      ${this._policyEditor('', this._wsPolicy)}
-
-      <p class="muted" style="font-size:11px; margin-top:10px; max-width:60ch">
-        Effective access is a union: workspace admin · tile OWNER (terminal) · org member level /
-        org-admin terminal on org-owned tiles · org shares · a user's own entries · workspace
-        defaults. Org admins manage members and org-tile ACLs in the
-        <span class="mono">tiles/organisations</span> tile; permission sets, allowances, policy
-        and org create/delete stay here.</p>`;
-  }
-
-  _defaultsEditor() {
-    const key = 'ws:defaults';
-    const d = this._draft(key);
-    if (!d) {
-      return html`
-        ${Object.entries(this._defaults ?? {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
-        ${!Object.keys(this._defaults ?? {}).length ? html`<span class="muted" style="font-size:11px">none</span>` : nothing}
-        <button class="act" style="margin-left:4px" @click=${() => this._toggleDraft(key,
-          () => Object.entries(this._defaults ?? {}).map(([target, level]) => ({ target, level })))}>edit</button>`;
-    }
-    return this._tilesEditor(key, (tiles) => this._orgAPI('PUT', '/defaults', { defaultTiles: tiles }));
-  }
-
-  // ---- new-account defaults + tile-creation policy (D52) ----
-  // PUT /defaults replaces only the keys given, so each control saves its
-  // own setting without clobbering the others.
-  async _putDefaults(patch) {
-    try {
-      const d = await api('/defaults', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch) });
-      this._defaults = d.defaultTiles ?? {}; this._newUsers = d.newUsers ?? {};
-      this._tileCreation = d.tileCreation ?? 'any'; this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  _newUsersEditor() {
-    const nu = this._newUsers ?? {};
-    const tilesKey = 'ws:newusers:tiles';
-    const createKey = 'ws:newusers:create';
-    const rows = nu.orgs ?? [];
-    const unused = (this._orgs ?? []).filter((o) => !rows.some((r) => r.org === o.id));
-    const saveOrgs = (orgs) => this._putDefaults({ newUsers: { ...nu, orgs } });
-    const row = (label, body) => html`<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:4px">
-      <span style="min-width:9ch; font-weight:600">${label}</span>${body}</div>`;
-    return html`
-      <div style="font-size:12px; max-width:64ch">
-        ${row('tiles', html`
-          ${Object.entries(nu.tiles ?? {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
-          ${!Object.keys(nu.tiles ?? {}).length ? html`<span class="muted">none</span>` : nothing}
-          <button class="act" @click=${() => this._toggleDraft(tilesKey,
-            () => Object.entries(nu.tiles ?? {}).map(([target, level]) => ({ target, level })))}>edit</button>`)}
-        ${this._draft(tilesKey) ? this._tilesEditor(tilesKey, (tiles) => this._putDefaults({ newUsers: { ...nu, tiles } })) : nothing}
-        ${row('create', html`
-          ${(nu.canCreate ?? []).map((c) => html`<span class="pill">create·${c}</span>`)}
-          ${!(nu.canCreate ?? []).length ? html`<span class="muted">none</span>` : nothing}
-          <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(nu.canCreate ?? [])])}>edit</button>`)}
-        ${this._draft(createKey) ? this._patternsEditor(createKey, (canCreate) => this._putDefaults({ newUsers: { ...nu, canCreate } })) : nothing}
-        ${row('terminals', html`
-          <label class="muted"><input type="checkbox" .checked=${!!nu.termApi}
-            @change=${(e) => this._putDefaults({ newUsers: { ...nu, termApi: e.target.checked } })}> term-api</label>
-          <label class="muted"><input type="checkbox" .checked=${!!nu.termNet}
-            @change=${(e) => this._putDefaults({ newUsers: { ...nu, termNet: e.target.checked } })}> term-net</label>`)}
-        ${row('orgs', html`
-          ${rows.map((r) => html`<span style="display:inline-flex; gap:4px; align-items:center; border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:2px 6px">
-            <span class="mono">${r.org}</span>
-            <select title="org-wide level on tiles the org owns"
-              @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, level: e.target.value } : x)))}>
-              ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${r.level === l}>${l}</option>`)}
-            </select>
-            <label class="muted"><input type="checkbox" .checked=${!!r.create} title="may create org-owned tiles"
-              @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, create: e.target.checked } : x)))}> create</label>
-            <button class="act rm" title="stop auto-joining this org" @click=${() => saveOrgs(rows.filter((x) => x.org !== r.org))}>✕</button>
-          </span>`)}
-          ${!rows.length ? html`<span class="muted">none — new accounts join no org</span>` : nothing}
-          ${unused.length ? html`<select @change=${(e) => { const id = e.target.value; e.target.value = ''; if (id) saveOrgs([...rows, { org: id, level: 'read' }]); }}>
-            <option value="">+ org…</option>
-            ${unused.map((o) => html`<option value=${o.id}>${o.id}${o.name && o.name !== o.id ? ` — ${o.name}` : ''}</option>`)}
-          </select>` : nothing}`)}
-      </div>`;
-  }
 }
 
 customElements.define('bx-admin', BxAdmin);

@@ -3,20 +3,18 @@
  * the workspace, deletable. A tab element of tiles/admin (see admin.js).
  */
 import { LitElement, html, nothing } from 'lit';
-import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { xbinApi as api } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
+import { WithRouter } from '../shared.js';
 
-export class BxAdminCron extends LitElement {
+export class BxAdminCron extends WithRouter(LitElement) {
   static properties = {
     cron: { attribute: false }, // [{name, component, schedule, path, role}]
     _err: { state: true }, // the last refusal (reported to the router's slot)
   };
   static styles = [base];
 
-  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   // fail(e) reports a refusal to the router's global slot; ok() clears it.
-  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
-  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
 
   async _delCron(j) {
     if (!confirm(`Delete cron job ${j.name} (${j.component})?`)) return;

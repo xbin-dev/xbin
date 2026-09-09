@@ -35,13 +35,68 @@ export function serviceOptions(ifaces) {
 export const serviceDatalist = (svcs) => html`<datalist id="iface-services">${(svcs ?? []).map((s) => html`<option value=${s}></option>`)}</datalist>`;
 
 // WithDrafts(Base): the click-through editors' draft plumbing, keyed by a
-// context id ("netset:<name>", "permset:new", "user:bob:tiles", …). The
-// element declares `_drafts: { state: true }` itself.
+// context id ("netset:<name>", "permset:new", "user:bob:tiles", …), and the
+// two row editors built on it (a pattern→level map, a pattern list). The
+// element declares `_drafts: { state: true }` itself; `if (!this._err)` after
+// a save is what keeps a refused write's draft open.
 export const WithDrafts = (Base) => class extends Base {
   _draft(k) { return this._drafts?.[k]; }
   _setDraft(k, v) { this._drafts = { ...(this._drafts ?? {}), [k]: v }; }
   _dropDraft(k) { const d = { ...(this._drafts ?? {}) }; delete d[k]; this._drafts = d; }
   _toggleDraft(k, seed) { this._draft(k) ? this._dropDraft(k) : this._setDraft(k, seed()); }
+  // _tilesEditor: rows of [target (datalist)] [level] [×] editing a
+  // pattern→level map; save calls onSave(map).
+  _tilesEditor(ctx, onSave) {
+    const d = this._draft(ctx) ?? [];
+    const upd = (i, patch) => this._setDraft(ctx, d.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    return html`
+      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
+        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
+          <input list="tile-targets" size="26" placeholder="path, prefix/* or *" .value=${r.target}
+            @input=${(e) => upd(i, { target: e.target.value })}>
+          <select @change=${(e) => upd(i, { level: e.target.value })}>
+            ${['read', 'write', 'terminal', 'none'].map((l) => html`<option value=${l} ?selected=${r.level === l}
+              title=${l === 'none' ? 'authoritative: overrides org membership, patterns and defaults (D31)' : ''}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
+          </select>
+          <button class="act rm" title="remove entry" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
+        </div>`)}
+        <div style="display:flex; gap:5px; align-items:center">
+          <button class="act" @click=${() => this._setDraft(ctx, [...d, { target: '', level: 'write' }])}>+ entry</button>
+          <button class="act go" @click=${async () => {
+            const tiles = {};
+            for (const r of d) if (r.target.trim()) tiles[r.target.trim()] = r.level;
+            await onSave(tiles);
+            if (!this._err) this._dropDraft(ctx);
+          }}>save</button>
+          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
+          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it ·
+            exact entries are authoritative (none = exclude, D31)</span>
+        </div>
+      </div>`;
+  }
+
+  // _patternsEditor: same, for plain pattern lists (canCreate).
+  _patternsEditor(ctx, onSave) {
+    const d = this._draft(ctx) ?? [];
+    const upd = (i, v) => this._setDraft(ctx, d.map((r, j) => (j === i ? v : r)));
+    return html`
+      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
+        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
+          <input list="tile-targets" size="26" placeholder="prefix/* (create namespace)" .value=${r}
+            @input=${(e) => upd(i, e.target.value)}>
+          <button class="act rm" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
+        </div>`)}
+        <div style="display:flex; gap:5px; align-items:center">
+          <button class="act" @click=${() => this._setDraft(ctx, [...d, ''])}>+ pattern</button>
+          <button class="act go" @click=${async () => {
+            await onSave(d.map((s) => s.trim()).filter(Boolean));
+            if (!this._err) this._dropDraft(ctx);
+          }}>save</button>
+          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
+          <span class="muted" style="font-size:10.5px">creating a tile auto-grants the creator terminal on it</span>
+        </div>
+      </div>`;
+  }
   // the harness surface: read/write drafts by key
   draftApi() { const a = this; return { draft: (k) => a._draft(k), setDraft: (k, v) => a._setDraft(k, v), dropDraft: (k) => a._dropDraft(k) }; }
 };
@@ -168,3 +223,47 @@ export const WithFilter = (Base) => class extends Base {
     return s[0] || '—';
   }
 };
+
+// WithRouter(Base): how a tab element talks to the admin router — composed
+// events for the global error/notice slots (bx-admin-err '' clears) and the
+// shared-list reload (bx-admin-refresh), plus the one-write-then-reload
+// helper the org, membership and permission-set editors are built on. The
+// element declares `_err: { state: true }` itself.
+export const WithRouter = (Base) => class extends Base {
+  _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
+  _fail(e) { this._err = String(e?.message ?? e); this._emit('bx-admin-err', this._err); }
+  _ok() { this._err = ''; this._emit('bx-admin-err', ''); }
+  async _orgAPI(method, path, body) {
+    try { await api(path, body === undefined ? { method } : jbody(body, method)); this._ok(); }
+    catch (e) { this._fail(e); }
+    this._emit('bx-admin-refresh');
+  }
+  // Memberships are single-row PUT/DELETE on the org (D53).
+  _setMembership(orgId, uid, patch) {
+    return this._orgAPI('PUT', `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(uid)}`, patch);
+  }
+  _dropMembership(orgId, uid) {
+    return this._orgAPI('DELETE', `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(uid)}`);
+  }
+};
+
+// Member presets (D25 UI): admin / developer / viewer over the three
+// membership knobs; presetOf names the preset a membership (or an IdP-group
+// rule) matches, 'custom' otherwise.
+export const PRESETS = {
+  admin: { level: 'terminal', create: true, admin: true },
+  developer: { level: 'terminal', create: true, admin: false },
+  viewer: { level: 'read', create: false, admin: false },
+};
+export function presetOf(m) {
+  for (const [name, p] of Object.entries(PRESETS)) {
+    if (m.level === p.level && !!m.create === p.create && !!m.admin === p.admin) return name;
+  }
+  return 'custom';
+}
+
+// groupsDatalist(known): the IdP groups seen at sign-ins, as the <datalist>
+// the org rule editors and the SSO tab attach to.
+export const groupsDatalist = (known) => html`<datalist id="idp-groups-seen">
+  ${(known ?? []).map((g) => html`<option value=${g}></option>`)}
+</datalist>`;
