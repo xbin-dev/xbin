@@ -391,7 +391,16 @@ async function windows(browser) {
     await page.mouse.up();
     await settle(page);
   };
-  await sh(page, (t) => t.setFloat('apps/offline', { x: 40, y: 560 })); // bottom-left: clear of the crawler card (≈532,423) and the fitted windows
+  // a deterministic grid for the drag: crawler alone at the origin (the grid
+  // is put back at the end). The passes before this one re-place tiles
+  // anywhere, and a card near the bottom of the viewport can't be dragged
+  // 420 px down — the pointer would leave the window.
+  const layout0 = await sh(page, (t) => t.openTiles);
+  await sh(page, (t) => t.setGeom((tiles) => tiles.filter((o) => o.float || o.path === 'apps/crawler')
+    .map((o) => (o.path === 'apps/crawler' ? { ...o, x: 0, y: 0 } : o))));
+  await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
+  await settle(page);
+  await sh(page, (t) => t.setFloat('apps/offline', { x: 40, y: 560 })); // bottom-left: below the crawler card (at the origin) and clear of the fitted windows
   await settle(page);
   const fl0 = await sh(page, (t) => t.floatOf('apps/offline'));
   await drag('.float[data-path="apps/offline"] .head', 90, 50);
@@ -407,7 +416,7 @@ async function windows(browser) {
   await drag('.card[data-path="apps/crawler"] .head', 0, 420);
   const g1 = await sh(page, (t) => { const o = t.openTiles.find((x) => x.path === 'apps/crawler'); return o && { x: o.x, y: o.y }; });
   check(g0 && g1 && g1.y > g0.y && g1.x === g0.x, `grid tile drag snapped and persisted (${JSON.stringify(g0)} → ${JSON.stringify(g1)})`);
-  await sh(page, (t, g) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/crawler' ? { ...o, ...g } : o)), g0); // back where it was
+  await sh(page, (t, l) => t.setGeom(() => l), layout0); // the grid as it was
   check(await page.evaluate(() => !document.querySelector('body > div[style*="2147483647"]')), 'the drag shield is gone after pointerup');
 
   // tidy: the next pass starts from the seeded layout

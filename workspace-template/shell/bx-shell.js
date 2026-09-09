@@ -72,21 +72,8 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
 import { shellCss } from './shell-css.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
-
-// ago('2026-09-05T10:11:12Z') → 'just now' | '3 min ago' | '2 h ago' | '4 d ago' ('' when unknown).
-function ago(iso) {
-  if (!iso) return '';
-  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (!(s >= 0)) return '';
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return `${Math.floor(s / 86400)} d ago`;
-}
-
-// Shared z-order for floating (unpinned) tile windows. Kept below bx-frame's
-// terminal pop-ups (which start at 2000) so a terminal always sits on top.
-let zTop = 100;
+import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
+import { nextZ, raiseTo } from './zorder.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -320,12 +307,10 @@ export class BxShell extends LitElement {
   _enterEdit(id) {
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!os?.canEdit || this._orgDrafts?.[id]) return;
-    this._orgDrafts = { ...this._orgDrafts, [id]: {
-      tiles: os.tiles.map((t) => ({ ...t })), baseRev: os.rev ?? 1, dirty: false, name: os.name } };
+    this._orgDrafts = withDraft(this._orgDrafts, id, newDraft({ tiles: os.tiles.map((t) => ({ ...t })), name: os.name }, os.rev ?? 1));
   }
   _dropDraft(id) {
-    const { [id]: _, ...rest } = this._orgDrafts ?? {};
-    this._orgDrafts = rest;
+    this._orgDrafts = withoutDraft(this._orgDrafts, id);
     this._save();
   }
   _discardDraft(id) {
@@ -338,19 +323,14 @@ export class BxShell extends LitElement {
     const d = this._orgDrafts?.[id];
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!d || !os) return;
-    try {
-      const r = await fetch('/api/xbin/screens/org', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, org: os.org, tiles: d.tiles, rev: d.baseRev, force }),
-      });
-      const body = await r.json().catch(() => ({}));
-      if (r.status === 409) { this._conflict = this._conflictSpec('screen', id, body); return; }
-      if (!r.ok) { this._pushToast(os.org, { level: 'error', message: body.error ?? `save failed (${r.status})` }); return; }
-      this._orgScreens = this._orgScreens.map((x) => x.id === id
-        ? { ...x, tiles: d.tiles, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt } : x);
-      this._dropDraft(id);
-      this._pushToast(os.org, { level: 'ok', message: `saved — everyone in ${os.org} sees rev ${body.rev}` });
-    } catch { this._pushToast(os.org, { level: 'error', message: 'offline — try again' }); }
+    const res = await publish('/api/xbin/screens/org', { id, org: os.org, tiles: d.tiles, rev: d.baseRev, force });
+    if (res.status === 'conflict') { this._conflict = this._conflictSpec('screen', id, res.body); return; }
+    if (res.status !== 'ok') { this._pushToast(os.org, { level: 'error', message: res.message }); return; }
+    const body = res.body;
+    this._orgScreens = this._orgScreens.map((x) => x.id === id
+      ? { ...x, tiles: d.tiles, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt } : x);
+    this._dropDraft(id);
+    this._pushToast(os.org, { level: 'ok', message: `saved — everyone in ${os.org} sees rev ${body.rev}` });
   }
   // Fork an org screen (any member, even read-only) into a personal screen.
   _copyOrgScreen(id) {
@@ -367,15 +347,7 @@ export class BxShell extends LitElement {
     const theirs = kind === 'screen' ? body.screen : body.folders;
     const mine = kind === 'screen' ? this._orgDrafts?.[id] : this._folderDrafts?.[id];
     const what = kind === 'screen' ? `"${mine?.name ?? id}"` : `the ${id === 'ws' ? 'workspace' : id} sidebar folders`;
-    return { kind, id, spec: {
-      title: 'Someone saved this first',
-      message: `${what} is now at rev ${body.rev}, saved by ${this._whoLabel(theirs?.updatedBy)} ${ago(theirs?.updatedAt)}. Your draft is based on rev ${mine?.baseRev ?? '?'}.`,
-      buttons: [
-        { label: 'Keep editing', value: null },
-        { label: 'Reload theirs (drop my draft)', value: 'reload' },
-        { label: 'Overwrite with mine', value: 'force', danger: true },
-      ],
-    } };
+    return { kind, id, spec: conflictDialog({ what, rev: body.rev, by: this._whoLabel(theirs?.updatedBy), at: theirs?.updatedAt, baseRev: mine?.baseRev }) };
   }
   async _onConflict({ button }) {
     const c = this._conflict;
@@ -680,14 +652,13 @@ export class BxShell extends LitElement {
   _enterFolderEdit(scope) {
     const set = this._sharedFolders?.[scope];
     if (!set?.canEdit || this._folderDrafts?.[scope]) return;
-    this._folderDrafts = { ...this._folderDrafts, [scope]: {
-      folders: (set.folders ?? []).map((f) => ({ ...f, items: [...(f.items ?? [])] })), baseRev: set.rev ?? 0, dirty: false } };
+    this._folderDrafts = withDraft(this._folderDrafts, scope,
+      newDraft({ folders: (set.folders ?? []).map((f) => ({ ...f, items: [...(f.items ?? [])] })) }, set.rev ?? 0));
     const sec = this._sectionOf(scope);
     if (this._side.ownerCollapsed?.[sec]) this._toggleOwnerSec(sec);
   }
   _dropFolderDraft(scope) {
-    const { [scope]: _, ...rest } = this._folderDrafts ?? {};
-    this._folderDrafts = rest;
+    this._folderDrafts = withoutDraft(this._folderDrafts, scope);
     this._save();
   }
   _discardFolderDraft(scope) {
@@ -700,19 +671,14 @@ export class BxShell extends LitElement {
     const d = this._folderDrafts?.[scope];
     if (!d) return;
     const who = scope === 'ws' ? 'the workspace' : scope.slice(4);
-    try {
-      const r = await fetch('/api/xbin/screens/folders', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope, folders: d.folders, rev: d.baseRev, force }),
-      });
-      const body = await r.json().catch(() => ({}));
-      if (r.status === 409) { this._conflict = this._conflictSpec('folders', scope, body); return; }
-      if (!r.ok) { this._pushToast('sidebar', { level: 'error', message: body.error ?? `save failed (${r.status})` }); return; }
-      this._sharedFolders = { ...this._sharedFolders, [scope]: { ...(this._sharedFolders?.[scope] ?? {}),
-        folders: d.folders, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt, canEdit: true } };
-      this._dropFolderDraft(scope);
-      this._pushToast('sidebar', { level: 'ok', message: `shared folders saved — everyone in ${who} sees rev ${body.rev}` });
-    } catch { this._pushToast('sidebar', { level: 'error', message: 'offline — try again' }); }
+    const res = await publish('/api/xbin/screens/folders', { scope, folders: d.folders, rev: d.baseRev, force });
+    if (res.status === 'conflict') { this._conflict = this._conflictSpec('folders', scope, res.body); return; }
+    if (res.status !== 'ok') { this._pushToast('sidebar', { level: 'error', message: res.message }); return; }
+    const body = res.body;
+    this._sharedFolders = { ...this._sharedFolders, [scope]: { ...(this._sharedFolders?.[scope] ?? {}),
+      folders: d.folders, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt, canEdit: true } };
+    this._dropFolderDraft(scope);
+    this._pushToast('sidebar', { level: 'ok', message: `shared folders saved — everyone in ${who} sees rev ${body.rev}` });
   }
 
   // ---- tile-spawned dialogs & pop-out windows (docs/elements.md) ----
@@ -743,7 +709,7 @@ export class BxShell extends LitElement {
         y: d.spec.y ?? Math.round((window.innerHeight - h) / 2.4),
         w, h,
       }, { minW: 200, minH: 140 }),
-      z: ++zTop,
+      z: nextZ(),
     };
     this._spawnWins = [...this._spawnWins, win];
   }
@@ -765,7 +731,7 @@ export class BxShell extends LitElement {
 
   _spawnFront(id) {
     const w = this._spawnWins.find((x) => x.id === id);
-    if (w) { w.z = ++zTop; this.requestUpdate(); }
+    if (w) { w.z = nextZ(); this.requestUpdate(); }
   }
 
   // _fitWindows brings every floating window back inside the viewport:
@@ -1586,15 +1552,8 @@ export class BxShell extends LitElement {
   }
 
   async _saveWsDefault() {
-    try {
-      const r = await fetch('/api/xbin/screens/default', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tiles: this._tiles }),
-      });
-      const d = await r.json().catch(() => ({}));
-      this._menuMsg = r.ok ? { ok: true, text: 'saved — new users seed from this screen' }
-        : { ok: false, text: d.error ?? `failed (${r.status})` };
-    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
+    const res = await publish('/api/xbin/screens/default', { tiles: this._tiles });
+    this._menuMsg = res.status === 'ok' ? { ok: true, text: 'saved — new users seed from this screen' } : { ok: false, text: res.message };
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
@@ -1607,25 +1566,18 @@ export class BxShell extends LitElement {
     const body = target
       ? { id: target.id, org, tiles: this._tiles, rev: target.rev ?? 1, force }
       : { org, name: this._screen?.name || org, tiles: this._tiles };
-    try {
-      const r = await fetch('/api/xbin/screens/org', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 409 && target) {
-        this._settingsOpen = false;
-        const c = this._conflictSpec('screen', target.id, d);
-        c.kind = 'replace'; c.org = org;
-        c.spec.message = `"${target.name}" is now at rev ${d.rev}, saved by ${this._whoLabel(d.screen?.updatedBy)} ${ago(d.screen?.updatedAt)}; you were replacing rev ${target.rev ?? 1}.`;
-        c.spec.buttons = [{ label: 'Cancel', value: null }, { label: 'Reload theirs', value: 'reload' }, { label: 'Replace anyway', value: 'force', danger: true }];
-        this._conflict = c;
-        return;
-      }
-      this._menuMsg = r.ok
-        ? { ok: true, text: target ? `replaced "${target.name}" — now rev ${d.rev}` : `shared to ${org} — appears as a tab for its members` }
-        : { ok: false, text: d.error ?? `failed (${r.status})` };
-      if (r.ok) this._loadShared();
-    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
+    const res = await publish('/api/xbin/screens/org', body);
+    const d = res.body ?? {};
+    if (res.status === 'conflict' && target) {
+      this._settingsOpen = false;
+      this._conflict = { kind: 'replace', id: target.id, org, spec: conflictDialog({ what: `"${target.name}"`, rev: d.rev,
+        by: this._whoLabel(d.screen?.updatedBy), at: d.screen?.updatedAt, baseRev: target.rev ?? 1, replace: true }) };
+      return;
+    }
+    this._menuMsg = res.status === 'ok'
+      ? { ok: true, text: target ? `replaced "${target.name}" — now rev ${d.rev}` : `shared to ${org} — appears as a tab for its members` }
+      : { ok: false, text: res.message };
+    if (res.status === 'ok') this._loadShared();
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
@@ -2191,7 +2143,7 @@ export class BxShell extends LitElement {
     const h = Math.round(Math.min(r?.height || 340, 520, window.innerHeight - 16));
     const x = Math.max(8, Math.min(Math.round((r?.left ?? 120) + 28), window.innerWidth - w - 8));
     const y = Math.max(8, Math.min(Math.round((r?.top ?? 90) + 20), window.innerHeight - h - 8));
-    return { x, y, w, h, z: ++zTop };
+    return { x, y, w, h, z: nextZ() };
   }
 
   _floatWin(path) { return this.renderRoot.querySelector(`.float[data-path="${path}"]`); }
@@ -2206,8 +2158,7 @@ export class BxShell extends LitElement {
     if (!o) return;
     const maxZ = Math.max(...floats.map((t) => t.float.z ?? 100));
     if ((o.float.z ?? 100) >= maxZ) return; // already on top
-    zTop = maxZ + 1;
-    this._setFloat(path, { z: zTop });
+    this._setFloat(path, { z: raiseTo(maxZ + 1) });
   }
 
   // A click inside a tile's <iframe> focuses it and blurs the top window (the
