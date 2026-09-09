@@ -12,7 +12,8 @@
 #   ./run.sh --keep     same, but leave xbind running on $PORT
 #   ./run.sh --restart  rebuild xbind and restart it on the EXISTING workspace
 #                       (no reseed), then shoot; xbind stays up
-#   ./run.sh --shots    only shoot against the running instance
+#   ./run.sh --shots [pass…]   only shoot against the running instance —
+#                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +28,8 @@ export OUT="$HARNESS_DIR/out"
 export REPO
 mkdir -p "$OUT"
 mode="${1:-}"
+[[ $# -gt 0 ]] && shift
+passes=("$@")   # --shots [pass…]
 
 # The [x] keeps pkill from matching this script's own command line. Also
 # stop a harness instance from another HARNESS_DIR still holding the port.
@@ -60,7 +63,7 @@ case "$mode" in
     echo "seeded (log: $OUT/seed.log)" ;;
 esac
 
-(cd "$H" && node shots.js) > "$OUT/shots.log" 2>&1 || { echo "shots failed:"; tail -30 "$OUT/shots.log"; exit 1; }
+(cd "$H" && node shots.js "${passes[@]}") > "$OUT/shots.log" 2>&1 || { echo "shots failed:"; tail -30 "$OUT/shots.log"; exit 1; }
 tail -40 "$OUT/shots.log"
 [[ "$mode" == "" ]] && stop
 echo "screenshots: $OUT"

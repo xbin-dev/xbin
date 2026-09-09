@@ -2836,6 +2836,18 @@ export class BxAdmin extends LitElement {
   _draft(k) { return this._drafts?.[k]; }
   _setDraft(k, v) { this._drafts = { ...(this._drafts ?? {}), [k]: v }; }
   _dropDraft(k) { const d = { ...(this._drafts ?? {}) }; delete d[k]; this._drafts = d; }
+
+  // ---- test surface (hack/ui-harness) ----
+  // Stable names over the tile's private state (see bx-shell's testApi).
+  testApi() {
+    const a = this;
+    return {
+      get tab() { return a._tab; },
+      draft: (k) => a._draft(k),
+      setDraft: (k, v) => a._setDraft(k, v),
+      dropDraft: (k) => a._dropDraft(k),
+    };
+  }
   _toggleDraft(k, seed) { this._draft(k) ? this._dropDraft(k) : this._setDraft(k, seed()); }
 
   // Target suggestions: every real component path, a pattern per group
@@ -3548,7 +3560,7 @@ export class BxAdmin extends LitElement {
     const d = this._draft(key); // [{kind, value}] rows while editing
     const rules = ns.rules ?? [];
     const sum = setSummary(rules);
-    return html`<div style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
+    return html`<div class="netsetcard" data-netset=${name} style="border:1px solid var(--bx-border,#e4e8ed); border-radius:6px; padding:8px 10px; margin:8px 0">
       <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
         <b class="mono">⛭ ${name}</b>
         ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}

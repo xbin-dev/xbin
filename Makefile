@@ -100,9 +100,12 @@ fmt:
 check: fmt-check vet js-check shellcheck pins-offline test
 	@echo ">> make check: green"
 
-# Parse every shipped .js and every inline <script type="module"> block.
+# Parse every shipped .js and every inline <script type="module"> block; and
+# the UI harness may only drive the elements' testApi() (never a `_member`
+# that a refactor renames).
 js-check:
 	@node hack/check-js.mjs
+	@! grep -nE '\._[a-zA-Z]' hack/ui-harness/*.js || (echo 'js-check: hack/ui-harness drives private members — use testApi() (docs/maintenance.md → "UI harness")'; exit 1)
 
 shellcheck:
 	@./hack/check-sh.sh

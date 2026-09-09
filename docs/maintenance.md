@@ -119,6 +119,50 @@ the registry read those and grants, chrome and inject state must agree with
 what is served; a file the workspace lacks is not added by the overlay
 either. `internal/server/overlay_test.go` pins all three rules.
 
+## UI harness (`hack/ui-harness`)
+
+The frontend has no unit-test runner; browser behaviour is pinned by
+`hack/ui-harness`: `run.sh` builds xbind, seeds a throwaway workspace
+(orgs, network sets, users, org tiles in every binding state, the
+`focusy` and `linky` fixture tiles) and runs Playwright passes from
+`shots.js` — screenshots and `<select>` dumps to look at, plus asserting
+passes that write `PASS`/`FAIL` lines under `$HARNESS_DIR/out/<pass>.txt`
+and exit 1 on any FAIL.
+
+```
+hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
+hack/ui-harness/run.sh --keep             # …and leave xbind up on $PORT
+hack/ui-harness/run.sh --shots windows    # one pass against the running instance
+hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
+(cd hack/ui-harness && node shots.js --list)
+```
+
+Rules that keep it cheap to maintain:
+
+- **Passes drive the elements' `testApi()`** — `bx-shell`, `bx-frame` and
+  `bx-admin` each expose stable names over their private state (open a
+  tile, set a float, open the admin window, read the toasts…). A pass
+  never touches a `_member` or walks `shadowRoot` by hand; `make js-check`
+  fails on `._x` in that directory. When a refactor renames state, only
+  `testApi()` moves. The surface reads and writes existing state — no
+  test-only branches in production code.
+- **DOM hooks are part of the markup contract**: `.card[data-path]`,
+  `.item[data-path]`, `.float[data-path]`, `.spawn`, `.admin-pop`,
+  `details[data-sec]`, `.netsetcard[data-netset]`, `.setcard[data-set]`,
+  `[data-new-set]`, `[data-save-set]`. Keep them when restructuring
+  templates. Playwright selectors pierce open shadow roots, so
+  `bx-frame[src="apps/x"] .pop` reaches into a frame.
+- **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
+  polls the shell's test surface, `waitSel` a selector, `settle` two
+  animation frames after a state change. A fixed `sleep` is only right
+  for a negative ("no menu appears") or a timer inside the element.
+- One `lib.js` holds login, the in-page plumbing (`sh`, `fr`), waits,
+  screenshots and the checker; a new pass is a function added to
+  `PASSES` in `shots.js`.
+
+On this box: `PLAYWRIGHT_DIR=~/lcad-wasm` (Playwright + its Chromium) and
+`HARNESS_DIR` somewhere outside the repo.
+
 ## Route inventory (routes ↔ OpenAPI ↔ protocol.md)
 
 `internal/apicheck` mounts the broker on a server exactly as the daemon does

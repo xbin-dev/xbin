@@ -1,71 +1,33 @@
-// Playwright screenshots of the D54 surfaces. Env: URL, OUT.
-// Playwright: a global/NODE_PATH install, else $PLAYWRIGHT_DIR/node_modules.
-const pw = (() => {
-  try { return require('playwright'); } catch { /* fall through */ }
-  const dir = process.env.PLAYWRIGHT_DIR;
-  if (!dir) throw new Error('playwright not found: npm i -g playwright (+ npx playwright install chromium) or set PLAYWRIGHT_DIR');
-  return require(require('path').join(dir, 'node_modules', 'playwright'));
-})();
-const fs = require('fs');
-const URL = process.env.URL || 'http://127.0.0.1:8697';
-const OUT = process.env.OUT || __dirname + '/out';
-fs.mkdirSync(OUT, { recursive: true });
+// Playwright passes over the seeded harness workspace: screenshots to LOOK at
+// the UI, and asserting passes (PASS/FAIL lines under out/, a throw on any
+// FAIL) that are the repo's browser-behaviour regression tests. Env: URL, OUT.
+//
+//   node shots.js                 # every pass
+//   node shots.js windows menus   # only these (also: --pass a,b)
+//   node shots.js --list
+//
+// Passes drive the UI through the elements' testApi() (lib.js); a private-
+// member access (dot underscore) in this directory fails `make js-check`.
+const {
+  URL, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen,
+  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw,
+} = require('./lib');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const log = (...a) => console.log('[shots]', ...a);
-
-async function login(browser, user, pass) {
-  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
-  const page = await ctx.newPage();
-  page.on('pageerror', (e) => log(`${user}: PAGE ERROR`, e.message));
-  page.on('console', (m) => { if (m.type() === 'error') log(`${user}: console.error`, m.text().slice(0, 200)); });
-  await page.goto(`${URL}/login`);
-  await page.fill('input[name=username]', user);
-  await page.fill('input[name=password]', pass);
-  await Promise.all([page.waitForNavigation(), page.click('button')]);
-  return { ctx, page };
-}
-
-async function gotoTab(page, hash, waitText) {
-  await page.goto(`${URL}/c/tiles/admin/#${hash}`);
-  await page.reload();
-  await page.waitForSelector(`text=${waitText}`, { timeout: 15000 });
-  await sleep(600);
-}
-
-async function shot(page, name, opts = {}) {
-  await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true, ...opts });
-  log('wrote', name + '.png');
-}
-
-// Text dump of every <select> under a locator (native dropdowns don't render
-// in screenshots) → out/<name>.txt
-async function dumpSelects(page, name, selector = 'select') {
-  const rows = await page.locator(selector).evaluateAll((sels) => sels.map((s) => ({
-    title: s.title, value: s.value,
-    options: [...s.options].map((o) => `${o.selected ? '*' : ' '} [${o.value}] ${o.textContent.trim()}${o.title ? '   // ' + o.title.replace(/\n/g, ' ⏎ ') : ''}`),
-  })));
-  const txt = rows.map((r, i) => `select#${i} value=${JSON.stringify(r.value)}${r.title ? ' title=' + JSON.stringify(r.title) : ''}\n  ${r.options.join('\n  ')}`).join('\n\n');
-  fs.writeFileSync(`${OUT}/${name}.txt`, txt + '\n');
-  log('wrote', name + '.txt');
-}
-
+// Screenshots of the admin console's D54 surfaces, the tile popover and a
+// terminal on an org tile.
 async function admin(browser) {
   const { ctx, page } = await login(browser, 'admin', 'admin');
 
   // ---- admin tile: network sets tab ----
   await page.goto(`${URL}/c/tiles/admin/#netsets`);
-  await page.waitForSelector('text=Rule grammar', { timeout: 15000 });
-  await sleep(500);
+  await waitSel(page, 'text=Rule grammar', { timeout: 15000 });
   await shot(page, 'admin-netsets');
 
   // open devs-net's editor, break the LAN row, add a host row
-  // the set card = the div whose header row directly holds the ⛭ name
-  const card = page.locator('div:has(> div > b.mono:text-is("⛭ devs-net"))').first();
+  const card = page.locator('.netsetcard[data-netset="devs-net"]');
   await card.getByRole('button', { name: 'edit' }).click();
-  await sleep(300);
+  await waitSel(page, '.netsetcard[data-netset="devs-net"] .orow input');
   await shot(page, 'admin-netsets-edit');
-  const lanInput = card.locator('.orow input').nth(0); // first row with a value input (lan or internet-to)
   const inputs = card.locator('.orow input');
   const n = await inputs.count();
   for (let i = 0; i < n; i++) {
@@ -73,10 +35,10 @@ async function admin(browser) {
     if (v.startsWith('10.42')) { await inputs.nth(i).fill('10.42.0.0/33'); break; }
   }
   await card.getByRole('button', { name: '+ rule' }).click();
-  await sleep(200);
+  await settle(page);
   const lastSel = card.locator('.orow select').last();
   await lastSel.selectOption('host');
-  await sleep(300);
+  await settle(page);
   await shot(page, 'admin-netsets-edit-hint');
   await card.getByRole('button', { name: 'cancel' }).click();
 
@@ -91,48 +53,43 @@ async function admin(browser) {
   // reveal the custom input on apps/pinned
   const pinnedRow = page.locator('tr', { has: page.locator('td.mono', { hasText: 'apps/pinned' }) }).first();
   await pinnedRow.locator('select').selectOption('__custom');
-  await sleep(300);
+  await settle(page);
   await shot(page, 'admin-wiring-custom');
 
   // ---- components tab (runtime detail of the node backends) ----
   // spawn the two node backends first (a request through the proxy does it)
   for (const t of ['apps/crawler', 'apps/racks']) await ctx.request.get(`${URL}/api/${t}/`);
-  await sleep(2500);
   await gotoTab(page, 'components', 'apps/crawler');
-  await sleep(1500);
   for (const t of ['apps/crawler', 'apps/racks']) {
-    await page.locator('tr', { has: page.locator('a, span', { hasText: t }).first() }).first().locator('span.caret').click();
+    const row = page.locator('tr', { has: page.locator('a, span', { hasText: t }).first() }).first();
+    await row.locator('span.caret').waitFor({ timeout: 10000 });
+    await row.locator('span.caret').click();
   }
-  await sleep(1500);
+  await settle(page);
   await shot(page, 'admin-components');
 
   // ---- shell: tile popover + terminal on an org tile ----
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    for (const p of ['apps/crawler']) if (!sh._isOpen(p)) sh._toggle(p);
-  });
-  await sleep(1000);
+  await openShell(page);
+  await openTile(page, 'apps/crawler');
   const crawler = page.locator('.card[data-path="apps/crawler"]');
   await crawler.locator('button[title^="tile admin"]').click();
-  await sleep(500);
-  await page.evaluate(() => {
-    const ta = document.querySelector('bx-shell').shadowRoot.querySelector('bx-tile-admin');
-    ta.shadowRoot.querySelectorAll('details').forEach((d) => { d.open = /runtime|interfaces/.test(d.querySelector('summary')?.textContent ?? ''); });
+  await waitSel(page, '.admin-pop bx-tile-admin details');
+  await sh(page, (t) => {
+    const ta = t.tileAdminElement();
+    ta.renderRoot.querySelectorAll('details').forEach((d) => { d.open = /runtime|interfaces/.test(d.querySelector('summary')?.textContent ?? ''); });
   });
-  await sleep(1500);
+  await settle(page);
+  await sleep(400); // the runtime section's first poll
   await shot(page, 'shell-popover-crawler', { fullPage: false });
   await dumpSelects(page, 'shell-popover-selects', 'bx-tile-admin select');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => { document.querySelector('bx-shell')._adminPop = null; });
+  await sh(page, (t) => t.closeAdminWindow());
 
   await crawler.locator('button.term').click();
-  await sleep(4000); // spawn + session frame
+  await waitSel(page, 'bx-frame[src="apps/crawler"] select.scope', { timeout: 20000 }); // spawn + session frame
   await shot(page, 'term-admin-crawler', { fullPage: false });
   await dumpSelects(page, 'term-admin-crawler-selects', 'bx-frame select.scope');
-  await ctx.close();
+  await closeCtx(ctx, page);
 }
 
 // Org screens (D55): view bar → edit layout → draft → a competing save →
@@ -141,72 +98,71 @@ async function admin(browser) {
 async function screens(browser) {
   const { ctx, page } = await login(browser, 'dev1', 'devpass123');
   const admin = await login(browser, 'admin', 'admin'); // the competing saver
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  const sh = () => document.querySelector('bx-shell');
-  const orgId = await page.evaluate(() => document.querySelector('bx-shell')._orgScreens.find((s) => s.org === 'devs')?.id);
-  if (!orgId) { log('no devs org screen seeded'); await ctx.close(); await admin.ctx.close(); return; }
+  await openShell(page);
+  const orgId = await sh(page, (t) => t.orgScreens.find((s) => s.org === 'devs')?.id);
+  if (!orgId) { log('no devs org screen seeded'); await closeCtx(ctx, page); await closeCtx(admin.ctx, admin.page); return; }
   // a dirty draft from an earlier pass survives reloads by design — drop it so this pass starts in view mode
-  await page.evaluate((id) => { const s = document.querySelector('bx-shell'); if (s._orgDrafts?.[id]) s._dropDraft(id); s._openOrgScreen(id); }, orgId);
-  await sleep(800);
+  await sh(page, (t, id) => { if (t.orgDraft(id)) t.dropOrgDraft(id); t.openOrgScreen(id); }, orgId);
+  await waitSel(page, 'bx-shell .orgbar');
   await shot(page, 'orgscreen-view', { fullPage: false });
   // edit layout → add a tile from the sidebar → dirty draft
   await page.locator('bx-shell .orgbar button', { hasText: 'edit layout' }).click();
-  await sleep(300);
-  await page.evaluate(() => document.querySelector('bx-shell')._toggle('apps/offline'));
-  await sleep(600);
+  await waitFor(page, (t, id) => !!t.orgDraft(id), orgId, { label: 'edit mode' });
+  await sh(page, (t) => t.toggleTile('apps/offline'));
+  await waitSel(page, '.card[data-path="apps/offline"]', { state: 'attached' });
   await shot(page, 'orgscreen-edit', { fullPage: false });
   // someone else saves first (admin, against the current rev) → our save conflicts
-  const cur = await page.evaluate((id) => document.querySelector('bx-shell')._orgScreens.find((s) => s.id === id).rev, orgId);
+  const cur = await sh(page, (t, id) => t.orgScreens.find((s) => s.id === id).rev, orgId);
   const r = await admin.ctx.request.put(`${URL}/api/xbin/screens/org`, { data: { id: orgId, org: 'devs',
     tiles: [{ path: 'apps/pinned', x: 0, y: 0, w: 576, h: 384 }], rev: cur } });
   log('competing save:', r.status(), (await r.text()).slice(0, 120));
-  await sleep(1200); // the users event refreshes _orgScreens → "newer version" note
+  // the users event refreshes the org screens → "newer version" note
+  await waitFor(page, (t, a) => (t.orgScreens.find((s) => s.id === a.id)?.rev ?? 0) > a.cur, { id: orgId, cur }, { label: 'newer revision seen' });
   await shot(page, 'orgscreen-edit-newer', { fullPage: false });
   await page.locator('bx-shell .orgbar button', { hasText: 'Save and update' }).click();
-  await sleep(800);
+  await waitSel(page, 'bx-dialog button:has-text("Reload theirs")');
   await shot(page, 'orgscreen-conflict', { fullPage: false });
   await page.locator('bx-dialog button', { hasText: 'Reload theirs' }).click();
-  await sleep(800);
+  await waitFor(page, (t, id) => !t.orgDraft(id), orgId, { label: 'draft dropped after reload' });
   await shot(page, 'orgscreen-after-reload', { fullPage: false });
   // edit again and save cleanly
   await page.locator('bx-shell .orgbar button', { hasText: 'edit layout' }).click();
-  await page.evaluate(() => document.querySelector('bx-shell')._toggle('apps/crawler'));
-  await sleep(300);
+  await waitFor(page, (t, id) => !!t.orgDraft(id), orgId, { label: 'edit mode again' });
+  await sh(page, (t) => t.toggleTile('apps/crawler'));
+  await settle(page);
+  const before = await sh(page, (t, id) => t.orgScreens.find((s) => s.id === id).rev, orgId);
   await page.locator('bx-shell .orgbar button', { hasText: 'Save and update' }).click();
-  await sleep(1200);
+  await waitFor(page, (t, a) => !t.orgDraft(a.id) && (t.orgScreens.find((s) => s.id === a.id)?.rev ?? 0) > a.before, { id: orgId, before }, { label: 'clean save published' });
   await shot(page, 'orgscreen-saved', { fullPage: false });
   // sidebar trees: shared folders (devs: Crawling; ws: Docs) + flat roots
   await shot(page, 'sidebar-trees', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
   // curate devs' shared folders: ✎ → draft → new folder → file a tile → save
   await page.locator('bx-shell .group.owner', { hasText: 'devs' }).hover();
   await page.locator('bx-shell .group.owner', { hasText: 'devs' }).locator('button.pen').click();
-  await sleep(300);
-  await page.evaluate(() => {
-    const s = document.querySelector('bx-shell');
-    const ctx = s._folderCtx('org:devs');
+  await waitSel(page, 'bx-shell .secbar button:has-text("Save for everyone")');
+  await sh(page, (t) => {
+    const ctx = t.folderCtx('org:devs');
     if (!ctx.folders.some((f) => f.id === 'f2')) ctx.mutate((fs) => [...fs, { id: 'f2', name: 'Pinned', icon: '📌', items: [] }]);
-    s._fileInto('f2', 'apps/pinned', s._folderCtx('org:devs'));
+    t.fileInto('f2', 'apps/pinned', t.folderCtx('org:devs'));
   });
-  await sleep(400);
+  await settle(page);
   await shot(page, 'sidebar-folders-edit', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
   await page.locator('bx-shell .secbar button', { hasText: 'Save for everyone' }).click();
-  await sleep(1000);
+  await waitSel(page, 'bx-shell .secbar button:has-text("Save for everyone")', { state: 'detached' });
   await shot(page, 'sidebar-folders-saved', { fullPage: false, clip: { x: 0, y: 70, width: 230, height: 620 } });
   // hide the org tab → reopen from the sidebar entry
-  await page.evaluate((id) => document.querySelector('bx-shell')._hideOrgTab(id), orgId);
-  await sleep(500);
+  await sh(page, (t, id) => t.hideOrgTab(id), orgId);
+  await settle(page);
   await shot(page, 'orgtab-hidden', { fullPage: false });
   await page.locator('bx-shell .item.screen.org').first().click();
-  await sleep(500);
+  await waitFor(page, (t, id) => t.activeScreen === id, orgId, { label: 'org screen reopened' });
   // share menu (replace target) as dev1 on a personal screen
-  await page.evaluate(() => { const s = document.querySelector('bx-shell'); s._active = s._screens[0].id; s._settingsOpen = true; });
-  await sleep(500);
+  await sh(page, (t) => { t.setScreen(t.screens[0].id); t.openSettings(); });
+  await waitSel(page, 'bx-shell .wsmenu');
   await shot(page, 'share-menu', { fullPage: false });
   await dumpSelects(page, 'share-menu-selects', 'bx-shell .wsmenu select');
-  await ctx.close();
-  await admin.ctx.close();
+  await closeCtx(ctx, page);
+  await closeCtx(admin.ctx, admin.page);
 }
 
 // Context menus (D56): the canvas menu with its open-tile / create submenus,
@@ -215,163 +171,143 @@ async function screens(browser) {
 // multiselect list that must escape the window's edge.
 async function menus(browser) {
   const { ctx, page } = await login(browser, 'admin', 'admin');
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const s = document.querySelector('bx-shell');
-    const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); }
+  await openShell(page);
+  await usePersonalScreen(page);
+  await sh(page, (t) => {
     // keep some tiles closed (recents list) and free the bottom of the canvas for the right-click
-    for (const t of ['apps/offline', 'apps/leads', 'tiles/apidocs', 'tiles/admin']) if (s._isOpen(t)) s._toggle(t);
-    if (!s._isOpen('apps/crawler')) s._toggle('apps/crawler');
+    for (const p of ['apps/offline', 'apps/leads', 'tiles/apidocs', 'tiles/admin']) t.closeTile(p);
+    t.openTile('apps/crawler');
     // warm the recents list: open + close a few tiles
-    for (const t of ['apps/leads', 'apps/pinned', 'apps/racks']) { s._toggle(t); s._toggle(t); }
+    for (const p of ['apps/leads', 'apps/pinned', 'apps/racks']) { t.toggleTile(p); t.toggleTile(p); }
   });
-  await sleep(800);
+  await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
   await page.mouse.click(1300, 860, { button: 'right' }); // empty canvas (below the cards)
-  await sleep(400);
+  await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-canvas', { fullPage: false });
   await page.locator('bx-menu .it', { hasText: 'Open tile' }).hover();
-  await sleep(450);
+  await waitSel(page, 'bx-menu .panel.sub .q');
   await shot(page, 'menu-canvas-open-tile', { fullPage: false });
   await page.locator('bx-menu .panel.sub .q').fill('le');
-  await sleep(300);
+  await settle(page);
   await shot(page, 'menu-canvas-open-tile-filter', { fullPage: false });
   await page.locator('bx-menu .it', { hasText: 'Create a new tile' }).hover();
-  await sleep(450);
+  await sleep(450); // the submenu swap has its own hover delay
   await shot(page, 'menu-canvas-create', { fullPage: false });
   await page.keyboard.press('Escape');
-  await sleep(300);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed' });
   await page.locator('.card[data-path="apps/crawler"] .head').click({ button: 'right' });
-  await sleep(400);
+  await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-tile-card', { fullPage: false });
   await page.keyboard.press('Escape');
-  await sleep(300);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed' });
   // right-click INSIDE the tile's iframe: the tile page relays it to the shell
   const cb = await page.locator('.card[data-path="apps/crawler"] .cbody').boundingBox();
   await page.mouse.click(cb.x + 120, cb.y + 90, { button: 'right' });
-  await sleep(600);
+  await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-tile-body', { fullPage: false });
   await page.keyboard.press('Escape');
-  await sleep(300);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed' });
   await page.locator('bx-shell .item[data-path="apps/offline"]').click({ button: 'right' });
-  await sleep(400);
+  await waitSel(page, 'bx-menu .cell');
   await shot(page, 'menu-tile-sidebar', { fullPage: false });
   await page.locator('bx-menu .cell', { hasText: 'logs' }).click();
-  await sleep(2500);
+  await waitSel(page, 'bx-frame[src="apps/offline"] .pop', { timeout: 15000 });
   await shot(page, 'menu-tile-logs-opened', { fullPage: false });
-  await page.evaluate(() => { const s = document.querySelector('bx-shell'); s._frameOf('apps/offline')?.toggleTerminal(); });
-  await page.evaluate(() => document.querySelector('bx-shell')._openAdminWin('apps/consumer', 'interfaces'));
-  await sleep(1500);
+  await sh(page, (t) => t.frameFor('apps/offline')?.toggleTerminal());
+  await sh(page, (t) => t.openAdminWindow('apps/consumer', 'interfaces'));
+  await waitSel(page, '.admin-pop bx-tile-admin details[data-sec="interfaces"]');
   await shot(page, 'admin-win-interfaces', { fullPage: false });
   const ms = page.locator('bx-tile-admin bx-multiselect .control').first();
   if (await ms.count()) {
     await ms.click();
-    await sleep(500);
+    await waitSel(page, 'bx-tile-admin bx-multiselect .menu');
     await shot(page, 'admin-win-multiselect-open', { fullPage: false });
-    const r = await page.evaluate(() => {
-      const ta = document.querySelector('bx-shell').shadowRoot.querySelector('bx-tile-admin');
-      const m = ta?.shadowRoot.querySelector('bx-multiselect')?.shadowRoot.querySelector('.menu')?.getBoundingClientRect();
-      const w = document.querySelector('bx-shell').shadowRoot.querySelector('.admin-pop')?.getBoundingClientRect();
+    const r = await sh(page, (t) => {
+      const ta = t.tileAdminElement();
+      const m = ta?.renderRoot.querySelector('bx-multiselect')?.renderRoot.querySelector('.menu')?.getBoundingClientRect();
+      const w = t.adminWindowElement()?.getBoundingClientRect();
       return { menu: m && [m.left, m.top, m.right, m.bottom].map(Math.round), win: w && [w.left, w.top, w.right, w.bottom].map(Math.round), vw: innerWidth, vh: innerHeight };
     });
     log('multiselect list rect', JSON.stringify(r));
   } else log('no multiselect in apps/consumer admin window');
   // click outside closes the admin popover
   await page.mouse.click(1300, 860);
-  await sleep(300);
+  await settle(page);
   await page.mouse.click(1300, 860);
-  await sleep(300);
-  log('admin popover after outside click:', await page.evaluate(() => !!document.querySelector('bx-shell')._adminPop));
-  await ctx.close();
+  await settle(page);
+  log('admin popover after outside click:', await sh(page, (t) => !!t.adminWindow));
+  await closeCtx(ctx, page);
 }
 
 // Phone viewport (D56): the trimmed card head with ⋯, the tile menu and
 // the canvas menu as bottom sheets, a sidebar row's ⋯ in the drawer, and the
 // admin window as a full-screen sheet.
 async function mobile(browser) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
-  const page = await ctx.newPage();
-  page.on('pageerror', (e) => log('mobile: PAGE ERROR', e.message));
-  await page.goto(`${URL}/login`);
-  await page.fill('input[name=username]', 'admin');
-  await page.fill('input[name=password]', 'admin');
-  await Promise.all([page.waitForNavigation(), page.click('button')]);
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const s = document.querySelector('bx-shell');
-    const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); }
-    for (const t of ['tiles/manager', 'apps/welcome', 'tiles/apidocs', 'tiles/admin']) if (s._isOpen(t)) s._toggle(t);
-    if (!s._isOpen('apps/crawler')) s._toggle('apps/crawler');
+  const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await openShell(page);
+  await usePersonalScreen(page);
+  await sh(page, (t) => {
+    for (const p of ['tiles/manager', 'apps/welcome', 'tiles/apidocs', 'tiles/admin']) t.closeTile(p);
+    t.openTile('apps/crawler');
   });
-  await sleep(800);
+  await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
   await shot(page, 'm-card-more', { fullPage: false });
   await page.locator('.card[data-path="apps/crawler"] .head button[title^="tile menu"]').tap();
-  await sleep(500);
+  await waitSel(page, 'bx-menu .shead');
   await shot(page, 'm-sheet-tile', { fullPage: false });
   await page.locator('bx-menu .shead button[title=close]').tap();
-  await sleep(300);
-  await page.evaluate(() => document.querySelector('bx-shell')._openCanvasMenu({ clientX: 200, clientY: 600, preventDefault() {} }));
-  await sleep(500);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'sheet closed' });
+  await sh(page, (t) => t.openCanvasMenu({ x: 200, y: 600 }));
+  await waitSel(page, 'bx-menu .shead');
   await shot(page, 'm-sheet-canvas', { fullPage: false });
   await page.locator('bx-menu .it', { hasText: 'Open tile' }).tap();
-  await sleep(400);
+  await waitSel(page, 'bx-menu .q');
   await shot(page, 'm-sheet-canvas-open-tile', { fullPage: false });
   await page.locator('bx-menu .shead button[title=close]').tap();
-  await sleep(300);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'sheet closed' });
   await page.locator('bx-shell .ham').tap();
-  await sleep(500);
+  await waitSel(page, 'bx-shell .item[data-path="apps/offline"] .more');
   await page.locator('bx-shell .item[data-path="apps/offline"] .more').tap();
-  await sleep(500);
+  await waitSel(page, 'bx-menu .shead');
   await shot(page, 'm-sheet-sidebar', { fullPage: false });
   await page.locator('bx-menu .shead button[title=close]').tap();
-  await sleep(300);
-  await page.evaluate(() => { document.querySelector('bx-shell')._drawer = false; });
-  await page.evaluate(() => document.querySelector('bx-shell')._openAdminWin('apps/crawler', 'interfaces'));
-  await sleep(1200);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'sheet closed' });
+  await sh(page, (t) => t.setDrawer(false));
+  await sh(page, (t) => t.openAdminWindow('apps/crawler', 'interfaces'));
+  await waitSel(page, '.admin-pop bx-tile-admin details[data-sec="interfaces"]');
   await shot(page, 'm-admin-sheet', { fullPage: false });
-  await ctx.close();
+  await closeCtx(ctx, page);
 }
 
+// An org admin's view: term-net per tile, the organisations tile, and a
+// terminal (scope picker) on each of their tiles.
 async function orgAdmin(browser, user, pass, tiles) {
   const { ctx, page } = await login(browser, user, pass);
   for (const t of tiles) {
     const r = await ctx.request.get(`${URL}/api/xbin/term-net?tile=${encodeURIComponent(t)}`);
-    fs.appendFileSync(`${OUT}/term-net-${user}.json`, `${t}: ${await r.text()}\n`);
+    fs.appendFileSync(`${require('./lib').OUT}/term-net-${user}.json`, `${t}: ${await r.text()}\n`);
   }
   await page.goto(`${URL}/c/tiles/organisations/`);
-  await page.waitForSelector('text=my organisations', { timeout: 15000 });
-  await sleep(1200);
+  await waitSel(page, 'text=my organisations', { timeout: 15000 });
   await shot(page, `orgs-tile-${user}`);
   await dumpSelects(page, `orgs-tile-${user}-selects`, 'bx-organisations select');
 
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  // stay on a personal screen: a sidebar click on an org screen would open a draft
-  await page.evaluate(() => { const s = document.querySelector('bx-shell'); const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); } });
-  await sleep(300);
+  await openShell(page);
+  await usePersonalScreen(page); // a sidebar click on an org screen would open a draft
   for (const t of tiles) {
-    await page.evaluate((p) => { const sh = document.querySelector('bx-shell'); if (!sh._isOpen(p)) sh._toggle(p); }, t);
-    await sleep(800);
+    await openTile(page, t);
     const card = page.locator(`.card[data-path="${t}"]`);
     if (!(await card.count())) { log(user, 'no card for', t); continue; }
     await card.locator('button.term').click();
-    await sleep(4000);
+    await waitSel(page, `bx-frame[src="${t}"] select.scope`, { timeout: 20000 });
     const slug = t.replace(/\W+/g, '-');
     await shot(page, `term-${user}-${slug}`, { fullPage: false });
     await dumpSelects(page, `term-${user}-${slug}-selects`, 'bx-frame select.scope');
     // close the pop-up so the next tile's terminal is the one on screen
-    await page.evaluate((p) => {
-      const sh = document.querySelector('bx-shell');
-      const fr = sh.shadowRoot.querySelector(`bx-frame[src="${p}"]`);
-      if (fr) fr._termOpen = false;
-    }, t);
-    await sleep(300);
+    await fr(page, t, (f) => f?.closeTerminal());
+    await settle(page);
   }
-  await ctx.close();
+  await closeCtx(ctx, page);
 }
 
 // Floating windows must always be reachable (the field report: a terminal
@@ -381,88 +317,67 @@ async function orgAdmin(browser, user, pass, tiles) {
 // canvas menu's "Bring windows on-screen" fixes a parked spawned window and
 // float tile. Failures throw at the end of the pass.
 async function windows(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/windows.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/windows.txt`, '');
+  const { check, done } = checker('windows');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   const inside = (r) => !!r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.right <= r.W + 0.5 && r.bottom <= r.H + 0.5;
   const fmt = (r) => r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)} in ${r.W}×${r.H}` : 'none';
-  const rectOf = (sel) => page.evaluate((s) => {
-    const sh = document.querySelector('bx-shell');
-    const el = s.startsWith('pop:')
-      ? sh.shadowRoot.querySelector(`bx-frame[src="${s.slice(4)}"]`)?.shadowRoot?.querySelector('.pop')
-      : sh.shadowRoot.querySelector(s);
+  const rectOf = (sel) => sh(page, (t, s) => {
+    const el = s.startsWith('pop:') ? t.frameFor(s.slice(4))?.testApi().popElement() : t.query(s);
     const r = el?.getBoundingClientRect();
     return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height, W: innerWidth, H: innerHeight } : null;
   }, sel);
 
   // 1. a persisted off-screen pop-up restores inside the viewport
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await openShell(page);
   await page.evaluate(() => localStorage.setItem('bx-term:apps/crawler', JSON.stringify({
     open: true, active: 0, pop: { x: 2270, y: 1217, w: 1003, h: 868 },
     sessions: [{ key: 'k1', id: null, net: null, gpu: 'none', api: true, name: '' }] })));
   await page.reload();
   await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
-    if (!sh._isOpen('apps/crawler')) sh._toggle('apps/crawler');
-  });
-  await sleep(3000);
+  await waitFor(page, (t) => !!t && t.screens.length > 0, null, { timeout: 15000, label: 'shell layout loaded' });
+  await usePersonalScreen(page);
+  await openTile(page, 'apps/crawler');
+  await waitSel(page, 'bx-frame[src="apps/crawler"] .pop', { timeout: 20000 });
   let r = await rectOf('pop:apps/crawler');
   check(inside(r), `restored pop-up lands inside the viewport (${fmt(r)})`);
   await shot(page, 'windows-restored', { fullPage: false });
 
   // 2. a shrinking browser window pulls an open pop-up back in
-  await page.evaluate(() => {
-    const fr = document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="apps/crawler"]');
-    fr._pop = { x: 820, y: 560, w: 560, h: 320 };
-  });
-  await sleep(300);
+  await fr(page, 'apps/crawler', (f) => f.setPop({ x: 820, y: 560, w: 560, h: 320 }));
+  await settle(page);
   await page.setViewportSize({ width: 1000, height: 700 });
-  await sleep(800);
+  await waitFor(page, (t) => { const p = t.frameFor('apps/crawler')?.testApi().pop; return !!p && p.x + p.w <= innerWidth && p.y + p.h <= innerHeight; }, null, { label: 'pop-up refit after resize' });
   r = await rectOf('pop:apps/crawler');
   check(inside(r), `pop-up follows a shrinking browser window (${fmt(r)})`);
   await shot(page, 'windows-shrunk', { fullPage: false });
   await page.setViewportSize({ width: 1400, height: 900 });
-  await sleep(500);
+  await settle(page);
 
   // 3. "Bring windows on-screen": a spawned window and a float tile parked off-screen
-  const hasItem = await page.evaluate(() => document.querySelector('bx-shell')._canvasMenuItems().some((i) => /on-screen/.test(i.label ?? '')));
+  const hasItem = await sh(page, (t) => t.canvasMenuItems().some((i) => /on-screen/.test(i.label ?? '')));
   check(hasItem, 'canvas menu offers "Bring windows on-screen"');
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    sh._spawnWins = [{ id: 'hw', from: 'apps/crawler', src: 'apps/crawler', reply() {}, title: 'parked', x: 5000, y: 4000, w: 400, h: 300, z: 3000 }];
-    if (!sh._isOpen('apps/offline')) sh._toggle('apps/offline');
+  await sh(page, (t) => {
+    t.setSpawnWindows([{ id: 'hw', from: 'apps/crawler', src: 'apps/crawler', reply() {}, title: 'parked', x: 5000, y: 4000, w: 400, h: 300, z: 3000 }]);
+    t.openTile('apps/offline');
   });
-  await sleep(800);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    sh._mutateTiles((tiles) => tiles.map((o) => o.path === 'apps/offline' ? { ...o, float: { x: 5000, y: 4000, w: 400, h: 300, z: 100 } } : o));
-  });
-  await sleep(800);
+  await waitSel(page, '.card[data-path="apps/offline"], .float[data-path="apps/offline"]', { state: 'attached' });
+  await sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/offline' ? { ...o, float: { x: 5000, y: 4000, w: 400, h: 300, z: 100 } } : o)));
+  await waitSel(page, '.float[data-path="apps/offline"]', { state: 'attached' });
   r = await rectOf('.float[data-path="apps/offline"]');
   check(inside(r), `a float saved off-screen renders inside the viewport (${fmt(r)})`);
-  await page.evaluate(() => document.querySelector('bx-shell')._fitWindows(true));
-  await sleep(800);
+  await sh(page, (t) => t.fitWindows(true));
+  await settle(page);
   r = await rectOf('.spawn');
   check(inside(r), `spawned window brought on-screen (${fmt(r)})`);
-  const saved = await page.evaluate(() => document.querySelector('bx-shell')._tiles.find((o) => o.path === 'apps/offline')?.float);
+  const saved = await sh(page, (t) => t.floatOf('apps/offline'));
   check(saved && saved.x + saved.w <= 1400 && saved.y + saved.h <= 900, `float geometry persisted on-screen (${JSON.stringify(saved)})`);
   await shot(page, 'windows-fitted', { fullPage: false });
 
   // tidy: the next pass starts from the seeded layout
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    sh._spawnWins = [];
-    if (sh._isOpen('apps/offline')) sh._toggle('apps/offline');
-    localStorage.removeItem('bx-term:apps/crawler');
-  });
-  await sleep(500);
-  await ctx.close();
-  if (fails.length) throw new Error(`windows: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  await sh(page, (t) => { t.setSpawnWindows([]); t.closeTile('apps/offline'); localStorage.removeItem('bx-term:apps/crawler'); });
+  await settle(page);
+  await closeCtx(ctx, page);
+  done();
 }
 
 // A tile reload must not touch focus or z-order. apps/focusy focuses its
@@ -471,43 +386,31 @@ async function windows(browser) {
 // alone and hand the stolen focus back to the terminal. A negative control
 // first proves the tile really does grab focus in this browser.
 async function reloadFocus(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/reload-focus.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/reload-focus.txt`, '');
+  const { check, done } = checker('reload-focus');
   const { ctx, page } = await login(browser, 'admin', 'admin');
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
-    for (const t of ['apps/crawler', 'apps/focusy']) if (!sh._isOpen(t)) sh._toggle(t);
-  });
-  await sleep(1000);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    sh._mutateTiles((tiles) => tiles.map((o) => {
-      if (o.path === 'apps/focusy') return { ...o, float: { x: 300, y: 120, w: 520, h: 380, z: 100 } };
-      if (o.path === 'apps/crawler') return { ...o, float: { x: 80, y: 80, w: 520, h: 360, z: 200 } };
-      return o;
-    }));
-  });
-  await sleep(2500);
-  const state = () => page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
+  await openShell(page);
+  await usePersonalScreen(page);
+  await sh(page, (t) => { t.openTile('apps/crawler'); t.openTile('apps/focusy'); });
+  await waitSel(page, '.card[data-path="apps/focusy"] bx-frame', { state: 'attached' });
+  await sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => {
+    if (o.path === 'apps/focusy') return { ...o, float: { x: 300, y: 120, w: 520, h: 380, z: 100 } };
+    if (o.path === 'apps/crawler') return { ...o, float: { x: 80, y: 80, w: 520, h: 360, z: 200 } };
+    return o;
+  })));
+  await waitSel(page, '.float[data-path="apps/focusy"] bx-frame', { state: 'attached' });
+  await tileFrame(page, 'apps/focusy');
+  const state = () => sh(page, (t) => {
     let el = document.activeElement;
     while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-    const z = (p) => sh._tiles.find((o) => o.path === p)?.float?.z;
     const host = el?.getRootNode?.()?.host;
-    return { active: el?.tagName, activeSrc: host?.tagName === 'BX-FRAME' ? host.src : (host?.tagName ?? ''), zCrawler: z('apps/crawler'), zFocusy: z('apps/focusy') };
+    return { active: el?.tagName, activeSrc: host?.tagName === 'BX-FRAME' ? host.src : (host?.tagName ?? ''), zCrawler: t.floatOf('apps/crawler')?.z, zFocusy: t.floatOf('apps/focusy')?.z };
   });
-  const frame = (p) => `document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="${p}"]')`;
-  const focusTerm = (p) => page.evaluate((f) => eval(f).shadowRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(), frame(p));
+  const focusTerm = (p) => fr(page, p, (f) => f.focusTerminal());
   // open the crawler terminal and put the caret in it
-  await page.evaluate((f) => eval(f).open('term'), frame('apps/crawler'));
-  await sleep(3500);
+  await fr(page, 'apps/crawler', (f) => f.open('term'));
+  await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal textarea', { timeout: 20000 });
   await focusTerm('apps/crawler');
-  await sleep(300);
+  await settle(page);
   let s = await state();
   check(s.active === 'TEXTAREA' && s.zCrawler > s.zFocusy, `setup: caret in the crawler terminal, crawler float on top (${JSON.stringify(s)})`);
 
@@ -516,49 +419,44 @@ async function reloadFocus(browser) {
   // blur → the shell fronts that float). Parent-side iframe.focus() is the
   // deterministic stand-in: a sandboxed tile can't steal focus in a headless
   // browser without a user gesture, but the shell's blur path is identical.
-  await page.evaluate((f) => { eval(f)._iframe.focus(); document.querySelector('bx-shell')._raiseFocusedFloat(); }, frame('apps/focusy'));
-  await sleep(150);
+  await fr(page, 'apps/focusy', (f, t) => { f.iframe.focus(); t.raiseFocusedFloat(); });
+  await sleep(150); // _raiseFocusedFloat decides on the next tick
   s = await state();
   check(s.zFocusy > s.zCrawler, `control: focusing a tile's iframe fronts its float (${JSON.stringify(s)})`);
 
   // reset: crawler back on top, caret back in its terminal
-  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); sh._setFloat('apps/crawler', { z: 200 }); sh._setFloat('apps/focusy', { z: 100 }); });
+  await sh(page, (t) => { t.setFloat('apps/crawler', { z: 200 }); t.setFloat('apps/focusy', { z: 100 }); });
   await focusTerm('apps/crawler');
-  await sleep(200);
+  await settle(page);
 
   // Fix: the same focus-into-iframe DURING a reload must not front the float,
   // and the focus the reload stole goes back to the terminal.
-  await page.evaluate((f) => {
-    const fr = eval(f);
-    fr._beginReload();  // reloading = true; captures the terminal as the prior focus
-    fr._iframe.focus(); // the reloaded document grabs focus
-    document.querySelector('bx-shell')._raiseFocusedFloat();
-  }, frame('apps/focusy'));
+  await fr(page, 'apps/focusy', (f, t) => {
+    f.beginReload();   // reloading = true; captures the terminal as the prior focus
+    f.iframe.focus();  // the reloaded document grabs focus
+    t.raiseFocusedFloat();
+  });
   await sleep(150);
   s = await state();
   check(s.zCrawler > s.zFocusy, `reload leaves the z-order alone (${JSON.stringify(s)})`);
   // …but a real click into the reloading tile (pointer over it) still fronts it
-  await page.evaluate((f) => { const fr = eval(f); fr._hover = true; fr._iframe.focus(); document.querySelector('bx-shell')._raiseFocusedFloat(); }, frame('apps/focusy'));
+  await fr(page, 'apps/focusy', (f, t) => { f.setHover(true); f.iframe.focus(); t.raiseFocusedFloat(); });
   await sleep(150);
   s = await state();
   check(s.zFocusy > s.zCrawler, `a real click into a reloading tile still fronts it (${JSON.stringify(s)})`);
   // pointer away again, crawler back on top; finishing the reload hands focus back
-  await page.evaluate((f) => { eval(f)._hover = false; const sh = document.querySelector('bx-shell'); sh._setFloat('apps/crawler', { z: 200 }); sh._setFloat('apps/focusy', { z: 100 }); }, frame('apps/focusy'));
-  await sleep(200);
-  await page.evaluate((f) => eval(f)._onFrameLoad(), frame('apps/focusy'));
-  await sleep(500);
+  await fr(page, 'apps/focusy', (f, t) => { f.setHover(false); t.setFloat('apps/crawler', { z: 200 }); t.setFloat('apps/focusy', { z: 100 }); });
+  await settle(page);
+  await fr(page, 'apps/focusy', (f) => f.notifyLoad());
+  await sleep(500); // the load handler restores focus after a 350 ms beat
   s = await state();
   check(s.active === 'TEXTAREA', `reload hands focus back to the terminal (${JSON.stringify(s)})`);
   await shot(page, 'reload-focus', { fullPage: false });
   // tidy
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    for (const t of ['apps/crawler', 'apps/focusy']) if (sh._isOpen(t)) sh._toggle(t);
-    localStorage.removeItem('bx-term:apps/crawler');
-  });
-  await sleep(500);
-  await ctx.close();
-  if (fails.length) throw new Error(`reload-focus: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  await sh(page, (t) => { t.closeTile('apps/crawler'); t.closeTile('apps/focusy'); localStorage.removeItem('bx-term:apps/crawler'); });
+  await settle(page);
+  await closeCtx(ctx, page);
+  done();
 }
 
 // cap:open-links (ND11): a tile's target=_blank links are dead until the
@@ -566,9 +464,7 @@ async function reloadFocus(browser) {
 // allow-popups-to-escape-sandbox (the attribute AND the CSP header of a
 // direct open) and a click opens a page; revoking takes it back. Failures throw.
 async function openLinks(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/open-links.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/open-links.txt`, '');
+  const { check, done } = checker('open-links');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   const grant = { from: 'apps/linky', target: 'cap:open-links', role: 'writer' };
   const jget = async (p) => (await ctx.request.get(`${URL}/api/xbin${p}`)).json();
@@ -576,20 +472,11 @@ async function openLinks(browser) {
   const g = await jget('/grants');
   check((g.pending ?? []).some((p) => p.from === grant.from && p.target === grant.target && p.role === 'writer'), 'the declared cap lands pending (never auto-granted)');
 
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
-    if (!sh._isOpen('apps/linky')) sh._toggle('apps/linky');
-  });
-  await sleep(3000);
-  const attr = () => page.evaluate(() => {
-    const f = document.querySelector('bx-shell').shadowRoot.querySelector('bx-frame[src="apps/linky"]')?._iframe;
-    return { sandbox: f?.getAttribute('sandbox') ?? '', credentialless: !!f?.hasAttribute('credentialless') };
-  });
-  const tileFrame = () => page.frames().find((f) => f.url().includes('/c/apps/linky/'));
+  await openShell(page);
+  await usePersonalScreen(page);
+  await openTile(page, 'apps/linky');
+  await tileFrame(page, 'apps/linky');
+  const attr = () => fr(page, 'apps/linky', (f) => ({ sandbox: f?.iframe.getAttribute('sandbox') ?? '', credentialless: !!f?.iframe.hasAttribute('credentialless') }));
   const csp = async () => (await ctx.request.get(`${URL}/c/apps/linky/`)).headers()['content-security-policy'] ?? '';
 
   let a = await attr();
@@ -597,20 +484,21 @@ async function openLinks(browser) {
   let h = await csp();
   check(h.startsWith('sandbox') && !h.includes('allow-popups'), `ungranted: CSP lacks allow-popups (${h})`);
   const before = ctx.pages().length;
-  await tileFrame().click('#ext');
-  await sleep(1200);
+  await (await tileFrame(page, 'apps/linky')).click('#ext');
+  await sleep(1200); // a negative: nothing to wait for
   check(ctx.pages().length === before, 'ungranted: a click opens no page');
 
   check((await ctx.request.post(`${URL}/api/xbin/grants`, { data: grant })).ok(), 'approve via API');
-  for (let i = 0; i < 40 && !(await attr()).sandbox.includes('allow-popups-to-escape-sandbox'); i++) await sleep(250);
+  await waitFor(page, (t) => (t.frameFor('apps/linky')?.testApi().iframe.getAttribute('sandbox') ?? '').includes('allow-popups-to-escape-sandbox'), null, { label: 'grant re-keyed the iframe' });
   a = await attr();
   check(a.sandbox.includes('allow-popups') && a.sandbox.includes('allow-popups-to-escape-sandbox'), `granted: attribute carries both tokens (${a.sandbox}; credentialless=${a.credentialless})`);
   h = await csp();
   check(h.includes('allow-popups allow-popups-to-escape-sandbox'), `granted: CSP extended (${h})`);
-  await sleep(1500); // the re-keyed iframe's document
+  const frame2 = await tileFrame(page, 'apps/linky'); // the re-keyed iframe's document
+  await frame2.waitForSelector('#ext', { timeout: 10000 });
   const [popup] = await Promise.all([
     ctx.waitForEvent('page', { timeout: 6000 }).catch(() => null),
-    tileFrame().click('#ext'),
+    frame2.click('#ext'),
   ]);
   check(!!popup, `granted: a click opens a page (credentialless frame: ${a.credentialless})`);
   if (popup) {
@@ -621,13 +509,12 @@ async function openLinks(browser) {
   await shot(page, 'open-links-granted', { fullPage: false });
 
   await ctx.request.delete(`${URL}/api/xbin/grants`, { data: grant });
-  for (let i = 0; i < 40 && (await attr()).sandbox.includes('allow-popups'); i++) await sleep(250);
+  await waitFor(page, (t) => !(t.frameFor('apps/linky')?.testApi().iframe.getAttribute('sandbox') ?? '').includes('allow-popups'), null, { label: 'revoke re-keyed the iframe' });
   a = await attr();
   check(!a.sandbox.includes('allow-popups'), `revoked: attribute back to base (${a.sandbox})`);
-  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); if (sh._isOpen('apps/linky')) sh._toggle('apps/linky'); });
-  await sleep(300);
-  await ctx.close();
-  if (fails.length) throw new Error(`open-links: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  await closeTile(page, 'apps/linky');
+  await closeCtx(ctx, page);
+  done();
 }
 
 // Copy from the tile menu (D56 amendment): selected text inside a tile rides
@@ -635,23 +522,16 @@ async function openLinks(browser) {
 // the native menu (Playwright shows none — ours must simply not open). The
 // plain-http path (no navigator.clipboard) goes through execCommand('copy').
 async function contextCopy(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/context-copy.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/context-copy.txt`, '');
+  const { check, done } = checker('context-copy');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });
-  await page.goto(`${URL}/`);
-  await page.waitForSelector('bx-shell', { timeout: 15000 });
-  await sleep(1500);
-  await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    const p = sh._screens.find((x) => !x.parked); if (p) { sh._active = p.id; sh._save(); }
-    if (!sh._isOpen('apps/focusy')) sh._toggle('apps/focusy');
-  });
-  await sleep(2500);
+  await openShell(page);
+  await usePersonalScreen(page);
+  await openTile(page, 'apps/focusy');
+  const frame = await tileFrame(page, 'apps/focusy');
+  await frame.waitForSelector('p', { timeout: 10000 });
   await page.bringToFront();
-  const menu = () => page.evaluate(() => !!document.querySelector('bx-shell')._menu);
-  const frame = page.frames().find((f) => f.url().includes('/c/apps/focusy/'));
+  const menu = () => sh(page, (t) => t.menuOpen);
   check(!!frame, 'the focusy frame is up');
   const selectP = () => frame.evaluate(() => {
     const p = document.querySelector('p'); const r = document.createRange(); r.selectNodeContents(p);
@@ -663,26 +543,26 @@ async function contextCopy(browser) {
   check(want === 'this tile focuses its input on every load', `selection made in the tile (${JSON.stringify(want)})`);
   const pb = await frame.locator('p').boundingBox();
   await page.mouse.click(pb.x + 12, pb.y + pb.height / 2, { button: 'right' });
-  await sleep(600);
+  await waitSel(page, 'bx-menu .it');
   check(await menu(), 'right-click on selected tile text opens the tile menu');
   const first = page.locator('bx-menu .it').first();
   check(((await first.locator('.lb').textContent().catch(() => '')) ?? '').trim() === 'Copy', 'Copy is the first row');
   check(((await first.locator('.hint').textContent().catch(() => '')) ?? '').includes('focuses its input'), 'the hint shows the snippet');
   await shot(page, 'menu-tile-copy', { fullPage: false });
   await first.click();
-  await sleep(500);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed on Copy' });
   check(!(await menu()), 'the menu closed on Copy');
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   check(clip === want, `clipboard holds the selection (${JSON.stringify(clip)})`);
-  check(await page.evaluate(() => document.querySelector('bx-shell')._toasts.some((t) => t.message === 'copied')), 'a "copied" toast showed');
+  check(await sh(page, (t) => t.toasts.some((x) => x.message === 'copied')), 'a "copied" toast showed');
 
   // (d) the plain-http path: no navigator.clipboard → execCommand('copy') on a scratch textarea
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
   await selectP();
   await page.mouse.click(pb.x + 12, pb.y + pb.height / 2, { button: 'right' });
-  await sleep(600);
+  await waitSel(page, 'bx-menu .it');
   await page.locator('bx-menu .it', { hasText: 'Copy' }).click();
-  await sleep(500);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed on Copy (fallback)' });
   await page.evaluate(() => { delete navigator.clipboard; }); // back to the prototype getter
   const clip2 = await page.evaluate(() => navigator.clipboard.readText());
   check(clip2 === want, `execCommand fallback wrote the clipboard (${JSON.stringify(clip2)})`);
@@ -691,7 +571,7 @@ async function contextCopy(browser) {
   // (b) right-click on the tile's <input> → native menu; ours must not open
   const ib = await frame.locator('#i').boundingBox();
   await page.mouse.click(ib.x + 10, ib.y + ib.height / 2, { button: 'right' });
-  await sleep(600);
+  await sleep(500); // a negative: give a wrong menu time to appear
   check(!(await menu()), 'right-click on an input inside the tile leaves the native menu');
 
   // (c) selected text in the shell's own chrome → native menu. Card heads and
@@ -699,30 +579,28 @@ async function contextCopy(browser) {
   // bindings panels carry real selectable text, in a nested shadow root.
   const who = page.locator('bx-shell bx-grants .who, bx-shell bx-bindings .who').first();
   const whoText = ((await who.textContent().catch(() => '')) ?? '').trim();
-  const shellSel = await page.evaluate(() => {
-    const sh = document.querySelector('bx-shell');
-    const el = sh.shadowRoot.querySelector('bx-grants')?.shadowRoot?.querySelector('.who')
-      ?? sh.shadowRoot.querySelector('bx-bindings')?.shadowRoot?.querySelector('.who');
+  const shellSel = await sh(page, (t) => {
+    const el = t.query('bx-grants')?.renderRoot?.querySelector('.who') ?? t.query('bx-bindings')?.renderRoot?.querySelector('.who');
     if (!el) return null;
     const r = document.createRange(); r.selectNodeContents(el);
     const s = document.getSelection(); s.removeAllRanges(); s.addRange(r);
-    return sh._selectedText();
+    return t.selectedText();
   });
   check(!!whoText && shellSel !== null && shellSel.trim() === whoText, `shell-side selection detected (${JSON.stringify(shellSel)} vs ${JSON.stringify(whoText)})`);
   await who.click({ button: 'right' });
-  await sleep(600);
+  await sleep(500);
   check(!(await menu()), 'right-click on selected shell text leaves the native menu');
   await page.mouse.click(1300, 860); // a left click on the canvas clears the selection
-  await sleep(300);
+  await settle(page);
   await who.click({ button: 'right' });
-  await sleep(500);
+  await waitSel(page, 'bx-menu .it');
   check(await menu(), 'the same text without a selection opens the shell menu');
   await page.keyboard.press('Escape');
-  await sleep(200);
+  await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed' });
 
-  await page.evaluate(() => { const sh = document.querySelector('bx-shell'); if (sh._isOpen('apps/focusy')) sh._toggle('apps/focusy'); });
-  await ctx.close();
-  if (fails.length) throw new Error(`context-copy: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  await closeTile(page, 'apps/focusy');
+  await closeCtx(ctx, page);
+  done();
 }
 
 // The permission-set creator (D57): build a set from typed rows, see each
@@ -730,9 +608,7 @@ async function contextCopy(browser) {
 // reopen it with the rows parsed back, and edit an org's extra entries with
 // the same rows. Asserts against the UI and the API. Failures throw.
 async function permSets(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/perm-sets.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/perm-sets.txt`, '');
+  const { check, done } = checker('perm-sets');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   const LONGP = 'apps/a-provider-with-a-deliberately-long-component-path-for-overflow';
   const jget = async (p) => (await ctx.request.get(`${URL}/api/xbin${p}`)).json();
@@ -741,18 +617,17 @@ async function permSets(browser) {
   await ctx.request.delete(`${URL}/api/xbin/permission-sets/infra`);
 
   await page.goto(`${URL}/c/tiles/admin/#permsets`);
-  await page.waitForSelector('text=new permission set', { timeout: 15000 });
-  await sleep(600);
+  await waitSel(page, 'text=new permission set', { timeout: 15000 });
   await shot(page, 'permsets-empty');
   await page.click('button[data-new-set]');
-  await sleep(300);
+  await waitSel(page, '.seteditor input[name=setname]');
   const ed = page.locator('.seteditor');
   const row = (i) => ed.locator('.allowrow').nth(i);
   await ed.locator('input[name=setname]').fill('infra');
   // row 1 (default kind: use a tile) — the llm-gw case, on a seeded tile
   await row(0).locator('input[name=value]').fill('apps/crawler');
   await row(0).locator('select[name=role]').selectOption('writer');
-  await sleep(200);
+  await settle(page);
   let desc = await row(0).locator('.allow-desc').textContent();
   check(/let their tiles use apps\/crawler as writer/.test(desc) && /tile:apps\/crawler@writer/.test(desc), `tile row reads back in words + entry ("${desc.trim()}")`);
   // row 2: bind an interface, pinned to the seeded feed provider
@@ -760,34 +635,34 @@ async function permSets(browser) {
   await row(1).locator('select[name=kind]').selectOption('iface');
   await row(1).locator('input[name=value]').fill('feed');
   await row(1).locator('input[name=provider]').fill(LONGP);
-  await sleep(200);
+  await settle(page);
   desc = await row(1).locator('.allow-desc').textContent();
   check(new RegExp(`bind a "feed" interface slot to ${LONGP.replace(/[-/]/g, '\\$&')}`).test(desc) && desc.includes(`iface:feed@${LONGP}`), `iface row reads back ("${desc.trim().slice(0, 80)}…")`);
   // row 3: a host port — first an impossible one: save must be blocked with a reason
   await ed.locator('button[data-add-entry]').click();
   await row(2).locator('select[name=kind]').selectOption('ingress:listen');
   await row(2).locator('input[name=value]').fill('99999');
-  await sleep(200);
+  await settle(page);
   const pill = await row(2).locator('.err-pill').textContent().catch(() => '');
   const saveDisabled = await ed.locator('button[data-save-set]').isDisabled();
   check(saveDisabled && /1–65535/.test(pill), `a bad port blocks create with a reason (disabled=${saveDisabled} "${pill}")`);
   await row(2).locator('input[name=value]').fill('8080-8090');
-  await sleep(200);
+  await settle(page);
   check(!(await ed.locator('button[data-save-set]').isDisabled()), 'fixing the port re-enables create');
   // an instance without a provider is refused too
   await row(1).locator('input[name=provider]').fill('');
   await row(1).locator('input[name=instance]').fill('dev');
-  await sleep(200);
+  await settle(page);
   check(await ed.locator('button[data-save-set]').isDisabled(), 'an instance without a provider blocks create');
   await row(1).locator('input[name=provider]').fill(LONGP);
   await row(1).locator('input[name=instance]').fill('');
-  await sleep(200);
+  await settle(page);
   // attach to sales (the multiselect is driven through the draft, as a person's picks would land)
-  await page.evaluate(() => { const a = document.querySelector('bx-admin'); a._setDraft('permset:new', { ...a._draft('permset:new'), orgs: ['sales'] }); });
-  await sleep(300);
+  await page.evaluate(() => { const a = document.querySelector('bx-admin').testApi(); a.setDraft('permset:new', { ...a.draft('permset:new'), orgs: ['sales'] }); });
+  await settle(page);
   await shot(page, 'permsets-creator');
   await ed.locator('button[data-save-set]').click();
-  await sleep(1500);
+  await waitSel(page, '.setcard[data-set="infra"]', { timeout: 10000 });
   let ps = await jget('/permission-sets');
   const want = ['tile:apps/crawler@writer', `iface:feed@${LONGP}`, 'ingress:listen:8080-8090'];
   check(JSON.stringify(ps.sets?.infra?.allow) === JSON.stringify(want), `set stored with the exact entries (${JSON.stringify(ps.sets?.infra?.allow)})`);
@@ -795,30 +670,28 @@ async function permSets(browser) {
   const sales = (await jget('/orgs')).orgs.find((o) => o.id === 'sales');
   check((sales?.resolvedAllow ?? []).includes('tile:apps/crawler@writer'), `sales' resolved allowance carries the entry (${JSON.stringify(sales?.resolvedAllow)})`);
   // the card shows the entries in words; edit parses them back into typed rows
-  await page.waitForSelector('.setcard[data-set="infra"]', { timeout: 5000 });
   const cardText = await page.locator('.setcard[data-set="infra"]').textContent();
   check(/let their tiles use apps\/crawler as writer/.test(cardText) && /publish their tiles on host ports 8080-8090/.test(cardText), 'card describes the entries in words');
   await shot(page, 'permsets-card');
   await page.locator('.setcard[data-set="infra"] button', { hasText: 'edit' }).click();
-  await sleep(300);
+  await waitSel(page, '.seteditor .allowrow select[name=kind]');
   const kinds = await page.locator('.seteditor .allowrow select[name=kind]').evaluateAll((els) => els.map((e) => e.value));
   check(JSON.stringify(kinds) === JSON.stringify(['tile', 'iface', 'ingress:listen']), `edit reopens the rows typed (${JSON.stringify(kinds)})`);
   const role = await page.locator('.seteditor .allowrow').nth(0).locator('select[name=role]').inputValue();
   check(role === 'writer', `role cap restored (${role})`);
   await page.locator('.seteditor button', { hasText: 'cancel' }).click();
   // the org card's extra entries use the same rows
-  await gotoTab(page, 'orgs', 'network (ws-admin, D54)'); // hash-only navigation doesn't switch tabs
-  await sleep(600);
+  await gotoTab(page, 'orgs', 'network (ws-admin, D54)');
   await page.locator('button[data-edit-allow]').first().click();
-  await sleep(300);
+  await waitSel(page, '.editor:has(button[data-save-allow])');
   const oed = page.locator('.editor:has(button[data-save-allow])');
   await oed.locator('button[data-add-entry]').click();
   const orow = oed.locator('.allowrow').last();
   await orow.locator('select[name=kind]').selectOption('cap');
   await orow.locator('input[name=value]').fill('containers');
-  await sleep(200);
+  await settle(page);
   await oed.locator('button[data-save-allow]').click();
-  await sleep(1200);
+  await waitSel(page, '.editor:has(button[data-save-allow])', { state: 'detached' });
   let orgs = (await jget('/orgs')).orgs;
   const edited = orgs.find((o) => (o.allow ?? []).includes('cap:containers'));
   check(!!edited, `org extra allow saved through the typed rows (${edited?.id})`);
@@ -828,8 +701,8 @@ async function permSets(browser) {
   await ctx.request.patch(`${URL}/api/xbin/orgs/sales`, { data: { sets: [] } });
   const del = await ctx.request.delete(`${URL}/api/xbin/permission-sets/infra`);
   check(del.ok(), `tidy: set deleted after detaching (${del.status()})`);
-  await ctx.close();
-  if (fails.length) throw new Error(`perm-sets: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  await closeCtx(ctx, page);
+  done();
 }
 
 // Net pickers must never show a refused bind as a success (the "org admin
@@ -839,34 +712,28 @@ async function permSets(browser) {
 // is read-only, the root prompt lists only approvable slots, and the ⚙
 // popover sizes to its content. Failures throw at the end of the pass.
 async function netPickers(browser) {
-  const fails = [];
-  const check = (cond, msg) => { fs.appendFileSync(`${OUT}/net-pickers.txt`, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
-  fs.writeFileSync(`${OUT}/net-pickers.txt`, '');
+  const { check, done } = checker('net-pickers');
+  const popState = (page) => sh(page, (t) => {
+    const pop = t.adminWindowElement();
+    const ta = t.tileAdminElement();
+    const sec = ta?.renderRoot.querySelector('details[data-sec="interfaces"]');
+    const sel = sec?.querySelector('select');
+    return {
+      height: pop?.getBoundingClientRect().height ?? 0, inner: window.innerHeight,
+      readonly: !!sec?.querySelector('[data-readonly]'),
+      hasSelect: !!sel,
+      value: sel?.value ?? null,
+      disabled: [...(sel?.options ?? [])].filter((o) => o.disabled).map((o) => o.value),
+      err: sec?.querySelector('.err')?.textContent?.trim() ?? '',
+    };
+  });
   const openPop = async (page, tile) => {
-    await page.evaluate((p) => { document.querySelector('bx-shell')._openAdminWin(p, 'interfaces'); }, tile);
-    await sleep(1500);
-    return page.evaluate(() => {
-      const sh = document.querySelector('bx-shell');
-      const pop = sh.shadowRoot.querySelector('.admin-pop');
-      const ta = pop?.querySelector('bx-tile-admin');
-      const sec = ta?.shadowRoot.querySelector('details[data-sec="interfaces"]');
-      const sel = sec?.querySelector('select');
-      return {
-        height: pop?.getBoundingClientRect().height ?? 0, inner: window.innerHeight,
-        readonly: !!sec?.querySelector('[data-readonly]'),
-        hasSelect: !!sel,
-        value: sel?.value ?? null,
-        disabled: [...(sel?.options ?? [])].filter((o) => o.disabled).map((o) => o.value),
-        err: sec?.querySelector('.err')?.textContent?.trim() ?? '',
-      };
-    });
+    await sh(page, (t, p) => t.openAdminWindow(p, 'interfaces'), tile);
+    await waitSel(page, '.admin-pop bx-tile-admin details[data-sec="interfaces"]');
+    await waitFor(page, (t) => { const sec = t.tileAdminElement()?.renderRoot.querySelector('details[data-sec="interfaces"]'); return !!sec && (sec.querySelector('select') || sec.querySelector('[data-readonly]')); }, null, { label: 'interfaces section populated' });
+    return popState(page);
   };
-  const closePop = (page) => page.evaluate(() => { document.querySelector('bx-shell')._adminPop = null; });
-  const openShell = async (page) => {
-    await page.goto(`${URL}/`);
-    await page.waitForSelector('bx-shell', { timeout: 15000 });
-    await sleep(1500);
-  };
+  const closePop = async (page) => { await sh(page, (t) => t.closeAdminWindow()); await settle(page); };
 
   // ---- workspace admin on an org tile (devs-net: internet + lan 10.42/16 + github, no host) ----
   {
@@ -884,41 +751,39 @@ async function netPickers(browser) {
     // a successful re-bind must show the NEW value at once (it once jumped
     // back to the old one until a second pick), and the server must agree
     const boundNow = async () => [].concat((await (await ctx.request.get(`${URL}/api/xbin/bindings`)).json()).bindings?.['apps/pinned']?.net ?? [])[0];
+    const waitBound = async (v) => { for (let i = 0; i < 40 && (await boundNow()) !== v; i++) await sleep(100); };
     await sel.selectOption('org');
-    await sleep(1500);
+    await waitBound('org');
+    await settle(page);
     let v = await sel.inputValue();
     check(v === 'org', `admin: select shows the new value right after a successful bind (now "${v}")`);
     check((await boundNow()) === 'org', 'admin: server bound org');
     await sel.selectOption(before);
-    await sleep(1500);
+    await waitBound(before);
+    await settle(page);
     v = await sel.inputValue();
     check(v === before, `admin: switching back shows "${before}" (now "${v}")`);
     check((await boundNow()) === before, `admin: server bound ${before} again`);
     // a refused custom ref: outside the set → 400 → select snaps back, reason in-section
     await sel.selectOption('__custom');
-    await sleep(300);
+    await waitSel(page, 'bx-shell bx-tile-admin details[data-sec="interfaces"] form input[name="ref"]');
     const form = page.locator('bx-shell bx-tile-admin details[data-sec="interfaces"] form');
     await form.locator('input[name="ref"]').fill('lan:10.0.0.0/8');
     await form.locator('button[type="submit"]').click();
-    await sleep(1500);
+    await waitFor(page, (t) => /not covered/.test(t.tileAdminElement()?.renderRoot.querySelector('details[data-sec="interfaces"] .err')?.textContent ?? ''), null, { label: 'refusal shown' });
     await shot(page, 'net-picker-admin-refused', { fullPage: false });
-    s = await page.evaluate(() => {
-      const ta = document.querySelector('bx-shell').shadowRoot.querySelector('.admin-pop bx-tile-admin');
-      const sec = ta.shadowRoot.querySelector('details[data-sec="interfaces"]');
-      return { value: sec.querySelector('select')?.value, err: sec.querySelector('.err')?.textContent?.trim() ?? '',
-        headerErr: !!ta.shadowRoot.querySelector(':host > .err, .hd + .err') };
-    });
+    s = await popState(page);
     check(/not covered/.test(s.err), `admin: refusal shown inside the section ("${s.err.slice(0, 60)}")`);
     check(s.value === before, `admin: select snapped back to "${before}" (now "${s.value}")`);
     await closePop(page);
-    await ctx.close();
+    await closeCtx(ctx, page);
   }
 
   // ---- org admin dev1: own personal tile is read-only; org tile offers the picker minus host ----
   {
     const { ctx, page } = await login(browser, 'dev1', 'devpass123');
     await openShell(page);
-    await page.evaluate(() => { const s = document.querySelector('bx-shell'); const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); } });
+    await usePersonalScreen(page);
     let s = await openPop(page, 'apps/dev1-notes');
     await shot(page, 'net-picker-dev1-personal', { fullPage: false });
     check(s.readonly && !s.hasSelect, `dev1: personal tile wiring is read-only (readonly=${s.readonly} select=${s.hasSelect})`);
@@ -927,7 +792,7 @@ async function netPickers(browser) {
     check(s.hasSelect && s.disabled.includes('host'), `dev1: org tile has a picker with host disabled (select=${s.hasSelect} disabled=${s.disabled.join(',')})`);
     await closePop(page);
     // the root bind prompt: only slots dev1 may wire (never the personal tile's)
-    const prompt = await page.evaluate(() => document.querySelector('bx-shell').shadowRoot.querySelector('bx-bindings')?.shadowRoot?.textContent ?? '');
+    const prompt = await sh(page, (t) => t.query('bx-bindings')?.renderRoot?.textContent ?? '');
     check(!prompt.includes('apps/dev1-notes'), 'dev1: root bind prompt does not offer the personal tile');
     // and the server view says the same
     const r = await ctx.request.get(`${URL}/api/xbin/bindings`);
@@ -935,27 +800,35 @@ async function netPickers(browser) {
     check(d.approvable?.['apps/pinned'] === true && !d.approvable?.['apps/dev1-notes'], `dev1: approvable = ${JSON.stringify(d.approvable)}`);
     const pin = (d.pending ?? []).find((p) => p.component === 'apps/dev1-notes');
     check(!pin || pin.approvable === false, 'dev1: pending row for the personal tile is not approvable');
-    await ctx.close();
+    await closeCtx(ctx, page);
   }
-  if (fails.length) throw new Error(`net-pickers: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`);
+  done();
 }
 
+// ---- pass registry + CLI ----
+const PASSES = {
+  admin, menus, mobile, screens,
+  orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy,
+};
+
 (async () => {
+  const args = process.argv.slice(2);
+  if (args.includes('--list')) { console.log(Object.keys(PASSES).join('\n')); return; }
+  const picked = args.flatMap((a) => a.startsWith('--pass=') ? a.slice(7).split(',') : a.startsWith('--pass') ? [] : a.startsWith('-') ? [] : a.split(','));
+  const names = picked.length ? picked : Object.keys(PASSES);
+  for (const n of names) if (!PASSES[n]) throw new Error(`unknown pass ${n} (node shots.js --list)`);
   const browser = await pw.chromium.launch();
+  const t0 = Date.now();
   try {
-    await admin(browser);
-    await menus(browser);
-    await mobile(browser);
-    await screens(browser);
-    await orgAdmin(browser, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']);
-    await orgAdmin(browser, 'sales1', 'salespass123', ['apps/leads']);
-    await netPickers(browser);
-    await windows(browser);
-    await reloadFocus(browser);
-    await permSets(browser);
-    await openLinks(browser);
-    await contextCopy(browser);
+    for (const n of names) {
+      const t = Date.now();
+      log(`== ${n}`);
+      await PASSES[n](browser);
+      log(`== ${n} done in ${((Date.now() - t) / 1000).toFixed(1)}s`);
+    }
   } finally {
     await browser.close();
   }
+  log(`all ${names.length} pass(es) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 })().catch((e) => { console.error('shots failed:', e); process.exit(1); });

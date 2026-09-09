@@ -586,6 +586,28 @@ export class BxFrame extends LitElement {
     }
   }
 
+  // ---- test surface (hack/ui-harness) ----
+  // Stable names over the frame's private state (see bx-shell's testApi).
+  // Reads and writes existing state only; nothing in the frame calls it.
+  testApi() {
+    const f = this;
+    return {
+      get iframe() { return f._iframe; },
+      get hovered() { return f.hovered; },
+      setHover(v) { f._hover = !!v; },
+      get reloading() { return f.reloading; },
+      beginReload: () => f._beginReload(),
+      notifyLoad: () => f._onFrameLoad(),
+      get terminalOpen() { return f._termOpen; },
+      closeTerminal() { f._termOpen = false; },
+      open: (layout) => f.open(layout),
+      get pop() { return f._pop; },
+      setPop(box) { f._pop = box; f.requestUpdate(); },
+      popElement: () => f.renderRoot.querySelector('.pop'),
+      focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
+    };
+  }
+
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {

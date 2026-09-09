@@ -1053,19 +1053,25 @@ export class BxShell extends LitElement {
 
   _save() {
     clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(() => {
-      // Only DIRTY drafts persist: a clean edit session isn't worth resurrecting.
-      const dirty = (m, pick) => Object.fromEntries(Object.entries(m ?? {}).filter(([, d]) => d.dirty).map(([k, d]) => [k, pick(d)]));
-      const drafts = {
-        org: dirty(this._orgDrafts, (d) => ({ tiles: d.tiles, baseRev: d.baseRev, name: d.name })),
-        folders: dirty(this._folderDrafts, (d) => ({ folders: d.folders, baseRev: d.baseRev })),
-      };
-      window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side,
-          tabOrder: this._tabOrder, hiddenOrg: this._hiddenOrg, recent: this._recent, drafts }),
-      }).catch(() => { /* best-effort; retried on next change */ });
-    }, 400);
+    this._saveTimer = setTimeout(() => this._saveNow(), 400);
+  }
+  // The debounced write itself. Returns the request so a caller that must
+  // know the layout reached the server (the harness before it closes a
+  // browser context) can await it.
+  _saveNow() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = null;
+    // Only DIRTY drafts persist: a clean edit session isn't worth resurrecting.
+    const dirty = (m, pick) => Object.fromEntries(Object.entries(m ?? {}).filter(([, d]) => d.dirty).map(([k, d]) => [k, pick(d)]));
+    const drafts = {
+      org: dirty(this._orgDrafts, (d) => ({ tiles: d.tiles, baseRev: d.baseRev, name: d.name })),
+      folders: dirty(this._folderDrafts, (d) => ({ folders: d.folders, baseRev: d.baseRev })),
+    };
+    return (window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side,
+        tabOrder: this._tabOrder, hiddenOrg: this._hiddenOrg, recent: this._recent, drafts }),
+    }) ?? Promise.resolve()).catch(() => { /* best-effort; retried on next change */ });
   }
 
   // ---- active screen helpers ----
@@ -2892,6 +2898,60 @@ export class BxShell extends LitElement {
   _setFloat(path, patch) {
     this._mutateTiles((tiles) => tiles.map((o) =>
       o.path === path && o.float ? { ...o, float: { ...o.float, ...patch } } : o));
+  }
+
+  // ---- test surface (hack/ui-harness) ----
+  // Stable names over the shell's private state so the harness never reaches
+  // for a `_member` or a shadow-root path that a refactor renames. Reads and
+  // writes existing state only — no test-only branches in production paths.
+  // Inert in normal use; nothing in the shell calls it.
+  testApi() {
+    const s = this;
+    return {
+      get screens() { return s._screens; },
+      get activeScreen() { return s._active; },
+      setScreen(id) { s._active = id; s._save(); },
+      // the layout save is debounced (400 ms): await this before closing a
+      // browser context, or the last change never reaches the server
+      flushSave: () => s._saveTimer ? s._saveNow() : Promise.resolve(),
+      // the first personal (unparked) screen — where passes start so a shared
+      // org screen never opens a draft by accident; returns its id
+      usePersonalScreen() { const p = s._screens.find((x) => !x.parked); if (p) { s._active = p.id; s._save(); } return p?.id ?? null; },
+      isOpen: (path) => s._isOpen(path),
+      openTile(path) { if (!s._isOpen(path)) s._toggle(path); },
+      closeTile(path) { if (s._isOpen(path)) s._toggle(path); },
+      toggleTile: (path) => s._toggle(path),
+      get openTiles() { return s._tiles; },
+      floatOf: (path) => s._tiles.find((o) => o.path === path)?.float ?? null,
+      setFloat: (path, patch) => s._setFloat(path, patch),
+      setGeom: (fn) => s._mutateTiles(fn), // fn(tiles copy) → new tiles of the active screen
+      get spawnWindows() { return s._spawnWins; },
+      setSpawnWindows(v) { s._spawnWins = v; },
+      fitWindows: (persist) => s._fitWindows(persist),
+      raiseFocusedFloat: () => s._raiseFocusedFloat(),
+      frameFor: (path) => s._frameOf(path),
+      get adminWindow() { return s._adminPop; },
+      openAdminWindow: (path, section) => s._openAdminWin(path, section),
+      closeAdminWindow() { s._adminPop = null; },
+      adminWindowElement: () => s.renderRoot.querySelector('.admin-pop'),
+      tileAdminElement: () => s.renderRoot.querySelector('bx-tile-admin'),
+      // an element of the shell's own DOM (.float[data-path], .spawn, bx-grants…)
+      query: (sel) => s.renderRoot.querySelector(sel),
+      openCanvasMenu: (at) => s._openCanvasMenu({ clientX: at?.x ?? 0, clientY: at?.y ?? 0, preventDefault() {} }),
+      canvasMenuItems: () => s._canvasMenuItems(),
+      get menuOpen() { return !!s._menu; },
+      openSettings() { s._settingsOpen = true; },
+      setDrawer(v) { s._drawer = !!v; },
+      get toasts() { return s._toasts ?? []; },
+      selectedText: () => s._selectedText(),
+      get orgScreens() { return s._orgScreens ?? []; },
+      orgDraft: (id) => s._orgDrafts?.[id] ?? null,
+      dropOrgDraft: (id) => s._dropDraft(id),
+      openOrgScreen: (id) => s._openOrgScreen(id),
+      hideOrgTab: (id) => s._hideOrgTab(id),
+      folderCtx: (key) => s._folderCtx(key),
+      fileInto: (folderId, path, ctx) => s._fileInto(folderId, path, ctx),
+    };
   }
 
   render() {
