@@ -54,8 +54,12 @@ migrations is checked against it.
 8. **The SDK stays zero-dependency**, and its semantics change only in the
    permissive direction (a call that succeeds today keeps succeeding), with
    a changelog entry.
-9. **Every boot-time migration has a fixture test** that boots a legacy
-   workspace twice and asserts the second run changes nothing.
+9. **Every boot-time migration has a fixture test** — `make integration`
+   boots an aged workspace (legacy `home/`, no ledger, no provenance, no
+   essential tile) twice: the first boot may change only the listed paths
+   and never the root `xbin.json`; the second boot changes nothing; a
+   `home/` + `homes/` conflict stops the daemon. A new migration extends
+   that test's allowed list with its reason.
 10. **Enforcement.** A builder-visible change needs a `docs/changelog.md`
     entry; one that requires an operator action needs a migration note under
     `docs/changes/`; CI verifies what it can. When a silent path has to

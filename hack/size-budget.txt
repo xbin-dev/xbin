@@ -22,3 +22,5 @@ internal/broker/orgsapi.go 820
 workspace-template/tiles/admin/admin.js 3200
 workspace-template/shell/bx-shell.js 2650
 workspace-template/apps/welcome/notes.js 1050
+# the harness passes: one function per feature; split into passes/*.js past this
+hack/ui-harness/shots.js 950

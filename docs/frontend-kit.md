@@ -19,7 +19,7 @@ import '/vendor/bx-frame.js';
 
 | Module | What it is |
 |---|---|
-| `/vendor/bx-kit.js` | the helper kit: `api(url, opts)` (JSON out, throws the server's `error`; in a sandboxed tile the request carries the frame token — your tile's identity — in chrome the session cookie, i.e. the signed-in human), `xbinApi('/grants')`, `selfApi('/runs')` (your own backend), `jbody(value, method?)`, `esc(text)`, `deepActive()`, `pathHas(event, selector)`, `clampBox(box, {minW, minH, margin})`, `sandboxed()` |
+| `/vendor/bx-kit.js` | the helper kit: `api(url, opts)` (JSON out, throws the server's `error`; in a sandboxed tile the request carries the frame token — your tile's identity — in chrome the session cookie, i.e. the signed-in human), `xbinApi('/grants')`, `selfApi('/runs')` (your own backend), `jbody(value, method?)`, `esc(text)`, `deepActive()`, `pathHas(event, selector)`, `clampBox(box, {minW, minH, margin})`, `dragPointer({cursor, onMove, onUp})` (a window-level pointer drag with the iframe shield), `dragShield(cursor)`, `sandboxed()` |
 | `/vendor/bx-frame.js` | `<bx-frame src="apps/x">` — embed another tile (with its terminal pop-up); exports `clampBox` for compatibility |
 | `/vendor/bx-dialog.js` | `<bx-dialog>` — a modal; `xbin.dialog()` falls back to it outside the shell |
 | `/vendor/bx-grants.js`, `/vendor/bx-bindings.js` | the owner's grant-approval and interface-binding panels |

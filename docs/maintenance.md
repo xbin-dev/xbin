@@ -132,6 +132,22 @@ what is served; a file only the overlay has (a scaffold file you just added)
 is served too, so no re-init is needed. `internal/server/overlay_test.go`
 pins the rules.
 
+## The legacy-workspace fixture (never break users)
+
+`test/legacy_workspace_test.go` (in `make integration`) ages a fresh
+scaffold into what an old workspace looks like — a legacy shared `home/`
+with real data, no `homes/`, no backfill ledger, no builtins provenance
+(an *adopted* workspace), no `tiles/organisations`, a `.gitignore` without
+`homes/` — and boots the real binary on it twice. The first boot may
+change only the paths the contract allows (`.xbin/`, `data/`, `homes/`,
+the removed `home/`, the essential `tiles/organisations/`, `go.work`,
+`.gitignore`, `AGENTS.md`/`CLAUDE.md`, materialised `deps/`) and must
+leave the root `xbin.json` byte-identical; the second boot must change
+nothing at all. A second test asserts the hard stop when both `home/` and
+`homes/` hold data. **Every new boot-time migration extends this test**
+(docs/compat.md rule 9): add what it may touch to the allowed list with
+the reason, and make sure the second boot still changes nothing.
+
 ## Server helpers and durable writes
 
 - **Every non-2xx answer of the built-in API goes through
@@ -208,6 +224,19 @@ rule 4). A tab element:
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
 `render()`, a harness pass that opens it (`hack/ui-harness/shots.js`).
+
+## The shell (`workspace-template/shell`)
+
+`bx-shell.js` is being taken apart the same way as the admin console: its
+stylesheet is `shell-css.js` (`shellCss`), every pointer drag goes through
+the kit's `dragPointer`, and the next steps are pure menu builders
+(`menus.js`), one `revDraft` module for the three identical draft flows
+(org screens, folders, share-to-org), and children (`bx-side`,
+`bx-screens`, `bx-canvas`, `bx-toasts`) once the harness's `testApi()`
+surface covers what moves. `bx-shell.js` keeps its name and imports the
+siblings relatively (compat rule 4). The harness passes `windows`,
+`screens`, `menus`, `mobile`, `reloadFocus` and `contextCopy` are the
+gate for every slice.
 
 ## UI harness (`hack/ui-harness`)
 
