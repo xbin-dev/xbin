@@ -21,6 +21,11 @@ const STALE_SEC = 30 * 86400;
 
 import { xbinApi as api } from '/vendor/bx-kit.js';
 import { diffHTML, hl, langFor } from '/vendor/bx-code.js';
+import { base } from './admin-css.js';
+// Tab elements (tiles/admin/tabs/*): each owns its data, endpoints and CSS
+// slice; the router keeps the nav, the shared lists and the global err /
+// notice slots, which the tabs feed through composed events.
+import './tabs/map.js';
 
 export class BxAdmin extends LitElement {
   static properties = {
@@ -52,14 +57,7 @@ export class BxAdmin extends LitElement {
     _bulkBusy: { state: true },  // bulk disable in flight
     _polEdit: { state: true },  // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },   // click-through editor drafts, keyed by context
-    _matrix: { state: true },   // /access-matrix payload (access-map tab)
-    _ownerEdit: { state: true }, // owner reassignment {tile, to, rep?, perr?} (D39)
-    _mapSel: { state: true },   // selected matrix cell {user, tile} → derivation panel
-    _mapTileQ: { state: true }, // access-map filter: tile path / owner substring
     _showHidden: { state: true }, // reveal hidden (state=hidden) tiles in lists (D42)
-    _mapUserQ: { state: true }, // access-map filter: user id/name substring
-    _mapLayout: { state: true }, // 'auto' (default) | 'matrix' | 'list'
-    _mapOpen: { state: true },  // set of tiles expanded in the by-tile list view
     _authSettings: { state: true },
     _alerts: { state: true }, // {tokenLoginDisabled, hasAdminUser, canDisable}
     _ifaces: { state: true },   // {bindings, components} — interface wiring
@@ -87,7 +85,7 @@ export class BxAdmin extends LitElement {
     _stOpen: { state: true },   // live-stats: tile expanded into big charts
   };
 
-  static styles = css`
+  static styles = [base, css`
     :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
             color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     /* two-level nav: a primary group row + a sub-tab row under it */
@@ -107,90 +105,6 @@ export class BxAdmin extends LitElement {
       color: var(--bx-muted, #868f9a); border-radius: 5px 5px 0 0; }
     .tabs button.on { background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
       border-color: var(--bx-border, #363c45); margin-bottom: -1px; }
-    /* filter bar (scales list views to 1000s of tiles) */
-    .filterbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 2px 0 10px; }
-    .filterbar input.q { flex: 1; min-width: 12em; font: inherit; font-size: 12px; padding: 4px 9px;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-    .chip { font-size: 11px; padding: 2px 9px; border-radius: 999px; cursor: pointer;
-      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
-      color: var(--bx-muted, #868f9a); }
-    .chip.on { background: var(--bx-accent, #f5a623); border-color: transparent; color: #fff; }
-    .count-note { font-size: 11px; color: var(--bx-muted, #868f9a); white-space: nowrap; }
-    /* standalone expand caret (component rows aren't inside .bk) */
-    .caret { display: inline-block; color: var(--bx-muted, #868f9a); font-size: 10px;
-             transition: transform .1s; }
-    .caret.o { transform: rotate(90deg); }
-    .body { padding: 12px 14px; }
-    .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 4px 0; }
-    .notice { color: var(--bx-green, #4caf50); font-size: 12px; margin: 4px 0; }
-    .alertbar { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
-    .al { padding: 6px 10px; border-radius: 6px; font-size: 12px; color: #fff; }
-    .al b { margin-right: 4px; }
-    .al.warn { background: #b7791f; }
-    .al.crit { background: #c53030; }
-    .denied { padding: 20px 14px; }
-    .denied code { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-      border-radius: 4px; padding: 0 4px; font: 11.5px var(--bx-mono); }
-
-    h4 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
-         text-transform: uppercase; color: var(--bx-muted, #868f9a); }
-    h4:first-child { margin-top: 0; }
-    .cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-    .stat { background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
-      border-radius: 6px; padding: 6px 12px; min-width: 74px; }
-    .stat .n { font: 700 18px var(--bx-mono, monospace); color: var(--bx-accent, #f5a623); }
-    .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-               color: var(--bx-muted, #868f9a); }
-    .stat.warn .n { color: var(--bx-amber, #f2a71b); }
-    .vault-banner { border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
-      font-size: 12.5px; font-weight: 600; }
-    .vault-banner.sealed {
-      background: var(--bx-red, #ef5350); color: #fff; cursor: pointer;
-      font-size: 13.5px; letter-spacing: .02em;
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--bx-red, #ef5350) 60%, #000),
-                  0 2px 10px color-mix(in srgb, var(--bx-red, #ef5350) 50%, transparent);
-      animation: vault-pulse 1.6s ease-in-out infinite;
-    }
-    @keyframes vault-pulse { 50% { filter: brightness(1.18); } }
-    @media (prefers-reduced-motion: reduce) { .vault-banner.sealed { animation: none; } }
-    .vault-banner.warn { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 18%, transparent);
-      color: var(--bx-amber, #f2a71b); cursor: pointer;
-      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent); }
-    .vault-banner.ok { background: none; border: 0; padding: 0 2px;
-      color: var(--bx-green, #4caf50); font-weight: 500; font-size: 11px; }
-
-    table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-         color: var(--bx-muted, #868f9a); font-weight: 600; padding: 3px 8px 3px 0; }
-    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border, #363c45);
-         vertical-align: top; }
-    .mono { font-family: var(--bx-mono, monospace); }
-    .pill { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px;
-      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
-      margin: 1px 2px 1px 0; }
-    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
-    .st-healthy { color: var(--bx-green, #4caf50); }
-    .st-failed  { color: var(--bx-red, #ef5350); }
-    .st-idle    { color: var(--bx-muted, #868f9a); }
-
-    button.act { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
-      color: var(--bx-text, #d4d9e0); border-radius: 5px; font: inherit; font-size: 11px;
-      padding: 1px 8px; cursor: pointer; }
-    button.act:hover { background: var(--bx-panel-2, #2b3038); }
-    button.go { background: var(--bx-green, #4caf50); color: #fff; border-color: transparent; }
-    button.rm { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red) 40%, transparent); }
-    input, select { font: inherit; font-size: 12px; padding: 2px 6px;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    .secret { font-family: var(--bx-mono, monospace); }
-    .muted { color: var(--bx-muted, #868f9a); }
-    form.inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-    a.link { color: var(--bx-accent, #f5a623); cursor: pointer; text-decoration: none; }
-    a.link:hover { text-decoration: underline; }
-    a.link.gated { color: var(--bx-muted, #868f9a); cursor: not-allowed; opacity: .55; }
-    a.link.gated:hover { text-decoration: none; }
 
     /* ---- code & history ---- */
     .code { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
@@ -281,55 +195,6 @@ export class BxAdmin extends LitElement {
     .flowtab { width: 100%; font-size: 11px; }
     .flowtab td { padding: 1px 6px 1px 0; }
 
-    /* ---- access map (structure + effective-access matrix) ---- */
-    .lv { display: inline-flex; align-items: center; justify-content: center;
-      width: 16px; height: 16px; border-radius: 4px; font-size: 10px; font-weight: 700;
-      font-family: var(--bx-mono, monospace); border: 1px solid transparent; }
-    .lv-read { color: #3577c8; background: color-mix(in srgb, #3577c8 14%, transparent);
-      border-color: color-mix(in srgb, #3577c8 40%, transparent); }
-    .lv-write { color: var(--bx-green, #4caf50);
-      background: color-mix(in srgb, var(--bx-green, #4caf50) 14%, transparent);
-      border-color: color-mix(in srgb, var(--bx-green, #4caf50) 40%, transparent); }
-    .lv-terminal { color: var(--bx-accent, #f5a623);
-      background: color-mix(in srgb, var(--bx-accent, #f5a623) 16%, transparent);
-      border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent); }
-    .lv-none { color: var(--bx-muted, #868f9a); opacity: .5; }
-    .pill.crown { border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
-      color: var(--bx-accent, #f5a623); }
-    .pill.pol { border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent);
-      color: var(--bx-red, #ef5350); cursor: help; }
-    .pill.lv-read, .pill.lv-write, .pill.lv-terminal { width: auto; height: auto; }
-    .snode { border: 1px solid var(--bx-border, #363c45); border-left: 3px solid var(--bx-border, #363c45);
-      border-radius: 6px; padding: 6px 10px; margin: 6px 0; }
-    .snode .shead { font-weight: 600; font-size: 12px; margin-bottom: 3px;
-      display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-    .snode.ws { border-left-color: var(--bx-muted, #868f9a); }
-    .snode.org { border-left-color: var(--bx-accent, #f5a623); }
-    .snode.team { border-left-color: var(--bx-green, #4caf50); margin-left: 18px; position: relative; }
-    .snode.team::before { content: ''; position: absolute; left: -12px; top: 14px;
-      width: 9px; border-top: 1px solid var(--bx-border, #363c45); }
-    .matrix { border-collapse: collapse; font-size: 11px; }
-    .matrix th { padding: 3px 6px; font-size: 10.5px; color: var(--bx-muted, #868f9a);
-      font-weight: 600; text-align: center; }
-    .matrix .mgrp { padding: 6px 4px 2px; font-size: 10px; font-weight: 700;
-      letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted, #868f9a);
-      border-bottom: 1px solid var(--bx-border, #363c45); }
-    .matrix .mtile { padding: 2px 10px 2px 4px; font-size: 11px; white-space: nowrap; }
-    .matrix .mcell { text-align: center; padding: 2px 5px; border-radius: 4px; }
-    .matrix .mcell.has { cursor: pointer; }
-    .matrix .mcell.has:hover { background: var(--bx-panel-2, #2b3038); }
-    .matrix .mown { padding: 2px 10px 2px 4px; white-space: nowrap; }
-    .maprow { display: flex; align-items: center; gap: 6px; padding: 3px 4px;
-              border-bottom: 1px solid var(--bx-border, #363c45); font-size: 11.5px; }
-    .maprow .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .maprow:hover { background: var(--bx-panel-2, #2b3038); }
-    .mapsub { margin: 0 0 6px 18px; font-size: 11px; }
-    .mapsub td { padding: 1px 8px 1px 0; }
-    .matrix .mcell.msel { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
-      outline-offset: -2px; }
-    .flow-deny { color: var(--bx-red, #ef5350); }
-    .flow-allow { color: var(--bx-green, #4caf50); }
-    .err-pill { color: var(--bx-red, #ef5350); font-size: 11px; }
     /* per-row "more ▾" menu: a native <details>, no JS state (users table) */
     details.menu { position: relative; display: inline-block; }
     details.menu > summary { list-style: none; display: inline-block; border: 1px solid var(--bx-border, #363c45);
@@ -365,7 +230,7 @@ export class BxAdmin extends LitElement {
     .allow-desc { font-size: 11px; flex-basis: 100%; padding-left: 4px; }
     .allow-desc .mono { opacity: .75; margin-left: 4px; }
     .seteditor select[name=kind] { min-width: 150px; }
-  `;
+  `];
 
   // Two-level nav (deployments run to thousands of tiles, so the flat tab row
   // no longer scales). Primary GROUPS, each with sub-tabs; sub-tab ids stay
@@ -435,7 +300,6 @@ export class BxAdmin extends LitElement {
     // list); _openCode re-sets _codeComp right after calling this to drill in.
     this._codeComp = null;
     if (t === 'components' || t === 'resources') this._loadRuntime();
-    if (t === 'map') this._loadMap();
     if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose' || t === 'permsets' || t === 'orgs') this._loadIfaces(); // permsets/orgs: the service datalist
     if (t === 'backup') this._loadBackup();
     if (t === 'sessions') this._loadSessions();
@@ -456,11 +320,14 @@ export class BxAdmin extends LitElement {
     this._onKey = (e) => { if (e.key === 'Escape') this._closeMenus(); };
     document.addEventListener('pointerdown', this._onDocDown, true);
     document.addEventListener('keydown', this._onKey);
+    // Tab elements report into the router's global slots.
+    this.addEventListener('bx-admin-err', (e) => { this._err = e.detail; });
+    this.addEventListener('bx-admin-notice', (e) => { this._err = ''; this._flash(e.detail, 6000); });
+    this.addEventListener('bx-admin-refresh', () => this._refreshSoon());
     this._refresh();
     // Prime the data the initial tab needs (constructor set _tab from the hash
     // but doesn't fetch; _setTab does that on later clicks).
     if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
-    if (this._tab === 'map') this._loadMap();
     if (['providers', 'wiring', 'endpoints', 'expose'].includes(this._tab)) this._loadIfaces();
     if (this._tab === 'backup') this._loadBackup();
     if (this._tab === 'sessions') this._loadSessions();
@@ -560,7 +427,7 @@ export class BxAdmin extends LitElement {
       this._sessions = sessions.sessions ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
       this._err = ''; this._denied = false;
-      if (this._tab === 'map') this._loadMap(true); // keep the matrix current
+      this.renderRoot.querySelector('bx-admin-map')?.refresh(); // keep the matrix current
     } catch (e) {
       if (String(e.message).includes('admin')) this._denied = true;
       else this._err = String(e.message ?? e);
@@ -788,7 +655,8 @@ export class BxAdmin extends LitElement {
           : tab === 'orgs' ? this._orgsView()
           : tab === 'permsets' ? this._permSetsView()
           : tab === 'netsets' ? this._netSetsView()
-          : tab === 'map' ? this._mapView()
+          : tab === 'map' ? html`<bx-admin-map .users=${this._users} .orgs=${this._orgs} .wsPolicy=${this._wsPolicy}
+              .showHidden=${this._showHidden} @bx-admin-show-hidden=${(e) => { this._showHidden = e.detail; }}></bx-admin-map>`
           : tab === 'components' ? (this._codeComp ? this._codeView() : this._componentsView())
           : tab === 'resources' ? this._resourcesView()
           : tab === 'vault' ? this._vaultView()
@@ -2858,300 +2726,6 @@ export class BxAdmin extends LitElement {
           <span class="muted" style="font-size:10.5px">creating a tile auto-grants the creator terminal on it</span>
         </div>
       </div>`;
-  }
-
-  // ---- access map: how permissions actually apply (visual) ----
-  async _loadMap(force = false) {
-    if (this._matrix && !force) return;
-    try {
-      this._matrix = await api('/access-matrix');
-      // Lifecycle states for the map's hidden-tile filtering (D42).
-      const comps = await api('/components').catch(() => []);
-      this._compState = Object.fromEntries((comps ?? []).map((c) => [c.path, c.state || 'enabled']));
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  _lvChip(level) {
-    const s = { read: 'r', write: 'w', terminal: 't' }[level] ?? '·';
-    return html`<span class="lv lv-${level || 'none'}" title=${level || 'no access'}>${s}</span>`;
-  }
-
-  _srcLabel(src) {
-    const [kind, ...rest] = String(src).split(':');
-    switch (kind) {
-      case 'admin': return 'workspace admin';
-      case 'owner': return 'owns the tile (D24)';
-      case 'exact': return 'exact entry — authoritative (D31)';
-      case 'org-admin': return `admin of owning org ${rest[0]}`;
-      case 'org-member': return html`member level in owning org <span class="mono">${rest[0]}</span>`;
-      case 'org-share': return html`shared to org <span class="mono">${rest[0]}</span> · <span class="mono">${rest.slice(1).join(':')}</span>`;
-      case 'direct': return html`own entry <span class="mono">${rest.join(':')}</span>`;
-      case 'default': return html`workspace default <span class="mono">${rest.join(':')}</span>`;
-      default: return src;
-    }
-  }
-
-  _structureView() {
-    const users = this._users ?? [];
-    const orgs = this._orgs ?? [];
-    const inOrg = new Set(orgs.flatMap((o) => (o.members ?? []).map((m) => m.id)));
-    const wsAdmins = users.filter((u) => u.role === 'admin').map((u) => u.id);
-    const outside = users.filter((u) => u.role !== 'admin' && !inOrg.has(u.id)).map((u) => u.id);
-    const person = (m) => html`<span class="pill ${m.admin ? 'crown' : ''}"
-      title="level ${m.level}${m.create ? ' · may create org tiles' : ''}${m.admin ? ' · org admin' : ''}">
-      ${m.admin ? '★ ' : ''}${m.id}·${(m.level || 'read')[0]}${m.create && !m.admin ? '+' : ''}</span>`;
-    return html`
-      <div class="snode ws">
-        <div class="shead">workspace</div>
-        <div>admins: ${wsAdmins.length ? wsAdmins.map((a) => html`<span class="pill crown">★ ${a}</span>`) : html`<span class="muted">root token only</span>`}
-          ${this._wsPolicy?.length ? html`<span class="pill pol" title=${this._wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${this._wsPolicy.length} policy row(s)</span>` : nothing}
-        </div>
-        ${outside.length ? html`<div style="margin-top:3px"><span class="muted" style="font-size:11px">in no org:</span> ${outside.map((u) => html`<span class="pill">${u}</span>`)}</div>` : nothing}
-      </div>
-      ${orgs.map((o) => html`
-        <div class="snode org">
-          <div class="shead"><span class="mono">${o.id}</span>${o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}
-            ${(o.sets ?? []).map((n) => html`<span class="pill" title="permission set">⛭ ${n}</span>`)}
-            ${(o.resolvedAllow ?? []).length ? html`<span class="pill" title=${'org admins may self-approve:\n' + o.resolvedAllow.join('\n')}>✓ ${o.resolvedAllow.length} allowance(s)</span>` : nothing}
-            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${o.policy.length} policy row(s)</span>` : nothing}
-          </div>
-          <div>${(o.members ?? []).length ? (o.members ?? []).map(person) : html`<span class="muted">no members</span>`}</div>
-          ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:3px">
-            ${(o.ownedTiles ?? []).map((p) => html`<span class="pill mono" title="owned by ${o.id}">${p}</span>`)}</div>` : nothing}
-        </div>`)}`;
-  }
-
-  _mapDetail() {
-    const s = this._mapSel;
-    const c = s && this._matrix?.matrix?.[s.user]?.[s.tile];
-    if (!c) return nothing;
-    return html`
-      <div style="margin-top:8px; padding:8px 10px; border:1px solid var(--bx-border, #363c45); border-radius:6px">
-        <span class="mono">${s.user}</span> on <span class="mono">${s.tile}</span> →
-        ${this._lvChip(c.level)} <b>${c.level}</b>
-        <table style="margin-top:5px">
-          ${(c.explain ?? []).map((v, i) => html`<tr style=${i === 0 ? '' : 'opacity:.65'}>
-            <td style="white-space:nowrap">${this._lvChip(v.level)} ${v.level}</td>
-            <td>${this._srcLabel(v.source)}</td>
-            <td class="muted" style="font-size:10.5px">${i === 0 ? '← effective (highest wins)' : 'unioned'}</td>
-          </tr>`)}
-        </table>
-      </div>`;
-  }
-
-  // _ownerCell: the owner pill + the D39 transfer entry point — a labeled
-  // button, not an icon (review feedback: ⇄ alone wasn't discoverable).
-  _ownerCell(m, tile) {
-    const owner = m?.owners?.[tile] ?? '';
-    const icon = owner.startsWith('user:') ? '👤 ' : owner.startsWith('org:') ? '🏢 ' : '';
-    return html`<span class="pill mono" title="owner (D24)">${icon}${owner || 'workspace'}</span>
-      <button class="act" title="reassign this tile's owner — previews impact first (D39)"
-        @click=${() => {
-          this._ownerEdit = this._ownerEdit?.tile === tile ? null
-            : { tile, to: owner };
-        }}>transfer</button>`;
-  }
-
-  // _mapGroups: tiles grouped by OWNER (D24), filtered by the tile/owner query.
-  _mapHiddenCount(m) {
-    return (m.components ?? []).filter((p) => this._compState?.[p] === 'hidden').length;
-  }
-
-  _mapGroups(m, tq) {
-    const groups = new Map();
-    for (const tile of (m?.components ?? [])) {
-      if (!this._showHidden && this._compState?.[tile] === 'hidden') continue; // D42
-      const owner = m?.owners?.[tile] ?? '';
-      if (tq && !tile.toLowerCase().includes(tq) &&
-          !(owner || 'workspace').toLowerCase().includes(tq)) continue;
-      const key = owner.startsWith('org:') ? `org ${owner.slice(4)}`
-        : owner.startsWith('user:') ? `user ${owner.slice(5)}`
-        : (tile.includes('/') ? tile.split('/')[0] : 'workspace');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(tile);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }
-
-  // The wide users×tiles matrix — the classic view for small workspaces.
-  _mapMatrix(m, grouped, cols) {
-    return html`
-      <div style="overflow-x:auto">
-        <table class="matrix">
-          <tr><th style="text-align:left"></th><th style="text-align:left">owner</th>
-            ${cols.map((u) => html`<th class="mono" title=${u.name}>${u.id}</th>`)}</tr>
-          ${grouped.map(([grp, tiles]) => html`
-            <tr><td class="mgrp" colspan=${cols.length + 2}>${grp}</td></tr>
-            ${tiles.map((tile) => html`<tr>
-              <td class="mono mtile">${tile}</td>
-              <td class="mown">${this._ownerCell(m, tile)}</td>
-              ${cols.map((u) => {
-                const c = m.matrix?.[u.id]?.[tile];
-                const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
-                return html`<td class="mcell ${sel ? 'msel' : ''} ${c ? 'has' : ''}"
-                  @click=${() => { this._mapSel = c ? { user: u.id, tile } : null; }}>${this._lvChip(c?.level)}</td>`;
-              })}
-            </tr>
-            ${this._ownerEdit?.tile === tile ? html`<tr>
-              <td colspan=${cols.length + 2}>${this._ownerEditor(m)}</td>
-            </tr>` : nothing}`)}`)}
-        </table>
-      </div>`;
-  }
-
-  // The by-tile list — the many-users layout: one row per tile (owner +
-  // transfer + who-has-access summary), expandable to that tile's users with
-  // levels + provenance. Cells still click through to the derivation panel.
-  _mapList(m, grouped, cols) {
-    const open = this._mapOpen ?? new Set();
-    const toggle = (tile) => {
-      const next = new Set(open);
-      next.has(tile) ? next.delete(tile) : next.add(tile);
-      this._mapOpen = next;
-    };
-    return html`${grouped.map(([grp, tiles]) => html`
-      <div class="mgrp" style="padding:8px 4px 2px">${grp}</div>
-      ${tiles.map((tile) => {
-        const withAccess = cols.filter((u) => m.matrix?.[u.id]?.[tile]);
-        const isOpen = open.has(tile);
-        return html`
-          <div class="maprow">
-            <button class="act" style="width:20px" title=${isOpen ? 'collapse' : 'who has access'}
-              @click=${() => toggle(tile)}>${isOpen ? '▾' : '▸'}</button>
-            <span class="mono" style="flex:1">${tile}</span>
-            ${this._ownerCell(m, tile)}
-            <span class="muted" style="white-space:nowrap; cursor:pointer" @click=${() => toggle(tile)}>
-              ${withAccess.length} user${withAccess.length === 1 ? '' : 's'}</span>
-          </div>
-          ${this._ownerEdit?.tile === tile ? this._ownerEditor(m) : nothing}
-          ${isOpen ? html`<table class="mapsub">
-            ${withAccess.length ? withAccess.map((u) => {
-              const c = m.matrix[u.id][tile];
-              const sel = this._mapSel?.user === u.id && this._mapSel?.tile === tile;
-              return html`<tr class=${sel ? 'msel' : ''} style="cursor:pointer"
-                  @click=${() => { this._mapSel = { user: u.id, tile }; }}>
-                <td class="mono">${u.id}</td>
-                <td>${this._lvChip(c.level)} ${c.level}</td>
-                <td class="muted">${this._srcLabel(c.explain?.[0]?.source ?? '')}</td>
-              </tr>`;
-            }) : html`<tr><td class="muted">no regular users reach this tile</td></tr>`}
-          </table>` : nothing}`;
-      })}`)}`;
-  }
-
-  _mapView() {
-    const m = this._matrix;
-    const allCols = (m?.users ?? []).filter((u) => u.role !== 'admin');
-    const admins = (m?.users ?? []).filter((u) => u.role === 'admin').map((u) => u.id);
-    const tq = (this._mapTileQ ?? '').trim().toLowerCase();
-    const uq = (this._mapUserQ ?? '').trim().toLowerCase();
-    const cols = uq ? allCols.filter((u) =>
-      u.id.toLowerCase().includes(uq) || (u.name ?? '').toLowerCase().includes(uq)) : allCols;
-    const grouped = this._mapGroups(m, tq);
-    const nTiles = grouped.reduce((n, [, ts]) => n + ts.length, 0);
-    // The wide matrix stops scaling past ~10 user columns; big (or force-
-    // toggled) workspaces get the by-tile list instead.
-    const layout = this._mapLayout === 'matrix' || this._mapLayout === 'list'
-      ? this._mapLayout : (cols.length > 10 ? 'list' : 'matrix');
-    return html`
-      <h4>structure</h4>
-      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
-        Who is where: ★ = admin of that box. Level pills on teams are their
-        grants (union — the highest matching source wins per tile); ⛔ marks a
-        policy ceiling on what those tiles may be granted (hover for rows).</p>
-      ${this._structureView()}
-
-      <h4 style="margin-top:14px">effective access</h4>
-      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
-        The resolved model, straight from the server: what each user can do on
-        each tile, and who OWNS it (transfer = reassign, with an impact
-        preview). <span class="lv lv-read">r</span> read ·
-        <span class="lv lv-write">w</span> write ·
-        <span class="lv lv-terminal">t</span> terminal (root shell) ·
-        <span class="lv lv-none">·</span> none.
-        ${layout === 'matrix' ? 'Click a cell to see WHY.'
-          : 'Expand a tile to see who reaches it; click a row for the full derivation.'}
-        Workspace admins (${admins.length ? admins.join(', ') : 'root token only'})
-        hold terminal everywhere and are omitted; chrome (root/shell) is always
-        viewable and outside the model.</p>
-      ${!m ? html`<p class="muted">loading…</p>` : !allCols.length
-        ? html`<p class="muted">No regular users yet — add some in the users tab.</p>`
-        : html`
-        <div class="row" style="margin:6px 0; flex-wrap:wrap">
-          <input placeholder="filter tiles / owner…" .value=${this._mapTileQ ?? ''}
-            @input=${(e) => { this._mapTileQ = e.target.value; }} style="width:170px">
-          <input placeholder="filter users…" .value=${this._mapUserQ ?? ''}
-            @input=${(e) => { this._mapUserQ = e.target.value; }} style="width:130px">
-          <select title="layout" @change=${(e) => { this._mapLayout = e.target.value; }}>
-            ${[['auto', `auto (${cols.length > 10 ? 'by-tile list' : 'matrix'})`],
-               ['matrix', 'matrix'], ['list', 'by-tile list']].map(([v, l]) =>
-              html`<option value=${v} ?selected=${(this._mapLayout ?? 'auto') === v}>${l}</option>`)}
-          </select>
-          <span class="muted" style="font-size:11px">${nTiles} tile${nTiles === 1 ? '' : 's'} ·
-            ${cols.length}/${allCols.length} user${allCols.length === 1 ? '' : 's'}</span>
-          ${this._mapHiddenCount(m) ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
-            <input type="checkbox" .checked=${!!this._showHidden}
-              @change=${(e) => { this._showHidden = e.target.checked; }}> show hidden (${this._mapHiddenCount(m)})</label>` : nothing}
-        </div>
-        ${!cols.length ? html`<p class="muted">no users match the filter</p>`
-          : layout === 'list' ? this._mapList(m, grouped, cols)
-          : this._mapMatrix(m, grouped, cols)}
-        ${this._mapDetail()}`}
-    `;
-  }
-
-  // ---- owner reassignment (D39, docs/auth.md §Ownership): picker → preview → confirm ----
-  _xferReport(rep) {
-    if (!rep) return nothing;
-    const lv = rep.callerLevel;
-    return html`<div style="margin-top:5px; font-size:11.5px">
-      ${lv && lv.before !== lv.after ? html`<div>your access: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
-      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red, #ef5350)">
-        binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
-      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red, #ef5350)">
-        grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
-      ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
-      ${(rep.unbound ?? []).length ? html`<div>unbound: ${rep.unbound.map((s) => html`<span class="pill mono">${s}</span>`)}</div>` : nothing}
-    </div>`;
-  }
-
-  _ownerEditor(m) {
-    const oe = this._ownerEdit;
-    if (!oe) return nothing;
-    const cur = m?.owners?.[oe.tile] ?? '';
-    const opts = [{ value: '', label: '— workspace —' },
-      ...(this._users ?? []).map((u) => ({ value: 'user:' + u.id, label: 'user: ' + u.id })),
-      ...(this._orgs ?? []).map((o) => ({ value: 'org:' + o.id, label: 'org: ' + o.id }))];
-    const pick = (to) => { this._ownerEdit = { tile: oe.tile, to, rep: null, perr: null }; };
-    return html`<div style="padding:6px 8px; border:1px solid var(--bx-accent,#f5a623); border-radius:6px; margin:2px 0">
-      <div class="row">owner of <span class="mono">${oe.tile}</span>:
-        <span class="mono">${cur || 'workspace'}</span> →
-        <select @change=${(e) => pick(e.target.value)}>
-          ${opts.map((o) => html`<option value=${o.value} ?selected=${oe.to === o.value}>${o.label}</option>`)}
-        </select>
-        <button class="act" ?disabled=${oe.to === cur} @click=${async () => {
-          try {
-            const rep = await api(`/owner/preview?tile=${encodeURIComponent(oe.tile)}&to=${encodeURIComponent(oe.to)}`);
-            this._ownerEdit = { ...oe, rep, perr: null };
-          } catch (e) { this._ownerEdit = { ...oe, rep: null, perr: String(e.message ?? e) }; }
-        }}>preview</button>
-        ${oe.rep ? html`<button class="go" @click=${async () => {
-          try {
-            const done = await api('/owner', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tile: oe.tile, to: oe.to }) });
-            this._ownerEdit = null;
-            this._err = '';
-            this._notice = `${oe.tile} → ${oe.to || 'workspace'}`
-              + ((done?.unbound ?? []).length ? ` — unbound: ${done.unbound.join(', ')}` : '');
-            setTimeout(() => { this._notice = ''; }, 6000);
-            this._loadMap(true);
-          } catch (e) { this._ownerEdit = { ...oe, perr: String(e.message ?? e) }; }
-        }}>transfer</button>` : nothing}
-        <button @click=${() => { this._ownerEdit = null; }}>cancel</button>
-      </div>
-      ${oe.perr ? html`<div class="err" style="margin-top:4px">${oe.perr}</div>` : nothing}
-      ${this._xferReport(oe.rep)}
-    </div>`;
   }
 
   // ---- ownership & organisations (docs/auth.md §Ownership, D24–D28) ----

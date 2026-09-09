@@ -138,6 +138,33 @@ sheet is deliberately **not** injected into tile documents: it sets
 ([compat.md](/docs/compat.md) rule 5). Font tokens are exempt (a fallback may
 abbreviate the stack).
 
+## The admin console's tabs (`workspace-template/tiles/admin`)
+
+`admin.js` is the router: the two-level nav (`GROUPS`), hash deep-links and
+their alias map, `_refresh()` (the shared lists: overview, users, orgs,
+policy, sets, defaults, requests, sessions), and the global `.err` /
+`.notice` slots. Each tab is being moved into its own element under
+`tabs/<name>.js` (the access map is the first); the router renders it with
+its inputs as properties and imports it **relatively** (`./tabs/map.js`) —
+a sandboxed tile may import its own siblings, and `bx builtin update`
+delivers new files inside the unit, so an older workspace's monolith keeps
+working while a fresh one gets the split ([compat.md](/docs/compat.md)
+rule 4). A tab element:
+
+- loads its own data in `connectedCallback` and exposes `refresh()` for
+  the router's event-driven refresh;
+- owns its state, endpoints and CSS: `static styles = [base, <slice>]`
+  from `admin-css.js` (synchronous — never a `<link>` or a `fetch()`);
+- reports through composed events the router already handles:
+  `bx-admin-err` (message), `bx-admin-notice` (message),
+  `bx-admin-refresh` (reload the shared lists), and any shared toggle it
+  changes (`bx-admin-show-hidden`);
+- keeps the markup hooks the harness locates (`.mcell`, `.maprow`,
+  `[data-set]`, `[data-netset]`, …).
+
+Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
+`render()`, a harness pass that opens it (`hack/ui-harness/shots.js`).
+
 ## UI harness (`hack/ui-harness`)
 
 The frontend has no unit-test runner; browser behaviour is pinned by
