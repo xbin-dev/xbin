@@ -873,9 +873,45 @@ async function adminMap(browser) {
   done();
 }
 
+// Every admin tab opens by hash, renders a body and reports no error — the
+// smoke gate for splitting the console into tab elements: a tab whose module
+// fails to load, or whose data props the router forgot to pass, shows up
+// here before any deeper pass.
+async function adminTabs(browser) {
+  const { check, done } = checker('admin-tabs');
+  const { ctx, page } = await login(browser, 'admin', 'admin');
+  const tabs = ['components', 'resources', 'backup', 'cron', 'users', 'sign-in', 'sessions', 'orgs', 'permsets', 'netsets', 'map',
+    'vault', 'roles', 'grants', 'providers', 'wiring', 'endpoints', 'expose'];
+  for (const id of tabs) {
+    await page.goto(`${URL}/c/tiles/admin/#${id}`);
+    await page.reload();
+    // the body's text INCLUDING the tab elements' shadow trees
+    const deepText = `(function deepText(el) {
+      return [...el.childNodes].map((n) => n.nodeType === 3 ? n.textContent : n.shadowRoot ? n.shadowRoot.textContent : deepText(n)).join('');
+    })`;
+    try {
+      await page.waitForFunction((want) => document.querySelector('bx-admin')?.testApi?.().tab === want, id, { timeout: 10000 });
+      await page.waitForFunction(`(() => { const b = document.querySelector('bx-admin')?.renderRoot?.querySelector('.body'); return !!b && ${deepText}(b).trim().length > 10; })()`, null, { timeout: 10000 });
+    } catch (e) {
+      check(false, `${id}: tab did not render (${String(e.message).split('\n')[0]})`);
+      continue;
+    }
+    await settle(page);
+    const st = await page.evaluate(`(() => {
+      const a = document.querySelector('bx-admin');
+      const body = a.renderRoot.querySelector('.body');
+      return { err: body.querySelector(':scope > .err')?.textContent?.trim() ?? '', len: ${deepText}(body).trim().length, denied: !!a.renderRoot.querySelector('.denied') };
+    })()`);
+    check(!st.denied && !st.err && st.len > 10, `${id}: renders (${st.len} chars${st.err ? ', error: ' + st.err : ''})`);
+    await shot(page, `admin-tab-${id}`);
+  }
+  await ctx.close();
+  done();
+}
+
 // ---- pass registry + CLI ----
 const PASSES = {
-  admin, adminMap, menus, mobile, screens,
+  admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
   netPickers, windows, reloadFocus, permSets, openLinks, contextCopy,
 };

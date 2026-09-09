@@ -28,7 +28,10 @@ import { base } from './admin-css.js';
 import './tabs/map.js';
 import './tabs/netsets.js';
 import './tabs/permsets.js';
-import { targetOptions, targetDatalist, serviceOptions, serviceDatalist, allowRows } from './shared.js';
+import './tabs/vault.js';
+import './tabs/cron.js';
+import './tabs/backup.js';
+import { targetOptions, targetDatalist, serviceOptions, serviceDatalist, allowRows, fmtBytes, fmtDur, setLifecycle } from './shared.js';
 
 export class BxAdmin extends LitElement {
   static properties = {
@@ -46,7 +49,6 @@ export class BxAdmin extends LitElement {
     _invite: { state: true },   // last minted invite link {id, url} (D22)
     _token: { state: true },    // freshly rotated owner token (copy-field box)
     _pwEdit: { state: true },   // user id whose password is being reset inline
-    _secretEdit: { state: true }, // {comp, key} vault secret being re-set inline
     _notice: { state: true },   // green success line (never the red .err slot)
     _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
@@ -66,9 +68,6 @@ export class BxAdmin extends LitElement {
     _ifaces: { state: true },   // {bindings, components} — interface wiring
     _ingress: { state: true },  // {exposes, routes, streams, …} — published endpoints
     _ingEdit: { state: true },  // per-row route edits before publish (comp\x00slot → {…})
-    _schedules: { state: true }, // [{component, schedule, retention}]
-    _versions: { state: true },  // comp -> [{version,time,size}] (lazy)
-    _verOpen: { state: true },   // set of comps whose version list is expanded
     _busy: { state: true },      // comp path mid heavy op (offload/restore/backup)
     _err: { state: true },
     _denied: { state: true },
@@ -268,9 +267,6 @@ export class BxAdmin extends LitElement {
     this._alerts = [];
     this._denied = false;
     this._rtOpen = new Set();
-    this._versions = {};
-    this._verOpen = new Set();
-    this._schedules = [];
     this._q = '';          // per-view text filter (reset on tab change)
     this._cats = new Set(); // active category chips
     this._access = {};      // per-component access relations, lazily loaded
@@ -292,7 +288,6 @@ export class BxAdmin extends LitElement {
     this._codeComp = null;
     if (t === 'components' || t === 'resources') this._loadRuntime();
     if (t === 'providers' || t === 'wiring' || t === 'endpoints' || t === 'expose' || t === 'permsets' || t === 'orgs') this._loadIfaces(); // permsets/orgs: the service datalist
-    if (t === 'backup') this._loadBackup();
     if (t === 'sessions') this._loadSessions();
   }
 
@@ -321,7 +316,6 @@ export class BxAdmin extends LitElement {
     // but doesn't fetch; _setTab does that on later clicks).
     if (this._tab === 'components' || this._tab === 'resources') this._loadRuntime();
     if (['providers', 'wiring', 'endpoints', 'expose'].includes(this._tab)) this._loadIfaces();
-    if (this._tab === 'backup') this._loadBackup();
     if (this._tab === 'sessions') this._loadSessions();
     // Live backend/resource data: poll while a runtime-data tab is active.
     // The sessions tab polls too (logins/logouts raise no event), at 1/5 rate.
@@ -385,7 +379,7 @@ export class BxAdmin extends LitElement {
     const max = Math.max(...s);
     const step = w / (s.length - 1);
     const pts = s.map((v, i) => `${(i * step).toFixed(1)},${(ht - (v / max) * (ht - 2) - 1).toFixed(1)}`).join(' ');
-    const peak = this._fmtBytes(max) + '/s';
+    const peak = fmtBytes(max) + '/s';
     return html`<svg width=${w} height=${ht} viewBox="0 0 ${w} ${ht}" title=${'peak ' + peak}>
       <polyline points=${pts} fill="none" stroke="var(--bx-accent,#f5a623)" stroke-width="1.2"></polyline></svg>`;
   }
@@ -426,102 +420,6 @@ export class BxAdmin extends LitElement {
     }
   }
 
-  // ---- vault ----
-  // The admin console never reads secret values back — they're private to the
-  // owning element (the vault lockdown). It can only list keys and set/rotate.
-  async _setSecret(comp, key, value) {
-    await api(`/vault/${comp}/${encodeURIComponent(key)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
-    this._refresh();
-  }
-  async _delSecret(comp, key) {
-    if (!confirm(`Delete secret ${comp} / ${key}?`)) return;
-    await api(`/vault/${comp}/${encodeURIComponent(key)}`, { method: 'DELETE' });
-    this._refresh();
-  }
-
-  // ---- barrier (seal state / unseal / passphrase) ----
-  async _unseal(pass) {
-    try {
-      await api('/vault-unseal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passphrase: pass }) });
-      this._err = '';
-    } catch (e) { this._err = String(e.message ?? e); }
-    await this._refresh();
-  }
-  async _sealVault() {
-    if (!confirm('Seal the vault? Encrypted resources unmount and stateful components stop until an admin unseals again.')) return;
-    try { await api('/vault-seal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); this._err = ''; }
-    catch (e) { this._err = String(e.message ?? e); }
-    await this._refresh();
-  }
-  async _rekeyVault(current, nw) {
-    try {
-      await api('/vault-rekey', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current, new: nw }) });
-      this._err = '';
-      alert('Passphrase changed (data key unchanged — nothing re-encrypted).');
-    } catch (e) { this._err = String(e.message ?? e); }
-    await this._refresh();
-  }
-
-  _barrierView() {
-    const st = this._vaultStatus;
-    if (!st) return nothing;
-    const badge = {
-      unsealed:     ['unsealed — encryption at rest active', 'var(--bx-green, #4caf50)'],
-      sealed:       ['sealed — encrypted and locked', 'var(--bx-amber, #f2a71b)'],
-      unconfigured: ['unconfigured — no passphrase set, secret storage refused', 'var(--bx-red, #ef5350)'],
-      plaintext:    ['plaintext — NO encryption at rest (dev mode)', 'var(--bx-red, #ef5350)'],
-    }[st.mode] ?? [st.mode, 'var(--bx-muted, #868f9a)'];
-    const firstTime = st.mode === 'unconfigured' || st.mode === 'plaintext';
-    return html`
-      <h4>encryption barrier</h4>
-      <p style="margin:0 0 8px"><span class="dot" style="background:${badge[1]}"></span>${badge[0]}</p>
-
-      ${st.mode === 'sealed' ? html`
-        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
-            if (f.pass.value) this._unseal(f.pass.value); f.reset(); }}>
-          <input name="pass" type="password" placeholder="vault passphrase" size="24"
-            autocomplete="off" required>
-          <button class="act go">unseal</button>
-        </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Encrypted resources and secrets
-          come back once unsealed. Also works from a terminal: <span class="mono">bx vault unseal</span>.</p>` : nothing}
-
-      ${firstTime ? html`
-        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
-            if (f.pass.value !== f.confirm.value) { this._err = 'passphrases do not match'; return; }
-            this._unseal(f.pass.value); f.reset(); }}>
-          <input name="pass" type="password" placeholder="new vault passphrase" size="20"
-            autocomplete="new-password" required>
-          <input name="confirm" type="password" placeholder="repeat" size="12"
-            autocomplete="new-password" required>
-          <button class="act go">${st.mode === 'plaintext' ? 'encrypt now' : 'set passphrase & unseal'}</button>
-        </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Creates the barrier and encrypts
-          existing secrets. <b>The passphrase cannot be recovered</b> — losing it loses the data.
-          To have xbind unseal itself on boot, put <span class="mono">XBIN_VAULT_PASSPHRASE</span>
-          in <span class="mono">/etc/xbin/xbin.env</span> (mode 600).</p>` : nothing}
-
-      ${st.mode === 'unsealed' ? html`
-        <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
-            if (f.nw.value !== f.confirm.value) { this._err = 'new passphrases do not match'; return; }
-            this._rekeyVault(f.cur.value, f.nw.value); f.reset(); }}>
-          <input name="cur" type="password" placeholder="current passphrase" size="17"
-            autocomplete="off" required>
-          <input name="nw" type="password" placeholder="new passphrase" size="15"
-            autocomplete="new-password" required>
-          <input name="confirm" type="password" placeholder="repeat" size="10"
-            autocomplete="new-password" required>
-          <button class="act">change passphrase</button>
-          <button class="act rm" type="button" @click=${() => this._sealVault()}>seal now</button>
-        </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Changing the passphrase re-wraps the
-          data key — nothing is re-encrypted. If auto-unseal is configured, update
-          <span class="mono">/etc/xbin/xbin.env</span> to match.</p>` : nothing}`;
-  }
-
   // ---- grants ----
   async _grant(from, target, role) {
     await api('/grants', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -531,14 +429,6 @@ export class BxAdmin extends LitElement {
   async _revoke(g) {
     await api('/grants', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(g) });
-    this._refresh();
-  }
-
-  // ---- cron ----
-  async _delCron(j) {
-    if (!confirm(`Delete cron job ${j.name} (${j.component})?`)) return;
-    await api(`/cron/jobs/${encodeURIComponent(j.name)}?component=${encodeURIComponent(j.component)}`,
-      { method: 'DELETE' });
     this._refresh();
   }
 
@@ -652,15 +542,15 @@ export class BxAdmin extends LitElement {
               .showHidden=${this._showHidden} @bx-admin-show-hidden=${(e) => { this._showHidden = e.detail; }}></bx-admin-map>`
           : tab === 'components' ? (this._codeComp ? this._codeView() : this._componentsView())
           : tab === 'resources' ? this._resourcesView()
-          : tab === 'vault' ? this._vaultView()
+          : tab === 'vault' ? html`<bx-admin-vault .vaults=${this._vaults} .vaultStatus=${this._vaultStatus} .components=${this._ov?.components ?? []}></bx-admin-vault>`
           : tab === 'roles' ? this._rolesCatalogView()
           : tab === 'grants' ? this._grantsView()
           : tab === 'providers' ? this._providersView()
           : tab === 'wiring' ? this._bindingView()
           : tab === 'endpoints' ? this._ingressEndpointsView()
           : tab === 'expose' ? this._ingressExposeView()
-          : tab === 'backup' ? this._backupView()
-          : this._cronView()}
+          : tab === 'backup' ? html`<bx-admin-backup .components=${this._ov?.components ?? []}></bx-admin-backup>`
+          : html`<bx-admin-cron .cron=${this._cron}></bx-admin-cron>`}
       </div>`;
   }
 
@@ -699,29 +589,17 @@ export class BxAdmin extends LitElement {
   }
 
   // ---- runtime ----
-  _fmtBytes(n) {
-    n = n || 0; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
-    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return (i === 0 ? Math.round(n) : n.toFixed(1)) + u[i];
-  }
-  _fmtDur(s) {
-    s = Math.max(0, s | 0);
-    if (s < 60) return s + 's';
-    if (s < 3600) return (s / 60 | 0) + 'm' + (s % 60) + 's';
-    if (s < 86400) return (s / 3600 | 0) + 'h' + ((s % 3600) / 60 | 0) + 'm';
-    return (s / 86400 | 0) + 'd' + ((s % 86400) / 3600 | 0) + 'h';
-  }
   _toggleBk(path) {
     const s = new Set(this._rtOpen); s.has(path) ? s.delete(path) : s.add(path); this._rtOpen = s;
   }
   _mem(b) {
-    if (b.cgroup && b.cgroup.memCurrent) return this._fmtBytes(b.cgroup.memCurrent);
-    if (b.rssKb) return this._fmtBytes(b.rssKb * 1024);
+    if (b.cgroup && b.cgroup.memCurrent) return fmtBytes(b.cgroup.memCurrent);
+    if (b.rssKb) return fmtBytes(b.rssKb * 1024);
     return '—';
   }
   _flowTime(f) {
     const ageS = Math.max(0, (Date.now() - f.start) / 1000);
-    const age = ageS < 60 ? (ageS | 0) + 's ago' : this._fmtDur(ageS) + ' ago';
+    const age = ageS < 60 ? (ageS | 0) + 's ago' : fmtDur(ageS) + ' ago';
     if (!f.end) return age + ' · open';
     const dur = (f.end - f.start) / 1000;
     return age + (dur >= 0.05 ? ' · ' + dur.toFixed(1) + 's' : '');
@@ -767,7 +645,7 @@ export class BxAdmin extends LitElement {
     const cell = (r, c) => {
       switch (c) {
         case 'id': return html`<span class="p" title=${r.id}>${r.id}</span>`;
-        case 'size': return html`<span class="num">${r.size ? this._fmtBytes(r.size) : '—'}</span>`;
+        case 'size': return html`<span class="num">${r.size ? fmtBytes(r.size) : '—'}</span>`;
         case 'events/min': { const v = this._busRate(r.id);
           return html`<span class="num">${v == null ? '…' : v < 10 ? v.toFixed(1) : Math.round(v)}</span>`; }
         case 'events total': return html`<span class="num">${r.events || 0}</span>`;
@@ -794,9 +672,9 @@ export class BxAdmin extends LitElement {
     return html`<div class="detail">
       <div>
         <h5>process</h5>
-        <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${this._fmtDur(b.uptimeSec)}</div>
-        <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : this._fmtDur(b.lastReqSec) + ' ago'}</div>
-        ${b.cgroup ? html`<div class="mono">cgroup: ${this._fmtBytes(b.cgroup.memCurrent)}${b.cgroup.memMax > 0 ? ' / ' + this._fmtBytes(b.cgroup.memMax) : ''} · cpu ${(b.cgroup.cpuUsec / 1e6).toFixed(1)}s · ${b.cgroup.pidsCurrent} pid(s)</div>` : nothing}
+        <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${fmtDur(b.uptimeSec)}</div>
+        <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : fmtDur(b.lastReqSec) + ' ago'}</div>
+        ${b.cgroup ? html`<div class="mono">cgroup: ${fmtBytes(b.cgroup.memCurrent)}${b.cgroup.memMax > 0 ? ' / ' + fmtBytes(b.cgroup.memMax) : ''} · cpu ${(b.cgroup.cpuUsec / 1e6).toFixed(1)}s · ${b.cgroup.pidsCurrent} pid(s)</div>` : nothing}
         ${b.error ? html`<div class="err-pill">${b.error}</div>` : nothing}
       </div>
       <div>
@@ -806,7 +684,7 @@ export class BxAdmin extends LitElement {
           : html`<span class="muted">shared with host (not sandboxed)</span>`}
       </div>
       <div>
-        <h5>egress ${act ? html`· ${this._fmtBytes(act.txBytes)}↑ ${this._fmtBytes(act.rxBytes)}↓ · ${act.active} active` : nothing}</h5>
+        <h5>egress ${act ? html`· ${fmtBytes(act.txBytes)}↑ ${fmtBytes(act.rxBytes)}↓ · ${act.active} active` : nothing}</h5>
         ${b.netRef ? html`<div class="mono" style="font-size:11px">net ${b.netRef === 'org'
             ? html`<span class="pill" title=${(b.netRules ?? []).join('\n') || 'org network (no relay rules)'}>🏢 ${b.netSource || 'org network'}</span>`
             : b.netRef}${b.net ? html` <span class="muted">· ${b.net}</span>` : nothing}</div>` : nothing}
@@ -817,7 +695,7 @@ export class BxAdmin extends LitElement {
             ${act.recent.slice(0, 12).map((f) => html`<tr>
               <td class=${f.allowed ? 'flow-allow' : 'flow-deny'}>${f.allowed ? '✓' : '⛔'}</td>
               <td class="mono">${f.proto} ${f.dst}:${f.port}</td>
-              <td class="mono">${this._fmtBytes(f.txBytes)}↑ ${this._fmtBytes(f.rxBytes)}↓</td>
+              <td class="mono">${fmtBytes(f.txBytes)}↑ ${fmtBytes(f.rxBytes)}↓</td>
               <td class="muted">${this._flowTime(f)}</td>
             </tr>`)}
           </tbody></table>` : nothing}
@@ -1018,8 +896,8 @@ export class BxAdmin extends LitElement {
   // are syscall-level (all file activity incl. FUSE-backed resources).
   static stMetrics = [
     { label: 'cpu', keys: ['cpu'], colors: ['var(--bx-accent,#f5a623)'], fmt: (c) => `${(c.cpu || 0).toFixed(1)}%` },
-    { label: 'mem', keys: ['mem'], colors: ['var(--bx-green, #4caf50)'], fmt: (c, el) => el._fmtBytes(c.mem || 0) },
-    { label: 'i/o r+w', keys: ['rbps', 'wbps'], colors: ['#5b8def', 'var(--bx-red, #ef5350)'], fmt: (c, el) => `${el._fmtBytes(c.rbps || 0)}/s · ${el._fmtBytes(c.wbps || 0)}/s` },
+    { label: 'mem', keys: ['mem'], colors: ['var(--bx-green, #4caf50)'], fmt: (c, el) => fmtBytes(c.mem || 0) },
+    { label: 'i/o r+w', keys: ['rbps', 'wbps'], colors: ['#5b8def', 'var(--bx-red, #ef5350)'], fmt: (c, el) => `${fmtBytes(c.rbps || 0)}/s · ${fmtBytes(c.wbps || 0)}/s` },
     { label: 'iops r+w', keys: ['riops', 'wiops'], colors: ['#5b8def', 'var(--bx-red, #ef5350)'], fmt: (c) => `${Math.round(c.riops || 0)} · ${Math.round(c.wiops || 0)}` },
   ];
 
@@ -1076,7 +954,7 @@ export class BxAdmin extends LitElement {
         <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">${m.label}
           <b style="text-transform:none;letter-spacing:0"> ${m.label === 'cpu' ? `${totalNow.toFixed(1)}%`
             : m.label.startsWith('iops') ? `${Math.round(totalNow)}/s`
-            : `${this._fmtBytes(totalNow)}${m.label === 'mem' ? '' : '/s'}`}</b></div>
+            : `${fmtBytes(totalNow)}${m.label === 'mem' ? '' : '/s'}`}</b></div>
         ${this._stSparkN(lines)}
       </div>`;
     };
@@ -1149,7 +1027,7 @@ export class BxAdmin extends LitElement {
       body = [...buckets.entries()].map(([org, list]) => html`
         <tr><td colspan="6" class="grouphd mono">${org} <span style="float:right;font-weight:400">
           ${list.length} tile${list.length === 1 ? '' : 's'} · ${agg(list, 'cpu').toFixed(1)}% ·
-          ${this._fmtBytes(agg(list, 'mem'))} · ${this._fmtBytes(agg(list, 'io'))}/s</span></td></tr>
+          ${fmtBytes(agg(list, 'mem'))} · ${fmtBytes(agg(list, 'io'))}/s</span></td></tr>
         ${list.map(row)}`);
     } else {
       body = rows.map(row);
@@ -1191,8 +1069,8 @@ export class BxAdmin extends LitElement {
         ${kv('euid', h.uid)}
         ${kv('cpus', h.numCPU)}
         ${kv('goroutines', h.goroutines)}
-        ${kv('heap', this._fmtBytes((h.heapMB || 0) * 1e6))}
-        ${kv('uptime', this._fmtDur(h.uptimeSec))}
+        ${kv('heap', fmtBytes((h.heapMB || 0) * 1e6))}
+        ${kv('uptime', fmtDur(h.uptimeSec))}
         ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
         ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
         ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
@@ -1216,63 +1094,12 @@ export class BxAdmin extends LitElement {
   }
 
   async _setLifecycle(path, state) {
-    // Offload removes local bytes (after archiving) — confirm before the flip.
-    if ((state === 'offloaded' || state === 'offloaded-full') &&
-        !confirm(`Offload ${path}? Its ${state === 'offloaded-full' ? 'data + source' : 'data'} will be archived, then removed locally.`)) {
-      this._refresh(); // revert the <select>
-      return;
-    }
     this._busy = path;
     try {
-      await api('/lifecycle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: path, state }) });
+      if (!await setLifecycle(path, state)) { this._refresh(); return; } // declined: revert the <select>
       await this._refresh();
-      if (this._tab === 'backup') await this._loadBackup();
     } catch (e) { this._err = String(e.message ?? e); }
     finally { this._busy = null; }
-  }
-
-  _vaultView() {
-    const sealedOff = this._vaults == null && !!this._vaultStatus?.sealed;
-    const vs = this._vaults ?? [];
-    return html`
-      ${this._barrierView()}
-      ${sealedOff ? html`<h4>secrets</h4><span class="muted">unavailable while sealed — unseal above to browse and edit.</span>` : nothing}
-      ${!sealedOff && vs.length === 0 ? html`<h4>secrets</h4><span class="muted">no vaults hold secrets yet — set one with
-        <span class="mono">bx vault set &lt;component&gt; &lt;key&gt;</span> or below.</span>` : nothing}
-      ${vs.length && !sealedOff ? html`<p class="muted" style="font-size:11px">
-        Secret <b>values are private to the element that owns them</b> — the admin
-        console can list and set/rotate secrets but can't read them back.</p>` : nothing}
-      ${vs.map((v) => html`
-        <h4>${v.component}</h4>
-        <table>
-          ${v.keys.map((k) => html`<tr>
-              <td class="mono" style="width:30%">${k}</td>
-              <td class="secret">${this._secretEdit?.comp === v.component && this._secretEdit?.key === k ? html`
-                <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
-                    const nv = e.target.nv.value; this._secretEdit = null;
-                    if (nv) this._setSecret(v.component, k, nv); }}>
-                  <input name="nv" type="password" size="16" placeholder="new value (can't read the old one)" autofocus>
-                  <button class="act" type="submit">save</button>
-                  <button class="act" type="button" @click=${() => { this._secretEdit = null; }}>cancel</button>
-                </form>` : '••••••••'}</td>
-              <td style="text-align:right; white-space:nowrap">
-                ${this._secretEdit?.comp === v.component && this._secretEdit?.key === k ? nothing
-                  : html`<button class="act" @click=${() => { this._secretEdit = { comp: v.component, key: k }; }}>set</button>`}
-                <button class="act rm" @click=${() => this._delSecret(v.component, k)}>del</button>
-              </td></tr>`)}
-        </table>`)}
-      ${sealedOff ? nothing : html`<form class="inline" @submit=${(e) => { e.preventDefault();
-          const f = e.target;
-          if (f.comp.value && f.key.value) this._setSecret(f.comp.value.trim(), f.key.value.trim(), f.val.value);
-          f.reset(); }}>
-        <input name="comp" placeholder="component" size="16" list="admin-comps">
-        <input name="key" placeholder="key" size="12">
-        <input name="val" placeholder="value" size="18" type="password">
-        <button class="act go">set secret</button>
-      </form>`}
-      <datalist id="admin-comps">
-        ${(this._ov?.components ?? []).map((k) => html`<option value=${k.path}></option>`)}
-      </datalist>`;
   }
 
   // ---- binding → grants: the grant table + approvals ----
@@ -1633,227 +1460,6 @@ export class BxAdmin extends LitElement {
             <td class="mono">${f.source}</td>
             <td>${f.error ? html`<span class="st-failed">⚠ ${f.error}</span>` : html`<span class="st-healthy">up</span>`}</td></tr>`)}
         </table>` : nothing}`;
-  }
-
-  // ---- backup (docs/overview/14-lifecycle.md) ----
-  async _loadBackup() {
-    try {
-      const [ifaces, sched] = await Promise.all([api('/bindings'), api('/backup-schedule')]);
-      this._ifaces = ifaces;
-      this._schedules = sched.schedules || [];
-      this._err = '';
-      // Load versions for disabled components so the offload gate is computable
-      // (does a post-disable backup exist?) without expanding each one.
-      const disabled = (this._ov?.components || []).filter((c) => c.state === 'disabled');
-      await Promise.all(disabled.map((c) => this._loadVersions(c.path)));
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  // Components that provide an `archive` interface (candidate archivers).
-  _archivers() {
-    const out = [];
-    for (const c of (this._ifaces?.components || []))
-      for (const def of Object.values(c.provides || {}))
-        if (def.kind === 'archive') out.push(c.component);
-    return out;
-  }
-
-  // '*' sets the workspace default; provider '' clears an override.
-  async _setArchiver(comp, provider) {
-    try {
-      const body = JSON.stringify(provider ? { component: comp, slot: '@archive', provider } : { component: comp, slot: '@archive' });
-      await api('/bindings', { method: provider ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json' }, body });
-      await this._loadBackup();
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  async _toggleVersions(comp) {
-    const s = new Set(this._verOpen);
-    if (s.has(comp)) { s.delete(comp); this._verOpen = s; return; }
-    s.add(comp); this._verOpen = s;
-    await this._loadVersions(comp);
-  }
-  async _loadVersions(comp) {
-    try {
-      const d = await api('/backups?component=' + encodeURIComponent(comp));
-      this._versions = { ...this._versions, [comp]: d.versions || [] };
-    } catch (e) { this._versions = { ...this._versions, [comp]: [] }; this._err = String(e.message ?? e); }
-  }
-
-  async _backupNow(comp) {
-    this._busy = comp;
-    try {
-      await api('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp }) });
-      this._verOpen = new Set(this._verOpen).add(comp);
-      await this._loadVersions(comp);
-    } catch (e) { this._err = String(e.message ?? e); }
-    finally { this._busy = null; }
-  }
-
-  async _restoreVersion(comp, version) {
-    if (!confirm(`Restore ${comp} from ${version}? This replaces its current data/source.`)) return;
-    this._busy = comp;
-    try {
-      await api('/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp, version }) });
-      await this._refresh();
-    } catch (e) { this._err = String(e.message ?? e); }
-    finally { this._busy = null; }
-  }
-
-  // Restore one file from a version — streamed back and offered as a download.
-  async _restoreFile(comp, version) {
-    const path = prompt('File path within the archive (e.g. source/index.html or data/kv.json):');
-    if (!path) return;
-    try {
-      const r = await xbin.fetch('/api/xbin/restore', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ component: comp, version, file: path }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error || r.status);
-      xbin.download(path.split('/').pop() || 'file', await r.blob());
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  async _setSchedule(comp, every, keep) {
-    if (!every.trim()) return;
-    try {
-      await api('/backup-schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ component: comp, schedule: '@every ' + every.trim(), retention: parseInt(keep, 10) || 0 }) });
-      await this._loadBackup();
-    } catch (e) { this._err = String(e.message ?? e); }
-  }
-  async _clearSchedule(comp) {
-    try { await api('/backup-schedule?component=' + encodeURIComponent(comp), { method: 'DELETE' }); await this._loadBackup(); }
-    catch (e) { this._err = String(e.message ?? e); }
-  }
-
-  _backupView() {
-    const ov = this._ov, ifaces = this._ifaces;
-    if (!ov || !ifaces) return html`<div class="muted">loading…</div>`;
-    const archivers = this._archivers();
-    if (archivers.length === 0)
-      return html`<p class="muted">No archiver installed. Import the <b>S3 Archiver</b> tile (or another
-        <code>archive</code> provider) from the Tile Manager, then pick it as the default below.</p>`;
-    const defArch = ifaces.bindings?.['*']?.['@archive'] || '';
-    const comps = (ov.components || []).filter((c) => !archivers.includes(c.path)); // an archiver isn't its own target
-    const schedFor = (p) => this._schedules.find((s) => s.component === p);
-    return html`
-      <p class="muted">Back up a component (its source + data + terminal layer) to an archiver, offload to
-        free disk, or restore a version/file. Vault is not backed up. See
-        <a href="/docs/overview/14-lifecycle.md" target="_blank">the lifecycle overview</a>.</p>
-      <h3>Default archiver</h3>
-      <select @change=${(e) => this._setArchiver('*', e.target.value)}>
-        <option value="" ?selected=${!defArch}>— none —</option>
-        ${archivers.map((a) => html`<option value=${a} ?selected=${defArch === a}>${a}</option>`)}
-      </select>
-      <span class="muted" style="margin-left:8px">used unless a component overrides it</span>
-
-      <h3>Components</h3>
-      <table class="tbl">
-        <tr><th>component</th><th>lifecycle</th><th>archiver</th><th>schedule</th><th></th></tr>
-        ${comps.map((c) => this._backupRow(c, archivers, defArch, schedFor(c.path)))}
-      </table>`;
-  }
-
-  _backupRow(c, archivers, defArch, sched) {
-    const override = this._ifaces.bindings?.[c.path]?.['@archive'] || '';
-    const busy = this._busy === c.path;
-    const open = this._verOpen.has(c.path);
-    return html`
-      <tr>
-        <td class="mono">${c.path}</td>
-        <td>${this._lifecycleControls(c)}</td>
-        <td><select @change=${(e) => this._setArchiver(c.path, e.target.value)}>
-          <option value="" ?selected=${!override}>default${defArch ? ' (' + defArch + ')' : ''}</option>
-          ${archivers.map((a) => html`<option value=${a} ?selected=${override === a}>${a}</option>`)}
-        </select></td>
-        <td class="mono">${sched
-          ? html`${sched.schedule}${sched.retention ? ' ·keep ' + sched.retention : ''}
-              <a class="link" title="remove schedule" @click=${() => this._clearSchedule(c.path)}>✕</a>`
-          : this._scheduleForm(c.path)}</td>
-        <td style="white-space:nowrap">
-          <a class="link" @click=${() => !busy && this._backupNow(c.path)}>${busy ? 'working…' : 'back up'}</a>
-          · <a class="link" @click=${() => this._toggleVersions(c.path)}>versions${open ? ' ▾' : ''}</a>
-        </td>
-      </tr>
-      ${open ? html`<tr><td colspan="5">${this._versionsList(c.path)}</td></tr>` : nothing}`;
-  }
-
-  // Guided lifecycle controls (docs/overview/14-lifecycle.md). Offload is deliberately a
-  // two-step, safe flow: you must DISABLE first (stops the backend → a consistent
-  // db), then take a backup, and only then does offload un-gray — so you never
-  // free local data without a verified, stopped-state snapshot.
-  _lifecycleControls(c) {
-    const st = c.state || 'enabled';
-    const busy = this._busy === c.path;
-    const act = (label, state, opts = {}) => html`<a
-      class="link ${opts.gated ? 'gated' : ''}" title=${opts.title || ''}
-      @click=${() => !busy && !opts.gated && this._setLifecycle(c.path, state)}>${busy ? '…' : label}</a>`;
-
-    if (st === 'enabled') return html`enabled · ${act('disable', 'disabled')}`;
-    if (st === 'disabled') {
-      const ready = this._hasPostDisableBackup(c);
-      const why = ready ? 'Archive + remove local data (source kept).'
-        : 'Back up first — offload needs a backup taken while disabled (a consistent snapshot).';
-      const whyFull = ready ? 'Archive + remove data AND source.' : why;
-      return html`disabled · ${act('enable', 'enabled')}
-        · ${act('offload', 'offloaded', { gated: !ready, title: why })}
-        · ${act('offload+src', 'offloaded-full', { gated: !ready, title: whyFull })}
-        ${ready ? nothing : html`<span class="muted" style="font-size:11px"> (back up to enable offload)</span>`}`;
-    }
-    // offloaded / offloaded-full
-    return html`${st} · ${act('restore', 'enabled')}`;
-  }
-
-  // Offload is allowed only once a backup exists that was taken AFTER the tile was
-  // disabled (its snapshot is consistent because the backend is stopped).
-  _hasPostDisableBackup(c) {
-    if ((c.state || 'enabled') !== 'disabled' || !c.stateAt) return false;
-    const since = Date.parse(c.stateAt);
-    const vers = this._versions[c.path];
-    return Array.isArray(vers) && vers.some((v) => Date.parse(v.time) >= since);
-  }
-
-  _scheduleForm(comp) {
-    return html`<span>
-      <input class="ev" placeholder="24h" style="width:48px">
-      <input class="kp" placeholder="keep" style="width:44px">
-      <a class="link" @click=${(e) => { const s = e.target.parentElement; this._setSchedule(comp, s.querySelector('.ev').value, s.querySelector('.kp').value); }}>set</a>
-    </span>`;
-  }
-
-  _versionsList(comp) {
-    const vers = this._versions[comp];
-    if (!vers) return html`<span class="muted">loading…</span>`;
-    if (vers.length === 0) return html`<span class="muted">no backups yet</span>`;
-    return html`<table class="tbl" style="margin:2px 0 4px 16px">
-      ${vers.map((v) => html`<tr>
-        <td class="mono">${v.version}</td>
-        <td class="muted">${v.time}</td>
-        <td class="mono">${this._fmtBytes(v.size)}</td>
-        <td style="white-space:nowrap">
-          <a class="link" @click=${() => this._restoreVersion(comp, v.version)}>restore</a>
-          · <a class="link" @click=${() => this._restoreFile(comp, v.version)}>file…</a>
-        </td>
-      </tr>`)}
-    </table>`;
-  }
-
-  _cronView() {
-    const jobs = this._cron ?? [];
-    return html`
-      ${jobs.length === 0 ? html`<span class="muted">no scheduled jobs.</span>` : html`
-        <table>
-          <tr><th>name</th><th>component</th><th>schedule</th><th>path</th><th>role</th><th></th></tr>
-          ${jobs.map((j) => html`<tr>
-            <td class="mono">${j.name}</td>
-            <td class="mono">${j.component}</td>
-            <td class="mono">${j.schedule}</td>
-            <td class="mono">${j.path}</td>
-            <td><span class="pill">${j.role}</span></td>
-            <td style="text-align:right"><button class="act rm" @click=${() => this._delCron(j)}>delete</button></td>
-          </tr>`)}
-        </table>`}`;
   }
 
   // ---- users ----
@@ -2569,7 +2175,7 @@ export class BxAdmin extends LitElement {
   }
   _ago(unixSec) {
     const s = Math.max(0, (Date.now() - unixSec * 1000) / 1000);
-    return (s < 60 ? (s | 0) + 's' : this._fmtDur(s)) + ' ago';
+    return (s < 60 ? (s | 0) + 's' : fmtDur(s)) + ' ago';
   }
   _sessionsView() {
     const all = this._sessions ?? [];

@@ -3,6 +3,7 @@
 // sets and an org's extra entries), and the draft plumbing every editor
 // uses. Pure functions over data the caller passes in — no element state.
 import { html, nothing } from 'lit';
+import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { ALLOW_KINDS, ROLE_CAPS, KNOWN_CAPS, allowKind, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 
 // targetOptions(ov): every real component path (minus chrome), a pattern per
@@ -104,3 +105,30 @@ export function allowRows(rows, onChange, { gotoTab } = {}) {
     </div>`;
 }
 
+
+// fmtBytes / fmtDur: the compact units the runtime and backup tables use.
+export function fmtBytes(n) {
+  n = n || 0; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? Math.round(n) : n.toFixed(1)) + u[i];
+}
+export function fmtDur(s) {
+  s = Math.max(0, s | 0);
+  if (s < 60) return s + 's';
+  if (s < 3600) return (s / 60 | 0) + 'm' + (s % 60) + 's';
+  if (s < 86400) return (s / 3600 | 0) + 'h' + ((s % 3600) / 60 | 0) + 'm';
+  return (s / 86400 | 0) + 'd' + ((s % 86400) / 3600 | 0) + 'h';
+}
+
+// setLifecycle(path, state): the offload confirm + the API write. Resolves
+// false when the person declined (the caller re-renders to revert its
+// <select>), true when the state was sent; throws on refusal.
+export async function setLifecycle(path, state) {
+  // Offload removes local bytes (after archiving) — confirm before the flip.
+  if ((state === 'offloaded' || state === 'offloaded-full') &&
+      !confirm(`Offload ${path}? Its ${state === 'offloaded-full' ? 'data + source' : 'data'} will be archived, then removed locally.`)) {
+    return false;
+  }
+  await api('/lifecycle', jbody({ component: path, state }, 'POST'));
+  return true;
+}
