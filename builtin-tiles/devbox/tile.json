@@ -1,7 +1,7 @@
 {
   "name": "devbox",
-  "version": 1,
-  "changelog": "v1: rootless-podman container-host tile with an SSH proxy into container shells",
+  "version": 2,
+  "changelog": "v2: declares its reader/writer roles under expose.roles (the backend always guarded with them; they are now grantable to other tiles)\nv1: rootless-podman container-host tile with an SSH proxy into container shells",
   "title": "Devbox (containers + SSH)",
   "description": "Spin up rootless Podman containers as dev sandboxes and SSH straight into any of them — the container name is the SSH user (ssh -p<port> <name>@<host>). Manage containers and your authorized SSH keys from the tile. Needs the admin-only cap:containers grant, a net binding for container egress, and its SSH port published to a host port via ingress. A worked example of a container-host tile (docs/changes/2026-07-14-container-tiles.md).",
   "defaultPath": "apps/devbox",

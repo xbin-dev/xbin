@@ -134,6 +134,23 @@ pins the rules.
   first. A plain `os.WriteFile` is for content that is not state: a
   scaffold file being seeded, a clone's rewritten source.
 
+## Builtin tiles and templates
+
+- `make tile-check` (`hack/tile-check.sh`, a CI step) vets and tests every
+  `builtin-tiles/*/backend` and the agent template's `_backend` against
+  its own `go.mod.tile` in a scratch copy with the sdk replaced by the
+  checkout — what a workspace actually builds. `make vet` compiles the
+  same sources against the root `go.mod`, which is not what runs.
+- `internal/builtins` `TestBuiltinManifestsAndRoleGuards`: every shipped
+  manifest parses with xbind's JSONC reader, and every role a backend
+  guards with `sdk.Role` / `RoleFunc` is declared under `expose.roles`
+  (`admin` excepted) — a guard on an undeclared role is a 403 nobody can
+  grant their way past. `expose` (roles other tiles may be granted) and
+  `exposes` (ports published through ingress) are different keys on
+  purpose; both stay.
+- A tile's `tile.json` `version` bumps whenever its files change, with a
+  changelog line — that is how `bx builtin updates` offers the update.
+
 ## Frontend kit and theme fallbacks
 
 `web/bx-kit.js` is the one home of the helpers every frontend used to copy

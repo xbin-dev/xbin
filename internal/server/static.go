@@ -121,9 +121,9 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dirIndex = true
-		full = filepath.Join(full, "index.html")
-		cleaned = path.Join(cleaned, "index.html")
-		full = s.overlayFile(cleaned, full)
+		// `cleaned` stays the directory: it is the component path the
+		// injection attributes a not-yet-scanned component to.
+		full = s.overlayFile(path.Join(cleaned, "index.html"), filepath.Join(full, "index.html"))
 		if _, err := os.Stat(full); err != nil {
 			http.NotFound(w, r)
 			return

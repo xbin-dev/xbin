@@ -65,10 +65,11 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
   Passes drive `testApi()` on bx-shell / bx-frame / bx-admin, never private
   members (`make js-check` enforces it); rules in `docs/maintenance.md` →
   "UI harness". It found real bugs on its first run — use it for UI work.
-- Builtin tile backends aren't part of the workspace build. To typecheck one:
-  `cd builtin-tiles/<t> && cp go.mod.tile go.mod`, write a throwaway
-  `go.work` with `replace github.com/xbin-dev/xbin/sdk => ../../sdk`, build,
-  then **delete both** (never commit them).
+- Builtin tile backends aren't part of the workspace build: `make tile-check`
+  vets and tests each one (and the agent template's) against its own
+  `go.mod.tile` in a scratch copy, the way a workspace builds it (CI runs
+  it; `hack/tile-check.sh devbox` for one). Never copy `go.mod.tile` to
+  `go.mod` in place.
 - Verify before pushing: `make check` (every guard, under a minute) — and
   `make integration` when you touched the runner/sandbox/broker path. The
   guards and what each protects: `docs/maintenance.md`.

@@ -115,7 +115,10 @@ JSONC (comments and trailing commas allowed). Everything is optional.
     "game": { "kind": "stream", "proto": "udp", "port": 2456 }
   },
 
-  // The callable surface this component offers to others.
+  // The callable surface this component offers to others. (Not "exposes"
+  // above — that publishes ports; this declares the ROLES another tile may
+  // be granted. A backend guard on a role missing here is a 403 nobody
+  // can grant past; the builtin tiles are tested for exactly that.)
   "expose": {
     "roles": {
       // name → human description. Descriptions are REQUIRED — they render

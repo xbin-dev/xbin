@@ -8,6 +8,15 @@
   // tile's page.
   "runtime": "go",
 
+  // What another tile may be granted here (the backend guards with these
+  // exact roles; the tile's own page holds admin and needs no grant).
+  "expose": {
+    "roles": {
+      "reader": "List containers and their state (GET /containers)",
+      "writer": "Create, start, stop and remove containers; manage SSH keys (implies reader)"
+    }
+  },
+
   "uses": [
     // The container-host capability: keeps this tile's user-namespace caps and
     // a minimal seccomp floor so rootless podman can build nested namespaces +

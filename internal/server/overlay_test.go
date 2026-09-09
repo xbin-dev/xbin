@@ -80,3 +80,42 @@ func TestDevOverlay(t *testing.T) {
 		t.Errorf("overlay off: got %q", w.Body.String())
 	}
 }
+
+// A directory index for a component created after the registry's last scan
+// is attributed to the DIRECTORY (the component path), never to the
+// index.html inside it — the integration suite caught a refactor that
+// reassigned the cleaned path while resolving the overlay.
+func TestDirIndexAttributesUnscannedComponent(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("apps/old/index.html", `<html><head></head><body>old</body></html>`)
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg, Auth: a}
+	// created after the scan: the registry does not know it yet
+	mk("apps/hello/index.html", `<html><head></head><body>hello</body></html>`)
+	for _, overlay := range []string{"", t.TempDir()} {
+		s.Overlay = overlay
+		r := httptest.NewRequest("GET", "/c/apps/hello/", nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true}))
+		w := httptest.NewRecorder()
+		s.handleComponentStatic(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `name="xbin-component" content="apps/hello"`) {
+			t.Errorf("overlay=%q: got %d %q", overlay, w.Code, w.Body.String())
+		}
+	}
+}

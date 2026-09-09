@@ -9,6 +9,15 @@
   // tile — never in the xbind daemon.
   "runtime": "go",
 
+  // What another tile may be granted here (the backend guards with these
+  // exact roles; the tile's own page holds admin and needs no grant).
+  "expose": {
+    "roles": {
+      "reader": "Read the terminator's status, routes and certificate state",
+      "writer": "Change its settings — ACME account, staging/production (implies reader)"
+    }
+  },
+
   // Raw :80/:443 — the tile's own exposed stream ports, published via the
   // runtime L4 relay: `bx expose <this tile> web=runtime --listen :80` and
   // `websecure=runtime --listen :443`. (Host ports <1024 need xbind to hold

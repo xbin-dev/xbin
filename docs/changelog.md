@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-09
 
+- **SDK: a tile granted a bus alias role now passes the matching guard.**
+  `xbin.RoleSatisfies` (and so `xbin.Role` / `RoleFunc`) folds
+  `subscriber` onto `reader` and `publisher` onto `writer`, exactly as
+  xbind does when it evaluates the call — a tile granted `subscriber` on a
+  bus and guarding with `Role("reader")` got a 403 from its own SDK before.
+  Permissive only: nothing that passed stops passing. Tiles pick it up on
+  their next rebuild.
+- **devbox and traefik declare their roles.** Both backends always guarded
+  with `reader` / `writer` but their manifests exposed no roles, so no
+  other tile could be granted them; `expose.roles` now lists both
+  (tile.json v2 — `bx builtin updates` offers it). A test now refuses a
+  shipped tile whose backend guards on a role its manifest does not
+  declare, and `make tile-check` builds every builtin backend against its
+  own `go.mod.tile` the way a workspace does.
 - **`/vendor/bx-kit.js` — the frontend helper kit, and a page saying what
   tiles may import.** `api`/`xbinApi`/`selfApi` (fetch through the in-frame
   client, JSON out, the server's `error` thrown), `jbody`, `esc`,

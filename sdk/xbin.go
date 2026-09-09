@@ -137,9 +137,24 @@ func roleRank(role string) int {
 	return 0
 }
 
+// normRole folds the bus aliases xbind grants (`subscriber` = reader,
+// `publisher` = writer) onto the ranked roles, exactly as the broker does
+// when it evaluates a call — so a tile granted `subscriber` passes a
+// Role("reader") guard instead of getting a 403 from its own SDK.
+func normRole(r string) string {
+	switch r {
+	case "subscriber":
+		return "reader"
+	case "publisher":
+		return "writer"
+	}
+	return r
+}
+
 // RoleSatisfies reports whether `have` satisfies `want` (admin ⊃ writer ⊃
-// reader; custom names must match exactly).
+// reader, with the bus aliases folded in; custom names must match exactly).
 func RoleSatisfies(have, want string) bool {
+	have, want = normRole(have), normRole(want)
 	if have == want {
 		return true
 	}

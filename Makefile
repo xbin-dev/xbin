@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -103,6 +103,13 @@ check: fmt-check vet js-check theme-check shellcheck pins-offline test
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:
 	@node hack/theme-fallbacks.mjs
+
+# Builtin tile backends + the agent template's, vetted and tested against
+# their own go.mod.tile with the sdk replaced by this checkout — what a
+# workspace actually builds (make vet compiles them against the root go.mod).
+# Not in `check`: needs network for each tile's deps on first run; CI runs it.
+tile-check:
+	@./hack/tile-check.sh
 
 # Parse every shipped .js and every inline <script type="module"> block; and
 # the UI harness may only drive the elements' testApi() (never a `_member`

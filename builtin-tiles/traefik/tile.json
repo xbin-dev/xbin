@@ -1,7 +1,7 @@
 {
   "name": "traefik",
-  "version": 1,
-  "changelog": "v1: public HTTPS ingress terminator — ACME (Let's Encrypt) TLS in a tile, routes from xbind's ingress table",
+  "version": 2,
+  "changelog": "v2: declares its reader/writer roles under expose.roles (the backend always guarded with them; they are now grantable to other tiles)\nv1: public HTTPS ingress terminator — ACME (Let's Encrypt) TLS in a tile, routes from xbind's ingress table",
   "title": "Public HTTPS (Traefik)",
   "description": "The batteries-included public door. Other tiles publish by binding their http exposes here (bx expose <tile> web=<this> --host …); this tile terminates TLS with automatic Let's Encrypt certificates and hands each request back to xbind, which enforces the target tile's public paths. Certificates and ACME live in this sandboxed tile — never in the daemon. Bind its web/websecure stream exposes to host :80/:443 and its net to internet.",
   "defaultPath": "apps/traefik",

@@ -32,7 +32,9 @@ c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // at full role even for read-level viewers
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
-xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact
+xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact;
+                               // bus aliases fold in (subscriber = reader,
+                               // publisher = writer), as the broker grants them
 c.Ingress()                  // anonymous PUBLIC traffic via a published
                              // endpoint (docs/ingress.md) — no role; the
                              // public hostname is in X-XBin-Ingress-Host
