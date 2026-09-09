@@ -7,6 +7,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
 import { capInfo } from '/vendor/bx-allow.js';
+import { grantArrow } from '/vendor/bx-grant-row.js';
 
 // Reserved targets have no component to look role docs up on.
 const reservedTarget = (t) => /^(res:|cap:|gpu:|net:|xbin$|xbin:|code$|code:)/.test(t);
@@ -143,7 +144,7 @@ export class BxGrants extends LitElement {
         <h4>pending access requests</h4>
         ${this._pending.map((p) => html`
           <div class="row" style=${p.blocked ? 'opacity:.55' : ''}>
-            <span class="who">${p.from} → ${p.target}</span>
+            <span class="who">${grantArrow(p)}</span>
             <span class="role">${p.role}</span>
             ${p.direction ? html`<span class="dir">${p.direction}</span>` : nothing}
             <span class="desc" title=${p.blocked ?? capInfo(p.target)?.desc ?? ''}>${p.blocked
@@ -160,7 +161,7 @@ export class BxGrants extends LitElement {
         <h4 style="margin-top:.6rem">active grants</h4>
         ${this._grants.map((g) => html`
           <div class="row">
-            <span class="who">${g.from} → ${g.target}</span>
+            <span class="who">${grantArrow(g)}</span>
             <span class="role">${g.role}</span>
             ${g.direction ? html`<span class="dir">${g.direction}</span>` : nothing}
             <span class="desc">${g.approvedBy ? html`<span class="by">· approved by ${g.approvedBy}</span>` : nothing}</span>

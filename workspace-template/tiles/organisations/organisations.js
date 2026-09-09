@@ -18,6 +18,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { ruleLabel, orgNetLabel, SCOPE_ICON } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
+import { grantArrow } from '/vendor/bx-grant-row.js';
 
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 
@@ -435,7 +436,7 @@ export class BxOrganisations extends LitElement {
       <h3>pending approvals</h3>
       ${pending.length ? html`<div class="card">
         ${pending.map((p) => html`<div class="row" style="margin:3px 0">
-          <span class="mono">${p.from}</span> → <span class="mono" title=${capInfo(p.target)?.desc ?? ''}>${p.target}</span>
+          <span class="mono">${grantArrow(p)}</span>
           ${capInfo(p.target) ? html`<span class="muted" style="font-size:11px">${capInfo(p.target).label}</span>` : nothing}
           <span class="pill">${p.role}</span> ${dir(p)}
           <span style="flex:1"></span>
@@ -445,7 +446,7 @@ export class BxOrganisations extends LitElement {
       </div>` : nothing}
       ${mine.length ? html`<div class="card">
         ${mine.map((p) => html`<div class="row" style="margin:3px 0">
-          <span class="mono">${p.from}</span> → <span class="mono">${p.target}</span>
+          <span class="mono">${grantArrow(p)}</span>
           <span class="pill">${p.role}</span>
           <span class="muted" style="font-size:11px">waiting for: ${this._askWho(p)}</span>
         </div>`)}
@@ -636,7 +637,7 @@ export class BxOrganisations extends LitElement {
         withdraw access (D33).</p>
       ${rows.length ? html`<div class="card">
         ${rows.map((g) => html`<div class="row" style="margin:3px 0">
-          <span class="mono">${g.from}</span> → <span class="mono">${g.target}</span>
+          <span class="mono">${grantArrow(g)}</span>
           <span class="pill">${g.role}</span>
           ${g.approvedBy ? html`<span class="muted" style="font-size:11px">approved by ${g.approvedBy}</span>` : nothing}
           <span style="flex:1"></span>

@@ -9,7 +9,7 @@
 import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api } from '/vendor/bx-kit.js';
 import { netOptions } from '/vendor/bx-netrules.js';
-import { capInfo } from '/vendor/bx-allow.js';
+import { grantArrow } from '/vendor/bx-grant-row.js';
 import '/vendor/bx-multiselect.js';
 import { base } from '../admin-css.js';
 import { WithDrafts, WithFilter, WithRouter } from '../shared.js';
@@ -72,7 +72,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
       ${this._filterBar('filter grants by caller, target or role…', null, pending.length + grants.length, total)}
       ${pending.length ? html`<h4>pending requests</h4>
         <table>${pending.map((g) => html`<tr>
-          <td class="mono" title=${capInfo(g.target)?.desc ?? ''}>${g.from} → ${g.target}</td>
+          <td class="mono">${grantArrow(g)}</td>
           <td><span class="pill">${g.role}</span></td>
           <td style="text-align:right">${g.blocked
             ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
@@ -81,7 +81,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
 
       <h4>active grants</h4>
       <table>${grants.length ? grants.map((g) => html`<tr>
-        <td class="mono">${g.from} → ${g.target}</td>
+        <td class="mono">${grantArrow(g)}</td>
         <td><span class="pill">${g.role}</span></td>
         <td style="text-align:right"><button class="act rm" @click=${() => this._revoke(g)}>revoke</button></td>
       </tr>`) : html`<tr><td class="muted">${this._q ? 'no matching grants' : 'none'}</td></tr>`}</table>

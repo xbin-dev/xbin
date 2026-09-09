@@ -55,6 +55,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   mounted its tiles (spawning their backends, restoring their terminals)
   before switching to the screen you were on; it now waits for the
   layout.
+- **`/vendor/bx-grant-row.js`: one rendering of `from → target`.**
+  `grantArrow(g)` draws a grant or request's caller-target pair with the
+  tooltip that explains it (the policy block reason, else what the
+  capability target means); the shell's grants panel, the admin console's
+  binding tab and the organisations tile all use it, so active grants
+  gained the tooltip their pending rows already had. Tiles may import it
+  ([frontend-kit.md](/docs/frontend-kit.md)).
 - **SDK: `xbin.WriteJSON` and `xbin.WriteError`.** The response helpers
   every builtin backend and the agent template carried a copy of are in
   the SDK (zero-dependency as ever): `WriteJSON(w, status, v)` sets the
