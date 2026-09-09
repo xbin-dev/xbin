@@ -1513,3 +1513,22 @@ Deviations and refinements made while implementing; all deliberate:
   binary twin takes ~30 s) and is part of `make check`. Rejected: moving
   every lazily read variable into Config now (five packages would gain
   parameters for a documentation gain the `readBy` column delivers).
+- **D63 — The broker sheds planes, one at a time, starting where the seam
+  is clean (2026-09-09).** `internal/broker` is 17k lines and a 321-method
+  struct holding 18 concerns; the plan (I6d) is a kernel (`authz`) plus
+  identity / net / storage / content / obs planes with the `Policy`
+  interface (D61) as the seam. The per-file field map showed which files
+  touch only their own state, and the observability trio — tile status
+  reports (`status.go`), per-user prefs, backend logs — touches nothing
+  of the broker but three answers: the workspace root, the hub, "is this
+  principal admin", "is this path a component". `internal/obs.Plane`
+  takes those as fields; the broker builds it in `Register` and mounts it.
+  Wire-identical (same routes, same handlers, same `IsAdmin`), and the
+  route inventory still sees every `RegisterAPI` literal because it scans
+  `internal/`. The shape for the next planes: a struct whose fields are
+  the exact answers it needs from the rest, built and mounted by the
+  broker, tests moved with it on a fixture of those answers rather than a
+  whole broker. Rejected: an interface for the answers (three funcs are
+  the interface) and moving the storage plane first (it shares the KV
+  store, the barrier and the resenc manager with backup and usage —
+  three seams, not one).

@@ -21,6 +21,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/obs"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/resenc"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -51,8 +52,7 @@ type Broker struct {
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 
-	statusMu sync.Mutex
-	statuses map[string]statusRec // component → last reported status (status.go)
+	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
 	// prsMu serializes cross-tile PR store mutations (numbering + meta
 	// rewrites, prs.go).
@@ -107,8 +107,6 @@ type Broker struct {
 	AllowInsecureVault bool
 }
 
-// SetBuiltins installs the embedded builtin tile catalog (from main, which
-// owns the embedded FS). Call before Register.
 // Close releases what a boot holds open for the daemon's lifetime — the KV
 // database (its file lock would block the next open of the same
 // workspace), the cron scheduler and the disk monitor — so a process can
@@ -125,6 +123,8 @@ func (b *Broker) Close() {
 	}
 }
 
+// SetBuiltins installs the embedded builtin tile catalog (from main, which
+// owns the embedded FS). Call before Register.
 func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
 
 // SetBuiltinTemplates installs the embedded builtin template catalog. Call
@@ -260,9 +260,9 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTemplates(srv)
 	b.registerUsers(srv)
 	b.registerScreens(srv)
-	b.registerLogs(srv)
-	b.registerPrefs(srv)
-	b.registerStatus(srv)
+	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
+		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok }}
+	b.obs.Register(srv)
 	srv.InstallPolicy(brokerPolicy{b})
 }
 

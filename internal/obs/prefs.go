@@ -1,4 +1,4 @@
-package broker
+package obs
 
 import (
 	"encoding/json"
@@ -23,11 +23,11 @@ import (
 // (or "root" for the root token / single-user) and component is the calling
 // tile ("root" for the shell / main page).
 
-func (b *Broker) registerPrefs(srv *server.Server) {
-	srv.RegisterAPI("GET /prefs", b.apiPrefsAll)
-	srv.RegisterAPI("GET /prefs/{key}", b.apiPrefsGet)
-	srv.RegisterAPI("PUT /prefs/{key}", b.apiPrefsPut)
-	srv.RegisterAPI("DELETE /prefs/{key}", b.apiPrefsDelete)
+func (o *Plane) registerPrefs(srv *server.Server) {
+	srv.RegisterAPI("GET /prefs", o.apiPrefsAll)
+	srv.RegisterAPI("GET /prefs/{key}", o.apiPrefsGet)
+	srv.RegisterAPI("PUT /prefs/{key}", o.apiPrefsPut)
+	srv.RegisterAPI("DELETE /prefs/{key}", o.apiPrefsDelete)
 }
 
 func prefsKeys(p auth.Principal) (user, comp string) {
@@ -42,14 +42,14 @@ func prefsKeys(p auth.Principal) (user, comp string) {
 	return
 }
 
-func (b *Broker) prefsPath(p auth.Principal) string {
+func (o *Plane) prefsPath(p auth.Principal) string {
 	user, comp := prefsKeys(p)
-	return filepath.Join(b.Reg.Root, "data", "prefs", util.CompKey(user), util.CompKey(comp)+".json")
+	return filepath.Join(o.Root, "data", "prefs", util.CompKey(user), util.CompKey(comp)+".json")
 }
 
-func (b *Broker) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) {
+func (o *Plane) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) {
 	out := map[string]json.RawMessage{}
-	bts, err := os.ReadFile(b.prefsPath(p))
+	bts, err := os.ReadFile(o.prefsPath(p))
 	if os.IsNotExist(err) {
 		return out, nil
 	}
@@ -59,8 +59,8 @@ func (b *Broker) prefsRead(p auth.Principal) (map[string]json.RawMessage, error)
 	return out, json.Unmarshal(bts, &out)
 }
 
-func (b *Broker) prefsWrite(p auth.Principal, m map[string]json.RawMessage) error {
-	path := b.prefsPath(p)
+func (o *Plane) prefsWrite(p auth.Principal, m map[string]json.RawMessage) error {
+	path := o.prefsPath(p)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -71,8 +71,8 @@ func (b *Broker) prefsWrite(p auth.Principal, m map[string]json.RawMessage) erro
 	return fsutil.WriteFileAtomic(path, bts, 0o644)
 }
 
-func (b *Broker) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
-	m, err := b.prefsRead(auth.PrincipalOf(r))
+func (o *Plane) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
+	m, err := o.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -80,8 +80,8 @@ func (b *Broker) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, m)
 }
 
-func (b *Broker) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
-	m, err := b.prefsRead(auth.PrincipalOf(r))
+func (o *Plane) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
+	m, err := o.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -95,17 +95,17 @@ func (b *Broker) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(v)
 }
 
-func (b *Broker) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
+func (o *Plane) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	var raw json.RawMessage
 	if err := server.DecodeJSON(r, &raw); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "body must be JSON")
 		return
 	}
-	m, err := b.prefsRead(p)
+	m, err := o.prefsRead(p)
 	if err == nil {
 		m[r.PathValue("key")] = raw
-		err = b.prefsWrite(p, m)
+		err = o.prefsWrite(p, m)
 	}
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -114,12 +114,12 @@ func (b *Broker) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
 	server.WriteOK(w)
 }
 
-func (b *Broker) apiPrefsDelete(w http.ResponseWriter, r *http.Request) {
+func (o *Plane) apiPrefsDelete(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
-	m, err := b.prefsRead(p)
+	m, err := o.prefsRead(p)
 	if err == nil {
 		delete(m, r.PathValue("key"))
-		err = b.prefsWrite(p, m)
+		err = o.prefsWrite(p, m)
 	}
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())

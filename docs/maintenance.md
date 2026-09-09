@@ -196,6 +196,16 @@ signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
   ignored by the workspace watcher). `WriteFileAtomicIn` creates the parent
   first. A plain `os.WriteFile` is for content that is not state: a
   scaffold file being seeded, a clone's rewritten source.
+- **The broker is being split into planes** (D63). `internal/obs` was
+  the first: tile status reports, per-user prefs and backend logs as a
+  `Plane` whose fields are exactly the answers it needs from the rest
+  (the workspace root, the hub, `IsAdmin`, `HasComponent`); the broker
+  builds and mounts it in `Register`, and its tests run on a fixture of
+  those answers, not a whole broker. Lifting the next plane: pick a file
+  set that touches only its own state (the per-file field map in the
+  decision), give it a struct with those answers as fields, move the
+  files and their tests, keep every `RegisterAPI` literal (the route
+  inventory scans `internal/`), and expect a wire-identical diff.
 - **What the broker decides for the server is one interface,
   `server.Policy`** (`internal/server/policy.go`): admin status, tile
   owners, bus visibility, the interface meta a document gets, the sandbox

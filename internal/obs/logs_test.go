@@ -1,4 +1,4 @@
-package broker
+package obs
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-func writeLog(t *testing.T, b *Broker, comp, content string) string {
+func writeLog(t *testing.T, o *Plane, comp, content string) string {
 	t.Helper()
-	dir := filepath.Join(b.Reg.Root, ".xbin", "log")
+	dir := filepath.Join(o.Root, ".xbin", "log")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -27,22 +27,25 @@ func writeLog(t *testing.T, b *Broker, comp, content string) string {
 	return p
 }
 
-func getLogs(t *testing.T, b *Broker, p auth.Principal, query string) *httptest.ResponseRecorder {
+func getLogs(t *testing.T, o *Plane, p auth.Principal, query string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("GET", "/logs?"+query, nil)
 	r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 	w := httptest.NewRecorder()
-	b.apiLogs(w, r)
+	o.apiLogs(w, r)
 	return w
 }
 
 func TestLogsGateAndTail(t *testing.T) {
-	b := testBroker(t)
-	st := testUsers(t, b)
-	writeLog(t, b, "apps/calendar", "line one\nline two\nline three\n")
+	o := testPlane(t)
+	st, err := users.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLog(t, o, "apps/calendar", "line one\nline two\nline three\n")
 
 	// Unknown component → 404 before any gate.
-	if w := getLogs(t, b, auth.Principal{Owner: true}, "component=apps/nope"); w.Code != 404 {
+	if w := getLogs(t, o, auth.Principal{Owner: true}, "component=apps/nope"); w.Code != 404 {
 		t.Fatalf("unknown component: want 404, got %d", w.Code)
 	}
 
@@ -64,7 +67,7 @@ func TestLogsGateAndTail(t *testing.T) {
 		{UserID: "termu", Access: acc("termu")},
 	}
 	for i, p := range allow {
-		w := getLogs(t, b, p, "component=apps/calendar")
+		w := getLogs(t, o, p, "component=apps/calendar")
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "line three") {
 			t.Fatalf("allow[%d]: %d %q", i, w.Code, w.Body.String())
 		}
@@ -75,20 +78,20 @@ func TestLogsGateAndTail(t *testing.T) {
 		{},                                        // unauthenticated
 	}
 	for i, p := range deny {
-		if w := getLogs(t, b, p, "component=apps/calendar"); w.Code != 403 {
+		if w := getLogs(t, o, p, "component=apps/calendar"); w.Code != 403 {
 			t.Fatalf("deny[%d]: want 403, got %d", i, w.Code)
 		}
 	}
 
 	// tail= caps the returned bytes to the last N (partial line included).
-	writeLog(t, b, "apps/calendar", "AAAA\nBBBB\nCCCC\n")
-	w := getLogs(t, b, auth.Principal{Owner: true}, "component=apps/calendar&tail=6")
+	writeLog(t, o, "apps/calendar", "AAAA\nBBBB\nCCCC\n")
+	w := getLogs(t, o, auth.Principal{Owner: true}, "component=apps/calendar&tail=6")
 	if b := w.Body.String(); len(b) > 6 || !strings.Contains(b, "CCCC") {
 		t.Fatalf("tail=6 returned %q", b)
 	}
 
 	// No log file yet, non-follow → 404.
-	if w := getLogs(t, b, auth.Principal{Owner: true}, "component=apps/email"); w.Code != 404 {
+	if w := getLogs(t, o, auth.Principal{Owner: true}, "component=apps/email"); w.Code != 404 {
 		t.Fatalf("missing log non-follow: want 404, got %d", w.Code)
 	}
 }
@@ -98,8 +101,8 @@ func TestLogsFollow(t *testing.T) {
 	logPoll = 10 * time.Millisecond
 	defer func() { logPoll = old }()
 
-	b := testBroker(t)
-	p := writeLog(t, b, "apps/calendar", "initial\n")
+	o := testPlane(t)
+	p := writeLog(t, o, "apps/calendar", "initial\n")
 
 	r := httptest.NewRequest("GET", "/logs?component=apps/calendar&follow=1", nil)
 	ctx, cancel := context.WithCancel(r.Context())
@@ -107,7 +110,7 @@ func TestLogsFollow(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	done := make(chan struct{})
-	go func() { b.apiLogs(w, r); close(done) }()
+	go func() { o.apiLogs(w, r); close(done) }()
 
 	// Append after the handler has streamed the initial tail.
 	time.Sleep(40 * time.Millisecond)

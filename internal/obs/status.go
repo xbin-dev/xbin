@@ -1,4 +1,4 @@
-package broker
+package obs
 
 import (
 	"net/http"
@@ -31,26 +31,25 @@ type statusRec struct {
 
 var statusLevels = map[string]bool{"ok": true, "info": true, "warn": true, "error": true}
 
-func (b *Broker) registerStatus(srv *server.Server) {
-	b.statuses = map[string]statusRec{}
-	srv.RegisterAPI("GET /tile-report", b.apiStatusList)
-	srv.RegisterAPI("POST /tile-report", b.apiStatusSet)
-	go b.watchStatusRestarts()
+func (o *Plane) registerStatus(srv *server.Server) {
+	srv.RegisterAPI("GET /tile-report", o.apiStatusList)
+	srv.RegisterAPI("POST /tile-report", o.apiStatusSet)
+	go o.watchStatusRestarts()
 }
 
 // GET /tile-report → {statuses:{<component>:{level,message,ts}}}. The caller sees
 // only components they can read (admin: all).
-func (b *Broker) apiStatusList(w http.ResponseWriter, r *http.Request) {
+func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
-	admin := b.IsAdmin(p)
+	admin := o.IsAdmin(p)
 	out := map[string]statusRec{}
-	b.statusMu.Lock()
-	for comp, rec := range b.statuses {
+	o.statusMu.Lock()
+	for comp, rec := range o.statuses {
 		if admin || p.CanReadTile(comp) {
 			out[comp] = rec
 		}
 	}
-	b.statusMu.Unlock()
+	o.statusMu.Unlock()
 	server.WriteJSON(w, http.StatusOK, map[string]any{"statuses": out})
 }
 
@@ -59,7 +58,7 @@ func (b *Broker) apiStatusList(w http.ResponseWriter, r *http.Request) {
 // body.component. level "ok" with an empty message CLEARS it (an "ok" WITH a
 // message shows a healthy indicator); transient=true fires a one-shot
 // notification (toast) without touching the stored status.
-func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
+func (o *Plane) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	var body struct {
 		Level     string `json:"level"`
@@ -82,7 +81,7 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An element reports only for itself; admin/owner may report for any.
-	if !b.IsAdmin(p) && p.Component != comp {
+	if !o.IsAdmin(p) && p.Component != comp {
 		server.WriteError(w, http.StatusForbidden, "a component may only report its own status")
 		return
 	}
@@ -101,44 +100,44 @@ func (b *Broker) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	rec := statusRec{Level: level, Message: msg, TS: time.Now().Unix()}
 
 	if body.Transient {
-		b.publishStatus(comp, rec, true)
+		o.publishStatus(comp, rec, true)
 		server.WriteOK(w)
 		return
 	}
-	b.statusMu.Lock()
+	o.statusMu.Lock()
 	if level == "ok" && msg == "" {
-		delete(b.statuses, comp) // clear
+		delete(o.statuses, comp) // clear
 	} else {
-		b.statuses[comp] = rec
+		o.statuses[comp] = rec
 	}
-	b.statusMu.Unlock()
-	b.publishStatus(comp, rec, false)
+	o.statusMu.Unlock()
+	o.publishStatus(comp, rec, false)
 	server.WriteOK(w)
 }
 
-func (b *Broker) publishStatus(comp string, rec statusRec, transient bool) {
+func (o *Plane) publishStatus(comp string, rec statusRec, transient bool) {
 	data := map[string]any{"level": rec.Level, "message": rec.Message, "ts": rec.TS}
 	if transient {
 		data["transient"] = true
 	}
-	b.Hub.Publish(events.Event{Type: "status", Component: comp, Data: data})
+	o.Hub.Publish(events.Event{Type: "status", Component: comp, Data: data})
 }
 
 // watchStatusRestarts clears a component's stored status when its backend
 // (re)starts, so a problem reported before a crash/restart doesn't linger — the
 // fresh process re-asserts its own status. Runs for the broker's lifetime.
-func (b *Broker) watchStatusRestarts() {
-	ch, _ := b.Hub.Subscribe(nil)
+func (o *Plane) watchStatusRestarts() {
+	ch, _ := o.Hub.Subscribe(nil)
 	for e := range ch {
 		if e.Type != "build-start" || e.Component == "" {
 			continue
 		}
-		b.statusMu.Lock()
-		_, had := b.statuses[e.Component]
-		delete(b.statuses, e.Component)
-		b.statusMu.Unlock()
+		o.statusMu.Lock()
+		_, had := o.statuses[e.Component]
+		delete(o.statuses, e.Component)
+		o.statusMu.Unlock()
 		if had {
-			b.publishStatus(e.Component, statusRec{Level: "ok", TS: time.Now().Unix()}, false)
+			o.publishStatus(e.Component, statusRec{Level: "ok", TS: time.Now().Unix()}, false)
 		}
 	}
 }

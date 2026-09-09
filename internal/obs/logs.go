@@ -1,4 +1,4 @@
-package broker
+package obs
 
 import (
 	"fmt"
@@ -35,11 +35,11 @@ const (
 // shrink it). 300ms matches `bx logs -f`.
 var logPoll = 300 * time.Millisecond
 
-func (b *Broker) registerLogs(srv *server.Server) {
-	srv.RegisterAPI("GET /logs", b.apiLogs)
+func (o *Plane) registerLogs(srv *server.Server) {
+	srv.RegisterAPI("GET /logs", o.apiLogs)
 }
 
-func (b *Broker) canReadLogs(p auth.Principal, comp string) bool {
+func (o *Plane) canReadLogs(p auth.Principal, comp string) bool {
 	// CanTerminalTile: admins everywhere; session humans by their resolved
 	// (org/team-aware) level; element principals always false there — only
 	// the explicit self case admits them.
@@ -48,13 +48,13 @@ func (b *Broker) canReadLogs(p auth.Principal, comp string) bool {
 
 // apiLogs serves GET /logs?component=<path>[&tail=<bytes>][&follow=1].
 // Plain text; follow streams chunked until the client goes away.
-func (b *Broker) apiLogs(w http.ResponseWriter, r *http.Request) {
+func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
-	if _, ok := b.Reg.Component(comp); !ok {
+	if !o.HasComponent(comp) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
-	if !b.canReadLogs(auth.PrincipalOf(r), comp) {
+	if !o.canReadLogs(auth.PrincipalOf(r), comp) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "backend logs need admin, the tile itself, or terminal-level access on it", "docs": "/docs/auth.md",
 		})
@@ -66,7 +66,7 @@ func (b *Broker) apiLogs(w http.ResponseWriter, r *http.Request) {
 		tail = min(t, logTailMax)
 	}
 
-	path := filepath.Join(b.Reg.Root, ".xbin", "log", util.CompKey(comp)+".log")
+	path := filepath.Join(o.Root, ".xbin", "log", util.CompKey(comp)+".log")
 	f, err := os.Open(path)
 	if err != nil && !follow {
 		server.WriteError(w, http.StatusNotFound, "no logs yet — the backend hasn't started")

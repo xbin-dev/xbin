@@ -1,4 +1,4 @@
-package broker
+package obs
 
 import (
 	"encoding/json"
@@ -7,27 +7,27 @@ import (
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 )
 
 // A component reports its OWN status; the owner may report for any; a cross-
 // component element is refused. The GET snapshot is read-filtered. "ok" with an
 // empty message clears; transient reports don't persist.
 func TestTileStatus(t *testing.T) {
-	b := testBroker(t) // apps/calendar, apps/email
-	b.statuses = map[string]statusRec{}
+	o := testPlane(t) // apps/calendar, apps/email
 
 	set := func(p auth.Principal, query, body string) int {
 		r := httptest.NewRequest("POST", "/tile-report"+query, strings.NewReader(body))
 		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		w := httptest.NewRecorder()
-		b.apiStatusSet(w, r)
+		o.apiStatusSet(w, r)
 		return w.Code
 	}
 	list := func(p auth.Principal) map[string]statusRec {
 		r := httptest.NewRequest("GET", "/tile-report", nil)
 		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		w := httptest.NewRecorder()
-		b.apiStatusList(w, r)
+		o.apiStatusList(w, r)
 		var out struct {
 			Statuses map[string]statusRec `json:"statuses"`
 		}
@@ -56,7 +56,7 @@ func TestTileStatus(t *testing.T) {
 	}
 
 	// owner sees both (the GET snapshot is read-filtered by CanReadTile; this
-	// test broker has no Users, so single-user mode shows all — the RBAC path is
+	// test plane has no users, so single-user mode shows all — the RBAC path is
 	// covered by the users/auth tests).
 	if got := list(auth.Principal{Owner: true}); len(got) != 2 {
 		t.Fatalf("owner should see 2 statuses, got %d", len(got))
@@ -82,4 +82,15 @@ func TestTileStatus(t *testing.T) {
 	if s := list(auth.Principal{Owner: true})["apps/email"]; s.Level != "warn" {
 		t.Fatalf("transient must not overwrite stored status, got %+v", s)
 	}
+}
+
+// testPlane is a plane over a temp workspace that knows two components;
+// the owner is the only admin (single-user mode).
+func testPlane(t *testing.T) *Plane {
+	t.Helper()
+	o := &Plane{Root: t.TempDir(), Hub: events.NewHub(),
+		IsAdmin:      func(p auth.Principal) bool { return p.Owner },
+		HasComponent: func(p string) bool { return p == "apps/calendar" || p == "apps/email" }}
+	o.statuses = map[string]statusRec{}
+	return o
 }
