@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -22,6 +23,7 @@ func (b *Broker) TermNetFor(p auth.Principal, comp string) term.TermNet {
 	ceil := b.Users.Ceiling(comp)
 	org := ceil.OwnerOrg()
 	if org == "" || !ceil.HasNetSets() || ceil.Denies(users.PolicyDenyNet) {
+		out.Sets = b.termNetSets(p, ceil) // a workspace admin's sets, on any tile
 		return out
 	}
 	targets, host := netRuleTargets(ceil.NetRules())
@@ -42,6 +44,54 @@ func (b *Broker) TermNetFor(p auth.Principal, comp string) term.TermNet {
 		lines = append(lines, netRuleText(r))
 	}
 	out.OrgDesc = strings.Join(lines, "\n")
+	out.Sets = b.termNetSets(p, ceil)
+	return out
+}
+
+// termNetSets lists the named sets this principal may pick on this tile
+// (D65). A workspace admin: every workspace set, anywhere — strictly less
+// than the host scope they already hold on every tile. Everyone else: the
+// sets attached to the OWNING org, and only when they would get the org
+// scope at all (an org tile with sets, no deny-net row) — each a narrowing
+// of the union they can already pick. Provider-only sets reach nothing for
+// a terminal and are skipped, as the org scope skips them.
+func (b *Broker) termNetSets(p auth.Principal, ceil users.Ceiling) []term.NetSetScope {
+	var names []string
+	switch {
+	case p.IsAdmin():
+		for n := range b.Users.NetSets() {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+	case ceil.OwnerOrg() != "" && ceil.HasNetSets() && !ceil.Denies(users.PolicyDenyNet):
+		names = ceil.NetSets()
+	default:
+		return nil
+	}
+	attached := map[string]bool{}
+	for _, n := range ceil.NetSets() {
+		attached[n] = true
+	}
+	var out []term.NetSetScope
+	for _, n := range names {
+		ns, ok := b.Users.NetSet(n)
+		if !ok {
+			continue
+		}
+		targets, host := netRuleTargets(ns.Rules)
+		if !host && len(targets) == 0 {
+			continue
+		}
+		head := "network set " + n + ":"
+		if attached[n] {
+			head = "network set " + n + " (attached to org:" + ceil.OwnerOrg() + "):"
+		}
+		lines := []string{head}
+		for _, r := range ns.Rules {
+			lines = append(lines, netRuleText(r))
+		}
+		out = append(out, term.NetSetScope{Name: n, Rules: targets, Host: host, Label: "net set: " + n, Desc: strings.Join(lines, "\n")})
+	}
 	return out
 }
 

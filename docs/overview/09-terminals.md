@@ -226,6 +226,7 @@ renders exactly that) and explains any clamp:
 | Scope | Meaning |
 |-------|---------|
 | `org` *(default on org-owned tiles with network sets)* | its own netns + the relay under the **owning org's network sets** — the same reach the org's tiles get (`lan:` ranges, pinned hosts, the internet if a set says so); host networking when a set grants `host`. Members need no `termNet`. |
+| `set:<name>` | one **named network set** — the relay under exactly that set's rules (host networking when it says `host`). Listed for each set attached to the tile's org, for whoever may open a terminal there (a narrowing of `org`); a workspace admin may pick any workspace set on any tile (D65). Never the default. |
 | `internet` *(default elsewhere)* | its own netns + an egress relay permitting the **public internet only**; host interfaces and LAN stay hidden. xbind stays reachable via a host-forward on the relay gateway `10.0.2.2` (`XBIN_URL` is transparently rewritten so `bx`/`curl` reach it without any host interface exposed). |
 | `host` | shares the host network (LAN + host services). Owner escape hatch — **admin-only** unless the tile's org has a `host` network-set rule; refused requests fall back to `org` (or `none`). |
 | `none` | isolated netns, **no egress at all** (airgapped; even xbind is unreachable). |

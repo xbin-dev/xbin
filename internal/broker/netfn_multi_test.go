@@ -144,7 +144,7 @@ func TestIfaceMultiplicity(t *testing.T) {
 
 	// Instance-expanded bind options use the # syntax.
 	c, _ := b.Reg.Component("apps/agent")
-	opts := b.bindOptions("apps/agent", c.Manifest.Interfaces["channels"])
+	opts := b.bindOptions("apps/agent", c.Manifest.Interfaces["channels"], true)
 	var ids []string
 	for _, o := range opts {
 		ids = append(ids, o.ID)

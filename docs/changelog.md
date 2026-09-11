@@ -10,6 +10,34 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-11
+
+- **Named network sets on terminals, and as a tile binding (D65).** A
+  terminal's scope menu now lists each network set by name — 🔗 *net set:
+  devs-net* — beside 🏢 *org network*: on an org-owned tile every set
+  attached to the org, for whoever may open a terminal there (each one a
+  narrowing of the org union); a workspace admin sees every workspace set
+  on every tile, personal and workspace tiles included. Defaults do not
+  move (`org` there, `internet`/`none` elsewhere); an unknown or unpickable
+  set clamps to the default with a note. A workspace admin may also bind
+  any tile's `net` slot to one set — `set:<name>` in the binding tab, the
+  tile popover, `bx bind <tile> net=set:<name>` — inside the owning org's
+  sets on org tiles; org admins keep `org` (a 403 says so). Provider-only
+  sets are neither a scope nor bindable. Editing a set restarts every tile
+  bound to it; deleting a bound set is refused (the network-sets tab shows
+  who holds it). Opening a terminal under a set an admin could not *bind*
+  the tile to is deliberate: a terminal is a human act outside the tile
+  ceiling. Protocol: terminal `?net=set:<name>` and `scopes[]` rows,
+  `/term-net`; `POST /bindings {provider:"set:<name>"}` (ws-admin; 403 for
+  org admins); `GET /bindings` `netOptions` (every net slot's option list,
+  bound or not) with `set:` rows blocked per caller; `GET /net-sets`
+  `boundBy`; `DELETE /net-sets` 409 while bound. Non-breaking: old scaffold
+  pickers ignore `netOptions` and show '·' for the new icon; an older xbind
+  resolves a `set:` binding to no egress (fail closed), like `org`. Docs:
+  [auth.md → Network sets](/docs/auth.md), overview/09-terminals.md,
+  isolation.md, overview/12-egress.md, overview/11-interfaces.md,
+  protocol.md, bx.md.
+
 ## 2026-09-10
 
 - **View the workspace as a user.** Admin console → users → a user's

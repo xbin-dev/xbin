@@ -31,17 +31,21 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
   render() {
     const sets = this.netsets?.sets ?? {};
     const attached = this.netsets?.attachedTo ?? {};
+    const bound = this.netsets?.boundBy ?? {}; // tiles bound to set:<name> (D65)
     const editKey = (n) => `netset:${n}`;
     return html`
       ${targetDatalist(this.targets)}
       <p class="muted" style="max-width:72ch">Named <b>network reach</b>, attached to organisations by reference
         (organisations tab → network). For an org's <b>own tiles</b> the union of its sets is the ceiling on
         <span class="mono">net</span> bindings, what its admins may bind without asking, and the default egress —
-        the builtin <span class="mono">org</span> — of those tiles and of terminals opened on them. Personal and
-        workspace tiles are unaffected (their terminals follow <b>term-net</b>). Edits restart the affected
-        org tiles; terminals pick the change up when reopened.</p>
+        the builtin <span class="mono">org</span> — of those tiles and of terminals opened on them, where the
+        scope menu also offers each attached set by name. Personal and workspace tiles are unaffected (their
+        terminals follow <b>term-net</b>) — except that a workspace admin may bind any tile's
+        <span class="mono">net</span> slot to one set (<span class="mono">set:&lt;name&gt;</span>, binding tab /
+        tile popover) and pick any set in any terminal (D65). Edits restart the affected org tiles and every
+        tile bound to the set; terminals pick the change up when reopened.</p>
       ${Object.entries(sets).sort(([a], [b]) => a.localeCompare(b)).map(([name, ns]) =>
-        this._netSetCard(name, ns, attached[name] ?? [], editKey(name)))}
+        this._netSetCard(name, ns, attached[name] ?? [], bound[name] ?? [], editKey(name)))}
       ${!Object.keys(sets).length ? html`<p class="muted">No network sets yet — every org tile's
         <span class="mono">net</span> slot is bound by hand today.</p>` : nothing}
       <h4>add set</h4>
@@ -61,19 +65,21 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
         <span class="mono">deny net</span> ceiling row still beats everything.</p>`;
   }
 
-  _netSetCard(name, ns, orgs, key) {
+  _netSetCard(name, ns, orgs, tiles, key) {
     const d = this._draft(key); // [{kind, value}] rows while editing
     const rules = ns.rules ?? [];
     const sum = setSummary(rules);
+    const held = [...orgs.map((o) => `org ${o}`), ...tiles];
     return html`<div class="netsetcard" data-netset=${name} style="border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:8px 10px; margin:8px 0">
       <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
         <b class="mono">⛭ ${name}</b>
         ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}
+        ${tiles.map((t) => html`<span class="pill mono" title="bound to this set (set:${name}) by a workspace admin">${t}</span>`)}
         ${sum.host ? html`<span class="pill pol" title="every org-bound tile and terminal in attached orgs shares the host's network stack">⚠ host</span>` : nothing}
         <span style="flex:1"></span>
         <button class="act" @click=${() => this._toggleDraft(key, () => rules.map(parseRule))}>edit</button>
-        <button class="act rm" ?disabled=${orgs.length > 0}
-          title=${orgs.length ? `detach from ${orgs.join(', ')} first` : 'delete this set'}
+        <button class="act rm" ?disabled=${held.length > 0}
+          title=${held.length ? `detach / unbind ${held.join(', ')} first` : 'delete this set'}
           @click=${() => confirm(`Delete network set ${name}?`) && this._orgAPI('DELETE', `/net-sets/${encodeURIComponent(name)}`)}>del</button>
       </div>
       <div style="margin-top:3px">${rules.length

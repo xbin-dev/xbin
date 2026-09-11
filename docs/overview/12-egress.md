@@ -45,6 +45,7 @@ providers cover the common cases; the other "provider" is a tile (next section).
 | `lan:<cidr>` | that CIDR (+ public, per rules) | relay under a CIDR policy |
 | `host` | the host's full network, LAN + host services, interfaces visible | shares the host netns (`HostNet`) — powerful, owner-only |
 | `org` | the **owning org's network sets** — the live union of their rules (D54, below); the default on org-owned tiles that have sets | relay under the union; `HostNet` when a set says `host` |
+| `set:<name>` | one **named network set**'s rules (D65) — bound by a workspace admin; inside the owning org's union on org tiles | relay under the set's rules; `HostNet` when it says `host` |
 | `none` | nothing — explicitly offline (even DNS) | empty netns |
 | a provider tile | whatever the provider forwards | TUN spliced to the provider (below) |
 

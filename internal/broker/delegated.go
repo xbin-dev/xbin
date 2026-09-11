@@ -181,6 +181,19 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 			}
 		case iface.Kind == "net" && strings.HasPrefix(v, "lan:"):
 			out = append(out, pairedTarget{"net:" + v, ""})
+		case iface.Kind == "net" && strings.HasPrefix(v, NetRefSet):
+			// A named set (D65) is judged by the rules it materializes —
+			// relay targets and host; its provider rules confer nothing to
+			// a binding. A vanished set expands to nothing (netBinding
+			// already made it inert).
+			if name, _ := netSetName(v); b.Users != nil {
+				if ns, ok := b.Users.NetSet(name); ok {
+					material, _ := netSetMaterial(ns.Rules)
+					for _, r := range material {
+						out = append(out, pairedTarget{"net:" + r, ""})
+					}
+				}
+			}
 		case iface.Kind == "net":
 			// A provider tile: same-org providers are intra-org wiring;
 			// otherwise the allowance must name net:provider:<tile>.

@@ -16,7 +16,7 @@
  * open tile shows new requests/membership changes without a reload.
  */
 import { LitElement, html, css, nothing } from 'lit';
-import { ruleLabel, orgNetLabel, SCOPE_ICON } from '/vendor/bx-netrules.js';
+import { ruleLabel, orgNetLabel, SCOPE_ICON, scopeIcon, scopeLabel } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
 
@@ -536,7 +536,8 @@ export class BxOrganisations extends LitElement {
           <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
           <span class="muted">→ ${b.ref === 'org'
             ? html`<span title=${(orgOf(b.comp)?.resolvedNet ?? []).map(ruleLabel).join('\n')}>${SCOPE_ICON.org} ${orgNetLabel(orgOf(b.comp))}</span>`
-            : b.ref === 'none' ? `${SCOPE_ICON.none} none — explicitly offline` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
+            : b.ref === 'none' ? `${SCOPE_ICON.none} none — explicitly offline`
+            : String(b.ref).startsWith('set:') ? `${scopeIcon(b.ref)} ${scopeLabel(b.ref)} (bound by a workspace admin)` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
           ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" title="unbind — the slot reappears above to re-route" @click=${() => this._do(() =>
@@ -547,7 +548,9 @@ export class BxOrganisations extends LitElement {
         Publishing through your org's own terminator needs no allowance (D41);
         host ports and the builtin listener do. Net bindings inside your org's
         network sets need no allowance either; an uncovered ref is refused (or, if a
-        set is later narrowed, goes inert) until a workspace admin widens the set (D54).</p>`;
+        set is later narrowed, goes inert) until a workspace admin widens the set (D54).
+        Binding one named set (<span class="mono">set:&lt;name&gt;</span>) is a workspace admin's
+        act; in a terminal's scope menu you may pick any set attached to your org (D65).</p>`;
   }
 
   // Read-only network line for an org you administer (D54): the sets are a

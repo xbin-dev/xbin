@@ -158,8 +158,10 @@ network namespace with **internet-only** egress — the host's interfaces aren't
 visible (`ip addr` shows just `lo` and `bx0`), but the public internet and
 xbind (`$XBIN_URL`, so `bx`/`curl`) work. `ping` works too (real reachability);
 `traceroute` needs host scope. Switch to **host net** to reach the LAN / services
-on the host, or **offline** for no network at all. Switching scope restarts the
-terminal (it can't change live).
+on the host, **offline** for no network at all, or — where the workspace defines
+network sets — one of them by name (🔗 *net set: …*; on an org's tile the menu
+also offers 🏢 *org network*). Switching scope restarts the terminal (it can't
+change live).
 
 ## Versioning
 

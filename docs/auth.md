@@ -867,13 +867,24 @@ sets); for an org's **own tiles** the union of its attached sets is, at once:
    sets (`GET /bindings` lists the slot as pending with `default: "org"`,
    i.e. satisfied). `org` may also be bound explicitly; **`none`** pins a
    tile offline on any owner. `org` on a personal/workspace tile is refused
-   (bind a concrete provider).
+   (bind a concrete provider). A **workspace admin** may also bind any
+   tile's slot to one named set — `set:<name>` (D65): on an org-owned tile
+   with sets it must still sit inside the union (attach the set to the org
+   first; the 400 names the rule), provider-only sets are refused, and org
+   admins bind `org` instead (403).
 4. **Terminal egress on org tiles.** A terminal opened on an org-owned tile
    gets the scope `org` by default with exactly the sets' reach — members
    need no `termNet`. Admins may still pick `internet`/`host`; a non-admin
    asking for a scope the sets don't cover is clamped to `org` (the session
    frame says why). Personal and workspace tiles are unchanged: `termNet`
-   and the D17 clamps govern them alone.
+   and the D17 clamps govern them alone. The scope menu also lists the org's
+   attached sets by name — 🔗 `set:<name>` (D65) — for whoever may open a
+   terminal there, each a narrowing of `org`; a workspace admin sees every
+   workspace set on every tile (they may already pick `host` anywhere).
+   Defaults never move: `org` here, `internet`/`none` elsewhere. That is
+   deliberately wider than what an admin may *bind*: opening a terminal
+   under a set is a human act outside the tile ceiling; binding a tile to
+   an uncovered set is refused.
 
 **Rules.** `internet` · `internet:<host|host-glob|ip|cidr>[:port]` (public
 destinations; hostnames are DNS-pinned by the relay, one `*` per glob, e.g.
@@ -882,7 +893,8 @@ ranges; no names or globs) · `host` (host networking) · `provider:<tile-glob>`
 (a net-provider tile may be bound; same-org providers need no rule). The
 union is a plain union — a set holding only `provider:` rules gives `org`
 **no relay egress at all** (airgapped incl. DNS) until a provider is bound;
-the option label says so. A set carrying **`host`** makes every `org`-bound
+the option label says so; such a set is neither bindable as `set:<name>`
+nor a terminal scope (`none` says offline honestly). A set carrying **`host`** makes every `org`-bound
 tile *and* terminal in attached orgs share the host's network stack — no
 relay, no filtering, no metering, no ingress splicing: the console warns
 loudly; prefer a LAN range and keep `host` for a dedicated infra org.
@@ -892,8 +904,9 @@ everything.
 
 **Edits take effect immediately** for tiles: changing a set's rules or an
 org's attachments restarts the affected org tiles' backends (and their stored
-provider tiles); terminals pick the new reach up when reopened. Deleting an
-attached set is refused; deleting an org leaves its sets unattached. Older
+provider tiles) and every tile bound to `set:<name>`, org-owned or not;
+terminals pick the new reach up when reopened. Deleting an attached set, or
+one a tile is bound to, is refused; deleting an org leaves its sets unattached. Older
 xbind binaries resolve `org`/`none` to no egress and drop `netSets` on their
 next persist (fail closed).
 
@@ -906,9 +919,12 @@ with the reason inside the section when a typed `custom…` ref is refused;
 a tile whose wiring you may not change (your own personal tile, say — only
 a workspace admin binds there, and the org's sets do not govern personal
 tiles) shows its wiring read-only; the organisations tile shows org admins
-their reach and wiring picker with the default preselected; the terminal's scope menu lists
-🏢 *org network (devs-net)*. `bx netset ls|set|rm`, `bx org set --net`,
-`bx org ls` (`net:`/`reach:`), `bx bind <tile> net=org|none|lan:…`,
+their reach and wiring picker with the default preselected; the pickers list a 🔗 `set:<name>` row per set (greyed for
+org admins, for provider-only sets, and where the org's sets don't cover
+it — `GET /bindings` `netOptions`); the terminal's scope menu lists
+🏢 *org network (devs-net)* and 🔗 *net set: devs-net* for each attached
+set (every set, for workspace admins). `bx netset ls|set|rm`, `bx org set --net`,
+`bx org ls` (`net:`/`reach:`), `bx bind <tile> net=org|none|set:<name>|lan:…`,
 `bx iface` (`default:org`, inert), `bx status` (`net org → …`), `bx doctor`.
 Protocol: `/net-sets`, `PATCH /orgs {netSets}`, `orgs[].resolvedNet/netHost`,
 `/bindings` `pending[].default` + `inert`, `/term-net`, the terminal session

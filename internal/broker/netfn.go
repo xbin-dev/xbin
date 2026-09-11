@@ -76,6 +76,15 @@ func (b *Broker) netBinding(comp string) string {
 			}
 			b.clearInertNet(comp)
 			return NetRefOrg
+		case strings.HasPrefix(ref, NetRefSet): // a named set (D65): gone ⇒ inert; else the coverage rule below
+			if _, _, ok := b.netSetRuleTargets(ref); !ok {
+				b.noteInertNet(comp, "bound to network "+ref+", which no longer exists — rebind (GET /net-sets lists the sets)")
+				return ""
+			}
+			if reason := b.netUncovered(comp, slot, binding, ceil); hasSets && reason != "" {
+				b.noteInertNet(comp, reason)
+				return ""
+			}
 		case hasSets:
 			if reason := b.netUncovered(comp, slot, binding, ceil); reason != "" {
 				b.noteInertNet(comp, reason)
@@ -169,11 +178,14 @@ func (b *Broker) netClientsOf(provider string) []string {
 // "host" builtin (share the host network — a powerful, owner-only binding),
 // or to "org" where the org's network sets grant host networking (D54).
 func (b *Broker) NetHostShare(c *registry.Component) bool {
-	switch b.netBinding(c.Path) {
-	case "host":
+	switch nb := b.netBinding(c.Path); {
+	case nb == "host":
 		return true
-	case NetRefOrg:
+	case nb == NetRefOrg:
 		return b.Users.Ceiling(c.Path).NetHost()
+	case strings.HasPrefix(nb, NetRefSet): // a named set whose rules say host (D65)
+		_, host, _ := b.netSetRuleTargets(nb)
+		return host
 	}
 	return false
 }
@@ -436,7 +448,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides})
 	}
 	bindings := b.Reg.Workspace().Bindings
-	pending := b.pendingBindings()
+	pending := b.pendingBindings(!scoped)
 	// approvable: the components whose bindings THIS caller may wire as the
 	// consumer-side approver — every one for a workspace admin, the tiles of
 	// orgs they administer for an org admin (D26), nothing on a tile they
@@ -481,6 +493,17 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Every net slot's full option list, bound or not (a pending row exists
+	// only while unbound): the re-bind pickers read this so a named set
+	// (D65) or a "not covered" mark shows up on a bound slot too.
+	netOpts := map[string][]bindOption{}
+	for _, c := range comps {
+		for _, req := range c.Interface {
+			if req.Kind == "net" && !req.Multi {
+				netOpts[c.Component] = b.bindOptions(c.Component, req, !scoped)
+			}
+		}
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"bindings":   bindings,
 		"instances":  b.Reg.Workspace().IfaceInstances,
@@ -488,6 +511,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		"pending":    pending,
 		"inert":      inert,
 		"approvable": approvable,
+		"netOptions": netOpts,
 	})
 }
 
@@ -495,9 +519,10 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 type bindOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	// Blocked marks a choice POST /bindings would refuse for everyone — a net
-	// ref outside the owning org's network sets (D54). Pickers grey it out
-	// rather than let a click end in a 400 that looks like a success.
+	// Blocked marks a choice POST /bindings would refuse — for everyone (a
+	// net ref outside the owning org's network sets, D54) or for THIS caller
+	// (a named set from an org admin, D65). Pickers grey it out rather than
+	// let a click end in a 400/403 that looks like a success.
 	Blocked bool `json:"blocked,omitempty"`
 }
 
@@ -527,7 +552,7 @@ type pendingBind struct {
 }
 
 // pendingBindings lists every requested interface slot with no binding yet.
-func (b *Broker) pendingBindings() []pendingBind {
+func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 	var out []pendingBind
 	for _, c := range b.Reg.Components() {
 		if registry.IsOffloaded(b.Reg.LifecycleState(c.Path)) {
@@ -540,7 +565,7 @@ func (b *Broker) pendingBindings() []pendingBind {
 			pb := pendingBind{
 				Component: c.Path, Slot: slot, Kind: req.Kind, Service: req.Service,
 				Multi:   req.Multi,
-				Options: b.bindOptions(c.Path, req),
+				Options: b.bindOptions(c.Path, req, wsAdmin),
 			}
 			if req.Kind == "net" && b.orgNetDefault(c.Path) {
 				pb.Default = NetRefOrg
@@ -566,55 +591,6 @@ func (b *Broker) pendingBindings() []pendingBind {
 	return out
 }
 
-// orgNetDefault reports whether an org-owned component's unbound net slot
-// resolves to "org" (sets attached, net not denied) — D54's default binding.
-func (b *Broker) orgNetDefault(comp string) bool {
-	if b.Users == nil {
-		return false
-	}
-	ceil := b.Users.Ceiling(comp)
-	return ceil.OwnerOrg() != "" && ceil.HasNetSets() && !ceil.Denies(users.PolicyDenyNet)
-}
-
-// netBuiltinOptions is the builtin half of a net slot's picker: org (on
-// org-owned tiles, labelled with the live reach), internet, host, none —
-// with "not covered" suffixes where the org's network sets refuse a choice.
-func (b *Broker) netBuiltinOptions(comp string) []bindOption {
-	var ceil users.Ceiling
-	if b.Users != nil {
-		ceil = b.Users.Ceiling(comp)
-	}
-	var out []bindOption
-	if org := ceil.OwnerOrg(); org != "" {
-		label := "org — org:" + org + "'s network sets"
-		switch {
-		case !ceil.HasNetSets():
-			label += " (none attached: no egress until a workspace admin attaches one)"
-		default:
-			label += " (" + strings.Join(ceil.NetSets(), ", ") + "): " + strings.Join(ceil.NetRules(), ", ")
-			if t, host := netRuleTargets(ceil.NetRules()); len(t) == 0 && !host {
-				label += " (provider-only set: no relay egress)"
-			}
-		}
-		out = append(out, bindOption{ID: NetRefOrg, Label: label})
-	}
-	uncovered := func(target string) bool { return ceil.HasNetSets() && !ceil.NetCovers(target) }
-	builtin := func(id, label, target string) bindOption {
-		o := bindOption{ID: id, Label: label}
-		if uncovered(target) {
-			o.Label += " — not covered by the org's network sets"
-			o.Blocked = true
-		}
-		return o
-	}
-	out = append(out,
-		builtin("internet", "internet — public internet (gVisor relay, no LAN; internet:<host|cidr>[:port][,…] filters to named destinations, D35)", "net:internet"),
-		builtin("host", "host — share the host's network (powerful)", "net:host"),
-		bindOption{ID: NetRefNone, Label: "none — no egress, explicitly (deny-all)"},
-	)
-	return out
-}
-
 // exposeBindOptions lists the ingress sources an exposed endpoint can bind
 // to: the runtime builtin, plus (for http) every terminator tile.
 func (b *Broker) exposeBindOptions(comp string, def registry.ExposeDef) []bindOption {
@@ -635,11 +611,11 @@ func (b *Broker) exposeBindOptions(comp string, def registry.ExposeDef) []bindOp
 // bindOptions returns the providers that can satisfy a requested interface: the
 // builtins for its kind plus every tile that `provides` a matching interface
 // (excluding the requester itself — a component can't be its own provider).
-func (b *Broker) bindOptions(comp string, req registry.Iface) []bindOption {
+func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bindOption {
 	var builtins, tiles []bindOption
 	switch req.Kind {
 	case "net":
-		builtins = b.netBuiltinOptions(comp)
+		builtins = b.netBuiltinOptions(comp, wsAdmin)
 		var ceil users.Ceiling
 		if b.Users != nil {
 			ceil = b.Users.Ceiling(comp)
@@ -726,6 +702,12 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		binding[0].Listen = strings.TrimSpace(body.Listen)
 	}
 	if !b.IsAdmin(p) {
+		for _, ref := range refs { // a named set is a workspace-admin act (D65)
+			if strings.HasPrefix(ref, NetRefSet) {
+				server.WriteError(w, http.StatusForbidden, "binding a named network set ("+ref+") is a workspace-admin act — an org admin binds org (the union of the sets attached to the org), or asks a workspace admin to attach the set", "/docs/auth.md")
+				return
+			}
+		}
 		// D26: an org admin may wire bindings for tiles their org OWNS when
 		// every normalized target is intra-org or allowance-covered (unbind
 		// always). Everyone else: workspace admin only.
@@ -848,6 +830,19 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 				}
 				if _, isOrg := b.Users.OwnerOrg(comp); !isOrg {
 					return fmt.Errorf("org egress is for org-owned tiles; %s is %s — bind a concrete provider", comp, ownerLabel(b.Users.Owner(comp)))
+				}
+				continue
+			}
+			if name, isSet := netSetName(prov); isSet { // a named network set (D65; ws-admin only — apiBindingSet)
+				if b.Users == nil {
+					return fmt.Errorf("network-set bindings need the user store")
+				}
+				ns, ok := b.Users.NetSet(name)
+				if !ok {
+					return fmt.Errorf("no such network set %q (GET /net-sets lists them)", name)
+				}
+				if m, host := netSetMaterial(ns.Rules); !host && len(m) == 0 {
+					return fmt.Errorf("network set %q has no relay reach (provider rules only) — bind the provider tile, or none", name)
 				}
 				continue
 			}

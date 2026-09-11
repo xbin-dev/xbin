@@ -1561,3 +1561,46 @@ Deviations and refinements made while implementing; all deliberate:
   at all: the tile mints a URL and opens it (`cap:open-links`), or the
   admin copies it. Known consequence: a cookie is per browser, so every
   tab is the user until the view ends — the banner is in every shell.
+
+- **D65 — Named network sets are terminal scopes and a workspace-admin
+  binding ref (2026-09-11).** D54 gave a set two homes: the `org` binding
+  (the live union of an org's sets) and the `org` terminal scope on
+  org-owned tiles. Nobody could pick ONE set, and no set reached a
+  personal/workspace tile's terminal at all. Shapes: (1) a terminal scope
+  `set:<name>` — the relay under exactly that set's rules, host networking
+  when it says host — listed for each set attached to the tile's org, for
+  whoever may open a terminal there (the same gate that gives them `org`;
+  `TermNetFor` never checked membership, so "member" was never the unit),
+  each a NARROWING of the union; a workspace admin sees every workspace
+  set on every tile — they may already pick `host` anywhere, so no new
+  privilege class appears. (2) A binding ref `set:<name>` — a WORKSPACE-
+  ADMIN act (org admins bind `org`, which is what their sets are for; the
+  user's framing), still inside the owning org's union on org tiles (D54
+  rule 1 is an invariant every surface builds on: `deadSlotReason`, inert
+  notes, the org card's reach, `bx doctor`; the remedy is attaching the set
+  to the org), judged by the set's MATERIAL rules — relay targets and
+  host — never its `provider:` rules, which a single slot cannot honour.
+  (3) Defaults never move: `defaultScope` is one function for the picker
+  list and the clamp, and a set is never it (`org` on org tiles, then
+  `internet`/`none`); an unpickable or vanished set clamps to the default
+  with a note, and the set name is charset-gated at `?net=` because the
+  note is written into the PTY. (4) Provider-only sets are neither a scope
+  nor bindable (they would mean "offline"; `none` says that honestly).
+  (5) Deleting a bound set is 409 like an attached one (explicit beats a
+  silent reach change); a vanished set still resolves inert, fail-closed.
+  (6) Set edits restart every tile bound to the set, org-owned or not.
+  (7) `GET /bindings` carries `netOptions` — every net slot's option list,
+  bound or not — since pending rows exist only while unbound; the set rows
+  are server-labelled and `blocked` for anyone but a workspace admin, so
+  `Blocked` now means "refused for everyone, or for this caller". Revisits
+  D54's ratified "network is a property of the tile, not the person": it
+  stands — a non-admin only narrows within the tile's org; the admin
+  exception is the one D54 already carried on internet/host. D54's rejected
+  "per-tile net ACLs (the org is the unit)" stands too: `set:` selects
+  among org-level objects under the org's ceiling. Documented asymmetry: an
+  admin may OPEN a terminal under any set on any tile (a human act, outside
+  the element ceiling) but may not BIND a tile to an uncovered one.
+  Rejected: uncovered `set:` bindings for ws-admins; inert-on-delete;
+  listing provider-only sets as "airgapped"; a `net:set:<name>` allowance
+  target (new grammar, D54 point 1); a per-user `termNetSets` grant (not
+  asked; D17's `termNet` stays the only per-person knob).

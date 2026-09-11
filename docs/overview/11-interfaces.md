@@ -207,10 +207,13 @@ its kind plus every tile whose provides match (service-filtered; instances expan
 `provider#id` entries). The shell's `bx-bindings` prompt and the admin tile's
 **interfaces** tab render exactly this list — importing a tile that requests `net` and
 `openai` immediately asks the owner two concrete questions. (The `net` picker offers
-`internet`, `host`, `none` and — on org-owned tiles — `org`, with options the org's
-network sets refuse labelled "not covered"; `lan:<cidr>` / `internet:<dst>` are
-accepted as typed refs via `custom…`. A pending row carrying `default: "org"` is
-already satisfied.)
+`internet`, `host`, `none` and — on org-owned tiles — `org`, plus one `set:<name>`
+row per network set (a workspace-admin binding, D65 — greyed for anyone else),
+with options the org's network sets refuse labelled "not covered"; `lan:<cidr>` /
+`internet:<dst>` are accepted as typed refs via `custom…`. A pending row carrying
+`default: "org"` is already satisfied. `netOptions` in the same response carries
+every net slot's option list, bound or not, so a re-bind picker shows the same
+rows.)
 
 ## What the component sees
 

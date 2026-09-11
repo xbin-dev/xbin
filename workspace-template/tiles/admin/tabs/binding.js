@@ -185,7 +185,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
   _netBindRow(r, d, bound, providers) {
     const pend = (d.pending ?? []).find((p) => p.component === r.comp && p.slot === r.slot);
     const org = this._orgOfTile(r.comp);
-    const opts = netOptions({ org, providers, pending: pend });
+    const opts = netOptions({ org, providers, pending: pend, options: d.netOptions?.[r.comp] });
     const cur = bound[0] ?? '';
     const known = opts.some((o) => o.id === cur);
     const inert = d.inert?.[r.comp]?.[r.slot];
@@ -206,7 +206,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
         ${custom !== undefined ? html`<form class="inline" style="display:inline-flex; gap:4px; margin-left:4px"
             @submit=${(e) => { e.preventDefault(); const v = e.target.ref.value.trim(); if (!v) return; this._dropDraft(ck); this._bindSet(r.comp, r.slot, v); }}>
             <input name="ref" size="28" placeholder="lan:10.0.0.0/8 · internet:api.example.com:443" .value=${custom}
-              title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — hostnames are DNS-pinned; no globs in bindings">
+              title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — hostnames are DNS-pinned; no globs in bindings — or set:<name>, one network set (D65)">
             <button class="act go">bind</button>
             <button class="act" type="button" @click=${() => this._dropDraft(ck)}>✕</button></form>` : nothing}
         ${inert ? html`<span class="pill pol" title=${inert}>inert</span> <span class="warn-line" style="display:inline">${inert}</span>` : nothing}

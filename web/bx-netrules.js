@@ -19,6 +19,18 @@ export const RULE_KINDS = [
 ];
 
 export const SCOPE_ICON = { org: '🏢', internet: '🌐', host: '🖧', none: '⛔' };
+/** A named network set (D65) as a terminal scope or a binding ref: 'set:<name>'. */
+export const SET_ICON = '🔗';
+/** scopeIcon('set:infra-net') → '🔗'; scopeIcon('org') → '🏢'; unknown → '·'. */
+export function scopeIcon(id) {
+  const s = String(id ?? '');
+  return s.startsWith('set:') ? SET_ICON : (SCOPE_ICON[s] ?? '·');
+}
+/** scopeLabel('set:infra-net') → 'net set: infra-net' (the server labels the rest). */
+export function scopeLabel(id) {
+  const s = String(id ?? '');
+  return s.startsWith('set:') ? `net set: ${s.slice(4)}` : s;
+}
 
 /** parseRule('lan:10.0.0.0/8') → {kind:'lan', value:'10.0.0.0/8'} */
 export function parseRule(str) {
@@ -131,17 +143,21 @@ export function orgNetLabel(org) {
 }
 
 /**
- * netOptions({tile, org, providers, pending}) → [{id, label, title,
+ * netOptions({org, providers, pending, options}) → [{id, label, title,
  * disabled?}] for a net slot's picker. `org` is the owning org (with
  * netSets/resolvedNet) or null; `providers` are provider-tile paths;
- * `pending` is the server's pending row (its `options` carry the
- * authoritative labels, `default` and `blocked`). A choice the org's network
- * sets refuse comes back `disabled` (and labelled "not covered") so a picker
- * cannot submit it — the server would answer 400 and a <select> left on the
- * refused value reads as a success.
+ * `options` is the server's option list for the slot (GET /bindings
+ * netOptions[comp] — bound or not), else `pending` is its pending row (its
+ * `options` carry the authoritative labels, `default` and `blocked`). Named
+ * sets (D65) come only from the server list — a workspace-admin act, and
+ * the server says which are blocked for this caller or uncovered here. A
+ * choice the org's network sets refuse comes back `disabled` (and labelled
+ * "not covered") so a picker cannot submit it — the server would answer
+ * 400 and a <select> left on the refused value reads as a success.
  */
-export function netOptions({ org, providers = [], pending } = {}) {
-  const byId = new Map((pending?.options ?? []).map((o) => [o.id, o]));
+export function netOptions({ org, providers = [], pending, options } = {}) {
+  const list = options ?? pending?.options ?? [];
+  const byId = new Map(list.map((o) => [o.id, o]));
   const out = [];
   const serverLabel = (id, fallback) => byId.get(id)?.label ?? fallback;
   // Coverage of the two builtins without a pending row (the slot is bound and
@@ -167,15 +183,21 @@ export function netOptions({ org, providers = [], pending } = {}) {
     out.push({ id: 'org', label: `${SCOPE_ICON.org} ${orgNetLabel(org)}`,
       title: serverLabel('org', (org.resolvedNet ?? []).map(ruleLabel).join('\n')) });
   }
+  for (const o of list) {
+    if (!String(o.id).startsWith('set:')) continue;
+    const l = o.label ?? '';
+    const why = /workspace admins only/.test(l) ? 'workspace admins only' : /not covered/.test(l) ? 'not covered' : /not bindable/.test(l) ? 'not bindable' : '';
+    out.push({ id: o.id, label: `${SET_ICON} ${scopeLabel(o.id)}${why ? ` — ${why}` : ''}`, title: l, disabled: !!o.blocked, set: true });
+  }
   out.push({ id: 'internet', label: `${SCOPE_ICON.internet} internet`, title: serverLabel('internet', 'public internet through the relay') });
   out.push({ id: 'host', label: `${SCOPE_ICON.host} host`, title: serverLabel('host', 'share the host network (powerful)') });
   for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
   if (org) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
-  out.push({ id: '__custom', label: 'custom…', title: 'lan:<cidr> or internet:<host|cidr>[:port]' });
+  out.push({ id: '__custom', label: 'custom…', title: 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set — workspace admins)' });
   // Mark what the org's sets refuse (the server's label says so) and keep it
-  // out of reach.
+  // out of reach; the set rows already carry their own reason.
   for (const o of out) {
-    if (o.id && o.id !== '__custom' && refused(o.id)) { o.label += ' — not covered'; o.disabled = true; }
+    if (o.id && o.id !== '__custom' && !o.set && refused(o.id)) { o.label += ' — not covered'; o.disabled = true; }
   }
   return out;
 }

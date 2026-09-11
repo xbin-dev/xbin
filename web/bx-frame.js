@@ -33,7 +33,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { repeat, keyed } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
-import { SCOPE_ICON } from '/vendor/bx-netrules.js';
+import { scopeIcon } from '/vendor/bx-netrules.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
@@ -816,9 +816,9 @@ export class BxFrame extends LitElement {
               const now = scopes.find((s) => s.id === (cur?.net || scopes[0].id)) ?? scopes[0];
               return html`<select class="scope"
                     title=${'network scope (switching restarts the terminal)' + (now?.desc ? '\n' + now.desc : '')}
-                    .value=${cur?.net || scopes[0].id}
+                    .value=${now.id}
                     @change=${(e) => this._setNet(this._active, e.target.value)}>
-                ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${SCOPE_ICON[s.id] ?? '·'} ${s.label}</option>`)}
+                ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${scopeIcon(s.id)} ${s.label}</option>`)}
               </select>`;
             })()}
             <select class="scope" title="live tile API access — off = the shell can read/edit code but every API call is unauthorized (switching restarts the terminal)"

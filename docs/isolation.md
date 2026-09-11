@@ -244,6 +244,10 @@ it lists only the scopes the server will honour for you on that tile):
   **network sets** (LAN ranges, named internet destinations, all internet —
   whatever a workspace admin attached); when a set says `host` this scope
   *is* host networking. Members need no `termNet` for it.
+- **set:\<name\>** — one named network set, the relay under exactly its
+  rules (host networking when it says `host`): each set attached to the
+  tile's org, or — for a workspace admin — any set on any tile (D65). Never
+  the default.
 - **internet** *(default elsewhere)* — its own network namespace with an egress
   relay that permits the **public internet only**; host interfaces and the LAN
   stay hidden. `XBIN_URL` is transparently routed so `bx`/`curl` still reach

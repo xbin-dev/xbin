@@ -134,7 +134,9 @@ to the named destinations (hostnames enforced by the relay's DNS pinning) —
 plus `org` and `none` (D54): on an org-owned tile whose org has network
 sets the slot **defaults to `org`** (the live union of the sets; `bx iface`
 shows it as satisfied) and any explicit ref must be inside the sets — the
-server refuses others naming the set; `none` pins a tile offline. A binding
+server refuses others naming the set; `none` pins a tile offline;
+`set:<name>` binds one named network set (workspace admin only; inside the
+org's sets on org tiles; provider-only sets refused — D65). A binding
 that a later set edit or transfer leaves outside the sets goes **inert**
 (`bx iface` / `bx status` say why).
 `slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and

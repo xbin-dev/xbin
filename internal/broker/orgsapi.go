@@ -225,7 +225,7 @@ func (b *Broker) apiOrgUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Info("org net sets", "org", org, "sets", body.NetSets, "by", humanID(p))
-		b.netSetsChanged([]string{org})
+		b.netSetsChanged("", []string{org})
 	}
 	b.usersEvent()
 	o, _ := st.Org(org)

@@ -897,7 +897,7 @@ func cmdBind(args []string) error {
 					return fmt.Errorf("%w\nhint: bx org ls shows the org's reach; bx netset set <set> --add <rule> widens it, or bind net=org (the org network) / net=none", err)
 				}
 				if strings.Contains(err.Error(), "org egress is for org-owned") {
-					return fmt.Errorf("%w\nhint: net refs are internet | host | org | none | lan:<cidr> | internet:<host|cidr>[:port] | <provider tile>", err)
+					return fmt.Errorf("%w\nhint: net refs are internet | host | org | none | set:<name> (workspace admin) | lan:<cidr> | internet:<host|cidr>[:port] | <provider tile>", err)
 				}
 				return err
 			}

@@ -74,6 +74,11 @@ func (b *Broker) EgressFor(c *registry.Component) sandbox.EgressPolicy {
 		if !host {
 			targets = t
 		}
+	case strings.HasPrefix(nb, NetRefSet):
+		// One named set (D65), the same way.
+		if t, host, ok := b.netSetRuleTargets(nb); ok && !host {
+			targets = t
+		}
 	}
 	pol, _ := sandbox.Parse(targets)
 	return pol

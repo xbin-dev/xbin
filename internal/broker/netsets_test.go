@@ -151,7 +151,7 @@ func TestNetSetCeiling(t *testing.T) {
 	if len(pol.Rules) != 2 || b.NetHostShare(c) {
 		t.Fatalf("org policy: %+v host=%v", pol, b.NetHostShare(c))
 	}
-	pending := b.pendingBindings()
+	pending := b.pendingBindings(true)
 	var found bool
 	for _, pb := range pending {
 		if pb.Component == "apps/bot" && pb.Slot == "net" {
@@ -177,7 +177,7 @@ func TestNetSetCeiling(t *testing.T) {
 	}
 	// A user tile's options carry no org.
 	mine, _ := b.Reg.Component("apps/mine")
-	for _, o := range b.bindOptions("apps/mine", mine.Manifest.Interfaces["net"]) {
+	for _, o := range b.bindOptions("apps/mine", mine.Manifest.Interfaces["net"], true) {
 		if o.ID == NetRefOrg {
 			t.Fatal("org option on a user tile")
 		}
@@ -441,4 +441,148 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// A named set as a binding ref (D65): workspace-admin only, judged by its
+// material rules under the org's ceiling, provider-only refused, bound sets
+// can't be deleted, an edit restarts the bound tiles anywhere, and the
+// pickers say who may pick what.
+func TestNetSetBinding(t *testing.T) {
+	b, st := netSetFixture(t, "")
+	carol, root := principalFor(t, st, "carol"), auth.Principal{Owner: true}
+	for n, rules := range map[string][]string{
+		"devs-net":  {"lan:10.0.0.0/8", "internet:*.github.com:443"},
+		"infra-net": {"host"},
+		"vpn-only":  {"provider:apps/vpn"},
+	} {
+		if err := st.UpsertNetSet(n, users.NetSet{Rules: rules}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetOrgNetSets("sales", []string{"devs-net"}); err != nil {
+		t.Fatal(err)
+	}
+	// validate: existence, provider-only, and coverage on an org tile.
+	if err := b.validateBinding("apps/mine", "net", registry.BindTo("set:devs-net")); err != nil {
+		t.Fatalf("set on a personal tile: %v", err)
+	}
+	if err := b.validateBinding("apps/mine", "net", registry.BindTo("set:nope")); err == nil || !strings.Contains(err.Error(), "no such network set") {
+		t.Fatalf("unknown set: %v", err)
+	}
+	if err := b.validateBinding("apps/mine", "net", registry.BindTo("set:vpn-only")); err == nil || !strings.Contains(err.Error(), "provider rules only") {
+		t.Fatalf("provider-only set: %v", err)
+	}
+	if err := b.validateBinding("apps/bot", "net", registry.BindTo("set:devs-net")); err != nil {
+		t.Fatalf("covered set on the org tile: %v", err)
+	}
+	if err := b.validateBinding("apps/bot", "net", registry.BindTo("set:infra-net")); err == nil || !strings.Contains(err.Error(), "net:host is not covered") {
+		t.Fatalf("uncovered set on the org tile: %v", err)
+	}
+	// API: the org admin is refused, the workspace admin binds; unbinding stays the org admin's.
+	body := `{"component":"apps/bot","slot":"net","provider":"set:devs-net"}`
+	if w := call(t, b.apiBindingSet, carol, "POST", "/bindings", body, nil); w.Code != 403 || !strings.Contains(w.Body.String(), "workspace-admin act") {
+		t.Fatalf("org admin binding a set: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiBindingSet, root, "POST", "/bindings", body, nil); w.Code != 200 {
+		t.Fatalf("admin binding a set: %d %s", w.Code, w.Body.String())
+	}
+	if nb := b.netBinding("apps/bot"); nb != "set:devs-net" {
+		t.Fatalf("resolved: %q", nb)
+	}
+	bot, _ := b.Reg.Component("apps/bot")
+	if pol := b.EgressFor(bot); pol.Empty() || b.NetHostShare(bot) {
+		t.Fatalf("egress under a set: %+v", pol)
+	}
+	if nl := b.NetLabel("apps/bot"); nl.Ref != "set:devs-net" || nl.Effective != "relay" || nl.Source != "network set devs-net" || len(nl.Rules) != 2 {
+		t.Fatalf("label: %+v", nl)
+	}
+	if w := call(t, b.apiBindingSet, carol, "DELETE", "/bindings", `{"component":"apps/bot","slot":"net"}`, nil); w.Code != 200 {
+		t.Fatalf("org admin unbinding: %d %s", w.Code, w.Body.String())
+	}
+	// A host-carrying set on a personal tile is host networking (no ceiling there).
+	if w := call(t, b.apiBindingSet, root, "POST", "/bindings", `{"component":"apps/mine","slot":"net","provider":"set:infra-net"}`, nil); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	mine, _ := b.Reg.Component("apps/mine")
+	if !b.NetHostShare(mine) || b.NetLabel("apps/mine").Effective != "host" {
+		t.Fatal("a host set must be host networking")
+	}
+	// Pickers: every net slot carries the set options; blocked for the org
+	// admin, uncovered on the org tile, provider-only anywhere.
+	optsFor := func(p auth.Principal) map[string][]bindOption {
+		w := call(t, b.apiBindingsList, p, "GET", "/bindings", "", nil)
+		if w.Code != 200 {
+			t.Fatalf("list: %d %s", w.Code, w.Body.String())
+		}
+		var lst struct {
+			NetOptions map[string][]bindOption `json:"netOptions"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &lst); err != nil {
+			t.Fatal(err)
+		}
+		return lst.NetOptions
+	}
+	find := func(opts map[string][]bindOption, comp, id string) bindOption {
+		for _, o := range opts[comp] {
+			if o.ID == id {
+				return o
+			}
+		}
+		t.Fatalf("no option %s on %s: %+v", id, comp, opts[comp])
+		return bindOption{}
+	}
+	co := optsFor(carol)
+	if o := find(co, "apps/bot", "set:devs-net"); !o.Blocked || !strings.Contains(o.Label, "workspace admins only") {
+		t.Fatalf("org admin's set option: %+v", o)
+	}
+	if _, ok := co["apps/mine"]; ok {
+		t.Fatal("bob's personal tile is outside carol's scope")
+	}
+	ro := optsFor(root)
+	if o := find(ro, "apps/bot", "set:devs-net"); o.Blocked {
+		t.Fatalf("covered set for the admin: %+v", o)
+	}
+	if o := find(ro, "apps/bot", "set:infra-net"); !o.Blocked || !strings.Contains(o.Label, "not covered") {
+		t.Fatalf("uncovered set for the admin: %+v", o)
+	}
+	if o := find(ro, "apps/mine", "set:vpn-only"); !o.Blocked || !strings.Contains(o.Label, "not bindable") {
+		t.Fatalf("provider-only set: %+v", o)
+	}
+	if o := find(ro, "apps/mine", "set:infra-net"); o.Blocked {
+		t.Fatalf("host set on a personal tile: %+v", o)
+	}
+	// Delete is refused while bound (the list says who); an edit restarts the bound personal tile.
+	pv := map[string]string{"name": "infra-net"}
+	if w := call(t, b.apiNetSetDelete, root, "DELETE", "/net-sets/infra-net", "", pv); w.Code != 409 || !strings.Contains(w.Body.String(), "apps/mine") {
+		t.Fatalf("delete a bound set: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiNetSetsList, root, "GET", "/net-sets", "", nil); !strings.Contains(w.Body.String(), `"infra-net":["apps/mine"]`) {
+		t.Fatalf("boundBy: %s", w.Body.String())
+	}
+	var restarted []string
+	b.OnGrantChange = func(comp string) { restarted = append(restarted, comp) }
+	if w := call(t, b.apiNetSetPut, root, "PUT", "/net-sets/infra-net", `{"rules":["host","lan:10.0.0.0/8"]}`, pv); w.Code != 200 {
+		t.Fatalf("edit: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Join(restarted, ",") != "apps/mine" {
+		t.Fatalf("an edit must restart the tiles bound to the set: %v", restarted)
+	}
+	// Transfer preview: the personal tile bound to infra-net moving into sales
+	// (devs-net only) loses its slot — host isn't covered there.
+	if reason := b.deadSlotReason(mine, "net", b.Reg.Workspace().Bindings["apps/mine"]["net"], st.CeilingFor("apps/mine", "org:sales")); !strings.Contains(reason, "net:host") {
+		t.Fatalf("transfer preview: %q", reason)
+	}
+	// A vanished set (the store-level path — the API refuses it) is inert, with the reason.
+	if err := st.UpsertNetSet("tmp", users.NetSet{Rules: []string{"internet"}}); err != nil {
+		t.Fatal(err)
+	}
+	if w := call(t, b.apiBindingSet, root, "POST", "/bindings", `{"component":"apps/mine","slot":"net","provider":"set:tmp"}`, nil); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if err := st.DeleteNetSet("tmp"); err != nil {
+		t.Fatal(err)
+	}
+	if nb := b.netBinding("apps/mine"); nb != "" || !strings.Contains(b.InertNetBindings()["apps/mine"], "no longer exists") {
+		t.Fatalf("vanished set: %q %q", nb, b.InertNetBindings()["apps/mine"])
+	}
 }

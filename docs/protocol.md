@@ -192,9 +192,13 @@ GET    /term-net?tile=<p>          terminal access on the tile. the network
                                    scopes a terminal there may take for the
                                    caller (D54): {tile, scopes:[{id,label,
                                    desc}], default, label, org} — `org` where
-                                   the owning org has network sets, internet/
+                                   the owning org has network sets,
+                                   `set:<name>` for each set the caller may
+                                   pick (the org's attached sets; every set
+                                   for a workspace admin, D65), internet/
                                    host where allowed, offline always. The
-                                   picker offers exactly this list
+                                   picker offers exactly this list; default
+                                   is never a set
 GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    TERMINAL-level access on it (read/write
                                    users don't — output can carry secrets).
@@ -492,7 +496,9 @@ DELETE /permission-sets/<name>    admin/xbin:users; refused while attached
                                    to any org
 GET    /net-sets                  admin/xbin:users. organisation network
                                    sets (D54): {sets:{name:{rules,
-                                   created}}, attachedTo:{name:[orgIds]}}.
+                                   created}}, attachedTo:{name:[orgIds]},
+                                   boundBy:{name:[tiles bound to
+                                   set:<name>, D65]}}.
                                    Rules are the net: allowance grammar
                                    without the prefix — internet |
                                    internet:<host|host-glob|ip|cidr>[:port]
@@ -508,9 +514,11 @@ PUT    /net-sets/<name>           admin/xbin:users. {rules:[…]} — create/
                                    replace (400 on grammar; one destination
                                    per rule; globs only in internet: host
                                    rules; lan: rules are addresses/CIDRs);
-                                   attached orgs' net tiles restart →
+                                   attached orgs' net tiles and every tile
+                                   bound to set:<name> restart →
                                    {name, rules, created, attachedTo}
-DELETE /net-sets/<name>           admin/xbin:users; 409 while attached
+DELETE /net-sets/<name>           admin/xbin:users; 409 while attached to
+                                   an org or bound by a tile (D65)
 GET    /owner?tile=<path>         any principal that can READ the tile.
                                    {tile, owner: "user:<id>"|"org:<id>"|""}
 GET    /owner/preview             ?tile=&to= — transfer impact report
@@ -843,9 +851,16 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    bindings that are stored but resolve to
                                    no egress (a set narrowed, a transfer),
                                    with the reason. Net options carry `org`
-                                   (org-owned tiles; label = the live reach)
-                                   and `none`; options the org's sets refuse
-                                   say "not covered"
+                                   (org-owned tiles; label = the live reach),
+                                   `none` and one `set:<name>` row per
+                                   network set (D65) — blocked for anyone
+                                   but a workspace admin, for a provider-
+                                   only set, and where the org's sets don't
+                                   cover it; options the org's sets refuse
+                                   say "not covered". `netOptions` maps
+                                   every visible net slot's component to
+                                   its full option list, bound or not (the
+                                   re-bind pickers read it)
 POST   /bindings                   admin; an org admin within D26 (their
                                    org owns the component; targets
                                    intra-org or allowance-covered — the
@@ -863,7 +878,11 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    id like internet/host/lan:<cidr>/
                                    internet:<spec>, `org` — the owning org's
                                    network sets, live; org-owned tiles only —
-                                   or `none` — explicitly no egress; or a
+                                   `none` — explicitly no egress — or
+                                   `set:<name>` — one named network set, a
+                                   WORKSPACE-ADMIN act: 403 for org admins,
+                                   provider-only sets refused, inside the
+                                   org's sets on org-owned tiles (D65); or a
                                    tile path). On an org-owned tile with
                                    network sets every net ref must be inside
                                    the sets (400 names the set; ws-admins
@@ -1046,7 +1065,8 @@ For a **non-admin**, the query params below are clamped rather than honored
 personal/workspace tile `net` is forced to `none` without `termNet` and
 `net=host` is admin-only; on an **org-owned tile with network sets** (D54)
 the org network is the members' grant — `internet` and a refused `host`
-clamp to `org`, and `host` is allowed when a set says so. The session still
+clamp to `org`, and `host` is allowed when a set says so; a `set:<name>` the
+caller may not pick there clamps to the tile's default. The session still
 opens; the `session` control frame reports the effective scope, the scopes
 the caller may pick, and why a request was clamped (`netNote`). New-session
 query params (all optional):
@@ -1060,6 +1080,11 @@ query params (all optional):
   org's **network sets** (the union of their rules — LAN ranges, named
   internet destinations with DNS pinning, all internet); when a set says
   `host` this scope is host networking. Org-owned tiles only.
+- `set:<name>` — one named network set (D65): the relay under exactly its
+  rules, host networking when it says `host`. Each set attached to the
+  tile's org, for whoever may open a terminal there; any workspace set for
+  a workspace admin, on any tile. An unknown or unpickable name clamps to
+  the tile's default (`netNote` says so). Never the default.
 - `internet` — own network namespace with an **internet-only egress relay**
   (`net:internet`: public addresses only, no host interfaces visible). TCP, UDP,
   and ICMP echo (`ping`) are forwarded under the policy; `traceroute` needs the

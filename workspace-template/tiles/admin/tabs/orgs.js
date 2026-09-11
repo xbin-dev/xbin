@@ -397,10 +397,11 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
         </div>
         <div class="foot">org-owned tiles that declare
           <span class="mono">net</span> bind to <span class="mono">org</span> by default; org admins may bind
-          anything inside it; terminals on org tiles get the same reach — no term-net needed.</div>`
+          anything inside it; terminals on org tiles get the same reach — or any one of these sets, from the
+          scope menu — no term-net needed.</div>`
         : html`<div class="foot">no network sets — org tiles'
           <span class="mono">net</span> slots stay unbound until a workspace admin binds them explicitly;
-          terminals on them fall back to term-net.</div>`}`;
+          terminals on them fall back to term-net (a workspace admin may still pick any network set there).</div>`}`;
   }
 
   // An org's extra allow entries (on top of its sets): the same typed rows.

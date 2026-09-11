@@ -70,6 +70,11 @@ func TestClampTermScopes(t *testing.T) {
 	noSets := func(p auth.Principal) TermNet { return legacyTermNet(p) }
 	sets := TermNet{OrgOK: true, Rules: []string{"net:10.0.0.0/8"}, OrgLabel: "org network (devs-net)"}
 	setsHost := TermNet{OrgOK: true, OrgHost: true, HostOK: true, OrgLabel: "org network (infra-net)"}
+	// Named sets (D65): an org tile whose org holds two sets, and a personal
+	// tile as a workspace admin sees it (every workspace set, no org scope).
+	named := []NetSetScope{{Name: "devs-net", Rules: []string{"net:internet"}, Label: "net set: devs-net"}, {Name: "infra-net", Host: true, Label: "net set: infra-net"}}
+	setsList := TermNet{OrgOK: true, OrgHost: true, HostOK: true, Rules: []string{"net:internet"}, OrgLabel: "org network (devs-net + infra-net)", Sets: named}
+	wsAdminSets := TermNet{InternetOK: true, HostOK: true, Sets: named}
 
 	for _, tc := range []struct {
 		name    string
@@ -104,6 +109,18 @@ func TestClampTermScopes(t *testing.T) {
 		// A host rule grants host networking to members.
 		{"member host via set", plain, setsHost, false, NetHost, false, NetHost},
 		{"member default org(host)", plain, setsHost, false, "", false, NetOrg},
+		// Named sets (D65): a pickable set is honoured, anything else lands
+		// on the default — which is never a set.
+		{"member picks an attached set", plain, setsList, false, "set:devs-net", false, "set:devs-net"},
+		{"member picks a host-carrying attached set", plain, setsList, false, "set:infra-net", false, "set:infra-net"},
+		{"member picks an unattached set → org", plain, setsList, false, "set:sales-net", false, NetOrg},
+		{"member on a set-less org tile → none", plain, noSets(plain), false, "set:devs-net", false, NetNone},
+		{"granted member, personal tile → internet", granted, noSets(granted), true, "set:devs-net", true, NetInternet},
+		{"admin picks a set on a personal tile", admin, wsAdminSets, true, "set:devs-net", true, "set:devs-net"},
+		{"admin picks a vanished set → internet", admin, wsAdminSets, true, "set:gone", true, NetInternet},
+		{"empty request with sets present → org", plain, setsList, false, "", false, NetOrg},
+		{"empty request, admin, personal tile → internet", admin, wsAdminSets, true, "", true, NetInternet},
+		{"garbage set id → default", admin, wsAdminSets, true, normalizeNet("set:../x"), true, NetInternet},
 	} {
 		api, net := clampTermScopes(tc.p, tc.api, tc.net, tc.g)
 		if api != tc.wantAPI || net != tc.wantNet {
@@ -139,6 +156,21 @@ func TestScopesFor(t *testing.T) {
 	}
 	if s, _ := ScopesFor(plain, TermNet{OrgOK: true, OrgHost: true, HostOK: true}); ids(s) != "org,host,none," {
 		t.Fatalf("member with host set: %s", ids(s))
+	}
+	// Named sets (D65) sit after org and never move the default.
+	named := []NetSetScope{{Name: "devs-net", Label: "net set: devs-net", Desc: "🌐 all public internet"}, {Name: "infra-net", Host: true, Label: "net set: infra-net"}}
+	orgTile := TermNet{OrgOK: true, Rules: []string{"net:internet"}, OrgLabel: "org network (devs-net)", Sets: named}
+	if s, def := ScopesFor(plain, orgTile); ids(s) != "org,set:devs-net,set:infra-net,none," || def != NetOrg || s[1].Label != "net set: devs-net" || s[1].Desc == "" {
+		t.Fatalf("member with named sets: %s %s %+v", ids(s), def, s)
+	}
+	if s, def := ScopesFor(admin, orgTile); ids(s) != "org,set:devs-net,set:infra-net,internet,host,none," || def != NetOrg {
+		t.Fatalf("admin with named sets: %s %s", ids(s), def)
+	}
+	if s, def := ScopesFor(admin, TermNet{InternetOK: true, HostOK: true, Sets: named}); ids(s) != "set:devs-net,set:infra-net,internet,host,none," || def != NetInternet {
+		t.Fatalf("admin on a personal tile: %s %s (a set must never be the default)", ids(s), def)
+	}
+	if n := clampNote("set:sales-net", NetOrg, orgTile); n != "network set sales-net isn't available on this tile — running as org network (devs-net)" {
+		t.Fatalf("set clamp note: %q", n)
 	}
 	// Clamp notes name the effective scope.
 	if n := clampNote(NetHost, NetOrg, sets); n == "" || n[len(n)-len("org network (devs-net)"):] != "org network (devs-net)" {

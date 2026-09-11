@@ -394,7 +394,7 @@ export class BxTileAdmin extends LitElement {
           const opts = optsFor(def);
           if (def.kind === 'net' && !def.multi) {
             const pend = (d.pending ?? []).find((p) => p.component === this.path && p.slot === slot);
-            const nopts = netOptions({ org, providers: opts, pending: pend });
+            const nopts = netOptions({ org, providers: opts, pending: pend, options: d.netOptions?.[this.path] });
             const cur = bound[0] ?? '';
             const known = nopts.some((o) => o.id === cur);
             const inert = d.inert?.[this.path]?.[slot];
