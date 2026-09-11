@@ -14,6 +14,7 @@ const {
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
+const { viewAs } = require('./passes/viewas');
 const { windows } = require('./passes/windows');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
@@ -45,9 +46,13 @@ async function admin(browser) {
   await shot(page, 'admin-netsets-edit-hint');
   await card.getByRole('button', { name: 'cancel' }).click();
 
-  // ---- orgs tab ----
-  await gotoTab(page, 'orgs', 'network (ws-admin, D54)');
+  // ---- orgs tab: the list, then one org's page ----
+  await gotoTab(page, 'orgs', 'manage →');
   await shot(page, 'admin-orgs');
+  await page.locator('button[data-org="sales"]').click();
+  await page.waitForSelector('text=policy ceiling', { timeout: 15000 });
+  await settle(page);
+  await shot(page, 'admin-org-sales');
 
   // ---- binding tab ----
   await gotoTab(page, 'wiring', 'Each component');
@@ -613,8 +618,8 @@ async function permSets(browser) {
   const role = await page.locator('.seteditor .allowrow').nth(0).locator('select[name=role]').inputValue();
   check(role === 'writer', `role cap restored (${role})`);
   await page.locator('.seteditor button', { hasText: 'cancel' }).click();
-  // the org card's extra entries use the same rows
-  await gotoTab(page, 'orgs', 'network (ws-admin, D54)');
+  // the org page's extra entries use the same rows (deep link: #orgs/<id>)
+  await gotoTab(page, 'orgs/sales', 'policy ceiling');
   await page.locator('button[data-edit-allow]').first().click();
   await waitSel(page, '.editor:has(button[data-save-allow])');
   const oed = page.locator('.editor:has(button[data-save-allow])');
@@ -811,7 +816,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs,
 };
 
 (async () => {

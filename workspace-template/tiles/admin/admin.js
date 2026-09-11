@@ -40,6 +40,7 @@ import { targetOptions, serviceOptions, WithDrafts } from './shared.js';
 export class BxAdmin extends WithDrafts(LitElement) {
   static properties = {
     _tab: { state: true },
+    _sub: { state: true },      // the tab's drill-in from the hash (#orgs/<id>)
     _ov: { state: true },       // auth-overview
     _vaults: { state: true },      // [{component, keys}] (null while sealed)
     _vaultStatus: { state: true }, // {initialized, sealed, mode, insecure}
@@ -122,11 +123,13 @@ export class BxAdmin extends WithDrafts(LitElement) {
 
   constructor() {
     super();
-    const h = location.hash.replace(/^#/, '');
+    // #tab, or #tab/sub for a tab's drill-in (organisations: #orgs/<id>).
+    const [h, ...rest] = location.hash.replace(/^#/, '').split('/');
     // Back-compat: honor a couple of old hash ids so bookmarks don't 404.
     const alias = { overview: 'components', runtime: 'components', interfaces: 'providers' };
     const want = alias[h] || h;
     this._tab = BxAdmin.tabsFlat().some((t) => t.id === want) ? want : 'components';
+    this._sub = this._tab === want ? rest.join('/') : '';
     this._err = '';
     this._alerts = [];
     this._denied = false;
@@ -135,7 +138,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
   _setGroup(g) { this._setTab(g.tabs[0].id); }
 
   _setTab(t) {
-    this._tab = t;
+    [this._tab, this._sub = ''] = t.split(/\/(.*)/s); // 'orgs/acme' → tab orgs, sub acme
     try { history.replaceState(null, '', '#' + t); } catch { /* sandboxed */ }
     // Clicking the component list again drops any code drill-in (back to the list).
     this.renderRoot.querySelector('bx-admin-runtime')?.closeCode();
@@ -237,7 +240,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
               .authSettings=${this._authSettings} .targets=${this._targetOptions()}></bx-admin-users>`
           : tab === 'sign-in' ? html`<bx-admin-signin .authSettings=${this._authSettings} .users=${this._users} .orgs=${this._orgs}></bx-admin-signin>`
           : tab === 'sessions' ? html`<bx-admin-sessions .sessions=${this._sessions}></bx-admin-sessions>`
-          : tab === 'orgs' ? html`<bx-admin-orgs .orgs=${this._orgs} .users=${this._users} .wsPolicy=${this._wsPolicy}
+          : tab === 'orgs' ? html`<bx-admin-orgs .sub=${this._sub} .orgs=${this._orgs} .users=${this._users} .wsPolicy=${this._wsPolicy}
               .permsets=${this._permsets} .netsets=${this._netsets} .defaults=${this._defaults} .newUsers=${this._newUsers}
               .tileCreation=${this._tileCreation} .authSettings=${this._authSettings}
               .targets=${this._targetOptions()} .services=${serviceOptions(this._ifaces)}></bx-admin-orgs>`

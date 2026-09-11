@@ -29,7 +29,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,7 +69,16 @@ type Principal struct {
 	// Role is set only for synthetic principals whose role is bound at
 	// creation (cron ticks carry the role chosen at job registration).
 	Role string
+	// Impersonator is set when this session is an admin VIEWING the
+	// workspace as UserID ("owner" for the root token, else the admin's user
+	// id; impersonate.go). Everything reads as the user; the server refuses
+	// every write while it is set (ReadOnly).
+	Impersonator string
 }
+
+// ReadOnly reports an impersonation principal: an admin looking through a
+// user's eyes. Reads pass as the user; the authed middleware refuses writes.
+func (p Principal) ReadOnly() bool { return p.Impersonator != "" }
 
 // IsAdmin reports admin privilege: the root token, or a user whose role is
 // admin. This unifies the old "owner only" gate with admin users.
@@ -215,10 +223,11 @@ type Auth struct {
 	sessionAbsTTL  time.Duration // hard cap since login regardless of activity
 
 	mu        sync.RWMutex
-	instances map[string]string    // instance token → component path
-	terminals map[string]termID    // terminal token → (component, user)
-	sessions  map[string]*session  // session id → session
-	warm      map[string]time.Time // client IP → last successful auth (the /c/ gate)
+	instances map[string]string     // instance token → component path
+	terminals map[string]termID     // terminal token → (component, user)
+	sessions  map[string]*session   // session id → session
+	tickets   map[string]*impTicket // one-shot impersonation tickets (impersonate.go)
+	warm      map[string]time.Time  // client IP → last successful auth (the /c/ gate)
 	noAuth    bool
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
@@ -240,6 +249,12 @@ type session struct {
 	lastActive time.Time // last authenticated request — the idle-TTL anchor
 	ip         string    // client IP at login
 	lastIP     string    // client IP of the most recent authenticated request
+	// Impersonation (impersonate.go): who is looking, and how to hand the
+	// browser back to them when they stop — their own session id, or the
+	// owner token when they came in on the bootstrap cookie.
+	impersonator   string
+	restoreSession string
+	restoreOwner   bool
 }
 
 // Session lifetime defaults (override with XBIN_SESSION_IDLE_TTL /
@@ -274,6 +289,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		instances:      map[string]string{},
 		terminals:      map[string]termID{},
 		sessions:       map[string]*session{},
+		tickets:        map[string]*impTicket{},
 		warm:           map[string]time.Time{},
 		noAuth:         noAuth,
 	}, nil
@@ -335,118 +351,6 @@ func (a *Auth) RotateOwnerToken() (string, error) {
 // (bx, via XBIN_TOKEN) depends on it.
 func (a *Auth) TokenLoginDisabled() bool {
 	return a.Users != nil && a.Users.TokenLoginDisabled()
-}
-
-// --- sessions ---
-
-// NewSession creates a server-side session for a user, returning its id.
-// ip is the client IP the login came from (attribution for the sessions
-// API; also warms the IP for the /c/ subresource gate).
-func (a *Auth) NewSession(userID, ip string) string {
-	id := util.RandomToken(32)
-	now := time.Now()
-	a.mu.Lock()
-	a.sweepSessionsLocked(now) // login is rare — opportunistic reap, no goroutine
-	a.sessions[id] = &session{userID: userID, created: now, lastActive: now, ip: ip, lastIP: ip}
-	a.warmLocked(ip, now)
-	a.mu.Unlock()
-	return id
-}
-
-// DropSession invalidates a session (logout).
-func (a *Auth) DropSession(id string) {
-	a.mu.Lock()
-	delete(a.sessions, id)
-	a.mu.Unlock()
-}
-
-// DropUserSessions ends every browser session of one user ("sign out
-// everywhere", D53) and revokes the terminal tokens minted for them, so
-// shells they had open lose their API credential too (the socket itself
-// stays attached until it reconnects). Frame tokens are stateless HMACs and
-// simply expire (frameTokenTTL). Returns the number of sessions dropped.
-func (a *Auth) DropUserSessions(userID string) int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	n := 0
-	for id, s := range a.sessions {
-		if s.userID == userID {
-			delete(a.sessions, id)
-			n++
-		}
-	}
-	for tok, t := range a.terminals {
-		if t.userID == userID {
-			delete(a.terminals, tok)
-		}
-	}
-	return n
-}
-
-// sessionUser resolves a session id to its user, enforcing expiry: a session
-// dies after sessionIdleTTL of inactivity (sliding) or sessionAbsTTL since
-// login (hard cap), whichever first — so a stolen cookie can't authenticate
-// forever. A live lookup slides the idle window and records the caller's IP
-// (sessions-API attribution).
-func (a *Auth) sessionUser(id, ip string) (string, bool) {
-	now := time.Now()
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, ok := a.sessions[id]
-	if !ok {
-		return "", false
-	}
-	if now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL {
-		delete(a.sessions, id)
-		return "", false
-	}
-	s.lastActive = now
-	if ip != "" {
-		s.lastIP = ip
-	}
-	return s.userID, true
-}
-
-// sweepSessionsLocked drops expired sessions so abandoned logins don't grow the
-// map unbounded (caller holds a.mu).
-func (a *Auth) sweepSessionsLocked(now time.Time) {
-	for id, s := range a.sessions {
-		if now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL {
-			delete(a.sessions, id)
-		}
-	}
-	a.sweepWarmLocked(now)
-}
-
-// SessionInfo is the admin view of one live browser session (GET
-// /api/xbin/sessions). The session id is a credential: it NEVER leaves this
-// package in serialized form — ID is exported only so the handler can mark
-// the caller's own row; never put it on the wire.
-type SessionInfo struct {
-	ID         string
-	UserID     string
-	Created    time.Time
-	LastActive time.Time
-	IP         string // client IP at login
-	LastIP     string // client IP of the most recent request
-}
-
-// Sessions lists live sessions for the admin sessions view (newest activity
-// first). Expired ones are reaped on the way.
-func (a *Auth) Sessions() []SessionInfo {
-	now := time.Now()
-	a.mu.Lock()
-	a.sweepSessionsLocked(now)
-	out := make([]SessionInfo, 0, len(a.sessions))
-	for id, s := range a.sessions {
-		out = append(out, SessionInfo{
-			ID: id, UserID: s.userID, Created: s.created, LastActive: s.lastActive,
-			IP: s.ip, LastIP: s.lastIP,
-		})
-	}
-	a.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].LastActive.After(out[j].LastActive) })
-	return out
 }
 
 // --- recently-authenticated IPs (the /c/ subresource gate) ---
@@ -793,7 +697,7 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		}
 		base = Principal{Owner: true, Via: "cookie"}
 	default:
-		uid, ok := a.sessionUser(cookie.Value, a.ipOf(r))
+		uid, imp, ok := a.sessionUser(cookie.Value, a.ipOf(r))
 		if !ok {
 			return Principal{}, false
 		}
@@ -801,11 +705,12 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if !found { // user deleted → session invalid
 			return Principal{}, false
 		}
-		base = Principal{UserID: uid, User: u, Access: a.accessSnapshot(uid), Via: "session"}
+		base = Principal{UserID: uid, User: u, Access: a.accessSnapshot(uid), Via: "session", Impersonator: imp}
 	}
 
 	// A frame token on top narrows to that tile frontend (carrying the same
 	// human identity). The frame token's own user must match the session.
+	// An impersonated session stays read-only inside its tiles too.
 	if p, ok, present := frame(); present {
 		if !ok {
 			return Principal{}, false
@@ -813,6 +718,7 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if p.UserID != base.UserID { // cross-user frame token replay
 			return Principal{}, false
 		}
+		p.Impersonator = base.Impersonator
 		return p, true
 	}
 	return base, true

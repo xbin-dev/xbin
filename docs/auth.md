@@ -361,6 +361,34 @@ High-frequency data-plane writes (`prefs`, `kv`, `blob`, `bus`) are excluded as 
 a log stream, not a queryable store; ship xbind's stderr somewhere durable if
 you need retention.
 
+## Viewing the workspace as a user
+
+A workspace admin can see **exactly what one user sees** — their screens,
+tiles, menus, what each tile's grants let it do — by viewing the workspace
+*as* them (D64). Admin console → **users** → a user's `more ▾` menu →
+**view as user…**: it opens a new tab that is signed in as that user, with
+a banner across the top of the shell naming who you are viewing and an
+**exit** button.
+
+- **Read-only.** The view is a real session as the user — the same shell,
+  the same tiles, no special mode — but the server refuses every write
+  (403 with a "read-only" message): tile saves, prefs, layout changes,
+  grants, terminals. You see what they can do; you do it as yourself.
+- **Bound to you.** The link (`/login?impersonate=…`) is a one-shot ticket
+  that only works in the browser that is signed in as the admin who minted
+  it, for two minutes. Pasting it elsewhere does nothing.
+- **Every tab.** A cookie is per browser, so until you exit, every tab of
+  this workspace is the user — the banner is there in each. **Exit** (or
+  **sign out** while viewing) hands the browser back to your own session.
+- **Visible.** `/whoami` reports `impersonatedBy` and `readOnly:true`, the
+  sessions tab marks the row, and audit lines carry `impersonator=`.
+- **Limits.** Not a disabled account, not yourself, and not while already
+  viewing as someone. Any admin may view any account, admins included —
+  it never grants more than reading as them.
+
+API: `POST /api/xbin/impersonate {user}` → `{url}`; `POST
+/api/xbin/impersonate/stop` ends it ([protocol.md](/docs/protocol.md)).
+
 ## Multi-user (users, roles, tile access)
 
 xbin can have **human users** on top of the root token (D16–D17).

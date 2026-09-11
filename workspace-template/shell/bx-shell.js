@@ -1288,6 +1288,13 @@ export class BxShell extends LitElement {
   // anyway. Org admins get the ⚙ on THEIR org's tiles and user-owners on
   // their own (D24): the access + lifecycle sections work for them,
   // admin-only sections just show their 403s.
+  // End an admin's view-as session (D64): the server hands the cookie back
+  // to their own session; a full navigation reloads the shell as them.
+  async _exitViewAs() {
+    try { await fetch('/api/xbin/impersonate/stop', { method: 'POST' }); } catch { /* the reload tells */ }
+    location.href = '/';
+  }
+
   async _probeAdmin() {
     try {
       const r = await fetch('/api/xbin/whoami');
@@ -1673,6 +1680,11 @@ export class BxShell extends LitElement {
             <span class="stdot"></span>
             <span class="tmsg"><b>${t.comp.includes('/') ? t.comp.slice(t.comp.indexOf('/') + 1) : t.comp}</b>${t.message ? ' \u2014 ' + t.message : ''}</span>
           </div>`)}
+      </div>` : nothing}
+      ${this._who?.impersonatedBy ? html`<div class="viewas" role="status">
+        <span>👁 viewing as <b>${this._who.name && this._who.name !== this._who.id ? `${this._who.name} (${this._who.id})` : this._who.id}</b>
+          — read-only: this is what they see; every change is refused until you exit (every tab of this browser is them)</span>
+        <button class="chip" title="back to your own session" @click=${() => this._exitViewAs()}>exit view</button>
       </div>` : nothing}
       <div class="top">
         ${this._mobile ? html`<button class="ham" title="menu"

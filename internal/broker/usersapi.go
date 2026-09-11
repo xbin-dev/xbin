@@ -67,6 +67,10 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 	if b.Users != nil { // workspace tile-creation policy (D52) — owner pickers adapt to it
 		out["tileCreation"] = b.Users.TileCreation()
 	}
+	if p.Impersonator != "" { // an admin's read-only view of this user (D64) — the shell shows a banner
+		out["impersonatedBy"] = p.Impersonator
+		out["readOnly"] = true
+	}
 	switch {
 	case p.User != nil:
 		out["kind"] = "user"
@@ -831,7 +835,7 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 				name = u.Name
 			}
 		}
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"user":       si.UserID,
 			"name":       name,
 			"created":    si.Created.Unix(),
@@ -839,7 +843,11 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 			"ip":         si.IP,
 			"lastIP":     si.LastIP,
 			"current":    current != "" && si.ID == current,
-		})
+		}
+		if si.Impersonator != "" { // an admin's read-only view of the user (D64)
+			row["impersonatedBy"] = si.Impersonator
+		}
+		out = append(out, row)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }

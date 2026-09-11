@@ -97,7 +97,7 @@ func TestSessionIPs(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := a.NewSession("alice", "10.0.0.1")
-	if _, ok := a.sessionUser(id, "10.0.0.2"); !ok {
+	if _, _, ok := a.sessionUser(id, "10.0.0.2"); !ok {
 		t.Fatal("session must resolve")
 	}
 	ss := a.Sessions()

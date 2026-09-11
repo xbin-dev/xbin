@@ -39,6 +39,19 @@ export const shellCss = css`
     .top a.chip:hover { background: var(--bx-panel-2, #2b3038); }
     .top a.chip .c { width: 7px; height: 7px; border-radius: 2px; }
 
+    /* ---- view-as banner: an admin reading the workspace as a user (D64) ---- */
+    .viewas {
+      display: flex; align-items: center; gap: 12px; flex: none; font-size: 12px;
+      background: var(--bx-amber, #f2a71b); color: var(--bx-bg, #1b1e24);
+      padding: 5px 12px;
+    }
+    .viewas b { font-weight: 700; }
+    .viewas button.chip {
+      margin-left: auto; flex: none; cursor: pointer; font: inherit; font-weight: 600;
+      color: var(--bx-bg, #1b1e24); background: transparent;
+      border: 1px solid var(--bx-bg, #1b1e24); border-radius: 6px; padding: 2px 10px;
+    }
+
     /* ---- screen tabs ---- */
     .tabs {
       display: flex; align-items: stretch; gap: 2px; flex: none;

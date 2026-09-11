@@ -13,7 +13,7 @@ cmd/xbind/main.go 85
 internal/broker/netfn.go 1170
 cmd/bx/main.go 1150
 internal/runner/runner.go 930
-internal/auth/auth.go 890
+internal/auth/auth.go 800
 internal/broker/usersapi.go 860
 internal/builtins/updates.go 850
 internal/users/users.go 840

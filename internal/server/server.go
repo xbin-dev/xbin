@@ -194,6 +194,12 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
 			return
 		}
+		// An admin viewing as a user reads everything the user reads and
+		// changes nothing (impersonate.go).
+		if p.ReadOnly() && !readOnlyAllowed(r) {
+			refuseReadOnly(w, r)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 	})
 }
@@ -237,8 +243,13 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 // (plans/multi-user.md): the root token, admins, or a user explicitly flagged.
 func (s *Server) authedTerminal(next http.Handler) http.Handler {
 	return s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !auth.PrincipalOf(r).CanTerminal() {
+		p := auth.PrincipalOf(r)
+		if !p.CanTerminal() {
 			http.Error(w, "terminal access is admin-only (root shell)", http.StatusForbidden)
+			return
+		}
+		if p.ReadOnly() { // a shell is a write, whatever the verb
+			http.Error(w, readOnlyMsg, http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -321,6 +332,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if tok := r.URL.Query().Get("invite"); tok != "" {
 		s.serveInvitePage(w, r, tok, "")
+		return
+	}
+	if tk := r.URL.Query().Get("impersonate"); tk != "" {
+		s.handleImpersonateRedeem(w, r, tk)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -462,6 +477,16 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.CookieName); err == nil {
+		// Signing out of a view-as session returns the admin to themselves
+		// rather than to the login page (impersonate.go).
+		if restore, owner, ok := s.Auth.StopImpersonation(c.Value); ok {
+			if s.restoreAdminCookie(w, r, restore, owner) {
+				http.Redirect(w, r, "/", http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
 		s.Auth.DropSession(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
@@ -479,9 +504,14 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
 			s.apiMux.ServeHTTP(aw, r2)
 			// Who changed workspace governance, and did it take. Data-plane
-			// writes (prefs/kv) are excluded as noise; see auditable.
-			slog.Info("audit", "who", auth.PrincipalOf(r).From(),
-				"method", r.Method, "path", r2.URL.Path, "status", aw.status)
+			// writes (prefs/kv) are excluded as noise; see auditable. A
+			// view-as session names the admin behind it too.
+			p := auth.PrincipalOf(r)
+			args := []any{"who", p.From(), "method", r.Method, "path", r2.URL.Path, "status", aw.status}
+			if p.Impersonator != "" {
+				args = append(args, "impersonator", p.Impersonator)
+			}
+			slog.Info("audit", args...)
 			return
 		}
 		s.apiMux.ServeHTTP(w, r2)

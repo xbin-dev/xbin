@@ -23,6 +23,8 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /gpus", s.apiGPUs)
 	s.RegisterAPI("GET /frame-token", s.apiFrameToken)
 	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
+	s.RegisterAPI("POST /impersonate", s.apiImpersonate)          // view as user (impersonate.go)
+	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.

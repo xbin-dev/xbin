@@ -71,6 +71,10 @@ GET  /healthz                    200 "ok", unauthenticated (liveness)
 GET  /login                      login page; ?token=<root> sets the admin cookie
 POST /login                      {username,password} form → session cookie (throttled)
 GET  /login?invite=<tok>         invite set-password page (D22; single-use link)
+GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
+                                 impersonate): the signed-in minting admin's
+                                 cookie becomes a read-only session as the
+                                 user → 302 / (D64)
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
                                  signs the user in (throttled)
@@ -231,7 +235,10 @@ GET    /whoami                    any. caller identity + permissions; for
                                    (the self-service membership view), and
                                    tileCreation: any|org-only — the
                                    workspace's tile-creation policy (D52)
-                                   owner pickers adapt to. On
+                                   owner pickers adapt to. An admin's
+                                   view-as session adds impersonatedBy
+                                   (owner | admin id) and readOnly:true
+                                   (D64; the shell's banner). On
                                    element principals driven by a signed-in
                                    human, `user` reports the driver, SCOPED
                                    by the tile's trust (docs/auth.md): every
@@ -245,6 +252,22 @@ GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
                                    tile; importable into Swagger UI / Postman.
+POST   /impersonate               admin. {user} → {url, user, expiresIn}:
+                                   a one-shot ticket (2 min) to VIEW the
+                                   workspace as that user (docs/auth.md
+                                   §Viewing the workspace as a user, D64).
+                                   Open url top-level in the same browser —
+                                   it swaps the cookie for a read-only
+                                   session as the user (impersonatedBy in
+                                   /whoami and /sessions; every write 403,
+                                   terminals too). Bound to the minting
+                                   admin's browser; not yourself, not a
+                                   disabled account, no nesting
+POST   /impersonate/stop          a view-as session. ends the view, hands
+                                   the browser back to the admin's own
+                                   session → {ok, restored} (restored:false:
+                                   it had expired — sign in again). POST
+                                   /logout from a view does the same
 
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
@@ -352,7 +375,9 @@ DELETE /users/<id>/sessions       admin/xbin:users. "sign out everywhere"
                                    disable the account to stop that
 GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    created, lastActive, ip, lastIP,
-                                   current}]} — live browser sessions with
+                                   current, impersonatedBy?}]} — live
+                                   browser sessions (impersonatedBy: an
+                                   admin's read-only view of the user, D64) with
                                    client IPs (login IP + last-seen IP),
                                    newest activity first; the caller's own
                                    row is marked current:true. Session ids

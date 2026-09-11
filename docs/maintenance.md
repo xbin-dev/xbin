@@ -271,8 +271,9 @@ policy, sets, defaults, requests, sessions), the global `.err` /
 `tabs/<name>.js` (`runtime` for components + the code drill-in + live
 stats + resources, `map`, `netsets`, `permsets`, `vault`, `cron`,
 `backup`, `binding` for grants/roles/providers/wiring, `ingress` for
-expose/endpoints, `orgs` for org cards, policy ceilings and the workspace
-defaults, `users`, `signin`, `sessions`); the
+expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
+— the router passes the hash's `sub` down), policy ceilings and the
+workspace defaults, `users`, `signin`, `sessions`); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an

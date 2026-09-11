@@ -10,6 +10,30 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-10
+
+- **View the workspace as a user.** Admin console → users → a user's
+  `more ▾` menu → **view as user…** opens a new tab signed in as that
+  user — the same shell and tiles they get, with a banner naming who
+  you are viewing and an **exit** button. The view is read-only (every
+  write, terminals included, is refused with a "read-only" message),
+  the link is bound to your own browser session for two minutes, every
+  tab is the user until you exit, and `/whoami`, the sessions tab and
+  the audit log all name the viewing admin. API: `POST
+  /api/xbin/impersonate {user}` → `{url}`, `POST
+  /api/xbin/impersonate/stop`; `GET /login?impersonate=` redeems.
+  [auth.md → Viewing the workspace as a user](/docs/auth.md), D64.
+- **The organisations tab is a list you drill into.** Admin console →
+  organisations now opens on a table of orgs (members, admins, sets,
+  network, owned tiles, policy) with a **manage →** per row; an org's
+  page (`#orgs/<id>`, bookmarkable, with a back link) lays its members,
+  IdP-group rules, delegation, network, owned tiles, policy ceiling and
+  deletion out as titled panels instead of one flat run. The
+  workspace-wide knobs (defaults, new accounts, tile creation, workspace
+  policy) sit in their own panels under the list. Same API, same
+  fields; only the scaffold's `tiles/admin/tabs/orgs.js` changed (`bx
+  builtin update scaffold:tiles/admin`).
+
 ## 2026-09-09
 
 - **The admin console is one element per tab.** The scaffold's

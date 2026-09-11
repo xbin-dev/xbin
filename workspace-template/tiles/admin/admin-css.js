@@ -164,6 +164,29 @@ export const orgsCss = css`
     .flowtab { width: 100%; font-size: 11px; }
     .flowtab td { padding: 1px 6px 1px 0; }
     .pill.sync { border-style: dashed; }   /* membership / role synced from an IdP group */
+    /* the org list → one org drill-in; titled panels instead of one flat run */
+    .crumbs { font-size: 11.5px; margin: 0 0 8px; color: var(--bx-muted, #868f9a); }
+    .crumbs a.link { font-weight: 600; }
+    .orghead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 0 4px; }
+    .orghead .id { font-size: 16px; font-weight: 700; }
+    .orglist td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; }
+    .orglist td.n { text-align: right; white-space: nowrap; }
+    .orglist th.n { text-align: right; }
+    .orglist tr.row:hover td { background: var(--bx-panel-2, #2b3038); }
+    .orglist a.org { font-weight: 700; }
+    .panel {
+      border: 1px solid var(--bx-border, #363c45); border-radius: 8px;
+      background: var(--bx-panel, #23272e); padding: 10px 12px; margin: 10px 0;
+    }
+    .panel .ph { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+    .panel .ph h3 { margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: .02em; }
+    .panel .ph .desc { font-size: 11px; color: var(--bx-muted, #868f9a); }
+    .panel .ph .sp { flex: 1; }
+    .panel.danger { border-color: var(--bx-red, #ef5350); }
+    .panel .foot { font-size: 10.5px; color: var(--bx-muted, #868f9a); margin-top: 6px; }
+    .kv { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 3px; }
+    .kv > label { font-size: 11px; color: var(--bx-muted, #868f9a); }
+    .empty { font-size: 11px; color: var(--bx-muted, #868f9a); }
 `;
 
 // the users tab: the per-row <details> menu and the accounts table

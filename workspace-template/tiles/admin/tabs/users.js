@@ -8,7 +8,7 @@
  * the API and the router reloads on bx-admin-refresh.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
-import { xbinApi as api } from '/vendor/bx-kit.js';
+import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, usersCss } from '../admin-css.js';
 import { targetDatalist, WithDrafts, WithRouter, PRESETS, presetOf, ruleFor, agoCoarse } from '../shared.js';
 
@@ -24,6 +24,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     authSettings: { attribute: false }, // sso enabled/ready for the add-user sign-in mode
     targets: { attribute: false },      // tile-target datalist options
     _invite: { state: true },     // last minted invite link {id, url} (D22)
+    _viewAs: { state: true },     // last minted view-as link {id, url, opened} (D64)
     _pwEdit: { state: true },     // user id whose password is being reset inline
     _newSignin: { state: true },  // add-user form: 'password' | 'invite' | 'sso'
     _usersQ: { state: true },     // table text filter
@@ -164,6 +165,37 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       this._ok(); this._emit('bx-admin-notice', `invite link minted for ${id}`);
     } catch (e) { this._fail(e); }
     this._emit('bx-admin-refresh');
+  }
+
+  // View as user (docs/auth.md §Viewing the workspace as a user, D64): mint
+  // the one-shot link and open it top-level. The tile runs sandboxed with
+  // cap:open-links, so the new tab is a real one carrying the admin's own
+  // cookie — which is what the link is bound to. The box stays for a
+  // browser that blocked the popup: open or copy the link yourself.
+  async _startViewAs(id) {
+    try {
+      const d = await api('/impersonate', jbody({ user: id }, 'POST'));
+      const url = location.origin + d.url;
+      let opened = false;
+      try { opened = !!window.open(url, '_blank'); } catch { opened = false; }
+      this._viewAs = { id, url, opened };
+      this._ok();
+    } catch (e) { this._fail(e); }
+  }
+
+  _viewAsBox() {
+    const v = this._viewAs;
+    if (!v) return nothing;
+    return html`<div data-viewas style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-amber, #f2a71b);
+        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b style="font-size:12px">👁 viewing as ${v.id}</b>
+      <span class="muted" style="font-size:11px">${v.opened ? 'opened in a new tab — exit from the banner there.' : 'the browser blocked the new tab — open it yourself:'}</span>
+      <a class="link" href=${v.url} target="_blank" rel="noopener">open</a>
+      <input class="mono" size="40" readonly .value=${v.url} @focus=${(e) => e.target.select()}>
+      <button class="act" @click=${() => navigator.clipboard?.writeText(v.url)}>copy</button>
+      <span class="muted" style="font-size:10.5px">read-only · works for 2 minutes, in this browser only · every tab is them until you exit</span>
+      <button class="act" @click=${() => { this._viewAs = null; }}>✕</button>
+    </div>`;
   }
 
   // The one-time invite link box: shown after creating a user without a
@@ -330,6 +362,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       </form>`;
       })()}
       ${this._inviteBox()}
+      ${this._viewAsBox()}
       <p class="muted" style="font-size:11px;margin-top:6px; max-width:80ch">
         <b>SSO</b>: no password, no link — the bound email's IdP sign-in lands on this account.
         <b>Invite link</b>: a single-use link they open to set a password (there is no self-signup).
@@ -403,6 +436,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         <button @click=${() => this._editEmail(u)}>set email…</button>
         <button @click=${() => this._mintInvite(u.id)}>mint invite link</button>
         <button @click=${() => { this._pwEdit = u.id; }}>set password…</button>
+        <button ?disabled=${!!u.disabled} title=${u.disabled ? 'enable the account first' : 'open a new tab signed in as them — read-only, exit from its banner (D64)'}
+          @click=${() => this._startViewAs(u.id)}>view as user…</button>
         <hr>
         <button ?disabled=${!live} title=${live ? '' : 'no live sessions'} @click=${() => this._signOutUser(u.id)}>sign out everywhere${live ? ` (${live})` : ''}</button>
         <button class=${u.disabled ? '' : 'rm'} @click=${() => this._setDisabled(u)}>${u.disabled ? 'enable account' : 'disable account'}</button>

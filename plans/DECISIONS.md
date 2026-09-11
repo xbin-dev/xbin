@@ -1532,3 +1532,32 @@ Deviations and refinements made while implementing; all deliberate:
   the interface) and moving the storage plane first (it shares the KV
   store, the barrier and the resenc manager with backup and usage —
   three seams, not one).
+
+- **D64 — "View as user" is a read-only session swap, minted by ticket
+  and bound to the admin's own browser (2026-09-10).** Admins asked to
+  see what a user is permitted to see and do. Options: a per-request
+  header (`X-XBin-As`, honored for admins) — every call site would have
+  to carry it and the shell would need an "as" mode; a server-side
+  "effective permissions" report — tells, doesn't show, and drifts from
+  the shell's actual reading of grants/screens/menus; or a session that
+  IS the user. Chosen: a session. `POST /api/xbin/impersonate {user}`
+  mints a one-shot ticket (2 min) for the calling admin; opening
+  `/login?impersonate=<ticket>` top-level in the same browser swaps the
+  cookie for a session whose principal is the user with `Impersonator`
+  set. The admin then loads the ordinary shell as that user — the same
+  code path, no "as" branches anywhere. Constraints that make it safe:
+  the ticket is bound to the minting admin (redeeming from a browser
+  signed in as anyone else fails, so the URL delegates nothing); the
+  session is read-only — the authed middleware refuses every non-GET
+  except the way out, terminals included (`Principal.ReadOnly`), and
+  frame tokens minted under it inherit the mark, so tiles can't write
+  either; no nesting; a disabled account or yourself can't be viewed;
+  `/whoami` and `/sessions` name the impersonator, audit lines carry
+  it, and the shell shows a banner with the exit. The session remembers
+  the admin's own session id (or that they came in on the owner cookie)
+  and hands it back on stop — and `/logout` from a view does the same
+  rather than dropping the admin to the login page. The admin console is
+  a sandboxed tile with no cookie access, which is why a ticket exists
+  at all: the tile mints a URL and opens it (`cap:open-links`), or the
+  admin copies it. Known consequence: a cookie is per browser, so every
+  tab is the user until the view ends — the banner is in every shell.
