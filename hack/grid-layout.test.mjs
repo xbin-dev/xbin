@@ -1,7 +1,8 @@
 // hack/grid-layout.test.mjs — unit tests for the shell's grid math
 // (workspace-template/shell/grid-layout.js), run by `make js-test`: the
 // overlap test and the push a dragged/resized tile performs on its
-// neighbours (the canvas's "push ghost", D66).
+// neighbours (the canvas's "push ghost", D66) and the swap a covered
+// neighbour makes into the space the drag vacated (D69).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID, GAP, DEF_W, DEF_H, snap, overlaps, pushLayout } from '../workspace-template/shell/grid-layout.js';
@@ -68,7 +69,8 @@ test('a big tile over a small contained one pushes it out (flipping when the edg
 });
 
 test('positive (resize) pushes right/down only', () => {
-  const tiles = [T('a', 0, 480, 1152, 768), T('b', 480, 576, 192, 144)];
+  // c holds the space below a, so the covered b cannot yield there (D69)
+  const tiles = [T('a', 0, 480, 1152, 768), T('b', 480, 576, 192, 144), T('c', 0, 1248, 1152, 768)];
   assert.equal(at(pushLayout(tiles, 'a', R(0, 480, 1152, 768)), 'b').y, 336, 'a drag pushes up toward the nearer side');
   assert.equal(at(pushLayout(tiles, 'a', R(0, 480, 1152, 768), { positive: true }), 'b').y, 1248, 'a resize pushes down');
 });
@@ -89,4 +91,56 @@ test('unaligned neighbours end aligned and clear', () => {
 
 test('cap bounds the work', () => {
   assert.deepEqual(pushLayout([T('a', 0, 0), T('b', 0, 384)], 'a', R(0, 192), { cap: 0 }).moves, []);
+});
+
+// ---- yielding: the swap of two neighbours (D69) ----
+const AB = () => [T('a', 0, 0), T('b', 576, 0)];
+const R_ = new Map([['b', 'r']]); // b was first hit from the left (the sticky direction of the approach)
+
+test('a tile dragged fully onto its right neighbour swaps with it', () => {
+  const res = pushLayout(AB(), 'a', R(576, 0), { dirs: R_ });
+  assert.deepEqual(res.moves, [{ path: 'b', x: 0, y: 0, w: 576, h: 384 }]);
+  assert.equal(res.dirs.get('b'), 'R', 'recorded as a yield');
+});
+
+test('half-way over, the neighbour cannot fit on the far side and is pushed as before', () => {
+  const res = pushLayout(AB(), 'a', R(288, 0), { dirs: R_ });
+  assert.deepEqual([at(res, 'b').x, res.dirs.get('b')], [864, 'r']);
+});
+
+test('past the neighbour, the swapped tile follows the drag back and ends where it started', () => {
+  assert.equal(at(pushLayout(AB(), 'a', R(624, 0), { dirs: R_ }), 'b').x, 48, 'hugs the drag');
+  assert.deepEqual(pushLayout(AB(), 'a', R(1152, 0), { dirs: R_ }).moves, [], 'cleared: no move');
+});
+
+test('a yield sticks while its spot stays free, even below half coverage', () => {
+  const tiles = [T('a', 0, 0), T('b', 1152, 0)]; // a gap between them
+  const first = pushLayout(tiles, 'a', R(912, 0), { dirs: R_ }); // covers 336 of 576 → yields
+  assert.deepEqual([at(first, 'b').x, first.dirs.get('b')], [336, 'R']);
+  const back = pushLayout(tiles, 'a', R(720, 0), { dirs: first.dirs }); // covers 144: pushes without the memory
+  assert.equal(at(back, 'b').x, 144, 'still yielding');
+  assert.equal(at(pushLayout(tiles, 'a', R(720, 0), { dirs: R_ }), 'b').x, 1296, 'a fresh hit at 144 pushes');
+});
+
+test('a covered tile inside a big drag yields into the space the drag left', () => {
+  const res = pushLayout([T('a', 0, 480, 1152, 768), T('b', 480, 576, 192, 144)], 'a', R(0, 480, 1152, 768), { dirs: new Map([['b', 'u']]) });
+  assert.deepEqual([at(res, 'b').y, res.dirs.get('b')], [1248, 'U']);
+});
+
+test('no swap when the far side is taken, or for a resize, or down a cascade', () => {
+  assert.equal(at(pushLayout([...AB(), T('c', 0, 384)], 'a', R(576, 0), { dirs: R_ }), 'b').x, 0, 'a tile below the freed spot does not block the swap');
+  // b is taller than a: its far-side spot reaches c, below where a was
+  const blocked = pushLayout([T('a', 576, 0), T('b', 1152, 0, 576, 768), T('c', 576, 384)], 'a', R(1152, 0), { dirs: R_ });
+  assert.deepEqual([at(blocked, 'b').x, blocked.dirs.get('b')], [1728, 'r'], 'far side taken → push');
+  const grow = pushLayout([T('a', 576, 0), T('b', 1152, 0)], 'a', R(576, 0, 1152, 384), { dirs: R_, positive: true });
+  assert.equal(at(grow, 'b').x, 1728, 'a resize never swaps');
+  const chain = pushLayout([T('a', 0, 0), T('b', 576, 0), T('c', 1152, 0)], 'a', R(576, 0), { dirs: new Map([['b', 'r'], ['c', 'r']]) });
+  assert.deepEqual([at(chain, 'b').x, at(chain, 'c')], [0, undefined], 'b swaps, c untouched');
+});
+
+test('the same downwards: fully onto the tile below swaps them', () => {
+  const tiles = [T('a', 0, 0), T('b', 0, 384)];
+  const res = pushLayout(tiles, 'a', R(0, 384), { dirs: new Map([['b', 'd']]) });
+  assert.deepEqual(res.moves, [{ path: 'b', x: 0, y: 0, w: 576, h: 384 }]);
+  assert.equal(at(pushLayout(tiles, 'a', R(0, 192), { dirs: new Map([['b', 'd']]) }), 'b').y, 576, 'half-way: pushed');
 });

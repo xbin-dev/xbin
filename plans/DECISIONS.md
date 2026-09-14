@@ -1689,3 +1689,25 @@ Deviations and refinements made while implementing; all deliberate:
   slider, since browser zoom shrinks text along with the layout. Rejected:
   storing the scale in the layout or the per-user prefs; scaling floats
   (they are placed by hand in viewport space).
+
+- **D69 — A covered neighbour yields into the space the drag vacated
+  (2026-09-14).** D66 always pushes a neighbour in the direction it is hit,
+  so dragging one of two equal side-by-side tiles onto the other pushed
+  the second one further out and left a hole: the layout grew when the
+  user meant a swap. Now, in `pushLayout`, a tile hit by the DRAG itself
+  (not by a cascade, not by a resize) yields — steps to the far side of the
+  drag, just clear of it — when the drag covers more than half of it along
+  the push axis and that spot is inside the canvas and free of every other
+  tile; otherwise it is pushed as before. The threshold keeps a glancing
+  overlap a gentle push (a tile with a free gap behind it must not leap to
+  the other side on first contact); the free-spot test keeps the no-overlap
+  invariant, which is also why two equal neighbours only swap once the drag
+  covers the neighbour fully (before that, the yielded spot would leave the
+  canvas or overlap the drag). A yield sticks for the rest of the drag while
+  its spot stays free — recorded in the sticky-direction map as the
+  upper-case push direction — so crossing back over the threshold cannot
+  flip the preview; and since every move is recomputed from the original
+  layout, dragging past the neighbour returns it to its place. Rejected:
+  gridstack-style swapping where the drop lands the drag in the neighbour's
+  slot rather than at the pointer (the card is the preview here, there is
+  no separate placeholder); yielding on a resize (nothing is vacated).

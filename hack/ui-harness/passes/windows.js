@@ -165,6 +165,17 @@ async function windows(browser) {
   } });
   const o2 = await gridPos('apps/offline');
   check(ghost === false && o2?.y === 384, `backing off drops the ghost and leaves offline where it was (${JSON.stringify(o2)})`);
+
+  // 6. the swap (D69): offline to crawler's right (576,0). Dragging crawler
+  // fully onto it makes offline yield into the space crawler left — its
+  // ghost at x 0 — and the drop swaps the two.
+  await sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/offline' ? { path: o.path, x: 576, y: 0, w: 576, h: 384 } : o)));
+  await settle(page);
+  await drag('.card[data-path="apps/crawler"] .head', 576, 0, { beforeUp: async () => {
+    ghost = await sh(page, (t) => { const g = t.query('.ghost[data-path="apps/offline"]'); return g && { left: parseInt(g.style.left, 10) }; });
+  } });
+  const c3 = await gridPos('apps/crawler'), o3 = await gridPos('apps/offline');
+  check(ghost?.left === 0 && c3?.x === 576 && o3?.x === 0 && o3?.y === 0, `dragging a tile fully onto its neighbour swaps them (ghost ${JSON.stringify(ghost)}, crawler ${JSON.stringify(c3)}, offline ${JSON.stringify(o3)})`);
   await sh(page, (t, l) => t.setGeom(() => l), layout0); // the grid as it was
   check(await page.evaluate(() => !document.querySelector('body > div[style*="2147483647"]')), 'the drag shield is gone after pointerup');
 

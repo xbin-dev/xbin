@@ -145,7 +145,9 @@ What the shell provides:
 - **Screens & cards** — named tabs, each an independent set of tiles on
   a fixed snappable grid (48px); drag a card by its head to reposition —
   cards in the way are pushed aside in the direction they are hit, with a
-  dashed ghost previewing where they land (D66) — drag its corner to
+  dashed ghost previewing where they land (D66); a neighbour the card mostly
+  covers steps to the far side into the space the drag freed instead, so two
+  neighbours swap (D69) — drag its corner to
   resize, or unpin it into a floating window; all persisted per user. The
   layout is logical (multiples of the 48px grid); each browser renders it at
   its own **grid scale** (🔧 settings, 0.5×–1.5×, kept in `localStorage`, D68),

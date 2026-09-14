@@ -46,6 +46,27 @@ function place(b, p, d) {
   else if (d === 'd') b.y = ceilG(p.y + p.h);
   else b.y = floorG(p.y - b.h);
 }
+const OPP = { r: 'l', l: 'r', d: 'u', u: 'd' };
+
+// yieldTo(b, p, d, sticky, pos): b, hit by the DRAGGED tile p that would push
+// it in d, instead steps to the far side of p — into the space the drag
+// vacated — when p covers more than half of b along the push axis (or b
+// already yielded on the previous call), and the spot just clear of p on
+// the opposite side is inside the canvas and free of every other tile.
+// Two equal neighbours swap this way (D69). Places b and returns true.
+function yieldTo(b, p, d, sticky, pos) {
+  const along = d === 'l' || d === 'r'
+    ? Math.min(p.x + p.w, b.x + b.w) - Math.max(p.x, b.x) > b.w / 2
+    : Math.min(p.y + p.h, b.y + b.h) - Math.max(p.y, b.y) > b.h / 2;
+  if (!sticky && !along) return false;
+  const o = OPP[d];
+  if ((o === 'l' && p.x - b.w < 0) || (o === 'u' && p.y - b.h < 0)) return false;
+  const c = { ...b };
+  place(c, p, o);
+  for (const t of pos.values()) if (t.path !== b.path && overlaps(c, t)) return false;
+  b.x = c.x; b.y = c.y;
+  return true;
+}
 
 /**
  * pushLayout(tiles, movingPath, rect, {dirs, positive, cap}) → {moves, dirs}
@@ -57,7 +78,11 @@ function place(b, p, d) {
  * or the direction its own pusher moved in (a cascade travels as one), and
  * keeps that direction across calls through `dirs` (the previous result's
  * map) so a wiggling pointer can't flip the preview. A left/up push that
- * would leave the canvas flips to right/down. Floats and the moving tile are
+ * would leave the canvas flips to right/down. A tile the drag itself mostly
+ * covers yields instead — steps to the far side of the drag when that spot
+ * is free (yieldTo; a swap of two neighbours, D69) — recorded in `dirs` as
+ * the UPPER-CASE push direction so it keeps yielding while the spot stays
+ * free; a resize (`positive`) never swaps. Floats and the moving tile are
  * never pushed. `moves` lists only the tiles that end up elsewhere, with
  * their size (for the ghost); `cap` bounds the pushes — pathological layouts
  * stop with some overlap left, as an unchecked drop did before.
@@ -76,9 +101,14 @@ export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, ca
     const p = queue.shift();
     for (const b of [...pos.values()].filter((t) => t.path !== p.path && overlaps(p, t)).sort(byPos)) {
       if (!overlaps(p, b)) continue; // cleared by an earlier push this round
-      let d = dir.get(b.path) ?? dir.get(p.path) ?? contactDir(p, b, positive);
+      const was = dir.get(b.path) ?? dir.get(p.path);
+      let d = was ? was.toLowerCase() : contactDir(p, b, positive);
       if (d === 'l' && p.x - b.w < 0) d = 'r';
       if (d === 'u' && p.y - b.h < 0) d = 'd';
+      if (p.path === movingPath && !positive && yieldTo(b, p, d, was === d.toUpperCase(), pos)) {
+        dir.set(b.path, d.toUpperCase()); // clear by construction: no cascade
+        continue;
+      }
       dir.set(b.path, d);
       place(b, p, d);
       queue.push(b);

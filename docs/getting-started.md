@@ -76,7 +76,8 @@ see it**. The layout around everything is itself a component (`shell/`) with the
 theme in `/vendor/theme.css` — edit either (from its own card's terminal) and
 watch the whole workspace restyle. Drag any card by its title bar to rearrange
 it — a card in the way is pushed aside (a dashed outline shows where it will
-land; back off and it stays put); organise work into named **screens** (the tabs at the top — add with `+`,
+land; back off and it stays put; cover a neighbour squarely and it steps into
+the space you left instead, swapping the two); organise work into named **screens** (the tabs at the top — add with `+`,
 double-click to rename); your whole layout is **saved per user** (server-side, so
 it follows you across browsers and devices). The 🔧 menu in the top bar has a
 **grid scale** slider for *this browser*: it changes how large the layout renders

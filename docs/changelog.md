@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-14
 
+- **Shell: dragging a tile onto its neighbour swaps them (D69).** When the
+  dragged card covers more than half of a neighbour along the direction it
+  is pushing, and the spot just past the drag on the far side (the space
+  the drag vacated) is free and inside the canvas, the neighbour steps there
+  instead of being pushed along — the push ghost shows it. Two equal cards
+  side by side swap by dragging one squarely onto the other; drag past the
+  neighbour and it slides back to where it was. A partly covered neighbour,
+  a blocked far side, a resize, and cards further down a push chain behave
+  as before. Scaffold `shell/` change (`bx builtin update scaffold:shell`).
 - **Shell: a per-browser grid scale (D68).** 🔧 settings gains a **Grid
   scale** slider (0.5×–1.5×, shown with the resulting grid size in px). It
   changes how large the tile layout renders *in this browser* and nothing
