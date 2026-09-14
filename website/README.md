@@ -13,17 +13,27 @@ the copy buttons (`xb-copy`) and the screenshot lightbox (`xb-lightbox`).
 Plus `install.sh`, the bootstrap
 installer the site serves, and `og.png` (`og:image`, 1200×630). `shots/`
 holds the real-product screenshots (pngquant-compressed) used by the
-workspace band and the workflows section.
+workspace band and the two flows under "Who works here".
 
 ## Pitch structure
-Hero (dark chamfered panel on a steel frame: nav inside the panel, thesis +
-install one-liner + the animated shell over a live WebGL tile-field, and a
-telemetry ticker along the bottom edge) → **workspace band** (the real overview
-screenshot, no words — proof, not claims) → "everything is a directory"
-model → three pillars (yours / sandboxed / self-modifying) → composition
-(typed wires) → app terminals (BYO agent) → **workflows** (the change-a-tile
-and create-a-tile screenshot flows) → who it's for → **users & orgs** (the
-multi-user model) → security posture → "in the box" list → install → footer.
+
+The page leads with what a reader gets and who runs it, in a fraction of the
+words it once carried (~300 visible words, six sections; the earlier nine
+sections and ~2,000 words explained the architecture first, and readers said
+they could not tell what xbin was for). Order: hero (**An office for your
+agents.** + the install one-liner + the animated shell over the WebGL
+tile-field) → **workspace band** (the real overview screenshot, no words) →
+**Floor plan** (one app, one room: four facts + a terminal block) → **Who
+works here** (role-prefixed use cases, then the two real screenshot flows) →
+**Access** (identity and roles · grants and network policy · the kernel
+sandbox · secrets, backups, audit) → **Install** → the closing call → footer.
+
+Copy rules (D67): no comparisons and no "not X, but Y"; one claim per
+sentence; verb-first or concrete-noun headlines; IT's own words verbatim
+(identity, roles, SSO, grants, policy, audit); the office metaphor says where
+agents work and who holds the keys, never what agents are; "app" on the page
+("tile", "slot", "harness" stay in the docs). Hero ≤ 24 words, two CTAs, no
+em dashes.
 
 ## Build
 

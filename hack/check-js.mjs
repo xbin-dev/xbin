@@ -16,7 +16,7 @@ import { join, relative, extname, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-const TREES = ['web', 'workspace-template', 'builtin-tiles', 'builtin-templates', 'examples', 'hack'];
+const TREES = ['web', 'workspace-template', 'builtin-tiles', 'builtin-templates', 'examples', 'hack', 'website'];
 const SKIP_DIRS = new Set(['vendor', 'node_modules', 'deps', 'data', '.git', 'dist', 'out']);
 
 function* walk(dir) {

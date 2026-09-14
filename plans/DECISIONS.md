@@ -1637,3 +1637,35 @@ Deviations and refinements made while implementing; all deliberate:
   direction (zero when the pointer pauses, noisy at low speed); hoisting
   the pop-up out of the frame into the canvas (bx-frame is a standalone
   `/vendor/` element); refusing an overlapping drop instead of pushing.
+
+- **D67 — The landing page and the README lead with the office-for-agents
+  frame, in a fraction of the words (2026-09-14).** Readers said they could
+  not tell what xbin was for: xbin.dev opened with "Code and state, in
+  separate sandboxes. A Harvard architecture for self-hosted software" and
+  reached "who it's for" in section five of nine (~2,000 words); the README
+  opened with the component model and 160 lines of installation. Research
+  over the pages that got popular (Linear, Vercel, Cursor, Stripe, Raycast,
+  Umbrel, n8n, Retool, the agent-identity vendors) settled the shape:
+  outcome-first heroes of 9–23 words, at most six sections, ~22 words of
+  body per section, exactly two CTAs, zero comparisons, no numbered
+  how-it-works steps (a screenshot or terminal block does that job),
+  role-prefixed use-case tiles ("Ops can: …"). Chosen frame: **an office for
+  your agents** — the workspace is where agents and people work, each app a
+  room with its own identity, grants and network policy, and IT holds the
+  keys. The metaphor describes where agents work and who controls the room,
+  never what agents are: the "hire an AI employee / coworker" register was
+  publicly punished in 2026 (Forrester: "the agent-as-coworker narrative is
+  nonsense"; Artisan retired "Stop hiring humans"), while the governance
+  half of the analogy is exactly what Entra, Okta, Auth0, CyberArk and
+  SailPoint converged on — identity, roles, least privilege, grants,
+  onboard, revoke, audit trail — so the page uses those words verbatim.
+  Rejected: "middle office" (finance jargon outside banking; it names the
+  work, xbin provides the room), "data/process management layer" (a layer
+  is the abstraction the landing-page roasts punish), comparison-led copy
+  and "not X, but Y" (the top-tier pages have none), keeping "tile / slot /
+  harness" on the page (docs vocabulary; "app" and "directory" on the page).
+  The technical model survives as four facts under "One app, one room";
+  the security list as four noun-list tiles under "IT holds the keys"; the
+  README gets the same pitch, the use cases, try-it and how-it-works before
+  its reference material. Copy rules recorded in website/README.md; the site
+  now runs under `make js-check` and `shellcheck` (it never had a guard).

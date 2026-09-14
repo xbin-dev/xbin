@@ -50,7 +50,7 @@ SCRIPT=deploy/install.sh
 RUNNER=bash
 if [ "$(uname -s)" = Darwin ]; then
   SCRIPT=deploy/install-macos.sh
-  RUNNER=sh
+  RUNNER="sh"
 fi
 URL="https://raw.githubusercontent.com/xbin-dev/xbin/${VERSION}/${SCRIPT}"
 

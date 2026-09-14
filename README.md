@@ -1,11 +1,45 @@
 # xbin
 
-A self-modifying, in-browser workspace. Every piece of UI is a directory;
-every directory can have a live backend; the tiny square in the corner of any
-component opens a real shell in its source. Save a file — the frontend reloads
-and the backend recompiles under you. Notion-shaped, but every block is code
-you own, and apps talk to each other through granted, role-scoped APIs and
-shared resources.
+An office for your agents. A self-hosted workspace where AI agents and people
+work in sandboxed apps, each with its own identity, grants and network policy.
+One binary. IT holds the keys.
+
+![the xbin shell: a canvas of apps beside a sidebar of orgs and apps](website/shots/overview-shell.png)
+
+## What you can do with it
+
+- **Ops:** run the nightly report on a schedule.
+- **Sales:** keep a CRM that reads the team mailbox.
+- **Finance:** publish a dashboard behind SSO and TLS.
+- **Engineering:** give an agent a sandbox with a GPU.
+- **IT:** users, orgs, roles, SSO, network policy, an encrypted vault, backups,
+  an audit log, and *view as user* to see exactly what someone sees.
+- **An agent:** rebuild an app from a prompt, inside its own room.
+
+## Try it
+
+Free for an hour, no signup: `ssh xbin@vcpu.sh`, or open
+[vcpu.sh/xbin](https://vcpu.sh/xbin).
+
+Self-host it on any Linux box (macOS runs it in a Lima VM); the installer
+prints its plan and asks before changing anything:
+
+```sh
+curl -fsSL https://xbin.dev/install.sh | sh
+```
+
+Site: [xbin.dev](https://xbin.dev). Docs: the top-down
+[overview tour](docs/overview/00-index.md), then the reference under
+[docs/](docs/) (also served by every workspace at `/docs/`).
+
+## How it works, briefly
+
+An app is a directory: an `index.html`, an optional backend (Go, Node, Python,
+shell) and its own git history. Its terminal opens in the browser, in that
+directory; save a file and the frontend reloads and the backend recompiles.
+Apps reach each other, the network or a GPU only through grants the owner
+approves. Code and live state run in separate sandboxes, and the workspace
+shell itself is an app you can edit.
 
 ```
 Workspace (one host, one git repo)
@@ -14,11 +48,7 @@ Workspace (one host, one git repo)
 ```
 
 xbind is a single Go binary; the frontend is buildless (Lit via import maps,
-vendored — no bundler anywhere). Full docs are served by the workspace itself at
-`/docs/` (also in [docs/](docs/)) — new here? take the top-down
-[overview tour](docs/overview/00-index.md); then the reference covers getting
-started, the component contract, auth/grants, resources, ingress, SDKs, the
-wire protocol, and the CLI.
+vendored, no bundler anywhere).
 
 ## What's inside
 
@@ -112,12 +142,17 @@ in either of two modes:
 
 ```sh
 # system-wide: a system service under a dedicated `xbin` user in /opt/xbin
-curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | sudo bash
+curl -fsSL https://xbin.dev/install.sh | sudo bash
 
 # user-only: no root anywhere — runs as YOU, in ~/.local/opt/xbin, as a
 # systemd *user* unit (with lingering so it survives logout)
-curl -fsSL https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh | bash -s -- --user
+curl -fsSL https://xbin.dev/install.sh | bash -s -- --user
 ```
+
+The bootstrap at `xbin.dev/install.sh` runs the latest release's
+`deploy/install.sh` (pin one with `XBIN_VERSION=vX.Y.Z`); to run master's
+copy instead, fetch
+`https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh`.
 
 Run it with no mode flag (and no sudo) and it explains the difference — system
 mode creates a dedicated `xbin` user for better separation — shows **both**
