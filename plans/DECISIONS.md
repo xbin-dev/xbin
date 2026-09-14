@@ -1669,3 +1669,23 @@ Deviations and refinements made while implementing; all deliberate:
   README gets the same pitch, the use cases, try-it and how-it-works before
   its reference material. Copy rules recorded in website/README.md; the site
   now runs under `make js-check` and `shellcheck` (it never had a guard).
+
+- **D68 — The grid scale is per browser and geometry-only (2026-09-14).**
+  A shared layout laid out on a 32-inch 4K display is far too large on a
+  laptop; the only knob was the per-user font size, which zooms the whole
+  shell (CSS `zoom`) and follows the user to every device. The grid scale
+  multiplies the RENDER of the logical layout (tiles are multiples of the
+  48px grid) by k in [0.5, 1.5]; the stored geometry never changes, so one
+  org screen stays one layout, and drags, resizes and the push ghosts divide
+  pointer deltas by k and snap in logical units. Per browser
+  (`localStorage`), not per user: the same person wants different scales on
+  different devices, and a layout must not carry a device's preference.
+  Geometry-only rather than CSS zoom of the canvas: text and controls inside
+  tiles stay sharp and pointer math stays exact; the font-size zoom remains
+  the "everything bigger" knob. Floats, pop-ups, spawned windows and the
+  admin popover are viewport windows and keep their size; mobile stacks
+  cards and renders at 1. A browser zoom (ctrl/cmd +/−/0, ctrl-wheel, a
+  pixel-ratio change on resize) earns a one-time toast pointing at the
+  slider, since browser zoom shrinks text along with the layout. Rejected:
+  storing the scale in the layout or the per-user prefs; scaling floats
+  (they are placed by hand in viewport space).

@@ -78,7 +78,11 @@ watch the whole workspace restyle. Drag any card by its title bar to rearrange
 it — a card in the way is pushed aside (a dashed outline shows where it will
 land; back off and it stays put); organise work into named **screens** (the tabs at the top — add with `+`,
 double-click to rename); your whole layout is **saved per user** (server-side, so
-it follows you across browsers and devices). The `<bx-frame>` pins in
+it follows you across browsers and devices). The 🔧 menu in the top bar has a
+**grid scale** slider for *this browser*: it changes how large the layout renders
+on this device (a screen laid out on a 32-inch display runs at 0.7× on a
+laptop) and leaves the layout itself, and everyone else's view, alone. Zoom the
+browser instead and the shell points you at it once. The `<bx-frame>` pins in
 `root/index.html` only seed the *first* screen a brand-new user sees. Screens
 an organisation shares with its members show up as extra tabs; those are
 read-only until you click *edit layout*, and nothing changes for anyone else

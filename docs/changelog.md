@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-14
 
+- **Shell: a per-browser grid scale (D68).** 🔧 settings gains a **Grid
+  scale** slider (0.5×–1.5×, shown with the resulting grid size in px). It
+  changes how large the tile layout renders *in this browser* and nothing
+  else: the layout stays in the same 48-unit grid for everyone, drags and
+  resizes still snap to that grid, and floating windows and terminal
+  pop-ups keep their size. Saved in the browser's `localStorage`, so a
+  shared screen laid out on a 32-inch display can run at 0.7× on a laptop
+  without touching it. Zoom the browser (ctrl/cmd +/−, ctrl-wheel, pinch)
+  and the shell mentions the slider once. Scaffold `shell/` change (`bx
+  builtin update scaffold:shell`); no API change. Docs:
+  [getting-started.md](/docs/getting-started.md), overview/04-frontend.md.
 - **Shell: terminal windows stay with their tile, the shared-screen strip
   is pinned, and dragging pushes cards aside (D66).** A tile's terminal /
   code / logs pop-up now keeps its position relative to the tile — it

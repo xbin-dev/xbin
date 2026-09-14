@@ -15,6 +15,7 @@ const {
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
+const { gridScale } = require('./passes/gridscale');
 const { viewAs } = require('./passes/viewas');
 const { windows } = require('./passes/windows');
 
@@ -817,7 +818,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale,
 };
 
 (async () => {

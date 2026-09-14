@@ -44,6 +44,14 @@ import '/vendor/bx-menu.js';
 
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
+// The grid scale (D68) is per BROWSER, not per user: one shared layout, and
+// each device picks how many pixels a grid unit renders as. localStorage.
+const GRID_SCALE_KEY = 'xbin-grid-scale';
+const ZOOM_TIP_KEY = 'xbin-zoom-tip';
+const clampScale = (v) => Math.min(1.5, Math.max(0.5, Math.round((Number(v) || 1) * 20) / 20));
+function loadGridScale() {
+  try { const v = localStorage.getItem(GRID_SCALE_KEY); return v ? clampScale(v) : 1; } catch { return 1; }
+}
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -101,6 +109,7 @@ export class BxShell extends LitElement {
     _create: { state: true },     // new-tile dialog spec (null = closed)
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
     _settings: { state: true },     // per-user workspace settings {fontSize}
+    _gridScale: { state: true },    // per-browser grid scale (D68): px per logical px, 0.5–1.5
     _settingsOpen: { state: true }, // the 🔧 settings dropdown
     _showHidden: { state: true },   // sidebar: reveal hidden (state=hidden) tiles (D42)
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
@@ -143,6 +152,7 @@ export class BxShell extends LitElement {
     this._create = null;
     this._folderEdit = null;
     this._settings = { fontSize: 13 };
+    this._gridScale = loadGridScale();
     this._alerts = [];
     this._status = {};
     this._prs = {};
@@ -215,8 +225,36 @@ export class BxShell extends LitElement {
     // A shrinking browser window pulls every floating window back inside it
     // (spawned windows, the admin popover, float tiles via their render;
     // bx-frame pop-ups listen on their own).
-    this._onResize = () => this._fitWindows(false);
+    this._onResize = () => {
+      this._fitWindows(false);
+      // a browser zoom changes the pixel ratio with the screen unchanged
+      if (window.devicePixelRatio !== this._dpr) { this._dpr = window.devicePixelRatio; this._zoomTip(); }
+    };
     window.addEventListener('resize', this._onResize);
+    // Browser zoom (ctrl/cmd +/−/0, ctrl-wheel, pinch) shrinks text along with
+    // the layout; the grid scale is the knob for the layout alone — say so
+    // once per browser (D68).
+    this._dpr = window.devicePixelRatio;
+    this._onZoomKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) this._zoomTip(); };
+    this._onZoomWheel = (e) => { if (e.ctrlKey) this._zoomTip(); };
+    window.addEventListener('keydown', this._onZoomKey);
+    window.addEventListener('wheel', this._onZoomWheel, { passive: true });
+  }
+
+  // ---- the grid scale (D68) ----
+  _setGridScale(v) {
+    const k = clampScale(v);
+    this._gridScale = k;
+    try { if (k === 1) localStorage.removeItem(GRID_SCALE_KEY); else localStorage.setItem(GRID_SCALE_KEY, String(k)); } catch { /* storage off: this session only */ }
+  }
+  _zoomTip() {
+    if (this._gridScale !== 1 || this._zoomTipped) return;
+    try { if (localStorage.getItem(ZOOM_TIP_KEY)) return; localStorage.setItem(ZOOM_TIP_KEY, '1'); } catch { /* storage off: once per load */ }
+    this._zoomTipped = true;
+    this._pushToast('grid scale', {
+      level: 'info', action: () => { this._settingsOpen = true; },
+      message: 'zooming the page? the workspace has its own grid scale in 🔧 settings: it resizes the layout and keeps text sharp',
+    }, 12000);
   }
 
   disconnectedCallback() {
@@ -229,6 +267,8 @@ export class BxShell extends LitElement {
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
     window.removeEventListener('keydown', this._onKey);
+    window.removeEventListener('keydown', this._onZoomKey);
+    window.removeEventListener('wheel', this._onZoomWheel);
     this._mq?.removeEventListener('change', this._onMq);
   }
 
@@ -1230,7 +1270,7 @@ export class BxShell extends LitElement {
   }
   _pushToast(comp, d, ttl = 6500) {
     const id = uid();
-    this._toasts = [...this._toasts, { id, comp, level: d.level || 'info', message: d.message || '' }];
+    this._toasts = [...this._toasts, { id, comp, level: d.level || 'info', message: d.message || '', action: d.action }];
     setTimeout(() => this._dismissToast(id), ttl);
   }
   _dismissToast(id) { this._toasts = this._toasts.filter((t) => t.id !== id); }
@@ -1495,7 +1535,7 @@ export class BxShell extends LitElement {
     const placed = this._tiles.filter((o) => !o.float);
     const taken = (x, y) => placed.some((o) => overlaps({ x, y, w: DEF_W, h: DEF_H }, o));
     const viewW = this.renderRoot?.querySelector('main')?.clientWidth || 1200;
-    const cols = Math.max(1, Math.floor(viewW / DEF_W));
+    const cols = Math.max(1, Math.floor(viewW / (DEF_W * (this._gridScale || 1))));
     for (let row = 0; row < 100; row++) {
       for (let c = 0; c < cols; c++) {
         const x = c * DEF_W, y = row * DEF_H;
@@ -1615,6 +1655,8 @@ export class BxShell extends LitElement {
     return {
       get screens() { return s._screens; },
       get activeScreen() { return s._active; },
+      get gridScale() { return s._gridScale; },
+      setGridScale: (k) => s._setGridScale(k),
       setScreen(id) { s._active = id; s._save(); },
       // the layout save is debounced (400 ms): await this before closing a
       // browser context, or the last change never reaches the server
@@ -1677,7 +1719,7 @@ export class BxShell extends LitElement {
       </div></div>` : nothing}
       ${this._toasts.length ? html`<div class="toasts">
         ${repeat(this._toasts, (t) => t.id, (t) => html`
-          <div class="toast st-${t.level}" @click=${() => this._dismissToast(t.id)} title="dismiss">
+          <div class="toast st-${t.level}" @click=${() => { t.action?.(); this._dismissToast(t.id); }} title=${t.action ? 'open' : 'dismiss'}>
             <span class="stdot"></span>
             <span class="tmsg"><b>${t.comp.includes('/') ? t.comp.slice(t.comp.indexOf('/') + 1) : t.comp}</b>${t.message ? ' \u2014 ' + t.message : ''}</span>
           </div>`)}
@@ -1715,6 +1757,17 @@ export class BxShell extends LitElement {
                   <button class="step" title="reset" style="width:auto; padding:0 6px"
                           @click=${() => this._saveSettings({ fontSize: 13 })}>reset</button>` : nothing}
               </span></div>
+            <div class="row"><span>Grid scale</span>
+              <span class="fs">
+                <input type="range" min="0.5" max="1.5" step="0.05" .value=${String(this._gridScale)}
+                       title="how large the tile layout renders in this browser; the layout itself is unchanged"
+                       @input=${(e) => this._setGridScale(e.target.value)}>
+                <b class="gs">${this._gridScale.toFixed(2)}× · ${Math.round(GRID * this._gridScale)} px</b>
+                ${this._gridScale !== 1 ? html`
+                  <button class="step" title="reset" style="width:auto; padding:0 6px"
+                          @click=${() => this._setGridScale(1)}>reset</button>` : nothing}
+              </span></div>
+            <div class="gshint">per browser: the layout stays the same for everyone</div>
             ${this._screenShareMenu()}
             ${this._accountMenu()}
             ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
@@ -1774,7 +1827,7 @@ export class BxShell extends LitElement {
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
-            .canMutate=${this._canMutate} .mobile=${this._mobile} .menuOpen=${!!this._menu}
+            .canMutate=${this._canMutate} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
             .canAdminTile=${(p) => this._canAdminTile(p)}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}

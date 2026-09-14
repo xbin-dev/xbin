@@ -146,7 +146,10 @@ What the shell provides:
   a fixed snappable grid (48px); drag a card by its head to reposition —
   cards in the way are pushed aside in the direction they are hit, with a
   dashed ghost previewing where they land (D66) — drag its corner to
-  resize, or unpin it into a floating window; all persisted per user. **Org screens** (D37/D55) are tabs an organisation
+  resize, or unpin it into a floating window; all persisted per user. The
+  layout is logical (multiples of the 48px grid); each browser renders it at
+  its own **grid scale** (🔧 settings, 0.5×–1.5×, kept in `localStorage`, D68),
+  so one shared screen fits a laptop and a 4K display unchanged. **Org screens** (D37/D55) are tabs an organisation
   shares with every member: read-only in view mode, edited like a
   dashboard — *edit layout* opens a personal draft, *Save and update for
   everyone* publishes it, and a save that lost a race gets a conflict

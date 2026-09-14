@@ -31,6 +31,7 @@ export class BxCanvas extends LitElement {
     menuOpen: { attribute: false },     // the shell's menu is open (Android's post-long-press contextmenu is swallowed)
     canAdminTile: { attribute: false }, // (path) → boolean: whether the ⚙ button shows
     emptyText: { attribute: false },    // what an empty screen says
+    scale: { attribute: false },        // px per logical px of the grid — the per-browser grid scale (D68); 1 = 48px cells
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
   };
   static styles = [canvasCss, prbCss];
@@ -38,7 +39,7 @@ export class BxCanvas extends LitElement {
   constructor() {
     super();
     this.tiles = []; this.components = []; this.prs = {};
-    this.canMutate = true; this.mobile = false; this.menuOpen = false; this.emptyText = '';
+    this.canMutate = true; this.mobile = false; this.menuOpen = false; this.emptyText = ''; this.scale = 1;
     this._press = new LongPress();
     this._pending = new Map(); // path → layout to open once its card exists
     this._drag = null;
@@ -48,7 +49,7 @@ export class BxCanvas extends LitElement {
     this._popBounds = () => {
       const c = this.renderRoot.querySelector('.canvas');
       if (!c) return null;
-      const r = c.getBoundingClientRect(), ext = this._tileExtent();
+      const r = c.getBoundingClientRect(), ext = this._tileExtentPx();
       return { left: r.left, top: r.top, right: r.left + ext.w, bottom: r.top + ext.h };
     };
     // A pop-up opened, moved, resized or closed: the scroll area follows.
@@ -57,6 +58,11 @@ export class BxCanvas extends LitElement {
 
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
   _all() { return this.tiles ?? []; }
+  // The grid scale (D68): the layout is logical (multiples of GRID), the
+  // render multiplies by k. Pointer deltas divide by k, so a drag on a
+  // scaled screen snaps to the same cells everyone else sees. Mobile stacks
+  // cards and ignores geometry, so it renders at 1.
+  get _k() { return this.mobile ? 1 : (Number(this.scale) || 1); }
   // Every change goes out as the whole array; the shell owns persistence.
   _mutate(fn) { this._emit('bx-tiles', fn(this._all().map((t) => ({ ...t })))); }
   _setGeom(path, patch) {
@@ -137,10 +143,10 @@ export class BxCanvas extends LitElement {
     const el = this._gtile(path), o = this._all().find((t) => t.path === path && !t.float);
     if (!el || !o) return;
     const base = this._all().filter((t) => !t.float).map((t) => ({ ...t }));
-    const dx = ev.clientX - el.offsetLeft, dy = ev.clientY - el.offsetTop;
+    const k = this._k, dx = ev.clientX - o.x * k, dy = ev.clientY - o.y * k;
     this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o };
     dragPointer({
-      onMove: (e) => this._dragTo(base, { x: snap(Math.max(0, e.clientX - dx)), y: snap(Math.max(0, e.clientY - dy)), w: o.w, h: o.h }),
+      onMove: (e) => this._dragTo(base, { x: snap(Math.max(0, (e.clientX - dx) / k)), y: snap(Math.max(0, (e.clientY - dy) / k)), w: o.w, h: o.h }),
       onUp: () => this._commitDrag(),
     });
   }
@@ -152,12 +158,12 @@ export class BxCanvas extends LitElement {
     const o = this._all().find((t) => t.path === path && !t.float);
     if (!o) return;
     const base = this._all().filter((t) => !t.float).map((t) => ({ ...t }));
-    const sx = ev.clientX, sy = ev.clientY;
+    const sx = ev.clientX, sy = ev.clientY, k = this._k;
     // a resize grows from its top-left corner: it only ever pushes right/down
     this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o, positive: true };
     dragPointer({
       cursor: 'nwse-resize',
-      onMove: (e) => this._dragTo(base, { x: o.x, y: o.y, w: snap(Math.max(MIN_W, o.w + (e.clientX - sx))), h: snap(Math.max(MIN_H, o.h + (e.clientY - sy))) }),
+      onMove: (e) => this._dragTo(base, { x: o.x, y: o.y, w: snap(Math.max(MIN_W, o.w + (e.clientX - sx) / k)), h: snap(Math.max(MIN_H, o.h + (e.clientY - sy) / k)) }),
       onUp: () => this._commitDrag(),
     });
   }
@@ -188,21 +194,30 @@ export class BxCanvas extends LitElement {
 
   _gridCard(o) {
     const d = this._drag?.path === o.path ? this._drag : null;
-    const r = d ? d.rect : o;
+    const r = d ? d.rect : o, k = this._k;
     return html`
       <div class="gtile ${d ? 'dragging' : ''}" data-path=${o.path}
-           style="left:${r.x}px; top:${r.y}px; width:${r.w - GAP}px; height:${r.h - GAP}px;">
+           style="left:${r.x * k}px; top:${r.y * k}px; width:${(r.w - GAP) * k}px; height:${(r.h - GAP) * k}px;">
         ${this._cardTemplate(o, 'grid')}
         <div class="rz" title="drag to resize" @pointerdown=${(e) => this._gridResizeStart(e, o.path)}></div>
       </div>`;
   }
 
-  // The tiles' extent (+ a drag in flight), floored to the visible pane so the
-  // dot field fills it even on a near-empty screen. Measured from where the
-  // canvas sits in main (whatever is above it) down to main's bottom padding.
+  // The tiles' logical extent (+ a drag in flight), in grid units.
   _tileExtent() {
     const rects = this._all().filter((o) => !o.float);
     if (this._drag) rects.push(this._drag.rect, ...this._drag.moves);
+    return {
+      w: rects.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID,
+      h: rects.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID,
+    };
+  }
+
+  // The same in pixels, floored to the visible pane so the dot field fills it
+  // even on a near-empty screen. Measured from where the canvas sits in main
+  // (whatever is above it) down to main's bottom padding.
+  _tileExtentPx() {
+    const k = this._k, lg = this._tileExtent();
     const main = this.closest('main');
     let vw = 0, vh = 0;
     if (main) {
@@ -210,17 +225,14 @@ export class BxCanvas extends LitElement {
       vw = main.clientWidth - 28;
       vh = main.clientHeight - top - 14;
     }
-    return {
-      w: Math.max(vw, rects.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID),
-      h: Math.max(vh, rects.reduce((m, o) => Math.max(m, o.y + o.h), 0) + GRID),
-    };
+    return { w: Math.max(vw, lg.w * k), h: Math.max(vh, lg.h * k) };
   }
 
   // Content bounds for the (absolute-positioned) canvas: the tiles, plus the
   // open terminal pop-ups of grid cards (D66) — they live inside the canvas,
   // so the scroll area grows to contain them and shrinks when they close.
   _gridExtent() {
-    const ext = this._tileExtent();
+    const ext = this._tileExtentPx();
     const c = this.renderRoot?.querySelector('.canvas');
     const cr = c?.getBoundingClientRect();
     if (cr) {
@@ -384,14 +396,14 @@ export class BxCanvas extends LitElement {
     const floats = this._all().filter((o) => o.float);
     const ext = this._gridExtent();
     return html`
-      <div class="canvas ${this.canMutate ? '' : 'ro'}" style="min-height:${ext.h}px; min-width:${ext.w}px"
+      <div class="canvas ${this.canMutate ? '' : 'ro'}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
            @contextmenu=${(e) => this._onContextMenu(e)}
            @pointerdown=${(e) => this._bgPress(e)}
            @pointermove=${(e) => this._press.move(e)}
            @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()}>
         ${repeat(grid, (o) => o.path, (o) => this._gridCard(o))}
         ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path}
-          style="left:${m.x}px; top:${m.y}px; width:${m.w - GAP}px; height:${m.h - GAP}px;"></div>`)}
+          style="left:${m.x * this._k}px; top:${m.y * this._k}px; width:${(m.w - GAP) * this._k}px; height:${(m.h - GAP) * this._k}px;"></div>`)}
       </div>
       ${grid.length === 0 && floats.length === 0 ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}`;

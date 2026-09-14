@@ -188,6 +188,9 @@ export const shellCss = css`
     .wsmenu .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .wsmenu .fs { display: flex; align-items: center; gap: 6px; }
     .wsmenu .fs b { min-width: 24px; text-align: center; font-variant-numeric: tabular-nums; }
+    .wsmenu .fs input[type=range] { width: 104px; margin: 0; accent-color: var(--bx-accent, #f5a623); }
+    .wsmenu .fs b.gs { min-width: 88px; font-size: 11px; }
+    .wsmenu .gshint { font-size: 10.5px; color: var(--bx-muted, #868f9a); margin: -3px 0 6px; }
     .wsmenu .step { width: 22px; height: 22px; border: 1px solid var(--bx-border, #363c45);
       border-radius: 5px; background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
       cursor: pointer; font: inherit; line-height: 1; }
@@ -303,8 +306,8 @@ export const canvasCss = css`
     .canvas::before {
       content: ''; position: absolute; inset: 0; pointer-events: none;
       background: color-mix(in srgb, var(--bx-muted, #868f9a) 25%, transparent);
-      -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") 20px 20px / 48px 48px repeat;
-      mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") 20px 20px / 48px 48px repeat;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") calc(var(--grid-px, 48px) * 20 / 48) calc(var(--grid-px, 48px) * 20 / 48) / var(--grid-px, 48px) var(--grid-px, 48px) repeat;
+      mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='round'/%3E%3C/svg%3E") calc(var(--grid-px, 48px) * 20 / 48) calc(var(--grid-px, 48px) * 20 / 48) / var(--grid-px, 48px) var(--grid-px, 48px) repeat;
     }
     .gtile { position: absolute; display: flex; }
     .gtile.dragging { opacity: .85; z-index: 50; }
