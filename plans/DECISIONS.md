@@ -1604,3 +1604,36 @@ Deviations and refinements made while implementing; all deliberate:
   listing provider-only sets as "airgapped"; a `net:set:<name>` allowance
   target (new grammar, D54 point 1); a per-user `termNetSets` grant (not
   asked; D17's `termNet` stays the only per-person knob).
+
+- **D66 — Shell windows belong to their tile and live inside the canvas;
+  grid drags push, never overlap (2026-09-14).** Three shell complaints,
+  one model. (1) A tile's terminal pop-up is positioned RELATIVE to its
+  frame (`{dx, dy, w, h}` offsets; `position: fixed` stays, so `overflow:
+  hidden` cards can't clip it, and a per-frame animation loop keeps it on
+  its anchor through scrolls and drags), and its top-left is fenced to the
+  canvas's tile extent (`popBounds` from bx-canvas), never left of / above
+  the scroll origin; the canvas grows to contain open pop-ups. So every
+  terminal is reachable by scrolling — the user's rule, after pop-ups
+  anchored once in viewport coordinates were left behind or off the
+  scrollable area. Frames outside the shell (no bounds) keep the viewport
+  clamp. (2) The shared-org-screen bar is a strip in the shell's column
+  under the screen tabs — pinned, subtle, never in the scroll area (it was
+  a sticky card inside `<main>` that lost z-order to dragged cards and slid
+  away on horizontal scroll). (3) A grid drag or resize pushes the tiles it
+  lands on: contact direction = the axis of the smaller overlap, away from
+  the mover (so a tile hit from the left goes right); a pushed tile keeps
+  that direction across pointer moves (a pure recomputation flipped the
+  preview when the penetrations crossed) and passes it down a cascade; the
+  push is recomputed from the layout at pointerdown on every move, so
+  backing off restores everyone and a release only commits what still
+  overlaps; a left/up push that would leave the canvas flips; positions
+  snap in the push direction; a resize (top-left anchored) pushes right/down
+  only; ghosts preview the landing spots and the pushed tiles stay put
+  until release. The math is a lit-free module (`grid-layout.js`) with node
+  tests; the gesture renders from state (the dragged card from its live
+  rect, so lit re-renders no longer reset it), never reorders the tiles
+  array (`repeat` would remount frames), and skips a no-op commit (a click
+  must not dirty an org draft). Rejected: drag velocity as the push
+  direction (zero when the pointer pauses, noisy at low speed); hoisting
+  the pop-up out of the frame into the canvas (bx-frame is a standalone
+  `/vendor/` element); refusing an overlapping drop instead of pushing.

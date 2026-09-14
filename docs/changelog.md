@@ -10,6 +10,35 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-14
+
+- **Shell: terminal windows stay with their tile, the shared-screen strip
+  is pinned, and dragging pushes cards aside (D66).** A tile's terminal /
+  code / logs pop-up now keeps its position relative to the tile — it
+  follows the card when the canvas scrolls or the card is dragged — and it
+  never leaves the canvas: its top-left stays within the tiles' extent, and
+  the scroll area grows to contain it, so a terminal is always reachable by
+  scrolling (a pop-up used to be anchored once in viewport coordinates and
+  could be left behind, or off the scrollable area). Drag its title bar to
+  place it relative to the tile. The 🔒 *shared org screen* / ✎ *editing*
+  bar is a thin strip under the screen tabs instead of a card inside the
+  scrolling canvas (it used to slide away on horizontal scroll and sit
+  under dragged cards). Dragging or resizing a grid card onto another no
+  longer overlaps them: the card in the way is pushed out in the direction
+  it was hit, cascading through its neighbours, and a dashed ghost previews
+  where each lands while you drag; back off and nothing moves. Frames
+  embedded outside the shell keep today's viewport behaviour. `bx-kit.js`
+  gains `anchorBox`/`anchorOffsets`/`followBox`; `<bx-frame>` gains
+  `popBounds`, `popBox()` and the `bx-pop` event; the scaffold's
+  `shell/grid-layout.js` (lit-free, node-tested) holds the grid math. A
+  workspace keeps its scaffolded shell until `bx builtin update
+  scaffold:shell`; the `bx-frame`/kit half ships with the binary, so an old
+  shell's pop-ups already follow their tiles (without the canvas fence). A
+  legacy `{col, height}` layout migrates again (a missing import threw).
+  Docs: [getting-started.md](/docs/getting-started.md),
+  [elements.md → bx-frame](/docs/elements.md), overview/04-frontend.md,
+  [frontend-kit.md](/docs/frontend-kit.md).
+
 ## 2026-09-11
 
 - **Named network sets on terminals, and as a tile binding (D65).** A

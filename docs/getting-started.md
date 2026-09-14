@@ -36,7 +36,9 @@ sudo sysctl -w fs.inotify.max_user_watches=524288   # persist in /etc/sysctl.d/
 Every tile's **title bar carries a `>_` button** — the terminal. Click the one
 on the welcome tile and a floating terminal window opens (drag it by the title
 bar, resize from the corner, ctrl+scroll for font size; the 🔧 in its corner
-picks a color theme) with a shell *in that component's directory*. (Frames
+picks a color theme) with a shell *in that component's directory*. The window
+belongs to its tile: it follows the card when you scroll or move it, and it
+stays inside the canvas, so scrolling always reaches it. (Frames
 embedded outside the shell keep the small 7×7 corner square for the same
 thing.)
 
@@ -73,7 +75,8 @@ Save and the card live-reloads. That's the whole loop: **create → edit → sav
 see it**. The layout around everything is itself a component (`shell/`) with the
 theme in `/vendor/theme.css` — edit either (from its own card's terminal) and
 watch the whole workspace restyle. Drag any card by its title bar to rearrange
-it; organise work into named **screens** (the tabs at the top — add with `+`,
+it — a card in the way is pushed aside (a dashed outline shows where it will
+land; back off and it stays put); organise work into named **screens** (the tabs at the top — add with `+`,
 double-click to rename); your whole layout is **saved per user** (server-side, so
 it follows you across browsers and devices). The `<bx-frame>` pins in
 `root/index.html` only seed the *first* screen a brand-new user sees. Screens

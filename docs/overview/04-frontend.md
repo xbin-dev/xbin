@@ -143,14 +143,15 @@ browsers), is the source of truth.
 What the shell provides:
 
 - **Screens & cards** — named tabs, each an independent set of tiles on
-  a fixed snappable grid (48px); drag a card by its head to reposition,
-  drag its corner to resize, or unpin it into a floating window; all
-  persisted per user. **Org screens** (D37/D55) are tabs an organisation
+  a fixed snappable grid (48px); drag a card by its head to reposition —
+  cards in the way are pushed aside in the direction they are hit, with a
+  dashed ghost previewing where they land (D66) — drag its corner to
+  resize, or unpin it into a floating window; all persisted per user. **Org screens** (D37/D55) are tabs an organisation
   shares with every member: read-only in view mode, edited like a
   dashboard — *edit layout* opens a personal draft, *Save and update for
   everyone* publishes it, and a save that lost a race gets a conflict
   dialog (reload theirs / overwrite) instead of silently clobbering. The
-  bar above a shared screen says who saved it last; members can hide or
+  strip under the screen tabs says who saved a shared screen last; members can hide or
   reorder org tabs and *copy to my screens*; org admins rename from the
   tab and can replace an org screen with a personal one.
 - **The sidebar** — the openable-tile list from `GET /api/xbin/components`,

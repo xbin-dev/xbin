@@ -5,18 +5,9 @@
 // bx-canvas.js; nothing here touches element state.
 import { html, nothing } from 'lit';
 
-// Fixed snappable grid. Tiles are absolutely positioned + sized in multiples of
-// GRID px, so resizing the browser window never reflows them, and a tile's own
-// content can't stretch it (fixed size — the frame scrolls inside). GAP is the
-// gutter drawn between neighbouring tiles. Tiles must be usable at MIN_W with no
-// horizontal scroll (see AGENTS.md).
-export const GRID = 48;
-export const GAP = 8;
-export const DEF_W = 12 * GRID; // default new-tile size: 576×384
-export const DEF_H = 8 * GRID;
-export const MIN_W = 4 * GRID; // resize floor: 192×144
-export const MIN_H = 3 * GRID;
-export const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
+// The grid module lives in grid-layout.js (lit-free, so its layout math is
+// node-testable); re-exported here for the shell's existing imports.
+export { GRID, GAP, DEF_W, DEF_H, MIN_W, MIN_H, snap } from './grid-layout.js';
 
 // The dot before a tile's name: its runtime.
 export const RUNTIME_COLOR = {

@@ -2,8 +2,9 @@
 // hack/check-js.mjs — parse-check every shipped JavaScript file, including the
 // inline <script type="module"> blocks in component HTML (which node --check
 // cannot see on its own, and which hold ~1,000 lines of tile UI). No build
-// step, no dependencies: this is `node --check` run over the right inputs,
-// with inline blocks reported at their original file:line.
+// step, no dependencies: this is `node --check` run over the right inputs —
+// ES-module `.js` files checked as modules — with inline blocks reported at
+// their original file:line.
 //
 //   node hack/check-js.mjs            # make js-check
 //   node hack/check-js.mjs path…      # only these files/dirs
@@ -43,9 +44,19 @@ const problems = [];
 let checked = 0;
 
 // nodeCheck runs `node --check` on a file and returns the error text ('' = ok).
+// A `.js` file written as an ES module (import/export at a line start) is
+// checked as `.mjs`: node's module detection is lenient on a plain `.js`
+// and once passed an unbalanced template expression Chromium refused.
+let esmN = 0;
 function nodeCheck(file) {
-  const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-  return r.status === 0 ? '' : (r.stderr || r.stdout || 'syntax error');
+  let target = file;
+  if (extname(file) === '.js' && /^(?:import|export)\b/m.test(readFileSync(file, 'utf8'))) {
+    target = join(tmp, `esm-${++esmN}.mjs`);
+    writeFileSync(target, readFileSync(file));
+  }
+  const r = spawnSync(process.execPath, ['--check', target], { encoding: 'utf8' });
+  if (r.status === 0) return '';
+  return (r.stderr || r.stdout || 'syntax error').split(target).join(file);
 }
 
 // Inline blocks: <script …>…</script> without src=, not importmap/JSON.

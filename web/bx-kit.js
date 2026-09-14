@@ -1,8 +1,8 @@
 /**
  * bx-kit — the small helpers every shipped frontend used to re-implement:
  * an API call that throws on error, a JSON body, HTML escaping, the deep
- * active element across shadow roots, composed-path matching, and the
- * viewport clamp for floating windows. Import by absolute URL from any
+ * active element across shadow roots, composed-path matching, the viewport
+ * clamp for floating windows and the anchored-window geometry. Import by absolute URL from any
  * document (sandboxed tiles included — /vendor/ is credential-less):
  *
  *   import { xbinApi, jbody, esc } from '/vendor/bx-kit.js';
@@ -73,6 +73,45 @@ export function clampBox(box, { minW = 200, minH = 140, margin = 8, defW = 560, 
   const x = Math.max(margin, Math.min(n(box?.x, margin), W - w - margin));
   const y = Math.max(margin, Math.min(n(box?.y, margin), H - h - margin));
   return { ...box, x, y, w, h };
+}
+
+// anchorBox(rect, pop, bounds?): a window anchored to an element — offsets
+// {dx, dy} from the element's top-left plus a size {w, h} — as a viewport
+// box. With `bounds` (a viewport rect) the top-left is kept inside it:
+// never left of or above it, and at least 60×24 px of the window over it —
+// the shell hands the canvas's tile extent so a terminal pop-up is always
+// reachable by scrolling (D66).
+export function anchorBox(rect, pop, bounds) {
+  let x = rect.left + pop.dx, y = rect.top + pop.dy;
+  if (bounds) {
+    x = Math.max(bounds.left, Math.min(x, Math.max(bounds.left, bounds.right - 60)));
+    y = Math.max(bounds.top, Math.min(y, Math.max(bounds.top, bounds.bottom - 24)));
+  }
+  return { x: Math.round(x), y: Math.round(y), w: pop.w, h: pop.h };
+}
+
+// anchorOffsets(rect, box): the inverse — a viewport box as offsets from the element.
+export const anchorOffsets = (rect, box) => ({ dx: box.x - rect.left, dy: box.y - rect.top, w: box.w, h: box.h });
+
+// followBox(target, box, alive): keep a viewport-fixed element where box()
+// says, every animation frame while alive() — the anchored window's follow
+// loop (the anchor scrolls or is dragged; the window moves in the same
+// paint). One rect read per frame, a style write only when it changed.
+// Returns the stop function.
+export function followBox(target, box, alive) {
+  let id = 0;
+  const tick = () => {
+    if (!alive()) { id = 0; return; }
+    const el = target(), b = box();
+    if (el && b) {
+      const l = b.x + 'px', t = b.y + 'px';
+      if (el.style.left !== l) el.style.left = l;
+      if (el.style.top !== t) el.style.top = t;
+    }
+    id = requestAnimationFrame(tick);
+  };
+  id = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(id);
 }
 
 // dragShield(cursor): a transparent full-viewport layer for the duration of

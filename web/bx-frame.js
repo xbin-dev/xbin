@@ -24,9 +24,11 @@
  *
  * The edit button opens a floating terminal window: anchored at the frame's
  * top-right corner when opened, draggable by its title bar, resizable by the
- * native bottom-right handle (ctrl+scroll inside adjusts the font). It uses
- * viewport-fixed positioning so container overflow clipping (e.g. shell
- * cards) can't cut it off; windows share a bring-to-front z-order.
+ * native bottom-right handle (ctrl+scroll inside adjusts the font). It is
+ * viewport-fixed (container overflow can't clip it) but positioned RELATIVE
+ * to this frame (D66): it follows the tile through scrolls and drags, and
+ * stays inside the host's `popBounds` (the shell's canvas) so it is always
+ * reachable by scrolling. Windows share a bring-to-front z-order.
  *
  * See /docs/elements.md.
  */
@@ -38,10 +40,12 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
-import { deepActive, clampBox, dragPointer } from '/vendor/bx-kit.js';
+import { deepActive, clampBox, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
+// On phones the pop-up is a full-screen sheet (CSS) — no geometry to follow.
+const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -130,6 +134,9 @@ export class BxFrame extends LitElement {
     _codeW: { state: true },   // code panel width % in split
     _frame: { state: true },   // {url, sandboxed, credentialless} | null
     _prCount: { state: true }, // open change proposals targeting this tile
+    // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
+    // null (the viewport clamps instead). The shell's canvas sets it (D66).
+    popBounds: { attribute: false },
   };
 
   static styles = css`
@@ -261,7 +268,8 @@ export class BxFrame extends LitElement {
     this._gpus = []; // host GPU inventory (empty unless a GPU host)
     this._buildError = null;
     this._autoHeight = false;
-    this._pop = null; // {x, y, w, h} — owned imperatively after open
+    this._pop = null; // {dx, dy, w, h} — offsets from this frame's box; owned imperatively after open
+    this._stopFollow = null; // the follow loop's stop while the pop-up is open
     this._offEvents = null;
     this._frame = null; // {url, sandboxed, credentialless} — null until resolved
     this._onMsg = (e) => this._message(e);
@@ -329,6 +337,21 @@ export class BxFrame extends LitElement {
     if (changed.has('_sessions') || changed.has('_active') || changed.has('_termOpen')) {
       this._saveTerm();
     }
+    if (changed.has('_termOpen')) { if (this._termOpen) this._follow(); this._popChanged(); }
+  }
+
+  // ---- pop-up geometry (D66): relative to this frame, inside the host's bounds ----
+  _bounds() { return typeof this.popBounds === 'function' ? this.popBounds() : null; }
+  _popBox(p = this._pop) { return anchorBox(this.getBoundingClientRect(), p, this._bounds()); }
+  _setPopBox(box) { this._pop = anchorOffsets(this.getBoundingClientRect(), box); }
+  // popBox(): the open pop-up's viewport box (null while closed); bx-pop announces a change.
+  popBox() { return this._termOpen && this._pop ? this._popBox() : null; }
+  _popChanged() { this.dispatchEvent(new CustomEvent('bx-pop', { bubbles: true, composed: true })); }
+  // While open, the pop-up follows the frame's box (scroll, drag) every frame.
+  _follow() {
+    this._stopFollow?.();
+    this._stopFollow = followBox(() => this._popEl, () => (this._pop && !SHEET.matches ? this._popBox() : null),
+      () => this._termOpen && this.isConnected);
   }
 
   _termKey() { return `bx-term:${this.src}`; }
@@ -360,7 +383,7 @@ export class BxFrame extends LitElement {
       api: s.api !== false, name: s.name || '', scopes: s.scopes || null, label: s.label || '',
     }));
     this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
-    if (saved.pop) this._pop = clampBox(saved.pop); // never restore off-screen
+    if (saved.pop && 'dx' in saved.pop) this._pop = saved.pop; // an old viewport-fixed {x,y} re-anchors
     if (saved.open) {
       this.updateComplete.then(() => {
         this._termOpen = true;
@@ -372,6 +395,7 @@ export class BxFrame extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     mountedFrames.delete(this);
+    this._stopFollow?.();
     this._offEvents?.();
     window.removeEventListener('message', this._onMsg);
   }
@@ -545,18 +569,20 @@ export class BxFrame extends LitElement {
     this.updateComplete.then(() => this._front());
   }
 
-  // fitToViewport pulls an open pop-up back inside the browser window (after
-  // a resize, or on the shell's "bring windows on-screen"). Persists so the
-  // next restore starts from a reachable spot.
+  // fitToViewport pulls an open pop-up back to a reachable spot (a resize, the
+  // shell's "bring windows on-screen"): inside the host's bounds when it has
+  // them (the canvas — reachable by scrolling), else inside the browser window.
   fitToViewport() {
     if (!this._termOpen || !this._pop) return;
     const el = this._popEl; // the native resize handle may have changed the size
-    const cur = el ? { ...this._pop, w: el.offsetWidth, h: el.offsetHeight } : this._pop;
-    const next = clampBox(cur);
-    if (next.x !== this._pop.x || next.y !== this._pop.y || next.w !== this._pop.w || next.h !== this._pop.h) {
+    const cur = this._popBox(el ? { ...this._pop, w: el.offsetWidth, h: el.offsetHeight } : this._pop);
+    const next = anchorOffsets(this.getBoundingClientRect(), this._bounds() ? cur : clampBox(cur));
+    const p = this._pop;
+    if (next.dx !== p.dx || next.dy !== p.dy || next.w !== p.w || next.h !== p.h) {
       this._pop = next;
       this.requestUpdate(); // _pop is a plain field — the inline style needs a render
       this._saveTerm();
+      this._popChanged();
     }
   }
 
@@ -575,8 +601,8 @@ export class BxFrame extends LitElement {
       get terminalOpen() { return f._termOpen; },
       closeTerminal() { f._termOpen = false; },
       open: (layout) => f.open(layout),
-      get pop() { return f._pop; },
-      setPop(box) { f._pop = box; f.requestUpdate(); },
+      get pop() { return f._pop ? f._popBox() : null; }, // the viewport box
+      setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
     };
@@ -585,12 +611,12 @@ export class BxFrame extends LitElement {
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {
-      // Anchor at the frame's top-right corner.
-      const r = this.getBoundingClientRect();
-      const w = 560, h = 320;
-      this._pop = { x: r.right - w, y: r.top + 8, w, h };
+      // Anchor at the frame's top-right; when the tile is on screen, also inside the window.
+      const r = this.getBoundingClientRect(), w = 560, h = 320;
+      const box = anchorBox(r, { dx: r.width - w, dy: 8, w, h }, this._bounds());
+      const visible = r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+      this._setPopBox(visible ? clampBox(box) : box);
     }
-    this._pop = clampBox(this._pop); // fresh or restored: always on screen
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (this._sessions.length === 0) this._newTerm();
@@ -614,17 +640,23 @@ export class BxFrame extends LitElement {
     ev.preventDefault();
     const startX = ev.clientX - el.offsetLeft;
     const startY = ev.clientY - el.offsetTop;
+    const r0 = this.getBoundingClientRect(), bounds = this._bounds(); // fixed for the drag (the shield blocks scrolling)
     dragPointer({
       onMove: (e) => {
-        const x = Math.max(-el.offsetWidth + 60, Math.min(e.clientX - startX, window.innerWidth - 40));
-        const y = Math.max(0, Math.min(e.clientY - startY, window.innerHeight - 24));
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-        this._pop.x = x; this._pop.y = y;
+        let x = e.clientX - startX, y = e.clientY - startY;
+        if (bounds) { // inside the canvas (D66)
+          ({ x, y } = anchorBox({ left: 0, top: 0 }, { dx: x, dy: y }, bounds));
+        } else {
+          x = Math.max(-el.offsetWidth + 60, Math.min(x, window.innerWidth - 40));
+          y = Math.max(0, Math.min(y, window.innerHeight - 24));
+        }
+        el.style.left = x + 'px'; el.style.top = y + 'px';
+        this._pop.dx = x - r0.left; this._pop.dy = y - r0.top;
       },
       onUp: () => {
         this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
         this._saveTerm();
+        this._popChanged();
       },
     });
   }
@@ -632,7 +664,8 @@ export class BxFrame extends LitElement {
   _popDown() {
     this._front();
     const el = this._popEl; // capture size after native resizes too
-    if (el && this._pop) { this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; this._saveTerm(); }
+    if (!el || !this._pop || (this._pop.w === el.offsetWidth && this._pop.h === el.offsetHeight)) return;
+    this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; this._saveTerm(); this._popChanged();
   }
 
   _newTerm() {
@@ -728,9 +761,10 @@ export class BxFrame extends LitElement {
   _setLayout(l) {
     this._layout = l;
     if ((l === 'code' || l === 'split' || l === 'prs') && this._pop && this._pop.w < 760) {
-      // widen for the code panel, keeping the window on screen
-      this._pop = clampBox({ ...this._pop, w: 960 });
-      this._saveTerm?.();
+      // widen for the code panel, keeping the window reachable
+      const box = { ...this._popBox(), w: 960 };
+      this._setPopBox(this._bounds() ? box : clampBox(box));
+      this._saveTerm?.(); this._popChanged();
     }
   }
 
@@ -777,9 +811,9 @@ export class BxFrame extends LitElement {
         ${this.hasAttribute('no-edit') ? nothing : html`
           <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
       </div>
-      ${this._termOpen ? html`
+      ${this._termOpen ? (({ x, y, w, h }) => html`
         <div class="pop"
-             style="left:${this._pop.x}px; top:${this._pop.y}px; width:${this._pop.w}px; height:${this._pop.h}px"
+             style="left:${x}px; top:${y}px; width:${w}px; height:${h}px"
              @pointerdown=${this._popDown}>
           <div class="titlebar" @pointerdown=${this._dragStart}>
             <span class="path">${this.src}</span>
@@ -857,7 +891,7 @@ export class BxFrame extends LitElement {
                 @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
             </div>
           </div>
-        </div>` : nothing}
+        </div>`)(this._popBox()) : nothing}
     `;
   }
 }

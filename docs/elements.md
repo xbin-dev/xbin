@@ -224,9 +224,15 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
 - **Edit button**: 7×7 px, top-right, 35 % opacity until hover. Opens a
-  **floating terminal window** with a shell cwd'd to `src`: it appears
-  anchored at the frame's corner, drags by its title bar, resizes by the
-  bottom-right handle, and stacks above everything (click brings to front).
+  **floating terminal window** with a shell cwd'd to `src`: it appears at
+  the frame's corner and keeps its position *relative to the frame* — it
+  follows the frame through scrolls and drags (D66); drags by its title bar,
+  resizes by the bottom-right handle, and stacks above everything (click
+  brings to front). A host may set the element's `popBounds` (a function
+  returning a viewport rect) to fence the window in — the shell hands the
+  canvas's tile extent, so a terminal never leaves the scroll area; the
+  frame fires `bx-pop` when the window opens, moves, resizes or closes and
+  exposes `popBox()` (its viewport box, `null` while closed).
   Ctrl+scroll inside adjusts the font size (remembered across terminals).
   Multiple terminal tabs per window; sessions persist server-side when you
   close it — reopening reattaches with scrollback.

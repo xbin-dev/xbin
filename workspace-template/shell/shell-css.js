@@ -77,25 +77,27 @@ export const shellCss = css`
     .tab.add { color: var(--bx-muted, #868f9a); font-weight: 600; }
     .tab .dirty { color: var(--bx-amber, #f2a71b); font-size: 10px; }
 
-    /* ---- shared org screen bar (D55): view info, or the draft's save/discard ---- */
+    /* ---- shared org screen strip (D55): a pinned row under the screen tabs —
+       what the screen is and who saved it (view), or the draft's save/discard
+       (edit). Part of the column, so it never scrolls or floats over content. ---- */
     .orgbar {
-      position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 8px;
-      margin: 0 0 6px; padding: 5px 10px; font-size: 11.5px; border-radius: 6px;
+      flex: none; display: flex; align-items: center; gap: 8px; min-height: 22px;
+      padding: 0 10px; font-size: 11px;
       color: var(--bx-muted, #868f9a); background: var(--bx-panel, #23272e);
-      border: 1px solid var(--bx-border, #363c45);
+      border-bottom: 1px solid var(--bx-border, #363c45);
     }
     .orgbar.editing { color: var(--bx-text, #d4d9e0);
-      border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
+      border-bottom-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent);
       background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, var(--bx-panel, #23272e)); }
     .orgbar .ico { flex: none; }
-    .orgbar .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .orgbar .txt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .orgbar .spacer { flex: 1; }
-    .orgbar .muted { font-size: 11px; opacity: .8; }
-    .orgbar .newer { color: var(--bx-amber, #f2a71b); white-space: nowrap; }
+    .orgbar .muted { font-size: 10.5px; opacity: .8; white-space: nowrap; }
+    .orgbar .newer { color: var(--bx-amber, #f2a71b); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .orgbar .newer a { cursor: pointer; text-decoration: underline; }
-    .orgbar button.act { font: inherit; font-size: 11.5px; border: 1px solid var(--bx-border, #363c45);
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); border-radius: 5px;
-      padding: 2px 9px; cursor: pointer; white-space: nowrap; }
+    .orgbar button.act { font: inherit; font-size: 10.5px; line-height: 16px; border: 1px solid var(--bx-border, #363c45);
+      background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); border-radius: 4px;
+      padding: 0 7px; cursor: pointer; white-space: nowrap; }
     .orgbar button.act:hover { background: var(--bx-panel-2, #2b3038); }
     .orgbar button.act.go { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
     .orgbar button.act.go:disabled { opacity: .45; cursor: default; }
@@ -307,6 +309,17 @@ export const canvasCss = css`
     .gtile { position: absolute; display: flex; }
     .gtile.dragging { opacity: .85; z-index: 50; }
     .gtile.dragging .card { box-shadow: 0 8px 24px rgba(16,24,40,.22); }
+    /* the push ghost (D66): where a neighbour lands if the drag is released here */
+    .ghost {
+      position: absolute; pointer-events: none; z-index: 40; box-sizing: border-box;
+      border: 2px dashed color-mix(in srgb, var(--bx-accent, #f5a623) 70%, transparent);
+      border-radius: var(--bx-radius, 6px);
+      background: color-mix(in srgb, var(--bx-accent, #f5a623) 8%, transparent);
+    }
+    .ghost::after {
+      content: attr(data-path); position: absolute; left: 8px; top: 6px;
+      font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-accent, #f5a623); opacity: .8;
+    }
     /* the resize corner */
     .gtile .rz {
       position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
@@ -376,6 +389,7 @@ export const canvasCss = css`
         width: 100% !important; min-height: 260px; max-height: 82vh;
       }
       .gtile .rz { display: none; }             /* no resize on touch */
+      .ghost { display: none; }                 /* no drag, no push preview */
       .gtile .card .head { cursor: default; }   /* no drag on touch */
       .card .head button { font-size: 16px; padding: 0 8px; } /* tap targets */
       /* floating windows → full-screen sheets */

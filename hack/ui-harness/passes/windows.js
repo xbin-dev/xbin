@@ -2,12 +2,15 @@
 // the grid, and the pointer drags on them (bx-canvas + the shell).
 const { URL, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, shot, checker } = require('../lib');
 
-// Floating windows must always be reachable (the field report: a terminal
-// pop-up restored at x 2270 / y 1217 on a smaller viewport — working, and
-// invisible). Asserts: a persisted off-screen pop-up restores inside the
-// viewport, a shrinking browser window pulls an open pop-up back in, and the
-// canvas menu's "Bring windows on-screen" fixes a parked spawned window and
-// float tile. Failures throw at the end of the pass.
+// Windows must always be reachable (the field report: a terminal pop-up
+// restored at x 2270 / y 1217 on a smaller viewport — working, and
+// invisible). Asserts: a terminal pop-up is positioned relative to its tile
+// and stays inside the canvas — the scroll area — wherever it is planted,
+// dragged to or how the window shrinks (D66); it follows the card when the
+// card moves; the canvas menu's "Bring windows on-screen" fixes a parked
+// spawned window and float tile; real pointer drags move a float, a spawned
+// window and a grid tile — and a grid tile dropped onto another pushes it
+// aside with a ghost preview. Failures throw at the end of the pass.
 async function windows(browser) {
   const { check, done } = checker('windows');
   const { ctx, page } = await login(browser, 'admin', 'admin');
@@ -18,8 +21,13 @@ async function windows(browser) {
     const r = el?.getBoundingClientRect();
     return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height, W: innerWidth, H: innerHeight } : null;
   }, sel);
+  // the canvas (the scroll area) in viewport coordinates
+  const canvasRect = () => sh(page, (t) => { const r = t.query('.canvas')?.getBoundingClientRect(); return r && { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
+  const inCanvas = (r, c) => !!r && !!c && r.left >= c.left - 0.5 && r.top >= c.top - 0.5 && r.right <= c.right + 0.5 && r.bottom <= c.bottom + 0.5;
 
-  // 1. a persisted off-screen pop-up restores inside the viewport. The
+  // 1. a persisted pop-up planted left of / above the canvas origin restores
+  // inside the canvas (never outside the scroll area, D66), and the canvas
+  // grows to contain it. The
   // planted state is consumed by the FIRST crawler frame to mount, so the
   // reload must start on a personal screen without the crawler: an org
   // screen that holds it (Devs HQ) renders it for a moment while the layout
@@ -28,7 +36,7 @@ async function windows(browser) {
   await usePersonalScreen(page);
   await sh(page, (t) => { t.closeTile('apps/crawler'); return t.flushSave(); });
   await page.evaluate(() => localStorage.setItem('bx-term:apps/crawler', JSON.stringify({
-    open: true, active: 0, pop: { x: 2270, y: 1217, w: 1003, h: 868 },
+    open: true, active: 0, pop: { dx: -2270, dy: -1217, w: 1003, h: 868 },
     sessions: [{ key: 'k1', id: null, net: null, gpu: 'none', api: true, name: '' }] })));
   await page.reload();
   await page.waitForSelector('bx-shell', { timeout: 15000 });
@@ -36,17 +44,32 @@ async function windows(browser) {
   await usePersonalScreen(page);
   await openTile(page, 'apps/crawler');
   await waitSel(page, 'bx-frame[src="apps/crawler"] .pop', { timeout: 20000 });
+  await settle(page);
   let r = await rectOf('pop:apps/crawler');
-  check(inside(r), `restored pop-up lands inside the viewport (${fmt(r)})`);
+  let c = await canvasRect();
+  check(inCanvas(r, c), `restored pop-up lands inside the canvas (${fmt(r)} in ${JSON.stringify(c)})`);
   await shot(page, 'windows-restored', { fullPage: false });
 
-  // 2. a shrinking browser window pulls an open pop-up back in
-  await fr(page, 'apps/crawler', (f) => f.setPop({ x: 820, y: 560, w: 560, h: 320 }));
-  await settle(page);
-  await page.setViewportSize({ width: 1000, height: 700 });
-  await waitFor(page, (t) => { const p = t.frameFor('apps/crawler')?.testApi().pop; return !!p && p.x + p.w <= innerWidth && p.y + p.h <= innerHeight; }, null, { label: 'pop-up refit after resize' });
+  // 2. the pop-up follows its card, and cannot leave the canvas: placed far
+  // past the tiles it stays with its top-left over them; a shrinking browser
+  // window keeps it inside the (scrollable) canvas
+  // (the restored one sits pinned at the canvas's top edge — place it freely
+  // beside its card first, so it has room to follow)
+  await sh(page, (t) => { const r = t.query('.card[data-path="apps/crawler"]').getBoundingClientRect(); t.frameFor('apps/crawler').testApi().setPop({ x: r.left + 24, y: r.top + 48, w: 560, h: 320 }); });
+  await settle(page); await settle(page);
+  const before = await rectOf('pop:apps/crawler');
+  await sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => (o.path === 'apps/crawler' && !o.float ? { ...o, y: o.y + 96 } : o))));
+  await settle(page); await settle(page);
   r = await rectOf('pop:apps/crawler');
-  check(inside(r), `pop-up follows a shrinking browser window (${fmt(r)})`);
+  check(!!before && !!r && Math.abs(r.top - before.top - 96) <= 1 && Math.abs(r.left - before.left) <= 1, `pop-up follows its card (+96 → ${Math.round(r.top - before.top)})`);
+  await fr(page, 'apps/crawler', (f) => f.setPop({ x: 9000, y: 8000, w: 560, h: 320 }));
+  await settle(page); await settle(page);
+  r = await rectOf('pop:apps/crawler'); c = await canvasRect();
+  check(inCanvas(r, c), `a pop-up placed far away stays inside the canvas (${fmt(r)} in ${JSON.stringify(c)})`);
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await settle(page); await settle(page);
+  r = await rectOf('pop:apps/crawler'); c = await canvasRect();
+  check(inCanvas(r, c), `pop-up stays inside the canvas after the window shrinks (${fmt(r)})`);
   await shot(page, 'windows-shrunk', { fullPage: false });
   await page.setViewportSize({ width: 1400, height: 900 });
   await settle(page);
@@ -79,11 +102,16 @@ async function windows(browser) {
   // the restored crawler pop-up (1003×868) would sit over every drag handle
   await fr(page, 'apps/crawler', (f) => f.closeTerminal());
   await waitSel(page, 'bx-frame[src="apps/crawler"] .pop', { state: 'hidden' });
-  const drag = async (sel, dx, dy) => {
+  // drag(sel, dx, dy) — or a path of [dx, dy] stops; beforeUp runs with the
+  // button still down (to look at the push ghosts)
+  const drag = async (sel, dx, dy, { beforeUp } = {}) => {
     const box = await page.locator(sel).first().boundingBox();
-    await page.mouse.move(box.x + Math.min(40, box.width / 2), box.y + box.height / 2);
+    const x0 = box.x + Math.min(40, box.width / 2), y0 = box.y + box.height / 2;
+    await page.mouse.move(x0, y0);
     await page.mouse.down();
-    await page.mouse.move(box.x + Math.min(40, box.width / 2) + dx, box.y + box.height / 2 + dy, { steps: 6 });
+    for (const [mx, my] of (Array.isArray(dx) ? dx : [[dx, dy]])) await page.mouse.move(x0 + mx, y0 + my, { steps: 6 });
+    await settle(page);
+    if (beforeUp) await beforeUp();
     await page.mouse.up();
     await settle(page);
   };
@@ -106,12 +134,37 @@ async function windows(browser) {
   await drag('.spawn .shead', -60, 30);
   const sw1 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
   check(Math.abs(sw1.x - sw0.x + 60) <= 2 && Math.abs(sw1.y - sw0.y - 30) <= 2, `spawned window drag moved it (${JSON.stringify(sw0)} → ${JSON.stringify(sw1)})`);
-  const g0 = await sh(page, (t) => { const o = t.openTiles.find((x) => x.path === 'apps/crawler'); return o && { x: o.x, y: o.y }; });
-  // downwards into empty grid rows: a sideways move can land on an occupied
-  // cell, which the grid resolves by leaving the tile where it was
+  const gridPos = (path) => sh(page, (t, p) => { const o = t.openTiles.find((x) => x.path === p && !x.float); return o && { x: o.x, y: o.y }; }, path);
+  const g0 = await gridPos('apps/crawler');
+  // downwards into empty grid rows (nothing to push)
   await drag('.card[data-path="apps/crawler"] .head', 0, 420);
-  const g1 = await sh(page, (t) => { const o = t.openTiles.find((x) => x.path === 'apps/crawler'); return o && { x: o.x, y: o.y }; });
+  const g1 = await gridPos('apps/crawler');
   check(g0 && g1 && g1.y > g0.y && g1.x === g0.x, `grid tile drag snapped and persisted (${JSON.stringify(g0)} → ${JSON.stringify(g1)})`);
+
+  // 5. push on drag (D66): offline on the grid right below crawler (0,384);
+  // dragging crawler 200px down (→ y 192) overlaps it → a ghost previews
+  // offline's landing spot, and the drop pushes it to y 576 — in the
+  // direction it was hit. Dragging down and back up in one gesture leaves
+  // it where it was, with no ghost at release.
+  const place = () => sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/crawler' ? { path: o.path, x: 0, y: 0, w: 576, h: 384 }
+    : o.path === 'apps/offline' ? { path: o.path, x: 0, y: 384, w: 576, h: 384 } : o)));
+  await place();
+  await waitSel(page, '.card[data-path="apps/offline"] bx-frame', { state: 'attached' });
+  await settle(page);
+  let ghost = null;
+  await drag('.card[data-path="apps/crawler"] .head', 0, 200, { beforeUp: async () => {
+    ghost = await sh(page, (t) => { const g = t.query('.ghost[data-path="apps/offline"]'); return g && { top: parseInt(g.style.top, 10) }; });
+  } });
+  check(ghost && ghost.top === 576, `a push ghost previews offline's landing spot while dragging (${JSON.stringify(ghost)})`);
+  const c1 = await gridPos('apps/crawler'), o1 = await gridPos('apps/offline');
+  check(c1?.y === 192 && o1?.y === 576 && o1?.x === 0, `the drop pushes offline down out of the way (crawler ${JSON.stringify(c1)}, offline ${JSON.stringify(o1)})`);
+  await place();
+  await settle(page);
+  await drag('.card[data-path="apps/crawler"] .head', [[0, 200], [0, 0]], 0, { beforeUp: async () => {
+    ghost = await sh(page, (t) => !!t.query('.ghost'));
+  } });
+  const o2 = await gridPos('apps/offline');
+  check(ghost === false && o2?.y === 384, `backing off drops the ghost and leaves offline where it was (${JSON.stringify(o2)})`);
   await sh(page, (t, l) => t.setGeom(() => l), layout0); // the grid as it was
   check(await page.evaluate(() => !document.querySelector('body > div[style*="2147483647"]')), 'the drag shield is gone after pointerup');
 

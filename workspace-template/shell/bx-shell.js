@@ -52,7 +52,8 @@ import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
 import { shellCss, statusCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
-import { DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus } from './shell-kit.js';
+import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus } from './shell-kit.js';
+import { overlaps } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
 import { nextZ } from './zorder.js';
@@ -368,8 +369,9 @@ export class BxShell extends LitElement {
   }
   _whoLabel(id) { return !id ? 'someone' : id === this._myId ? 'you' : id; }
 
-  // The bar above a shared screen: what it is and who saved it (view), or the
-  // draft's Save / Discard (edit). Sticky so it stays visible while scrolling.
+  // The strip under the screen tabs on a shared screen: what it is and who
+  // saved it (view), or the draft's Save / Discard (edit). Part of the shell's
+  // column, above the scrolling canvas — pinned, never over content.
   _orgBar() {
     const os = this._activeOrgScreen;
     if (!os) return nothing;
@@ -772,7 +774,7 @@ export class BxShell extends LitElement {
     const card = e.target.closest('.card');
     const row = e.target.closest('.item[data-path]');
     if (card || row) { this._openTileMenu(e, (card ?? row).dataset.path); return; }
-    if (pathHas(e, 'button, bx-frame, aside, bx-side, .spawn, .orgbar')) return;
+    if (pathHas(e, 'button, bx-frame, aside, bx-side, .spawn')) return;
     this._openCanvasMenu(e);
   }
 
@@ -1491,14 +1493,13 @@ export class BxShell extends LitElement {
   // new row below everything. Cheap and deterministic; the user rearranges.
   _freeSpot() {
     const placed = this._tiles.filter((o) => !o.float);
-    const overlaps = (x, y) => placed.some((o) =>
-      x < o.x + o.w && x + DEF_W > o.x && y < o.y + o.h && y + DEF_H > o.y);
+    const taken = (x, y) => placed.some((o) => overlaps({ x, y, w: DEF_W, h: DEF_H }, o));
     const viewW = this.renderRoot?.querySelector('main')?.clientWidth || 1200;
     const cols = Math.max(1, Math.floor(viewW / DEF_W));
     for (let row = 0; row < 100; row++) {
       for (let c = 0; c < cols; c++) {
         const x = c * DEF_W, y = row * DEF_H;
-        if (!overlaps(x, y)) return { x, y };
+        if (!taken(x, y)) return { x, y };
       }
     }
     const maxY = placed.reduce((m, o) => Math.max(m, o.y + o.h), 0);
@@ -1752,6 +1753,7 @@ export class BxShell extends LitElement {
         })}
         <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
       </div>
+      ${this._orgBar()}
 
       <div class="body ${this._mobile ? 'mobile' : ''}">
         ${(this._side.collapsed && !this._mobile) ? html`
@@ -1767,10 +1769,9 @@ export class BxShell extends LitElement {
         ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
           @click=${() => { this._drawer = false; }}></div>` : nothing}
         <main @contextmenu=${(e) => this._onContextMenu(e)}
-              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .orgbar, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
+              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
-          ${this._orgBar()}
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
             .canMutate=${this._canMutate} .mobile=${this._mobile} .menuOpen=${!!this._menu}

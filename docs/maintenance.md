@@ -29,8 +29,8 @@ target, so a red line names the guard that failed.
 |---|---|---|
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
-| `node --check` over every shipped script and inline module block; named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">`, or an import of a renamed or mislocated export — neither is parsed by anything else before a user's browser |
-| `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`) and revisioned-draft helpers (`shell/rev-draft.js`): every branch a menu can show, how a stale save is classified — without a browser |
+| `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`) and grid math (`shell/grid-layout.js` — the push a drag performs): every branch a menu can show, how a stale save is classified, where a pushed tile lands — without a browser |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/` | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests) |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
 | unit tests incl. the embed guard, route inventory, docs check | `test` | see the sections below |
@@ -322,10 +322,13 @@ draft maps, `publish(url, body)` classifying a PUT's answer into
 `ok | conflict | error | offline`, `conflictDialog(…)` for the "someone
 saved first" dialog, and `ago()` — tested in `hack/rev-draft.test.mjs`
 with an injected `fetch`. `zorder.js` is the one z counter floats and
-spawned windows share (`nextZ()`, `raiseTo(z)`). `shell-kit.js` holds
-what the shell and its children share: the grid module (`GRID`, `GAP`,
-`DEF_W/H`, `MIN_W/H`, `snap`), `RUNTIME_COLOR`, the `LongPress` gesture,
-`selectedText()` and the `prBadge()` template.
+spawned windows share (`nextZ()`, `raiseTo(z)`). `grid-layout.js` is the
+grid module (`GRID`, `GAP`, `DEF_W/H`, `MIN_W/H`, `snap`) plus the pure
+layout math — `overlaps()` and `pushLayout()`, the push a dragged or
+resized tile performs on its neighbours (D66) — lit-free, tested in
+`hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
+holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
+the `LongPress` gesture, `selectedText()` and the `prBadge()` template.
 
 The first child element is `bx-canvas.js` — the snappable grid of cards
 and the floating windows, with every pointer gesture on them (grid
@@ -389,7 +392,7 @@ Rules that keep it cheap to maintain:
   `testApi()` moves. The surface reads and writes existing state — no
   test-only branches in production code.
 - **DOM hooks are part of the markup contract**: `.card[data-path]`,
-  `.item[data-path]`, `.float[data-path]`, `.spawn`, `.admin-pop`,
+  `.item[data-path]`, `.float[data-path]`, `.ghost[data-path]`, `.spawn`, `.admin-pop`,
   `details[data-sec]`, `.netsetcard[data-netset]`, `.setcard[data-set]`,
   `[data-new-set]`, `[data-save-set]`. Keep them when restructuring
   templates. Playwright selectors pierce open shadow roots, so
