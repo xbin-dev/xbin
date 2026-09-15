@@ -21,7 +21,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   menu gains **Predictive echo**: *auto* (default — on once the measured
   round trip exceeds 100 ms, off again below 60), *on*, *off*, saved per
   browser, plus the live RTT; predictions are underlined while the link is
-  slow, and a ⚡ badge sits by the 🔧 while they are shown. Wire (additive,
+  slow, and a ⚡ badge sits by the 🔧 while they are shown. Full-screen
+  programs work too: when a program hides the terminal cursor and draws its
+  own (Ink apps such as Claude Code, most TUIs), the terminal learns where
+  typed text lands from the first echo and predicts there (D71); inside
+  tmux, vim and other alternate-screen programs the overlay is drawn the
+  same way. Wire (additive,
   [protocol.md](/docs/protocol.md) §/ws/term): the `session` frame carries
   `echoAck:true`; the server sends `{"op":"ack","n":N}` 50 ms after the Nth
   input frame reached the PTY and answers `{"op":"ping"}` with a `pong`.

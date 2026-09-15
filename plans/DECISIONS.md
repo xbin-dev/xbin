@@ -1747,3 +1747,28 @@ Deviations and refinements made while implementing; all deliberate:
   scroll prediction, wide characters (their cells are never predicted), the
   alternate buffer (full-screen apps). Compat: both frames are additive and
   ignored by an older peer; the session frame's `echoAck` gates the feature.
+
+- **D71 — With the terminal cursor hidden, predictions anchor where the
+  echo lands, learned from the echo itself (2026-09-15).** mosh predicts at
+  the terminal cursor, which is right for a shell and wrong for the programs
+  xbin's users actually type into: Ink apps such as Claude Code, and most
+  TUIs, hide the cursor (DECTCEM off), park it at the end of their frame,
+  draw their own block cursor and echo typed text into an input field
+  elsewhere on screen. A prediction at the parked cursor is a stray glyph
+  at the bottom of the screen for one round trip. So when the application
+  has hidden the cursor (tracked through xterm's parser hooks for `CSI ? 25
+  h/l` and RIS) the engine switches to ANCHOR mode: nothing is predicted for
+  the first keystroke of an input session; when its ack arrives, the screen
+  is diffed against a snapshot taken at the keystroke and the cell where the
+  typed character newly appeared (nearest the expected place, else the
+  bottom-most — input fields live at the bottom) becomes the anchor, plus
+  one. Later keystrokes are predicted at the anchor in OVERWRITE mode (no
+  shift: the field's frame must stay put), backspace steps it back, Enter
+  forgets it (the field is about to change), arrows move it, and every acked
+  keystroke keeps re-learning it, so a field that re-renders a row up is
+  followed after one miss. Rejected: predicting at the parked cursor anyway
+  (mosh's behaviour; harmful here); looking for the application's drawn
+  cursor (an inverse-video cell — app-specific and often absent). The
+  overlay itself moved off xterm decorations onto a layer positioned by the
+  renderer's cell metrics, because xterm hides decorations in the alternate
+  buffer and tmux, vim and less all live there.

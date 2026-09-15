@@ -132,7 +132,9 @@ and embedded panel:
   overlay and confirms or withdraws it when xbind acks the input 50 ms after
   the PTY took it — mosh's prediction engine in `/vendor/term-predict.js`,
   on by default once the measured round trip exceeds 100 ms (🔧 menu:
-  auto / on / off, per browser). The whole terminal plane —
+  auto / on / off, per browser). A program that hides the cursor and draws
+  its own (Ink apps such as Claude Code) gets predictions at the place its
+  echo taught the terminal to expect them (D71). The whole terminal plane —
   what those sessions can see and do — is [09-terminals.md](09-terminals.md).
 
 ## The shell: chrome is just components

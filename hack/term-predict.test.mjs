@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Predictor, srttUpdate, wcwidth, SRTT_SHOW, SRTT_HIDE, SRTT_FLAG, GLITCH_THRESHOLD, GLITCH_REPAIR_COUNT, GLITCH_FLAG_THRESHOLD, MAX_CHUNK,
+  Predictor, srttUpdate, wcwidth, SRTT_SHOW, SRTT_HIDE, SRTT_FLAG, GLITCH_THRESHOLD, GLITCH_REPAIR_COUNT, GLITCH_FLAG_THRESHOLD, MAX_CHUNK, LEARN_TTL,
 } from '../web/term-predict.js';
 
 // A rows × cols screen of glyphs ('' = never written) with a cursor. `echo`
@@ -19,6 +19,7 @@ function screen(rows = 4, cols = 10) {
     put(r, c, s) { [...s].forEach((ch, i) => { g[r][c + i] = ch; }); },
     echo(s) { for (const ch of s) { g[fb.cursor.row][fb.cursor.col] = ch; fb.cursor.col++; } },
     line: (r) => g[r].map((c) => c || ' ').join(''),
+    lineAt: (r) => g[r].map((c) => c || ' ').join(''),
     markWide: (r, c) => wide.add(`${r}:${c}`),
   };
   return fb;
@@ -235,4 +236,64 @@ test('the caller can drive the ack out of order with the ECHO_TIMEOUT model: a r
   const n = type('a'); // predicts a over a: the screen already shows it
   ack(n);
   assert.equal(p.pending(), 0, 'dropped without credit');
+});
+
+// ---- a hidden cursor: anchor learning (D71) ----
+test('hidden cursor: nothing is predicted until the echo places the anchor; then typing predicts there, overwriting', () => {
+  const fb = screen(6, 20); fb.put(4, 2, '> '); fb.cursor = { row: 5, col: 0 }; // an Ink-style field; the terminal cursor is parked below it
+  const { p, type, ack } = rig(fb);
+  p.setCursorHidden(true);
+  const n1 = type('a');
+  assert.equal(p.pending(), 0, 'the terminal cursor says nothing: no prediction yet');
+  assert.equal(p.render(fb).cursor, null);
+  fb.put(4, 4, 'a'); // the app echoes into its field
+  ack(n1);
+  assert.deepEqual(p.anchor, { row: 4, col: 5 }, 'the anchor is learned from the echo');
+  const n2 = type('b');
+  assert.deepEqual(texts(p, fb), ['4:5:b'], 'predicted at the anchor, no shift');
+  assert.deepEqual(p.anchor, { row: 4, col: 6 });
+  fb.put(4, 5, 'b'); ack(n2);
+  assert.equal(p.pending(), 0);
+  type('\x7f');
+  assert.deepEqual(p.anchor, { row: 4, col: 5 }, 'backspace steps the anchor back');
+  assert.deepEqual(texts(p, fb), ['4:5: '], 'and predicts the cell blank');
+  type('\r');
+  assert.equal(p.anchor, null, 'Enter submits: the anchor is forgotten');
+});
+
+test('hidden cursor: the anchor follows the echo when the field moves; arrows move it; a visible cursor ends anchor mode', () => {
+  const fb = screen(6, 20); fb.put(4, 2, '> ab'); fb.cursor = { row: 5, col: 0 };
+  const { p, type, ack } = rig(fb);
+  p.setCursorHidden(true);
+  const n1 = type('c');
+  fb.put(4, 6, 'c'); ack(n1);
+  assert.deepEqual(p.anchor, { row: 4, col: 7 });
+  const n2 = type('d');
+  assert.deepEqual(texts(p, fb), ['4:7:d']);
+  // the field re-renders one row up (the frame grew): d lands there
+  fb.g[3] = [...fb.g[4]]; fb.g[4] = new Array(20).fill(''); fb.put(3, 7, 'd');
+  ack(n2);
+  assert.equal(p.pending(), 0, 'the wrong cell is withdrawn');
+  assert.deepEqual(p.anchor, { row: 3, col: 8 }, 're-learned from where d appeared');
+  type('\x1b[D'); assert.deepEqual(p.anchor, { row: 3, col: 7 });
+  type('\x1bOC'); assert.deepEqual(p.anchor, { row: 3, col: 8 });
+  p.setCursorHidden(false);
+  assert.equal(p.anchor, null);
+  type('x');
+  assert.deepEqual(p.render(fb).cursor, { row: 5, col: 1 }, 'back to cursor mode');
+});
+
+test('hidden cursor: a keystroke that never echoes is forgotten; escapes predict nothing', () => {
+  const fb = screen(4, 10); fb.cursor = { row: 3, col: 0 };
+  const { p, type, ack } = rig(fb);
+  p.setCursorHidden(true);
+  const n = type('z', 0);
+  ack(n, 10);
+  assert.equal(p.anchor, null, 'no echo anywhere: no anchor');
+  assert.equal(p.learn.length, 0, 'acked and unfound: dropped');
+  type('q', 100);
+  p.cull(fb, 100 + LEARN_TTL + 1);
+  assert.equal(p.learn.length, 0, 'unacked past the TTL: dropped');
+  type('\x1b[A');
+  assert.equal(p.pending(), 0);
 });

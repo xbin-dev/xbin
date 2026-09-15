@@ -67,6 +67,32 @@ async function predict(browser) {
   await page.keyboard.press('Enter'); // ends the read
   await until((t) => t.pending === 0 && t.cursor.col > 0, 'the prompt after read');
 
+  // 2b. a full-screen program that hides the cursor and echoes into its own
+  // field (an Ink app such as Claude Code): the first keystroke teaches the
+  // engine where typed text lands, the next is predicted there (D71)
+  const tui = "node -e \"const o=process.stdout;process.stdin.setRawMode(true);o.write('\\x1b[2J\\x1b[?25l\\x1b[5;3H> \\x1b[10;1H');let c=5;process.stdin.on('data',d=>{const s=d.toString();if(s=='q'){o.write('\\x1b[?25h\\x1b[2J\\x1b[H');process.exit(0)}o.write('\\x1b[5;'+c+'H'+s+'\\x1b[10;1H');c+=s.length})\"";
+  await page.keyboard.type(tui);
+  await page.keyboard.press('Enter');
+  await until((t) => t.cursorHidden && t.pending === 0, 'the TUI to hide the cursor');
+  await api((t) => t.holdAcks(true));
+  await page.keyboard.type('a');
+  check(await api((t) => t.pending) === 0 && await api((t) => t.anchor) === null, 'hidden cursor: the first keystroke is not predicted (nowhere to put it yet)');
+  await until((t) => t.screenLine(4).includes('> a'), 'the TUI to echo a');
+  await api((t) => t.holdAcks(false));
+  await until((t) => !!t.anchor, 'the anchor to be learned from the echo');
+  const anchor = await api((t) => t.anchor);
+  check(anchor?.row === 4 && anchor?.col === 5, `the anchor is where the echo landed plus one (${JSON.stringify(anchor)})`);
+  await api((t) => t.holdAcks(true));
+  await page.keyboard.type('b');
+  const ov2 = await api((t) => t.overlay);
+  check(ov2.length === 1 && ov2[0].row === 4 && ov2[0].col === 5 && ov2[0].text === 'b', `the next keystroke is predicted at the anchor (${JSON.stringify(ov2)})`);
+  await shot(page, 'term-predict-tui', { fullPage: false });
+  await api((t) => t.holdAcks(false));
+  await until((t) => t.pending === 0, 'the ack to confirm b');
+  check((await api((t) => t.screenLine(4))).includes('> ab'), `confirmed in the field (${JSON.stringify(await api((t) => t.screenLine(4)))})`);
+  await page.keyboard.type('q');
+  await until((t) => !t.cursorHidden && t.cursor.col > 0, 'the TUI to quit and the prompt to return');
+
   // 3. off: nothing is predicted
   await api((t) => t.setPredict('off'));
   check(!(await api((t) => t.predicting)), 'mode off: nothing displayed');

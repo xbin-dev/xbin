@@ -38,7 +38,8 @@ on the welcome tile and a floating terminal window opens (drag it by the title
 bar, resize from the corner, ctrl+scroll for font size; the 🔧 in its corner
 picks a color theme and the **predictive echo** mode — on a slow link what
 you type appears at once, underlined until the server confirms it, the way
-mosh does it; *auto* turns it on when the round trip passes 100 ms) with a
+mosh does it, inside full-screen tools like Claude Code too; *auto* turns it
+on when the round trip passes 100 ms) with a
 shell *in that component's directory*. The window
 belongs to its tile: it follows the card when you scroll or move it, and it
 stays inside the canvas, so scrolling always reaches it. (Frames

@@ -19,10 +19,12 @@
  * renders into its shadow root with xterm's stylesheet linked inside it.
  *
  * Predictive echo (D70): typed characters are drawn at once as an overlay
- * (xterm decorations) and confirmed or removed when the server acks the
- * input — mosh's algorithm, in /vendor/term-predict.js. Per-browser mode in
- * localStorage['bx-term-predict']: auto (on when the RTT is over 100 ms),
- * on, off. The 🔧 menu shows the measured RTT.
+ * (a layer over xterm's screen, positioned by its cell metrics) and
+ * confirmed or removed when the server acks the input — mosh's algorithm, in
+ * /vendor/term-predict.js; when a program hides the cursor (Ink apps such as
+ * Claude Code, most TUIs) the engine learns where typed text lands from the
+ * echo instead (D71). Per-browser mode in localStorage['bx-term-predict']:
+ * auto (on when the RTT is over 100 ms), on, off. The 🔧 menu shows the RTT.
  */
 import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
 
@@ -98,7 +100,7 @@ export class BxTerminal extends HTMLElement {
   // predictive echo (D70): the engine, our count of input frames sent on this
   // socket, whether this xbind acks them, the smoothed RTT, the live
   // decoration markers, the last rendered overlay, and the harness's ack hold
-  #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #marks = []; #overlay = []; #hold = null;
+  #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #layer = null; #overlay = []; #hold = null;
   #pingTimer = null; #nullCell = null;
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
@@ -154,6 +156,12 @@ export class BxTerminal extends HTMLElement {
             font:11px/22px system-ui,sans-serif; background:rgba(140,148,161,.18); color:var(--bx-muted, #868f9a);
             cursor:pointer; user-select:none;}
           .lag[hidden]{display:none}
+          /* the prediction overlay: a layer over xterm's screen, one span per run
+             of predicted cells, placed by the renderer's cell metrics (works in
+             the alternate buffer too, where xterm hides its own decorations) */
+          .pov{position:absolute; left:0; top:0; right:0; bottom:0; z-index:7; pointer-events:none; overflow:hidden;}
+          .pov[hidden]{display:none}
+          .pov span{position:absolute; white-space:pre; overflow:hidden; font-kerning:none; box-sizing:border-box;}
           /* while a predicted cursor is drawn, the real one steps aside (xterm's
              own rules are (0,5,0) with !important; these outrank them) */
           :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-block{background-color:transparent !important; color:var(--bxp-fg) !important;}
@@ -364,57 +372,59 @@ export class BxTerminal extends HTMLElement {
       : `${this.#rttText()}${this.#pred.shown() ? ' · predicting' : ''}`;
   }
 
-  // The engine's view of the screen: xterm's active buffer, screen rows. None
-  // in the alternate buffer (full-screen apps), where nothing is predicted.
+  // The engine's view of the screen: xterm's active buffer (the alternate one
+  // too — full-screen programs), screen rows.
   #fb() {
     const t = this.#term, b = t?.buffer.active;
-    if (!b || b.type === 'alternate') return null;
+    if (!b) return null;
     const nc = this.#nullCell ??= b.getNullCell();
     const cell = (r, c) => b.getLine(b.baseY + r)?.getCell(c, nc);
     return {
       rows: t.rows, cols: t.cols, cursor: { row: b.cursorY, col: b.cursorX },
       charAt: (r, c) => cell(r, c)?.getChars() ?? '',
       widthAt: (r, c) => cell(r, c)?.getWidth() ?? 1,
+      lineAt: (r) => b.getLine(b.baseY + r)?.translateToString(false) ?? '',
     };
   }
 
   // #redraw validates the predictions against the screen and rebuilds the
-  // overlay: one xterm decoration per run of predicted cells (opaque, in the
-  // terminal's colours, underlined when the link is slow) and one for the
-  // predicted cursor. Markers own the decorations: disposing them is the
-  // cleanup.
+  // overlay: one span per run of predicted cells (opaque, in the terminal's
+  // colours, underlined when the link is slow) and one for the predicted
+  // cursor, placed by the DOM renderer's cell metrics (.xterm-rows is exactly
+  // cols × rows cells). Hidden while the user has scrolled back.
   #redraw() {
     const term = this.#term;
     if (!term?.element) return;
     const fb = this.#fb();
     if (fb) this.#pred.cull(fb, performance.now());
-    for (const m of this.#marks) m.dispose();
-    this.#marks = [];
     const r = fb ? this.#pred.render(fb) : { cells: [], cursor: null };
     this.#overlay = r.cells;
-    const rows = term.element.querySelector('.xterm-rows');
-    const cs = rows ? getComputedStyle(rows) : null;
+    const scr = term.element.querySelector('.xterm-screen'), rows = scr?.querySelector('.xterm-rows');
+    if (!scr || !rows) return;
+    let layer = this.#layer;
+    if (!layer || layer.parentNode !== scr) { layer = this.#layer = document.createElement('div'); layer.className = 'pov'; scr.appendChild(layer); }
+    const b = term.buffer.active;
+    layer.hidden = b.viewportY !== b.baseY;
+    const cs = getComputedStyle(rows);
+    const cw = parseFloat(cs.width) / term.cols, chh = parseFloat(cs.height) / term.rows;
     const theme = this.#themeObj();
-    const bg = theme.background || '#262c36', fg = theme.foreground || cs?.color || '#ffffff';
+    const bg = theme.background || '#262c36', fg = theme.foreground || cs.color || '#ffffff';
     this.style.setProperty('--bxp-fg', fg);
-    const cy = term.buffer.active.cursorY;
-    const deco = (row, col, text, style) => {
-      const marker = term.registerMarker(row - cy);
-      if (!marker) return;
-      this.#marks.push(marker);
-      const d = term.registerDecoration({ marker, x: col, width: text.length, layer: 'top' });
-      d?.onRender((el) => {
-        Object.assign(el.style, { fontFamily: cs?.fontFamily || '', fontSize: cs?.fontSize || '', letterSpacing: cs?.letterSpacing || '', fontKerning: 'none',
-          whiteSpace: 'pre', pointerEvents: 'none', overflow: 'hidden', ...style });
-        el.textContent = text;
-      });
+    const spans = [];
+    const put = (row, col, text, style) => {
+      const el = document.createElement('span');
+      Object.assign(el.style, { left: `${col * cw}px`, top: `${row * chh}px`, width: `${text.length * cw}px`, height: `${chh}px`, lineHeight: `${chh}px`,
+        fontFamily: cs.fontFamily, fontSize: cs.fontSize, letterSpacing: cs.letterSpacing, ...style });
+      el.textContent = text;
+      spans.push(el);
     };
-    for (const c of r.cells) deco(c.row, c.col, c.text, { background: bg, color: fg, textDecoration: c.underline ? 'underline' : 'none' });
+    for (const c of r.cells) put(c.row, c.col, c.text, { background: bg, color: fg, textDecoration: c.underline ? 'underline' : 'none' });
     if (r.cursor) {
       const run = r.cells.find((c) => c.row === r.cursor.row && c.col <= r.cursor.col && r.cursor.col < c.col + c.text.length);
       const ch = run ? run.text[r.cursor.col - run.col] : (fb.charAt(r.cursor.row, r.cursor.col) || ' ');
-      deco(r.cursor.row, r.cursor.col, ch, { background: theme.cursor || fg, color: bg, textDecoration: 'none' });
+      put(r.cursor.row, r.cursor.col, ch, { background: theme.cursor || fg, color: bg });
     }
+    layer.replaceChildren(...spans);
     this.classList.toggle('pcur', !!r.cursor);
     const lag = this.shadowRoot.querySelector('.lag');
     if (lag) {
@@ -494,7 +504,6 @@ export class BxTerminal extends HTMLElement {
       // --bx-term-bg token with xterm's default palette. See TERM_THEMES.
       theme: this.#themeObj(),
       scrollback: 4000,
-      allowProposedApi: true, // decorations, for the predictive echo overlay
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
@@ -550,7 +559,15 @@ export class BxTerminal extends HTMLElement {
       this.#redraw();
     });
     this.#term.onWriteParsed(() => this.#redraw()); // the screen changed: judge and redraw the overlay
+    this.#term.onScroll(() => this.#redraw());      // scrolled back: the overlay hides
     this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); });
+    // A program hiding the cursor (DECTCEM off) switches the engine to anchor
+    // mode; showing it, or a full reset, switches back. Only the flag flips
+    // here — the onWriteParsed redraw follows the same parse.
+    const dectcem = (hidden) => (ps) => { if (ps.some((p) => p === 25)) this.#pred.setCursorHidden(hidden); return false; };
+    this.#term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, dectcem(true));
+    this.#term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, dectcem(false));
+    this.#term.parser.registerEscHandler({ final: 'c' }, () => { this.#pred.setCursorHidden(false); return false; });
     this.#connect();
   }
 
@@ -660,6 +677,8 @@ export class BxTerminal extends HTMLElement {
       get predicting() { return t.#pred.shown(); },
       get pending() { return t.#pred.pending(); },
       get overlay() { return t.#overlay; },
+      get cursorHidden() { return t.#pred.cursorHidden; },
+      get anchor() { return t.#pred.anchor; },
       get cursor() { const b = t.#term?.buffer.active; return b ? { row: b.cursorY, col: b.cursorX } : null; },
       screenLine: (row) => { const b = t.#term?.buffer.active; return b?.getLine(b.baseY + row)?.translateToString(true) ?? ''; },
       // hold acks (the newest is applied on release): a local PTY echoes

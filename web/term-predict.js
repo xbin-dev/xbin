@@ -17,11 +17,20 @@
 // Displayed predictions are underlined ("flagged") past SRTT_FLAG or on a
 // long glitch, so the user can tell a guess from an echo.
 //
+// Beyond mosh (D71): a HIDDEN terminal cursor. Full-screen programs — Ink
+// apps such as Claude Code, most TUIs — hide the cursor, draw their own, and
+// echo typed text wherever their input field is; the terminal cursor then
+// says nothing. In that state the engine learns the ANCHOR — the cell the
+// last typed character appeared in, plus one — from the echo itself, and
+// predicts there in overwrite mode (no shift: the field's frame must stay
+// put). Until the first echo of an input session nothing is predicted.
+//
 // The framebuffer is whatever the caller wraps xterm in:
 //   { rows, cols, cursor: {row, col}, charAt(row, col) → '' | ' ' | glyph,
-//     widthAt(row, col) → 0 | 1 | 2 }
+//     widthAt(row, col) → 0 | 1 | 2, lineAt(row) → the row's text, one
+//     character per cell }
 // Left out on purpose (D70): renditions (the overlay draws in the terminal's
-// default colours), overwrite mode, scroll prediction, wide characters.
+// default colours), scroll prediction, wide characters.
 
 export const SRTT_SHOW = 100, SRTT_HIDE = 60;    // ms: auto shows predictions above SHOW, hides again at ≤ HIDE (mosh: 60/40)
 export const SRTT_FLAG = 160, SRTT_UNFLAG = 100; // ms: underline predictions above FLAG (mosh's own thresholds)
@@ -31,6 +40,8 @@ export const GLITCH_REPAIR_MININTERVAL = 150;    // ms between confirmations tha
 export const GLITCH_FLAG_THRESHOLD = 5000;       // pending this long: show AND underline
 export const ECHO_TIMEOUT = 50;                  // the server acks input this long after the PTY took it
 export const MAX_CHUNK = 64;                     // longer input chunks (pastes) predict nothing
+export const MAX_LEARN = 32;                     // keystrokes remembered for anchor learning
+export const LEARN_TTL = 5000;                   // ms a keystroke waits for its echo before it is forgotten
 
 // RFC 6298 smoothing, as mosh's network layer does it.
 export const srttUpdate = (prev, r) => (prev == null ? r : prev * 7 / 8 + r / 8);
@@ -49,6 +60,23 @@ export function wcwidth(cp) {
 }
 
 const blank = (s) => s === '' || s === ' ';
+const snapshot = (fb) => Array.from({ length: fb.rows }, (_, r) => fb.lineAt(r));
+
+// findEcho: where did the typed character newly appear? The candidate nearest
+// the expected anchor, else the bottom-most (input fields live at the bottom).
+function findEcho(L, cur, fb) {
+  let best = null;
+  for (let r = 0; r < fb.rows; r++) {
+    const b = L.before[r] ?? '', c = cur[r] ?? '';
+    if (b === c) continue;
+    for (let x = 0; x < c.length; x++) {
+      if (c[x] !== L.ch || (b[x] ?? ' ') === L.ch) continue;
+      const d = L.expect ? Math.abs(r - L.expect.row) * 1000 + Math.abs(x - L.expect.col) : (fb.rows - r) * 1000 + x;
+      if (!best || d < best.d) best = { row: r, col: x, d };
+    }
+  }
+  return best;
+}
 const PENDING = 0, CORRECT = 1, NO_CREDIT = 2, INCORRECT = 3;
 
 // A fresh overlay cell. `orig` is every content this cell had before we
@@ -68,13 +96,21 @@ export class Predictor {
     this.lastRows = 0; this.lastCols = 0;
     this.rows = new Map();       // row → Array(cols) of cells (null = no prediction)
     this.cursor = null;          // { row, col, expiration, time } | null
+    this.cursorHidden = false;   // the application hid the terminal cursor (DECTCEM off)
+    this.anchor = null;          // hidden cursor: { row, col } where the next typed character will appear
+    this.learn = [];             // hidden cursor: keystrokes awaiting their echo, to place the anchor
   }
 
   setMode(m) { if (m === this.mode) return; this.mode = m; if (m === 'off') this.reset(); }
   setSrtt(ms) { this.srtt = ms; }
   setLocalFrameSent(n) { this.localFrameSent = n; }
   setLateAck(n) { this.lateAck = n; }
-  reset() { this.rows.clear(); this.cursor = null; }
+  setCursorHidden(h) {
+    h = !!h;
+    if (h === this.cursorHidden) return;
+    this.cursorHidden = h; this.anchor = null; this.learn = []; this.cursor = null;
+  }
+  reset() { this.rows.clear(); this.cursor = null; this.anchor = null; this.learn = []; }
 
   // Are predictions being displayed right now?
   shown() { return this.mode === 'on' || (this.mode === 'auto' && (this.srttTrigger || this.glitchTrigger > 0)); }
@@ -87,6 +123,7 @@ export class Predictor {
     if (this.mode === 'off') return;
     this.cull(fb, now);
     const exp = this.localFrameSent + 1;
+    if (this.cursorHidden) { this.#anchorInput(str, fb, exp, now); return; }
     // arrows move the predicted cursor (ESC O x is the application-mode spelling)
     if (str === '\x1b[C' || str === '\x1bOC') { this.#initCursor(fb, exp, now); if (this.cursor.col < fb.cols - 1) this.#moveCursor(1, exp, now); return; }
     if (str === '\x1b[D' || str === '\x1bOD') { this.#initCursor(fb, exp, now); if (this.cursor.col > 0) this.#moveCursor(-1, exp, now); return; }
@@ -103,6 +140,46 @@ export class Predictor {
       // other controls and wide/combining glyphs: mosh becomes tentative, which
       // experimental mode ignores — nothing is predicted
     }
+  }
+
+  // ---- hidden cursor: predict at the learned anchor (D71) ----
+  #anchorInput(str, fb, exp, now) {
+    const a = this.anchor;
+    if (str === '\x1b[C' || str === '\x1bOC') { if (a && a.col < fb.cols - 1) a.col++; return; }
+    if (str === '\x1b[D' || str === '\x1bOD') { if (a && a.col > 0) a.col--; return; }
+    if (str.includes('\x1b')) return;
+    const cps = [...str];
+    if (cps.length > MAX_CHUNK) return;
+    for (const ch of cps) {
+      const cp = ch.codePointAt(0);
+      if (cp === 0x0d) { this.anchor = null; this.learn = []; }   // Enter submits: the field is about to change
+      else if (cp === 0x7f) { if (this.anchor && this.anchor.col > 0) { this.anchor.col--; this.#overwrite(fb, this.anchor, '', exp, now); } }
+      else if (cp >= 0x20 && wcwidth(cp) === 1) {
+        if (this.learn.length < MAX_LEARN) this.learn.push({ ch, expiration: exp, time: now, before: snapshot(fb), expect: this.anchor ? { ...this.anchor } : null });
+        if (this.anchor) {
+          this.#overwrite(fb, this.anchor, ch, exp, now);
+          this.anchor = this.anchor.col + 1 < fb.cols ? { row: this.anchor.row, col: this.anchor.col + 1 } : null;
+        }
+      }
+    }
+  }
+  #overwrite(fb, at, ch, exp, now) {
+    if (fb.widthAt(at.row, at.col) !== 1) return;
+    const r = this.#row(at.row, fb.cols);
+    const cell = r[at.col] = this.#stamp(resetWithOrig(r[at.col]), exp, now);
+    cell.replacement = ch;
+    cell.orig.push(fb.charAt(at.row, at.col));
+  }
+  // learnAnchor moves the anchor to where acked keystrokes actually appeared.
+  #learnAnchor(fb, now) {
+    if (!this.learn.length) return;
+    const cur = snapshot(fb), keep = [];
+    for (const L of this.learn) {
+      if (this.lateAck < L.expiration) { if (now - L.time < LEARN_TTL) keep.push(L); continue; }
+      const at = findEcho(L, cur, fb);
+      if (at) this.anchor = at.col + 1 < fb.cols ? { row: at.row, col: at.col + 1 } : null;
+    }
+    this.learn = keep;
   }
 
   #row(row, cols) {
@@ -221,6 +298,7 @@ export class Predictor {
       if (!live) this.rows.delete(row);
     }
     if (this.cursor && this.#cursorValidity(fb) !== PENDING) this.cursor = null; // confirmed or wrong: the real cursor takes over
+    if (this.cursorHidden) this.#learnAnchor(fb, now);
   }
 
   // ---- what to draw ----
