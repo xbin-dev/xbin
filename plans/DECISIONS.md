@@ -1711,3 +1711,39 @@ Deviations and refinements made while implementing; all deliberate:
   gridstack-style swapping where the drop lands the drag in the neighbour's
   slot rather than at the pointer (the card is the preview here, there is
   no separate placeholder); yielding on a resize (nothing is vacated).
+
+- **D70 — Predictive local echo in the terminal is mosh's engine, validated
+  by a server echo ack, per browser, auto above 100 ms (2026-09-15).** On a
+  slow link every keystroke waited a round trip before it showed. Options:
+  (a) write the typed byte into xterm's buffer locally — rejected, the real
+  echo then lands on a screen that already moved and every mistake (a
+  password prompt, a program that does not echo, a shell that rewrites the
+  line) corrupts what the user sees; (b) mosh's approach — a prediction
+  OVERLAY judged against the real screen and withdrawn when wrong. (b),
+  ported from `src/frontend/terminaloverlay.cc` in its `experimental`
+  flavour (immediate display, a wrong cell is dropped alone, no tentative
+  epochs), because the user asked for that flavour and because the
+  algorithm has a decade of use behind its edge cases (insert shifts the
+  row, the last column is unknown, Enter on the bottom row blanks it rather
+  than predicting a scroll, arrows move the cursor, everything else predicts
+  nothing). The engine is a pure module (`web/term-predict.js`) over a
+  duck-typed framebuffer so `node --test` covers it; xterm's buffer API is
+  the framebuffer and xterm decorations are the overlay — xterm owns the
+  cell metrics, a hand-positioned layer would drift on every font change.
+  Validation needs to know when the server has acted on the input: the
+  server acks each input frame 50 ms after the PTY took it (mosh's
+  ECHO_TIMEOUT; the application has answered by then if it will), through
+  the SAME ordered queue as PTY output so the ack always follows the echo it
+  vouches for; the browser applies it through xterm's write queue so the
+  screen it judges includes every earlier frame. RTT comes from an
+  app-level ping/pong every 5 s (a WebSocket ping is answered below JS) and
+  is smoothed as RFC 6298 does. Thresholds: auto shows predictions above
+  100 ms SRTT (the user's number; mosh's own is 60) with hysteresis to 60,
+  underlines above 160 (mosh's), and shows them on any link when a
+  prediction has waited 250 ms (mosh's glitch trigger). The mode is per
+  browser in localStorage like the terminal theme and font size — it is a
+  property of the link, not the user. Left out on purpose: renditions
+  (predictions draw in the terminal's default colours), overwrite mode,
+  scroll prediction, wide characters (their cells are never predicted), the
+  alternate buffer (full-screen apps). Compat: both frames are additive and
+  ignored by an older peer; the session frame's `echoAck` gates the feature.

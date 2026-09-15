@@ -36,7 +36,10 @@ sudo sysctl -w fs.inotify.max_user_watches=524288   # persist in /etc/sysctl.d/
 Every tile's **title bar carries a `>_` button** — the terminal. Click the one
 on the welcome tile and a floating terminal window opens (drag it by the title
 bar, resize from the corner, ctrl+scroll for font size; the 🔧 in its corner
-picks a color theme) with a shell *in that component's directory*. The window
+picks a color theme and the **predictive echo** mode — on a slow link what
+you type appears at once, underlined until the server confirms it, the way
+mosh does it; *auto* turns it on when the round trip passes 100 ms) with a
+shell *in that component's directory*. The window
 belongs to its tile: it follows the card when you scroll or move it, and it
 stays inside the canvas, so scrolling always reaches it. (Frames
 embedded outside the shell keep the small 7×7 corner square for the same

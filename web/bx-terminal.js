@@ -16,8 +16,15 @@
  * Wire protocol: docs/protocol.md §/ws/term.
  *
  * xterm.js ships as UMD, loaded lazily into the main document; bx-terminal
- * renders into light DOM so xterm's global stylesheet applies.
+ * renders into its shadow root with xterm's stylesheet linked inside it.
+ *
+ * Predictive echo (D70): typed characters are drawn at once as an overlay
+ * (xterm decorations) and confirmed or removed when the server acks the
+ * input — mosh's algorithm, in /vendor/term-predict.js. Per-browser mode in
+ * localStorage['bx-term-predict']: auto (on when the RTT is over 100 ms),
+ * on, off. The 🔧 menu shows the measured RTT.
  */
+import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
 
 // Load a classic script once per document. Several elements (the terminal,
 // the read-only logs view) share the tag by id, so a second caller must wait
@@ -79,11 +86,20 @@ function loadXterm() {
 }
 
 const enc = new TextEncoder();
+const PREDICT_MODES = ['auto', 'on', 'off'];
+function savedPredict() {
+  try { const v = localStorage.getItem('bx-term-predict'); return PREDICT_MODES.includes(v) ? v : 'auto'; } catch { return 'auto'; }
+}
 
 export class BxTerminal extends HTMLElement {
   #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
   #serverNet = null; #notedSession = null; // effective scope per the server; the session we printed a net note for
   #onPref; #onStorage; #onAmbient; #gen = 0; // connection epoch: only the latest socket drives the term
+  // predictive echo (D70): the engine, our count of input frames sent on this
+  // socket, whether this xbind acks them, the smoothed RTT, the live
+  // decoration markers, the last rendered overlay, and the harness's ack hold
+  #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #marks = []; #overlay = []; #hold = null;
+  #pingTimer = null; #nullCell = null;
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
   // product, and the host counter-zooms by 1/#ambient — so the terminal looks
@@ -111,12 +127,12 @@ export class BxTerminal extends HTMLElement {
         `<style>
           :host{display:block; position:relative}
           .host{height:100%;background:var(--bx-term-bg, #262c36)}
-          .gear{position:absolute; top:4px; right:10px; z-index:6; width:22px; height:22px;
+          .gear{position:absolute; top:4px; right:10px; z-index:8; width:22px; height:22px;
             border:0; border-radius:5px; padding:0; cursor:pointer; font-size:13px; line-height:22px;
             background:rgba(140,148,161,.18); color:#c7ccd4; opacity:0; transition:opacity .15s;}
           :host(:hover) .gear, .gear:focus, .gear.open{opacity:.85}
           .gear:hover{background:rgba(140,148,161,.34)}
-          .tmenu{position:absolute; top:30px; right:10px; z-index:7; min-width:210px;
+          .tmenu{position:absolute; top:30px; right:10px; z-index:9; min-width:210px;
             background:var(--bx-panel,#23272e); color:var(--bx-text, #d4d9e0);
             border:1px solid var(--bx-border, #363c45); border-radius:8px; padding:8px;
             box-shadow:0 10px 30px rgba(0,0,0,.5); font:12px/1.4 system-ui,sans-serif;}
@@ -133,9 +149,21 @@ export class BxTerminal extends HTMLElement {
             border-radius:5px; background:var(--bx-bg,#1b1e24); color:var(--bx-text, #d4d9e0);
             cursor:pointer; font:inherit; line-height:1;}
           .tmenu .step:hover{background:var(--bx-panel-2, #2b3038);}
+          .tmenu .pstat{font-size:10.5px; color:var(--bx-muted, #868f9a); margin:-2px 2px 4px;}
+          .lag{position:absolute; top:4px; right:36px; z-index:8; height:22px; padding:0 7px; border:0; border-radius:5px;
+            font:11px/22px system-ui,sans-serif; background:rgba(140,148,161,.18); color:var(--bx-muted, #868f9a);
+            cursor:pointer; user-select:none;}
+          .lag[hidden]{display:none}
+          /* while a predicted cursor is drawn, the real one steps aside (xterm's
+             own rules are (0,5,0) with !important; these outrank them) */
+          :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-block{background-color:transparent !important; color:var(--bxp-fg) !important;}
+          :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-outline{outline:none !important;}
+          :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-bar{box-shadow:none !important;}
+          :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-underline{border-bottom:0 !important; height:100% !important;}
         </style>` +
         `<div class="host"></div>` +
         `<button class="gear" title="terminal settings" aria-label="terminal settings">🔧</button>` +
+        `<button class="lag" hidden title="slow link: typed text is shown before the server confirms it (predictive echo, 🔧)"></button>` +
         `<div class="tmenu" hidden>` +
           `<div class="hd">terminal</div>` +
           `<div class="row"><span>Theme</span><select class="theme"></select></div>` +
@@ -143,6 +171,10 @@ export class BxTerminal extends HTMLElement {
             `<span class="fs"><button class="step" data-d="-1" aria-label="smaller">−</button>` +
             `<b class="fsv"></b>` +
             `<button class="step" data-d="1" aria-label="larger">+</button></span></div>` +
+          `<div class="row"><span>Predictive echo</span><select class="predict">` +
+            `<option value="auto">auto · on when RTT &gt; ${SRTT_SHOW} ms</option>` +
+            `<option value="on">on</option><option value="off">off</option></select></div>` +
+          `<div class="pstat"></div>` +
         `</div>`;
     }
     this.#host = this.shadowRoot.querySelector('.host');
@@ -154,6 +186,7 @@ export class BxTerminal extends HTMLElement {
     this.#closed = true;
     this.#ro?.disconnect();
     this.#ws?.close();
+    clearInterval(this.#pingTimer);
     this.#term?.dispose();
     if (this.#onPref) window.removeEventListener('bx-term-pref', this.#onPref);
     if (this.#onStorage) window.removeEventListener('storage', this.#onStorage);
@@ -175,6 +208,7 @@ export class BxTerminal extends HTMLElement {
     if (this.#host && theme.background) this.#host.style.background = theme.background;
     const sel = this.shadowRoot?.querySelector('.theme');
     if (sel && sel.value !== name) sel.value = name;
+    this.#redraw();
   }
 
   // The user's font size is the BASE; xterm renders at base × ambient zoom (the
@@ -192,6 +226,7 @@ export class BxTerminal extends HTMLElement {
     const eff = Math.max(7, Math.min(44, Math.round(this.#baseFont * this.#ambient)));
     if (this.#term.options.fontSize !== eff) this.#term.options.fontSize = eff;
     try { this.#fit.fit(); } catch { }
+    this.#redraw(); // decorations are sized when made
   }
 
   // #applyAmbient counters an ancestor's CSS zoom so xterm renders at net-zoom-1
@@ -250,6 +285,11 @@ export class BxTerminal extends HTMLElement {
     const fontNow = () => this.#baseFont; // the user's size, not the zoom-scaled effective one
     const showFs = () => { fsv.textContent = String(fontNow()); };
     showFs();
+    const psel = root.querySelector('.predict');
+    psel.value = savedPredict();
+    this.#pred.setMode(psel.value);
+    psel.addEventListener('change', () => this.#setPredict(psel.value));
+    root.querySelector('.lag').addEventListener('click', (e) => { e.stopPropagation(); gear.click(); });
 
     const onDoc = (e) => {
       if (!e.composedPath().includes(menu) && !e.composedPath().includes(gear)) close();
@@ -264,6 +304,8 @@ export class BxTerminal extends HTMLElement {
       if (menu.hidden) {
         sel.value = savedTheme();
         showFs();
+        psel.value = this.#pred.mode;
+        this.#status();
         menu.hidden = false;
         gear.classList.add('open');
         document.addEventListener('pointerdown', onDoc, true);
@@ -287,14 +329,126 @@ export class BxTerminal extends HTMLElement {
     this.#onPref = (e) => {
       if (e.detail?.theme) this.#applyTheme(e.detail.theme);
       if (e.detail?.fontSize) this.#setFontSize(e.detail.fontSize);
+      if (e.detail?.predict) this.#setPredict(e.detail.predict, false);
       showFs();
     };
     window.addEventListener('bx-term-pref', this.#onPref);
     this.#onStorage = (e) => {
       if (e.key === 'bx-term-theme') this.#applyTheme(savedTheme());
       if (e.key === 'bx-term-fontsize') { this.#setFontSize(savedFontSize()); showFs(); }
+      if (e.key === 'bx-term-predict') this.#setPredict(savedPredict(), false);
     };
     window.addEventListener('storage', this.#onStorage);
+  }
+
+  // --- predictive echo (D70) ----------------------------------------------
+
+  #setPredict(mode, broadcast = true) {
+    if (!PREDICT_MODES.includes(mode)) return;
+    if (broadcast) {
+      try { localStorage.setItem('bx-term-predict', mode); } catch { }
+      window.dispatchEvent(new CustomEvent('bx-term-pref', { detail: { predict: mode } }));
+    }
+    this.#pred.setMode(mode);
+    const psel = this.shadowRoot?.querySelector('.predict');
+    if (psel && psel.value !== mode) psel.value = mode;
+    this.#status();
+    this.#redraw();
+  }
+
+  #rttText() { return this.#srtt == null ? 'RTT —' : `RTT ${Math.round(this.#srtt)} ms`; }
+  #status() {
+    const el = this.shadowRoot?.querySelector('.pstat');
+    if (!el) return;
+    el.textContent = !this.#echoAck ? (this.#ws ? 'not supported by this xbind' : 'connecting…')
+      : `${this.#rttText()}${this.#pred.shown() ? ' · predicting' : ''}`;
+  }
+
+  // The engine's view of the screen: xterm's active buffer, screen rows. None
+  // in the alternate buffer (full-screen apps), where nothing is predicted.
+  #fb() {
+    const t = this.#term, b = t?.buffer.active;
+    if (!b || b.type === 'alternate') return null;
+    const nc = this.#nullCell ??= b.getNullCell();
+    const cell = (r, c) => b.getLine(b.baseY + r)?.getCell(c, nc);
+    return {
+      rows: t.rows, cols: t.cols, cursor: { row: b.cursorY, col: b.cursorX },
+      charAt: (r, c) => cell(r, c)?.getChars() ?? '',
+      widthAt: (r, c) => cell(r, c)?.getWidth() ?? 1,
+    };
+  }
+
+  // #redraw validates the predictions against the screen and rebuilds the
+  // overlay: one xterm decoration per run of predicted cells (opaque, in the
+  // terminal's colours, underlined when the link is slow) and one for the
+  // predicted cursor. Markers own the decorations: disposing them is the
+  // cleanup.
+  #redraw() {
+    const term = this.#term;
+    if (!term?.element) return;
+    const fb = this.#fb();
+    if (fb) this.#pred.cull(fb, performance.now());
+    for (const m of this.#marks) m.dispose();
+    this.#marks = [];
+    const r = fb ? this.#pred.render(fb) : { cells: [], cursor: null };
+    this.#overlay = r.cells;
+    const rows = term.element.querySelector('.xterm-rows');
+    const cs = rows ? getComputedStyle(rows) : null;
+    const theme = this.#themeObj();
+    const bg = theme.background || '#262c36', fg = theme.foreground || cs?.color || '#ffffff';
+    this.style.setProperty('--bxp-fg', fg);
+    const cy = term.buffer.active.cursorY;
+    const deco = (row, col, text, style) => {
+      const marker = term.registerMarker(row - cy);
+      if (!marker) return;
+      this.#marks.push(marker);
+      const d = term.registerDecoration({ marker, x: col, width: text.length, layer: 'top' });
+      d?.onRender((el) => {
+        Object.assign(el.style, { fontFamily: cs?.fontFamily || '', fontSize: cs?.fontSize || '', letterSpacing: cs?.letterSpacing || '', fontKerning: 'none',
+          whiteSpace: 'pre', pointerEvents: 'none', overflow: 'hidden', ...style });
+        el.textContent = text;
+      });
+    };
+    for (const c of r.cells) deco(c.row, c.col, c.text, { background: bg, color: fg, textDecoration: c.underline ? 'underline' : 'none' });
+    if (r.cursor) {
+      const run = r.cells.find((c) => c.row === r.cursor.row && c.col <= r.cursor.col && r.cursor.col < c.col + c.text.length);
+      const ch = run ? run.text[r.cursor.col - run.col] : (fb.charAt(r.cursor.row, r.cursor.col) || ' ');
+      deco(r.cursor.row, r.cursor.col, ch, { background: theme.cursor || fg, color: bg, textDecoration: 'none' });
+    }
+    this.classList.toggle('pcur', !!r.cursor);
+    const lag = this.shadowRoot.querySelector('.lag');
+    if (lag) {
+      lag.hidden = !(this.#pred.shown() && (this.#pred.srttTrigger || this.#pred.glitchTrigger > 0));
+      lag.textContent = `⚡ ${this.#rttText().slice(4)}`;
+    }
+  }
+
+  // An ack is applied through xterm's write queue: term.write is asynchronous,
+  // and the ack must be judged against a screen that includes every output
+  // frame that preceded it on the wire.
+  #onAck(n) {
+    if (this.#hold) { this.#hold.n = n; return; }
+    this.#applyAck(n);
+  }
+  #applyAck(n) {
+    const gen = this.#gen;
+    this.#term.write('', () => {
+      if (gen !== this.#gen) return; // a newer socket renumbered everything
+      this.#pred.setLateAck(n);
+      this.#redraw();
+    });
+  }
+
+  #ping() {
+    if (this.#ws?.readyState === WebSocket.OPEN && this.#echoAck) this.#ws.send(JSON.stringify({ op: 'ping', t: performance.now() }));
+  }
+  #onPong(t) {
+    const r = performance.now() - Number(t);
+    if (!(r >= 0 && r < 60000)) return;
+    this.#srtt = srttUpdate(this.#srtt, r);
+    this.#pred.setSrtt(this.#srtt);
+    this.#status();
+    this.#redraw();
   }
 
   // Switching network scope can't hot-reload (the netns/relay is fixed at
@@ -340,6 +494,7 @@ export class BxTerminal extends HTMLElement {
       // --bx-term-bg token with xterm's default palette. See TERM_THEMES.
       theme: this.#themeObj(),
       scrollback: 4000,
+      allowProposedApi: true, // decorations, for the predictive echo overlay
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
@@ -379,13 +534,23 @@ export class BxTerminal extends HTMLElement {
       window.dispatchEvent(new CustomEvent('bx-term-pref', { detail: { fontSize: this.#baseFont } }));
     }, { passive: false });
     this.#term.onData((d) => {
-      if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(enc.encode(d));
+      if (this.#ws?.readyState !== WebSocket.OPEN) return;
+      // predict first (the prediction expires with the frame about to be sent), then send
+      const fb = this.#echoAck ? this.#fb() : null;
+      if (fb) this.#pred.newUserData(d, fb, performance.now());
+      this.#seq++;
+      this.#ws.send(enc.encode(d));
+      this.#pred.setLocalFrameSent(this.#seq);
+      if (fb) this.#redraw();
     });
     this.#term.onResize(({ cols, rows }) => {
       if (this.#ws?.readyState === WebSocket.OPEN) {
         this.#ws.send(JSON.stringify({ op: 'resize', cols, rows }));
       }
+      this.#redraw();
     });
+    this.#term.onWriteParsed(() => this.#redraw()); // the screen changed: judge and redraw the overlay
+    this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); });
     this.#connect();
   }
 
@@ -397,6 +562,10 @@ export class BxTerminal extends HTMLElement {
     // two sockets end up on one session and every byte (incl. keystroke echo)
     // is doubled.
     const gen = ++this.#gen;
+    // input frames are numbered per socket (the server counts what it receives)
+    this.#seq = 0; this.#echoAck = false; this.#pred.reset(); this.#pred.setLocalFrameSent(0); this.#pred.setLateAck(0);
+    clearInterval(this.#pingTimer); this.#pingTimer = null;
+    this.#status();
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
@@ -435,6 +604,17 @@ export class BxTerminal extends HTMLElement {
           this.dispatchEvent(new CustomEvent('bx-session', {
             detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated },
             bubbles: true }));
+          // this xbind acks input and answers pings: measure the link, keep measuring
+          this.#echoAck = !!ctl.echoAck;
+          this.#status();
+          if (this.#echoAck) {
+            this.#ping();
+            this.#pingTimer = setInterval(() => { if (document.visibilityState === 'visible') this.#ping(); }, 5000);
+          }
+        } else if (ctl.op === 'ack') {
+          if (typeof ctl.n === 'number') this.#onAck(ctl.n);
+        } else if (ctl.op === 'pong') {
+          this.#onPong(ctl.t);
         } else if (ctl.op === 'exit') {
           // Shell exited — the session is gone server-side. Let the host close
           // this terminal (its tab/window), like a real terminal emulator.
@@ -464,6 +644,32 @@ export class BxTerminal extends HTMLElement {
       } else {
         this.#term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
       }
+    };
+  }
+
+  // testApi: stable names for the UI harness (hack/ui-harness), which may not
+  // touch private state. Reads and writes existing state; nothing here is
+  // used by the element itself.
+  testApi() {
+    const t = this;
+    return {
+      get rtt() { return t.#srtt; },
+      get echoAck() { return t.#echoAck; },
+      get mode() { return t.#pred.mode; },
+      setPredict: (m) => t.#setPredict(m),
+      get predicting() { return t.#pred.shown(); },
+      get pending() { return t.#pred.pending(); },
+      get overlay() { return t.#overlay; },
+      get cursor() { const b = t.#term?.buffer.active; return b ? { row: b.cursorY, col: b.cursorX } : null; },
+      screenLine: (row) => { const b = t.#term?.buffer.active; return b?.getLine(b.baseY + row)?.translateToString(true) ?? ''; },
+      // hold acks (the newest is applied on release): a local PTY echoes
+      // within a millisecond, so this is how a pass sees a prediction pending
+      holdAcks(on) {
+        if (on) { t.#hold ??= { n: null }; return; }
+        const n = t.#hold?.n; t.#hold = null;
+        if (n != null) t.#applyAck(n);
+      },
+      ping: () => t.#ping(),
     };
   }
 }

@@ -10,6 +10,25 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-15
+
+- **Terminal: predictive local echo (D70).** On a slow link what you type
+  now appears at once: the terminal predicts a keystroke's effect (the
+  character at the cursor, the rest of the line shifted, backspace, Enter,
+  the arrow keys) and draws it as an overlay, then confirms or withdraws
+  each prediction when xbind acks the input — mosh's prediction engine
+  (`--predict=experimental` flavour), in `/vendor/term-predict.js`. The 🔧
+  menu gains **Predictive echo**: *auto* (default — on once the measured
+  round trip exceeds 100 ms, off again below 60), *on*, *off*, saved per
+  browser, plus the live RTT; predictions are underlined while the link is
+  slow, and a ⚡ badge sits by the 🔧 while they are shown. Wire (additive,
+  [protocol.md](/docs/protocol.md) §/ws/term): the `session` frame carries
+  `echoAck:true`; the server sends `{"op":"ack","n":N}` 50 ms after the Nth
+  input frame reached the PTY and answers `{"op":"ping"}` with a `pong`.
+  Older browsers ignore the new frames; a newer browser against an older
+  xbind keeps the feature off. No `bx builtin update` needed — the terminal
+  is served by xbind.
+
 ## 2026-09-14
 
 - **Shell: dragging a tile onto its neighbour swaps them (D69).** When the

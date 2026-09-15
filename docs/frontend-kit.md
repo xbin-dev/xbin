@@ -37,7 +37,8 @@ import '/vendor/bx-frame.js';
 `/vendor/bx-menu.js` (the shell's context menus — action closures, not a
 tile API; tiles use `xbin.dialog` / `xbin.window`), `/vendor/bx-terminal.js`,
 `/vendor/bx-logs.js`, `/vendor/bx-prs.js` (the terminal pop-up's panels —
-reachable through `<bx-frame>`), and the shell's own siblings under
+reachable through `<bx-frame>`), `/vendor/term-predict.js` (the terminal's
+prediction engine, D70), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 

@@ -127,7 +127,12 @@ and embedded panel:
   and the canvas menu's **Bring windows on-screen** recovers any floating
   window still out of reach. Per-session pickers for
   network scope, live tile-API access, and GPU each restart the session —
-  those properties are fixed at sandbox spawn. The whole terminal plane —
+  those properties are fixed at sandbox spawn. Typing is **predicted
+  locally** (D70): the terminal draws a keystroke's likely effect as an
+  overlay and confirms or withdraws it when xbind acks the input 50 ms after
+  the PTY took it — mosh's prediction engine in `/vendor/term-predict.js`,
+  on by default once the measured round trip exceeds 100 ms (🔧 menu:
+  auto / on / off, per browser). The whole terminal plane —
   what those sessions can see and do — is [09-terminals.md](09-terminals.md).
 
 ## The shell: chrome is just components

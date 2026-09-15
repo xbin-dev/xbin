@@ -1109,8 +1109,17 @@ ends the old one and opens a new WS).
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the
-    current base), `{"op":"exit"}` (shell ended)
-  - client → server: `{"op":"resize","cols":120,"rows":32}`
+    current base; `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
+    frames below), `{"op":"exit"}` (shell ended), `{"op":"ack","n":N}` —
+    the client's Nth **binary** frame on this socket reached the PTY at least
+    50 ms ago, so whatever the application printed in answer precedes this
+    frame (one ack covers every earlier frame; mosh's echo ack, the basis of
+    the terminal's predictive echo, D70), `{"op":"pong","t":…}` — answers a
+    ping, `t` echoed verbatim.
+  - client → server: `{"op":"resize","cols":120,"rows":32}`,
+    `{"op":"ping","t":<any JSON>}` (the browser measures its round trip; a
+    WebSocket-level ping is answered below JavaScript). Unknown ops are
+    ignored on both ends.
 
 `DELETE /ws/term?session=<id>` ends a session immediately (creator or admin;
 used by the UI to restart under a new scope); `204` on success, `404` unknown.
