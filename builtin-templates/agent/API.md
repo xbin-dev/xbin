@@ -84,7 +84,9 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
-                "files": true }
+                "files": true, "repl": true },
+  "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
+  "replMemMB": 256             // REPL heap watchdog
 }
 ```
 
@@ -157,12 +159,13 @@ Each step: assemble context (system + a stable date + memory blocks + skill list
 budget) → LLM call (streamed when the feature is on) → execute tool calls (a
 turn's non-control tools run in parallel, each under `toolTimeout`) → repeat, up
 to `maxIters` per drive. Built-in tools: `memory_set`/`memory_get`, `note`,
-`recall` (FTS5 over full history), `xbin_call` (reach other granted
-components; private lane), `web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed` (watcher),
-`skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`, `yield`,
-`spawn_subagent` (several in a turn ⇒ parallel subagents), the session-file
-tools below, plus any bound `mcp:<server>:<tool>`. MCP servers are bound via the `mcp` interface (multi:true,
-like the chat tile). Extend these in `_backend/tools.go`.
+`recall` (FTS5 over full history), `xbin_call` (reach other granted components;
+private lane), `web_search`/`web_fetch` (web lane), `schedule`/`unschedule`,
+`state_changed` (watcher), `skills_list`/`skill_view`/`skill_manage`, `finish`,
+`ask_user`, `yield`, `spawn_subagent` (several in a turn ⇒ parallel subagents),
+the session-file and sandbox tools below, plus any bound `mcp:<server>:<tool>`.
+MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
+Extend these in `_backend/tools.go`.
 
 MCP tool lists are cached per server and persisted: a list younger than 5
 minutes is used as is, an older one is used at once and refreshed in the
@@ -190,3 +193,35 @@ File versions are monotonic but **not snapshotted**: clicking an older render
 chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a
 write the agent made in between comes back as a 409 instead of being lost.
+
+## JavaScript sandbox (REPL)
+
+Feature key `repl` (on by default). A per-run **goja** VM — pure Go, no JIT, no
+native code — over the session files: `js_eval` (evaluate code; state persists
+across calls) · `js_run` (evaluate a session file) · `js_reset`. Inside the VM:
+`console.*`, `files.read/write/list/exists/remove(path)`, and `load(path)`. It
+is how the agent computes instead of guessing, and how it draws a chart for
+`render_html`: build inline SVG in `js_eval`, `files.write` it into an .html
+file, render that.
+
+**There is no host surface.** `goja.New()` ships no `require`, `process`,
+`fetch`, `setTimeout` or `Buffer`, and the parser's default filesystem
+source-map loader — goja's one way to read a host file, reachable from a
+`//# sourceMappingURL=` comment at parse time — is disabled. Nothing bridges the
+VM to the network or to `xbin_call`, which is why these tools are offered in
+**both** capability lanes and are not `sideEffect()` tools: they mutate only
+this run's private rows, so the approval gate never fires for them.
+
+Limits per statement: a 5s uncatchable interrupt (`replTimeoutMs`), a heap
+watchdog (`replMemMB`, default 256), a 2000-frame call stack, 8 KiB of captured
+output, and a JS prelude capping `repeat`/`padStart`/`padEnd` at 4 MiB — those
+allocate in one native call, so no sampler can catch them.
+
+**Sessions survive restarts by replay, not by magic.** Every statement is
+appended to `repl_log` as `running` *before* it executes and settled after; a
+cold VM re-runs the log. Sound because the sandbox has zero I/O. A row still
+`running` after a restart is therefore the statement that killed the process:
+it is marked `killed` and never replayed, and two of those disable the sandbox
+for that run rather than letting it crash-loop the backend. The clock is pinned
+to each statement's log timestamp, so a rebuild reproduces the values the model
+last saw — which also means `Date` is frozen *within* one statement.

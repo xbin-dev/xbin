@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 -- Session files: a per-run store the model writes with file_write/file_edit
 -- and the render pane shows. These are sqlite rows, never host files — "path"
--- is an opaque key (see normReplPath).
+-- is an opaque key (see normReplPath). The REPL reads and writes the same rows.
 CREATE TABLE IF NOT EXISTS repl_files (
   run_id INTEGER NOT NULL,
   path TEXT NOT NULL,
@@ -169,6 +169,25 @@ CREATE TABLE IF NOT EXISTS repl_files (
   updated INTEGER NOT NULL,
   PRIMARY KEY (run_id, path)
 );
+-- The REPL's replay log. A goja VM lives only in RAM, so a save/swap/idle-reap
+-- destroys it; this is how a cold session is rebuilt (repl.go build()). Sound
+-- because the sandbox has zero I/O, so re-running a statement is pure.
+-- The state column is written 'running' BEFORE execution and updated after: a
+-- row still 'running' at rebuild means that statement killed the process, so
+-- it is marked 'killed' and never replayed. Without it, an allocation bomb
+-- would be re-executed on every rebuild and crash-loop the backend into
+-- the 'failed' state.
+CREATE TABLE IF NOT EXISTS repl_log (
+  run_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'eval',
+  code TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'running',
+  ms INTEGER NOT NULL DEFAULT 0,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (run_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_repl_log_run ON repl_log(run_id, seq);
 `)
 	if err != nil {
 		return err
@@ -321,6 +340,7 @@ func (d *DB) deleteOneRun(id int64) error {
 		`DELETE FROM steps WHERE run_id=?`,
 		`DELETE FROM memory WHERE run_id=?`,
 		`DELETE FROM repl_files WHERE run_id=?`,
+		`DELETE FROM repl_log WHERE run_id=?`,
 		`DELETE FROM runs WHERE id=?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {

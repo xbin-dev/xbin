@@ -14,14 +14,22 @@ import (
 	"strings"
 )
 
-func fileToolSpecs() []toolSpec {
+// fileToolSpecs describes the file tools. With the REPL on, the descriptions
+// also point at it: files are where its reusable code lives, and it is how a
+// chart gets drawn.
+func fileToolSpecs(cfg Config) []toolSpec {
 	boolProp := func(desc string) map[string]any {
 		return map[string]any{"type": "boolean", "description": desc}
+	}
+	replHint, svgHint := "", ""
+	if cfg.feature("repl") {
+		replHint = " They are the durable half of the sandbox: put reusable functions here instead of re-pasting them, then js_run the file."
+		svgHint = " (which you can generate with js_eval)"
 	}
 	return []toolSpec{
 		{Type: "function", Function: funcDef{
 			Name:        "file_write",
-			Description: "Create or overwrite a session file — JavaScript, JSON, HTML, anything. Files belong to this run and survive across turns and backend restarts.",
+			Description: "Create or overwrite a session file — JavaScript, JSON, HTML, anything. Files belong to this run and survive across turns and backend restarts." + replHint,
 			Parameters: obj([]string{"path", "content"}, map[string]any{
 				"path":    strProp("file key, e.g. 'helpers.js', 'report.html', 'data/rows.json' (letters, digits, . _ - / ; max 128 chars)"),
 				"content": strProp("the full file contents (max 64 KiB)"),
@@ -54,7 +62,7 @@ func fileToolSpecs() []toolSpec {
 		{Type: "function", Function: funcDef{
 			Name: "render_html",
 			Description: "Display a session .html file to the human in the tile's preview pane. " +
-				"The frame is STATIC: scripts never run, and no external images, stylesheets or fonts load — inline your CSS, and draw charts as inline SVG rather than using a chart library. " +
+				"The frame is STATIC: scripts never run, and no external images, stylesheets or fonts load — inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library. " +
 				"Use this whenever a table, report, diagram or comparison would read better than prose.",
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path": strProp("file key of the HTML file to show, e.g. 'report.html'"),

@@ -106,11 +106,15 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 				}),
 			}})
 	}
-	// Session files + the render pane. Offered in BOTH lanes because they have
-	// zero egress and zero internal reach — they widen neither side of the
-	// firewall below.
+	// Session files + the render pane, and the JS sandbox over them. Offered in
+	// BOTH lanes because they have zero egress and zero internal reach — they
+	// widen neither side of the firewall below (repl.go deliberately exposes no
+	// host bridge).
 	if cfg.feature("files") {
-		specs = append(specs, fileToolSpecs()...)
+		specs = append(specs, fileToolSpecs(cfg)...)
+	}
+	if cfg.feature("repl") {
+		specs = append(specs, replToolSpecs()...)
 	}
 	// Toolset firewall (Config.Toolset): a run gets EITHER internal reach OR
 	// web egress, never both — otherwise injected/private content in context
@@ -142,9 +146,10 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 }
 
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
-// The file tools are deliberately NOT here: despite writing to sqlite, they
-// touch only this run's private rows — no egress, no other component, nothing
-// outside the run — so pausing a turn for approval would be pure friction.
+// The file and sandbox tools are deliberately NOT here: despite writing to
+// sqlite, they touch only this run's private rows — no egress, no other
+// component, nothing outside the run — so pausing a turn for approval would be
+// pure friction.
 func sideEffect(name string) bool {
 	switch name {
 	case "xbin_call":
@@ -270,6 +275,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
+	}
+	if replToolNames[name] {
+		return ag.runReplTool(ctx, run, cfg, name, args)
 	}
 	if strings.HasPrefix(name, "mcp:") {
 		if cfg.toolset() == "web" {

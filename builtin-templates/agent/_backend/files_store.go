@@ -1,7 +1,8 @@
 // files_store.go — the per-run session files: a small file store held in
 // sqlite (schema in db.go), never on a host filesystem — a "path" is an opaque
-// key. The model writes them with the file tools (files.go) and the tile's
-// render pane shows them.
+// key. The model writes them with the file tools (files.go), the tile's render
+// pane shows them, and the REPL (repl.go) reads and writes them — hence the
+// table name, repl_files.
 package main
 
 import (

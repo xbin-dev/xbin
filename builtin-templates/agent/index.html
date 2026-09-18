@@ -160,9 +160,10 @@
     .rchip:hover { border-color: var(--bx-accent); background: var(--bx-panel-2); }
     .rchip.on { background: color-mix(in srgb, var(--bx-accent) 16%, transparent); }
 
-    /* File contents read as code: aligned columns are unreadable in the UI
-       font. An attribute selector, not a class, because MCP tool names
-       contain colons. */
+    /* Sandbox results and file contents read as code: tracebacks and aligned
+       columns are unreadable in the UI font. An attribute selector, not a
+       class, because MCP tool names contain colons. */
+    .ev.tool[data-tool="js_eval"] .body, .ev.tool[data-tool="js_run"] .body,
     .ev.tool[data-tool="file_read"] .body { font-family: var(--bx-mono); font-size: 12px; }
 
     /* Settings panel — overlays the run view (timeline+composer) when open. */

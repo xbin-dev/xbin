@@ -29,6 +29,11 @@ type Agent struct {
 	beatBusy      bool                    // a reconcile is in flight (single-flight)
 	watcherRounds map[int64]*watcherRound // active watcher rounds (for rollback)
 	drafts        map[int64]string        // live streaming assistant text per run
+
+	// repl holds the live goja VMs, one per run. Pure cache: everything that
+	// must survive a swap is in sqlite, and a dropped session is rebuilt from
+	// its replay log on next use (repl.go).
+	repl *replRegistry
 }
 
 func (ag *Agent) setDraft(id int64, text string) {
@@ -89,7 +94,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{}}
+	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{}, repl: newReplRegistry()}
 
 	// Seed the default config once.
 	if db.getSetting("config") == "" {
@@ -101,6 +106,7 @@ func main() {
 	// heartbeat on only if something needs it (it's not always-on — a workspace
 	// session or the agent itself schedules work; see API.md).
 	go agent.startupResume()
+	go agent.replJanitor()
 	go agent.beatKeeper()
 
 	mux := http.NewServeMux()

@@ -57,8 +57,13 @@ type Config struct {
 	TokenBudget int        `json:"tokenBudget"` // context assembly budget
 	MaxIters    int        `json:"maxIters"`    // steps per drive before yielding
 	ToolTimeout int        `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
-	Subagents   bool       `json:"subagents"`   // expose spawn_subagent
-	Approve     bool       `json:"approve"`     // require approval before side-effecting tools
+	// REPL sandbox limits (0 ⇒ defaults). The time budget is per statement and
+	// far below ToolTimeout on purpose: a runaway loop should come back as a
+	// normal tool error the model can react to, not eat the whole tool slot.
+	ReplTimeoutMs int  `json:"replTimeoutMs,omitempty"`
+	ReplMemMB     int  `json:"replMemMB,omitempty"`
+	Subagents     bool `json:"subagents"` // expose spawn_subagent
+	Approve       bool `json:"approve"`   // require approval before side-effecting tools
 	// Toolset is the run's IMMUTABLE capability lane — the exfiltration
 	// firewall: "private" (default; internal reach via xbin_call + mcp:*
 	// tools, NO web) or "web" (web_search/web_fetch only, NO internal reach).
@@ -73,7 +78,7 @@ type Config struct {
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
-var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files"}
+var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl"}
 
 // toolset normalizes the capability lane: anything but "web" is "private".
 func (c Config) toolset() string {
@@ -89,6 +94,23 @@ func normalizeToolset(s string) string {
 		return "web"
 	}
 	return "private"
+}
+
+func (c Config) replTimeout() time.Duration {
+	if c.ReplTimeoutMs <= 0 {
+		return 5 * time.Second
+	}
+	if c.ReplTimeoutMs > 60000 {
+		return 60 * time.Second
+	}
+	return time.Duration(c.ReplTimeoutMs) * time.Millisecond
+}
+
+func (c Config) replMemMB() int {
+	if c.ReplMemMB <= 0 {
+		return 256
+	}
+	return c.ReplMemMB
 }
 
 // feature reports whether an optional capability is enabled (default on).

@@ -7,5 +7,6 @@ import "testing"
 func newTestAgent(t *testing.T, db *DB) *Agent {
 	t.Helper()
 	return &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{},
-		watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{}}
+		watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{},
+		repl: newReplRegistry()}
 }
