@@ -47,8 +47,14 @@ export const jbody = (body, method) => ({
   body: JSON.stringify(body),
 });
 
-// esc(s): HTML-escape for text dropped into markup strings.
-export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// esc(s): HTML-escape for text dropped into markup strings — in TEXT or in
+// ATTRIBUTE position. Quotes are escaped too: `title="${esc(json)}"` with
+// &<> alone lets '{"a":"x" onmouseover="…"}' close the attribute and add a
+// handler (a live XSS in the agent template's tool-call titles, fixed
+// 2026-09-19). Escaped quotes render identically in text, so one function
+// covers both and there is no second escAttr() for a future edit to forget.
+const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 
 // deepActive(): the focused element, descending through open shadow roots.
 export function deepActive() {

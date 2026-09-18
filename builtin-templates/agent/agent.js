@@ -8,6 +8,11 @@
 import { marked } from '/vendor/marked.esm.js';
 
 const $ = (id) => document.getElementById(id);
+// esc() comes from the kit and escapes quotes as well as &<>: its output lands
+// in ATTRIBUTE position all over this file (title=, data-*, value=) with
+// model-controlled data — tool-call arguments in each call's title (JSON, so
+// always full of quotes), link titles from the markdown renderer, memory keys
+// the agent writes itself, skill names it authors.
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
@@ -15,9 +20,14 @@ const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n
 // Assistant text renders as markdown, sanitized: raw HTML tokens are shown
 // escaped (model output is untrusted — an injected <script>/<img> must never
 // execute with this tile's frame token), links get safe schemes + a new tab,
-// and images render as their source text (remote loads are CSP-blocked
-// anyway). Everything else is HTML our renderer produced from markdown
-// structure. Streaming-tolerant: a parse error falls back to escaped text.
+// and images render as their source text RATHER THAN LOADING. That last one is
+// load-bearing, not belt-and-braces: the platform CSP on /c/ documents is only
+// `sandbox allow-scripts allow-forms allow-modals allow-downloads` — there is
+// no img-src, no connect-src, nothing stopping a subresource fetch. A model
+// -authored <img src="https://…/?leak=…"> would be a live exfiltration beacon,
+// so the renderer never emits <img> at all. Everything else is HTML our
+// renderer produced from markdown structure. Streaming-tolerant: a parse error
+// falls back to escaped text.
 marked.use({
   breaks: true,
   renderer: {
