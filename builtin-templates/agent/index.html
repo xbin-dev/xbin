@@ -92,17 +92,28 @@
     .body.md th, .body.md td { border: 1px solid var(--bx-border); padding: 2px 8px; font-size: 12.5px; }
     .body.md a { color: var(--bx-accent, #f5a623); text-decoration: underline; }
     .body.md hr { border: 0; border-top: 1px solid var(--bx-border); margin: 8px 0; }
-    /* folded long tool output */
-    details.more summary { cursor: pointer; color: var(--bx-muted); font-size: 11.5px;
-      user-select: none; margin-top: 2px; }
-    details.more summary:hover { color: var(--bx-text); }
-    details.more .body { max-height: 45vh; overflow: auto; }
     .ev.step .body { color: var(--bx-muted); font-size: 12px; }
     .ev.step.err .body { color: var(--bx-red); }
     .step-k { display: inline-block; color: var(--bx-muted); font-size: 10.5px; text-transform: uppercase;
               letter-spacing: .03em; margin-right: 5px; }
+    /* Tool-call chips + tool results: collapsed to 1-2 lines, click to expand
+       (.xwrap.on = expanded; toggle state survives re-renders via agent.js). */
     .tc { font-family: var(--bx-mono); font-size: 11.5px; background: var(--bx-panel-2);
           border: 1px solid var(--bx-border); border-radius: 5px; padding: 4px 7px; margin-top: 3px; overflow-x: auto; }
+    .tc.xwrap { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tc.xwrap::before { content: '▸ '; color: var(--bx-muted); }
+    .tc.xwrap.on { white-space: pre-wrap; word-break: break-word; overflow: visible; }
+    .tc.xwrap.on::before { content: '▾ '; }
+    .ev.tool .role.xtoggle { cursor: pointer; }
+    .ev.tool .role.xtoggle::before { content: '▸ '; }
+    .ev.tool.xwrap.on .role.xtoggle::before { content: '▾ '; }
+    .xhint { text-transform: none; letter-spacing: 0; }
+    .ev.tool.xwrap .clampable { display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden; color: var(--bx-muted); font-size: 12px; }
+    .ev.tool.xwrap.on .clampable { display: block; -webkit-line-clamp: unset;
+      overflow: visible; color: var(--bx-text); font-size: 13px; }
+    .ev.tool.bad { border-left: 2px solid var(--bx-red); padding-left: 8px; }
+    .ev.tool.bad .role { color: var(--bx-red); }
     .muted { color: var(--bx-muted); }
     .mono { font-family: var(--bx-mono); }
     .ask { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent);

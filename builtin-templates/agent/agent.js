@@ -97,39 +97,54 @@ function eventStream(d) {
   return evs;
 }
 
-// Long tool output collapses behind a native <details>: a short head stays
-// visible for scanning, the full text one click away. Thresholds are display
-// comfort only — the backend separately caps what the LLM context keeps.
-function foldedBody(text) {
-  const s = String(text ?? '');
-  const lines = s.split('\n');
-  if (s.length <= 700 && lines.length <= 10) return `<div class="body">${esc(s)}</div>`;
-  let head = lines.slice(0, 6).join('\n');
-  if (head.length > 400) head = head.slice(0, 400);
-  return `<div class="body">${esc(head)}…</div>
-    <details class="more"><summary>show full output · ${fmtN(s.length)} chars, ${fmtN(lines.length)} lines</summary>
-    <div class="body">${esc(s)}</div></details>`;
-}
+// Tool calls and results render collapsed to 1-2 lines (click to expand).
+// Open state lives in a session-level set keyed by message id, so it survives
+// the timeline's innerHTML rebuilds — a native <details> would snap shut on
+// every 1.5s poll that changes anything, which is exactly while you are
+// reading a running agent. The backend's capToolResult separately bounds what
+// the LLM context keeps; this is display only.
+const expanded = new Set();
 
 function renderMsg(m) {
   let calls = '';
   if (m.toolCalls) {
     try {
-      calls = JSON.parse(m.toolCalls).map((tc) => {
-        const args = tc.function.arguments || '';
-        return `<div class="tc" title="${esc(args)}">→ ${esc(tc.function.name)}(${esc(clip(args, 220))})</div>`;
+      calls = JSON.parse(m.toolCalls).map((tc, i) => {
+        const k = `c${m.id}:${i}`;
+        return `<div class="tc xwrap ${expanded.has(k) ? 'on' : ''}" data-x="${k}" title="click to expand / collapse">→ ${esc(tc.function.name)}<span class="xargs">(${esc(tc.function.arguments || '')})</span></div>`;
       }).join('');
     } catch { /* ignore */ }
   }
-  const label = m.role === 'tool' ? `tool · ${esc(m.name)}` : esc(m.role);
-  let body = '';
-  if (m.content) {
-    body = m.role === 'assistant' ? `<div class="body md">${md(m.content)}</div>`
-      : m.role === 'tool' ? foldedBody(m.content)
-      : `<div class="body">${esc(m.content)}</div>`;
+  if (m.role === 'tool') {
+    const k = `t${m.id}`;
+    const c = m.content || '';
+    const long = c.length > 160 || (c.match(/\n/g) || []).length > 1;
+    // runOneTool prefixes every failure with "error: ", so flagging it here
+    // makes a failed call visible inside the 2-line clamp instead of hiding
+    // behind a click.
+    const bad = /^error:/.test(c);
+    return `<div class="ev tool xwrap ${bad ? 'bad ' : ''}${expanded.has(k) ? 'on' : ''}">
+      <div class="role xtoggle" data-x="${k}" title="click to expand / collapse">tool · ${esc(m.name)}${long ? ` <span class="xhint">· ${fmtN(c.length)} chars</span>` : ''}</div>
+      ${c ? `<div class="body clampable">${esc(c)}</div>` : ''}</div>`;
   }
-  return `<div class="ev ${esc(m.role)}"><div class="role">${label}</div>
+  const body = m.content
+    ? (m.role === 'assistant' ? `<div class="body md">${md(m.content)}</div>` : `<div class="body">${esc(m.content)}</div>`)
+    : '';
+  return `<div class="ev ${esc(m.role)}"><div class="role">${esc(m.role)}</div>
     ${body}${calls}</div>`;
+}
+
+// wireExpanders makes [data-x] elements toggle their .xwrap in place (no
+// refetch) while recording state for the next rebuild.
+function wireExpanders(host) {
+  host.querySelectorAll('[data-x]').forEach((el) => el.onclick = (e) => {
+    e.stopPropagation();
+    const k = el.dataset.x;
+    const wrap = el.classList.contains('xwrap') ? el : el.closest('.xwrap');
+    const on = !expanded.has(k);
+    if (on) expanded.add(k); else expanded.delete(k);
+    if (wrap) wrap.classList.toggle('on', on);
+  });
 }
 
 function renderStep(s) {
@@ -238,6 +253,7 @@ async function loadDetail() {
     const tl = $('timeline');
     const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
     tl.innerHTML = html || '<div class="empty">…</div>';
+    wireExpanders(tl);
     tl.querySelectorAll('[data-ap]').forEach((b) => b.onclick = async () => {
       try { await api(`/runs/${sel}/approve`, jbody({ approve: b.dataset.ap === '1' }, 'POST')); } catch (e) { alert(e.message); }
       lastDetailKey = ''; loadDetail();
