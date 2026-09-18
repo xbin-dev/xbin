@@ -11,7 +11,14 @@ import (
 )
 
 func handleAsk(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Text, Toolset string }
+	var body struct {
+		Text, Toolset string
+		// Hold creates the run WITHOUT the user message or a drive, so the tile
+		// can upload attachments into it first and then send the message with
+		// POST /runs/{id}/message — a quick ask has no run to attach to until
+		// this call makes one.
+		Hold bool
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
 	if body.Text == "" {
@@ -28,6 +35,12 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	agent.db.setRunKind(id, "quick")
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System})
+	if body.Hold {
+		agent.db.journal(id, "note", map[string]string{"text": "quick ask (waiting for attachments)"})
+		run, _ := agent.db.getRun(id)
+		xbin.WriteJSON(w, 200, run)
+		return
+	}
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
 	agent.db.journal(id, "note", map[string]string{"text": "quick ask"})
 	agent.resumeIfHalted(id)

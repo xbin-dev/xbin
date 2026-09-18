@@ -5,9 +5,13 @@
   //   beat   — cron: a heartbeat that re-drives sleeping/stalled runs (durable
   //            resume + self-scheduling). The backend registers @every 1m.
   //   events — bus: run lifecycle events other tiles can subscribe to.
+  //   files  — blob: the bytes of binary session files (attachments such as
+  //            images). Text files stay in sqlite, where the model, the REPL
+  //            and the render pane read them; only binary payloads live here.
   "resources": {
     "db": { "type": "sqlite" },
     "beat": { "type": "cron" },
-    "events": { "type": "bus" }
+    "events": { "type": "bus" },
+    "files": { "type": "blob" }
   }
 }

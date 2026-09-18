@@ -160,7 +160,7 @@ func (ag *Agent) driveClaimed(ctx context.Context, runID int64) {
 
 		ag.maybeCompact(ctx, run, cfg)
 
-		msgs, err := ag.assembleContext(run, cfg)
+		msgs, err := ag.assembleContext(ctx, run, cfg)
 		if err != nil {
 			ag.fail(runID, "assemble context: "+err.Error())
 			return
@@ -505,7 +505,7 @@ func (ag *Agent) fail(runID int64, msg string) {
 // assembleContext builds the message list sent to the LLM: a system message
 // (base prompt + memory blocks + running summary) followed by the live
 // (uncompacted) transcript.
-func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
+func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]wireMsg, error) {
 	mem, err := ag.db.memory(run.ID)
 	if err != nil {
 		return nil, err
@@ -539,10 +539,15 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 		return nil, err
 	}
 	out := []wireMsg{{Role: "system", Content: sys.String()}}
-	for _, m := range live {
+	// pos maps each live message to its index in out (-1 when skipped), so
+	// images can be attached to the right wire message afterwards.
+	pos := make([]int, len(live))
+	for i, m := range live {
+		pos[i] = -1
 		if m.Role == "system" {
 			continue // the base/system prompt is rebuilt above
 		}
+		pos[i] = len(out)
 		// Only user messages can carry multimodal parts (the vision input
 		// path); assistant/tool content is always plain text on the wire.
 		var content any = m.Content
@@ -555,7 +560,8 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 		}
 		out = append(out, wm)
 	}
-	return out, nil
+	// Images are added here, at assembly, and never stored (attach.go).
+	return ag.withImages(ctx, run, cfg, live, out, pos), nil
 }
 
 // maybeCompact folds the oldest live turns into the running summary when the

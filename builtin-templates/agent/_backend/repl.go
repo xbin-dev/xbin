@@ -316,6 +316,11 @@ func (s *replSession) jsFileRead(call goja.FunctionCall) goja.Value {
 	if err != nil {
 		s.throw(fmt.Errorf("files.read: %w", err))
 	}
+	if f.Binary {
+		// The VM has no byte type, atob or Buffer, and its string conversion
+		// would silently produce garbage — so say so rather than guess.
+		s.throw(fmt.Errorf("files.read: %s is a binary file (%s); the sandbox reads text only", f.Path, f.Mime))
+	}
 	return s.vm.ToValue(f.Content)
 }
 
@@ -343,7 +348,14 @@ func (s *replSession) jsFileList(goja.FunctionCall) goja.Value {
 	}
 	out := make([]any, 0, len(files))
 	for _, f := range files {
-		out = append(out, map[string]any{"path": f.Path, "bytes": f.Bytes, "version": f.Version})
+		e := map[string]any{"path": f.Path, "bytes": f.Bytes, "version": f.Version}
+		if f.Mime != "" {
+			e["mime"] = f.Mime
+		}
+		if f.Binary {
+			e["binary"] = true // files.read will refuse it
+		}
+		out = append(out, e)
 	}
 	return s.vm.ToValue(out)
 }
@@ -355,7 +367,12 @@ func (s *replSession) jsFileExists(call goja.FunctionCall) goja.Value {
 
 func (s *replSession) jsFileRemove(call goja.FunctionCall) goja.Value {
 	path := s.argPath(call, 0)
-	if err := s.db.replDeleteFile(s.runID, path); err != nil {
+	if f, ferr := s.db.replFile(s.runID, path); ferr == nil && f.Binary {
+		// Attachments are the owner's uploads; the sandbox can read their
+		// metadata but not delete them (and has no way to drop the blob).
+		s.throw(fmt.Errorf("files.remove: %s is an attachment (%s) and can only be deleted from the Files tab", path, f.Mime))
+	}
+	if _, err := s.db.replDeleteFile(s.runID, path); err != nil {
 		s.throw(fmt.Errorf("files.remove: %w", err))
 	}
 	delete(s.loaded, path)

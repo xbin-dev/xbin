@@ -45,6 +45,34 @@
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
     .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
     .composer input { flex: 1; }
+    /* Attachments waiting to be sent: a row above the composer, never inside
+       it, so the composer's own geometry (test/layout.mjs) is unchanged. */
+    .attach { flex: none; display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px 0; border-top: 1px solid var(--bx-border); }
+    .attach[hidden] { display: none; }
+    .attach + .composer { border-top: 0; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; font-size: 11.5px;
+            border: 1px solid var(--bx-border); border-radius: 999px; padding: 1px 4px 1px 8px; background: var(--bx-panel); }
+    .chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+    .chip .sz { color: var(--bx-muted); }
+    .chip.up { border-color: var(--bx-accent); }
+    .chip.bad { border-color: var(--bx-red); color: var(--bx-red); }
+    .chip.done .sz::after { content: ' ✓'; }
+    .chip button { border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font: inherit; }
+    .chip button:hover { color: var(--bx-red); }
+    /* Attachments on a sent message: open the file in the Files tab. */
+    .afiles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .afile { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer;
+             border: 1px solid var(--bx-border); border-radius: 6px; padding: 2px 8px 2px 2px; background: var(--bx-panel); }
+    .afile:hover { border-color: var(--bx-accent); }
+    .afile.gone { cursor: default; opacity: .6; text-decoration: line-through; }
+    .afile .ic { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 4px;
+                 background: var(--bx-panel-2); overflow: hidden; font-size: 16px; }
+    .afile .ic img { width: 100%; height: 100%; object-fit: cover; }
+    .afile .sz { color: var(--bx-muted); }
+    .main.dropping::after { content: 'Drop to attach'; position: absolute; inset: 6px; display: grid; place-items: center;
+      border: 2px dashed var(--bx-accent); border-radius: 8px; font-weight: 600; color: var(--bx-accent);
+      background: color-mix(in srgb, var(--bx-panel) 80%, transparent); pointer-events: none; z-index: 5; }
+    .fprev { max-width: 100%; max-height: 360px; display: block; border: 1px solid var(--bx-border); border-radius: 6px; margin-bottom: 8px; }
     input, textarea, select {
       background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
       color: var(--bx-text); font: inherit; padding: 4px 8px; box-sizing: border-box;
@@ -244,6 +272,7 @@
     .card .ch .nm { font-weight: 600; flex: 1; min-width: 80px; }
     .kv { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; margin-bottom: 5px; }
     .kv .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tblwrap { overflow-x: auto; }
     table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
     table.tbl th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
                    color: var(--bx-muted); font-weight: 600; padding: 3px 8px 3px 0; }
@@ -344,8 +373,11 @@
         </div>
       </div>
 
+      <div class="attach" id="attach" hidden></div>
       <div class="composer">
         <button class="btn ghost" id="tset" title="Tool mode for new asks: 🔒 private data (internal systems, no web) / 🌐 web (no internal systems). A run keeps its mode.">🔒</button>
+        <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
+        <input type="file" id="clipin" multiple hidden>
         <input id="msg" placeholder="ask anything…" autocomplete="off">
         <button class="btn" id="send">Send</button>
       </div>

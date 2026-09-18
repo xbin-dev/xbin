@@ -28,6 +28,7 @@
     { "target": "res:apps/agent/db", "role": "writer" },
     { "target": "res:apps/agent/beat", "role": "writer" },
     { "target": "res:apps/agent/events", "role": "writer" },
+    { "target": "res:apps/agent/files", "role": "writer" },
     // The chat renders markdown links with target="_blank"; a sandboxed
     // frame may only open new tabs with cap:open-links (ND11). Lands
     // pending like the llm-gw grant — approve it in the grants panel.

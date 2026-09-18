@@ -73,7 +73,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 
 var fileToolNames = map[string]bool{
 	"file_write": true, "file_read": true, "file_edit": true, "file_list": true,
-	"render_html": true,
+	"render_html": true, "file_view": true,
 }
 
 // runFileTool dispatches the file tools. Called from runTool.
@@ -98,7 +98,19 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 		if err != nil {
 			return "", err
 		}
+		if f.Binary {
+			// Never paste binary into the transcript: it would ride every
+			// later call until compaction, and it is meaningless as text.
+			hint := "it cannot be read as text"
+			if visionMimes[f.Mime] {
+				hint = "use file_view to look at it"
+			}
+			return fmt.Sprintf("%s is a binary attachment (%s, %s) — %s.", path, f.Mime, humanBytes(f.Bytes), hint), nil
+		}
 		return sliceLines(f.Content, toInt(args["offset"]), toInt(args["limit"])), nil
+
+	case "file_view":
+		return ag.toolFileView(run, cfg, args)
 
 	case "file_edit":
 		return ag.fileEdit(run.ID, args)
@@ -130,6 +142,9 @@ func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
 	f, err := ag.db.replFile(runID, path)
 	if err != nil {
 		return "", err
+	}
+	if f.Binary {
+		return "", fmt.Errorf("%s is a binary attachment (%s) and cannot be edited as text", path, f.Mime)
 	}
 	all, _ := args["replace_all"].(bool)
 	n := strings.Count(f.Content, oldS)

@@ -181,7 +181,7 @@ func TestToolResultsStayText(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, err := ag.assembleContext(run, Config{})
+	out, err := ag.assembleContext(context.Background(), run, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

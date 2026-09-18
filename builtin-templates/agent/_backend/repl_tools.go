@@ -72,9 +72,11 @@ func (ag *Agent) runReplTool(ctx context.Context, run *Run, cfg Config, name str
 		}
 		msg := "sandbox reset — the session starts from a clean global scope"
 		if !keep {
-			if err := ag.db.replClearFiles(run.ID); err != nil {
+			blobs, err := ag.db.replClearFiles(run.ID)
+			if err != nil {
 				return "", err
 			}
+			ag.dropBlobs(blobs)
 			msg += ", and session files were deleted"
 		} else {
 			msg += "; session files kept (js_run them to redefine what you need)"

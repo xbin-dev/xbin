@@ -2,7 +2,8 @@
 // sqlite (schema in db.go), never on a host filesystem — a "path" is an opaque
 // key. The model writes them with the file tools (files.go), the tile's render
 // pane shows them, and the REPL (repl.go) reads and writes them — hence the
-// table name, repl_files.
+// table name, repl_files. Binary files (attachments) keep only metadata here;
+// their bytes are in the blob store.
 package main
 
 import (
@@ -15,9 +16,14 @@ import (
 // Caps. Generous enough to hold a real script or a rendered page, small enough
 // that a run's whole store stays far under the sqlite/context budgets.
 const (
-	maxReplFileBytes  = 64 << 10  // one file
-	maxReplFiles      = 64        // files per run
-	maxReplTotalBytes = 512 << 10 // all files in a run
+	maxReplFileBytes  = 64 << 10  // one text file
+	maxReplFiles      = 64        // files per run, text and binary together
+	maxReplTotalBytes = 512 << 10 // all text files in a run
+	// Binary files (attachments) are bounded separately: their bytes live in
+	// the blob resource rather than the run's database, and they are read by
+	// people and by the vision path, not pasted into the transcript.
+	maxBinaryFileBytes = 16 << 20
+	maxBinaryRunBytes  = 64 << 20
 )
 
 type ReplFile struct {
@@ -27,6 +33,12 @@ type ReplFile struct {
 	Version int    `json:"version"`
 	Created int64  `json:"created"`
 	Updated int64  `json:"updated"`
+	// Mime is set for attachments; empty means a text file written by the model.
+	Mime string `json:"mime,omitempty"`
+	// Binary files keep their bytes in the blob resource at Blob, with an empty
+	// Content. The path is internal, so it never goes on the wire.
+	Binary bool   `json:"binary,omitempty"`
+	Blob   string `json:"-"`
 }
 
 // replPathRE keeps session paths to a boring, unambiguous shape. These keys
@@ -56,11 +68,12 @@ func normReplPath(p string) (string, error) {
 func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 	f := &ReplFile{Path: path}
 	err := d.sql.QueryRow(
-		`SELECT content, bytes, version, created, updated FROM repl_files WHERE run_id=? AND path=?`,
-		runID, path).Scan(&f.Content, &f.Bytes, &f.Version, &f.Created, &f.Updated)
+		`SELECT content, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? AND path=?`,
+		runID, path).Scan(&f.Content, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("no such file %q", path)
 	}
+	f.Binary = f.Blob != ""
 	return f, err
 }
 
@@ -68,7 +81,7 @@ func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 // result footer and the tile's 1.5s poll, so it must stay cheap.
 func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
 	rows, err := d.sql.Query(
-		`SELECT path, bytes, version, created, updated FROM repl_files WHERE run_id=? ORDER BY path`, runID)
+		`SELECT path, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? ORDER BY path`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +89,10 @@ func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
 	var out []*ReplFile
 	for rows.Next() {
 		f := &ReplFile{}
-		if err := rows.Scan(&f.Path, &f.Bytes, &f.Version, &f.Created, &f.Updated); err != nil {
+		if err := rows.Scan(&f.Path, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob); err != nil {
 			return nil, err
 		}
+		f.Binary = f.Blob != ""
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -97,6 +111,11 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 			len(content), maxReplFileBytes)
 	}
 	cur, curErr := d.replFile(runID, path)
+	if curErr == nil && cur.Binary {
+		// Overwriting would orphan the blob and hand text readers a file whose
+		// type just changed under them. Make the caller choose another name.
+		return nil, fmt.Errorf("%s is a binary file (%s); choose another path, or delete it first", path, cur.Mime)
+	}
 	if wantVersion > 0 && (curErr != nil || cur.Version != wantVersion) {
 		have := 0
 		if curErr == nil {
@@ -106,7 +125,7 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 	}
 	if curErr != nil { // new file — check the per-run ceilings
 		var n, total int
-		_ = d.sql.QueryRow(`SELECT count(*), coalesce(sum(bytes),0) FROM repl_files WHERE run_id=?`, runID).Scan(&n, &total)
+		_ = d.sql.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob='' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`, runID).Scan(&n, &total)
 		if n >= maxReplFiles {
 			return nil, fmt.Errorf("too many files: %d (max %d) — delete some first", n, maxReplFiles)
 		}
@@ -131,15 +150,71 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 	return &ReplFile{Path: path, Content: content, Bytes: len(content), Version: ver, Created: created, Updated: ts}, nil
 }
 
-func (d *DB) replDeleteFile(runID int64, path string) error {
+// replPutBinary records an attachment whose bytes are already in the blob
+// store. Always a NEW path — the caller picks a free one — because objects are
+// immutable and an overwrite would orphan the old one.
+func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string) (*ReplFile, error) {
+	path, err := normReplPath(path)
+	if err != nil {
+		return nil, err
+	}
+	if size > maxBinaryFileBytes {
+		return nil, fmt.Errorf("file too large: %s (max %s)", humanBytes(size), humanBytes(maxBinaryFileBytes))
+	}
+	var n, total int
+	_ = d.sql.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob<>'' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`,
+		runID).Scan(&n, &total)
+	if n >= maxReplFiles {
+		return nil, fmt.Errorf("too many files: %d (max %d) — delete some first", n, maxReplFiles)
+	}
+	if total+size > maxBinaryRunBytes {
+		return nil, fmt.Errorf("run attachment store full: %s + %s exceeds %s",
+			humanBytes(total), humanBytes(size), humanBytes(maxBinaryRunBytes))
+	}
+	ts := now()
+	if _, err := d.sql.Exec(
+		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, mime, blob)
+		 VALUES (?, ?, '', ?, 1, ?, ?, ?, ?)`, runID, path, size, ts, ts, mime, blob); err != nil {
+		return nil, err
+	}
+	return &ReplFile{Path: path, Bytes: size, Version: 1, Created: ts, Updated: ts,
+		Mime: mime, Binary: true, Blob: blob}, nil
+}
+
+// replDeleteFile removes a file and returns its blob path (empty for a text
+// file) so the caller can drop the object after the row is gone.
+func (d *DB) replDeleteFile(runID int64, path string) (string, error) {
+	var blob string
+	_ = d.sql.QueryRow(`SELECT blob FROM repl_files WHERE run_id=? AND path=?`, runID, path).Scan(&blob)
 	res, err := d.sql.Exec(`DELETE FROM repl_files WHERE run_id=? AND path=?`, runID, path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("no such file %q", path)
+		return "", fmt.Errorf("no such file %q", path)
 	}
-	return nil
+	_, _ = d.sql.Exec(`DELETE FROM message_files WHERE run_id=? AND path=?`, runID, path)
+	return blob, nil
+}
+
+// runBlobs lists the blob objects owned by these runs, so a delete can drop
+// them once the rows are gone.
+func (d *DB) runBlobs(ids []int64) []string {
+	var out []string
+	for _, id := range ids {
+		rows, err := d.sql.Query(`SELECT blob FROM repl_files WHERE run_id=? AND blob<>''`, id)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var b string
+			if rows.Scan(&b) == nil {
+				out = append(out, b)
+			}
+		}
+		rows.Close()
+	}
+	return out
 }
 
 // replFileIndex renders the one-line inventory appended to file tool results.
@@ -159,7 +234,11 @@ func (d *DB) replFileIndex(runID int64) string {
 			b.WriteString(" · ")
 		}
 		if i < 40 {
-			fmt.Fprintf(&b, "%s (%s)", f.Path, humanBytes(f.Bytes))
+			if f.Binary {
+				fmt.Fprintf(&b, "%s (%s, %s)", f.Path, f.Mime, humanBytes(f.Bytes))
+			} else {
+				fmt.Fprintf(&b, "%s (%s)", f.Path, humanBytes(f.Bytes))
+			}
 		}
 		total += f.Bytes
 	}
@@ -170,7 +249,13 @@ func (d *DB) replFileIndex(runID int64) string {
 	return b.String()
 }
 
-func (d *DB) replClearFiles(runID int64) error {
-	_, err := d.sql.Exec(`DELETE FROM repl_files WHERE run_id=?`, runID)
-	return err
+// replClearFiles removes every file in a run and returns the blob objects to
+// drop.
+func (d *DB) replClearFiles(runID int64) ([]string, error) {
+	blobs := d.runBlobs([]int64{runID})
+	if _, err := d.sql.Exec(`DELETE FROM repl_files WHERE run_id=?`, runID); err != nil {
+		return nil, err
+	}
+	_, _ = d.sql.Exec(`DELETE FROM message_files WHERE run_id=?`, runID)
+	return blobs, nil
 }

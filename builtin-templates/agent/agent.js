@@ -15,6 +15,9 @@ const $ = (id) => document.getElementById(id);
 // always full of quotes), link titles from the markdown renderer, memory keys
 // the agent writes itself, skill names it authors.
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
+// Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
+// directly — the kit's api() parses JSON — so they need this backend's prefix.
+const base = `/api/${xbin.self}`;
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
 
@@ -631,11 +634,60 @@ function renderMsg(m) {
       <div class="role xtoggle" data-x="${k}" title="click to expand / collapse">tool · ${esc(m.name)}${long ? ` <span class="xhint">· ${fmtN(c.length)} chars</span>` : ''}</div>
       ${c ? `<div class="body clampable">${esc(c)}</div>` : ''}</div>`;
   }
-  const body = m.content
-    ? (m.role === 'assistant' ? `<div class="body md">${md(m.content)}</div>` : `<div class="body">${esc(m.content)}</div>`)
+  // A user message carrying files ends with the backend's "[attached: …]"
+  // note (written for the model); show it as chips instead.
+  let text = m.content, files = '';
+  if (m.role === 'user') [text, files] = splitAttachments(m);
+  const body = text
+    ? (m.role === 'assistant' ? `<div class="body md">${md(text)}</div>` : `<div class="body">${esc(text)}</div>`)
     : '';
   return `<div class="ev ${esc(m.role)}"><div class="role">${esc(m.role)}</div>
-    ${body}${calls}</div>`;
+    ${body}${files}${calls}</div>`;
+}
+
+// --- attachments on sent messages ------------------------------------------
+
+const ATTACH_NOTE = /\n\n\[attached: ([^\]]*)\]$/;
+const ATTACH_ITEM = /([A-Za-z0-9._\/-]+) \(([^,()]+), ([^()]+)\)/g;
+
+function splitAttachments(m) {
+  const hit = ATTACH_NOTE.exec(m.content || '');
+  if (!hit) return [m.content, ''];
+  const linked = new Set(((detail && detail.messageFiles) || {})[m.id] || []);
+  const chips = [...hit[1].matchAll(ATTACH_ITEM)].map(([, path, mime, size]) => {
+    const live = linked.has(path);
+    const img = live && /^image\/(png|jpeg|gif|webp)$/.test(mime) ? thumbFor(path) : '';
+    const icon = img ? `<img src="${esc(img)}" alt="">` : /^image\//.test(mime) ? '🖼' : mime === 'text' || /^text\//.test(mime) ? '📄' : '📦';
+    return `<span class="afile ${live ? '' : 'gone'}" ${live ? `data-afile="${esc(path)}"` : ''}
+      title="${esc(live ? `${mime} — open in the Files tab` : 'deleted')}"><span class="ic">${icon}</span>
+      <span class="mono">${esc(path)}</span><span class="sz">${esc(size)}</span></span>`;
+  }).join('');
+  const text = (m.content || '').slice(0, hit.index);
+  return [text === '(see attached)' ? '' : text, `<div class="afiles">${chips}</div>`];
+}
+
+// Image thumbnails come from the raw route as object URLs (the frame has no
+// other way to authenticate an <img> fetch). Cached per run and revoked when
+// the run changes; a fetched thumbnail triggers one timeline redraw.
+let thumbs = new Map();
+let thumbRun = null;
+function thumbFor(path) {
+  if (thumbRun !== sel) { thumbs.forEach((u) => u && URL.revokeObjectURL(u)); thumbs = new Map(); thumbRun = sel; }
+  if (thumbs.has(path)) return thumbs.get(path) || '';
+  thumbs.set(path, '');
+  const run = sel;
+  rawBlob(run, path).then((b) => {
+    if (thumbRun !== run) return;
+    thumbs.set(path, URL.createObjectURL(b));
+    lastDetailKey = ''; loadDetail();
+  }).catch(() => {});
+  return '';
+}
+
+async function rawBlob(run, path) {
+  const r = await xbin.fetch(`${base}/runs/${run}/raw?path=${encodeURIComponent(path)}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.blob();
 }
 
 // wireExpanders makes [data-x] elements toggle their .xwrap in place (no
@@ -804,6 +856,9 @@ async function loadDetail() {
     // render no longer steals it from under you.
     tl.querySelectorAll('[data-render]').forEach((el) => el.onclick = () =>
       openPreview(el.dataset.render, +el.dataset.rv, false));
+    tl.querySelectorAll('[data-afile]').forEach((el) => el.onclick = () => {
+      filesSel = el.dataset.afile; openSettings('files');
+    });
     // Descending from a parent's transcript straight into the child is the most
     // natural motion there is, and it costs one selector.
     tl.querySelectorAll('[data-node]').forEach((el) => el.onclick = (e) => {
@@ -839,27 +894,137 @@ async function control(action) {
 
 // --- composer -----------------------------------------------------------
 
-async function send() {
-  const t = $('msg').value.trim();
-  if (!t) return;
-  $('msg').value = '';
-  // On home: start a fresh quick ask and jump into it (streaming answer).
-  if (sel == null) {
-    try {
-      const run = await api('/ask', jbody({ text: t, toolset }, 'POST'));
-      sel = run.id; lastDetailKey = '';
-    } catch (e) { return alert(e.message); }
-    loadRuns(); loadDetail();
-    return;
+// Attachments waiting to be sent. Each is uploaded into the run's session files
+// (PUT /runs/{id}/upload) and then named in the message, so the model finds
+// them with its file tools and sees images. `path` is set once an upload
+// lands, so a retry after a failed message re-sends rather than re-uploads.
+const MAX_ATTACH = 16 * 1024 * 1024; // the backend's per-file cap
+let attachments = [];   // [{key, file, name, size, type, path?, state?, err?}]
+let attachSeq = 0;
+let sending = false;
+
+const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
+function addFiles(list) {
+  for (const f of list || []) {
+    const a = { key: ++attachSeq, file: f, name: f.name || 'pasted', size: f.size, type: f.type };
+    if (f.size > MAX_ATTACH) { a.state = 'bad'; a.err = `too large (max ${fmtBytes(MAX_ATTACH)})`; }
+    attachments.push(a);
   }
-  // Route to /answer when the run is parked on an ask_user; otherwise /message
-  // (the backend aliases them, but this keeps intent explicit).
-  const run = detail && detail.run;
-  const waiting = run && run.status === 'waiting_input' && pendingOf(run).kind !== 'approval';
-  try { await api(`/runs/${sel}/${waiting ? 'answer' : 'message'}`, jbody({ text: t }, 'POST')); } catch (e) { alert(e.message); }
-  lastDetailKey = ''; loadDetail();
+  renderAttach();
+}
+
+function renderAttach() {
+  const host = $('attach');
+  host.hidden = attachments.length === 0;
+  host.innerHTML = attachments.map((a) => `<span class="chip ${a.state || ''}" title="${esc(a.err || a.type || '')}">
+    <span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>
+    <button data-rm="${a.key}" title="remove" ${sending ? 'disabled' : ''}>✕</button></span>`).join('');
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => {
+    attachments = attachments.filter((a) => a.key !== +b.dataset.rm);
+    renderAttach();
+  });
+}
+
+// uploadAttachments puts every not-yet-uploaded attachment into run `id`, in
+// order, and returns all their session-file paths. Throws on the first failure
+// with that chip marked; chips already uploaded keep their path.
+async function uploadAttachments(id) {
+  for (const a of attachments) {
+    if (a.path) continue;
+    a.state = 'up'; a.err = ''; renderAttach();
+    const r = await xbin.fetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
+      method: 'PUT', headers: { 'Content-Type': a.type || 'application/octet-stream' }, body: a.file,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      a.state = 'bad'; a.err = d.error || `upload failed (${r.status})`; renderAttach();
+      throw new Error(`${a.name}: ${a.err}`);
+    }
+    a.path = d.path; a.state = 'done'; renderAttach();
+  }
+  return attachments.map((a) => a.path);
+}
+
+async function send() {
+  if (sending) return;
+  const t = $('msg').value.trim();
+  if (!t && !attachments.length) return;
+  if (attachments.some((a) => a.size > MAX_ATTACH)) {
+    return alert('Remove the files that are too large first.');
+  }
+  sending = true; $('send').disabled = true;
+  try {
+    // On home: start a fresh quick ask and jump into it (streaming answer).
+    if (sel == null) {
+      if (!attachments.length) {
+        $('msg').value = '';
+        const run = await api('/ask', jbody({ text: t, toolset }, 'POST'));
+        sel = run.id; lastDetailKey = '';
+        loadRuns(); loadDetail();
+        return;
+      }
+      // With attachments there is no run to upload into yet: create it held
+      // (no message, no drive), upload, then send the message into it.
+      const title = t || attachments.map((a) => a.name).join(', ');
+      const run = await api('/ask', jbody({ text: title, toolset, hold: true }, 'POST'));
+      try {
+        const files = await uploadAttachments(run.id);
+        await api(`/runs/${run.id}/message`, jbody({ text: t, files }, 'POST'));
+      } catch (e) {
+        // Don't leave an empty run behind; its uploads go with it, so the
+        // chips must upload again next time.
+        await api(`/runs/${run.id}`, { method: 'DELETE' }).catch(() => {});
+        attachments.forEach((a) => { delete a.path; if (a.state === 'done') a.state = ''; });
+        loadRuns();
+        throw e;
+      }
+      $('msg').value = ''; attachments = [];
+      sel = run.id; lastDetailKey = '';
+      loadRuns(); loadDetail();
+      return;
+    }
+    const files = attachments.length ? await uploadAttachments(sel) : undefined;
+    // Route to /answer when the run is parked on an ask_user; otherwise
+    // /message (the backend aliases them, but this keeps intent explicit).
+    const run = detail && detail.run;
+    const waiting = run && run.status === 'waiting_input' && pendingOf(run).kind !== 'approval';
+    await api(`/runs/${sel}/${waiting ? 'answer' : 'message'}`, jbody({ text: t, files }, 'POST'));
+    $('msg').value = ''; attachments = [];
+    lastDetailKey = ''; loadDetail();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    sending = false; $('send').disabled = false;
+    renderAttach();
+  }
 }
 $('send').onclick = send;
+$('clip').onclick = () => $('clipin').click();
+$('clipin').onchange = () => { addFiles($('clipin').files); $('clipin').value = ''; };
+// Pasting an image (a screenshot) attaches it; pasting text is left alone.
+$('msg').addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (!files.length) return;
+  e.preventDefault();
+  addFiles(files);
+});
+// Drop anywhere on the run view. dragenter/leave fire for every child, so the
+// highlight is driven by a counter rather than by which element was entered.
+{
+  const main = $('main');
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  main.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; main.classList.add('dropping'); });
+  main.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  main.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; main.classList.remove('dropping'); } });
+  main.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; main.classList.remove('dropping');
+    addFiles(e.dataTransfer.files);
+    $('msg').focus();
+  });
+}
 $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
 
 // Render pane header. Closing remembers WHICH render was dismissed, so the
@@ -1073,26 +1238,21 @@ async function tabFiles(bd) {
   filesCache = (await api(`/runs/${sel}/files`)) || [];
   const cur = filesSel != null ? filesCache.find((f) => f.path === filesSel) : null;
   let body = '';
-  if (cur) {
+  if (cur && !cur.binary) {
     const full = await api(`/runs/${sel}/file?path=${encodeURIComponent(cur.path)}`);
     body = full.content || '';
     cur.version = full.version;
   }
-  bd.innerHTML = `
-    <div class="sec"><h4>Session files · run ${sel}</h4>
-      <table class="tbl"><tr><th>path</th><th>bytes</th><th>v</th><th></th></tr>
-      ${filesCache.length ? filesCache.map((f, i) => `<tr>
-        <td class="mono">${esc(f.path)}</td>
-        <td class="muted">${fmtN(f.bytes)}</td>
-        <td class="muted">${num(f.version)}</td>
-        <td style="text-align:right; white-space:nowrap">
-          ${isHtmlPath(f.path) ? `<button class="btn ghost btnsm" data-fr="${i}" title="show in the render pane">Render</button> ` : ''}
-          <button class="btn ghost btnsm" data-fe="${i}">Edit</button>
-          <button class="btn rm btnsm" data-fd="${i}">Del</button></td></tr>`).join('')
-        : '<tr><td colspan="4" class="muted">no files yet — the agent writes these with its file tools</td></tr>'}
-      </table>
-      <div class="hint">Stored in this run's database, not on disk. Deleting the run deletes them.</div>
-    </div>
+  // An attachment (binary) is never loaded into the textarea: it gets a
+  // preview when it is an image, and a download either way.
+  const isImg = (f) => f && f.binary && /^image\/(png|jpeg|gif|webp)$/.test(f.mime || '');
+  const editor = cur && cur.binary ? `
+    <div class="sec"><h4>Attachment · ${esc(cur.path)}
+      <button class="btn ghost btnsm" id="fl-new">+ new</button></h4>
+      ${isImg(cur) ? '<img id="fl-img" class="fprev" alt="">' : ''}
+      <div class="hint">${esc(cur.mime || 'binary')} · ${fmtBytes(num(cur.bytes))} — the agent ${isImg(cur) ? 'sees it with file_view' : 'can list it but not read it as text'}.</div>
+      <div style="margin-top:6px"><button class="btn ghost" id="fl-dl">Download</button> <span class="err" id="fl-err"></span></div>
+    </div>` : `
     <div class="sec"><h4>${cur ? 'Edit · ' + esc(cur.path) : 'New file'}
       ${cur ? '<button class="btn ghost btnsm" id="fl-new">+ new</button>' : ''}</h4>
       <div class="field"><label>Path</label>
@@ -1103,6 +1263,36 @@ async function tabFiles(bd) {
         ${cur && isHtmlPath(cur.path) ? ' <button class="btn ghost" id="fl-render">Render</button>' : ''}
         <span class="err" id="fl-err"></span></div>
     </div>`;
+  bd.innerHTML = `
+    <div class="sec"><h4>Session files · run ${sel}</h4>
+      <div class="tblwrap"><table class="tbl"><tr><th>path</th><th>type</th><th>bytes</th><th>v</th><th></th></tr>
+      ${filesCache.length ? filesCache.map((f, i) => `<tr>
+        <td class="mono">${esc(f.path)}</td>
+        <td class="muted">${esc(f.binary ? f.mime : (f.mime || 'text'))}</td>
+        <td class="muted">${fmtN(f.bytes)}</td>
+        <td class="muted">${num(f.version)}</td>
+        <td style="text-align:right; white-space:nowrap">
+          ${isHtmlPath(f.path) ? `<button class="btn ghost btnsm" data-fr="${i}" title="show in the render pane">Render</button> ` : ''}
+          <button class="btn ghost btnsm" data-fe="${i}">${f.binary ? 'View' : 'Edit'}</button>
+          <button class="btn rm btnsm" data-fd="${i}">Del</button></td></tr>`).join('')
+        : '<tr><td colspan="5" class="muted">no files yet — the agent writes these with its file tools; attach your own with 📎</td></tr>'}
+      </table></div>
+      <div class="hint">Text lives in this run's database; attachments in the tile's blob store. Deleting the run deletes both.</div>
+    </div>${editor}`;
+
+  if (cur && cur.binary) {
+    const run = sel;
+    if ($('fl-img')) rawBlob(run, cur.path).then((b) => {
+      const img = $('fl-img');
+      if (!img) return;
+      img.src = URL.createObjectURL(b);
+      img.onload = () => URL.revokeObjectURL(img.src);
+    }).catch((e) => { if ($('fl-err')) $('fl-err').textContent = e.message; });
+    $('fl-dl').onclick = async () => {
+      try { xbin.download(cur.path.split('/').pop(), await rawBlob(run, cur.path)); }
+      catch (e) { $('fl-err').textContent = e.message; }
+    };
+  }
 
   bd.querySelectorAll('[data-fe]').forEach((b) => b.onclick = () => {
     filesSel = filesCache[+b.dataset.fe].path; tabFiles(bd);
@@ -1122,6 +1312,7 @@ async function tabFiles(bd) {
   });
   if ($('fl-new')) $('fl-new').onclick = () => { filesSel = null; tabFiles(bd); };
   if ($('fl-render')) $('fl-render').onclick = () => { closeSettings(); openPreview(cur.path, cur.version, false); };
+  if (!$('fl-save')) return;
   $('fl-save').onclick = async () => {
     const path = $('fl-path').value.trim();
     $('fl-err').textContent = '';

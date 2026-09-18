@@ -247,6 +247,18 @@ CREATE TABLE IF NOT EXISTS run_trees (
   max_depth INTEGER NOT NULL DEFAULT 0,
   created   INTEGER NOT NULL
 );
+-- Which session files a user message carried. A link rather than an inline
+-- copy: images are added to the model's context when it is assembled and never
+-- stored in messages.content, because every message is returned in full on the
+-- tile's 1.5s poll and stored content also feeds search, token estimates and
+-- compaction.
+CREATE TABLE IF NOT EXISTS message_files (
+  msg_id INTEGER NOT NULL,
+  run_id INTEGER NOT NULL,
+  path   TEXT NOT NULL,
+  PRIMARY KEY (msg_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_message_files_run ON message_files(run_id);
 `)
 	if err != nil {
 		return err
@@ -268,6 +280,10 @@ CREATE TABLE IF NOT EXISTS run_trees (
 		`ALTER TABLE runs ADD COLUMN llm_calls INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0`,
+		// Attachments: a MIME type, and the blob-resource path holding the bytes
+		// of a binary file (empty for text, whose content stays in sqlite).
+		`ALTER TABLE repl_files ADD COLUMN mime TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE repl_files ADD COLUMN blob TEXT NOT NULL DEFAULT ''`,
 		// runs had no indexes at all; the dispatcher predicate earns these.
 		`CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, wake_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_id)`,
@@ -478,6 +494,7 @@ func (d *DB) deleteOneRun(id int64) error {
 		`DELETE FROM memory WHERE run_id=?`,
 		`DELETE FROM repl_files WHERE run_id=?`,
 		`DELETE FROM repl_log WHERE run_id=?`,
+		`DELETE FROM message_files WHERE run_id=?`,
 		// Dependency edges in BOTH directions: as the waiter, and as what
 		// something else waits on. Only the first was ever cleaned, so deleted
 		// runs left edges behind that pointed at nothing.

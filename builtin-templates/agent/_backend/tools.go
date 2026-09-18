@@ -128,6 +128,10 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	// host bridge).
 	if cfg.feature("files") {
 		specs = append(specs, fileToolSpecs(cfg)...)
+		// Only offered when the run can actually see images.
+		if cfg.feature("vision") {
+			specs = append(specs, fileViewSpec())
+		}
 	}
 	if cfg.feature("repl") {
 		specs = append(specs, replToolSpecs()...)

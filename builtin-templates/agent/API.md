@@ -14,10 +14,10 @@ and the owner. There is no public surface. Paths below are relative to
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards) |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
-| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, slots}` (`draft` = live streaming text; `files` is session-file METADATA only; `slots` = `{active, limit}` drive slots, so a `queued` run can say whether it waits for one) |
+| `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
+| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` drive slots, so a `queued` run can say whether it waits for one) |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
-| `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
+| `POST /runs/{id}/message` | `{text, files?}` | inject a user message; resumes the run. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
 | `POST /runs/{id}/approve` | `{approve}` | approve/deny a parked tool turn (approval mode) |
 | `POST /runs/{id}/interrupt` | — | stop driving; park the run idle |
@@ -29,10 +29,12 @@ and the owner. There is no public surface. Paths below are relative to
 | `POST /runs/{id}/cancel` | `{scope?, reason?}` | durable cancel; `scope` defaults to `subtree` |
 | `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes, statuses, blockers, cost. Metadata only |
 | `GET /halt` · `PUT /halt` | `{on}` | the global brake: cancels live runs and blocks new spawns |
-| `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated}]`, no content |
+| `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated, mime?, binary?}]`, no content |
 | `GET /runs/{id}/file?path=` | — | one file with its content |
 | `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
-| `DELETE /runs/{id}/file?path=` | — | delete a file |
+| `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
+| `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
+| `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
 
 Content and metadata are separate routes on purpose: `GET /runs/{id}` rides the
 tile's 1.5s poll, so it must never carry file bodies.
@@ -43,6 +45,29 @@ The tile opens on a home view built on this: the composer asks (in the lane
 chosen with its 🔒/🌐 toggle, remembered per user through `/api/xbin/prefs` —
 tile frames have no `localStorage`), recent quick asks show as cards, and the
 sidebar lists tasks.
+
+### Attachments
+
+The owner attaches files from the composer (📎, drop, or paste). They land in the
+run's session files — the same store the model's `file_*` tools and the REPL
+use. **Text** (`text/*`, JSON, XML, CSV, SVG… that is valid UTF-8 and within 64
+KiB) is stored as an ordinary text file. **Everything else is binary**: its
+bytes go to the scope's `files` **blob** resource at a random, never-reused
+path, and sqlite keeps only the metadata. Binary caps: 16 MiB per file, 64 MiB
+per run. Deleting a file or a run deletes its objects, after the rows (a failed
+object delete is logged and leaves an orphan object, never a row pointing at
+nothing).
+
+Upload order matters: a file must be uploaded **before** the message naming it.
+The stored user text gets a short note — `[attached: a.png (image/png, 120 KB)]`
+— so the model knows what arrived even when it cannot see images, and
+`messageFiles` links the message to the files for the tile.
+
+A quick ask from the home view has no run to upload into yet, so the tile sends
+`POST /ask {text, toolset, hold:true}` — a run titled from the text with no
+user message and no drive — uploads into it, then sends the message with
+`POST /runs/{id}/message {text, files}`. If an upload fails it deletes the
+empty run and keeps the files for another try.
 
 ## Capability lanes (the toolset firewall)
 
@@ -105,6 +130,26 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
 The main loop uses the `general` tier (or `vlm` when a message carries image
 content and the general model isn't vision-capable); compaction and the
 summarizer use `memory`.
+
+**Images reach the model at context assembly and are never stored** in the
+transcript (it rides the tile's poll in full, and feeds search, token
+estimates and compaction). An image the owner attached becomes an `image_url`
+part (a data URI) on the user message it came with. The `file_view(path)` tool
+(feature `vision`) lets the model look at any image in its files; its result
+is text, and the image is added in one user message placed after that turn's
+**whole** tool-result block — labelled as coming from the tools, not the owner
+— or merged into the owner's next message when one follows. Only PNG, JPEG,
+GIF and WebP are shown, each ≤ 3 MiB, and only the **4 newest** images in the
+context; older ones become `[image x.png not shown — file_view to see it
+again]`. With `vision` off, nothing is inlined and `file_view` is not offered.
+`file_read` on a binary file returns a pointer to `file_view`; the REPL's
+`files.read` throws, and `files.remove` refuses attachments (delete them from
+the Files tab).
+
+Known limitation: whether a model can see is a name heuristic
+(`modelHasVision`), and the `vlm` tier's last fallback is any gateway model,
+with no capability check. If images are ignored, set the `vlm` tier
+explicitly.
 
 ## Schedules (cron-agents)
 
@@ -237,13 +282,14 @@ and the web lane skips discovery entirely.
 
 ## Session files + render
 
-Feature key `files` (on by default). A per-run file store held in sqlite, not
-on disk: `file_write` · `file_read` (whole file, or a line range with
+Feature key `files` (on by default). A per-run file store held in sqlite, not on
+disk: `file_write` · `file_read` (whole file, or a line range with
 `offset`/`limit`) · `file_edit` (exact-string replace) · `file_list` ·
-`render_html`. They touch only this run's private rows — no egress, no other
-component — so they are offered in **both** capability lanes and are not
-`sideEffect()` tools: the approval gate never fires for them. Caps: 64 KiB per
-file, 64 files and 512 KiB per run.
+`render_html` · `file_view` (an image — see Attachments). They touch only this
+run's private rows — no egress, no other component — so they are offered in
+**both** capability lanes and are not `sideEffect()` tools: the approval gate
+never fires for them. Caps: 64 KiB per text file, 64 files and 512 KiB of text
+per run; attachments have their own.
 
 `render_html` journals a `render` step (`{path, version, bytes}`) and the tile
 shows that file in a `sandbox=""` iframe with a prepended meta CSP

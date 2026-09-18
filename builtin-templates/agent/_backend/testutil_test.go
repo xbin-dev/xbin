@@ -12,5 +12,6 @@ func newTestAgent(t *testing.T, db *DB) *Agent {
 		kickCh: make(chan struct{}, 1), toolSem: make(chan struct{}, maxToolsGlobal),
 		// Without this the admission path panics on a nil map write, which is
 		// exactly why every drop point in dispatchRun shipped untested.
-		cancels: map[int64]cancelReg{}}
+		cancels: map[int64]cancelReg{},
+		blobs:   newMemBlobs(), blobCache: newBlobCache(8 << 20)}
 }

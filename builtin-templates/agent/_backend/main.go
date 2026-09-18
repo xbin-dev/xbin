@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -57,6 +58,12 @@ type Agent struct {
 	// iteration. RAM-only: the durable half is runs.cancel_req.
 	cancels   map[int64]cancelReg
 	cancelSeq uint64
+
+	// blobs holds the bytes of binary session files (attachments); blobCache
+	// keeps recently read ones in memory, since every loop step re-assembles
+	// the context and would otherwise re-fetch each image it shows.
+	blobs     blobStore
+	blobCache *blobCache
 }
 
 // cancelReg is a live drive's cancel func plus a token identifying which
@@ -167,7 +174,8 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 	agent = &Agent{db: db, driving: map[int64]bool{}, stop: map[int64]bool{}, watcherRounds: map[int64]*watcherRound{}, drafts: map[int64]string{}, repl: newReplRegistry(),
-		gen: generationID(), kickCh: make(chan struct{}, 1), toolSem: make(chan struct{}, maxToolsGlobal), cancels: map[int64]cancelReg{}}
+		gen: generationID(), kickCh: make(chan struct{}, 1), toolSem: make(chan struct{}, maxToolsGlobal), cancels: map[int64]cancelReg{},
+		blobs: gatewayBlobs{}, blobCache: newBlobCache(48 << 20)}
 
 	// Seed the default config once.
 	if db.getSetting("config") == "" {
@@ -213,6 +221,11 @@ func main() {
 	mux.Handle("GET /runs/{id}/file", xbin.RoleFunc("admin", handleFileGet))
 	mux.Handle("PUT /runs/{id}/file", xbin.RoleFunc("admin", handleFilePut))
 	mux.Handle("DELETE /runs/{id}/file", xbin.RoleFunc("admin", handleFileDelete))
+	// Attachments: the raw body in, metadata in the query string (the tile is a
+	// sandboxed opaque origin, and the gateway's CORS allowlist is only
+	// Authorization, Content-Type and the frame token — no custom headers).
+	mux.Handle("PUT /runs/{id}/upload", xbin.RoleFunc("admin", handleUpload))
+	mux.Handle("GET /runs/{id}/raw", xbin.RoleFunc("admin", handleRaw))
 	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 	mux.Handle("GET /features", xbin.RoleFunc("admin", handleFeatures))
@@ -460,14 +473,15 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	// merely admitted and about to start.
 	active, limit := agent.activeDrives()
 	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "files": files,
-		"draft": agent.getDraft(id), "slots": map[string]int{"active": active, "limit": limit}})
+		"messageFiles": agent.db.messageFiles(id), "draft": agent.getDraft(id),
+		"slots": map[string]int{"active": active, "limit": limit}})
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	// Stop the subtree before removing it: deleting the rows out from under a
 	// live drive would leave it spending on a tree that no longer exists.
 	agent.requestCancel(pathID(r), true, "run deleted")
-	if err := agent.db.deleteRun(pathID(r)); err != nil {
+	if err := agent.deleteRunTree(pathID(r)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
@@ -500,6 +514,65 @@ func handleFileGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	xbin.WriteJSON(w, 200, f)
+}
+
+// handleUpload accepts one attached file as the raw request body.
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		xbin.WriteError(w, 400, "need ?name=")
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, maxBinaryFileBytes+1)
+	f, err := agent.acceptUpload(r.Context(), id, name, r.Header.Get("Content-Type"), body)
+	if err != nil {
+		code := 400
+		var mbe *http.MaxBytesError
+		switch {
+		case err == errTooLarge || errors.As(err, &mbe):
+			code, err = http.StatusRequestEntityTooLarge, errTooLarge
+		case err.Error() == "no such run":
+			code = 404
+		case strings.Contains(err.Error(), "storing the file failed"):
+			code = 502
+		}
+		xbin.WriteError(w, code, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"path": f.Path, "mime": f.Mime, "bytes": f.Bytes, "binary": f.Binary})
+}
+
+// handleRaw returns a file's bytes, for the tile's preview and download. It is
+// fetched with xbin.fetch into an object URL, never navigated to, and nosniff
+// stops a browser from reinterpreting an upload as something executable.
+func handleRaw(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	p, err := normReplPath(r.URL.Query().Get("path"))
+	if err != nil {
+		xbin.WriteError(w, 400, err.Error())
+		return
+	}
+	f, err := agent.db.replFile(id, p)
+	if err != nil {
+		xbin.WriteError(w, 404, err.Error())
+		return
+	}
+	data := []byte(f.Content)
+	if f.Binary {
+		if data, err = agent.readBlob(r.Context(), f.Blob); err != nil {
+			xbin.WriteError(w, 502, err.Error())
+			return
+		}
+	}
+	m := f.Mime
+	if m == "" {
+		m = "text/plain; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", m)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data)
 }
 
 // handleFilePut is the human's editor path, so it takes an optional version:
@@ -535,30 +608,49 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, err.Error())
 		return
 	}
-	if err := agent.db.replDeleteFile(pathID(r), path); err != nil {
+	blob, err := agent.db.replDeleteFile(pathID(r), path)
+	if err != nil {
 		xbin.WriteError(w, 404, err.Error())
 		return
+	}
+	if blob != "" {
+		agent.dropBlobs([]string{blob})
 	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleMessage(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	var body struct{ Text string }
+	var body struct {
+		Text  string   `json:"text"`
+		Files []string `json:"files"` // session-file paths uploaded for this message
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	if body.Text == "" {
-		xbin.WriteError(w, 400, "need {text}")
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Text == "" && len(body.Files) == 0 {
+		xbin.WriteError(w, 400, "need {text} or {files}")
 		return
 	}
 	if _, err := agent.db.getRun(id); err != nil {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
+	// Check attachments BEFORE writing anything, so a bad path fails the
+	// request instead of leaving half a turn behind.
+	files, err := agent.checkAttachments(id, body.Files)
+	if err != nil {
+		xbin.WriteError(w, 400, err.Error())
+		return
+	}
+	if body.Text == "" {
+		body.Text = "(see attached)"
+	}
 	// Replying instead of approving DENIES the parked calls. setStatus clears
 	// `pending`, so without this the parked tool_calls would be orphaned — an
 	// unanswered block shipped to the provider on the very next call.
 	agent.denyPending(id)
-	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
+	msgID, _ := agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text + attachmentNote(files)})
+	_ = agent.linkMessageFiles(id, msgID, files)
 	_ = agent.db.setStatus(id, statusIdle, 0, "", "")
 	agent.resumeIfHalted(id)
 	agent.driveAsync(id)
