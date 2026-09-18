@@ -159,6 +159,7 @@ func TestAdmittedRunShowsRunningDuringDiscovery(t *testing.T) {
 	cfgJSON, _ := json.Marshal(Config{MaxIters: 1, MCP: []MCPServer{{Name: "slow", URL: slow.URL}}})
 	id, _ := db.createRun("ask", string(cfgJSON), 0)
 	_, _ = db.addMessage(&Message{RunID: id, Role: "user", Content: "hi"})
+	ag.parkQueued(id)
 
 	done := make(chan struct{})
 	go func() { ag.drive(context.Background(), id); close(done) }()

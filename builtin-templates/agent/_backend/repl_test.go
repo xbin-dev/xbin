@@ -450,7 +450,7 @@ func TestReplToolGatingAndLanes(t *testing.T) {
 	// Default-on, like every other feature key (cfg.feature returns true for
 	// absent keys so existing runs pick new capabilities up).
 	for _, lane := range []string{"", "web"} {
-		specs := toolSpecs(Config{Toolset: lane}, nil)
+		specs := toolSpecs(Config{Toolset: lane}, 0, nil)
 		for name := range replToolNames {
 			if !has(specs, name) {
 				t.Fatalf("toolset %q: %s missing — the sandbox has no egress and no internal "+
@@ -459,7 +459,7 @@ func TestReplToolGatingAndLanes(t *testing.T) {
 		}
 	}
 	// And the feature key turns the whole family off.
-	off := toolSpecs(Config{Features: map[string]bool{"repl": false}}, nil)
+	off := toolSpecs(Config{Features: map[string]bool{"repl": false}}, 0, nil)
 	for name := range replToolNames {
 		if has(off, name) {
 			t.Fatalf("repl:false should hide %s", name)

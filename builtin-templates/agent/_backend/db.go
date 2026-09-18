@@ -23,6 +23,14 @@ const (
 	statusSleep   = "sleeping"      // yielded until wake_at; heartbeat resumes
 	statusDone    = "done"          // finished (finish tool)
 	statusError   = "error"         // gave up after an error
+	// Workflow statuses. queued = ready but waiting for a concurrency slot;
+	// blocked = waiting on dependencies; canceled = durably stopped (terminal).
+	// queued is deliberately NOT expressed as sleeping+wake_at: reusing the
+	// sleep mechanism for throttling is exactly what made an over-budget
+	// subagent look like a run that had chosen to wait.
+	statusQueued   = "queued"
+	statusBlocked  = "blocked"
+	statusCanceled = "canceled"
 )
 
 type Run struct {
@@ -40,9 +48,30 @@ type Run struct {
 	LastPromptTokens int `json:"lastPromptTokens"`
 	// Last is the latest assistant answer snippet (list responses only — for
 	// the home view's quick-ask cards, where a plain reply leaves result "").
-	Last    string `json:"last,omitempty"`
-	Created int64  `json:"created"`
-	Updated int64  `json:"updated"`
+	Last string `json:"last,omitempty"`
+	// --- run graph ---
+	// RootID is the tree this run belongs to (itself when top-level). It is
+	// denormalized and immutable so tree scoping is an index scan rather than a
+	// recursive CTE on the polling path.
+	RootID int64 `json:"rootId"`
+	Depth  int   `json:"depth"`
+	// Detached marks a run the dispatcher may drive on its own. A child that is
+	// NOT detached exists only inside its parent's tool call, so resurrecting
+	// it from the heartbeat would run work no one is waiting for.
+	Detached bool `json:"detached"`
+	// Outcome is the settled verdict, distinct from Status: a run can be idle
+	// after answering, and a caller needs to tell "answered" from "was killed".
+	Outcome   string `json:"outcome,omitempty"`
+	SettledAt int64  `json:"settledAt,omitempty"`
+	CancelReq int64  `json:"cancelReq,omitempty"`
+	// Denormalized cost, incremented where the LLM call is recorded. Summing
+	// `steps` per poll would scan every step of every node on a single-
+	// connection database, and cost display is meant to be always on.
+	LLMCalls         int   `json:"llmCalls"`
+	PromptTokens     int   `json:"promptTokens"`
+	CompletionTokens int   `json:"completionTokens"`
+	Created          int64 `json:"created"`
+	Updated          int64 `json:"updated"`
 }
 
 type Message struct {
@@ -188,6 +217,36 @@ CREATE TABLE IF NOT EXISTS repl_log (
   PRIMARY KEY (run_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_repl_log_run ON repl_log(run_id, seq);
+-- The dependency edge. ONE relation serves both "parent joins its child" and
+-- "sibling B starts after sibling A": waiter run_id waits on dep_id. A table
+-- rather than a json column on runs, because settling needs an indexed reverse
+-- lookup (who waits on this?) and a read-modify-write would race when several
+-- children settle at once.
+CREATE TABLE IF NOT EXISTS run_deps (
+  run_id       INTEGER NOT NULL,
+  dep_id       INTEGER NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'await',
+  state        TEXT NOT NULL DEFAULT 'pending',
+  delivered    INTEGER NOT NULL DEFAULT 0,
+  tool_call_id TEXT NOT NULL DEFAULT '',
+  on_error     TEXT NOT NULL DEFAULT 'report',
+  created      INTEGER NOT NULL,
+  settled      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (run_id, dep_id)
+);
+CREATE INDEX IF NOT EXISTS idx_deps_dep   ON run_deps(dep_id);
+CREATE INDEX IF NOT EXISTS idx_deps_undel ON run_deps(run_id, delivered, state);
+-- Per-tree lifetime spawn budget. A table rather than count(*) over runs
+-- because it must be a MONOTONIC counter that a single statement can
+-- compare-and-swap: count(*) is a gauge (it drops when a run is deleted) and
+-- is not atomic with the child INSERT, so two parallel spawns could both pass.
+CREATE TABLE IF NOT EXISTS run_trees (
+  root_id   INTEGER PRIMARY KEY,
+  spawned   INTEGER NOT NULL DEFAULT 0,
+  max_spawn INTEGER NOT NULL DEFAULT 0,
+  max_depth INTEGER NOT NULL DEFAULT 0,
+  created   INTEGER NOT NULL
+);
 `)
 	if err != nil {
 		return err
@@ -197,6 +256,46 @@ CREATE INDEX IF NOT EXISTS idx_repl_log_run ON repl_log(run_id, seq);
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
 	_, _ = d.sql.Exec(`ALTER TABLE schedules ADD COLUMN toolset TEXT NOT NULL DEFAULT ''`)
+	for _, q := range []string{
+		`ALTER TABLE runs ADD COLUMN root_id INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN detached INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN outcome TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE runs ADD COLUMN settled_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN cancel_req INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN lease_owner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE runs ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN llm_calls INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0`,
+		// runs had no indexes at all; the dispatcher predicate earns these.
+		`CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, wake_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_runs_root ON runs(root_id)`,
+	} {
+		_, _ = d.sql.Exec(q)
+	}
+	// Backfill the run graph for rows created before it existed. Idempotent by
+	// its own root_id=0 guard; top-level runs first so children can read a
+	// parent that already has one. Existing children stay detached=0, which is
+	// exactly right: they were only ever meaningful inside a parent's tool call.
+	_, _ = d.sql.Exec(`UPDATE runs SET root_id=id WHERE root_id=0 AND parent_id=0`)
+	for i := 0; i < 8; i++ { // bounded walk down the (at most shallow) tree
+		res, err := d.sql.Exec(`UPDATE runs SET
+			depth = 1 + COALESCE((SELECT p.depth FROM runs p WHERE p.id=runs.parent_id), 0),
+			root_id = COALESCE((SELECT p.root_id FROM runs p WHERE p.id=runs.parent_id), id)
+			WHERE root_id=0 AND parent_id<>0
+			  AND EXISTS (SELECT 1 FROM runs p WHERE p.id=runs.parent_id AND p.root_id<>0)`)
+		if err != nil {
+			break
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			break
+		}
+	}
+	// A child whose parent row is gone can never be reached again; root it at
+	// itself so it is at least well-formed.
+	_, _ = d.sql.Exec(`UPDATE runs SET root_id=id WHERE root_id=0`)
 	if n := d.sweepOrphanRuns(); n > 0 {
 		log.Printf("removed %d orphaned subagent run(s) whose parent had been deleted", n)
 	}
@@ -214,25 +313,49 @@ func now() int64 { return time.Now().Unix() }
 
 // --- runs ---------------------------------------------------------------
 
+// createRun inserts a run and places it in the graph. Callers pass only a
+// parent id; root_id and depth are derived here so every existing call site
+// keeps working and no caller can put a run in an inconsistent position.
+// detached defaults to 0 — a run is only background-dispatchable when
+// something deliberately makes it so (see startDetached).
 func (d *DB) createRun(title, config string, parentID int64) (int64, error) {
 	t := now()
+	rootID, depth := int64(0), 0
+	if parentID != 0 {
+		if p, err := d.getRun(parentID); err == nil {
+			rootID, depth = p.RootID, p.Depth+1
+			if rootID == 0 {
+				rootID = p.ID
+			}
+		}
+	}
 	res, err := d.sql.Exec(
-		`INSERT INTO runs (title, status, config, parent_id, created, updated) VALUES (?, ?, ?, ?, ?, ?)`,
-		title, statusIdle, config, parentID, t, t)
+		`INSERT INTO runs (title, status, config, parent_id, root_id, depth, created, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		title, statusIdle, config, parentID, rootID, depth, t, t)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if rootID == 0 { // top-level: it is its own root
+		_, _ = d.sql.Exec(`UPDATE runs SET root_id=? WHERE id=?`, id, id)
+	}
+	return id, nil
 }
 
 func (d *DB) getRun(id int64) (*Run, error) {
 	r := &Run{}
+	var detached int
 	err := d.sql.QueryRow(
-		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated)
+		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens FROM runs WHERE id=?`, id).
+		Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated, &r.RootID, &r.Depth, &detached, &r.Outcome, &r.SettledAt, &r.CancelReq, &r.LLMCalls, &r.PromptTokens, &r.CompletionTokens)
 	if err != nil {
 		return nil, err
 	}
+	r.Detached = detached != 0
 	return r, nil
 }
 
@@ -246,7 +369,7 @@ func (d *DB) runConfig(id int64) (Config, error) {
 
 func (d *DB) listRuns() ([]*Run, error) {
 	rows, err := d.sql.Query(
-		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs ORDER BY id DESC`)
+		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens FROM runs ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -254,9 +377,14 @@ func (d *DB) listRuns() ([]*Run, error) {
 	var out []*Run
 	for rows.Next() {
 		r := &Run{}
-		if err := rows.Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated); err != nil {
+		var detached int
+		if err := rows.Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary,
+			&r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated,
+			&r.RootID, &r.Depth, &detached, &r.Outcome, &r.SettledAt, &r.CancelReq,
+			&r.LLMCalls, &r.PromptTokens, &r.CompletionTokens); err != nil {
 			return nil, err
 		}
+		r.Detached = detached != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -304,6 +432,15 @@ func (d *DB) setSummary(id int64, summary string) error {
 	return err
 }
 
+// addRunCost accumulates what a run has spent. Denormalized on purpose: the
+// tile shows cost continuously, and aggregating the steps table per poll would
+// scan every step of every node on a single-connection database.
+func (d *DB) addRunCost(id int64, prompt, completion int) {
+	_, _ = d.sql.Exec(
+		`UPDATE runs SET llm_calls=llm_calls+1, prompt_tokens=prompt_tokens+?, completion_tokens=completion_tokens+? WHERE id=?`,
+		prompt, completion, id)
+}
+
 // setPromptTokens records the provider-reported prompt size of the latest LLM
 // call (compaction's ground-truth trigger). Best-effort; skips non-positive.
 func (d *DB) setPromptTokens(id int64, n int) {
@@ -341,6 +478,12 @@ func (d *DB) deleteOneRun(id int64) error {
 		`DELETE FROM memory WHERE run_id=?`,
 		`DELETE FROM repl_files WHERE run_id=?`,
 		`DELETE FROM repl_log WHERE run_id=?`,
+		// Dependency edges in BOTH directions: as the waiter, and as what
+		// something else waits on. Only the first was ever cleaned, so deleted
+		// runs left edges behind that pointed at nothing.
+		`DELETE FROM run_deps WHERE run_id=?1 OR dep_id=?1`,
+		// A root owns its tree's spawn budget.
+		`DELETE FROM run_trees WHERE root_id=?`,
 		`DELETE FROM runs WHERE id=?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
@@ -351,33 +494,17 @@ func (d *DB) deleteOneRun(id int64) error {
 	return tx.Commit()
 }
 
-// hasPending reports whether any run still needs the wake heartbeat — sleeping
-// (a future/overdue wake) or left 'running' (a mid-drive/stalled run).
+// hasPending reports whether any run still needs the wake heartbeat: sleeping
+// (a future/overdue wake), left 'running' (a stalled drive), or queued behind
+// the concurrency ceiling.
+//
+// 'blocked' is deliberately absent. A blocked run waits on OTHER rows that are
+// themselves pending, so the beat stays on transitively — including it would
+// pin the heartbeat on forever the first time a dependency became unsatisfiable.
 func (d *DB) hasPending() bool {
 	var n int
-	_ = d.sql.QueryRow(`SELECT count(*) FROM runs WHERE status IN ('sleeping','running')`).Scan(&n)
+	_ = d.sql.QueryRow(`SELECT count(*) FROM runs WHERE status IN ('sleeping','running','queued')`).Scan(&n)
 	return n > 0
-}
-
-// dueRuns returns runs the heartbeat should re-drive: sleeping ones whose
-// wake_at has passed, plus any left 'running' (a crash mid-drive).
-func (d *DB) dueRuns() ([]int64, error) {
-	rows, err := d.sql.Query(
-		`SELECT id FROM runs WHERE (status=? AND wake_at<=?) OR status=? ORDER BY id`,
-		statusSleep, now(), statusRunning)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 // --- messages -----------------------------------------------------------

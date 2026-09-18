@@ -40,7 +40,8 @@ const TOPBAR = `<span class="title">a fairly long run title that takes room</spa
   <button class="btn ghost btnsm">Resume</button><button class="btn ghost btnsm">Interrupt</button>
   <button class="btn ghost btnsm">Compact</button><button class="btn ghost btnsm">Learn skill</button>
   <button class="btn ghost btnsm">Memory (3)</button><button class="btn ghost btnsm">Files (2)</button>
-  <button class="btn rm btnsm">Delete</button>`;
+  <button class="btn rm btnsm">Delete</button>
+  <span class="badge wfchip" data-a="wf">⑂ 7 · 2▶ · 402 331</span>`;
 
 let failures = 0;
 const ok = (name, cond, extra = '') => {
@@ -64,6 +65,21 @@ const SCENARIOS = [
   ['pane maximized', () => {
     document.getElementById('preview').hidden = false;
     document.getElementById('main').classList.add('prev-max');
+  }],
+  ['workflow pane', () => {
+    document.getElementById('workflow').hidden = false;
+    document.getElementById('main').classList.add('wfon');
+    document.getElementById('wf-body').innerHTML = Array.from({ length: 50 }, (_, i) =>
+      `<div class="wfn" data-n="${i}" style="--d:${i % 4}">
+         <span class="nm"><span class="dot running"></span><span class="tt">a deliberately long model-authored node title that must never widen the row ${i}</span></span>
+         <span class="cost">91 234<i class="share"><i style="width:60%"></i></i></span>
+         <span class="sub blk">⛔ waiting on #${i + 1}, #${i + 2} — and a long explanation that must ellipsize</span>
+       </div>`).join('');
+  }],
+  ['workflow + render pane', () => {
+    document.getElementById('workflow').hidden = false;
+    document.getElementById('main').classList.add('wfon');
+    document.getElementById('preview').hidden = false;
   }],
   ['settings open', () => {
     document.getElementById('settings').hidden = false;
@@ -98,6 +114,14 @@ for (const [w] of WIDTHS.map((x) => [x])) {
           composer: r('.composer'),
           timeline: r('#timeline'),
           preview: r('#preview'),
+          workflow: r('#workflow'),
+          // The document-level check is NOT enough for the tree: a nowrap row
+          // scrolls the PANE, not the document, and that is exactly the bug
+          // this layout risks.
+          wfOverflow: (() => {
+            const b = document.getElementById('wf-body');
+            return b && !document.getElementById('workflow').hidden ? b.scrollWidth - b.clientWidth : 0;
+          })(),
           vh: innerHeight,
         };
       });
@@ -111,6 +135,11 @@ for (const [w] of WIDTHS.map((x) => [x])) {
       ok(`${tag}: composer flush to the bottom`, m.composer && Math.abs(m.composer.bottom - m.vh) <= 1,
         `bottom=${m.composer?.bottom} vh=${m.vh}`);
       ok(`${tag}: composer not squashed`, m.composer && m.composer.h >= 30, `h=${m.composer?.h}`);
+      ok(`${tag}: workflow pane does not scroll sideways`, m.wfOverflow === 0, `by ${m.wfOverflow}px`);
+      if (m.workflow) {
+        ok(`${tag}: workflow above the composer`,
+          m.workflow.bottom <= m.composer.top + 1, `wf=${m.workflow.bottom} composer=${m.composer.top}`);
+      }
       // The render pane must yield height to the composer, not the reverse.
       if (m.preview) {
         ok(`${tag}: pane above the composer`, m.preview.bottom <= m.composer.top + 1,

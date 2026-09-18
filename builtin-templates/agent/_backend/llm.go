@@ -60,10 +60,19 @@ type Config struct {
 	// REPL sandbox limits (0 ⇒ defaults). The time budget is per statement and
 	// far below ToolTimeout on purpose: a runaway loop should come back as a
 	// normal tool error the model can react to, not eat the whole tool slot.
-	ReplTimeoutMs int  `json:"replTimeoutMs,omitempty"`
-	ReplMemMB     int  `json:"replMemMB,omitempty"`
-	Subagents     bool `json:"subagents"` // expose spawn_subagent
-	Approve       bool `json:"approve"`   // require approval before side-effecting tools
+	ReplTimeoutMs int `json:"replTimeoutMs,omitempty"`
+	ReplMemMB     int `json:"replMemMB,omitempty"`
+	// Workflow limits. MaxDepth/MaxSpawn bound ONE tree and are snapshotted
+	// into run_trees when a root is created, so a live workflow keeps the
+	// budget it started with. MaxActiveRuns bounds the PROCESS, so it is read
+	// live from the global config — a per-run snapshot of it would be
+	// meaningless.
+	MaxDepth      int  `json:"maxDepth,omitempty"`        // delegation depth, root = 0
+	MaxSpawn      int  `json:"maxSpawn,omitempty"`        // lifetime runs per tree
+	MaxSpawnTurn  int  `json:"maxSpawnPerTurn,omitempty"` // spawns in a single turn
+	MaxActiveRuns int  `json:"maxActiveRuns,omitempty"`   // concurrent drives, process-wide
+	Subagents     bool `json:"subagents"`                 // expose spawn_subagent
+	Approve       bool `json:"approve"`                   // require approval before side-effecting tools
 	// Toolset is the run's IMMUTABLE capability lane — the exfiltration
 	// firewall: "private" (default; internal reach via xbin_call + mcp:*
 	// tools, NO web) or "web" (web_search/web_fetch only, NO internal reach).
@@ -78,7 +87,7 @@ type Config struct {
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
-var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl"}
+var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow"}
 
 // toolset normalizes the capability lane: anything but "web" is "private".
 func (c Config) toolset() string {
@@ -105,6 +114,31 @@ func (c Config) replTimeout() time.Duration {
 	}
 	return time.Duration(c.ReplTimeoutMs) * time.Millisecond
 }
+
+// Workflow defaults. The tree budget, not the depth, is the real backstop:
+// depth is the cheap guard, maxSpawn is what stops a spawn→finish→spawn loop
+// running forever (it counts lifetime creations, not live children).
+const (
+	defaultMaxDepth      = 3
+	defaultMaxSpawn      = 32
+	defaultMaxSpawnTurn  = 8
+	defaultMaxActiveRuns = 4
+)
+
+func clampCfg(v, def, max int) int {
+	if v <= 0 {
+		return def
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func (c Config) maxDepth() int      { return clampCfg(c.MaxDepth, defaultMaxDepth, 8) }
+func (c Config) maxSpawn() int      { return clampCfg(c.MaxSpawn, defaultMaxSpawn, 500) }
+func (c Config) maxSpawnTurn() int  { return clampCfg(c.MaxSpawnTurn, defaultMaxSpawnTurn, 32) }
+func (c Config) maxActiveRuns() int { return clampCfg(c.MaxActiveRuns, defaultMaxActiveRuns, 32) }
 
 func (c Config) replMemMB() int {
 	if c.ReplMemMB <= 0 {

@@ -30,6 +30,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System})
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
 	agent.db.journal(id, "note", map[string]string{"text": "quick ask"})
+	agent.resumeIfHalted(id)
 	agent.driveAsync(id)
 	run, _ := agent.db.getRun(id)
 	xbin.WriteJSON(w, 200, run)

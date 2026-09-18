@@ -75,7 +75,7 @@ func TestFileToolGatingAndLanes(t *testing.T) {
 	}
 	// Default-on, like every other feature key.
 	for _, lane := range []string{"", "web"} {
-		specs := toolSpecs(Config{Toolset: lane}, nil)
+		specs := toolSpecs(Config{Toolset: lane}, 0, nil)
 		for name := range fileToolNames {
 			if !has(specs, name) {
 				t.Fatalf("toolset %q: %s missing — session files have no egress and no internal "+
@@ -83,7 +83,7 @@ func TestFileToolGatingAndLanes(t *testing.T) {
 			}
 		}
 	}
-	off := toolSpecs(Config{Features: map[string]bool{"files": false}}, nil)
+	off := toolSpecs(Config{Features: map[string]bool{"files": false}}, 0, nil)
 	for name := range fileToolNames {
 		if has(off, name) {
 			t.Fatalf("files:false should hide %s", name)

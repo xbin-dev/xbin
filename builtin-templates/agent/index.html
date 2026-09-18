@@ -128,6 +128,61 @@
            margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
 
+    /* Workflow view — shares #timeline's slot rather than adding a third row,
+       so the composer geometry the layout test pins is untouched. */
+    .wfpane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .wfpane[hidden] { display: none; }
+    .main.wfon #timeline { display: none; }
+    /* ⤢ maximizes the render pane by hiding the timeline; it must hide this
+       too, or a maximized render leaves a tree stacked above it. */
+    .main.prev-max .wfpane { display: none; }
+    .wfhd { flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+            padding: 6px 10px; border-bottom: 1px solid var(--bx-border);
+            background: var(--bx-panel-2); font-size: 11.5px; }
+    .wfhd .wft { font-weight: 600; min-width: 0; max-width: 45%;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wfcost { color: var(--bx-muted); font-size: 11px; white-space: nowrap; }
+    .wfbody { flex: 1; min-height: 0; overflow: auto; padding: 3px 0 10px; }
+    /* GRID, not flex: 1fr on the title column is what guarantees a long
+       model-authored title can never widen the row, so the 480px no-horizontal
+       -scroll rule is enforced by the layout rather than by hoping. */
+    .wfn { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; align-items: center;
+           padding: 4px 10px 4px calc(10px + var(--d, 0) * 13px);
+           border-left: 3px solid transparent; cursor: pointer; }
+    .wfn:hover { background: var(--bx-panel); }
+    .wfn.on { background: var(--bx-panel); border-left-color: var(--bx-accent); }
+    .wfn .nm { display: flex; align-items: center; gap: 5px; min-width: 0; }
+    .wfn .nm .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* A dot, not a badge: fifty badges is a wall of text, while a pulsing dot
+       answers "is anything alive" in one glance. */
+    .wfn .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--bx-muted); }
+    .wfn .dot.running { background: var(--bx-accent); animation: pulse 1.4s ease-in-out infinite; }
+    .wfn .dot.queued { background: var(--bx-accent); opacity: .45; }
+    .wfn .dot.blocked { background: var(--bx-yellow, #d9a441); }
+    .wfn .dot.done { background: var(--bx-green); }
+    .wfn .dot.error, .wfn .dot.cancelled { background: var(--bx-red); }
+    @keyframes pulse { 50% { opacity: .3; } }
+    .wfn .cost { font-family: var(--bx-mono); font-size: 10.5px; color: var(--bx-muted);
+                 white-space: nowrap; justify-self: end; text-align: right; }
+    /* Share-of-tree bar: an absolute number tells you nothing, a bar shows
+       which node ate the budget. */
+    .wfn .share { display: block; height: 2px; background: var(--bx-border); margin-top: 2px; }
+    .wfn .share > i { display: block; height: 100%; background: var(--bx-accent); }
+    /* Second line spans one column so it wraps under the title and can never
+       widen the row. */
+    .wfn .sub { grid-column: 1 / 2; font-size: 10.5px; color: var(--bx-muted);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wfn .sub.blk { color: var(--bx-yellow, #d9a441); }
+    .wfn .sub.bad { color: var(--bx-red); }
+    .badge.wfchip { cursor: pointer; }
+    .run .roll { font-size: 10px; color: var(--bx-muted); white-space: nowrap; margin-left: auto; }
+    .run .m { display: flex; }
+    /* The twisty is a click target inside a clickable row, so it needs enough
+       area to hit without selecting the run by accident. */
+    .run .tw { display: inline-block; width: 13px; color: var(--bx-muted); user-select: none; }
+    .run .tw[data-tw] { cursor: pointer; }
+    .run .tw[data-tw]:hover { color: var(--bx-text); }
+
     /* Render pane — an in-flow split of .main, above the composer. The basis
        is clamp(px, vh, px) and never a %: .wrap is height:100vh with a
        min-height, so at short viewports the row height is indefinite and a %
@@ -233,12 +288,33 @@
       <div class="hd"><b class="brand" id="home" title="Home — quick asks">⌂ Home</b>
         <button class="btn btnsm" id="new" title="New task run">+ Task</button>
         <button class="btn ghost btnsm" id="gear" title="Settings">⚙</button>
+        <!-- The brake lives here, not in .main: .settings overlays .main but
+             never .side, so it stays one click away from every view state. -->
+        <button class="btn rm btnsm" id="halt" title="Stop every running agent now" hidden>⏻</button>
       </div>
       <div class="runs" id="runs"><div class="empty">no tasks yet</div></div>
     </div>
     <div class="main" id="main">
       <div class="top" id="top"><span class="muted">select or start a run</span></div>
       <div class="timeline" id="timeline"><div class="empty">—</div></div>
+
+      <!-- Workflow view. A SIBLING of #timeline that takes the SAME flex slot:
+           the two are alternatives, never both, so the geometry above the
+           composer is byte-identical to today and every assertion in
+           test/layout.mjs still holds. NOT an overlay like .settings, because
+           the loop is watch-the-tree-and-steer-the-parent and an overlay would
+           cover the composer. -->
+      <div class="wfpane" id="workflow" hidden>
+        <div class="wfhd">
+          <span class="wft" id="wf-title"></span>
+          <span class="badge" id="wf-counts"></span>
+          <span style="flex:1"></span>
+          <span class="wfcost mono" id="wf-cost"></span>
+          <button class="btn rm btnsm" id="wf-stop" title="Cancel this workflow and everything below it">Stop</button>
+          <button class="btn ghost btnsm" id="wf-close" title="Back to the timeline (Esc)">✕</button>
+        </div>
+        <div class="wfbody" id="wf-body"></div>
+      </div>
 
       <!-- Render pane (render_html). A SIBLING of #timeline, never a child:
            loadDetail() rebuilds #timeline.innerHTML on every poll tick and its

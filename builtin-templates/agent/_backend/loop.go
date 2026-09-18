@@ -15,25 +15,63 @@ import (
 	"time"
 )
 
-const maxParallelTools = 6 // bound on concurrent tool calls in one turn
+const maxParallelTools = 4 // bound on concurrent tool calls in one turn
 
-// driveAsync advances a run in the background (fire-and-forget from HTTP
-// handlers). Concurrent drives of the same run are coalesced via claim().
+// driveTimeout bounds one drive. It is the only clock on a subagent tree, so
+// it is deliberately generous.
+const driveTimeout = 10 * time.Minute
+
+// driveAsync is the ONE way anything asks for a run to be advanced.
+//
+// It records the request durably before dispatching, because dispatch is
+// allowed to decline — halted, at the ceiling, or waiting on a lease a dying
+// process still holds — and readyRuns has no branch for an `idle` run, since
+// idle means "waiting for a human". A run left idle by a declined dispatch is
+// never looked at again.
+//
+// There is deliberately no "just dispatch it" variant for callers to reach for:
+// the first version of this fix put the durable park in the handlers, and three
+// of them (new task, learn, cron firing) were simply missed, so those prompts
+// kept dying while the fixed ones worked.
 func (ag *Agent) driveAsync(runID int64) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		ag.drive(ctx, runID)
-		ag.reconcileBeat() // turn the wake heartbeat on/off to match what's pending
-	}()
+	ag.parkQueued(runID)
+	ag.dispatchRun(runID)
 }
 
-// drive advances one run. Safe to call redundantly (heartbeat + handlers).
+// drive claims the run and advances it. dispatchRun holds the claim across the
+// whole admission and calls driveClaimed directly; this wrapper exists for the
+// callers that dispatch inline (schedule.go's watcher rounds).
 func (ag *Agent) drive(ctx context.Context, runID int64) {
 	if !ag.claim(runID) {
-		return // already being driven
+		return // already being driven in this process
 	}
 	defer ag.release(runID)
+	ag.driveClaimed(ctx, runID)
+}
+
+// driveClaimed advances a run whose claim the caller already holds.
+func (ag *Agent) driveClaimed(ctx context.Context, runID int64) {
+	// The interrupt flag is consumed by the drive it was meant for, and cleared
+	// here rather than in release(): release now runs at admission time too, and
+	// clearing it there silently discarded an interrupt that arrived while the
+	// run was being admitted.
+	defer ag.clearStop(runID)
+	// claim() is a RAM map and therefore per-process, but a blue/green swap
+	// briefly runs two generations against the same database. The lease is what
+	// stops the new one re-driving a run the draining one still holds.
+	if ok, err := ag.db.claimLease(runID, ag.gen, leaseTTL); err != nil || !ok {
+		// Another generation still holds this run — almost always a process a
+		// save just killed, whose lease outlives it by up to leaseTTL. Park it
+		// somewhere the dispatcher can find again: a bare return here left the
+		// run `idle`, which readyRuns has no branch for, so the prompt died
+		// rather than waiting.
+		ag.parkQueued(runID)
+		ag.kick()
+		return
+	}
+	defer ag.db.releaseLease(runID, ag.gen)
+	// A freed run may be exactly what some other run was waiting on.
+	defer ag.kick()
 
 	cfg, err := ag.db.runConfig(runID)
 	if err != nil {
@@ -61,8 +99,24 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 		}
 	}
 
+	// Parked on children: the dispatcher only selects a blocked run once every
+	// await dependency has settled, so reaching here means they all have.
+	// Delivering rewrites the placeholders written at park time, which is what
+	// keeps results in call order and the transcript valid throughout.
+	if run.Status == statusBlocked {
+		if ag.db.openDepCount(runID) > 0 {
+			return // not our turn yet
+		}
+		ag.deliverSettledDeps(runID)
+		_ = ag.db.setStatus(runID, statusRunning, 0, run.Result, "")
+		run, err = ag.db.getRun(runID)
+		if err != nil {
+			return
+		}
+	}
+
 	switch run.Status {
-	case statusDone, statusError, statusWaiting:
+	case statusDone, statusError, statusWaiting, statusCanceled:
 		return
 	}
 	_ = ag.db.setStatus(runID, statusRunning, 0, run.Result, "")
@@ -77,9 +131,31 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			_ = ag.db.setStatus(runID, statusIdle, 0, "interrupted", "")
 			return
 		}
+		// The durable half of cancellation. The RAM flag above dies with the
+		// process; this one is a column, so a cancel survives a swap.
+		if r, err := ag.db.getRun(runID); err == nil && r.CancelReq != 0 {
+			_ = ag.db.setStatus(runID, statusCanceled, 0, "cancelled", "")
+			ag.settle(runID, outcomeCanceled, "cancelled")
+			ag.cancelDescendants(runID, "cancelled with its parent")
+			return
+		}
+		// Renew every iteration, not just after an LLM call: mcpTools,
+		// repairTranscript, compaction (which makes its own summarizer call)
+		// and context assembly all happen outside that window, so a live drive
+		// could let its own lease lapse and be double-driven by another
+		// generation.
+		ag.db.renewLease(runID, ag.gen, leaseTTL)
 		run, err = ag.db.getRun(runID)
 		if err != nil {
 			return
+		}
+		// A child that settled while we were working lands here rather than
+		// needing a whole second drive.
+		if ag.deliverSettledDeps(runID) > 0 {
+			run, err = ag.db.getRun(runID)
+			if err != nil {
+				return
+			}
 		}
 
 		ag.maybeCompact(ctx, run, cfg)
@@ -89,7 +165,7 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			ag.fail(runID, "assemble context: "+err.Error())
 			return
 		}
-		specs := toolSpecs(cfg, mcp)
+		specs := toolSpecs(cfg, run.Depth, mcp)
 		model := visionModelFor(ctx, cfg, msgs) // general, or vlm for images on a non-vision model
 
 		t0 := time.Now()
@@ -109,6 +185,10 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 		// Provider-reported prompt tokens are the compaction trigger's ground
 		// truth (beats the char/4 estimate); recorded for the next maybeCompact.
 		ag.db.setPromptTokens(runID, resp.Usage.PromptTokens)
+		// Denormalized so a tree poll is O(1); the lease renewal rides along on
+		// a write that was happening anyway.
+		ag.db.addRunCost(runID, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+		ag.db.renewLease(runID, ag.gen, leaseTTL)
 		ag.db.journal(runID, "llm_call", map[string]any{
 			"model": model, "latencyMs": time.Since(t0).Milliseconds(),
 			"promptTokens": resp.Usage.PromptTokens, "completionTokens": resp.Usage.CompletionTokens,
@@ -127,6 +207,11 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 		if len(asst.ToolCalls) == 0 {
 			// A plain answer ends the turn; wait for the next user message.
 			_ = ag.db.setStatus(runID, statusIdle, 0, run.Result, "")
+			// For a detached run there is no "next user message" — the answer IS
+			// the result its waiter is parked on, so settle it now.
+			if run.Detached {
+				ag.settle(runID, outcomeAnswered, asString(asst.Content))
+			}
 			return
 		}
 
@@ -174,13 +259,52 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, cal
 
 	for idx := 0; idx < len(calls); {
 		name := calls[idx].Function.Name
+		if name == "spawn_subagent" {
+			// Consume the whole consecutive run of spawns, not just this one:
+			// the model's idiom is several in a turn to get them in parallel,
+			// and parking on the first would silently drop its siblings.
+			j := idx
+			for j < len(calls) && calls[j].Function.Name == "spawn_subagent" {
+				j++
+			}
+			group := calls[idx:j]
+			ag.placeholderResults(run.ID, group)
+			started := 0
+			for _, tc := range group {
+				args := decodeArgs(tc.Function.Arguments)
+				task, _ := args["task"].(string)
+				sys, _ := args["system"].(string)
+				if _, err := ag.startChild(run, cfg, task, sys, "", nil, tc.ID); err != nil {
+					ag.settleToolResult(run.ID, tc, "error: "+err.Error())
+					continue
+				}
+				started++
+			}
+			if started == 0 {
+				idx = j
+				continue // every spawn was refused; carry on with the turn
+			}
+			// Parked, holding NO drive slot — which is what makes a nested
+			// spawn impossible to deadlock.
+			ag.parkForAwait(run, group)
+			for _, rest := range calls[j:] {
+				ag.addToolResult(run.ID, rest, "(not executed: waiting on subagents)")
+			}
+			return true, false
+		}
 		if !isParkingTool(name) {
 			// A run of consecutive non-parking tools executes in parallel
 			// (spawn_subagent among them ⇒ parallel subagents; a configurable
 			// per-tool timeout bounds the rest). Results append in call order so
 			// the transcript stays API-valid.
 			j := idx
-			for j < len(calls) && !isParkingTool(calls[j].Function.Name) {
+			// Also stop at spawn_subagent: it is handled by the branch above,
+			// not by runTool, so sweeping one into this batch made it fail with
+			// `unknown tool "spawn_subagent"`. A turn like [note, spawn_subagent]
+			// therefore delegated nothing and told the model the tool did not
+			// exist.
+			for j < len(calls) && !isParkingTool(calls[j].Function.Name) &&
+				calls[j].Function.Name != "spawn_subagent" {
 				j++
 			}
 			// Answer the block BEFORE running anything, then rewrite each
@@ -202,10 +326,27 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, cal
 			ag.addToolResult(run.ID, tc, "finished")
 			ag.db.journal(run.ID, "finish", map[string]string{"result": result})
 			_ = ag.db.setStatus(run.ID, statusDone, 0, result, "")
+			ag.settle(run.ID, outcomeDone, result)
+			// No run outlives the consumer of its output.
+			ag.cancelDescendants(run.ID, "parent finished")
 			_ = publishEvent(run.ID, "done")
 			terminal = true
 		case "ask_user":
 			q, _ := args["question"].(string)
+			if run.Detached {
+				// A background run has no one to ask: it would park forever
+				// while its parent parks waiting for it. Report the blocker as
+				// the result and let whoever is waiting escalate.
+				msg := "BLOCKED: " + q
+				ag.settleToolResult(run.ID, tc, "(you are a background run and cannot reach the human; reported the blocker instead)")
+				ag.db.journal(run.ID, "finish", map[string]string{"result": msg})
+				_ = ag.db.setStatus(run.ID, statusDone, 0, msg, "")
+				ag.settle(run.ID, outcomeIncomplete, msg)
+				for _, rest := range calls[idx+1:] {
+					ag.addToolResult(run.ID, rest, "(not executed: run paused/ended)")
+				}
+				return false, true
+			}
 			ag.addToolResult(run.ID, tc, "(asked the user; awaiting their reply)")
 			ag.db.journal(run.ID, "ask", map[string]string{"kind": "ask_user", "question": q})
 			_ = ag.db.setStatus(run.ID, statusWaiting, 0, q, "")
@@ -251,14 +392,28 @@ func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls [
 		return
 	}
 	results := make([]string, len(calls))
+	// Two levels: the per-batch cap keeps one turn fair, and the Agent-wide one
+	// keeps every concurrent drive honest. Per-batch alone compounds across
+	// runs; global alone would let one run with six slow tools starve the rest.
 	sem := make(chan struct{}, maxParallelTools)
 	var wg sync.WaitGroup
 	for i, tc := range calls {
 		wg.Add(1)
 		sem <- struct{}{}
+		// Honour cancellation while queueing: this send blocks on the DRIVE
+		// goroutine while it holds a slot, a claim and a lease, so a cancelled
+		// run could otherwise sit here for a full tool timeout.
+		select {
+		case ag.toolSem <- struct{}{}:
+		case <-ctx.Done():
+			<-sem
+			wg.Done()
+			results[i] = "error: cancelled before this tool started"
+			continue
+		}
 		go func(i int, tc toolCall) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer func() { <-sem; <-ag.toolSem }()
 			results[i] = ag.runOneTool(ctx, run, cfg, tc)
 		}(i, tc)
 	}
@@ -274,16 +429,6 @@ func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls [
 func (ag *Agent) runOneTool(ctx context.Context, run *Run, cfg Config, tc toolCall) string {
 	name := tc.Function.Name
 	args := decodeArgs(tc.Function.Arguments)
-	if name == "spawn_subagent" {
-		task, _ := args["task"].(string)
-		sys, _ := args["system"].(string)
-		// Capped like every other tool: a chatty child would otherwise ride
-		// every subsequent LLM call in this run until compaction.
-		out := capToolResult(ag.spawnSubagent(ctx, run, cfg, task, sys))
-		ag.db.journal(run.ID, "tool_call", map[string]any{"name": name, "args": args})
-		ag.db.journal(run.ID, "tool_result", map[string]any{"name": name, "result": clip(out, 2000)})
-		return out
-	}
 	tctx := ctx
 	if cfg.ToolTimeout > 0 {
 		var cancel context.CancelFunc
@@ -336,35 +481,6 @@ func (ag *Agent) addToolResult(runID int64, tc toolCall, content string) {
 	})
 }
 
-// spawnSubagent runs a focused child run to completion and returns its result.
-// The child cannot itself spawn subagents (bounded nesting).
-func (ag *Agent) spawnSubagent(ctx context.Context, parent *Run, cfg Config, task, system string) string {
-	child := cfg
-	child.Subagents = false
-	if system != "" {
-		child.System = system
-	}
-	cfgJSON, _ := json.Marshal(child)
-	childID, err := ag.db.createRun("subagent: "+clip(task, 60), string(cfgJSON), parent.ID)
-	if err != nil {
-		return "error creating subagent: " + err.Error()
-	}
-	_, _ = ag.db.addMessage(&Message{RunID: childID, Role: "system", Content: child.System})
-	_, _ = ag.db.addMessage(&Message{RunID: childID, Role: "user", Content: task})
-	ag.db.journal(parent.ID, "note", map[string]any{"text": fmt.Sprintf("spawned subagent #%d", childID)})
-
-	ag.drive(ctx, childID) // synchronous, bounded by MaxIters
-
-	cr, err := ag.db.getRun(childID)
-	if err != nil {
-		return "subagent error"
-	}
-	if cr.Result != "" {
-		return cr.Result
-	}
-	return ag.lastAssistant(childID)
-}
-
 func (ag *Agent) lastAssistant(runID int64) string {
 	msgs, _ := ag.db.messages(runID, false)
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -378,6 +494,9 @@ func (ag *Agent) lastAssistant(runID int64) string {
 func (ag *Agent) fail(runID int64, msg string) {
 	ag.db.journal(runID, "error", map[string]string{"error": msg})
 	_ = ag.db.setStatus(runID, statusError, 0, msg, "")
+	// Release anything parked on this run: a waiter must learn that its
+	// dependency failed, not wait forever for a result that is never coming.
+	ag.settle(runID, outcomeError, msg)
 	_ = publishEvent(runID, "error")
 }
 

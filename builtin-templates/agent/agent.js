@@ -98,6 +98,70 @@ const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
 // --- runs list ----------------------------------------------------------
 
+// sideOpen holds the roots whose subagents are expanded. A fan-out can add a
+// dozen runs at once, so a workflow is ONE row until you open it — otherwise
+// the run list floods and the tile stops being navigable. Server-side prefs,
+// not localStorage: this frame is a sandboxed opaque origin and has none.
+const sideOpen = new Set();
+let sideOpenLoaded = false;
+
+async function loadSideOpen() {
+  try {
+    const r = await xbin.fetch('/api/xbin/prefs/sideOpen');
+    if (r.ok) {
+      const v = await r.json();
+      if (Array.isArray(v)) v.forEach((id) => sideOpen.add(+id));
+    }
+  } catch { /* first run, or prefs unavailable */ }
+  sideOpenLoaded = true;
+  loadRuns();
+}
+
+function saveSideOpen() {
+  if (!sideOpenLoaded) return;
+  xbin.fetch('/api/xbin/prefs/sideOpen', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify([...sideOpen]),
+  }).catch(() => {});
+}
+
+// forest turns the flat run list into parent → children rows. A run whose
+// parent is MISSING is treated as a root rather than hidden: those are rows
+// orphaned by the pre-cascade delete bug, and burying them under a parent that
+// no longer exists would make them permanently invisible and undeletable.
+function forest(runs) {
+  const byId = new Map(runs.map((r) => [r.id, r]));
+  const kids = new Map();
+  for (const r of runs) {
+    if (r.parentId && byId.has(r.parentId)) {
+      if (!kids.has(r.parentId)) kids.set(r.parentId, []);
+      kids.get(r.parentId).push(r);
+    }
+  }
+  const rows = [];
+  const walk = (r, depth) => {
+    const mine = (kids.get(r.id) || []).sort((a, b) => a.created - b.created);
+    rows.push({ run: r, depth, kids: mine.length, orphan: !!r.parentId && !byId.has(r.parentId) });
+    if (sideOpen.has(r.id)) for (const c of mine) walk(c, depth + 1);
+  };
+  for (const r of runs) if (!r.parentId || !byId.has(r.parentId)) walk(r, 0);
+  return rows;
+}
+
+// subtreeOf counts a row's whole subtree, so a collapsed parent can show what
+// it is hiding — folding must never conceal that work is still running.
+function subtreeOf(id, runs) {
+  const kids = runs.filter((r) => r.parentId === id);
+  let nodes = kids.length, running = 0, error = 0;
+  for (const k of kids) {
+    if (k.status === 'running' || k.status === 'queued' || k.status === 'blocked') running++;
+    if (k.status === 'error') error++;
+    const sub = subtreeOf(k.id, runs);
+    nodes += sub.nodes; running += sub.running; error += sub.error;
+  }
+  return { nodes, running, error };
+}
+
 async function loadRuns() {
   let runs;
   try { runs = await api('/runs'); } catch { return; }
@@ -107,16 +171,35 @@ async function loadRuns() {
   const tasks = runsCache.filter((r) => r.kind !== 'quick' || r.id === sel);
   const host = $('runs');
   host.innerHTML = '';
-  if (!tasks.length) host.innerHTML = '<div class="empty">no tasks yet</div>';
-  for (const run of tasks) {
+  const rows = forest(tasks);
+  if (!rows.length) host.innerHTML = '<div class="empty">no tasks yet</div>';
+  for (const { run, depth, kids, orphan } of rows) {
     const el = document.createElement('div');
     el.className = 'run' + (run.id === sel ? ' on' : '');
-    const sub = run.parentId ? '↳ subagent · ' : (run.kind === 'quick' ? '⚡ ' : '');
-    el.innerHTML = `<div class="t">${esc(run.title || 'run ' + run.id)}</div>
-      <div class="m">${sub}<span class="badge ${esc(run.status)}">${esc(run.status)}</span></div>`;
+    // Indent capped at 3 levels: 220px minus the indent still has to fit a title.
+    el.style.paddingLeft = `${10 + Math.min(depth, 3) * 11}px`;
+    const open = sideOpen.has(run.id);
+    const tw = kids
+      ? `<span class="tw" data-tw="${num(run.id)}" title="${open ? 'collapse' : 'expand'} ${kids} subagent(s)">${open ? '▾' : '▸'}</span>`
+      : (depth ? '<span class="tw">·</span>' : (run.kind === 'quick' ? '⚡ ' : ''));
+    const sub = subtreeOf(run.id, tasks);
+    const roll = kids && !open && sub.nodes
+      ? `<span class="roll">⑂ ${sub.nodes}${sub.running ? ` · ${sub.running}▶` : ''}${sub.error ? ` · ${sub.error}⚠` : ''}</span>`
+      : '';
+    el.innerHTML = `<div class="t">${tw}${esc(run.title || 'run ' + run.id)}</div>
+      <div class="m">${orphan ? '<span title="its parent run was deleted">⚠ orphan · </span>' : ''}` +
+      `<span class="badge ${esc(run.status)}">${esc(run.status)}</span>${roll}</div>`;
     el.onclick = () => { sel = run.id; lastDetailKey = ''; loadRuns(); loadDetail(); };
+    const twEl = el.querySelector('[data-tw]');
+    if (twEl) twEl.onclick = (e) => {
+      e.stopPropagation(); // twisting open must not also navigate
+      if (sideOpen.has(run.id)) sideOpen.delete(run.id); else sideOpen.add(run.id);
+      saveSideOpen();
+      loadRuns();
+    };
     host.append(el);
   }
+  syncHalt($('halt').dataset.on === '1');
   if (sel == null) renderHome();
 }
 
@@ -167,6 +250,182 @@ function renderHome() {
     sel = +el.dataset.r; lastDetailKey = ''; loadRuns(); loadDetail();
   });
   $('msg').placeholder = HOME.placeholder;
+}
+
+// --- workflow view ------------------------------------------------------
+
+let wfOpen = false, wfRoot = null, wfSetKey = '', wfValKey = '', wfSel = null;
+
+const WF_WORDS = { dep: 'waiting on', slot: 'queued — at the concurrency limit',
+                   human: 'waiting on you', sleeping: 'sleeping', cancelling: 'cancelling…' };
+
+function openWorkflow(rootId) {
+  if (rootId == null) return;
+  wfOpen = true; wfRoot = rootId; wfSetKey = ''; wfValKey = '';
+  $('workflow').hidden = false;
+  $('main').classList.add('wfon');
+  loadTree();
+}
+
+function closeWorkflow() {
+  wfOpen = false;
+  $('workflow').hidden = true;
+  $('main').classList.remove('wfon');
+}
+
+async function loadTree() {
+  if (!wfOpen || wfRoot == null) return;
+  let t;
+  try { t = await api(`/runs/${wfRoot}/tree`); } catch { return; }
+  if (!wfOpen) return;
+  renderWorkflow(t);
+}
+
+// The timeline can afford a wholesale innerHTML rebuild because you only read
+// it. A tree polled every couple of seconds cannot: a rebuild drops the hovered
+// row out from under the pointer and kills a button mid-click. So rebuild only
+// when the node SET changes, and patch values otherwise.
+function renderWorkflow(t) {
+  const nodes = t.nodes || [];
+  const setKey = nodes.map((n) => n.id).join(',');
+  const valKey = JSON.stringify(nodes.map((n) => [n.status, n.updated, n.promptTokens, n.blockReason]));
+  paintWorkflowHeader(t);
+  if (setKey !== wfSetKey) { wfSetKey = setKey; wfValKey = valKey; return buildWorkflow(t); }
+  if (valKey === wfValKey) return;
+  wfValKey = valKey;
+  patchWorkflow(t);
+}
+
+function paintWorkflowHeader(t) {
+  const by = (t.totals && t.totals.byStatus) || {};
+  const root = (t.nodes || []).find((n) => n.id === t.root);
+  $('wf-title').textContent = root ? (root.title || 'run ' + t.root) : 'workflow';
+  $('wf-title').title = $('wf-title').textContent;
+  const parts = [];
+  for (const k of ['running', 'queued', 'blocked', 'done', 'error', 'cancelled']) {
+    if (by[k]) parts.push(`${by[k]} ${k}`);
+  }
+  $('wf-counts').textContent = `${(t.totals || {}).nodes || 0} nodes · ${parts.join(' · ') || 'idle'}`;
+  const tot = t.totals || {};
+  // A rate, not just a total: a total is alarming, a rate is actionable.
+  $('wf-cost').textContent =
+    `Σ ${fmtN(tot.promptTokens)}↑ ${fmtN(tot.completionTokens)}↓ · ${fmtN(tot.llmCalls)} calls · ${tot.active}/${tot.limit} running`;
+}
+
+// A run with no relatives gets no chip at all, so the workflow layer costs a
+// plain single run nothing: no extra element in an already-crowded top bar,
+// and no /tree request.
+function wfChip(run) {
+  const k = kinOf(run.id);
+  if (!k || k.nodes < 2) return '';
+  return `<span class="badge wfchip" data-a="wf" title="open the workflow view">⑂ ${k.nodes}`
+       + `${k.running ? ` · ${k.running}▶` : ''}${k.error ? ` · ${k.error}⚠` : ''} · ${fmtN(k.tokens)}</span>`;
+}
+
+function wfCostOf(n) { return num(n.promptTokens) + num(n.completionTokens); }
+
+function nodeRow(n, maxCost) {
+  const cost = wfCostOf(n);
+  const pct = maxCost > 0 ? Math.round(100 * cost / maxCost) : 0;
+  const blocked = n.blockReason === 'dep' && (n.blockedOn || []).length;
+  let sub = '', cls = '';
+  if (blocked) { sub = `⛔ waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`; cls = 'blk'; }
+  else if (n.blockReason) { sub = '⏳ ' + (WF_WORDS[n.blockReason] || n.blockReason); cls = 'blk'; }
+  else if (n.status === 'error') { sub = '⚠ ' + (n.result || 'failed'); cls = 'bad'; }
+  else if (n.lastStep) { sub = n.lastStep; }
+  return `<div class="wfn${wfSel === n.id ? ' on' : ''}" data-n="${num(n.id)}" style="--d:${Math.min(num(n.depth), 4)}">
+    <span class="nm"><span class="dot ${esc(n.status)}"></span><span class="tt">${esc(n.title || 'run ' + n.id)}</span></span>
+    <span class="cost">${cost ? fmtN(cost) : ''}${cost ? `<i class="share"><i style="width:${pct}%"></i></i>` : ''}</span>
+    <span class="sub ${cls}">${esc(clip(sub, 160))}</span>
+  </div>`;
+}
+
+function buildWorkflow(t) {
+  const nodes = t.nodes || [];
+  const maxCost = Math.max(1, ...nodes.map(wfCostOf));
+  // Sorted by creation within a parent, never by status: status-sorting makes
+  // rows jump under the cursor on every poll.
+  const byParent = new Map();
+  for (const n of nodes) {
+    const k = n.id === t.root ? -1 : n.parentId;
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k).push(n);
+  }
+  const out = [];
+  const walk = (list) => {
+    for (const n of (list || []).sort((a, b) => a.created - b.created)) {
+      out.push(nodeRow(n, maxCost));
+      walk(byParent.get(n.id));
+    }
+  };
+  walk(byParent.get(-1));
+  const body = $('wf-body');
+  body.innerHTML = out.join('') || '<div class="empty">no background runs</div>';
+  body.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => selectRun(+el.dataset.n));
+}
+
+function patchWorkflow(t) {
+  const nodes = t.nodes || [];
+  const maxCost = Math.max(1, ...nodes.map(wfCostOf));
+  for (const n of nodes) {
+    const el = $('wf-body').querySelector(`[data-n="${num(n.id)}"]`);
+    if (!el) continue;
+    const dot = el.querySelector('.dot');
+    if (dot) dot.className = 'dot ' + n.status;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = nodeRow(n, maxCost);
+    el.querySelector('.cost').innerHTML = tmp.querySelector('.cost').innerHTML;
+    const sub = tmp.querySelector('.sub');
+    el.querySelector('.sub').className = sub.className;
+    el.querySelector('.sub').textContent = sub.textContent;
+  }
+}
+
+// kinOf derives a run's tree shape from runsCache, which already carries
+// parentId — so a single childless run costs no request and shows no chip.
+function kinOf(id) {
+  const me = runsCache.find((r) => r.id === id);
+  if (!me) return { nodes: 0 };
+  const root = me.rootId || me.id;
+  const fam = runsCache.filter((r) => (r.rootId || r.id) === root);
+  return {
+    root,
+    nodes: fam.length,
+    running: fam.filter((r) => r.status === 'running' || r.status === 'queued').length,
+    error: fam.filter((r) => r.status === 'error').length,
+    tokens: fam.reduce((a, r) => a + num(r.promptTokens) + num(r.completionTokens), 0),
+  };
+}
+
+function selectRun(id) {
+  if (id == null) return;
+  sel = +id; lastDetailKey = '';
+  // Opening a node from the tree or a timeline chip must reveal it in the
+  // sidebar too, or the selected row is folded away where you cannot see it.
+  const byId = new Map(runsCache.map((r) => [r.id, r]));
+  let cur = byId.get(+id);
+  for (let i = 0; cur && cur.parentId && i < 8; i++) {
+    sideOpen.add(cur.parentId);
+    cur = byId.get(cur.parentId);
+  }
+  saveSideOpen();
+  closeWorkflow();
+  loadRuns(); loadDetail();
+}
+
+async function loadHalt() {
+  try {
+    const h = await api('/halt');
+    syncHalt(!!h.on);
+  } catch { /* ignore */ }
+}
+
+function syncHalt(on) {
+  const b = $('halt');
+  b.hidden = !on && !runsCache.some((r) => r.status === 'running' || r.status === 'queued');
+  b.textContent = on ? '⏻ HALTED' : '⏻';
+  b.title = on ? 'Resume — the agent is halted' : 'Stop every running agent now';
+  b.dataset.on = on ? '1' : '';
 }
 
 // --- render pane --------------------------------------------------------
@@ -314,7 +573,7 @@ function syncPreview(d) {
   prevSeen = last.seq;
   if (!fresh) return;
   if (prevDismissed === last.seq) return;          // the user closed this one
-  if (settingsOpen) return;                        // don't yank an open tab away
+  if (settingsOpen || wfOpen) return;              // don't yank an open view away
   if (document.visibilityState !== 'visible') return;
   if (preview && !preview.live) return;            // the user pinned an older chip
   openPreview(det.path, num(det.version), true);
@@ -328,7 +587,8 @@ function eventStream(d) {
   // transcript messages (assistant tool chips + tool-role results), and asks
   // via the actionable footer, so those step kinds are omitted here to avoid
   // duplicating them — renderStep still handles every kind for robustness.
-  const metaKinds = new Set(['llm_call', 'compaction', 'yield', 'state_changed', 'finish', 'error', 'note', 'render']);
+  const metaKinds = new Set(['llm_call', 'compaction', 'yield', 'state_changed', 'finish', 'error', 'note', 'render',
+                                'spawn', 'await', 'cancel', 'child_settled']);
   const evs = [];
   for (const m of d.messages || []) {
     if (m.role === 'system') continue;
@@ -434,6 +694,24 @@ function renderStep(s) {
       g = '⚠';
       txt = esc(d.error || d.text || '');
       break;
+    case 'spawn':
+      g = '⑂';
+      txt = `spawned <span class="rchip" data-node="${num(d.runId)}" title="open this run">#${num(d.runId)}</span>`
+          + `${(d.after || []).length ? ` after ${(d.after || []).map((i) => '#' + num(i)).join(', ')}` : ''}`
+          + ` · ${esc(clip(d.task || '', 140))}`;
+      break;
+    case 'await':
+      g = '⏳';
+      txt = `waiting on ${num(d.calls)} background run(s)`;
+      break;
+    case 'child_settled':
+      g = '↵';
+      txt = `<span class="rchip" data-node="${num(d.runId)}" title="open this run">#${num(d.runId)}</span> ${esc(d.outcome || 'settled')}`;
+      break;
+    case 'cancel':
+      g = '⏹';
+      txt = `cancelled${d.reason ? ` · ${esc(d.reason)}` : ''}`;
+      break;
     case 'render': {
       g = '🖼';
       const on = preview && preview.path === d.path;
@@ -479,6 +757,7 @@ async function loadDetail() {
     <button class="btn ghost btnsm" data-a="learn" title="Distill this run into a reusable skill">Learn skill</button>
     <button class="btn ghost btnsm" data-a="mem">Memory (${Object.keys(d.memory || {}).length})</button>
     <button class="btn ghost btnsm" data-a="files" title="This run's session files">Files (${(d.files || []).length})</button>
+    ${wfChip(run)}
     <button class="btn rm btnsm" data-a="delete">Delete</button>`;
   $('top').querySelectorAll('[data-a]').forEach((b) => b.onclick = () => control(b.dataset.a));
 
@@ -496,6 +775,14 @@ async function loadDetail() {
       html += d.draft
         ? `<div class="draft"><div class="role">assistant · streaming</div><div class="body md">${md(d.draft)}<span class="cur"></span></div></div>`
         : `<div class="draft"><div class="role">assistant · thinking<span class="cur"></span></div></div>`;
+    } else if (run.status === 'queued') {
+      // Say which wait this is: a full ceiling can last a whole drive of some
+      // other run, while an admitted run starts within a moment.
+      const sl = d.slots || {};
+      const full = sl.limit && num(sl.active) >= num(sl.limit);
+      html += `<div class="draft"><div class="role">${full
+        ? `queued · all ${num(sl.limit)} drive slots are busy — starts when one frees`
+        : 'queued · starting'}<span class="cur"></span></div></div>`;
     }
 
     // Actionable footer: approve/deny, or the ask to answer below.
@@ -517,6 +804,12 @@ async function loadDetail() {
     // render no longer steals it from under you.
     tl.querySelectorAll('[data-render]').forEach((el) => el.onclick = () =>
       openPreview(el.dataset.render, +el.dataset.rv, false));
+    // Descending from a parent's transcript straight into the child is the most
+    // natural motion there is, and it costs one selector.
+    tl.querySelectorAll('[data-node]').forEach((el) => el.onclick = (e) => {
+      e.stopPropagation();
+      selectRun(+el.dataset.node);
+    });
     tl.querySelectorAll('[data-ap]').forEach((b) => b.onclick = async () => {
       try { await api(`/runs/${sel}/approve`, jbody({ approve: b.dataset.ap === '1' }, 'POST')); } catch (e) { alert(e.message); }
       lastDetailKey = ''; loadDetail();
@@ -532,6 +825,7 @@ async function loadDetail() {
 async function control(action) {
   if (action === 'mem') return openSettings('memory');
   if (action === 'files') return openSettings('files');
+  if (action === 'wf') { const k = kinOf(sel); return openWorkflow(k.root != null ? k.root : sel); }
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
     try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
@@ -570,6 +864,21 @@ $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.prevent
 
 // Render pane header. Closing remembers WHICH render was dismissed, so the
 // poll doesn't immediately reopen the same one.
+$('wf-close').onclick = () => closeWorkflow();
+$('wf-stop').onclick = async () => {
+  if (wfRoot == null || !confirm('Cancel this workflow and every run below it?')) return;
+  try { await api(`/runs/${wfRoot}/cancel`, jbody({ scope: 'subtree', reason: 'stopped from the tile' }, 'POST')); }
+  catch (e) { return alert(e.message); }
+  loadTree(); loadRuns();
+};
+// One click, no confirm — during a runaway every dialog is another second of
+// spend. The undo is the same button.
+$('halt').onclick = async () => {
+  const on = $('halt').dataset.on !== '1';
+  try { await api('/halt', jbody({ on }, 'PUT')); } catch (e) { return alert(e.message); }
+  syncHalt(on);
+  loadRuns(); if (wfOpen) loadTree();
+};
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
 $('prev-max').onclick = () => {
   $('main').classList.toggle('prev-max');
@@ -582,10 +891,9 @@ $('prev-src').onclick = () => {
   openSettings('files');
 };
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && preview && !$('newdlg').open && !settingsOpen) {
-    prevDismissed = prevSeen;
-    closePreview();
-  }
+  if (e.key !== 'Escape' || $('newdlg').open || settingsOpen) return;
+  if (preview) { prevDismissed = prevSeen; closePreview(); return; }
+  if (wfOpen) closeWorkflow();
 });
 $('home').onclick = goHome;
 $('tset').onclick = () => {
@@ -954,5 +1262,11 @@ function tabMcp(bd) {
 // --- poll ---------------------------------------------------------------
 
 loadRuns();
+loadSideOpen();
+loadHalt();
 setInterval(loadRuns, 2500);
 setInterval(loadDetail, 1500);
+// One aggregate request per tick covers the whole tree, so the cost is O(1) in
+// the number of concurrent runs rather than one request per node — and it is
+// only paid while the pane is actually open.
+setInterval(() => { if (wfOpen && document.visibilityState === 'visible') loadTree(); }, 2000);

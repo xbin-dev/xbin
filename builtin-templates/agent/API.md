@@ -15,7 +15,7 @@ and the owner. There is no public surface. Paths below are relative to
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards) |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
-| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft}` (`draft` = live streaming text; `files` is session-file METADATA only) |
+| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, slots}` (`draft` = live streaming text; `files` is session-file METADATA only; `slots` = `{active, limit}` drive slots, so a `queued` run can say whether it waits for one) |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
@@ -26,6 +26,9 @@ and the owner. There is no public surface. Paths below are relative to
 | `POST /runs/{id}/learn` | — | distill the run into a saved skill (the /learn flow) |
 | `PUT /runs/{id}/memory` | `{key, value}` | set a memory block |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
+| `POST /runs/{id}/cancel` | `{scope?, reason?}` | durable cancel; `scope` defaults to `subtree` |
+| `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes, statuses, blockers, cost. Metadata only |
+| `GET /halt` · `PUT /halt` | `{on}` | the global brake: cancels live runs and blocks new spawns |
 | `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated}]`, no content |
 | `GET /runs/{id}/file?path=` | — | one file with its content |
 | `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
@@ -84,9 +87,12 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
-                "files": true, "repl": true },
+                "files": true, "repl": true, "workflow": true },
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
-  "replMemMB": 256             // REPL heap watchdog
+  "replMemMB": 256,            // REPL heap watchdog
+  // workflow limits (0 = default): delegation depth, lifetime runs per tree,
+  // spawns per turn, concurrent drives process-wide
+  "maxDepth": 3, "maxSpawn": 32, "maxSpawnPerTurn": 8, "maxActiveRuns": 4
 }
 ```
 
@@ -126,8 +132,12 @@ the agent with the `skills_*` tools; injected as a name+description list).
 
 ## Heartbeat
 
-`POST /tick` — invoked by the on-demand `beat` cron job. Drives every run that
-is `sleeping` past its wake time or left `running` (crash recovery).
+`POST /tick` — invoked by the on-demand `beat` cron job while anything is
+pending. It first recovers runs no dispatcher can reach (a cancel that no drive
+finished, a prompt whose dispatch was dropped), then admits everything
+`readyRuns` selects: undelivered dependency results, unblocked runs, `queued`
+runs, `sleeping` runs past their wake time, and `running` runs whose lease has
+expired (crash recovery).
 
 The job is registered only while something is pending. A registration that
 fails (the gateway is still coming up after a restart) is retried every minute
@@ -150,7 +160,59 @@ instead of approving denies the parked calls.
 ## Run status
 
 `idle` (awaiting a user message) · `running` · `waiting_input` (parked on
-`ask_user`/approval) · `sleeping` (yielded; heartbeat resumes) · `done` · `error`.
+`ask_user`/approval) · `sleeping` (yielded; heartbeat resumes) · `queued`
+(ready, waiting for a concurrency slot) · `blocked` (waiting on dependencies) ·
+`done` · `error` · `canceled`.
+
+`queued` is deliberately its own state rather than `sleeping` with a wake time:
+reusing the sleep mechanism for back-pressure made a throttled run
+indistinguishable from one that had chosen to wait. `blocked` does not keep the
+heartbeat registered by itself — the rows it waits on are themselves pending,
+so the beat stays on transitively.
+
+## Workflows (the run graph)
+
+A workflow **is a root run**: `runs.root_id`/`depth`/`detached` place every run
+in a tree, `run_deps` holds the dependency edges, and `run_trees` holds the
+per-tree lifetime spawn budget. **A node id is a run id**, so the journal,
+`recall`, session files and the tile's click-through all work on a node.
+
+Tools: `spawn_subagent` (delegate and get the answer back in the same turn —
+several in one turn run in parallel), plus `workflow_spawn` (detached, returns a
+node id, `after:[ids]` for dependencies), `workflow_status`, `workflow_result`,
+`workflow_cancel`. Feature key `workflow`.
+
+Two invariants are worth knowing before changing any of this:
+
+- **A child never writes into its parent's transcript.** A settling child marks
+  its dependency edges settled and kicks the dispatcher; the parent delivers
+  from its own drive. That is why five children finishing together produce one
+  parent drive rather than five, and why delivery can be one transaction (so a
+  crash between writing the result and marking it delivered cannot duplicate it).
+- **A parked parent holds no drive slot.** A synchronous spawn would hold one
+  while waiting for a child that needs one, which deadlocks at a low ceiling.
+
+Scheduling is one predicate (`readyRuns`) reached from three entry points: boot,
+the cron heartbeat, and an in-process kick. The kick is pure latency — losing it
+to a swap costs nothing, because `/tick` runs the identical query from cold. Two
+clauses carry the weight: `NOT (parent_id<>0 AND detached=0)` makes a
+non-detached child unreachable by the heartbeat (a child exists only inside its
+parent's tool call, so resurrecting it runs work nobody is waiting for), and
+`depth DESC` drains leaves so their parents can unblock.
+
+Limits, all in `Config`: `maxDepth` 3, `maxSpawn` 32 per tree (lifetime, so
+spawn→finish→spawn cannot loop forever), `maxSpawnPerTurn` 8, `maxActiveRuns` 4.
+The tree budget, not the depth, is the real backstop. Subagents get neither
+`ask_user` (they would park on a human while their parent parks on them) nor
+`schedule` (a cron-agent outlives the tree that made it).
+
+`workflow_status`/`result`/`cancel` take a model-supplied id and resolve it
+through the caller's **own subtree**. That scoping is the security boundary:
+before this layer no run could read another run's anything, and an unscoped id
+would let a web-lane run read a private-lane result by guessing.
+
+Leases (`lease_owner`/`lease_until`) make `claim()` correct across process
+generations — a blue/green swap briefly runs two against one sqlite file.
 
 ## Loop & tools
 

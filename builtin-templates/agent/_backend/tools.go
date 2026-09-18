@@ -32,7 +32,17 @@ func strProp(desc string) map[string]any {
 
 // toolSpecs returns the tool specs advertised to the LLM for this run's config,
 // including any MCP-sourced tools.
-func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
+// toolSpecs builds the model's tool list. depth is the caller's position in the
+// run graph: the delegation and scheduling tools are ABSENT at the limit rather
+// than present-and-erroring, because leaves are the most numerous runs in any
+// fan-out and would otherwise pay ~600 prompt tokens per call for tools they
+// cannot use.
+func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
+	// A subagent has no one to ask: it would park on a human while its parent
+	// parks on it, and nothing could answer either. The child contract tells it
+	// to finish() with the blocker instead; the loop converts a hallucinated
+	// call the same way.
+	askUser := depth == 0
 	specs := []toolSpec{
 		{Type: "function", Function: funcDef{
 			Name: "memory_set", Description: "Store a durable memory block (always kept in context). Use for facts, decisions, and running plans.",
@@ -52,13 +62,15 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"result"}, map[string]any{"result": strProp("the outcome / answer")}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name: "ask_user", Description: "Pause and ask the human a question. The run resumes when they answer.",
-			Parameters: obj([]string{"question"}, map[string]any{"question": strProp("what you need from the human")}),
-		}},
-		{Type: "function", Function: funcDef{
 			Name: "yield", Description: "Sleep for a while, then resume automatically (durable). Use when you should wait before continuing.",
 			Parameters: obj([]string{"seconds"}, map[string]any{"seconds": map[string]any{"type": "integer", "description": "how long to sleep"}}),
 		}},
+	}
+	if askUser {
+		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
+			Name: "ask_user", Description: "Pause and ask the human a question. The run resumes when they answer.",
+			Parameters: obj([]string{"question"}, map[string]any{"question": strProp("what you need from the human")}),
+		}})
 	}
 	if cfg.feature("recall") {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
@@ -66,20 +78,24 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"query"}, map[string]any{"query": strProp("search terms (plain words)")}),
 		}})
 	}
-	specs = append(specs,
-		toolSpec{Type: "function", Function: funcDef{
-			Name: "schedule", Description: "Schedule future work: create a cron-agent that starts a run on a cadence. cron is a 5-field expression or '@every 30m'. Set watcher:true for a run that re-checks something and keeps only rounds where it reports a change.",
-			Parameters: obj([]string{"cron", "goal"}, map[string]any{
-				"cron":    strProp("5-field cron or @every <dur>"),
-				"goal":    strProp("what each run should do"),
-				"name":    strProp("optional label"),
-				"watcher": map[string]any{"type": "boolean", "description": "watcher mode (discard no-change rounds)"},
-			}),
-		}},
-		toolSpec{Type: "function", Function: funcDef{
-			Name: "unschedule", Description: "Remove a cron-agent by its schedule id.",
-			Parameters: obj([]string{"id"}, map[string]any{"id": map[string]any{"type": "integer", "description": "schedule id"}}),
-		}})
+	// Cron-agents are top-level only. A subagent creating one is the unbounded
+	// -spend path: the job outlives the tree that made it and answers to nobody.
+	if depth == 0 {
+		specs = append(specs,
+			toolSpec{Type: "function", Function: funcDef{
+				Name: "schedule", Description: "Schedule future work: create a cron-agent that starts a run on a cadence. cron is a 5-field expression or '@every 30m'. Set watcher:true for a run that re-checks something and keeps only rounds where it reports a change.",
+				Parameters: obj([]string{"cron", "goal"}, map[string]any{
+					"cron":    strProp("5-field cron or @every <dur>"),
+					"goal":    strProp("what each run should do"),
+					"name":    strProp("optional label"),
+					"watcher": map[string]any{"type": "boolean", "description": "watcher mode (discard no-change rounds)"},
+				}),
+			}},
+			toolSpec{Type: "function", Function: funcDef{
+				Name: "unschedule", Description: "Remove a cron-agent by its schedule id.",
+				Parameters: obj([]string{"id"}, map[string]any{"id": map[string]any{"type": "integer", "description": "schedule id"}}),
+			}})
+	}
 	if cfg.feature("watcher") {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
 			Name: "state_changed", Description: "In a watcher run, report that the watched state changed since the last check, with a short summary. Calling this keeps the round in history; not calling it discards the round.",
@@ -133,7 +149,8 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			}),
 		}})
 	}
-	if cfg.Subagents {
+	specs = append(specs, workflowToolSpecs(cfg, depth)...)
+	if cfg.Subagents && depth < cfg.maxDepth() {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
 			Name: "spawn_subagent", Description: "Delegate a focused task to a fresh subagent (its own context). Returns the subagent's final result. Emit several in one turn to run them in parallel.",
 			Parameters: obj([]string{"task"}, map[string]any{
@@ -160,6 +177,13 @@ func sideEffect(name string) bool {
 
 // runTool executes a non-control tool and returns its textual result.
 func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
+	// Enforced here as well as by hiding the tools from deeper runs: a subagent
+	// creating a cron-agent is the unbounded-spend path — the job outlives the
+	// tree that made it — and a hallucinated call must not get through just
+	// because the spec was absent from its list.
+	if (name == "schedule" || name == "unschedule") && run.Depth > 0 {
+		return "", fmt.Errorf("only a top-level run can create or remove cron-agents; report the cadence you want and let your parent (or the owner) set it up")
+	}
 	switch name {
 	case "memory_set":
 		key, _ := args["key"].(string)
@@ -273,6 +297,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.runSkillTool(name, args)
 	}
 
+	if workflowToolNames[name] {
+		return ag.runWorkflowTool(ctx, run, cfg, name, args)
+	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
 	}

@@ -9,7 +9,7 @@ import (
 func TestToolsetFirewall(t *testing.T) {
 	names := func(cfg Config, mcp []toolSpec) map[string]bool {
 		out := map[string]bool{}
-		for _, s := range toolSpecs(cfg, mcp) {
+		for _, s := range toolSpecs(cfg, 0, mcp) {
 			out[s.Function.Name] = true
 		}
 		return out
