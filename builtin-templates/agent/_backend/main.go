@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,6 +119,12 @@ func main() {
 	mux.Handle("POST /runs/{id}/compact", xbin.RoleFunc("admin", handleCompact))
 	mux.Handle("PUT /runs/{id}/memory", xbin.RoleFunc("admin", handleMemoryPut))
 	mux.Handle("DELETE /runs/{id}/memory", xbin.RoleFunc("admin", handleMemoryDelete))
+	// Session files. Metadata and content are separate routes so the tile's
+	// 1.5s poll never drags file bodies with it.
+	mux.Handle("GET /runs/{id}/files", xbin.RoleFunc("admin", handleFilesList))
+	mux.Handle("GET /runs/{id}/file", xbin.RoleFunc("admin", handleFileGet))
+	mux.Handle("PUT /runs/{id}/file", xbin.RoleFunc("admin", handleFilePut))
+	mux.Handle("DELETE /runs/{id}/file", xbin.RoleFunc("admin", handleFileDelete))
 	mux.Handle("GET /config", xbin.RoleFunc("admin", handleGetConfig))
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 	mux.Handle("GET /features", xbin.RoleFunc("admin", handleFeatures))
@@ -354,12 +361,86 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	if steps == nil {
 		steps = []*Step{}
 	}
-	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "draft": agent.getDraft(id)})
+	// Session-file METADATA only (paths, sizes, versions) — never content: this
+	// payload rides the tile's 1.5s poll.
+	files, _ := agent.db.replFiles(id)
+	if files == nil {
+		files = []*ReplFile{}
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": msgs, "steps": steps, "memory": mem, "config": cfg, "files": files, "draft": agent.getDraft(id)})
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	if err := agent.db.deleteRun(pathID(r)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// --- session files ------------------------------------------------------
+
+func handleFilesList(w http.ResponseWriter, r *http.Request) {
+	files, err := agent.db.replFiles(pathID(r))
+	if err != nil {
+		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	if files == nil {
+		files = []*ReplFile{}
+	}
+	xbin.WriteJSON(w, 200, files)
+}
+
+func handleFileGet(w http.ResponseWriter, r *http.Request) {
+	path, err := normReplPath(r.URL.Query().Get("path"))
+	if err != nil {
+		xbin.WriteError(w, 400, err.Error())
+		return
+	}
+	f, err := agent.db.replFile(pathID(r), path)
+	if err != nil {
+		xbin.WriteError(w, 404, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, f)
+}
+
+// handleFilePut is the human's editor path, so it takes an optional version:
+// the tile sends back the version it loaded and gets a 409 rather than
+// silently overwriting a change the agent made in between.
+func handleFilePut(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+		Version int    `json:"version"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Path == "" {
+		xbin.WriteError(w, 400, "need {path}")
+		return
+	}
+	f, err := agent.db.replPutFile(id, body.Path, body.Content, body.Version)
+	if err != nil {
+		code := 400
+		if strings.Contains(err.Error(), "version conflict") {
+			code = 409
+		}
+		xbin.WriteError(w, code, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"path": f.Path, "version": f.Version, "bytes": f.Bytes})
+}
+
+func handleFileDelete(w http.ResponseWriter, r *http.Request) {
+	path, err := normReplPath(r.URL.Query().Get("path"))
+	if err != nil {
+		xbin.WriteError(w, 400, err.Error())
+		return
+	}
+	if err := agent.db.replDeleteFile(pathID(r), path); err != nil {
+		xbin.WriteError(w, 404, err.Error())
 		return
 	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})

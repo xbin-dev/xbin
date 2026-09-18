@@ -4,8 +4,9 @@
   a live timeline of the selected run (messages + the journal of every LLM call,
   tool call, compaction, yield…) with live-streaming partial output, plus the
   controls to steer it (message, answer/approve, interrupt, resume, compact,
-  learn) and a tabbed settings area (config / features / memory / schedules /
-  skills / MCP). Pure frontend talking to this component's own backend via
+  learn), a render pane for the HTML files the agent shows, and a tabbed
+  settings area (config / features / memory / files / schedules / skills /
+  MCP). Pure frontend talking to this component's own backend via
   xbin.fetch (raw fetch to /api/${xbin.self}<path>). No build step: plain ES
   modules, no framework — exactly like the rest of this tile.
 -->
@@ -127,6 +128,43 @@
            margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
 
+    /* Render pane — an in-flow split of .main, above the composer. The basis
+       is clamp(px, vh, px) and never a %: .wrap is height:100vh with a
+       min-height, so at short viewports the row height is indefinite and a %
+       flex-basis collapses the pane to nothing. ⤢ hides the timeline when you
+       want the whole column for the render. */
+    .preview { display: flex; flex-direction: column; min-height: 0;
+               flex: 0 1 clamp(120px, 40vh, 520px);
+               border-top: 1px solid var(--bx-border); background: var(--bx-panel-2); }
+    .preview[hidden] { display: none; }
+    .main.prev-max #timeline { display: none; }
+    .main.prev-max .preview { flex: 1 1 auto; }
+    .preview .phd { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px;
+                    border-bottom: 1px solid var(--bx-border); font-size: 11.5px; }
+    .preview .ppath { min-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview .badge { color: var(--bx-muted); }
+    .preview .pwarn { color: var(--bx-yellow, #d9a441); white-space: nowrap; overflow: hidden;
+                      text-overflow: ellipsis; }
+    .preview .pbody { flex: 1; min-height: 0; position: relative; }
+    /* The frame is the only thing allowed to overflow: arbitrary model HTML
+       scrolls inside its own viewport, so the tile never scrolls sideways.
+       The white background and color-scheme are forced because arbitrary HTML
+       assumes a light page — including the UA scrollbars and form controls. */
+    .prevframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+                 display: block; background: #fff; color-scheme: light; }
+
+    /* render_html chip in the timeline. */
+    .rchip { font-family: var(--bx-mono); font-size: 11.5px; cursor: pointer; padding: 1px 7px;
+             border: 1px solid color-mix(in srgb, var(--bx-accent) 45%, var(--bx-border));
+             border-radius: 5px; }
+    .rchip:hover { border-color: var(--bx-accent); background: var(--bx-panel-2); }
+    .rchip.on { background: color-mix(in srgb, var(--bx-accent) 16%, transparent); }
+
+    /* File contents read as code: aligned columns are unreadable in the UI
+       font. An attribute selector, not a class, because MCP tool names
+       contain colons. */
+    .ev.tool[data-tool="file_read"] .body { font-family: var(--bx-mono); font-size: 12px; }
+
     /* Settings panel — overlays the run view (timeline+composer) when open. */
     .settings { position: absolute; inset: 0; background: var(--bx-panel); display: flex; flex-direction: column; z-index: 5; }
     .settings[hidden] { display: none; }
@@ -197,9 +235,38 @@
       </div>
       <div class="runs" id="runs"><div class="empty">no tasks yet</div></div>
     </div>
-    <div class="main">
+    <div class="main" id="main">
       <div class="top" id="top"><span class="muted">select or start a run</span></div>
       <div class="timeline" id="timeline"><div class="empty">—</div></div>
+
+      <!-- Render pane (render_html). A SIBLING of #timeline, never a child:
+           loadDetail() rebuilds #timeline.innerHTML on every poll tick and its
+           change key includes the streaming draft, so an iframe in there would
+           be torn down and rebuilt on every streamed token. It is also NOT an
+           overlay like .settings — that would cover the composer, and the whole
+           loop is "look at the render, ask for a change, look again".
+           The <iframe> is static markup, created once at page load; JS only
+           ever assigns its .srcdoc property. sandbox="" is the entire isolation
+           story for untrusted model HTML: no scripts, no forms, no navigation,
+           opaque origin. frameDoc() adds a meta CSP on top, because sandbox=""
+           still permits subresource LOADS (a remote <img> would beacon). -->
+      <div class="preview" id="preview" hidden>
+        <div class="phd">
+          <span>🖼</span>
+          <span class="ppath mono" id="prev-path"></span>
+          <span class="badge" id="prev-ver"></span>
+          <span class="pwarn" id="prev-warn" hidden></span>
+          <span style="flex:1"></span>
+          <button class="btn ghost btnsm" id="prev-src" title="Open this file in the Files tab">Source</button>
+          <button class="btn ghost btnsm" id="prev-max" title="Maximize / restore">⤢</button>
+          <button class="btn ghost btnsm" id="prev-close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="pbody">
+          <iframe id="prevframe" class="prevframe" sandbox="" referrerpolicy="no-referrer"
+                  title="rendered output — static, no scripts"></iframe>
+        </div>
+      </div>
+
       <div class="composer">
         <button class="btn ghost" id="tset" title="Tool mode for new asks: 🔒 private data (internal systems, no web) / 🌐 web (no internal systems). A run keeps its mode.">🔒</button>
         <input id="msg" placeholder="ask anything…" autocomplete="off">
@@ -212,6 +279,7 @@
           <button class="tab on" data-tab="config">Config</button>
           <button class="tab" data-tab="features">Features</button>
           <button class="tab" data-tab="memory">Memory</button>
+          <button class="tab" data-tab="files">Files</button>
           <button class="tab" data-tab="schedules">Schedules</button>
           <button class="tab" data-tab="skills">Skills</button>
           <button class="tab" data-tab="mcp">MCP</button>

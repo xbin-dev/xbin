@@ -106,6 +106,12 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 				}),
 			}})
 	}
+	// Session files + the render pane. Offered in BOTH lanes because they have
+	// zero egress and zero internal reach — they widen neither side of the
+	// firewall below.
+	if cfg.feature("files") {
+		specs = append(specs, fileToolSpecs()...)
+	}
 	// Toolset firewall (Config.Toolset): a run gets EITHER internal reach OR
 	// web egress, never both — otherwise injected/private content in context
 	// could be exfiltrated via crafted URLs/queries. Enforced again at
@@ -136,6 +142,9 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 }
 
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
+// The file tools are deliberately NOT here: despite writing to sqlite, they
+// touch only this run's private rows — no egress, no other component, nothing
+// outside the run — so pausing a turn for approval would be pure friction.
 func sideEffect(name string) bool {
 	switch name {
 	case "xbin_call":
@@ -259,6 +268,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.runSkillTool(name, args)
 	}
 
+	if fileToolNames[name] {
+		return ag.runFileTool(ctx, run, cfg, name, args)
+	}
 	if strings.HasPrefix(name, "mcp:") {
 		if cfg.toolset() == "web" {
 			return "", fmt.Errorf("mcp tools are not available in the web toolset (no internal reach from web runs)")

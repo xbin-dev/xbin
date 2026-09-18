@@ -1,8 +1,9 @@
 // agent.js — the control tile logic. Polls the backend and renders a run list
 // plus a live, interleaved timeline (transcript messages + the journal of LLM
 // calls / tool calls / compactions / yields), streams the in-flight assistant
-// draft while a run is running, and wires the steering controls + a tabbed
-// settings area (config / features / memory / schedules / skills / MCP).
+// draft while a run is running, and wires the steering controls, the render
+// pane for render_html output (sandboxed, see frameDoc), and a tabbed settings
+// area (config / features / memory / files / schedules / skills / MCP).
 // Vanilla ES module (no framework, no build step — like the rest of this tile);
 // xbin.fetch attributes calls to this element (self → admin of its own backend).
 import { marked } from '/vendor/marked.esm.js';
@@ -91,6 +92,9 @@ let activeTab = 'config';
 let schedCache = [];     // schedules for the schedules tab (handler lookup by index)
 let skillsCache = [];    // skills for the skills tab
 let skillSel = null;     // name of the skill being edited (null = new)
+let filesCache = [];     // session files for the files tab (lookup by index)
+let filesSel = null;     // path of the file being edited (null = new)
+const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
 // --- runs list ----------------------------------------------------------
 
@@ -120,6 +124,7 @@ async function loadRuns() {
 
 function goHome() {
   sel = null; detail = null; lastDetailKey = ''; lastHomeKey = '';
+  closePreview(); prevSeen = null; prevDismissed = 0;
   loadRuns(); renderHome();
 }
 
@@ -164,6 +169,157 @@ function renderHome() {
   $('msg').placeholder = HOME.placeholder;
 }
 
+// --- render pane --------------------------------------------------------
+
+// The policy the rendered document runs under. sandbox="" on the iframe stops
+// scripts, forms and navigation, but it does NOT stop subresource LOADS: a bare
+// <img src="https://…/?leak=…"> would still fire a real request from the user's
+// browser, which in a private-lane run is exfiltration. Nothing in the platform
+// CSP prevents that (there is no img-src on /c/ documents), so this policy is
+// the thing that closes it. A CSP the model writes itself can only intersect
+// ours, never relax it.
+const FRAME_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
+                  "font-src data:; form-action 'none'; base-uri 'none'";
+// Arbitrary HTML assumes a white page and a sane body margin.
+const FRAME_CSS = 'html{background:#fff;color:#111;color-scheme:light}' +
+                  'body{margin:12px;font:14px/1.5 system-ui,-apple-system,sans-serif}' +
+                  'img,svg,video,canvas,table,pre{max-width:100%}' +
+                  'pre{overflow-x:auto}table{border-collapse:collapse}';
+
+// frameDoc composes what the render frame parses. The model's file is
+// UNTRUSTED, so it is parsed with DOMParser — which produces a document with no
+// browsing context: nothing loads, nothing executes, and the pre-pass is free
+// of side effects. Re-serializing is also a normalizer: unterminated attributes
+// and mismatched tags come back well-formed and correctly escaped, so there is
+// no regex guessing at tag syntax (a naive /<meta[^>]+refresh/ misses
+// `<meta/http-equiv=refresh …>`, which parses perfectly well).
+function frameDoc(src) {
+  const doc = new DOMParser().parseFromString(String(src ?? ''), 'text/html');
+  let blocked = 0;
+
+  // A meta refresh navigates the FRAME, which sandbox="" permits (only top
+  // navigation is blocked) and which no CSP directive covers since navigate-to
+  // was dropped from the spec. It is a plain outbound GET — strip it.
+  doc.querySelectorAll('meta[http-equiv]').forEach((m) => {
+    if (/^\s*refresh\s*$/i.test(m.getAttribute('http-equiv') || '')) { m.remove(); blocked++; }
+  });
+  // A click on an off-page link is the same GET, one interaction later. Keep
+  // in-page anchors (#toc) — fragment navigation inside about:srcdoc is fine.
+  doc.querySelectorAll('[target]').forEach((e) => e.removeAttribute('target'));
+  doc.querySelectorAll('a[href]').forEach((a) => {
+    if (!(a.getAttribute('href') || '').startsWith('#')) a.removeAttribute('href');
+  });
+  // Count what the policy will refuse. In a private-lane run an unexpected
+  // remote image is a signal worth showing the human, not just silence.
+  doc.querySelectorAll('img[src], source[src], link[href], use[href], iframe[src], object[data]')
+    .forEach((el) => {
+      const u = el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('data') || '';
+      if (u && !/^(data:|#)/i.test(u)) blocked++;
+    });
+
+  const mk = (tag, attrs, text) => {
+    const e = doc.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text) e.textContent = text;
+    return e;
+  };
+  // Order is load-bearing: the CSP meta must be the first thing in <head> in
+  // the serialized byte stream, or anything parsed before it escapes it.
+  doc.head.prepend(
+    mk('meta', { 'http-equiv': 'Content-Security-Policy', content: FRAME_CSP }),
+    mk('meta', { charset: 'utf-8' }),
+    mk('meta', { name: 'viewport', content: 'width=device-width,initial-scale=1' }),
+    mk('base', { target: '_blank' }),   // no href: makes any surviving link inert
+    mk('style', {}, FRAME_CSS),
+  );
+  // Our doctype, emitted first, locks standards mode whatever the model wrote.
+  return { html: '<!doctype html>' + doc.documentElement.outerHTML, blocked };
+}
+
+let preview = null;     // {runId, path, ver, live}
+let prevSig = '';       // (run, path, version) currently loaded IN the frame
+let prevSeen = null;    // newest render step seq observed for this run
+let prevDismissed = 0;  // render step seq the user closed on
+
+function closePreview() {
+  preview = null;
+  $('preview').hidden = true;
+  $('main').classList.remove('prev-max');
+  // prevSig and .srcdoc stay put, so reopening the same file is instant.
+}
+
+async function openPreview(path, ver, live) {
+  if (sel == null || !path) return;
+  preview = { runId: sel, path, ver: num(ver), live: !!live };
+  $('preview').hidden = false;
+  $('prev-path').textContent = path;
+  $('prev-path').title = path;
+  // The pane just took height from the timeline. The autoscroll check measures
+  // clientHeight at rebuild time, so without re-pinning here the next tick
+  // decides we are no longer at the bottom and silently stops following.
+  const tl = $('timeline');
+  tl.scrollTop = tl.scrollHeight;
+  await paintPreview();
+}
+
+// paintPreview is the ONLY writer of .srcdoc, and it writes only when the
+// (run, path, version) triple changes: assigning srcdoc reloads the frame — a
+// white flash and a lost scroll position — so this gate is what stops the 1.5s
+// poll from thrashing it.
+async function paintPreview() {
+  const p = preview;
+  if (!p) return;
+  const sig = `${p.runId}\u0000${p.path}\u0000${p.ver}`;
+  if (sig === prevSig) return;
+  let f;
+  try {
+    f = await api(`/runs/${p.runId}/file?path=${encodeURIComponent(p.path)}`);
+  } catch (e) {
+    $('prev-warn').hidden = false;
+    $('prev-warn').textContent = '⚠ ' + (e.message || e);
+    return;
+  }
+  if (!preview || preview.path !== p.path || preview.runId !== p.runId) return; // stale
+  const { html, blocked } = frameDoc(f.content);
+  prevSig = sig;
+  // PROPERTY assignment, never interpolation into an srcdoc="…" attribute: the
+  // DOM takes the raw string, so there is no attribute escaping to get wrong
+  // and the model's bytes never touch an innerHTML path. This is the single
+  // most important invariant in the render feature.
+  $('prevframe').srcdoc = html;
+  const stale = p.ver && f.version && f.version !== p.ver;
+  $('prev-ver').textContent = f.version ? 'v' + f.version : '';
+  $('prev-ver').title = stale ? `this chip rendered v${p.ver}; showing the current v${f.version}` : '';
+  const warns = [];
+  if (blocked) warns.push(`⚠ ${blocked} external resource${blocked > 1 ? 's' : ''} blocked`);
+  if (stale) warns.push(`showing v${f.version} (chip was v${p.ver})`);
+  $('prev-warn').hidden = !warns.length;
+  $('prev-warn').textContent = warns.join(' · ');
+}
+
+// syncPreview follows the run's newest render step. Called from loadDetail on
+// every tick; it only acts when a NEW render lands.
+function syncPreview(d) {
+  if (preview && preview.runId !== sel) closePreview();
+  const rs = (d.steps || []).filter((s) => s.kind === 'render');
+  const last = rs.length ? rs[rs.length - 1] : null;
+  if (!last) { prevSeen = null; return; }
+  let det = {};
+  try { det = JSON.parse(last.detail); } catch { return; }
+
+  const first = prevSeen === null;
+  // Landing on an old finished run should not pop a pane open; a render that
+  // arrives while you are watching should.
+  const fresh = first ? (Date.now() / 1000 - last.created) < 60 : last.seq > prevSeen;
+  prevSeen = last.seq;
+  if (!fresh) return;
+  if (prevDismissed === last.seq) return;          // the user closed this one
+  if (settingsOpen) return;                        // don't yank an open tab away
+  if (document.visibilityState !== 'visible') return;
+  if (preview && !preview.live) return;            // the user pinned an older chip
+  openPreview(det.path, num(det.version), true);
+}
+
 // --- selected run -------------------------------------------------------
 
 function eventStream(d) {
@@ -172,7 +328,7 @@ function eventStream(d) {
   // transcript messages (assistant tool chips + tool-role results), and asks
   // via the actionable footer, so those step kinds are omitted here to avoid
   // duplicating them — renderStep still handles every kind for robustness.
-  const metaKinds = new Set(['llm_call', 'compaction', 'yield', 'state_changed', 'finish', 'error', 'note']);
+  const metaKinds = new Set(['llm_call', 'compaction', 'yield', 'state_changed', 'finish', 'error', 'note', 'render']);
   const evs = [];
   for (const m of d.messages || []) {
     if (m.role === 'system') continue;
@@ -211,7 +367,7 @@ function renderMsg(m) {
     // makes a failed call visible inside the 2-line clamp instead of hiding
     // behind a click.
     const bad = /^error:/.test(c);
-    return `<div class="ev tool xwrap ${bad ? 'bad ' : ''}${expanded.has(k) ? 'on' : ''}">
+    return `<div class="ev tool xwrap ${bad ? 'bad ' : ''}${expanded.has(k) ? 'on' : ''}" data-tool="${esc(m.name)}">
       <div class="role xtoggle" data-x="${k}" title="click to expand / collapse">tool · ${esc(m.name)}${long ? ` <span class="xhint">· ${fmtN(c.length)} chars</span>` : ''}</div>
       ${c ? `<div class="body clampable">${esc(c)}</div>` : ''}</div>`;
   }
@@ -278,6 +434,14 @@ function renderStep(s) {
       g = '⚠';
       txt = esc(d.error || d.text || '');
       break;
+    case 'render': {
+      g = '🖼';
+      const on = preview && preview.path === d.path;
+      txt = `<span class="rchip${on ? ' on' : ''}" data-render="${esc(d.path || '')}" data-rv="${num(d.version)}"
+              title="show this file in the render pane">${esc(d.path || '')}</span>` +
+            `<span class="muted"> · v${num(d.version)} · ${fmtN(d.bytes)} B</span>`;
+      break;
+    }
     default: // note
       g = '•';
       txt = esc(d.text || s.detail || '');
@@ -297,6 +461,9 @@ async function loadDetail() {
   try { d = await api(`/runs/${sel}`); } catch { return; }
   if (sel !== d.run.id) return; // stale response after navigation
   detail = d;
+  // Outside the change-key guard below: a run switch must always reset the
+  // render pane, even when the timeline itself has nothing new to draw.
+  syncPreview(d);
   const run = d.run;
   const pend = pendingOf(run);
   const isApproval = run.status === 'waiting_input' && pend.kind === 'approval';
@@ -311,6 +478,7 @@ async function loadDetail() {
     <button class="btn ghost btnsm" data-a="compact">Compact</button>
     <button class="btn ghost btnsm" data-a="learn" title="Distill this run into a reusable skill">Learn skill</button>
     <button class="btn ghost btnsm" data-a="mem">Memory (${Object.keys(d.memory || {}).length})</button>
+    <button class="btn ghost btnsm" data-a="files" title="This run's session files">Files (${(d.files || []).length})</button>
     <button class="btn rm btnsm" data-a="delete">Delete</button>`;
   $('top').querySelectorAll('[data-a]').forEach((b) => b.onclick = () => control(b.dataset.a));
 
@@ -345,6 +513,10 @@ async function loadDetail() {
     const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
     tl.innerHTML = html || '<div class="empty">…</div>';
     wireExpanders(tl);
+    // Clicking a chip PINS the pane to that file (live=false), so the newest
+    // render no longer steals it from under you.
+    tl.querySelectorAll('[data-render]').forEach((el) => el.onclick = () =>
+      openPreview(el.dataset.render, +el.dataset.rv, false));
     tl.querySelectorAll('[data-ap]').forEach((b) => b.onclick = async () => {
       try { await api(`/runs/${sel}/approve`, jbody({ approve: b.dataset.ap === '1' }, 'POST')); } catch (e) { alert(e.message); }
       lastDetailKey = ''; loadDetail();
@@ -359,6 +531,7 @@ async function loadDetail() {
 
 async function control(action) {
   if (action === 'mem') return openSettings('memory');
+  if (action === 'files') return openSettings('files');
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
     try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
@@ -394,6 +567,26 @@ async function send() {
 }
 $('send').onclick = send;
 $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+
+// Render pane header. Closing remembers WHICH render was dismissed, so the
+// poll doesn't immediately reopen the same one.
+$('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
+$('prev-max').onclick = () => {
+  $('main').classList.toggle('prev-max');
+  const tl = $('timeline');
+  tl.scrollTop = tl.scrollHeight;
+};
+$('prev-src').onclick = () => {
+  if (!preview) return;
+  filesSel = preview.path;
+  openSettings('files');
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && preview && !$('newdlg').open && !settingsOpen) {
+    prevDismissed = prevSeen;
+    closePreview();
+  }
+});
 $('home').onclick = goHome;
 $('tset').onclick = () => {
   toolset = toolset === 'private' ? 'web' : 'private';
@@ -432,7 +625,7 @@ function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, memory: tabMemory, schedules: tabSchedules, skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, memory: tabMemory, files: tabFiles, schedules: tabSchedules, skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }
@@ -559,6 +752,81 @@ async function tabMemory(bd) {
     try { await api(`/runs/${sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); loadDetail();
+  };
+}
+
+// Files tab: this run's session files — the same store the agent's file_*
+// tools write. Human-editable on purpose: fixing a typo and
+// hitting Render is the fastest debug loop there is. Optimistic concurrency —
+// we send back the version we loaded, so a write the agent made in between
+// comes back as a visible 409 instead of silently losing one side.
+async function tabFiles(bd) {
+  if (sel == null) { bd.innerHTML = '<div class="empty">select a run to see its session files</div>'; return; }
+  filesCache = (await api(`/runs/${sel}/files`)) || [];
+  const cur = filesSel != null ? filesCache.find((f) => f.path === filesSel) : null;
+  let body = '';
+  if (cur) {
+    const full = await api(`/runs/${sel}/file?path=${encodeURIComponent(cur.path)}`);
+    body = full.content || '';
+    cur.version = full.version;
+  }
+  bd.innerHTML = `
+    <div class="sec"><h4>Session files · run ${sel}</h4>
+      <table class="tbl"><tr><th>path</th><th>bytes</th><th>v</th><th></th></tr>
+      ${filesCache.length ? filesCache.map((f, i) => `<tr>
+        <td class="mono">${esc(f.path)}</td>
+        <td class="muted">${fmtN(f.bytes)}</td>
+        <td class="muted">${num(f.version)}</td>
+        <td style="text-align:right; white-space:nowrap">
+          ${isHtmlPath(f.path) ? `<button class="btn ghost btnsm" data-fr="${i}" title="show in the render pane">Render</button> ` : ''}
+          <button class="btn ghost btnsm" data-fe="${i}">Edit</button>
+          <button class="btn rm btnsm" data-fd="${i}">Del</button></td></tr>`).join('')
+        : '<tr><td colspan="4" class="muted">no files yet — the agent writes these with its file tools</td></tr>'}
+      </table>
+      <div class="hint">Stored in this run's database, not on disk. Deleting the run deletes them.</div>
+    </div>
+    <div class="sec"><h4>${cur ? 'Edit · ' + esc(cur.path) : 'New file'}
+      ${cur ? '<button class="btn ghost btnsm" id="fl-new">+ new</button>' : ''}</h4>
+      <div class="field"><label>Path</label>
+        <input id="fl-path" class="mono" value="${esc(cur ? cur.path : '')}" ${cur ? 'readonly' : ''} placeholder="report.html"></div>
+      <div class="field"><label>Content</label>
+        <textarea id="fl-body" class="mono" rows="14" spellcheck="false">${esc(body)}</textarea></div>
+      <div><button class="btn" id="fl-save">Save</button>
+        ${cur && isHtmlPath(cur.path) ? ' <button class="btn ghost" id="fl-render">Render</button>' : ''}
+        <span class="err" id="fl-err"></span></div>
+    </div>`;
+
+  bd.querySelectorAll('[data-fe]').forEach((b) => b.onclick = () => {
+    filesSel = filesCache[+b.dataset.fe].path; tabFiles(bd);
+  });
+  bd.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => {
+    const f = filesCache[+b.dataset.fr];
+    closeSettings(); openPreview(f.path, f.version, false);
+  });
+  bd.querySelectorAll('[data-fd]').forEach((b) => b.onclick = async () => {
+    const f = filesCache[+b.dataset.fd];
+    if (!confirm(`Delete "${f.path}"?`)) return;
+    try { await api(`/runs/${sel}/file?path=${encodeURIComponent(f.path)}`, { method: 'DELETE' }); }
+    catch (e) { return alert(e.message); }
+    if (filesSel === f.path) filesSel = null;
+    if (preview && preview.path === f.path) closePreview();
+    tabFiles(bd); lastDetailKey = ''; loadDetail();
+  });
+  if ($('fl-new')) $('fl-new').onclick = () => { filesSel = null; tabFiles(bd); };
+  if ($('fl-render')) $('fl-render').onclick = () => { closeSettings(); openPreview(cur.path, cur.version, false); };
+  $('fl-save').onclick = async () => {
+    const path = $('fl-path').value.trim();
+    $('fl-err').textContent = '';
+    if (!path) { $('fl-err').textContent = 'need a path'; return; }
+    try {
+      const r = await api(`/runs/${sel}/file`, jbody({
+        path, content: $('fl-body').value, version: cur ? cur.version : 0,
+      }, 'PUT'));
+      filesSel = path;
+      // An open pane showing this file must repaint: bump it to the new version.
+      if (preview && preview.path === path) openPreview(path, r.version, preview.live);
+      tabFiles(bd); lastDetailKey = ''; loadDetail();
+    } catch (e) { $('fl-err').textContent = e.message; }
   };
 }
 

@@ -244,6 +244,9 @@ func TestDeleteRunCascadesToSubagents(t *testing.T) {
 	if _, err := db.addMessage(&Message{RunID: grand, Role: "user", Content: "hi"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.replPutFile(child, "a.js", "x", 0); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := db.deleteRun(parent); err != nil {
 		t.Fatal(err)
@@ -257,6 +260,10 @@ func TestDeleteRunCascadesToSubagents(t *testing.T) {
 	_ = db.sql.QueryRow(`SELECT count(*) FROM messages WHERE run_id=?`, grand).Scan(&n)
 	if n != 0 {
 		t.Fatalf("grandchild left %d message(s) behind", n)
+	}
+	_ = db.sql.QueryRow(`SELECT count(*) FROM repl_files WHERE run_id=?`, child).Scan(&n)
+	if n != 0 {
+		t.Fatalf("child left %d session file(s) behind", n)
 	}
 	if _, err := db.getRun(other); err != nil {
 		t.Fatal("an unrelated run was deleted")

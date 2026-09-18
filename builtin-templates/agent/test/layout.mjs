@@ -39,7 +39,7 @@ const TOPBAR = `<span class="title">a fairly long run title that takes room</spa
   <span class="badge">🔒 private</span><span class="badge running">running</span>
   <button class="btn ghost btnsm">Resume</button><button class="btn ghost btnsm">Interrupt</button>
   <button class="btn ghost btnsm">Compact</button><button class="btn ghost btnsm">Learn skill</button>
-  <button class="btn ghost btnsm">Memory (3)</button>
+  <button class="btn ghost btnsm">Memory (3)</button><button class="btn ghost btnsm">Files (2)</button>
   <button class="btn rm btnsm">Delete</button>`;
 
 let failures = 0;
@@ -56,6 +56,14 @@ const SCENARIOS = [
   ['busy timeline', () => {
     document.getElementById('timeline').innerHTML =
       Array.from({ length: 80 }, (_, i) => `<div class="ev user"><div class="body">message ${i}</div></div>`).join('');
+  }],
+  ['render pane open', () => {
+    document.getElementById('preview').hidden = false;
+    document.getElementById('timeline').innerHTML = '<div style="height:3000px">tall</div>';
+  }],
+  ['pane maximized', () => {
+    document.getElementById('preview').hidden = false;
+    document.getElementById('main').classList.add('prev-max');
   }],
   ['settings open', () => {
     document.getElementById('settings').hidden = false;
@@ -89,6 +97,7 @@ for (const [w] of WIDTHS.map((x) => [x])) {
           hScroll: se.scrollWidth - se.clientWidth,
           composer: r('.composer'),
           timeline: r('#timeline'),
+          preview: r('#preview'),
           vh: innerHeight,
         };
       });
@@ -102,16 +111,25 @@ for (const [w] of WIDTHS.map((x) => [x])) {
       ok(`${tag}: composer flush to the bottom`, m.composer && Math.abs(m.composer.bottom - m.vh) <= 1,
         `bottom=${m.composer?.bottom} vh=${m.vh}`);
       ok(`${tag}: composer not squashed`, m.composer && m.composer.h >= 30, `h=${m.composer?.h}`);
+      // The render pane must yield height to the composer, not the reverse.
+      if (m.preview) {
+        ok(`${tag}: pane above the composer`, m.preview.bottom <= m.composer.top + 1,
+          `pane=${m.preview.bottom} composer=${m.composer.top}`);
+      }
     }
   }
 }
 
-// At a comfortable height the timeline must keep room to read.
+// At a comfortable height the pane must still be worth having, and the
+// timeline must keep room to read.
 await page.setViewportSize({ width: 700, height: 900 });
 await page.setContent(html);
+await page.evaluate(() => { document.getElementById('preview').hidden = false; });
 const roomy = await page.evaluate(() => ({
+  preview: Math.round(document.getElementById('preview').getBoundingClientRect().height),
   timeline: Math.round(document.getElementById('timeline').getBoundingClientRect().height),
 }));
+ok('900px: render pane is usefully sized', roomy.preview >= 250, `h=${roomy.preview}`);
 ok('900px: timeline keeps room', roomy.timeline >= 250, `h=${roomy.timeline}`);
 
 await browser.close();

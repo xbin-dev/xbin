@@ -15,7 +15,7 @@ and the owner. There is no public surface. Paths below are relative to
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards) |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
-| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, draft}` (`draft` = live streaming text) |
+| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft}` (`draft` = live streaming text; `files` is session-file METADATA only) |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
@@ -26,6 +26,13 @@ and the owner. There is no public surface. Paths below are relative to
 | `POST /runs/{id}/learn` | — | distill the run into a saved skill (the /learn flow) |
 | `PUT /runs/{id}/memory` | `{key, value}` | set a memory block |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
+| `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated}]`, no content |
+| `GET /runs/{id}/file?path=` | — | one file with its content |
+| `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
+| `DELETE /runs/{id}/file?path=` | — | delete a file |
+
+Content and metadata are separate routes on purpose: `GET /runs/{id}` rides the
+tile's 1.5s poll, so it must never carry file bodies.
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
 an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
@@ -76,7 +83,8 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "subagents": true,
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
-                "vision": true, "parallelTools": true, "watcher": true }
+                "vision": true, "parallelTools": true, "watcher": true,
+                "files": true }
 }
 ```
 
@@ -152,8 +160,8 @@ to `maxIters` per drive. Built-in tools: `memory_set`/`memory_get`, `note`,
 `recall` (FTS5 over full history), `xbin_call` (reach other granted
 components; private lane), `web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed` (watcher),
 `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`, `yield`,
-`spawn_subagent` (several in a turn ⇒ parallel subagents), plus any bound
-`mcp:<server>:<tool>`. MCP servers are bound via the `mcp` interface (multi:true,
+`spawn_subagent` (several in a turn ⇒ parallel subagents), the session-file
+tools below, plus any bound `mcp:<server>:<tool>`. MCP servers are bound via the `mcp` interface (multi:true,
 like the chat tile). Extend these in `_backend/tools.go`.
 
 MCP tool lists are cached per server and persisted: a list younger than 5
@@ -161,3 +169,24 @@ minutes is used as is, an older one is used at once and refreshed in the
 background, and only a server never listed before is waited for —
 concurrently, 5 s at most each. A run is marked `running` before any of this,
 and the web lane skips discovery entirely.
+
+## Session files + render
+
+Feature key `files` (on by default). A per-run file store held in sqlite, not
+on disk: `file_write` · `file_read` (whole file, or a line range with
+`offset`/`limit`) · `file_edit` (exact-string replace) · `file_list` ·
+`render_html`. They touch only this run's private rows — no egress, no other
+component — so they are offered in **both** capability lanes and are not
+`sideEffect()` tools: the approval gate never fires for them. Caps: 64 KiB per
+file, 64 files and 512 KiB per run.
+
+`render_html` journals a `render` step (`{path, version, bytes}`) and the tile
+shows that file in a `sandbox=""` iframe with a prepended meta CSP
+(`default-src 'none'; style-src 'unsafe-inline'; img-src data:`). **Scripts
+never run and nothing external loads** — so charts must be inline SVG. Verify
+with `node test/frame-policy.mjs`.
+
+File versions are monotonic but **not snapshotted**: clicking an older render
+chip shows the file's current content, with the header noting the difference.
+The tile's Files tab edits them too, sending back the version it loaded so a
+write the agent made in between comes back as a 409 instead of being lost.

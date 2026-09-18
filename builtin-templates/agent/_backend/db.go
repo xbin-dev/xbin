@@ -156,6 +156,19 @@ CREATE TABLE IF NOT EXISTS schedules (
   last_run INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL
 );
+-- Session files: a per-run store the model writes with file_write/file_edit
+-- and the render pane shows. These are sqlite rows, never host files — "path"
+-- is an opaque key (see normReplPath).
+CREATE TABLE IF NOT EXISTS repl_files (
+  run_id INTEGER NOT NULL,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  bytes INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  PRIMARY KEY (run_id, path)
+);
 `)
 	if err != nil {
 		return err
@@ -307,6 +320,7 @@ func (d *DB) deleteOneRun(id int64) error {
 		`DELETE FROM messages_fts WHERE run_id=?`,
 		`DELETE FROM steps WHERE run_id=?`,
 		`DELETE FROM memory WHERE run_id=?`,
+		`DELETE FROM repl_files WHERE run_id=?`,
 		`DELETE FROM runs WHERE id=?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
