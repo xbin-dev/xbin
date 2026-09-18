@@ -252,7 +252,7 @@ func handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title, Goal, System string
+		Title, Goal, System, Toolset string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Goal == "" {
@@ -260,6 +260,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
+	cfg.Toolset = normalizeToolset(body.Toolset)
 	if body.System != "" {
 		cfg.System = body.System
 	}

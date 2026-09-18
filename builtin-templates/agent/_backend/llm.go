@@ -51,15 +51,21 @@ type ModelTiers struct {
 // Config is an agent's knobs — a default lives in settings, and each run
 // snapshots one at creation (so changing the default doesn't disturb live runs).
 type Config struct {
-	Model       string      `json:"model"`       // legacy/general fallback (empty ⇒ llm-gw preferred)
-	Models      ModelTiers  `json:"models"`      // per-tier models
-	System      string      `json:"system"`      // base system prompt
-	TokenBudget int         `json:"tokenBudget"` // context assembly budget
-	MaxIters    int         `json:"maxIters"`    // steps per drive before yielding
-	ToolTimeout int         `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
-	Subagents   bool        `json:"subagents"`   // expose spawn_subagent
-	Approve     bool        `json:"approve"`     // require approval before side-effecting tools
-	MCP         []MCPServer `json:"mcp"`         // legacy static MCP servers (now bound via the mcp interface)
+	Model       string     `json:"model"`       // legacy/general fallback (empty ⇒ llm-gw preferred)
+	Models      ModelTiers `json:"models"`      // per-tier models
+	System      string     `json:"system"`      // base system prompt
+	TokenBudget int        `json:"tokenBudget"` // context assembly budget
+	MaxIters    int        `json:"maxIters"`    // steps per drive before yielding
+	ToolTimeout int        `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
+	Subagents   bool       `json:"subagents"`   // expose spawn_subagent
+	Approve     bool       `json:"approve"`     // require approval before side-effecting tools
+	// Toolset is the run's IMMUTABLE capability lane — the exfiltration
+	// firewall: "private" (default; internal reach via xbin_call + mcp:*
+	// tools, NO web) or "web" (web_search/web_fetch only, NO internal reach).
+	// A run never holds both private data and an egress channel; subagents
+	// and agent-created schedules inherit it.
+	Toolset string      `json:"toolset,omitempty"`
+	MCP     []MCPServer `json:"mcp"` // legacy static MCP servers (now bound via the mcp interface)
 	// Features toggles optional capabilities — a "Features" menu in the tile.
 	// Absent or true = on; set a key false to turn it off. Known keys are in
 	// featureKeys; unlisted keys default on so older configs get everything.
@@ -68,6 +74,22 @@ type Config struct {
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
 var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher"}
+
+// toolset normalizes the capability lane: anything but "web" is "private".
+func (c Config) toolset() string {
+	if c.Toolset == "web" {
+		return "web"
+	}
+	return "private"
+}
+
+// normalizeToolset validates a requested capability lane ("web" or private).
+func normalizeToolset(s string) string {
+	if strings.TrimSpace(strings.ToLower(s)) == "web" {
+		return "web"
+	}
+	return "private"
+}
 
 // feature reports whether an optional capability is enabled (default on).
 func (c Config) feature(name string) bool {

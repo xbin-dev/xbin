@@ -13,8 +13,8 @@ and the owner. There is no public surface. Paths below are relative to
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps) |
-| `POST /runs` | `{goal, title?, system?}` | create a run and start driving it |
-| `POST /ask` | `{text}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
+| `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
+| `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, draft}` (`draft` = live streaming text) |
 | `DELETE /runs/{id}` | — | delete a run and its history |
 | `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
@@ -29,6 +29,30 @@ and the owner. There is no public surface. Paths below are relative to
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
 an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
+
+## Capability lanes (the toolset firewall)
+
+Every run is in exactly one lane, chosen at creation and immutable
+(`config.toolset`):
+
+- **`private`** (default) — internal reach: `xbin_call` and every bound
+  `mcp:*` tool. **No web tools.**
+- **`web`** — `web_search` (DuckDuckGo) and `web_fetch` (a URL as readable
+  text, capped). **No `xbin_call`, no `mcp:*` tools.**
+
+A run must never hold private data AND an egress channel: content injected into
+its context could otherwise steer it into sending that data out in a URL or a
+query. The lane is enforced twice — in the tool list offered to the model, and
+again when a tool runs (`runTool`) — and it is inherited: subagents get their
+parent's lane, and **a schedule the agent creates gets the creating run's
+lane**, so a private run cannot smuggle data into a future web run's goal.
+Human-created runs and schedules may pick either (`toolset` on `POST /runs`,
+`POST /ask`, `POST /schedules`); the tile has a select in the new-run dialog
+and the schedule form, and a lane badge on each run.
+
+The web tools go straight out, not through the gateway, so they need the `net`
+interface bound (`bx bind <this component> net=internet`); unbound, they return
+"web access unavailable" so the model can adapt.
 
 ## Config, models, features
 
@@ -70,7 +94,7 @@ schedules are individual cron jobs.
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /schedules` | — | list schedules |
-| `POST /schedules` | `{name?, cron, goal, watcher?}` | create + register a cron-agent |
+| `POST /schedules` | `{name?, cron, goal, watcher?, toolset?}` | create + register a cron-agent |
 | `PUT /schedules/{id}` | `{enabled?, cron?, goal?, …}` | edit / enable / disable |
 | `DELETE /schedules/{id}` | — | remove |
 | `POST /schedules/{id}/trigger` | — | run it now |
@@ -104,7 +128,7 @@ budget) → LLM call (streamed when the feature is on) → execute tool calls (a
 turn's non-control tools run in parallel, each under `toolTimeout`) → repeat, up
 to `maxIters` per drive. Built-in tools: `memory_set`/`memory_get`, `note`,
 `recall` (FTS5 over full history), `xbin_call` (reach other granted
-components), `schedule`/`unschedule`, `state_changed` (watcher),
+components; private lane), `web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed` (watcher),
 `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`, `yield`,
 `spawn_subagent` (several in a turn ⇒ parallel subagents), plus any bound
 `mcp:<server>:<tool>`. MCP servers are bound via the `mcp` interface (multi:true,

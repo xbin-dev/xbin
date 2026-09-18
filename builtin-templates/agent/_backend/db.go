@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 	// (ALTER fails harmlessly when the column is already present).
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
+	_, _ = d.sql.Exec(`ALTER TABLE schedules ADD COLUMN toolset TEXT NOT NULL DEFAULT ''`)
 	// Backfill the FTS index from any messages that predate it (one-time).
 	var ftsN int
 	_ = d.sql.QueryRow(`SELECT count(*) FROM messages_fts`).Scan(&ftsN)

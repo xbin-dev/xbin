@@ -46,14 +46,6 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 			Name: "note", Description: "Record a short visible note in the run timeline (for the human watching). No effect on control flow.",
 			Parameters: obj([]string{"text"}, map[string]any{"text": strProp("the note")}),
 		}},
-		{Type: "function", Function: funcDef{
-			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
-			Parameters: obj([]string{"method", "path"}, map[string]any{
-				"method": strProp("HTTP method, e.g. GET or POST"),
-				"path":   strProp("request path, e.g. /api/apps/calendar/events"),
-				"body":   strProp("optional JSON request body"),
-			}),
-		}},
 		// --- control-flow tools (handled by the loop) ---
 		{Type: "function", Function: funcDef{
 			Name: "finish", Description: "End the run with a final result.",
@@ -113,6 +105,23 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 					"content":     strProp("the skill body — steps/knowledge (for save)"),
 				}),
 			}})
+	}
+	// Toolset firewall (Config.Toolset): a run gets EITHER internal reach OR
+	// web egress, never both — otherwise injected/private content in context
+	// could be exfiltrated via crafted URLs/queries. Enforced again at
+	// execution time in runTool.
+	if cfg.toolset() == "web" {
+		specs = append(specs, webToolSpecs()...) // web_search / web_fetch
+		mcp = nil                                // no internal MCP tools
+	} else {
+		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
+			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
+			Parameters: obj([]string{"method", "path"}, map[string]any{
+				"method": strProp("HTTP method, e.g. GET or POST"),
+				"path":   strProp("request path, e.g. /api/apps/calendar/events"),
+				"body":   strProp("optional JSON request body"),
+			}),
+		}})
 	}
 	if cfg.Subagents {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
@@ -186,6 +195,10 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 			Cron:    strings.TrimSpace(fmt.Sprint(args["cron"])),
 			Goal:    strings.TrimSpace(fmt.Sprint(args["goal"])),
 			Watcher: args["watcher"] == true,
+			// Agent-created schedules INHERIT the creating run's toolset —
+			// a private run must not be able to smuggle data into a future
+			// web run's goal text (the firewall would leak through time).
+			Toolset: cfg.toolset(),
 		}
 		if s.Name == "<nil>" {
 			s.Name = ""
@@ -234,13 +247,31 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return strings.TrimSpace(b.String()), nil
 
 	case "xbin_call":
+		if cfg.toolset() == "web" {
+			return "", fmt.Errorf("xbin_call is not available in the web toolset (no internal reach from web runs)")
+		}
 		return ag.toolXBinCall(ctx, args)
+
+	case "web_search":
+		if cfg.toolset() != "web" {
+			return "", fmt.Errorf("web_search is not available in the private toolset (no egress from private runs — start a web-toolset run instead)")
+		}
+		return toolWebSearch(ctx, fmt.Sprint(args["query"]))
+
+	case "web_fetch":
+		if cfg.toolset() != "web" {
+			return "", fmt.Errorf("web_fetch is not available in the private toolset (no egress from private runs — start a web-toolset run instead)")
+		}
+		return toolWebFetch(ctx, fmt.Sprint(args["url"]))
 
 	case "skills_list", "skill_view", "skill_manage":
 		return ag.runSkillTool(name, args)
 	}
 
 	if strings.HasPrefix(name, "mcp:") {
+		if cfg.toolset() == "web" {
+			return "", fmt.Errorf("mcp tools are not available in the web toolset (no internal reach from web runs)")
+		}
 		return ag.mcpCall(ctx, cfg, name, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)

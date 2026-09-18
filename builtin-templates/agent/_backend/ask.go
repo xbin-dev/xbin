@@ -11,7 +11,7 @@ import (
 )
 
 func handleAsk(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Text string }
+	var body struct{ Text, Toolset string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
 	if body.Text == "" {
@@ -19,6 +19,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
+	cfg.Toolset = normalizeToolset(body.Toolset)
 	cfgJSON, _ := json.Marshal(cfg)
 	id, err := agent.db.createRun(clip(body.Text, 60), string(cfgJSON), 0)
 	if err != nil {

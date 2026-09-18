@@ -41,6 +41,10 @@
   // exposes the Streamable-HTTP endpoint at "/mcp" under itself. (Legacy: a
   // static config.mcp list of external servers still works too.)
   "interfaces": {
-    "mcp": { "kind": "http", "service": "mcp", "multi": true }
+    "mcp": { "kind": "http", "service": "mcp", "multi": true },
+    // Egress for the web lane's web_search/web_fetch tools. Unbound = zero
+    // egress and the tools report themselves unavailable; the owner may
+    // `bx bind <this component> net=internet` (or the admin Interfaces tab).
+    "net": { "kind": "net" }
   }
 }

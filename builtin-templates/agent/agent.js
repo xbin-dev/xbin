@@ -212,8 +212,10 @@ async function loadDetail() {
   const pend = pendingOf(run);
   const isApproval = run.status === 'waiting_input' && pend.kind === 'approval';
 
-  // Top bar + controls.
+  // Top bar + controls. The lane badge shows the run's immutable toolset.
+  const lane = (d.config && d.config.toolset) === 'web' ? '🌐 web' : '🔒 private';
   $('top').innerHTML = `<span class="title">${esc(run.title || 'run ' + run.id)}</span>
+    <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
     <span class="badge ${esc(run.status)}">${esc(run.status)}</span>
     <button class="btn ghost btnsm" data-a="resume">Resume</button>
     <button class="btn ghost btnsm" data-a="interrupt">Interrupt</button>
@@ -306,7 +308,7 @@ $('n-create').onclick = async (e) => {
   const goal = $('n-goal').value.trim();
   if (!goal) { e.preventDefault(); return; }
   try {
-    const run = await api('/runs', jbody({ goal, title: $('n-title').value.trim(), system: $('n-system').value.trim() }, 'POST'));
+    const run = await api('/runs', jbody({ goal, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value }, 'POST'));
     sel = run.id; lastDetailKey = '';
   } catch (err) { alert(err.message); }
   loadRuns(); loadDetail();
@@ -469,6 +471,7 @@ async function tabSchedules(bd) {
         <div class="card"><div class="ch">
           <input type="checkbox" data-en="${i}" ${s.enabled ? 'checked' : ''} title="enable / disable">
           <span class="nm">${esc(s.name || 'schedule ' + s.id)}</span>
+          <span class="badge" title="tool mode">${s.toolset === 'web' ? '🌐' : '🔒'}</span>
           ${s.watcher ? '<span class="badge">watcher</span>' : ''}
           <button class="btn ghost btnsm" data-fire="${i}">Run now</button>
           <button class="btn rm btnsm" data-delsc="${i}">Del</button>
@@ -485,6 +488,10 @@ async function tabSchedules(bd) {
         <div class="field"><label>Cron (5-field or @every 30m)</label><input id="sc-cron" placeholder="0 9 * * *"></div>
         <div class="field"><label>Mode</label><label class="chk" style="padding-top:4px"><input type="checkbox" id="sc-watch"> Watcher (one persistent run)</label></div>
       </div>
+      <div class="field"><label>Tool mode</label><select id="sc-toolset">
+        <option value="private">🔒 private data — internal systems, no web</option>
+        <option value="web">🌐 web — no internal systems</option>
+      </select></div>
       <div class="field"><label>Goal</label><textarea id="sc-goal" rows="2"></textarea></div>
       <div><button class="btn" id="sc-create">Create</button> <span class="err" id="sc-err"></span></div>
     </div>`;
@@ -508,7 +515,7 @@ async function tabSchedules(bd) {
     const name = $('sc-name').value.trim(), cron = $('sc-cron').value.trim(), goal = $('sc-goal').value.trim();
     $('sc-err').textContent = '';
     if (!cron || !goal) { $('sc-err').textContent = 'need a cron expression and a goal'; return; }
-    try { await api('/schedules', jbody({ name, cron, goal, watcher: $('sc-watch').checked }, 'POST')); tabSchedules(bd); }
+    try { await api('/schedules', jbody({ name, cron, goal, watcher: $('sc-watch').checked, toolset: $('sc-toolset').value }, 'POST')); tabSchedules(bd); }
     catch (e) { $('sc-err').textContent = e.message; }
   };
 }

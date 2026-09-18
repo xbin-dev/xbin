@@ -36,7 +36,7 @@ const html = readFileSync(join(here, '..', 'index.html'), 'utf8')
 // What loadDetail() actually puts in the top bar: controls that wrap onto
 // several rows at the 480px the tile has in a minimum-width column.
 const TOPBAR = `<span class="title">a fairly long run title that takes room</span>
-  <span class="badge running">running</span>
+  <span class="badge">🔒 private</span><span class="badge running">running</span>
   <button class="btn ghost btnsm">Resume</button><button class="btn ghost btnsm">Interrupt</button>
   <button class="btn ghost btnsm">Compact</button><button class="btn ghost btnsm">Learn skill</button>
   <button class="btn ghost btnsm">Memory (3)</button>

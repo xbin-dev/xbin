@@ -31,6 +31,7 @@ type Schedule struct {
 	Goal    string `json:"goal"`    // the task each firing works on
 	System  string `json:"system"`  // optional system prompt override
 	Watcher bool   `json:"watcher"` // re-drive one persistent run; discard no-change rounds
+	Toolset string `json:"toolset"` // capability lane for fired runs: private (default) | web
 	Enabled bool   `json:"enabled"`
 	RunID   int64  `json:"runId"` // watcher's persistent run (0 = none yet)
 	LastRun int64  `json:"lastRun"`
@@ -41,9 +42,9 @@ type Schedule struct {
 
 func (d *DB) createSchedule(s *Schedule) (int64, error) {
 	res, err := d.sql.Exec(
-		`INSERT INTO schedules (name, cron, goal, system, watcher, enabled, created)
-		 VALUES (?, ?, ?, ?, ?, 1, ?)`,
-		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), now())
+		`INSERT INTO schedules (name, cron, goal, system, watcher, toolset, enabled, created)
+		 VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), s.Toolset, now())
 	if err != nil {
 		return 0, err
 	}
@@ -53,14 +54,14 @@ func (d *DB) createSchedule(s *Schedule) (int64, error) {
 func scanSchedule(scan func(dest ...any) error) (*Schedule, error) {
 	s := &Schedule{}
 	var watcher, enabled int
-	if err := scan(&s.ID, &s.Name, &s.Cron, &s.Goal, &s.System, &watcher, &enabled, &s.RunID, &s.LastRun, &s.Created); err != nil {
+	if err := scan(&s.ID, &s.Name, &s.Cron, &s.Goal, &s.System, &watcher, &s.Toolset, &enabled, &s.RunID, &s.LastRun, &s.Created); err != nil {
 		return nil, err
 	}
 	s.Watcher, s.Enabled = watcher != 0, enabled != 0
 	return s, nil
 }
 
-const scheduleCols = `id, name, cron, goal, system, watcher, enabled, run_id, last_run, created`
+const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created`
 
 func (d *DB) getSchedule(id int64) (*Schedule, error) {
 	return scanSchedule(d.sql.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id).Scan)
@@ -164,6 +165,7 @@ func (ag *Agent) fireSchedule(s *Schedule) {
 		return
 	}
 	cfg := parseConfig(ag.db.getSetting("config"))
+	cfg.Toolset = s.Toolset // fired runs carry the schedule's capability lane
 	if s.System != "" {
 		cfg.System = s.System
 	}
@@ -198,6 +200,7 @@ func (ag *Agent) fireWatcher(s *Schedule) {
 	runID := s.RunID
 	if runID == 0 {
 		cfg := parseConfig(ag.db.getSetting("config"))
+		cfg.Toolset = s.Toolset // the persistent watcher run inherits the lane
 		sys := watcherSystem(s.Goal)
 		if s.System != "" {
 			sys = s.System + "\n\n" + sys
@@ -287,6 +290,7 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "need {cron, goal}")
 		return
 	}
+	s.Toolset = normalizeToolset(s.Toolset) // human-created: either lane, validated
 	if s.Watcher && !parseConfig(agent.db.getSetting("config")).feature("watcher") {
 		xbin.WriteError(w, 400, "watcher mode is disabled in the agent's Features")
 		return

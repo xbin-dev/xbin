@@ -207,6 +207,10 @@
       <div class="dlg-hd">New run</div>
       <div class="dlg-bd">
         <div class="field"><label>Goal</label><textarea id="n-goal" rows="3" placeholder="what should the agent do?"></textarea></div>
+        <div class="field"><label>Tool mode</label><select id="n-toolset">
+          <option value="private">🔒 private data — internal systems, no web</option>
+          <option value="web">🌐 web — no internal systems</option>
+        </select></div>
         <div class="field"><label>Title (optional)</label><input id="n-title"></div>
         <div class="field"><label>System prompt override (optional)</label><textarea id="n-system" rows="3"></textarea></div>
       </div>
