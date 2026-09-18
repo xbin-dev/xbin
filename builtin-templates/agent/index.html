@@ -166,23 +166,44 @@
     .field input, .field textarea, .field select { width: 100%; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .empty { color: var(--bx-muted); padding: 24px; text-align: center; }
+
+    /* Home (no run selected): greeting + recent quick asks. */
+    .home { max-width: 640px; margin: 0 auto; padding: 26px 16px 12px; }
+    .home .hi { font-size: 17px; font-weight: 650; margin-bottom: 3px; }
+    .home .sub { color: var(--bx-muted); font-size: 12.5px; margin-bottom: 16px; }
+    .home .exs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+    .home .ex { font-size: 11.5px; color: var(--bx-muted); border: 1px solid var(--bx-border);
+                border-radius: 999px; padding: 3px 10px; cursor: pointer; background: var(--bx-panel-2); }
+    .home .ex:hover { color: var(--bx-text); border-color: var(--bx-accent); }
+    .home h5 { margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+               text-transform: uppercase; color: var(--bx-muted); }
+    .qa { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 11px; margin-bottom: 7px;
+          background: var(--bx-panel-2); cursor: pointer; }
+    .qa:hover { border-color: var(--bx-accent); }
+    .qa .q { font-weight: 600; font-size: 12.5px; display: flex; gap: 7px; align-items: center; }
+    .qa .q .when { font-weight: 400; color: var(--bx-muted); font-size: 10.5px; margin-left: auto; white-space: nowrap; }
+    .qa .a { color: var(--bx-muted); font-size: 12px; margin-top: 3px; white-space: pre-wrap;
+             display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .brand { cursor: pointer; }
+    .brand:hover { color: var(--bx-text); }
   </style>
 </head>
 <body class="bx">
   <div class="wrap">
     <div class="side">
-      <div class="hd"><b>Runs</b>
-        <button class="btn btnsm" id="new" title="New run">+ New</button>
+      <div class="hd"><b class="brand" id="home" title="Home — quick asks">⌂ Home</b>
+        <button class="btn btnsm" id="new" title="New task run">+ Task</button>
         <button class="btn ghost btnsm" id="gear" title="Settings">⚙</button>
       </div>
-      <div class="runs" id="runs"><div class="empty">no runs yet</div></div>
+      <div class="runs" id="runs"><div class="empty">no tasks yet</div></div>
     </div>
     <div class="main">
       <div class="top" id="top"><span class="muted">select or start a run</span></div>
       <div class="timeline" id="timeline"><div class="empty">—</div></div>
       <div class="composer">
-        <input id="msg" placeholder="message the agent (or answer its question)…" autocomplete="off" disabled>
-        <button class="btn" id="send" disabled>Send</button>
+        <button class="btn ghost" id="tset" title="Tool mode for new asks: 🔒 private data (internal systems, no web) / 🌐 web (no internal systems). A run keeps its mode.">🔒</button>
+        <input id="msg" placeholder="ask anything…" autocomplete="off">
+        <button class="btn" id="send">Send</button>
       </div>
 
       <!-- Tabbed settings, overlaying the run view. -->

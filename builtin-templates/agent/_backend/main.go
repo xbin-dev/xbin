@@ -247,6 +247,12 @@ func handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if runs == nil {
 		runs = []*Run{}
 	}
+	last := agent.db.lastAssistantByRun()
+	for _, r := range runs {
+		if r.Kind == "quick" {
+			r.Last = clip(last[r.ID], 400)
+		}
+	}
 	xbin.WriteJSON(w, 200, runs)
 }
 

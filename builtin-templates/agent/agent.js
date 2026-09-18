@@ -46,8 +46,43 @@ const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
 
-let sel = null;          // selected run id
+let sel = null;          // selected run id (null = home)
+// Capability lane for NEW asks (immutable per run once started): 'private'
+// = internal systems only, 'web' = web only — the exfiltration firewall.
+// Persisted via the per-user prefs API, NOT localStorage: tile frames are
+// sandboxed opaque origins with no localStorage at all, and touching it throws
+// — at module scope that kills the whole tile. The default stands until the
+// async load lands.
+let toolset = 'private';
+async function loadToolsetPref() {
+  try {
+    const r = await xbin.fetch('/api/xbin/prefs/toolset');
+    if (r.ok && (await r.json()) === 'web') { toolset = 'web'; syncToolsetBtn(); }
+  } catch { /* keep default */ }
+}
+const TSET = { private: ['🔒', 'private data — internal systems, no web'], web: ['🌐', 'web — no internal systems'] };
+function syncToolsetBtn() {
+  const b = $('tset');
+  b.textContent = TSET[toolset][0];
+  b.title = `Tool mode for new asks: ${TSET[toolset][1]} (click to switch)`;
+}
+// The home view's words. An instance that specializes the agent (a persona,
+// a domain) changes these and nothing else.
+const HOME = {
+  title: 'Agent',
+  tagline: 'quick asks · tasks · cron-agents',
+  hi: 'What do you need?',
+  sub: 'Ask below — a quick question gets its own run and its answer shows up here; bigger jobs go in a + Task; recurring ones become cron-agents.',
+  examples: [
+    'What can you do in this workspace?',
+    'Every morning at 8, check…',
+    'Call apps/… and summarize what it returns',
+  ],
+  placeholder: 'ask anything…',
+};
 let lastDetailKey = '';  // cheap change-detection for the timeline
+let lastHomeKey = '';    // change-detection for the home view
+let runsCache = [];      // last GET /runs
 let detail = null;       // last GET /runs/{id} payload
 let models = [];         // model ids from GET /models ({data:[{id}]})
 let cfgCache = null;     // last GET /config
@@ -62,18 +97,71 @@ let skillSel = null;     // name of the skill being edited (null = new)
 async function loadRuns() {
   let runs;
   try { runs = await api('/runs'); } catch { return; }
+  runsCache = runs || [];
+  // The sidebar lists TASKS (and their subagents): quick asks live on the
+  // home view — except the one you have open.
+  const tasks = runsCache.filter((r) => r.kind !== 'quick' || r.id === sel);
   const host = $('runs');
-  if (!runs.length) { host.innerHTML = '<div class="empty">no runs yet</div>'; return; }
   host.innerHTML = '';
-  for (const run of runs) {
+  if (!tasks.length) host.innerHTML = '<div class="empty">no tasks yet</div>';
+  for (const run of tasks) {
     const el = document.createElement('div');
     el.className = 'run' + (run.id === sel ? ' on' : '');
-    const sub = run.parentId ? '↳ subagent · ' : '';
+    const sub = run.parentId ? '↳ subagent · ' : (run.kind === 'quick' ? '⚡ ' : '');
     el.innerHTML = `<div class="t">${esc(run.title || 'run ' + run.id)}</div>
       <div class="m">${sub}<span class="badge ${esc(run.status)}">${esc(run.status)}</span></div>`;
     el.onclick = () => { sel = run.id; lastDetailKey = ''; loadRuns(); loadDetail(); };
     host.append(el);
   }
+  if (sel == null) renderHome();
+}
+
+// --- home (no run selected) ----------------------------------------------
+
+function goHome() {
+  sel = null; detail = null; lastDetailKey = ''; lastHomeKey = '';
+  loadRuns(); renderHome();
+}
+
+function renderHome() {
+  const quick = runsCache.filter((r) => r.kind === 'quick' && !r.parentId).slice(0, 12);
+  const key = JSON.stringify(quick.map((r) => [r.id, r.status, r.updated]));
+  if (key === lastHomeKey) return;
+  lastHomeKey = key;
+
+  $('top').innerHTML = `<span class="title">${esc(HOME.title)}</span><span class="muted" style="font-size:11.5px">${esc(HOME.tagline)}</span>`;
+  const ago = (t) => {
+    const s = Math.max(0, Date.now() / 1000 - t);
+    if (s < 90) return 'now';
+    if (s < 5400) return `${Math.round(s / 60)}m`;
+    if (s < 129600) return `${Math.round(s / 3600)}h`;
+    return `${Math.round(s / 86400)}d`;
+  };
+  // A plain reply leaves result empty, so the card falls back to the run's
+  // last assistant message (GET /runs decorates quick asks with it).
+  const answerOf = (r) => {
+    if (r.status === 'done') return r.result || r.last || '';
+    if (r.status === 'waiting_input') return '❓ ' + (r.result || 'asking you something — open to answer');
+    if (r.status === 'running') return '…working';
+    if (r.status === 'error') return '⚠ ' + (r.result || 'error');
+    return r.result || r.last || '';
+  };
+  const mcp = xbin.iface && xbin.iface('mcp');
+  $('timeline').innerHTML = `<div class="home">
+    <div class="hi">${esc(HOME.hi)}</div>
+    <div class="sub">${esc(HOME.sub)}${(mcp && (mcp.endpoints || []).length) ? '' : ' No MCP servers are bound yet — see ⚙ → MCP.'}</div>
+    <div class="exs">${HOME.examples.map((e) => `<span class="ex">${esc(e)}</span>`).join('')}</div>
+    ${quick.length ? `<h5>Recent quick asks</h5>` + quick.map((r) => `
+      <div class="qa" data-r="${num(r.id)}">
+        <div class="q">⚡ ${esc(r.title)}<span class="badge ${esc(r.status)}">${esc(r.status)}</span><span class="when">${ago(r.updated)}</span></div>
+        ${answerOf(r) ? `<div class="a">${esc(clip(answerOf(r), 400))}</div>` : ''}
+      </div>`).join('') : '<div class="hint">no quick asks yet — type one below</div>'}
+  </div>`;
+  $('timeline').querySelectorAll('.ex').forEach((el) => el.onclick = () => { $('msg').value = el.textContent; $('msg').focus(); });
+  $('timeline').querySelectorAll('[data-r]').forEach((el) => el.onclick = () => {
+    sel = +el.dataset.r; lastDetailKey = ''; loadRuns(); loadDetail();
+  });
+  $('msg').placeholder = HOME.placeholder;
 }
 
 // --- selected run -------------------------------------------------------
@@ -207,6 +295,7 @@ async function loadDetail() {
   if (sel == null) return;
   let d;
   try { d = await api(`/runs/${sel}`); } catch { return; }
+  if (sel !== d.run.id) return; // stale response after navigation
   detail = d;
   const run = d.run;
   const pend = pendingOf(run);
@@ -263,9 +352,9 @@ async function loadDetail() {
     if (atBottom) tl.scrollTop = tl.scrollHeight;
   }
 
-  // Composer is usable whenever a run is selected — sending a message to a
-  // finished run resumes it (backend sets it idle and re-drives).
-  $('msg').disabled = sel == null; $('send').disabled = sel == null;
+  // Composer: on a run it messages/answers that run (a message to a finished
+  // run resumes it); on home it starts a fresh quick ask. Always enabled.
+  $('msg').placeholder = run.status === 'waiting_input' ? 'answer the question…' : 'follow up…';
 }
 
 async function control(action) {
@@ -273,12 +362,8 @@ async function control(action) {
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
     try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
-    sel = null; detail = null; lastDetailKey = '';
-    $('top').innerHTML = '<span class="muted">select or start a run</span>';
-    $('timeline').innerHTML = '<div class="empty">—</div>';
-    $('msg').disabled = true; $('send').disabled = true;
     if (settingsOpen && activeTab === 'memory') renderTab();
-    return loadRuns();
+    return goHome();
   }
   // resume | interrupt | compact | learn → POST /runs/{id}/{action}
   try { await api(`/runs/${sel}/${action}`, { method: 'POST' }); } catch (e) { alert(e.message); }
@@ -289,8 +374,17 @@ async function control(action) {
 
 async function send() {
   const t = $('msg').value.trim();
-  if (!t || sel == null) return;
+  if (!t) return;
   $('msg').value = '';
+  // On home: start a fresh quick ask and jump into it (streaming answer).
+  if (sel == null) {
+    try {
+      const run = await api('/ask', jbody({ text: t, toolset }, 'POST'));
+      sel = run.id; lastDetailKey = '';
+    } catch (e) { return alert(e.message); }
+    loadRuns(); loadDetail();
+    return;
+  }
   // Route to /answer when the run is parked on an ask_user; otherwise /message
   // (the backend aliases them, but this keeps intent explicit).
   const run = detail && detail.run;
@@ -300,6 +394,14 @@ async function send() {
 }
 $('send').onclick = send;
 $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+$('home').onclick = goHome;
+$('tset').onclick = () => {
+  toolset = toolset === 'private' ? 'web' : 'private';
+  xbin.fetch('/api/xbin/prefs/toolset', { method: 'PUT', body: JSON.stringify(toolset) }).catch(() => {});
+  syncToolsetBtn();
+};
+syncToolsetBtn();
+loadToolsetPref();
 
 // --- new run ------------------------------------------------------------
 

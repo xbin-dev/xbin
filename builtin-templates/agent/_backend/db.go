@@ -36,9 +36,12 @@ type Run struct {
 	Pending  string `json:"pending"`  // json: a parked approval/ask, if any
 	// LastPromptTokens is the provider-reported prompt size of the most recent
 	// LLM call — the compaction trigger's ground truth (beats the estimate).
-	LastPromptTokens int   `json:"lastPromptTokens"`
-	Created          int64 `json:"created"`
-	Updated          int64 `json:"updated"`
+	LastPromptTokens int `json:"lastPromptTokens"`
+	// Last is the latest assistant answer snippet (list responses only — for
+	// the home view's quick-ask cards, where a plain reply leaves result "").
+	Last    string `json:"last,omitempty"`
+	Created int64  `json:"created"`
+	Updated int64  `json:"updated"`
 }
 
 type Message struct {
@@ -221,6 +224,26 @@ func (d *DB) listRuns() ([]*Run, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// lastAssistantByRun returns each run's most recent non-empty assistant
+// message (one query; used to decorate the runs list for the home view).
+func (d *DB) lastAssistantByRun() map[int64]string {
+	out := map[int64]string{}
+	rows, err := d.sql.Query(`SELECT run_id, content FROM messages
+		WHERE id IN (SELECT MAX(id) FROM messages WHERE role='assistant' AND content!='' GROUP BY run_id)`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var c string
+		if rows.Scan(&id, &c) == nil {
+			out[id] = c
+		}
+	}
+	return out
 }
 
 // setRunKind tags a run ("quick" = a quick ask; "" = ordinary task).

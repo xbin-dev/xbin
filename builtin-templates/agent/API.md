@@ -12,7 +12,7 @@ and the owner. There is no public surface. Paths below are relative to
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `GET /runs` | — | list runs (id, title, kind, status, timestamps) |
+| `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards) |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, draft}` (`draft` = live streaming text) |
@@ -29,6 +29,10 @@ and the owner. There is no public surface. Paths below are relative to
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
 an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
+The tile opens on a home view built on this: the composer asks (in the lane
+chosen with its 🔒/🌐 toggle, remembered per user through `/api/xbin/prefs` —
+tile frames have no `localStorage`), recent quick asks show as cards, and the
+sidebar lists tasks.
 
 ## Capability lanes (the toolset firewall)
 
