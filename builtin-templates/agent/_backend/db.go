@@ -27,6 +27,7 @@ const (
 type Run struct {
 	ID       int64  `json:"id"`
 	Title    string `json:"title"`
+	Kind     string `json:"kind"` // "" (task) | "quick" (a quick ask)
 	Status   string `json:"status"`
 	WakeAt   int64  `json:"wakeAt"`   // unix seconds; 0 = none
 	ParentID int64  `json:"parentId"` // subagent parent; 0 = top-level
@@ -158,6 +159,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 	// Best-effort migrations for instances created before a column existed
 	// (ALTER fails harmlessly when the column is already present).
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
+	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
 	// Backfill the FTS index from any messages that predate it (one-time).
 	var ftsN int
 	_ = d.sql.QueryRow(`SELECT count(*) FROM messages_fts`).Scan(&ftsN)
@@ -186,8 +188,8 @@ func (d *DB) createRun(title, config string, parentID int64) (int64, error) {
 func (d *DB) getRun(id int64) (*Run, error) {
 	r := &Run{}
 	err := d.sql.QueryRow(
-		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated)
+		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs WHERE id=?`, id).
+		Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +206,7 @@ func (d *DB) runConfig(id int64) (Config, error) {
 
 func (d *DB) listRuns() ([]*Run, error) {
 	rows, err := d.sql.Query(
-		`SELECT id, title, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs ORDER BY id DESC`)
+		`SELECT id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated FROM runs ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -212,12 +214,17 @@ func (d *DB) listRuns() ([]*Run, error) {
 	var out []*Run
 	for rows.Next() {
 		r := &Run{}
-		if err := rows.Scan(&r.ID, &r.Title, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending, &r.LastPromptTokens, &r.Created, &r.Updated); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// setRunKind tags a run ("quick" = a quick ask; "" = ordinary task).
+func (d *DB) setRunKind(id int64, kind string) {
+	_, _ = d.sql.Exec(`UPDATE runs SET kind=? WHERE id=?`, kind, id)
 }
 
 // setStatus updates a run's status and any of the optional parked fields.

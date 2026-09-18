@@ -12,8 +12,9 @@ and the owner. There is no public surface. Paths below are relative to
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `GET /runs` | — | list runs (id, title, status, timestamps) |
+| `GET /runs` | — | list runs (id, title, kind, status, timestamps) |
 | `POST /runs` | `{goal, title?, system?}` | create a run and start driving it |
+| `POST /ask` | `{text}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, draft}` (`draft` = live streaming text) |
 | `DELETE /runs/{id}` | — | delete a run and its history |
 | `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
@@ -25,6 +26,9 @@ and the owner. There is no public surface. Paths below are relative to
 | `POST /runs/{id}/learn` | — | distill the run into a saved skill (the /learn flow) |
 | `PUT /runs/{id}/memory` | `{key, value}` | set a memory block |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
+
+Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
+an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
 
 ## Config, models, features
 

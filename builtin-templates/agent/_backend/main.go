@@ -105,6 +105,7 @@ func main() {
 	// the owner. The heartbeat arrives as self via cron. No public surface.
 	mux.Handle("GET /runs", xbin.RoleFunc("admin", handleListRuns))
 	mux.Handle("POST /runs", xbin.RoleFunc("admin", handleNewRun))
+	mux.Handle("POST /ask", xbin.RoleFunc("admin", handleAsk))
 	mux.Handle("GET /runs/{id}", xbin.RoleFunc("admin", handleGetRun))
 	mux.Handle("DELETE /runs/{id}", xbin.RoleFunc("admin", handleDeleteRun))
 	mux.Handle("POST /runs/{id}/message", xbin.RoleFunc("admin", handleMessage))
