@@ -15,9 +15,17 @@
   <title>AI Agent</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { margin: 0; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); }
-    /* ~2× the old default height — this is a control panel, not a strip. */
-    .wrap { display: grid; grid-template-columns: 220px 1fr; height: 100vh; min-height: 640px; }
+    /* The tile is an app shell: every scrollable region scrolls INSIDE itself
+       (runs list, timeline, settings body), so the document itself must never
+       scroll — a page-level scrollbar can only push the composer off the
+       bottom. */
+    body { margin: 0; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); overflow: hidden; }
+    /* Asks for ~2× the old default height — this is a control panel, not a
+       strip — but never more than it was actually given: a flat min-height of
+       640px keeps .wrap 640px tall inside a 400px card, which overflows the
+       document and puts the message input below the fold. min() asks for 640
+       when there is room and yields to the viewport when there isn't. */
+    .wrap { display: grid; grid-template-columns: 220px 1fr; height: 100vh; min-height: min(640px, 100vh); }
     .side { border-right: 1px solid var(--bx-border); display: flex; flex-direction: column; min-height: 0; background: var(--bx-panel-2); }
     .side .hd { padding: 8px 10px; display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--bx-border); }
     .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; }
@@ -28,10 +36,13 @@
     .run .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .run .m { font-size: 10.5px; color: var(--bx-muted); margin-top: 1px; display: flex; gap: 5px; align-items: center; }
     .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
-    .top { padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    /* Top bar and composer never shrink: when .main runs out of height the
+       squeeze has to land on the timeline, never on the controls. The
+       timeline is flex:1 with a 0 basis, so it collapses first. */
+    .top { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
-    .composer { border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
+    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
     .composer input { flex: 1; }
     input, textarea, select {
       background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
