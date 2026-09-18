@@ -39,19 +39,23 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 	if err != nil {
 		return
 	}
-	mcp := ag.mcpTools(ctx, cfg) // discover MCP tools once per drive
 
 	run, err := ag.db.getRun(runID)
 	if err != nil {
 		return
 	}
 
+	// Heal anything a dead process left half-written BEFORE assembling context:
+	// an assistant tool_calls block with no replies is a protocol violation the
+	// provider rejects, and it can only be noticed from here (transcript.go).
+	ag.repairTranscript(runID)
+
 	// Resume path: an approved tool turn was parked; execute it, then continue.
 	if run.Status == statusRunning && run.Pending != "" {
 		var pend pending
 		if json.Unmarshal([]byte(run.Pending), &pend) == nil && pend.Kind == "approval" {
 			_ = ag.db.setStatus(runID, statusRunning, 0, run.Result, "")
-			if parked, term := ag.executeToolCalls(ctx, run, cfg, mcp, pend.ToolCalls, true); parked || term {
+			if parked, term := ag.executeToolCalls(ctx, run, cfg, pend.ToolCalls, true); parked || term {
 				return
 			}
 		}
@@ -62,6 +66,10 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 		return
 	}
 	_ = ag.db.setStatus(runID, statusRunning, 0, run.Result, "")
+	// Only once the run shows as running: tool discovery is network work, and
+	// doing it first left the run showing its previous status for as long as
+	// that took (mcp.go).
+	mcp := ag.mcpTools(ctx, cfg)
 
 	for i := 0; i < cfg.MaxIters; i++ {
 		if ag.stopped(runID) {
@@ -122,7 +130,7 @@ func (ag *Agent) drive(ctx context.Context, runID int64) {
 			return
 		}
 
-		if parked, term := ag.executeToolCalls(ctx, run, cfg, mcp, asst.ToolCalls, false); parked || term {
+		if parked, term := ag.executeToolCalls(ctx, run, cfg, asst.ToolCalls, false); parked || term {
 			return
 		}
 	}
@@ -143,13 +151,20 @@ type pending struct {
 // message for each so the transcript stays API-valid. Returns (parked, terminal):
 // parked = run paused (waiting/sleeping/approval), terminal = run ended.
 // approved skips the approval gate (resume-after-approval path).
-func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp []toolSpec, calls []toolCall, approved bool) (parked, terminal bool) {
+func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, calls []toolCall, approved bool) (parked, terminal bool) {
 	// Approval gate: if any side-effecting tool needs approval, park the whole
 	// turn before executing anything.
 	if cfg.Approve && !approved {
 		for _, tc := range calls {
 			if sideEffect(tc.Function.Name) {
 				pend, _ := json.Marshal(pending{Kind: "approval", ToolCalls: calls})
+				// Answer every parked call now. Parking without doing so left the
+				// transcript invalid for as long as the run waited, and let the
+				// next drive's repairTranscript fill them in as "restarted" —
+				// after which approving added a second answer to each.
+				for _, pc := range calls {
+					ag.settleToolResult(run.ID, pc, toolAwaitingApproval)
+				}
 				ag.db.journal(run.ID, "ask", map[string]any{"kind": "approval", "tools": toolNames(calls)})
 				_ = ag.db.setStatus(run.ID, statusWaiting, 0, "approve the pending tool call(s)", string(pend))
 				return true, false
@@ -168,6 +183,10 @@ func (ag *Agent) executeToolCalls(ctx context.Context, run *Run, cfg Config, mcp
 			for j < len(calls) && !isParkingTool(calls[j].Function.Name) {
 				j++
 			}
+			// Answer the block BEFORE running anything, then rewrite each
+			// placeholder as its tool finishes: the transcript is then valid at
+			// every instant, including mid-batch when a save swaps the process.
+			ag.placeholderResults(run.ID, calls[idx:j])
 			ag.runToolBatch(ctx, run, cfg, calls[idx:j])
 			idx = j
 			continue
@@ -227,7 +246,7 @@ func isParkingTool(name string) bool {
 func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls []toolCall) {
 	if len(calls) == 1 || !cfg.feature("parallelTools") {
 		for _, tc := range calls {
-			ag.addToolResult(run.ID, tc, ag.runOneTool(ctx, run, cfg, tc))
+			ag.settleToolResult(run.ID, tc, ag.runOneTool(ctx, run, cfg, tc))
 		}
 		return
 	}
@@ -245,7 +264,7 @@ func (ag *Agent) runToolBatch(ctx context.Context, run *Run, cfg Config, calls [
 	}
 	wg.Wait()
 	for i, tc := range calls {
-		ag.addToolResult(run.ID, tc, results[i])
+		ag.settleToolResult(run.ID, tc, results[i])
 	}
 }
 
@@ -258,7 +277,12 @@ func (ag *Agent) runOneTool(ctx context.Context, run *Run, cfg Config, tc toolCa
 	if name == "spawn_subagent" {
 		task, _ := args["task"].(string)
 		sys, _ := args["system"].(string)
-		return ag.spawnSubagent(ctx, run, cfg, task, sys)
+		// Capped like every other tool: a chatty child would otherwise ride
+		// every subsequent LLM call in this run until compaction.
+		out := capToolResult(ag.spawnSubagent(ctx, run, cfg, task, sys))
+		ag.db.journal(run.ID, "tool_call", map[string]any{"name": name, "args": args})
+		ag.db.journal(run.ID, "tool_result", map[string]any{"name": name, "result": clip(out, 2000)})
+		return out
 	}
 	tctx := ctx
 	if cfg.ToolTimeout > 0 {
@@ -295,6 +319,15 @@ func capToolResult(s string) string {
 	t := strings.ToValidUTF8(s[len(s)-tail:], "")
 	return fmt.Sprintf("%s\n…[%d bytes elided — output truncated; narrow the query/read a range if you need the middle]…\n%s",
 		h, len(s)-len(h)-len(t), t)
+}
+
+// settleToolResult rewrites the placeholder written before the tool ran. It
+// falls back to appending if there is no placeholder (the approval-resume path
+// re-executes calls whose results were written by an earlier generation).
+func (ag *Agent) settleToolResult(runID int64, tc toolCall, content string) {
+	if ag.db.updateToolResult(runID, tc.ID, content) != nil {
+		ag.addToolResult(runID, tc, content)
+	}
 }
 
 func (ag *Agent) addToolResult(runID int64, tc toolCall, content string) {

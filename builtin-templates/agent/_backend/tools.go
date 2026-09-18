@@ -135,15 +135,6 @@ func toolSpecs(cfg Config, mcp []toolSpec) []toolSpec {
 	return append(specs, mcp...)
 }
 
-// isControlTool reports whether the loop, not runTool, handles this call.
-func isControlTool(name string) bool {
-	switch name {
-	case "finish", "ask_user", "yield", "spawn_subagent":
-		return true
-	}
-	return false
-}
-
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
 func sideEffect(name string) bool {
 	switch name {

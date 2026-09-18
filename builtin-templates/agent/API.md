@@ -16,7 +16,7 @@ and the owner. There is no public surface. Paths below are relative to
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, draft}` (`draft` = live streaming text) |
-| `DELETE /runs/{id}` | — | delete a run and its history |
+| `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text}` | inject a user message; resumes the run |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
 | `POST /runs/{id}/approve` | `{approve}` | approve/deny a parked tool turn (approval mode) |
@@ -119,6 +119,24 @@ the agent with the `skills_*` tools; injected as a name+description list).
 `POST /tick` — invoked by the on-demand `beat` cron job. Drives every run that
 is `sleeping` past its wake time or left `running` (crash recovery).
 
+The job is registered only while something is pending. A registration that
+fails (the gateway is still coming up after a restart) is retried every minute
+by a keeper — otherwise a sleeping run with nothing else pending would never
+wake. Every gateway call the agent makes on its own behalf (heartbeat, model
+lookup) carries a timeout, because the SDK client has none.
+
+## Transcript validity
+
+The provider rejects a request in which an assistant `tool_calls` block is not
+answered by exactly one tool result per call. The loop writes a placeholder
+result for each call before running it and rewrites it in place when the tool
+finishes, so the transcript is valid at every instant — including while a turn
+is parked for approval (`(awaiting your approval)`) — and results stay in call
+order. At the top of every drive, `repairTranscript` heals what a dead process
+left behind: a placeholder still saying `(running…)` becomes "the backend
+restarted", and a missing result is spliced in right after its block. Replying
+instead of approving denies the parked calls.
+
 ## Run status
 
 `idle` (awaiting a user message) · `running` · `waiting_input` (parked on
@@ -137,3 +155,9 @@ components; private lane), `web_search`/`web_fetch` (web lane), `schedule`/`unsc
 `spawn_subagent` (several in a turn ⇒ parallel subagents), plus any bound
 `mcp:<server>:<tool>`. MCP servers are bound via the `mcp` interface (multi:true,
 like the chat tile). Extend these in `_backend/tools.go`.
+
+MCP tool lists are cached per server and persisted: a list younger than 5
+minutes is used as is, an older one is used at once and refreshed in the
+background, and only a server never listed before is waited for —
+concurrently, 5 s at most each. A run is marked `running` before any of this,
+and the web lane skips discovery entirely.

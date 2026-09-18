@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -164,6 +165,9 @@ CREATE TABLE IF NOT EXISTS schedules (
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`)
 	_, _ = d.sql.Exec(`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
 	_, _ = d.sql.Exec(`ALTER TABLE schedules ADD COLUMN toolset TEXT NOT NULL DEFAULT ''`)
+	if n := d.sweepOrphanRuns(); n > 0 {
+		log.Printf("removed %d orphaned subagent run(s) whose parent had been deleted", n)
+	}
 	// Backfill the FTS index from any messages that predate it (one-time).
 	var ftsN int
 	_ = d.sql.QueryRow(`SELECT count(*) FROM messages_fts`).Scan(&ftsN)
@@ -277,7 +281,23 @@ func (d *DB) setPromptTokens(id int64, n int) {
 	_, _ = d.sql.Exec(`UPDATE runs SET last_prompt_tokens=? WHERE id=?`, n, id)
 }
 
+// deleteRun removes a run AND everything it spawned. Subagent runs are only
+// meaningful as part of their parent's work, so leaving them behind orphans
+// rows that nothing will ever read or clean up.
 func (d *DB) deleteRun(id int64) error {
+	kids, err := d.descendants(id)
+	if err != nil {
+		return err
+	}
+	for i := len(kids) - 1; i >= 0; i-- { // deepest first
+		if err := d.deleteOneRun(kids[i]); err != nil {
+			return err
+		}
+	}
+	return d.deleteOneRun(id)
+}
+
+func (d *DB) deleteOneRun(id int64) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -354,6 +374,131 @@ func (d *DB) addMessage(m *Message) (int64, error) {
 	}
 	d.touchRun(m.RunID)
 	return id, nil
+}
+
+// updateToolResult rewrites an existing tool result in place, by tool-call id.
+// In place rather than append-a-new-one because seq is the transcript's order:
+// rewriting the placeholder keeps results in CALL order even when the tools
+// themselves finished out of order.
+func (d *DB) updateToolResult(runID int64, toolCallID, content string) error {
+	var id int64
+	err := d.sql.QueryRow(
+		`SELECT id FROM messages WHERE run_id=? AND role='tool' AND tool_call_id=? ORDER BY seq DESC LIMIT 1`,
+		runID, toolCallID).Scan(&id)
+	if err != nil {
+		return err
+	}
+	if _, err = d.sql.Exec(`UPDATE messages SET content=?, tokens=? WHERE id=?`,
+		content, estimateTokens(content), id); err != nil {
+		return err
+	}
+	// Keep the FTS row in step, or recall would search the placeholder text.
+	if _, err := d.sql.Exec(`UPDATE messages_fts SET content=? WHERE msg_id=?`, content, id); err != nil {
+		_, _ = d.sql.Exec(`INSERT INTO messages_fts(content, run_id, msg_id) VALUES (?, ?, ?)`, content, runID, id)
+	}
+	d.touchRun(runID)
+	return nil
+}
+
+// insertMessagesAfter splices messages in directly after seq `afterSeq`,
+// shifting every later message down to make room. Used by repairTranscript:
+// appending at the end would leave the repaired tool results sitting behind
+// whatever the run did next, which is its own protocol violation.
+func (d *DB) insertMessagesAfter(runID int64, afterSeq int, msgs []*Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE messages SET seq = seq + ? WHERE run_id=? AND seq > ?`,
+		len(msgs), runID, afterSeq); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	ts := now()
+	for i, m := range msgs {
+		res, err := tx.Exec(
+			`INSERT INTO messages (run_id, seq, role, content, name, tool_call_id, tool_calls, tokens, compacted, created)
+			 VALUES (?, ?, ?, ?, ?, ?, '', ?, 0, ?)`,
+			runID, afterSeq+1+i, m.Role, m.Content, m.Name, m.ToolCallID, estimateTokens(m.Content), ts)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if m.Content != "" {
+			id, _ := res.LastInsertId()
+			if _, err := tx.Exec(`INSERT INTO messages_fts(content, run_id, msg_id) VALUES (?, ?, ?)`,
+				m.Content, runID, id); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	d.touchRun(runID)
+	return nil
+}
+
+// sweepOrphanRuns deletes subagent runs whose parent row no longer exists.
+//
+// These can only come from one place: deleting a run did not cascade before the
+// delete cascade shipped, so the children were left behind pointing at a parent
+// that is gone. They are unreachable — no parent lists them and no cascade will
+// ever reach them — so removing them completes a deletion the owner already
+// asked for. Logged, not silent.
+func (d *DB) sweepOrphanRuns() int {
+	rows, err := d.sql.Query(
+		`SELECT id FROM runs WHERE parent_id<>0
+		   AND NOT EXISTS (SELECT 1 FROM runs p WHERE p.id = runs.parent_id)`)
+	if err != nil {
+		return 0
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	n := 0
+	for _, id := range ids {
+		// deleteRun takes each one's own descendants with it, so a whole
+		// orphaned subtree goes in one call.
+		if d.deleteRun(id) == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// descendants returns every run below id, deepest-last. One recursive CTE is
+// fine under SetMaxOpenConns(1) — it is a single statement holding no lock
+// across round trips.
+func (d *DB) descendants(id int64) ([]int64, error) {
+	rows, err := d.sql.Query(`
+		WITH RECURSIVE sub(id) AS (
+		  SELECT id FROM runs WHERE parent_id=?
+		  UNION ALL
+		  SELECT r.id FROM runs r JOIN sub ON r.parent_id = sub.id
+		) SELECT id FROM sub`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var n int64
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 func (d *DB) messages(runID int64, onlyLive bool) ([]*Message, error) {

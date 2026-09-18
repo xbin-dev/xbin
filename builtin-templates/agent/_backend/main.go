@@ -25,6 +25,7 @@ type Agent struct {
 	driving       map[int64]bool          // runs being driven right now (coalesce)
 	stop          map[int64]bool          // interrupt requests
 	beatOn        bool                    // wake heartbeat currently registered
+	beatBusy      bool                    // a reconcile is in flight (single-flight)
 	watcherRounds map[int64]*watcherRound // active watcher rounds (for rollback)
 	drafts        map[int64]string        // live streaming assistant text per run
 }
@@ -99,6 +100,7 @@ func main() {
 	// heartbeat on only if something needs it (it's not always-on — a workspace
 	// session or the agent itself schedules work; see API.md).
 	go agent.startupResume()
+	go agent.beatKeeper()
 
 	mux := http.NewServeMux()
 	// Everything is admin-only: the tile is self (always admin of itself) and
@@ -172,10 +174,31 @@ func handleFeatures(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": featureKeys, "features": state})
 }
 
+// beatCallTimeout bounds a heartbeat registration. The SDK client has no
+// Timeout of its own, so without this a gateway that accepts the connection and
+// then goes quiet hangs the caller indefinitely. A var so tests can shorten it.
+var beatCallTimeout = 10 * time.Second
+
 // reconcileBeat keeps the wake heartbeat registered ONLY while runs need waking
 // (sleeping, or mid-drive/stalled) — so cron isn't always-on. Cheap: it only
-// hits the gateway when the desired state actually flips.
+// hits the gateway when the desired state actually flips. Single-flighted: it
+// makes a retrying gateway call and is reached from several concurrent paths
+// (every completing drive, schedule changes, the keeper), so overlapping
+// attempts would pile up round-trips.
 func (ag *Agent) reconcileBeat() {
+	ag.mu.Lock()
+	if ag.beatBusy {
+		ag.mu.Unlock()
+		return
+	}
+	ag.beatBusy = true
+	ag.mu.Unlock()
+	defer func() {
+		ag.mu.Lock()
+		ag.beatBusy = false
+		ag.mu.Unlock()
+	}()
+
 	want := ag.db.hasPending()
 	ag.mu.Lock()
 	have := ag.beatOn
@@ -208,15 +231,7 @@ func (ag *Agent) ensureBeat() bool {
 		if i > 0 {
 			time.Sleep(time.Duration(i) * time.Second)
 		}
-		req, _ := http.NewRequest(http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := xbin.Client().Do(req)
-		if err != nil {
-			continue
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
+		if ag.putBeat(body) {
 			return true
 		}
 	}
@@ -224,9 +239,28 @@ func (ag *Agent) ensureBeat() bool {
 	return false
 }
 
+// putBeat is one registration attempt. xbin.Client() has no Timeout, so
+// without the context this can hang forever against a gateway that is up but
+// not answering — and reconcileBeat would hold its single-flight slot with it.
+func (ag *Agent) putBeat(body []byte) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), beatCallTimeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := xbin.Client().Do(req)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // stopBeat removes the wake heartbeat when nothing is pending.
 func (ag *Agent) stopBeat() bool {
-	req, _ := http.NewRequest(http.MethodDelete, "http://xbin/api/xbin/cron/jobs/heartbeat", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), beatCallTimeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, "http://xbin/api/xbin/cron/jobs/heartbeat", nil)
 	resp, err := xbin.Client().Do(req)
 	if err != nil {
 		return false
@@ -234,6 +268,21 @@ func (ag *Agent) stopBeat() bool {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound
+}
+
+// beatKeeper re-attempts the wake-heartbeat registration.
+//
+// reconcileBeat only acts when want != beatOn, and it sets beatOn only when the
+// gateway call SUCCEEDED — so a registration that loses its race against a
+// gateway still coming up after a restart is never retried. The next attempt
+// would come from a completing drive, and no drive can complete when the only
+// pending run is the one waiting for the heartbeat: a sleeping run then never
+// wakes. A slow loop holding no state closes that.
+func (ag *Agent) beatKeeper() {
+	for {
+		time.Sleep(time.Minute)
+		ag.reconcileBeat()
+	}
 }
 
 // --- handlers -----------------------------------------------------------
@@ -328,10 +377,34 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
+	// Replying instead of approving DENIES the parked calls. setStatus clears
+	// `pending`, so without this the parked tool_calls would be orphaned — an
+	// unanswered block shipped to the provider on the very next call.
+	agent.denyPending(id)
 	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
 	_ = agent.db.setStatus(id, statusIdle, 0, "", "")
 	agent.driveAsync(id)
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// denyPending answers any parked approval's tool calls with a refusal, so the
+// transcript stays valid when the human responds with words instead of a
+// verdict. No-op when nothing is parked.
+func (ag *Agent) denyPending(runID int64) {
+	run, err := ag.db.getRun(runID)
+	if err != nil || run.Pending == "" {
+		return
+	}
+	var pend pending
+	if json.Unmarshal([]byte(run.Pending), &pend) != nil || len(pend.ToolCalls) == 0 {
+		return
+	}
+	// Rewrites the awaiting-approval placeholders the gate wrote; appending
+	// would answer each parked call twice.
+	for _, tc := range pend.ToolCalls {
+		ag.settleToolResult(runID, tc, "(not executed: you replied instead of approving — ask again if you still need it)")
+	}
+	ag.db.journal(runID, "note", map[string]string{"text": "pending tool call(s) denied: the user replied instead of approving"})
 }
 
 func handleApprove(w http.ResponseWriter, r *http.Request) {
@@ -352,14 +425,20 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 		// Keep pending; the drive resume-path executes it.
 		_ = agent.db.setStatus(id, statusRunning, 0, "", run.Pending)
 	} else {
-		for _, tc := range pend.ToolCalls {
-			agent.addToolResult(id, tc, "(denied by user)")
-		}
-		agent.db.journal(id, "note", map[string]string{"text": "tool call(s) denied"})
+		agent.denyApproval(id, pend)
 		_ = agent.db.setStatus(id, statusRunning, 0, "", "")
 	}
 	agent.driveAsync(id)
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// denyApproval answers every parked call with a refusal, REWRITING the
+// awaiting-approval placeholder the gate wrote rather than adding a second row.
+func (ag *Agent) denyApproval(id int64, pend pending) {
+	for _, tc := range pend.ToolCalls {
+		ag.settleToolResult(id, tc, "(denied by user)")
+	}
+	ag.db.journal(id, "note", map[string]string{"text": "tool call(s) denied"})
 }
 
 func handleInterrupt(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +533,13 @@ func pathID(r *http.Request) int64 {
 }
 
 // publishEvent emits a run lifecycle event on the bus (best-effort).
+//
+// Fire-and-forget on purpose: xbin.Publish is a gateway round-trip, and this is
+// called from inside the drive loop. A fan-out publishing one event per child
+// would otherwise serialize a round-trip per child in the middle of a turn.
 func publishEvent(runID int64, kind string) error {
-	return xbin.Publish("res:"+xbin.Self()+"/events", kind, map[string]any{"runId": runID})
+	go func() {
+		_ = xbin.Publish("res:"+xbin.Self()+"/events", kind, map[string]any{"runId": runID})
+	}()
+	return nil
 }

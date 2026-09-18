@@ -255,6 +255,12 @@ type streamReq struct {
 	StreamOptions *streamOpts `json:"stream_options,omitempty"`
 }
 
+// modelLookupTimeout bounds model resolution. It runs after the run is already
+// marked running and before any chat request, so a hang there is the exact
+// shape of "thinking forever with no LLM activity". A var so tests can shorten
+// it.
+var modelLookupTimeout = 10 * time.Second
+
 // --- model tier resolution (API.md) --------------------------
 
 var (
@@ -278,6 +284,12 @@ func preferredModel(ctx context.Context, use string) string {
 		return m
 	}
 	prefMu.Unlock()
+	// Bounded independently of the drive context: xbin.Client() has no Timeout,
+	// so on the 10-minute drive ctx a gateway that accepts the connection and
+	// then goes quiet parks the drive at status=running with no chat request
+	// ever made — which is indistinguishable from a hung agent.
+	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
+	defer cancel()
 	u := "http://xbin/api/apps/" + gwPath() + "/preferred?use=" + url.QueryEscape(use)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

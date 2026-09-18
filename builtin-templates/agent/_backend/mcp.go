@@ -13,10 +13,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -150,41 +153,149 @@ func (s MCPServer) session(ctx context.Context) (string, error) {
 	return sid, err
 }
 
-// mcpTools lists every configured server's tools, prefixed for the LLM.
+// --- tool discovery --------------------------------------------------------
+
+// Tool lists are cached per server. Discovery used to run initialize +
+// tools/list against every server, one after another, on every drive — before
+// the run was even marked running, and bounded only by the 10-minute drive
+// deadline. Each round-trip can wake an idle-reaped provider in its sandbox,
+// so a prompt waited seconds to tens of seconds, before the model was even
+// asked, for work whose answer almost never changes.
+//
+// Now a list younger than mcpToolsFresh is used as is, and an older one is
+// used at once and refreshed in the background. Only a server never listed
+// before is waited for — concurrently with the others, and for at most
+// mcpDiscoverTimeout each. Lists persist in settings, so a backend woken from
+// an idle reap does not pay again either. A stale list costs little: a tool
+// that has since gone comes back as an error the model can read.
+const mcpToolsFresh = 5 * time.Minute
+
+// mcpDiscoverTimeout bounds one server's initialize + tools/list. A var so
+// tests can shorten it.
+var mcpDiscoverTimeout = 5 * time.Second
+
+type mcpToolList struct {
+	At    int64      `json:"at"`
+	Tools []toolSpec `json:"tools"`
+}
+
+var (
+	mcpRefreshMu  sync.Mutex
+	mcpRefreshing = map[string]bool{}
+)
+
+func mcpCacheKey(s MCPServer) string { return "mcp_tools:" + s.Name + "|" + s.URL }
+
+// mcpTools returns every configured server's tools, prefixed for the LLM.
 func (ag *Agent) mcpTools(ctx context.Context, cfg Config) []toolSpec {
-	var out []toolSpec
-	for _, srv := range allMCPServers(cfg) {
-		sid, err := srv.session(ctx)
-		if err != nil {
-			continue // a down server shouldn't break the loop
-		}
-		res, _, err := srv.rpc(ctx, "tools/list", map[string]any{}, sid)
-		if err != nil {
-			continue
-		}
-		var list struct {
-			Tools []struct {
-				Name        string         `json:"name"`
-				Description string         `json:"description"`
-				InputSchema map[string]any `json:"inputSchema"`
-			} `json:"tools"`
-		}
-		if json.Unmarshal(res, &list) != nil {
-			continue
-		}
-		for _, t := range list.Tools {
-			schema := t.InputSchema
-			if schema == nil {
-				schema = obj(nil, map[string]any{})
+	if cfg.toolset() == "web" {
+		return nil // the web lane gets no internal tools, so don't wake the servers
+	}
+	servers := allMCPServers(cfg)
+	lists := make([][]toolSpec, len(servers))
+	var wg sync.WaitGroup
+	for i, srv := range servers {
+		if c, ok := ag.cachedMCPTools(srv); ok {
+			lists[i] = c.Tools
+			if time.Since(time.Unix(c.At, 0)) > mcpToolsFresh {
+				ag.refreshMCPTools(srv)
 			}
-			out = append(out, toolSpec{Type: "function", Function: funcDef{
-				Name:        "mcp:" + srv.Name + ":" + t.Name,
-				Description: t.Description,
-				Parameters:  schema,
-			}})
+			continue
 		}
+		wg.Add(1)
+		go func(i int, srv MCPServer) {
+			defer wg.Done()
+			lists[i], _ = ag.discoverMCPTools(ctx, srv)
+		}(i, srv)
+	}
+	wg.Wait()
+	var out []toolSpec
+	for _, l := range lists {
+		out = append(out, l...)
 	}
 	return out
+}
+
+func (ag *Agent) cachedMCPTools(srv MCPServer) (mcpToolList, bool) {
+	var c mcpToolList
+	raw := ag.db.getSetting(mcpCacheKey(srv))
+	if raw == "" || json.Unmarshal([]byte(raw), &c) != nil {
+		return c, false
+	}
+	return c, true
+}
+
+// refreshMCPTools re-lists one server in the background, at most one refresh
+// per server at a time.
+func (ag *Agent) refreshMCPTools(srv MCPServer) {
+	key := mcpCacheKey(srv)
+	mcpRefreshMu.Lock()
+	if mcpRefreshing[key] {
+		mcpRefreshMu.Unlock()
+		return
+	}
+	mcpRefreshing[key] = true
+	mcpRefreshMu.Unlock()
+	go func() {
+		defer func() {
+			mcpRefreshMu.Lock()
+			delete(mcpRefreshing, key)
+			mcpRefreshMu.Unlock()
+		}()
+		_, _ = ag.discoverMCPTools(context.Background(), srv)
+	}()
+}
+
+// discoverMCPTools lists one server's tools, bounded by mcpDiscoverTimeout,
+// and stores the list. A failure leaves any previous list in place.
+func (ag *Agent) discoverMCPTools(ctx context.Context, srv MCPServer) ([]toolSpec, error) {
+	ctx, cancel := context.WithTimeout(ctx, mcpDiscoverTimeout)
+	defer cancel()
+	start := time.Now()
+	tools, err := listMCPTools(ctx, srv)
+	if took := time.Since(start); err != nil || took > time.Second {
+		log.Printf("agent: mcp %s: tools/list took %v (err=%v)", srv.Name, took.Round(time.Millisecond), err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	b, _ := json.Marshal(mcpToolList{At: time.Now().Unix(), Tools: tools})
+	_ = ag.db.putSetting(mcpCacheKey(srv), string(b))
+	return tools, nil
+}
+
+func listMCPTools(ctx context.Context, srv MCPServer) ([]toolSpec, error) {
+	sid, err := srv.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res, _, err := srv.rpc(ctx, "tools/list", map[string]any{}, sid)
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Tools []struct {
+			Name        string         `json:"name"`
+			Description string         `json:"description"`
+			InputSchema map[string]any `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(res, &list); err != nil {
+		return nil, fmt.Errorf("mcp tools/list: %w", err)
+	}
+	out := make([]toolSpec, 0, len(list.Tools))
+	for _, t := range list.Tools {
+		schema := t.InputSchema
+		if schema == nil {
+			schema = obj(nil, map[string]any{})
+		}
+		out = append(out, toolSpec{Type: "function", Function: funcDef{
+			Name:        "mcp:" + srv.Name + ":" + t.Name,
+			Description: t.Description,
+			Parameters:  schema,
+		}})
+	}
+	return out, nil
 }
 
 // mcpCall dispatches a `mcp:<server>:<tool>` call.
