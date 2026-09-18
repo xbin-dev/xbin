@@ -391,7 +391,13 @@ func (ag *Agent) assembleContext(run *Run, cfg Config) ([]wireMsg, error) {
 		if m.Role == "system" {
 			continue // the base/system prompt is rebuilt above
 		}
-		wm := wireMsg{Role: m.Role, Content: contentValue(m.Content), Name: m.Name, ToolCallID: m.ToolCallID}
+		// Only user messages can carry multimodal parts (the vision input
+		// path); assistant/tool content is always plain text on the wire.
+		var content any = m.Content
+		if m.Role == "user" {
+			content = contentValue(m.Content)
+		}
+		wm := wireMsg{Role: m.Role, Content: content, Name: m.Name, ToolCallID: m.ToolCallID}
 		if m.ToolCalls != "" {
 			_ = json.Unmarshal([]byte(m.ToolCalls), &wm.ToolCalls)
 		}

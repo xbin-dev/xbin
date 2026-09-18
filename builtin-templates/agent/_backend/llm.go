@@ -122,13 +122,29 @@ type wireMsg struct {
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 }
 
-// contentValue passes a content-parts array through as raw JSON; plain text
-// stays a string.
+// contentValue returns the wire value for stored USER message content: plain
+// text, or — only for content that verifiably is a multimodal parts array
+// (what the vision path stores) — the raw JSON. A bare '[' prefix sniff is
+// wrong twice over: tool results legitimately start with '[' (recall's
+// "[#1 user] …" made the whole request unmarshalable), and a tool result that
+// IS valid JSON would silently ship as parts.
 func contentValue(s string) any {
-	if strings.HasPrefix(strings.TrimSpace(s), "[") {
-		return json.RawMessage(s)
+	t := strings.TrimSpace(s)
+	if !strings.HasPrefix(t, "[") || !json.Valid([]byte(t)) {
+		return s
 	}
-	return s
+	var parts []struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(t), &parts) != nil || len(parts) == 0 {
+		return s
+	}
+	for _, p := range parts {
+		if p.Type != "text" && p.Type != "image_url" {
+			return s
+		}
+	}
+	return json.RawMessage(t)
 }
 
 // visionModelFor picks the main-loop model: the general tier, but the vlm tier

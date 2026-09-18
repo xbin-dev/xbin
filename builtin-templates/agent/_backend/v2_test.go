@@ -143,6 +143,58 @@ func TestContentValue(t *testing.T) {
 	if s, ok := contentValue("plain").(string); !ok || s != "plain" {
 		t.Fatal("plain text should stay a string")
 	}
+	// recall-style output starts with '[' but is not JSON: it broke marshalling
+	// of the whole request.
+	if _, ok := contentValue("[#1 user] What about SGP?").(string); !ok {
+		t.Fatal("recall-style [#…] must be plain text")
+	}
+	// Valid JSON that is NOT a parts array stays plain text.
+	for _, s := range []string{`["a","b"]`, `[{"foo":1}]`, `[]`, `[{"type":"weird"}]`} {
+		if _, ok := contentValue(s).(string); !ok {
+			t.Fatalf("%q must stay plain text", s)
+		}
+	}
+	parts := `[{"type":"text","text":"hi"},{"type":"image_url","image_url":{"url":"data:..."}}]`
+	if _, ok := contentValue(parts).(json.RawMessage); !ok {
+		t.Fatal("a parts array must become RawMessage")
+	}
+}
+
+// TestToolResultsStayText is the crash itself: a recall result in the
+// transcript made the assembled request fail to marshal, which stopped the
+// run for good. Only user content may ever become parts.
+func TestToolResultsStayText(t *testing.T) {
+	db := newTestDB(t)
+	ag := &Agent{db: db}
+	id, _ := db.createRun("t", "", 0)
+	run, _ := db.getRun(id)
+	calls := `[{"id":"c1","type":"function","function":{"name":"recall","arguments":"{}"}},` +
+		`{"id":"c2","type":"function","function":{"name":"xbin_call","arguments":"{}"}}]`
+	for _, m := range []*Message{
+		{RunID: id, Role: "user", Content: "what did we say about SGP?"},
+		{RunID: id, Role: "assistant", ToolCalls: calls},
+		{RunID: id, Role: "tool", Name: "recall", ToolCallID: "c1", Content: "[#1 user] What about SGP?"},
+		// Valid JSON that happens to look like parts must not ship as parts.
+		{RunID: id, Role: "tool", Name: "xbin_call", ToolCallID: "c2", Content: `[{"type":"text","text":"x"}]`},
+	} {
+		if _, err := db.addMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := ag.assembleContext(run, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := json.Marshal(out); err != nil {
+		t.Fatalf("the assembled request no longer marshals: %v", err)
+	}
+	for _, m := range out {
+		if m.Role == "tool" {
+			if _, ok := m.Content.(string); !ok {
+				t.Fatalf("tool result %s went out as %T, want plain text", m.ToolCallID, m.Content)
+			}
+		}
+	}
 }
 
 // Oversized tool results are middle-elided before entering the transcript;
