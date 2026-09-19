@@ -297,6 +297,13 @@ shows that file in a `sandbox=""` iframe with a prepended meta CSP
 never run and nothing external loads** — so charts must be inline SVG. Verify
 with `node test/frame-policy.mjs`.
 
+The tile's other browser tests (`test/layout.mjs`, `collapse`, `home`,
+`sidebar`, `attach`) drive the real `agent.js` against a stubbed transport;
+`test/kit.mjs` serves the frontend kit it imports from the xbin checkout the
+template lives in (in an instance: `BX_KIT=/path/to/bx-kit.js`). Each needs
+Playwright with a Chromium build and skips without it. The backend: `go vet
+./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
+
 File versions are monotonic but **not snapshotted**: clicking an older render
 chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a

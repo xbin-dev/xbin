@@ -10,6 +10,37 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-19
+
+- **Frontend kit: `esc()` escapes quotes.** `/vendor/bx-kit.js`'s `esc` now
+  escapes `"` and `'` as well as `&<>`, so a value dropped into an attribute
+  (`title="${esc(x)}"`) can no longer close it. This was a live XSS in the
+  agent template's tool-call titles (the arguments are JSON, always full of
+  quotes); every kit consumer gets the fix. Escaped quotes render identically
+  in text, so nothing visible changes. [frontend-kit.md](/docs/frontend-kit.md).
+- **Agent template: twelve upstreamed fixes and features (D72).** The
+  `agent` template takes the generic work done in an instance: the tile
+  never scrolls the document and keeps the composer on screen; tool calls and
+  results fold to a line and STAY open across the poll's re-renders; a recall
+  result no longer kills the run; **quick asks** (`POST /ask`, `kind:"quick"`)
+  and a **home view** with answer cards and a task sidebar; **web tools**
+  (`web_search`/`web_fetch`, needing the `net` interface bound) behind a
+  **toolset firewall** — a run is in the private lane (internal reach) or
+  the web lane (egress), never both, inherited by subagents and schedules;
+  lifecycle fixes (a transcript kept valid across restarts and approvals,
+  delete cascades, capped subagent results, timeouts on every gateway call,
+  MCP discovery off the drive's critical path); **session files** with a
+  sandboxed `render_html` pane and a Files tab; a per-run **JavaScript REPL**
+  (goja, no host surface); a **workflow layer** (run graph, background
+  agents, one dispatcher with a concurrency ceiling, durable cancellation,
+  the brake, a tree view); and **attachments + vision** (files into the run's
+  session files, images seen by the model). Feature keys `files`, `repl`,
+  `workflow`. The template's `xbin.json` gains a `net` interface and a
+  `res:…/files` blob resource; `API.md` documents every route. Existing
+  instances are forks (D50): `bx template updates` lists them as behind, and
+  the builder merges what they want. Known gap: the skills store is offered
+  in both lanes (D72).
+
 ## 2026-09-15
 
 - **Terminal: predictive local echo (D70).** On a slow link what you type

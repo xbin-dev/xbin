@@ -9,6 +9,7 @@
 //
 //   node test/attach.mjs        (needs playwright + a chromium build)
 import { readFileSync } from 'node:fs';
+import { serveKit, tileHtml } from './kit.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -42,12 +43,13 @@ await page.route(`${ORIGIN}/**`, (route) => {
   if (!file) return route.fulfill({ status: 404, body: '' });
   let body = readFileSync(join(here, '..', file), 'utf8');
   if (file === 'index.html') {
-    body = body.replace(/<link rel="stylesheet" href="\/vendor\/theme.css">/,
+    body = tileHtml(body).replace(/<link rel="stylesheet" href="\/vendor\/theme.css">/,
       '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2:#f4f4f4;--bx-text:#111;' +
       '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>');
   }
   route.fulfill({ contentType: file.endsWith('.js') ? 'text/javascript' : 'text/html', body });
 });
+await serveKit(page);
 await page.route('**/vendor/marked.esm.js', (r) =>
   r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
 

@@ -1772,3 +1772,27 @@ Deviations and refinements made while implementing; all deliberate:
   overlay itself moved off xterm decorations onto a layer positioned by the
   renderer's cell metrics, because xterm hides decorations in the alternate
   buffer and tmux, vim and less all live there.
+
+- **D72 — The agent template takes its instance's generic work back as a
+  patch series, replayed onto the moved template (2026-09-19).** Twelve
+  patches made in an `apps/agent` instance against the template snapshot of
+  2026-08-11 (D50 gives instances the template's history, so the series had
+  a real base). The template had moved since — `esc()` and `api()` come
+  from `/vendor/bx-kit.js` (I5) with a different call shape, handlers write
+  through the SDK (I10d) — drift git cannot see, so the series was replayed
+  commit by commit with a three-way merge against the pristine base and
+  each commit fixed in place: kit-style calls, SDK writes, the XSS fix in the
+  kit's `esc` rather than a local copy (the kit-duplicate guard forbids one,
+  and every consumer needed it). What stayed out, as the series' own README
+  says: the instance's assistant persona and version-guarded prompt, the
+  owner-context injection and its cross-scope grant, the model fallback, the
+  instance's home-view copy, and its manifest/module rewrites. Budgets:
+  `agent.js` (≈1460 lines) is listed rather than split — the template is one
+  module by design, instances fork it and merge updates by git (D50), so its
+  file layout is part of the contract. Browser tests ride along
+  (`test/*.mjs`, Playwright, skipping without it) with a shared `kit.mjs`
+  that serves the kit and marks the page sandboxed so the kit's `api()`
+  takes the stubbed `xbin.fetch`. Left open, by the series' own flag: the
+  skills store crosses lanes — a private-lane run can write a skill a
+  web-lane run reads and sends out; fixing it needs per-lane skills or no
+  skill writes from the private lane, a design call not taken here.
