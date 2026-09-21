@@ -354,6 +354,7 @@ type agentRenderer struct {
 	pending  []string // unanswered pids, oldest first
 	inLine   bool     // an agent line is open (deltas print inline)
 	role     string   // whose delta the open line is
+	ready    bool     // the first idle (with the agent's modes) was shown
 	exitCode int
 }
 
@@ -448,9 +449,9 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		reason := str("stopReason")
 		usage := ""
 		if u, ok := d["usage"].(map[string]any); ok {
-			usage = fmt.Sprintf("  usage %v/%v", u["used"], u["size"])
+			usage = "  usage " + num(u["used"]) + "/" + num(u["size"])
 		}
-		fmt.Fprintf(r.w, "— turn %v ended (%s)%s\n", d["turn"], reason, usage)
+		fmt.Fprintf(r.w, "— turn %s ended (%s)%s\n", num(d["turn"]), reason, usage)
 		switch reason {
 		case "end_turn", "max_tokens", "max_turn_requests":
 			code = 0
@@ -474,13 +475,22 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 			}
 			return r.exitCode, true
 		case "idle":
-			if mode := str("currentMode"); mode != "" && d["modes"] != nil {
+			if mode := str("currentMode"); mode != "" && d["modes"] != nil && !r.ready {
+				r.ready = true
 				r.br()
 				fmt.Fprintf(r.w, "[ready] mode %s\n", mode)
 			}
 		}
 	}
 	return 0, false
+}
+
+// num renders a JSON number as an integer (json decodes to float64).
+func num(v any) string {
+	if f, ok := v.(float64); ok {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return fmt.Sprint(v)
 }
 
 // diffStats summarizes a tool update's diff content (+added/-removed lines).

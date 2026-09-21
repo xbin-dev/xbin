@@ -8,6 +8,7 @@
 //	            selected → the tool completes, cancelled → the turn ends cancelled
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
+//	run: <cmd>  terminal/create `sh -c '<cmd>'` the same way → "run: <output>"
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json via fs/read_text_file>"
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
@@ -184,11 +185,15 @@ func (f *fake) turn(text string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "t1", "status": "completed",
 			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "a.txt b.txt"}}}})
 		f.say("listed")
-	case strings.Contains(text, "term"):
+	case strings.HasPrefix(text, "run:"), strings.Contains(text, "term"):
+		label, script := "term", "echo hi; printenv FAKE_API_KEY | wc -c"
+		if strings.HasPrefix(text, "run:") {
+			label, script = "run", strings.TrimSpace(strings.TrimPrefix(text, "run:"))
+		}
 		var cr acp.TermCreateResult
 		if err := f.conn.Call(acp.MTermCreate, acp.TermCreateParams{SessionID: "fake-1", Command: "sh",
-			Args: []string{"-c", "echo hi; printenv FAKE_API_KEY | wc -c"}}, &cr); err != nil {
-			f.say("term error: " + err.Error())
+			Args: []string{"-c", script + " 2>&1"}}, &cr); err != nil {
+			f.say(label + " error: " + err.Error())
 			break
 		}
 		var st acp.ExitStatus
@@ -196,7 +201,7 @@ func (f *fake) turn(text string) {
 		var out acp.TermOutputResult
 		_ = f.conn.Call(acp.MTermOutput, acp.TermIDParams{SessionID: "fake-1", TerminalID: cr.TerminalID}, &out)
 		_ = f.conn.Call(acp.MTermRelease, acp.TermIDParams{SessionID: "fake-1", TerminalID: cr.TerminalID}, nil)
-		f.say("term: " + strings.Join(strings.Fields(out.Output), " "))
+		f.say(label + ": " + strings.Join(strings.Fields(out.Output), " "))
 	case strings.Contains(text, "env"):
 		key := "no"
 		if os.Getenv("FAKE_API_KEY") != "" {
