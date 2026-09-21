@@ -93,6 +93,36 @@ async function agentTab(browser) {
   check(after >= Math.min(before, 3), `the reload replayed the transcript (${after} blocks)`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-reload');
 
+  // ---- E: the launcher path — a provider picked from the + menu creates the
+  // session eagerly, so its model picker is there BEFORE the first prompt ----
+  await fr(A.page, TILE, (f) => f.startKind('agent', 'fake'));
+  await waitFor(A.page, (t) => {
+    const api = t.frameFor('apps/crawler')?.testApi();
+    if (!api) return false;
+    const ag = api.agent(api.tabs.length - 1);
+    return !!ag && !!ag.sessionId && (ag.options || []).some((o) => o.id === 'model');
+  }, null, { timeout: 15000, label: 'the eager agent shows a model picker before any prompt' });
+  const eagerIdx = await fr(A.page, TILE, (f) => f.tabs.length - 1);
+  const eagerOpts = await fr(A.page, TILE, (f, t, i) => f.agent(i).options, eagerIdx);
+  check(eagerOpts.some((o) => o.id === 'model'), `a model picker is available before the first prompt (${JSON.stringify(eagerOpts)})`);
+  const eagerBlocks = await fr(A.page, TILE, (f, t, i) => f.agent(i).blocks, eagerIdx);
+  check(!eagerBlocks.some((b) => b.kind === 'msg' && b.role === 'user'), 'the model picker shows with no prompt sent yet');
+
+  // ---- a signed-out turn: the fake pushes _auth/status_update{none} and fails
+  // with -32000; the tab shows a one-click "Sign in" that opens a shell tab ----
+  const nBefore = await fr(A.page, TILE, (f) => f.tabs.length);
+  await fr(A.page, TILE, (f, t, i) => f.agent(i).send('please fail'), eagerIdx);
+  await waitFor(A.page, (t, i) => !!t.frameFor('apps/crawler')?.testApi().agent(i)?.login, eagerIdx, { timeout: 15000, label: 'the signed-out agent shows a sign-in prompt' });
+  const lg = await fr(A.page, TILE, (f, t, i) => f.agent(i).login, eagerIdx);
+  check(!!lg && lg.needed === true && /login/.test(lg.command || ''), `the agent offers a one-click sign-in (${JSON.stringify(lg)})`);
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-signin');
+  await fr(A.page, TILE, (f, t, i) => f.agent(i).signIn(), eagerIdx);
+  await waitFor(A.page, (t, n) => t.frameFor('apps/crawler')?.testApi().tabs.length === n + 1, nBefore, { timeout: 10000, label: 'sign-in opened a new shell tab' });
+  const newTab = await fr(A.page, TILE, (f) => f.tabs[f.tabs.length - 1]);
+  check(newTab.kind === 'shell', `sign-in opened a shell tab in the same window (${JSON.stringify(newTab)})`);
+  const ranLogin = await A.page.locator(`bx-frame[src="${TILE}"] bx-terminal[run]`).count();
+  check(ranLogin >= 1, `the shell tab is set to run the login command (${ranLogin} terminal(s) with a run cmd)`);
+
   await settle(A.page);
   done();
 }

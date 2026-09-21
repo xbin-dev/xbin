@@ -14,6 +14,7 @@ async function predict(browser) {
   await openShell(page);
   await openTile(page, 'apps/crawler');
   await fr(page, 'apps/crawler', (f) => f.open('term'));
+  await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // no auto-bash: create the shell the pass types into
   const termSel = 'bx-frame[src="apps/crawler"] bx-terminal';
   await waitSel(page, `${termSel} textarea`, { timeout: 20000 });
   const term = page.locator(termSel).first();

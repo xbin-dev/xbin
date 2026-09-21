@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-21
 
+- **Terminal window: one `+` menu to start a session, a first-open
+  chooser, a model picker before the first prompt, and one-click agent
+  sign-in.** The two `+` / `+ Agent` buttons are now a single `+` that opens
+  a menu — last choice, Bash, and one entry per coding-agent provider; an
+  empty window shows the same choices as cards instead of dropping you at a
+  bash prompt. Bash tabs are named "Bash". Picking a coding agent creates
+  its session eagerly, so its **model / mode / effort pickers load before
+  you type the first prompt** — pick the model, then send. When an agent
+  reports it is signed out (or a turn hits auth-required), the tab shows a
+  **"Sign in to <Provider>"** button that opens a shell terminal running the
+  provider's login command in the agent's home; the printed sign-in URL is
+  now **clickable** (terminals and log views linkify URLs), so there is no
+  more selecting a wrapped URL out of the transcript. The `status` event
+  gained an optional `login:{needed,provider,command}` (see
+  `/docs/protocol.md`). Also fixes a bug where left-clicking a terminal
+  window grew it by ~1 px each time.
 - **Terminal window: the title bar degrades instead of clipping, and a
   dead tab no longer takes its transcript with it.** Below ~640 px (and on
   the phone sheet) the layout switcher and the net/API/GPU pickers move

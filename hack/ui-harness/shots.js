@@ -349,6 +349,7 @@ async function reloadFocus(browser) {
   const focusTerm = (p) => fr(page, p, (f) => f.focusTerminal());
   // open the crawler terminal and put the caret in it
   await fr(page, 'apps/crawler', (f) => f.open('term'));
+  await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // no auto-bash on first open
   await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal textarea', { timeout: 20000 });
   await focusTerm('apps/crawler');
   await settle(page);

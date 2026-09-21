@@ -29,18 +29,19 @@ type Client struct {
 	emu  sync.RWMutex
 	stop chan struct{}
 
-	mu        sync.Mutex
-	sessionID string
-	modes     *SessionModes
-	options   []ConfigOption // the agent's session settings (model, effort, …)
-	agentInfo *Info          // what initialize said the agent is
-	turn      uint64
-	busy      bool
-	status    string
-	usage     *UsageUpdate
-	tools     map[string]string // tool call id → last status, this turn
-	closed    bool
-	done      chan struct{}
+	mu         sync.Mutex
+	sessionID  string
+	modes      *SessionModes
+	options    []ConfigOption // the agent's session settings (model, effort, …)
+	agentInfo  *Info          // what initialize said the agent is
+	authNeeded bool           // the agent reported it is not signed in (login required)
+	turn       uint64
+	busy       bool
+	status     string
+	usage      *UsageUpdate
+	tools      map[string]string // tool call id → last status, this turn
+	closed     bool
+	done       chan struct{}
 }
 
 // New returns an unstarted client.
@@ -266,6 +267,12 @@ func deadlineHint(err error, what string) error {
 	return err
 }
 
+// isAuthError reports whether a status detail is the "sign in" message
+// authHint produced (the ACP -32000 is not visible at this layer).
+func isAuthError(detail string) bool {
+	return strings.Contains(detail, "Authentication required") || strings.Contains(detail, "isn't signed in")
+}
+
 // authHint turns the agent's -32000 into the operator's next step: sign the
 // CLI in from a terminal, whose $HOME the agent shares.
 func authHint(err error, cfg agent.Config) error {
@@ -314,10 +321,17 @@ func (c *Client) Send(ctx context.Context, text string) error {
 			if errors.Is(err, io.ErrClosedPipe) {
 				return // the exit status says it
 			}
+			var re *Error
+			if errors.As(err, &re) && re.Code == ErrAuthRequired {
+				c.mu.Lock()
+				c.authNeeded = true
+				c.mu.Unlock()
+			}
 			c.emit(agent.New(agent.EvTurnEnd, map[string]any{"turn": turn, "stopReason": "error", "error": authHint(err, c.cfg).Error()}))
 			c.setStatus(agent.StatusError, authHint(err, c.cfg).Error())
 			return
 		}
+		c.setAuthNeeded(false)
 		end := map[string]any{"turn": turn, "stopReason": res.StopReason}
 		if usage != nil {
 			end["usage"] = usage
@@ -444,10 +458,31 @@ func (c *Client) onNotify(m *Message) {
 		if json.Unmarshal(m.Params, &p) == nil {
 			c.logf("%s", p.Text)
 		}
+	case MAuthStatus:
+		var p struct {
+			AuthStatus struct{ Kind, Label string } `json:"authStatus"`
+		}
+		if json.Unmarshal(m.Params, &p) == nil {
+			c.setAuthNeeded(p.AuthStatus.Kind == "none")
+		}
 	default:
 		if !strings.HasPrefix(m.Method, "_") {
 			c.logf("ignoring notification %s", m.Method)
 		}
+	}
+}
+
+// setAuthNeeded records whether the agent says it is signed out and, on a
+// change, re-emits the current status so the clients show (or clear) the
+// sign-in prompt. The status carries the login command (Provider.Login).
+func (c *Client) setAuthNeeded(need bool) {
+	c.mu.Lock()
+	changed := c.authNeeded != need
+	c.authNeeded = need
+	st := c.status
+	c.mu.Unlock()
+	if changed && st != "" {
+		c.setStatus(st, "")
 	}
 }
 
@@ -686,6 +721,13 @@ func (c *Client) setStatus(status, detail string) {
 	}
 	if status == agent.StatusIdle && c.agentInfo != nil {
 		d["agent"] = c.agentInfo
+	}
+	c.mu.Lock()
+	need := c.authNeeded
+	c.mu.Unlock()
+	if need || isAuthError(detail) {
+		p := c.cfg.Provider
+		d["login"] = map[string]any{"needed": true, "provider": p.Name, "command": p.Login}
 	}
 	// a terminal status never blocks on a pump that is gone
 	c.send(agent.New(agent.EvStatus, d), status != agent.StatusExited && status != agent.StatusError)

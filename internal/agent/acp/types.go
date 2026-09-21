@@ -30,6 +30,8 @@ const (
 	MXbinSpawn = "_xbin/spawn"
 	MXbinHello = "_xbin/hello"
 	MXbinLog   = "_xbin/log"
+	// the adapter's own (claude, codex): pushes the sign-in status
+	MAuthStatus = "_auth/status_update"
 )
 
 type InitializeParams struct {

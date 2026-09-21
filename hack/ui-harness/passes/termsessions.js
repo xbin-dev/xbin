@@ -15,6 +15,7 @@ async function termSessions(browser) {
     await usePersonalScreen(page);
     await openTile(page, 'apps/crawler');
     await fr(page, 'apps/crawler', (f) => f.open('term'));
+    await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // first open shows the launcher, not a bash CLI
     await settle(page);
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[session]', { timeout: 20000 });
   };
@@ -67,7 +68,7 @@ async function termSessions(browser) {
   check(tabsB.length === 1 && tabsB[0] === 'deploy', `B shows A's tab, named (${JSON.stringify(tabsB)})`);
   await shot(B.page, 'term-sessions-b', { fullPage: false });
   // a tab opened in B appears in A (the term event → re-list)
-  await B.page.locator('bx-frame[src="apps/crawler"] .titlebar button[title="new terminal"]').click();
+  await fr(B.page, 'apps/crawler', (f) => f.newTerm());
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.renderRoot.querySelectorAll('.titlebar .tab').length === 2, null, { timeout: 15000, label: "B's new tab to appear in A" });
   const dirAB = await (await A.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json();
   check(dirAB.length === 2, `two sessions now (${dirAB.length})`);
@@ -87,16 +88,22 @@ async function termSessions(browser) {
   await openTile(A.page, 'apps/crawler');
   await settle(A.page); await settle(A.page);
   const dev1Open = await fr(A.page, 'apps/crawler', (f) => f.terminalOpen);
+  // first open on a fresh tile shows the chooser cards, not a bash CLI
+  await fr(A.page, 'apps/crawler', (f) => f.open('term'));
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.renderRoot.querySelectorAll('.launcher .lcard').length || 0) >= 2, null, { timeout: 10000, label: 'the first-open launcher cards' });
+  const cardNames = await A.page.$$eval('bx-frame[src="apps/crawler"] .launcher .lname', (els) => els.map((e) => e.textContent));
+  check(cardNames.includes('Bash'), `first open shows the chooser cards, no auto bash (${JSON.stringify(cardNames)})`);
+  check((await A.page.locator('bx-frame[src="apps/crawler"] bx-terminal').count()) === 0, 'no bash terminal auto-opened on first open');
   const dev1Dir = await (await A.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json();
   check(dev1Dir.length === 0 && dirAB.length === 2, `dev1's directory on the tile is empty while admin's two live on (${dev1Dir.length}, ${(await (await B.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()).length})`);
   check(!dev1Open, 'no window opened for dev1 from admin\'s state');
   check(asked.length === 0, `dev1's browser never asked for admin's sessions (${asked.join(', ')})`);
-  await fr(A.page, 'apps/crawler', (f) => f.open('term'));
+  await fr(A.page, 'apps/crawler', (f) => f.newTerm());
   await waitSel(A.page, 'bx-frame[src="apps/crawler"] bx-terminal[session]', { timeout: 20000 });
   const idD = await sessionId(A.page);
   const tabsD = await tabs(A.page);
   check(!!idD && idD !== idA && !dirAB.some((s) => s.id === idD), `dev1 got a fresh session of their own (${idD})`);
-  check(tabsD.length === 1 && tabsD[0] === '1', `dev1's tab bar is their own (${JSON.stringify(tabsD)})`);
+  check(tabsD.length === 1 && tabsD[0] === 'Bash', `dev1's shell tab is named Bash (${JSON.stringify(tabsD)})`);
   // and admin, in B, still sees exactly admin's two
   check(dirAB.every((s) => s.id !== idD), 'the two directories do not mix');
 

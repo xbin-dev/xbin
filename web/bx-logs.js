@@ -39,6 +39,7 @@ function loadXterm() {
   xtermReady ??= (async () => {
     await scriptOnce('/vendor/xterm.js');
     await scriptOnce('/vendor/addon-fit.js');
+    await scriptOnce('/vendor/addon-web-links.js');
   })();
   return xtermReady;
 }
@@ -110,6 +111,7 @@ export class BxLogs extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
+    if (window.WebLinksAddon) this.#term.loadAddon(new window.WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')));
     this.#term.open(this.#host);
     this.#host.style.background = termBg();
     try { this.#fit.fit(); } catch { }

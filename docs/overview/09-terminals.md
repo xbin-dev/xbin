@@ -397,12 +397,17 @@ What the agent gets:
   `~/.local/share/opencode/`), which is the per-user home shared with every
   terminal. So `claude /login` (or `codex login`, `opencode auth login`, …)
   run once in a shell terminal signs the agent in on every tile. When the
-  home holds no login, the first turn ends with a `status error` telling you
-  which command to run in a terminal — never a vault command.
+  agent reports it is signed out (or a turn hits auth-required), the Agent
+  tab shows a **"Sign in to <Provider>"** button that opens a shell terminal
+  in the same window running that command for you — the sign-in URL it prints
+  is clickable, so there is no wrapped URL to copy out of the transcript. The
+  first turn on a home with no login also ends with a `status error` naming
+  the command — never a vault command.
 - **its own settings, live.** The agent advertises what it can change —
   the model, the reasoning effort, the permission mode — and the Agent tab
-  shows each as a picker once the session is up (start it with an empty
-  message to pick before the first prompt); `bx agent run --model …` /
+  shows each as a picker once the session is up — picking a provider from the
+  window's `+` menu starts the session straight away, so the pickers are there
+  before you type the first prompt; `bx agent run --model …` /
   `bx agent set` do the same from a shell. A change applies to the next
   turn. Nothing is hardcoded per provider: the list is the agent's.
 - **conservative modes by default.** Claude Code starts in `default` (ask

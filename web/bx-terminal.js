@@ -83,6 +83,7 @@ function loadXterm() {
   xtermReady ??= (async () => {
     await scriptOnce('/vendor/xterm.js');
     await scriptOnce('/vendor/addon-fit.js');
+    await scriptOnce('/vendor/addon-web-links.js');
   })();
   return xtermReady;
 }
@@ -94,7 +95,7 @@ function savedPredict() {
 }
 
 export class BxTerminal extends HTMLElement {
-  #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host;
+  #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host; #ranInit = false;
   #serverNet = null; #notedSession = null; // effective scope per the server; the session we printed a net note for
   #onPref; #onStorage; #onAmbient; #gen = 0; // connection epoch: only the latest socket drives the term
   // predictive echo (D70): the engine, our count of input frames sent on this
@@ -507,6 +508,9 @@ export class BxTerminal extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
+    // URLs a CLI prints (an agent's sign-in link, a dev-server address) become
+    // one click instead of a hard-to-select wrapped blob.
+    if (window.WebLinksAddon) this.#term.loadAddon(new window.WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')));
     // Ctrl+W is word-erase (WERASE, 0x17) in a shell, but the browser default
     // closes the tab — pre-empt that so the keystroke reaches the pty. Same
     // for Ctrl+Shift+W (close window). Returning true lets xterm still emit
@@ -611,6 +615,12 @@ export class BxTerminal extends HTMLElement {
         let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
         if (ctl.op === 'session') {
           this.setAttribute('session', ctl.id);
+          // a one-shot command to run on first connect (e.g. a sign-in), typed
+          // into the pty so its output (a clickable URL) is right there
+          if (!this.#ranInit) {
+            const run = this.getAttribute('run');
+            if (run) { this.#ranInit = true; try { this.#ws?.send(run + '\n'); } catch { } }
+          }
           if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
           // A clamp note ("host networking is admin-only — using the org
           // network") is worth one gray line; the scope picker shows the rest.

@@ -10,6 +10,7 @@ mkdir -p "$V"
 LIT=3.3.1
 XTERM=5.5.0
 XTERM_FIT=0.10.0
+XTERM_WEBLINKS=0.11.0
 MARKED=15.0.12
 HLJS=11.11.1
 
@@ -18,6 +19,7 @@ curl -fsSL "https://cdn.jsdelivr.net/gh/lit/dist@${LIT}/all/lit-all.min.js.map" 
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/xterm@${XTERM}/lib/xterm.js" -o "$V/xterm.js"
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/xterm@${XTERM}/css/xterm.css" -o "$V/xterm.css"
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@${XTERM_FIT}/lib/addon-fit.js" -o "$V/addon-fit.js"
+curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@${XTERM_WEBLINKS}/lib/addon-web-links.js" -o "$V/addon-web-links.js"
 curl -fsSL "https://cdn.jsdelivr.net/npm/marked@${MARKED}/lib/marked.esm.js" -o "$V/marked.esm.js"
 # highlight.js: single-file ESM with the ~36 common languages bundled
 # (syntax highlighting in the Admin code/diff viewer).
@@ -28,4 +30,4 @@ curl -fsSL "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@${HLJS}/es/high
 # the same version, fails the release preflight).
 (cd "$V" && sha256sum ./*) | sed 's| \./| |' > hack/vendor.sha256
 
-echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT marked@$MARKED highlight.js@$HLJS"
+echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT addon-web-links@$XTERM_WEBLINKS marked@$MARKED highlight.js@$HLJS"

@@ -39,7 +39,7 @@ var providers = []Provider{
 	{ID: "claude", Name: "Claude Code", Driver: "acp", Argv: []string{"claude-agent-acp"}, Login: "claude /login",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "acceptEdits", Name: "Accept edits"}, {ID: "plan", Name: "Plan"},
 			{ID: "auto", Name: "Auto"}, {ID: "bypassPermissions", Name: "Bypass permissions", Explicit: true}},
-		DefaultMode: "default"},
+		DefaultMode: "default", Env: map[string]string{"CLAUDE_CODE_REMOTE": "1"}},
 	{ID: "codex", Name: "Codex", Driver: "acp", Argv: []string{"codex-acp"}, Login: "codex login",
 		Modes: []Mode{{ID: "read-only", Name: "Ask for approval"}, {ID: "agent", Name: "Approve for me"},
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},

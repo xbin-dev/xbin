@@ -357,6 +357,59 @@ func TestAuthErrorNamesTheLogin(t *testing.T) {
 	}
 }
 
+// loginOf returns a status event's login map (nil when it carries none).
+func loginOf(e agent.Event) map[string]any {
+	lg, _ := data(e)["login"].(map[string]any)
+	return lg
+}
+
+// A signed-out agent pushes _auth/status_update{kind:none} and fails the turn
+// with -32000; the client marks the status with login{needed,provider,command}
+// so the UI can offer a one-click sign-in. A later successful turn clears it.
+func TestSignedOutLoginInStatus(t *testing.T) {
+	var n int
+	c, _, _, _ := rig(t, func(f *fakeAgent, text string) {
+		f.mu.Lock()
+		id := f.prompt
+		f.prompt = nil
+		n++
+		first := n == 1
+		f.mu.Unlock()
+		if first {
+			_ = f.conn.Notify(MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+			_ = f.conn.Reply(id, nil, &Error{Code: ErrAuthRequired, Message: "Please run /login"})
+			return
+		}
+		f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": ContentBlock{Type: "text", Text: "ok"}, "messageId": "m1"})
+		_ = f.conn.Reply(id, PromptResult{StopReason: "end_turn"}, nil)
+	}, "")
+	defer c.Close()
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+
+	if err := c.Send(context.Background(), "hi"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd }) // turn 1 done
+	var lg map[string]any
+	for _, e := range es {
+		if l := loginOf(e); l != nil {
+			lg = l
+		}
+	}
+	if lg == nil || lg["needed"] != true || lg["command"] != "fake-login" {
+		t.Fatalf("a signed-out status should carry the sign-in command: %v", lg)
+	}
+
+	// a successful turn clears the signed-out flag: the idle status carries no login
+	if err := c.Send(context.Background(), "hi again"); err != nil {
+		t.Fatalf("second send: %v", err)
+	}
+	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	if loginOf(es[len(es)-1]) != nil {
+		t.Fatalf("a successful turn should clear login: %v", data(es[len(es)-1]))
+	}
+}
+
 func TestAgentExitAndBadLines(t *testing.T) {
 	f, spawn := newFake(standard)
 	perms := agent.NewPermissions()

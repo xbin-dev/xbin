@@ -29,6 +29,8 @@ export class BxAgent extends LitElement {
   static properties = {
     session: { type: String },
     component: { type: String },
+    provider: { type: String }, // set by the launcher: create eagerly so the model picker loads before the first prompt
+    mode: { type: String },
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
     _events: { state: true },
     _providers: { state: true },
@@ -37,6 +39,7 @@ export class BxAgent extends LitElement {
     _draft: { state: true },
     _truncated: { state: true },
     _error: { state: true },
+    _authErr: { state: true }, // the last create/turn failed auth (show the sign-in banner)
   };
 
   static styles = css`
@@ -121,6 +124,12 @@ export class BxAgent extends LitElement {
     .chooser select { background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
       border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 3px 6px; font: 12px var(--bx-mono, ui-monospace, monospace); }
     .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
+    .signin { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 8px;
+      border: 1px solid var(--bx-amber, #f2a71b); border-radius: 5px; background: var(--bx-panel-2, #2b3038);
+      font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); }
+    .signin .msg { flex: 1; }
+    .signin button { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #1b1e24;
+      border-radius: 5px; padding: 3px 10px; font-weight: 700; cursor: pointer; font: inherit; white-space: nowrap; }
   `;
 
   constructor() {
@@ -132,6 +141,8 @@ export class BxAgent extends LitElement {
     this._draft = '';
     this._truncated = false;
     this._error = '';
+    this._authErr = false;
+    this._started = false; // guard: create the eager session at most once
     this._lastSeq = 0;
     this._off = null;
     this._poll = null;
@@ -143,8 +154,9 @@ export class BxAgent extends LitElement {
     super.connectedCallback();
     this._off = onEvent((e) => this._live(e));
     document.addEventListener('visibilitychange', this._onVisible);
-    if (this.session) this._load(0);
-    else this._loadProviders();
+    if (this.session) { this._load(0); return; }
+    this._loadProviders(); // for the sign-in command and mode names, both paths
+    this._maybeEager();
   }
 
   disconnectedCallback() {
@@ -158,6 +170,7 @@ export class BxAgent extends LitElement {
     if (ch.has('ended') && this.ended) this._maybePoll();
     // a reattach (the frame set our session after a listing): start replaying
     if (ch.has('session') && this.session && !this._lastSeq && !this._events.length && !this.ended) this._load(0);
+    if (ch.has('provider')) this._maybeEager();
     const sc = this.renderRoot?.querySelector('.scroll');
     if (sc && this._atBottom !== false) sc.scrollTop = sc.scrollHeight;
   }
@@ -172,6 +185,18 @@ export class BxAgent extends LitElement {
       this._providers = ps;
       if (ps.length && !this._provider) { this._provider = ps[0].id; this._mode = ps[0].defaultMode || ''; }
     } catch { /* offline; the composer still shows */ }
+  }
+
+  // Launched from the + menu / chooser with a provider chosen: create the
+  // session now (with an empty prompt) so the agent runs session/new and its
+  // config options (model, effort, …) land — the model picker then shows
+  // before the first prompt, which is the whole point of the eager create.
+  _maybeEager() {
+    if (this._started || this.session || this.ended || this._creating || !this.provider) return;
+    this._started = true;
+    this._provider = this.provider;
+    this._mode = this.mode || this._mode || '';
+    this._create();
   }
 
   async _load(since) {
@@ -242,8 +267,8 @@ export class BxAgent extends LitElement {
     try {
       const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/prompt`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
-      if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; return; } // keep the draft to retry
-      this._error = ''; this._draft = ''; this._refetch();
+      if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; this._authErr = this._looksAuth(this._error); return; } // keep the draft to retry
+      this._error = ''; this._authErr = false; this._draft = ''; this._refetch();
     } catch (e) { this._error = String(e.message || e); }
   }
 
@@ -255,7 +280,7 @@ export class BxAgent extends LitElement {
         body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode }),
       });
       const info = await r.json().catch(() => ({}));
-      if (!r.ok) { this._error = info.error || `could not start (${r.status})`; return false; }
+      if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
       this.session = info.id;
       this.setAttribute('session', info.id);
       this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: info.id, kind: 'agent', provider: info.provider, name: info.name }, bubbles: true }));
@@ -291,6 +316,44 @@ export class BxAgent extends LitElement {
     let opts = [];
     for (const e of this._events) if (e.type === 'status' && Array.isArray(e.data?.options)) opts = e.data.options;
     return opts;
+  }
+
+  // the agent's permission modes: from the last status that carried them, else
+  // the provider's advertised list (a fallback before the first status lands)
+  _modes() {
+    let ms = [];
+    for (const e of this._events) if (e.type === 'status' && Array.isArray(e.data?.modes)) ms = e.data.modes;
+    if (!ms.length) { const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider)); ms = (p && p.modes) || []; }
+    return ms;
+  }
+
+  _looksAuth(s) { return /sign[\s-]?in|authenticat|not logged in|-32000/i.test(String(s || '')); }
+
+  // the sign-in prompt to show, if any: the backend marks a status with
+  // login:{needed,provider,command} when the agent says it is signed out (or a
+  // turn hit -32000); a create/prompt error that reads like auth is a fallback
+  _login() {
+    let last = null;
+    for (const e of this._events) if (e.type === 'status') last = e.data;
+    if (last && last.login && last.login.needed) return last.login;
+    if (this._authErr) {
+      const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
+      if (p && p.login) return { needed: true, provider: p.name, command: p.login };
+    }
+    return null;
+  }
+
+  _provName() {
+    const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
+    return (p && p.name) || this.provider || this._provider || 'the agent';
+  }
+
+  // open a shell tab in the same window that runs the provider's login command
+  // in the agent's home ($HOME is shared): the printed URL is clickable (the
+  // web-links addon), far nicer than copying it out of the agent transcript
+  _doSignIn(lg) {
+    if (!lg || !lg.command) return;
+    this.dispatchEvent(new CustomEvent('bx-open-terminal', { detail: { run: lg.command }, bubbles: true }));
   }
 
   _key(ev) {
@@ -384,10 +447,12 @@ export class BxAgent extends LitElement {
   render() {
     const status = this.ended ? 'exited' : this._status();
     const busy = !this.ended && (status === 'running' || status === 'waiting_permission' || status === 'cancelling');
+    const lg = this._login();
     return html`
       <div class="scroll" @scroll=${this._onScroll}>
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
-        ${!this.session && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
+        ${!this.session && !this.provider && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
+        ${!this.session && this.provider && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
         ${repeat(this._blocks(), (b, i) => b.pid || b.id || i, (b) => this._block(b))}
       </div>
       <div class="foot">
@@ -399,7 +464,11 @@ export class BxAgent extends LitElement {
           ${this._usage()}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
-        ${!this.session ? this._chooser() : this._settings()}
+        ${lg ? html`<div class="signin">
+          <span class="msg">Not signed in to ${lg.provider}.</span>
+          <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
+        </div>` : nothing}
+        ${!this.session ? (this.provider ? nothing : this._chooser()) : this._settings()}
         <div class="compose">
           <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
             .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._autosize(e.target); }}
@@ -429,8 +498,20 @@ export class BxAgent extends LitElement {
   // mode, …), live — changing one calls set_config_option for the next turn.
   _settings() {
     const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);
-    if (!opts.length) return nothing;
+    const modes = this._modes();
+    if (!opts.length && !modes.length) {
+      // eager-created and still starting: the config options (model, effort, …)
+      // have not landed yet — say so rather than render an empty row
+      const st = this._status();
+      return this.session && !this.ended && (st === 'starting' || st === 'running')
+        ? html`<div class="chooser settings"><span class="hint">starting the agent…</span></div>` : nothing;
+    }
+    const cur = this._curMode();
     return html`<div class="chooser settings">
+      ${modes.length ? html`<label title="permission mode"><span class="lbl">mode</span>
+        <select @change=${(e) => this._setOption('mode', e.target.value)}>
+          ${modes.map((m) => html`<option value=${m.id} ?selected=${m.id === cur} title=${m.description || ''}>${m.name || m.id}${m.explicit ? ' ⚠' : ''}</option>`)}
+        </select></label>` : nothing}
       ${opts.map((o) => html`<label title=${o.description || o.name}><span class="lbl">${o.name}</span>
         <select @change=${(e) => this._setOption(o.id, e.target.value)}>
           ${o.options.map((v) => html`<option value=${v.value} ?selected=${v.value === o.currentValue} title=${v.description || ''}>${v.name || v.value}</option>`)}
@@ -555,6 +636,9 @@ export class BxAgent extends LitElement {
       get pending() { return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => ({ pid: b.pid, cmd: rawText(b.tool?.rawInput), options: (b.options || []).map((o) => o.optionId), scoped: b.rule ? b.rule.scoped : true })); },
       setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
       get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
+      get modes() { return a._modes().map((m) => ({ id: m.id, name: m.name })); },
+      get login() { return a._login(); },
+      signIn() { const lg = a._login(); if (lg) a._doSignIn(lg); },
       setOption(id, value) { a._setOption(id, value); },
       start() { return a._create(); },
       send(text) { a._draft = text; return a._submit(); },

@@ -13,7 +13,8 @@
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
 //	burst       fifty one-character chunks back to back (the daemon coalesces them)
-//	fail        the prompt fails with -32000 (auth required)
+//	fail        pushes _auth/status_update{kind:none}, then the prompt fails
+//	            with -32000 (auth required) — a signed-out agent, as Claude does
 //	crash       exits 3 mid-turn
 //
 // Mode "yolo" skips the permission request. session/cancel ends the turn
@@ -173,6 +174,9 @@ func (f *fake) turn(text string) {
 		id := f.prompt
 		f.prompt = nil
 		f.mu.Unlock()
+		// a signed-out agent: push the sign-out status (Claude does this), then
+		// fail the turn with the auth error — the client shows the sign-in banner
+		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
 		_ = f.conn.Reply(id, nil, &acp.Error{Code: acp.ErrAuthRequired, Message: "Please run /login"})
 		return
 	case strings.Contains(text, "crash"):

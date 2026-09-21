@@ -9,9 +9,9 @@
  * when the pop is narrower than the bar's content (f._narrow — below
  * ~640 px, or the phone sheet) the layout switcher and the pickers move
  * into a tools row behind a "⋯" toggle, and the tab strip scrolls, so the
- * tabs and the window's ✕ are always reachable. `+` opens a shell,
- * `+ Agent` an agent. An ended agent tab (its session gone, transcript
- * kept) is greyed and dismissed with its ✕.
+ * tabs and the window's ✕ are always reachable. `+` opens a launcher menu
+ * (Bash, or a coding agent). An ended agent tab (its session gone,
+ * transcript kept) is greyed and dismissed with its ✕.
  */
 import { html, css, nothing } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
@@ -32,8 +32,7 @@ export function titlebar(f) {
                     @click=${(e) => { e.stopPropagation(); f._closeTerm(i); }}>✕</button>
           </span>`)}
       </span>
-      <button title="new terminal" @click=${() => f._newTerm()}>+</button>
-      <button class="mkagent" title="new agent session" @click=${() => f._newAgent()}>+ Agent</button>
+      <button class="mknew" title="new session (Bash, or a coding agent)" @click=${(e) => f._openLauncher(e)}>+</button>
       ${f._narrow
         ? html`<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
                   @click=${() => { f._tools = !f._tools; }}>⋯</button>`
@@ -52,7 +51,7 @@ export function toolsRow(f) {
 
 function tabLabel(s, i) {
   if (s.kind === 'agent') return s.name || s.provider || 'Agent';
-  return s.name || (i + 1);
+  return s.name || 'Bash';
 }
 
 function tabTitle(s) {
@@ -182,7 +181,7 @@ export const titlebarCss = css`
   .titlebar .tab.agent.on .lbl, .titlebar .tab.agent:hover .lbl { color: var(--bx-accent, #f5a623); }
   .titlebar .tab.ended { opacity: .55; }
   .titlebar .tab.ended .lbl { text-decoration: line-through; }
-  .titlebar button.mkagent { color: var(--bx-accent, #f5a623); }
+  .titlebar button.mknew { color: var(--bx-accent, #f5a623); font-weight: 700; }
   select.scope {
     margin-left: 2px; border: 1px solid var(--bx-border, #363c45);
     background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);

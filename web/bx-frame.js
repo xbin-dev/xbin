@@ -42,8 +42,10 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
+import '/vendor/bx-menu.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -143,12 +145,14 @@ export class BxFrame extends LitElement {
     _narrow: { state: true },  // the pop is too narrow for the full bar: the pickers live in the tools row
     _tools: { state: true },   // the tools row is open (narrow only)
     _dialog: { state: true },  // an open <bx-dialog>: {spec, resolve}
+    _providers: { state: true }, // the agent providers, for the launcher (null until fetched)
+    _menu: { state: true },    // an open <bx-menu>: {items, anchor, sheet}
     // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
     // null (the viewport clamps instead). The shell's canvas sets it (D66).
     popBounds: { attribute: false },
   };
 
-  static styles = [titlebarCss, css`
+  static styles = [titlebarCss, launcherCss, css`
     :host { display: block; position: relative; }
     /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
        floating windows pin the host with position:absolute; inset:0) flow a
@@ -181,7 +185,7 @@ export class BxFrame extends LitElement {
 
     /* ---- floating terminal window ---- */
     .pop {
-      position: fixed;
+      position: fixed; box-sizing: border-box;
       display: flex; flex-direction: column;
       background: var(--bx-panel, #23272e);
       border: 1px solid var(--bx-border, #363c45);
@@ -300,7 +304,7 @@ export class BxFrame extends LitElement {
     this._ro = new ResizeObserver(() => {
       const w = el.offsetWidth, h = el.offsetHeight;
       this._narrow = SHEET.matches || w < 640;
-      if (this._pop && !SHEET.matches && (this._pop.w !== w || this._pop.h !== h)) { this._pop.w = w; this._pop.h = h; this._saveTerm(); }
+      if (this._pop && !SHEET.matches && (Math.abs(this._pop.w - w) > 1 || Math.abs(this._pop.h - h) > 1)) { this._pop.w = w; this._pop.h = h; this._saveTerm(); }
     });
     this._ro.observe(el);
   }
@@ -609,6 +613,8 @@ export class BxFrame extends LitElement {
       get narrow() { return f._narrow; },
       newTerm() { f._newTerm(); },
       newAgent() { f._newAgent(); },
+      startKind(kind, provider, opts) { f._startKind(kind, provider, opts || {}); }, // launcher path (a provider eager-creates)
+      launcherItems() { return launcherItems(f).map((it) => it.label || it.kind || (it.kind === 'sep' ? '—' : '')); },
       closeTab(i) { f._closeTerm(i | 0); },
       get dialog() { return f._dialog?.spec ?? null; },
       answerDialog(button, values = {}) { f._dialogDone({ detail: { button, values } }); },
@@ -633,7 +639,8 @@ export class BxFrame extends LitElement {
     }
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
-    if (this._sessions.length === 0) this._newTerm();
+    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    // no auto-bash: an empty window shows the launcher chooser (render()).
     this._loadPRCount();
     this.updateComplete.then(() => this._front());
   }
@@ -654,30 +661,46 @@ export class BxFrame extends LitElement {
   _popDown() {
     this._front();
     const el = this._popEl; // capture size after native resizes too
-    if (!el || !this._pop || (this._pop.w === el.offsetWidth && this._pop.h === el.offsetHeight)) return;
+    if (!el || !this._pop || (Math.abs(this._pop.w - el.offsetWidth) <= 1 && Math.abs(this._pop.h - el.offsetHeight) <= 1)) return;
     this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; this._saveTerm(); this._popChanged();
   }
 
-  _newTerm() {
-    // net null = the server picks this tile's default scope (D54).
-    this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'shell', net: null, gpu: 'none', name: '' }];
+  _newTerm() { this._startKind('shell'); }
+  _newAgent() { this._startKind('agent'); }
+
+  // Start a session of a kind from the launcher (a card or the + menu). A
+  // shell opens a <bx-terminal> (optionally running `run` on first connect —
+  // a sign-in command); an agent opens a <bx-agent> which creates the
+  // session eagerly on the chosen provider so its model/mode pickers load
+  // before the first prompt. Remembered as the "last choice".
+  _startKind(kind, provider, opts = {}) {
+    rememberKind(provider ? { kind, provider } : { kind });
+    const tab = { key: uid(), id: null, kind, name: '' };
+    if (kind === 'shell') { tab.net = null; tab.gpu = 'none'; if (opts.run) tab.run = opts.run; }
+    else { tab.provider = provider; this._layout = 'term'; }
+    this._sessions = [...this._sessions, tab];
     this._setActive(this._sessions.length - 1);
   }
 
-  // Open a new AGENT tab (D74): a session whose sandbox runs a coding agent
-  // instead of a shell. <bx-agent> creates the server session when the user
-  // picks a provider and sends the first prompt, then fires bx-session with
-  // the id — the same lazy pattern <bx-terminal> uses.
-  _newAgent() {
-    this._layout = 'term';
-    this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'agent', name: '' }];
-    this._setActive(this._sessions.length - 1);
+  // open the + menu anchored under the button
+  _openLauncher(e) {
+    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    this._menu = { items: launcherItems(this), anchor: e.currentTarget.getBoundingClientRect(), sheet: SHEET.matches };
+  }
+
+  // a sign-in request from an agent tab: open a shell tab that runs the login
+  // command (its output — a clickable URL — is right there; the shared $HOME
+  // means the agent then picks up the login).
+  _signIn(ev) {
+    const run = ev.detail?.run;
+    if (run) this._startKind('shell', null, { run });
   }
 
   // The term-host holds both the shells and the agents; it shows whenever the
   // active tab is an agent (agents have no code/logs panels) or a shell tab
   // is in a terminal-bearing layout.
   _panelVisible() { return this._isAgent || this._layout === 'term' || this._layout === 'split'; }
+
 
   // Rename the terminal on tab i (blank clears back to its number). Names are
   // per-component and persist like the session list.
@@ -837,6 +860,8 @@ export class BxFrame extends LitElement {
           ${titlebar(this)}
           ${this._narrow && this._tools ? toolsRow(this) : nothing}
           ${this._dialog ? html`<bx-dialog open .spec=${this._dialog.spec} @bx-dialog-resolve=${this._dialogDone}></bx-dialog>` : nothing}
+          ${this._menu ? html`<bx-menu open .items=${this._menu.items} .anchor=${this._menu.anchor} ?sheet=${this._menu.sheet}
+              @bx-menu-close=${() => { this._menu = null; }}></bx-menu>` : nothing}
           <div class="panels">
             ${this._isAgent ? nothing : html`
             ${this._layout === 'code' || this._layout === 'split' ? html`<bx-code src=${this.src}
@@ -844,14 +869,16 @@ export class BxFrame extends LitElement {
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
             ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
             ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}`}
-            <div class="term-host" style="display:${this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
+            <div class="term-host" style="display:${this._sessions.length === 0 || this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
+            ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
               ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
-                  component=${this.src} session=${s.id ?? nothing} ?ended=${!!s.ended}
+                  component=${this.src} session=${s.id ?? nothing} provider=${s.provider || nothing} ?ended=${!!s.ended}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
+                  @bx-open-terminal=${this._signIn}
                   @bx-exit=${() => this._endTab(s.key)}></bx-agent>`
               : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
+                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'} run=${s.run || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
                   @bx-exit=${() => this._closeTerm(s.key, true)}></bx-terminal>`)}
             </div>
