@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/creack/pty"
@@ -32,6 +33,7 @@ type terminal struct {
 	limit     int
 	exit      *acp.ExitStatus
 	exited    chan struct{} // closed once the status is in
+	drained   chan struct{} // closed once read() has consumed the PTY to EOF
 }
 
 // termCreate serves terminal/create.
@@ -49,7 +51,7 @@ func (h *Host) termCreate(p acp.TermCreateParams) (any, *acp.Error) {
 		cmd.Env = append(cmd.Env, e.Name+"="+e.Value)
 	}
 	cmd.Env = append(cmd.Env, "TERM=dumb")
-	t := &terminal{limit: defaultOutputLimit, exited: make(chan struct{})}
+	t := &terminal{limit: defaultOutputLimit, exited: make(chan struct{}), drained: make(chan struct{})}
 	if p.OutputByteLimit != nil && *p.OutputByteLimit > 0 {
 		t.limit = int(*p.OutputByteLimit)
 	}
@@ -82,8 +84,11 @@ func (h *Host) termCreate(p acp.TermCreateParams) (any, *acp.Error) {
 	return acp.TermCreateResult{TerminalID: t.id}, nil
 }
 
-// read drains the PTY into the bounded buffer until it closes.
+// read drains the PTY into the bounded buffer until it closes, then signals
+// drained — the PTY master returns EIO once every slave fd (the child and any
+// grandchild) is closed, so drained means the child's output is all buffered.
 func (t *terminal) read() {
+	defer close(t.drained)
 	buf := make([]byte, 8192)
 	for {
 		n, err := t.pty.Read(buf)
@@ -135,6 +140,10 @@ func (h *Host) termWait(p acp.TermIDParams) (any, *acp.Error) {
 		return nil, rerr
 	}
 	<-t.exited
+	select { // let read() catch up with the child's last bytes (bounded: a
+	case <-t.drained: // grandchild holding the PTY open must not stall the wait)
+	case <-time.After(2 * time.Second):
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.exit, nil
