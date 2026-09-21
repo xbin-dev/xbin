@@ -33,6 +33,7 @@ type SessionInfo struct {
 	Kind       string  `json:"kind"`    // shell | agent (agent.go, D74)
 	Provider   string  `json:"provider,omitempty"`
 	Mode       string  `json:"mode,omitempty"`
+	Model      string  `json:"model,omitempty"`   // the agent's current model option, when it exposes one
 	Status     string  `json:"status,omitempty"`  // starting | idle | running | waiting_permission | error | exited
 	Pending    int     `json:"pending,omitempty"` // unanswered permission requests
 }
@@ -53,7 +54,7 @@ func (s *Session) info() SessionInfo {
 	}
 	if st := s.agent; st != nil {
 		st.mu.Lock()
-		si.Kind, si.Provider, si.Mode, si.Status = KindAgent, st.provider.ID, st.mode, st.status
+		si.Kind, si.Provider, si.Mode, si.Model, si.Status = KindAgent, st.provider.ID, st.mode, st.model, st.status
 		st.mu.Unlock()
 		si.Pending = st.perms.Count()
 	}

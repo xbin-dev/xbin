@@ -26,12 +26,17 @@ type Driver interface {
 	RespondPermission(res *Resolution) error
 	Cancel() error
 	Close() error
+	// SetOption changes one of the agent's session settings (a config option
+	// it advertised: model, effort, …); the driver emits a status event with
+	// the refreshed options.
+	SetOption(ctx context.Context, id, value string) error
 }
 
 // Config is what a session hands its driver.
 type Config struct {
 	Provider Provider
 	Mode     string            // requested mode ("" = the provider's default)
+	Options  map[string]string // requested config options at start (model, effort, …), applied after session/new
 	Cwd      string            // the agent's working directory (as the agent sees it)
 	Env      []string          // the agent process env (sandbox env + provider keys)
 	Argv     []string          // the agent command (Provider.Argv unless overridden)

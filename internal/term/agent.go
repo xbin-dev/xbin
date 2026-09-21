@@ -80,6 +80,7 @@ type agentState struct {
 	mu       sync.Mutex
 	startErr error
 	mode     string
+	model    string // the agent's current model option, when it exposes one
 	status   string
 	turn     uint64
 	text     []byte
@@ -98,7 +99,7 @@ func (st *agentState) logf(line string) {
 // OpenAgent opens an agent session for p on a tile (the API's POST
 // /term/sessions): the gates, the provider and mode, then createAgent.
 // The int is the HTTP status for a refusal.
-func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, name string) (SessionInfo, int, error) {
+func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, name string, options map[string]string) (SessionInfo, int, error) {
 	if cwd == "" {
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
@@ -118,7 +119,7 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), "", true)
 	o.kind = KindAgent
-	s, err := m.createAgent(o, prov, mode)
+	s, err := m.createAgent(o, prov, mode, options)
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
@@ -167,7 +168,7 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
 // the handshake is done — a prompt waits for it).
-func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string) (*Session, error) {
+func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, options map[string]string) (*Session, error) {
 	dir, rel, homeDir, token, revokeTok, err := m.prepare(o)
 	if err != nil {
 		return nil, err
@@ -235,7 +236,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string) (*Se
 	}
 	drv := acp.New()
 	st.drv = drv
-	cfg := agent.Config{Provider: prov, Mode: mode, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
+	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
 		m.remove(s.ID)
@@ -354,7 +355,10 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 	st := s.agent
 	ev := st.log.Append(e)
 	if e.Type == agent.EvStatus {
-		var d struct{ Status, CurrentMode string }
+		var d struct {
+			Status, CurrentMode string
+			Options             []struct{ ID, CurrentValue string }
+		}
 		_ = json.Unmarshal(e.Data, &d)
 		st.mu.Lock()
 		if d.Status != "" {
@@ -362,6 +366,11 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		}
 		if d.CurrentMode != "" {
 			st.mode = d.CurrentMode
+		}
+		for _, o := range d.Options {
+			if o.ID == "model" {
+				st.model = o.CurrentValue
+			}
 		}
 		st.mu.Unlock()
 	}
@@ -428,6 +437,24 @@ func (m *Manager) AgentCancel(id string) error {
 		return err
 	}
 	return st.drv.Cancel()
+}
+
+// AgentSetOption changes one of the agent's session settings (a config
+// option it advertised: model, effort, …). Allowed any time; the agent
+// applies it to the next turn.
+func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string) error {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-st.ready:
+	case <-st.done:
+		return agent.ErrEnded
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return st.drv.SetOption(ctx, optionID, value)
 }
 
 // AgentPermit answers pending permission pid with an option id or a

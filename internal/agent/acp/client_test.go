@@ -24,6 +24,20 @@ type fakeAgent struct {
 	authed bool
 	script func(f *fakeAgent, text string) // what a prompt does
 	sid    string
+	model  string   // the one config option
+	sets   []string // set_config_option calls seen ("id=value")
+}
+
+// opts is the fake's config options: one select, "model".
+func (f *fakeAgent) opts() []ConfigOption {
+	f.mu.Lock()
+	cur := f.model
+	f.mu.Unlock()
+	if cur == "" {
+		cur = "m-default"
+	}
+	return []ConfigOption{{ID: "model", Name: "Model", Category: "model", Type: "select", CurrentValue: cur,
+		Options: []ConfigValue{{Value: "m-default", Name: "Default"}, {Value: "m-fast", Name: "Fast"}}}}
 }
 
 func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, agent.Spawner) {
@@ -43,7 +57,7 @@ func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, agent.Spawner)
 func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 	switch m.Method {
 	case MInitialize:
-		return InitializeResult{ProtocolVersion: 1, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
+		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
 	case MAuthenticate:
 		f.mu.Lock()
 		f.authed = true
@@ -51,7 +65,23 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		return map[string]any{}, nil
 	case MSessionNew:
 		f.sid = "s-1"
-		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}}}, nil
+		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
+			ConfigOptions: f.opts()}, nil
+	case MSessionSetConfig:
+		var p SetConfigParams
+		_ = json.Unmarshal(m.Params, &p)
+		f.mu.Lock()
+		f.sets = append(f.sets, p.ConfigID+"="+p.Value)
+		if p.ConfigID == "model" {
+			f.model = p.Value
+		}
+		f.mu.Unlock()
+		if p.ConfigID != "model" {
+			return nil, &Error{Code: ErrInvalidParam, Message: "no such option"}
+		}
+		opts := f.opts()
+		f.update(map[string]any{"sessionUpdate": UpConfigOption, "configOptions": opts}) // as the real adapters do
+		return SetConfigResult{ConfigOptions: opts}, nil
 	case MSessionSetMode:
 		var p SetModeParams
 		_ = json.Unmarshal(m.Params, &p)
@@ -400,5 +430,73 @@ func TestRPCCodec(t *testing.T) {
 	}
 	if _, err := d.Next(); !errors.Is(err, io.EOF) {
 		t.Fatal("eof")
+	}
+}
+
+// The agent's config options (model, effort, …): carried on the idle
+// status, a requested one applied at start, settable later, refreshed by
+// the agent's own updates; an option the agent does not offer is refused
+// and never sent.
+func TestConfigOptions(t *testing.T) {
+	f, spawn := newFake(standard)
+	c := New()
+	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", Spawn: spawn, Perms: agent.NewPermissions(),
+		Options: map[string]string{"model": "m-fast", "nope": "x"}, Log: func(string) {}}
+	if err := c.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	idle := data(es[len(es)-1])
+	opts, _ := idle["options"].([]any)
+	if len(opts) != 1 {
+		t.Fatalf("the idle status carries the options: %v", idle)
+	}
+	if o := opts[0].(map[string]any); o["id"] != "model" || o["currentValue"] != "m-fast" {
+		t.Fatalf("the requested model was applied at start: %v", o)
+	}
+	if idle["agent"] == nil {
+		t.Fatalf("the idle status names the agent: %v", idle)
+	}
+	f.mu.Lock()
+	sets := append([]string(nil), f.sets...)
+	f.mu.Unlock()
+	if len(sets) != 1 || sets[0] != "model=m-fast" {
+		t.Fatalf("set calls %v: only offered options are sent", sets)
+	}
+	if err := c.SetOption(context.Background(), "model", "m-default"); err != nil {
+		t.Fatal(err)
+	}
+	es = collect(t, c, func(e agent.Event) bool {
+		os, _ := data(e)["options"].([]any)
+		return e.Type == agent.EvStatus && len(os) > 0 && os[0].(map[string]any)["currentValue"] == "m-default"
+	})
+	if len(es) == 0 {
+		t.Fatal("no status with the new value")
+	}
+	if err := c.SetOption(context.Background(), "nope", "x"); err == nil {
+		t.Fatal("an option the agent does not offer was accepted")
+	}
+}
+
+// A session rule is never a wildcard and never recorded on a fallback.
+func TestPermissionRuleScope(t *testing.T) {
+	perms := agent.NewPermissions()
+	// no kind, no title: allow_always must not remember "everything"
+	pd, _ := perms.Request(agent.ToolCallRef{ID: "t0"}, []agent.PermissionOption{{OptionID: "always", Kind: agent.AllowAlways}}, nil)
+	if _, err := perms.Resolve(pd.PID, "", agent.AllowAlways, "u"); err != nil {
+		t.Fatal(err)
+	}
+	if _, auto := perms.Request(agent.ToolCallRef{ID: "t1", Kind: "execute", Title: "rm -rf /"}, []agent.PermissionOption{{OptionID: "always", Kind: agent.AllowAlways}}, nil); auto != nil {
+		t.Fatal("a rule from a kind-less, title-less call auto-approved an unrelated call")
+	}
+	// the agent offered no allow_always: the fallback allows once and remembers nothing
+	perms = agent.NewPermissions()
+	pd, _ = perms.Request(agent.ToolCallRef{ID: "t2", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil)
+	if res, err := perms.Resolve(pd.PID, "", agent.AllowAlways, "u"); err != nil || res.OptionID != "once" {
+		t.Fatalf("fallback: %+v %v", res, err)
+	}
+	if _, auto := perms.Request(agent.ToolCallRef{ID: "t3", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil); auto != nil {
+		t.Fatal("a fallback to allow_once recorded a rule")
 	}
 }

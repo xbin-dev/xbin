@@ -102,6 +102,7 @@ export class BxAgent extends LitElement {
       border-radius: 6px; padding: 6px 12px; cursor: pointer; font: 12px var(--bx-sans, system-ui); }
     .compose button.cancel { border-color: var(--bx-red, #ef5350); }
     .chooser { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+    .chooser label { display: inline-flex; align-items: center; gap: 4px; font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); }
     .chooser select { background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
       border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 3px 6px; font: 12px var(--bx-mono, ui-monospace, monospace); }
     .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
@@ -163,7 +164,7 @@ export class BxAgent extends LitElement {
       const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/events?since=${since}`);
       if (!r.ok) { if (r.status === 404) this._end(); return; }
       const { events, next, truncated } = await r.json();
-      this._merge(events || [], !!truncated && since === 0);
+      this._merge(events || [], !!truncated);
       if (typeof next === 'number' && next > this._lastSeq) this._lastSeq = next;
       this._maybePoll();
     } catch { /* transient; the live stream or the next poll recovers */ }
@@ -213,8 +214,12 @@ export class BxAgent extends LitElement {
 
   async _submit() {
     const text = this._draft.trim();
-    if (!text || this._creating) return;
-    if (!this.session) { if (!(await this._create())) return; }
+    if (this._creating) return;
+    if (!this.session) {
+      if (!(await this._create())) return;
+      if (!text) return; // started; the settings pickers show now, the first prompt can wait
+    }
+    if (!text) return;
     this._draft = '';
     try {
       const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/prompt`,
@@ -252,6 +257,21 @@ export class BxAgent extends LitElement {
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/permissions/${encodeURIComponent(pid)}`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision }) })
       .then((r) => { if (r.ok) this._refetch(); });
+  }
+
+  _setOption(id, value) {
+    if (!this.session) return;
+    fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/options`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, value }) })
+      .then(async (r) => { if (!r.ok) this._error = (await r.json().catch(() => ({}))).error || `could not set ${id}`; else { this._error = ''; this._refetch(); } });
+  }
+
+  // the agent's session settings (model, effort, …): the last status event's
+  // options list, as the agent reported it
+  _options() {
+    let opts = [];
+    for (const e of this._events) if (e.type === 'status' && Array.isArray(e.data?.options)) opts = e.data.options;
+    return opts;
   }
 
   _key(ev) {
@@ -308,7 +328,11 @@ export class BxAgent extends LitElement {
         }
         case 'turn.end':
           cur = null;
-          blocks.push({ kind: 'turn', turn: d.turn, stopReason: d.stopReason, usage: d.usage });
+          blocks.push({ kind: 'turn', turn: d.turn, stopReason: d.stopReason, usage: d.usage, error: d.error });
+          break;
+        case 'gap':
+          cur = null;
+          blocks.push({ kind: 'gap' });
           break;
       }
     }
@@ -348,18 +372,18 @@ export class BxAgent extends LitElement {
         <div class="status">
           <span class="dot ${status}"></span>
           <span>${this.session ? status.replace('_', ' ') : 'not started'}</span>
-          ${this._curMode() ? html`<span>· ${this._curMode()}</span>` : nothing}
+          ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${this._usage()}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
-        ${!this.session ? this._chooser() : nothing}
+        ${!this.session ? this._chooser() : this._settings()}
         <div class="compose">
           <textarea rows="1" placeholder=${busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
             .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._autosize(e.target); }}
             @keydown=${this._key}></textarea>
           ${busy
             ? html`<button class="cancel" @click=${this._cancel} title="interrupt the running turn">Stop</button>`
-            : html`<button @click=${this._submit} ?disabled=${this._creating}>${this.session ? 'Send' : 'Start'}</button>`}
+            : html`<button @click=${this._submit} ?disabled=${this._creating} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
         </div>
       </div>`;
   }
@@ -375,6 +399,19 @@ export class BxAgent extends LitElement {
       ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; }}>
         ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' ⚠' : ''}</option>`)}
       </select>` : nothing}
+    </div>`;
+  }
+
+  // _settings: one select per setting the agent advertised (model, effort,
+  // mode, …), live — changing one calls set_config_option for the next turn.
+  _settings() {
+    const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);
+    if (!opts.length) return nothing;
+    return html`<div class="chooser settings">
+      ${opts.map((o) => html`<label title=${o.description || o.name}><span class="lbl">${o.name}</span>
+        <select @change=${(e) => this._setOption(o.id, e.target.value)}>
+          ${o.options.map((v) => html`<option value=${v.value} ?selected=${v.value === o.currentValue} title=${v.description || ''}>${v.name || v.value}</option>`)}
+        </select></label>`)}
     </div>`;
   }
 
@@ -407,7 +444,9 @@ export class BxAgent extends LitElement {
       case 'perm':
         return this._permCard(b);
       case 'turn':
-        return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}</div>`;
+        return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}${b.error ? html` — <span class="err">${b.error}</span>` : nothing}</div>`;
+      case 'gap':
+        return html`<div class="gap">… earlier events dropped (log limit)</div>`;
       default:
         return nothing;
     }
@@ -467,9 +506,12 @@ export class BxAgent extends LitElement {
       get status() { return a._status(); },
       get sessionId() { return a.session || null; },
       get provider() { return a._provider; },
-      get blocks() { return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by })); },
+      get blocks() { return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, stopReason: b.stopReason })); },
       get pending() { return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => b.pid); },
       setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
+      get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
+      setOption(id, value) { a._setOption(id, value); },
+      start() { return a._create(); },
       send(text) { a._draft = text; return a._submit(); },
       permit(pid, decision) { a._permit(pid, decision); },
       cancel() { a._cancel(); },

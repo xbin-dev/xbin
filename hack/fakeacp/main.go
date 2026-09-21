@@ -17,7 +17,11 @@
 //	crash       exits 3 mid-turn
 //
 // Mode "yolo" skips the permission request. session/cancel ends the turn
-// with stopReason cancelled.
+// with stopReason cancelled. The session advertises one config option,
+// `model` (fake-default | fake-fast), settable with
+// session/set_config_option (the response carries the refreshed list, and
+// a config_option_update follows) — the "env" script reports the current
+// value too, so a test can see a requested model applied.
 package main
 
 import (
@@ -35,13 +39,14 @@ type fake struct {
 	conn   *acp.Conn
 	mu     sync.Mutex
 	mode   string
+	model  string
 	cwd    string
 	prompt json.RawMessage // in-flight prompt id
 	cancel chan struct{}
 }
 
 func main() {
-	f := &fake{mode: "ask"}
+	f := &fake{mode: "ask", model: "fake-default"}
 	f.conn = acp.NewConn(os.Stdin, os.Stdout)
 	f.conn.OnRequest = f.onRequest
 	f.conn.OnNotify = f.onNotify
@@ -63,7 +68,20 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		f.cwd = p.Cwd
 		f.mu.Unlock()
 		return acp.SessionNewResult{SessionID: "fake-1", Modes: &acp.SessionModes{CurrentModeID: "ask",
-			AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}}}, nil
+			AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
+			ConfigOptions: f.configOptions()}, nil
+	case acp.MSessionSetConfig:
+		var p acp.SetConfigParams
+		_ = json.Unmarshal(m.Params, &p)
+		if p.ConfigID != "model" || (p.Value != "fake-default" && p.Value != "fake-fast") {
+			return nil, &acp.Error{Code: acp.ErrInvalidParam, Message: "unknown option or value"}
+		}
+		f.mu.Lock()
+		f.model = p.Value
+		f.mu.Unlock()
+		opts := f.configOptions()
+		f.update(map[string]any{"sessionUpdate": acp.UpConfigOption, "configOptions": opts})
+		return acp.SetConfigResult{ConfigOptions: opts}, nil
 	case acp.MSessionSetMode:
 		var p acp.SetModeParams
 		_ = json.Unmarshal(m.Params, &p)
@@ -87,6 +105,15 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		return nil, nil
 	}
 	return nil, &acp.Error{Code: acp.ErrNotFound, Message: "method not found: " + m.Method}
+}
+
+// configOptions is the one advertised setting, with its current value.
+func (f *fake) configOptions() []acp.ConfigOption {
+	f.mu.Lock()
+	cur := f.model
+	f.mu.Unlock()
+	return []acp.ConfigOption{{ID: "model", Name: "Model", Category: "model", Type: "select", CurrentValue: cur,
+		Options: []acp.ConfigValue{{Value: "fake-default", Name: "Fake (default)"}, {Value: "fake-fast", Name: "Fake fast"}}}}
 }
 
 func (f *fake) onNotify(m *acp.Message) {
@@ -212,7 +239,10 @@ func (f *fake) turn(text string) {
 		if err := f.conn.Call(acp.MFsRead, acp.FsReadParams{SessionID: "fake-1", Path: os.Getenv("HOME") + "/.claude/settings.json"}, &rd); err == nil {
 			settings = strings.TrimSpace(rd.Content)
 		}
-		f.say(fmt.Sprintf("HOME=%s key=%s settings=%s", os.Getenv("HOME"), key, settings))
+		f.mu.Lock()
+		model := f.model
+		f.mu.Unlock()
+		f.say(fmt.Sprintf("HOME=%s key=%s settings=%s model=%s", os.Getenv("HOME"), key, settings, model))
 	case strings.Contains(text, "write"):
 		err := f.conn.Call(acp.MFsWrite, acp.FsWriteParams{SessionID: "fake-1", Path: cwd + "/fake-wrote.txt", Content: "written by fakeacp\n"}, nil)
 		if err != nil {

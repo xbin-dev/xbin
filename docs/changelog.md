@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-21
 
+- **Agent sessions: pick the model (and any setting the agent offers).**
+  The agent's config options — model, reasoning effort, mode, whatever the
+  adapter advertises — ride the session's idle `status` event as `options`
+  and are settable with the new `POST /api/xbin/term/sessions/<id>/options
+  {id, value}` (applied to the next turn); create accepts `model`/`options`.
+  The Agent tab shows a picker per setting once the session is up (Start
+  with an empty message to choose before the first prompt), `bx agent run
+  --model`/`--option id=v` sets them at start and `bx agent set <id> …`
+  mid-session. Also: an agent session now authenticates from the per-user
+  `$HOME` only (the per-tile vault key is gone — sign the CLI in from a
+  shell terminal and every agent session uses it), a session that never
+  answers `initialize` becomes a `status error` after 90 s instead of
+  hanging at `starting`, `Stop` shows a `cancelling` status, a
+  `permission.request` says whether "allow for the session" can be scoped
+  (and never records a wildcard rule), and the `+ Agent` button is text.
 - **Agent sessions: a coding agent in the tile's sandbox, driven over the
   API (D74).** `POST /api/xbin/term/sessions {cwd, kind:"agent", provider,
   mode?}` opens a terminal session whose sandbox runs Claude Code, Codex,

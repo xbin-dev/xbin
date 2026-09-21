@@ -62,17 +62,23 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: "A's turn completes after B answered" });
   const resolvedA = (await blocks(A.page)).find((b) => b.kind === 'perm' && b.by);
   check(!!resolvedA && /user:/.test(resolvedA.by), `A shows the permission resolved by the user (${resolvedA?.by})`);
-  check((await blocks(A.page)).some((b) => b.kind === 'turn' && b.status !== 'cancelled'), 'A shows the turn ended');
+  check((await blocks(A.page)).some((b) => b.kind === 'turn' && b.stopReason === 'end_turn'), 'A shows the turn ended');
   await shot(B.page, 'agent-tab-b-resolved', { fullPage: false });
+
+  // ---- settings: the agent's options show after start; A picks a model, B sees it ----
+  const optsA = await fr(A.page, TILE, (f) => f.agent().options);
+  check(optsA.some((o) => o.id === 'model'), `the agent's settings are shown after start (${JSON.stringify(optsA)})`);
+  await fr(A.page, TILE, (f) => f.agent().setOption('model', 'fake-fast'));
+  await waitFor(B.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.options || []).some((o) => o.id === 'model' && o.current === 'fake-fast'), null, { timeout: 15000, label: 'B sees the model A picked' });
+  check(true, 'a setting changed in A shows in B (one status stream)');
 
   // ---- the composer sends again, and Stop cancels a running turn ----
   await fr(A.page, TILE, (f) => f.agent().send('slow one'));
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'running', null, { timeout: 15000, label: 'the slow turn is running' });
   await fr(A.page, TILE, (f) => f.agent().cancel());
-  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'turn' && b.status === undefined), null, { timeout: 15000, label: 'a turn ended after cancel' })
-    .catch(() => {});
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'turn' && b.stopReason === 'cancelled'), null, { timeout: 15000, label: 'the turn ended cancelled' });
   const cancelled = (await blocks(A.page)).filter((b) => b.kind === 'turn').pop();
-  check(!!cancelled, 'the cancelled turn is recorded');
+  check(cancelled?.stopReason === 'cancelled', `the cancelled turn is recorded as cancelled (${cancelled?.stopReason})`);
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

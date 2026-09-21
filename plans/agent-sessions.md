@@ -61,6 +61,7 @@ makes itself a sub-reaper.
 | `plan` | `plan` |
 | `usage_update` | `status {usage}` while running, folded into the next `turn.end.usage` |
 | `current_mode_update` | `status {currentMode}` (SessionInfo.mode follows) |
+| `session/new` → `configOptions`, `config_option_update` (← agent), `session/set_config_option` (→ agent) | the agent's settings (model, effort, mode as it advertises them): `status {options}` on idle and on every change; `Config.Options` applied after session/new (skipping ids the agent lacks); `AgentSetOption` → `POST …/options` / `bx agent set`; the response's full list replaces ours (SessionInfo.model follows the `model` option). Claude returns `models: null` — the model is a config option |
 | `available_commands_update`, `session_info_update`, `config_option_update`, unknown `sessionUpdate`, `_`-prefixed notifications | ignored; unknown requests → `-32601` |
 | `session/request_permission {toolCall, options}` (← agent, request) | `permission.request{pid}` pending; `status waiting_permission`; a matching session rule auto-answers (`permission.resolved{by:"auto"}`); else the first `AgentPermit` wins: reply `{outcome:{outcome:"selected", optionId}}`; `allow_always` records the rule (kind + title) |
 | `$/cancel_request {requestId}` (← agent) | the referenced pending permission is replied `-32800` and `permission.resolved{by:"cancel"}` |

@@ -15,6 +15,7 @@ const (
 	MSessionPrompt     = "session/prompt"
 	MSessionCancel     = "session/cancel"
 	MSessionSetMode    = "session/set_mode"
+	MSessionSetConfig  = "session/set_config_option"
 	MSessionUpdate     = "session/update"
 	MRequestPermission = "session/request_permission"
 	MCancelRequest     = "$/cancel_request"
@@ -75,9 +76,43 @@ type SessionNewParams struct {
 }
 
 type SessionNewResult struct {
-	SessionID     string            `json:"sessionId"`
-	Modes         *SessionModes     `json:"modes,omitempty"`
-	ConfigOptions []json.RawMessage `json:"configOptions,omitempty"`
+	SessionID     string         `json:"sessionId"`
+	Modes         *SessionModes  `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+}
+
+// ConfigOption is one session setting the agent exposes (model, effort,
+// permission mode, …): a select with the current value and its choices.
+// Set with session/set_config_option; config_option_update carries the
+// refreshed list.
+type ConfigOption struct {
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description,omitempty"`
+	Category     string        `json:"category,omitempty"` // mode | model | thought_level | model_config | …
+	Type         string        `json:"type"`               // select
+	CurrentValue string        `json:"currentValue"`
+	Options      []ConfigValue `json:"options,omitempty"`
+}
+
+type ConfigValue struct {
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type SetConfigParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
+}
+
+type SetConfigResult struct {
+	ConfigOptions []ConfigOption `json:"configOptions"`
+}
+
+type ConfigOptionUpdate struct {
+	ConfigOptions []ConfigOption `json:"configOptions"`
 }
 
 type SessionModes struct {

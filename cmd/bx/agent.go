@@ -54,8 +54,10 @@ func cmdAgent(args []string) error {
 		return cmdAgentLs(args[1:])
 	case "stop":
 		return cmdAgentStop(args[1:])
+	case "set":
+		return cmdAgentSet(args[1:])
 	}
-	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|permit|attach|ls|stop)", args[0])
+	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|permit|attach|ls|stop|set)", args[0])
 }
 
 // agentEvent is one entry of the session's log as the API renders it.
@@ -68,14 +70,17 @@ type agentEvent struct {
 
 type agentRunOpts struct {
 	tile, provider, mode, net, name string
+	options                         map[string]string // --model, --option k=v
 	rest                            []string
 }
 
 // parseAgentRun reads `run`'s flags: --tile (default: this terminal's
 // tile), --provider (default: $XBIN_AGENT_PROVIDER or claude), --mode,
-// --net, --name; the rest is the prompt.
+// --model (a model the agent offers), --option k=v (any setting the agent
+// advertises: effort, fast, …; repeatable), --net, --name; the rest is the
+// prompt.
 func parseAgentRun(args []string) (agentRunOpts, error) {
-	o := agentRunOpts{tile: os.Getenv("XBIN_COMPONENT"), provider: os.Getenv("XBIN_AGENT_PROVIDER")}
+	o := agentRunOpts{tile: os.Getenv("XBIN_COMPONENT"), provider: os.Getenv("XBIN_AGENT_PROVIDER"), options: map[string]string{}}
 	if o.provider == "" {
 		o.provider = "claude"
 	}
@@ -93,6 +98,18 @@ func parseAgentRun(args []string) (agentRunOpts, error) {
 			o.provider, err = nextArg(args, &i)
 		case "--mode", "-m":
 			o.mode, err = nextArg(args, &i)
+		case "--model":
+			o.options["model"], err = nextArg(args, &i)
+		case "--option", "-o":
+			var kv string
+			if kv, err = nextArg(args, &i); err == nil {
+				k, v, ok := strings.Cut(kv, "=")
+				if !ok || k == "" {
+					err = fmt.Errorf("--option wants id=value (got %q)", kv)
+				} else {
+					o.options[k] = v
+				}
+			}
 		case "--net":
 			o.net, err = nextArg(args, &i)
 		case "--name":
@@ -118,7 +135,7 @@ func cmdAgentRun(args []string) error {
 		return err
 	}
 	if len(o.rest) == 0 {
-		return errors.New("usage: bx agent run [--tile <path>] [--provider p] [--mode m] [--net scope] \"<prompt>\"")
+		return errors.New("usage: bx agent run [--tile <path>] [--provider p] [--mode m] [--model m] [--option id=v] [--net scope] \"<prompt>\"")
 	}
 	var info struct {
 		ID       string `json:"id"`
@@ -126,7 +143,10 @@ func cmdAgentRun(args []string) error {
 		Mode     string `json:"mode"`
 		Cwd      string `json:"cwd"`
 	}
-	body := map[string]string{"cwd": o.tile, "kind": "agent", "provider": o.provider, "mode": o.mode, "net": o.net, "name": o.name}
+	body := map[string]any{"cwd": o.tile, "kind": "agent", "provider": o.provider, "mode": o.mode, "net": o.net, "name": o.name}
+	if len(o.options) > 0 {
+		body["options"] = o.options
+	}
 	if err := apiJSON("POST", "/api/xbin/term/sessions", body, &info); err != nil {
 		return err
 	}
@@ -237,6 +257,15 @@ func cmdAgentStop(args []string) error {
 		return errors.New("usage: bx agent stop <session>")
 	}
 	return apiJSON("DELETE", "/api/xbin/term/sessions/"+args[0], nil, nil)
+}
+
+// cmdAgentSet changes a session setting the agent advertised: model,
+// effort, mode, … (the ids and values a session's idle status lists).
+func cmdAgentSet(args []string) error {
+	if len(args) != 3 {
+		return errors.New("usage: bx agent set <session> <option> <value>   (e.g. model sonnet, effort high)")
+	}
+	return apiJSON("POST", "/api/xbin/term/sessions/"+args[0]+"/options", map[string]string{"id": args[1], "value": args[2]}, nil)
 }
 
 // agentFollow streams the log from `since` (NDJSON, ?follow=1) and renders
@@ -475,7 +504,11 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 			}
 			return r.exitCode, true
 		case "idle":
-			if mode := str("currentMode"); mode != "" && d["modes"] != nil && !r.ready {
+			if opts, ok := d["options"].([]any); ok && !r.ready {
+				r.ready = true
+				r.br()
+				fmt.Fprintf(r.w, "[ready]%s%s\n", modeOf(str("currentMode")), optionsLine(opts))
+			} else if mode := str("currentMode"); mode != "" && d["modes"] != nil && !r.ready {
 				r.ready = true
 				r.br()
 				fmt.Fprintf(r.w, "[ready] mode %s\n", mode)
@@ -483,6 +516,28 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		}
 	}
 	return 0, false
+}
+
+func modeOf(mode string) string {
+	if mode == "" {
+		return ""
+	}
+	return " mode " + mode
+}
+
+// optionsLine renders the agent's settings compactly: " · model sonnet · effort high".
+func optionsLine(opts []any) string {
+	var b strings.Builder
+	for _, o := range opts {
+		m, _ := o.(map[string]any)
+		id, _ := m["id"].(string)
+		cur, _ := m["currentValue"].(string)
+		if id == "" || id == "mode" {
+			continue
+		}
+		b.WriteString(" · " + id + " " + cur)
+	}
+	return b.String()
 }
 
 // num renders a JSON number as an integer (json decodes to float64).

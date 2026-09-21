@@ -18,6 +18,16 @@ func TestParseAgentRun(t *testing.T) {
 	if err != nil || o.tile != "apps/x" || o.provider != "opencode" || o.net != "none" || o.name != "n" {
 		t.Fatalf("%+v %v", o, err)
 	}
+	o, err = parseAgentRun([]string{"--model", "sonnet", "--option", "effort=high", "-o", "fast=on", "go"})
+	if err != nil || o.options["model"] != "sonnet" || o.options["effort"] != "high" || o.options["fast"] != "on" {
+		t.Fatalf("options: %+v %v", o.options, err)
+	}
+	if _, err := parseAgentRun([]string{"--option", "novalue", "go"}); err == nil {
+		t.Fatal("--option without = accepted")
+	}
+	if got := optionsLine([]any{map[string]any{"id": "mode", "currentValue": "ask"}, map[string]any{"id": "model", "currentValue": "sonnet"}, map[string]any{"id": "effort", "currentValue": "high"}}); got != " · model sonnet · effort high" {
+		t.Fatalf("optionsLine: %q", got)
+	}
 	if _, err := parseAgentRun([]string{"--bogus", "x"}); err == nil {
 		t.Fatal("unknown flag accepted")
 	}

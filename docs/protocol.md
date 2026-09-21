@@ -289,11 +289,14 @@ PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
                                    user) → ok
 GET    /agent/providers           authenticated. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
-                                   defaultMode,keys}] (D74; explicit modes are
-                                   never defaults)
+                                   defaultMode,login}] (D74; explicit modes are
+                                   never defaults; login is the shell command
+                                   that signs the CLI in — the agent uses the
+                                   session's $HOME, no vault key)
 POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token counts). {cwd, kind:"agent",
-                                   provider, mode?, net?, name?} → SessionInfo
+                                   provider, mode?, model?, options?, net?,
+                                   name?} → SessionInfo
                                    (kind agent, status starting): an AGENT
                                    SESSION — the tile's sandbox runs the
                                    provider's ACP adapter instead of a shell.
@@ -318,6 +321,13 @@ GET    /term/sessions/<id>/events creator or admin. ?since=<seq> → {events,
                                    next, truncated}; ?follow=1 streams NDJSON
                                    from the cursor until the client or the
                                    session goes (§Agent session events)
+POST   /term/sessions/<id>/options
+                                   creator or admin. {id, value}: change a
+                                   setting the agent advertised (model,
+                                   effort, mode, … — the `options` list on
+                                   the session's idle status event); applied
+                                   to the next turn, the refreshed list rides
+                                   the next status event → ok
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
                                    stderr + driver notes (debugging)
 GET    /prefs                     the caller's per-(user×tile) prefs object
@@ -1240,10 +1250,11 @@ hub drops a slow subscriber rather than queue for it).
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| other; content items are `{type:"content", content:{type:"text", text}}`, `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}` |
 | `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace |
-| `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}]}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>` |
+| `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}], rule:{kind, title, scoped}, meta?}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>`. `rule` is what "allow for the session" would remember (`scoped:false` = the call has neither kind nor title, so no session rule is possible and the clients hide that choice); `meta` is the adapter's presentation hint when it sends one (`{title, description, defaultToNo}`) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
-| `status` | `{status, detail?, modes?, currentMode?, usage?}` — status: starting \| idle \| running \| waiting_permission \| error \| exited; `modes` (the agent's available modes) rides the first `idle`; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
+| `status` | `{status, detail?, modes?, currentMode?, options?, agent?, usage?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
+| `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 
 The session dies with the daemon (the log is in memory); an `exited` or
 `error` status is final and the session leaves the directory (`term`

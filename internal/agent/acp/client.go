@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 )
@@ -30,6 +32,8 @@ type Client struct {
 	mu        sync.Mutex
 	sessionID string
 	modes     *SessionModes
+	options   []ConfigOption // the agent's session settings (model, effort, …)
+	agentInfo *Info          // what initialize said the agent is
 	turn      uint64
 	busy      bool
 	status    string
@@ -92,16 +96,26 @@ func (c *Client) Start(ctx context.Context, cfg agent.Config) error {
 	return nil
 }
 
+// handshakeTimeout bounds initialize and session/new: an adapter that never
+// answers (a broken install, a hung login) becomes a status error instead of
+// a session stuck at "starting".
+const handshakeTimeout = 90 * time.Second
+
 func (c *Client) handshake() error {
 	c.setStatus(agent.StatusStarting, "")
+	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
+	defer cancel()
 	var init InitializeResult
-	if err := c.conn.Call(MInitialize, InitializeParams{
+	if err := c.conn.CallCtx(ctx, MInitialize, InitializeParams{
 		ProtocolVersion:    ProtocolVersion,
 		ClientCapabilities: ClientCapabilities{FS: FSCapabilities{ReadTextFile: true, WriteTextFile: true}, Terminal: true},
 		ClientInfo:         &Info{Name: "xbin", Version: c.cfg.Version},
 	}, &init); err != nil {
-		return fmt.Errorf("initialize: %w", err)
+		return fmt.Errorf("initialize: %w", deadlineHint(err, "answer initialize"))
 	}
+	c.mu.Lock()
+	c.agentInfo = init.AgentInfo
+	c.mu.Unlock()
 	if init.ProtocolVersion != ProtocolVersion {
 		c.logf("agent speaks protocol version %d, we speak %d — continuing", init.ProtocolVersion, ProtocolVersion)
 	}
@@ -110,12 +124,13 @@ func (c *Client) handshake() error {
 	// a terminal serves every agent session. If the home holds no login,
 	// session/new returns -32000 and we surface how to sign in.
 	var sess SessionNewResult
-	if err := c.conn.Call(MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
-		return fmt.Errorf("session/new: %w", authHint(err, c.cfg))
+	if err := c.conn.CallCtx(ctx, MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
+		return fmt.Errorf("session/new: %w", authHint(deadlineHint(err, "open a session"), c.cfg))
 	}
 	c.mu.Lock()
 	c.sessionID = sess.SessionID
 	c.modes = sess.Modes
+	c.options = sess.ConfigOptions
 	c.mu.Unlock()
 	if want := c.cfg.Mode; want != "" && (sess.Modes == nil || sess.Modes.CurrentModeID != want) {
 		if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sess.SessionID, ModeID: want}, nil); err != nil {
@@ -126,8 +141,94 @@ func (c *Client) handshake() error {
 			c.mu.Unlock()
 		}
 	}
+	// requested settings (a model, an effort) — applied after the CLI has
+	// loaded its own config, so they win over the home's defaults
+	for _, id := range sortedOptionIDs(c.cfg.Options) {
+		if cur, ok := c.option(id); !ok || cur.CurrentValue == c.cfg.Options[id] {
+			if !ok {
+				c.logf("option %s: the agent does not offer it", id)
+			}
+			continue
+		}
+		if err := c.setOption(id, c.cfg.Options[id]); err != nil {
+			c.logf("set option %s=%s: %v", id, c.cfg.Options[id], err)
+		}
+	}
 	c.setStatus(agent.StatusIdle, "")
 	return nil
+}
+
+// option finds one of the agent's config options by id.
+func (c *Client) option(id string) (ConfigOption, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, o := range c.options {
+		if o.ID == id {
+			return o, true
+		}
+	}
+	return ConfigOption{}, false
+}
+
+// setOption is the wire call; the response carries the refreshed list.
+func (c *Client) setOption(id, value string) error {
+	c.mu.Lock()
+	sid := c.sessionID
+	c.mu.Unlock()
+	var res SetConfigResult
+	if err := c.conn.Call(MSessionSetConfig, SetConfigParams{SessionID: sid, ConfigID: id, Value: value}, &res); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if len(res.ConfigOptions) > 0 {
+		c.options = res.ConfigOptions
+	} else { // an agent that answers {} — apply locally
+		for i := range c.options {
+			if c.options[i].ID == id {
+				c.options[i].CurrentValue = value
+			}
+		}
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+// SetOption changes a session setting for the clients: the refreshed
+// options ride a status event.
+func (c *Client) SetOption(ctx context.Context, id, value string) error {
+	if _, ok := c.option(id); !ok {
+		return fmt.Errorf("the agent offers no option %q", id)
+	}
+	if err := c.setOption(id, value); err != nil {
+		return err
+	}
+	c.emitOptions()
+	return nil
+}
+
+// emitOptions publishes the current options on a status event.
+func (c *Client) emitOptions() {
+	c.mu.Lock()
+	opts := append([]ConfigOption(nil), c.options...)
+	c.mu.Unlock()
+	c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "options": opts}))
+}
+
+func sortedOptionIDs(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// deadlineHint names a handshake timeout for the operator.
+func deadlineHint(err error, what string) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("the agent did not %s within %s — its log (GET …/log) has the adapter's output", what, handshakeTimeout)
+	}
+	return err
 }
 
 // authHint turns the agent's -32000 into the operator's next step: sign the
@@ -218,6 +319,7 @@ func (c *Client) Cancel() error {
 	for _, res := range c.cfg.Perms.CancelAll() {
 		_ = c.RespondPermission(res)
 	}
+	c.setStatus(agent.StatusCancelling, "")
 	return c.conn.Notify(MSessionCancel, SessionIDParams{SessionID: sid})
 }
 
@@ -238,9 +340,9 @@ func (c *Client) RespondPermission(res *agent.Resolution) error {
 		err = c.conn.Reply(res.RPCID, out, nil)
 	}
 	c.mu.Lock()
-	busy := c.busy
+	busy, st := c.busy, c.status
 	c.mu.Unlock()
-	if busy && c.cfg.Perms.Count() == 0 {
+	if busy && st != agent.StatusCancelling && c.cfg.Perms.Count() == 0 {
 		c.setStatus(agent.StatusRunning, "")
 	}
 	return err
@@ -396,7 +498,15 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			c.mu.Unlock()
 			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "currentMode": u.CurrentModeID}))
 		}
-	default: // available_commands_update, session_info_update, config_option_update, unknown: nothing to show
+	case UpConfigOption:
+		var u ConfigOptionUpdate
+		if json.Unmarshal(raw, &u) == nil && len(u.ConfigOptions) > 0 {
+			c.mu.Lock()
+			c.options = u.ConfigOptions
+			c.mu.Unlock()
+			c.emitOptions()
+		}
+	default: // available_commands_update, session_info_update, unknown: nothing to show
 	}
 }
 
@@ -419,7 +529,10 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 			opts[i] = agent.PermissionOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind}
 		}
 		pd, auto := c.cfg.Perms.Request(tc, opts, m.ID)
-		c.emit(agent.New(agent.EvPermissionRequest, map[string]any{"pid": pd.PID, "toolCall": tc, "options": opts}))
+		// rule: what "allow for the session" would remember (nothing when the
+		// call has neither kind nor title — the clients hide the option then)
+		c.emit(agent.New(agent.EvPermissionRequest, map[string]any{"pid": pd.PID, "toolCall": tc, "options": opts,
+			"rule": map[string]any{"kind": tc.Kind, "title": tc.Title, "scoped": tc.Rule()}, "meta": permissionMeta(m.Params)}))
 		if auto != nil {
 			_ = c.RespondPermission(auto)
 			return nil, nil
@@ -433,6 +546,21 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 	default:
 		return nil, &Error{Code: ErrNotFound, Message: "method not found: " + m.Method}
 	}
+}
+
+// permissionMeta lifts the adapter's presentation hints (_meta.permission:
+// title, description, defaultToNo — the claude-agent-acp extension) so the
+// clients can honour them; nil when absent.
+func permissionMeta(params json.RawMessage) map[string]any {
+	var p struct {
+		Meta struct {
+			Permission map[string]any `json:"permission"`
+		} `json:"_meta"`
+	}
+	if json.Unmarshal(params, &p) != nil || len(p.Meta.Permission) == 0 {
+		return nil
+	}
+	return p.Meta.Permission
 }
 
 // ---- outgoing events ----
@@ -465,6 +593,7 @@ func (c *Client) setStatus(status, detail string) {
 	c.mu.Lock()
 	c.status = status
 	modes := c.modes
+	opts := append([]ConfigOption(nil), c.options...)
 	c.mu.Unlock()
 	d := map[string]any{"status": status}
 	if detail != "" {
@@ -475,6 +604,12 @@ func (c *Client) setStatus(status, detail string) {
 		if status == agent.StatusIdle || status == agent.StatusStarting {
 			d["modes"] = modes.AvailableModes
 		}
+	}
+	if len(opts) > 0 && status == agent.StatusIdle {
+		d["options"] = opts
+	}
+	if status == agent.StatusIdle && c.agentInfo != nil {
+		d["agent"] = c.agentInfo
 	}
 	// a terminal status never blocks on a pump that is gone
 	c.send(agent.New(agent.EvStatus, d), status != agent.StatusExited && status != agent.StatusError)

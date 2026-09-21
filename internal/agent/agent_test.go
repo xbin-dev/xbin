@@ -88,15 +88,17 @@ func TestPermissionsFirstAnswerWins(t *testing.T) {
 	if _, auto = p.Request(ToolCallRef{ID: "t4", Title: "rm -rf", Kind: "execute"}, opts, json.RawMessage(`10`)); auto != nil {
 		t.Fatal("a different title is not covered")
 	}
-	// the "always" decision on an agent that offers no allow_always still allows once and remembers
+	// the "always" decision on an agent that offers no allow_always allows
+	// once and remembers NOTHING: the agent granted a one-shot approval, and
+	// xbin must not turn it into a standing rule the agent never gave
 	q := NewPermissions()
 	onceOnly := []PermissionOption{{OptionID: "y", Kind: AllowOnce}, {OptionID: "n", Kind: RejectOnce}}
 	q.Request(ToolCallRef{ID: "t", Title: "x", Kind: "edit"}, onceOnly, json.RawMessage(`1`))
 	if res, err := q.Resolve("p1", "", AllowAlways, "user:a"); err != nil || res.OptionID != "y" {
 		t.Fatalf("always without an always option: %+v %v", res, err)
 	}
-	if _, auto := q.Request(ToolCallRef{ID: "t", Title: "x", Kind: "edit"}, onceOnly, json.RawMessage(`2`)); auto == nil {
-		t.Fatal("rule not recorded")
+	if _, auto := q.Request(ToolCallRef{ID: "t", Title: "x", Kind: "edit"}, onceOnly, json.RawMessage(`2`)); auto != nil {
+		t.Fatal("a fallback to allow_once must not record a rule")
 	}
 	// cancel settles everything, by rpc id or all
 	c := NewPermissions()

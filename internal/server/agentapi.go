@@ -27,6 +27,7 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("POST /term/sessions/{id}/prompt", s.apiAgentPrompt)
 	s.RegisterAPI("POST /term/sessions/{id}/cancel", s.apiAgentCancel)
 	s.RegisterAPI("POST /term/sessions/{id}/permissions/{pid}", s.apiAgentPermit)
+	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
 	s.RegisterAPI("GET /term/sessions/{id}/events", s.apiAgentEvents)
 	s.RegisterAPI("GET /term/sessions/{id}/log", s.apiAgentLog)
 }
@@ -52,10 +53,19 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotImplemented, "terminals are not enabled")
 		return
 	}
-	var body struct{ Cwd, Kind, Provider, Mode, Net, Name string }
+	var body struct {
+		Cwd, Kind, Provider, Mode, Net, Name, Model string
+		Options                                     map[string]string
+	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, net?, name?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, name?}")
 		return
+	}
+	if body.Model != "" { // shorthand for options.model
+		if body.Options == nil {
+			body.Options = map[string]string{}
+		}
+		body.Options["model"] = body.Model
 	}
 	if body.Kind != term.KindAgent {
 		apiErr(w, http.StatusBadRequest, "kind must be \"agent\" (shell sessions open on /ws/term)")
@@ -64,7 +74,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Name) > 64 {
 		body.Name = body.Name[:64]
 	}
-	info, code, err := s.Term.OpenAgent(auth.PrincipalOf(r), body.Cwd, body.Net, body.Provider, body.Mode, body.Name)
+	info, code, err := s.Term.OpenAgent(auth.PrincipalOf(r), body.Cwd, body.Net, body.Provider, body.Mode, body.Name, body.Options)
 	if err != nil {
 		apiErr(w, code, err.Error())
 		return
@@ -186,6 +196,26 @@ func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
 	WriteOK(w)
 }
 
+// apiAgentSetOption changes a session setting the agent advertised
+// (model, effort, …): {id, value}. The refreshed options ride the next
+// status event.
+func (s *Server) apiAgentSetOption(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.drive(w, r)
+	if !ok {
+		return
+	}
+	var body struct{ ID, Value string }
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" {
+		apiErr(w, http.StatusBadRequest, "need {id, value}")
+		return
+	}
+	if err := s.Term.AgentSetOption(r.Context(), id, body.ID, body.Value); err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	WriteOK(w)
+}
+
 // apiAgentEvents replays the log after ?since= (0 = all), or with
 // ?follow=1 streams it as NDJSON until the client or the session goes.
 func (s *Server) apiAgentEvents(w http.ResponseWriter, r *http.Request) {
@@ -210,6 +240,7 @@ func (s *Server) apiAgentEvents(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	cursor := since
 	ctx := r.Context()
+	first := true
 	for {
 		// the wait channel first, so an append between the replay and the
 		// wait still wakes us
@@ -217,7 +248,11 @@ func (s *Server) apiAgentEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		evs, next, _, _ := s.Term.AgentEvents(id, cursor)
+		evs, next, truncated, _ := s.Term.AgentEvents(id, cursor)
+		if first && truncated { // the cursor predates the ring: say so before the first event
+			_ = enc.Encode(agent.Event{Type: agent.EvGap, Data: json.RawMessage(`{"before":` + strconv.FormatUint(cursor, 10) + `}`)})
+		}
+		first = false
 		for _, e := range evs {
 			if enc.Encode(e) != nil {
 				return

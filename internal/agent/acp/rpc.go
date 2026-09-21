@@ -9,6 +9,7 @@ package acp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,6 +137,12 @@ func NewConn(r io.Reader, w io.Writer) *Conn {
 
 // Call sends a request and waits for its response (or the read loop's end).
 func (c *Conn) Call(method string, params any, result any) error {
+	return c.CallCtx(context.Background(), method, params, result)
+}
+
+// CallCtx is Call bounded by ctx: a hung peer answers with ctx.Err() and the
+// call is dropped (a late response is discarded).
+func (c *Conn) CallCtx(ctx context.Context, method string, params any, result any) error {
 	id := strconv.FormatInt(c.nextID.Add(1), 10)
 	ch := make(chan *Message, 1)
 	c.mu.Lock()
@@ -146,7 +153,14 @@ func (c *Conn) Call(method string, params any, result any) error {
 		c.drop(id)
 		return err
 	}
-	resp, ok := <-ch
+	var resp *Message
+	var ok bool
+	select {
+	case resp, ok = <-ch:
+	case <-ctx.Done():
+		c.drop(id)
+		return ctx.Err()
+	}
 	if !ok || resp == nil {
 		return io.ErrClosedPipe
 	}

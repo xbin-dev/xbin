@@ -108,7 +108,7 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := auth.Principal{Owner: true}
-	info, code, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "my agent")
+	info, code, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "my agent", map[string]string{"model": "fake-fast"})
 	if err != nil || code != 200 {
 		t.Fatalf("open: %d %v", code, err)
 	}
@@ -127,8 +127,8 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 		t.Fatalf("idle event: %+v", e)
 	}
 	rows := m.ListFor("owner", "apps/x", nil)
-	if len(rows) != 1 || rows[0].Kind != KindAgent || rows[0].Status != agent.StatusIdle {
-		t.Fatalf("directory row: %+v", rows)
+	if len(rows) != 1 || rows[0].Kind != KindAgent || rows[0].Status != agent.StatusIdle || rows[0].Model != "fake-fast" {
+		t.Fatalf("directory row (the requested model shows): %+v", rows)
 	}
 
 	// env: the key from the vault is in the agent's environ, HOME is the
@@ -145,12 +145,31 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 	text, _ := edata(e.Event)["text"].(string)
 	// the agent runs with the per-user home, so its login/settings carry over;
 	// there is no injected API key (key=no) — auth is the home's, like a shell's
-	if !strings.Contains(text, "HOME="+home) || !strings.Contains(text, "key=no") || !strings.Contains(text, `"defaultMode":"plan"`) {
-		t.Fatalf("the agent's view of its home: %q", text)
+	if !strings.Contains(text, "HOME="+home) || !strings.Contains(text, "key=no") || !strings.Contains(text, `"defaultMode":"plan"`) || !strings.Contains(text, "model=fake-fast") {
+		t.Fatalf("the agent's view of its home and the requested model: %q", text)
 	}
 	e = r.until(t, ofType(agent.EvTurnEnd))
 	if d := edata(e.Event); d["stopReason"] != "end_turn" || d["turn"] != float64(1) || d["usage"] == nil {
 		t.Fatalf("turn.end: %v", d)
+	}
+
+	// a setting changed mid-session applies to the next turn and shows in the row
+	if err := m.AgentSetOption(ctx, id, "model", "fake-default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AgentSetOption(ctx, id, "model", "bogus"); err == nil {
+		t.Fatal("a value the agent refuses was accepted")
+	}
+	if _, err := m.AgentPrompt(ctx, id, "env again"); err != nil {
+		t.Fatal(err)
+	}
+	e = r.until(t, func(e SessionEvent) bool { return e.Type == agent.EvMessageDelta && edata(e.Event)["role"] == "agent" })
+	if text, _ := edata(e.Event)["text"].(string); !strings.Contains(text, "model=fake-default") {
+		t.Fatalf("the next turn ran on the new model: %q", text)
+	}
+	r.until(t, ofType(agent.EvTurnEnd))
+	if info, _ := m.Info(id); info.Model != "fake-default" {
+		t.Fatalf("row model: %+v", info)
 	}
 
 	// a permission: the first answer wins, the turn completes
@@ -234,7 +253,7 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 	xs, n := 0, 0
 	seenTurn := false
 	for _, e := range evs {
-		if e.Type == agent.EvTurnEnd && edata(e)["turn"] == float64(6) {
+		if e.Type == agent.EvTurnEnd && edata(e)["turn"] == float64(7) {
 			seenTurn = true
 		}
 		if e.Type == agent.EvMessageDelta && edata(e)["role"] == "agent" {
@@ -349,20 +368,20 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	m := r.m
 	bob := auth.Principal{UserID: "bob", Via: "session",
 		User: &users.User{ID: "bob", Role: "user", Tiles: map[string]string{"apps/x": users.LevelWrite}}}
-	if _, code, err := m.OpenAgent(bob, "apps/x", "", "fake", "", ""); code != 403 || err == nil {
+	if _, code, err := m.OpenAgent(bob, "apps/x", "", "fake", "", "", nil); code != 403 || err == nil {
 		t.Fatalf("write-level user: %d %v", code, err)
 	}
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "", "", "fake", "", ""); code != 403 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "", "", "fake", "", "", nil); code != 403 {
 		t.Fatalf("no cwd: %d", code)
 	}
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "nope", "", ""); code != 400 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "nope", "", "", nil); code != 400 {
 		t.Fatalf("unknown provider: %d", code)
 	}
-	if _, code, err := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "ludicrous", ""); code != 400 || !strings.Contains(err.Error(), "unknown mode") {
+	if _, code, err := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "ludicrous", "", nil); code != 400 || !strings.Contains(err.Error(), "unknown mode") {
 		t.Fatalf("unknown mode: %d %v", code, err)
 	}
 	m.BxPath = ""
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", ""); code != 503 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", nil); code != 503 {
 		t.Fatalf("no bx: %d", code)
 	}
 	m.BxPath = bxBin
@@ -370,7 +389,7 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	// a terminal token drives its OWN tile's sessions; another tile's, no
 	termTok := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal",
 		User: &users.User{ID: "alice", Role: "user", Tiles: map[string]string{"apps/x": users.LevelTerminal}}}
-	info, code, err := m.OpenAgent(termTok, "apps/x", "", "fake", "yolo", "")
+	info, code, err := m.OpenAgent(termTok, "apps/x", "", "fake", "yolo", "", nil)
 	if err != nil || code != 200 || info.Mode != "yolo" {
 		t.Fatalf("from a terminal: %d %v %+v", code, err, info)
 	}
@@ -409,7 +428,7 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	waitClose(t, r.change, "close:"+info.ID)
 
 	// the agent fails a turn: status error names the vault command; a crash ends the session
-	info, _, err = m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "")
+	info, _, err = m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

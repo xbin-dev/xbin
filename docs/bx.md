@@ -101,7 +101,7 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
-bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--net s] "<prompt>"
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] "<prompt>"
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
                                        stream lands here (D74)
@@ -110,6 +110,8 @@ bx agent send <id> "<text>" | permit <id> <pid> once|always|deny
                                        permission request (first answer wins)
 bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
                                        replay + follow · list yours · end one
+bx agent set <id> <option> <value>    change a setting the agent offers
+                                       (model, effort, …) for its next turn
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (docs/overview/14-lifecycle.md)
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
@@ -218,7 +220,11 @@ per-user home a shell terminal gets — so a `claude /login` (or `codex
 login`, `opencode auth login`, …) done once in a shell terminal signs the
 agent in on every tile; no per-tile API key, no vault. Bypass modes
 (`bypassPermissions`, `agent-full-access`, `yolo`) are never defaults: pass
-`--mode` explicitly.
+`--mode` explicitly. The agent's own settings — the model, the reasoning
+effort, whatever it advertises — are shown on the `[ready]` line
+(`[ready] mode default · model default · effort default`); pick one at
+start with `--model sonnet` / `--option effort=high`, or change it mid-session
+with `bx agent set <id> model sonnet` (applies to the next turn).
 `XBIN_AGENT_PROVIDER` sets the default provider (else `claude`).
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend

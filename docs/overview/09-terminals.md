@@ -399,6 +399,12 @@ What the agent gets:
   run once in a shell terminal signs the agent in on every tile. When the
   home holds no login, the first turn ends with a `status error` telling you
   which command to run in a terminal — never a vault command.
+- **its own settings, live.** The agent advertises what it can change —
+  the model, the reasoning effort, the permission mode — and the Agent tab
+  shows each as a picker once the session is up (start it with an empty
+  message to pick before the first prompt); `bx agent run --model …` /
+  `bx agent set` do the same from a shell. A change applies to the next
+  turn. Nothing is hardcoded per provider: the list is the agent's.
 - **conservative modes by default.** Claude Code starts in `default` (ask
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must

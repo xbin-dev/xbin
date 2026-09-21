@@ -109,11 +109,21 @@ func (p *Permissions) Resolve(pid, optionID, decision, by string) (*Resolution, 
 		return nil, fmt.Errorf("permission %s has no option %q", pid, optionID+decision)
 	}
 	delete(p.pending, pid)
-	if opt.Kind == AllowAlways || decision == AllowAlways {
+	// A session rule is recorded only when the agent's allow_always option
+	// was actually chosen (a fallback to allow_once must not remember
+	// anything the agent did not grant) and only when the call has a kind or
+	// a title — with neither, rule.matches would be a wildcard: allow
+	// everything for the session.
+	if opt.Kind == AllowAlways && pd.ToolCall.Rule() {
 		p.rules = append(p.rules, rule{kind: pd.ToolCall.Kind, title: pd.ToolCall.Title})
 	}
 	return &Resolution{PID: pid, OptionID: opt.OptionID, By: by, RPCID: pd.rpcID}, nil
 }
+
+// Rule reports whether "allow for the session" can be scoped to this call
+// (it has a kind or a title to match on). The clients hide the option
+// otherwise.
+func (t ToolCallRef) Rule() bool { return t.Kind != "" || t.Title != "" }
 
 // CancelAll settles every pending request as cancelled (a turn cancel).
 func (p *Permissions) CancelAll() []*Resolution {

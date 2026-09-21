@@ -25,17 +25,21 @@ const (
 	EvPermissionRequest  = "permission.request"  // {pid, toolCall, options}
 	EvPermissionResolved = "permission.resolved" // {pid, optionId, by}
 	EvTurnEnd            = "turn.end"            // {turn, stopReason, usage?}
-	EvStatus             = "status"              // {status, detail?, modes?, currentMode?, usage?}
+	EvStatus             = "status"              // {status, detail?, modes?, currentMode?, options?, usage?}
+	// EvGap is never logged: a follow stream inserts it when the cursor
+	// predates the ring, so a client shows "earlier events dropped".
+	EvGap = "gap"
 )
 
 // Session statuses (SessionInfo.status, status events).
 const (
-	StatusStarting = "starting"
-	StatusIdle     = "idle"
-	StatusRunning  = "running"
-	StatusWaiting  = "waiting_permission"
-	StatusError    = "error"
-	StatusExited   = "exited"
+	StatusStarting   = "starting"
+	StatusIdle       = "idle"
+	StatusRunning    = "running"
+	StatusWaiting    = "waiting_permission"
+	StatusCancelling = "cancelling" // session/cancel sent, the turn's end pending
+	StatusError      = "error"
+	StatusExited     = "exited"
 )
 
 // Event is one entry of a session's log. Seq is assigned by the Log (1, 2,
