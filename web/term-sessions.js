@@ -67,11 +67,21 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
 export function tabsFrom(server, local) {
   const byId = new Map(local.filter((t) => t.id).map((t) => [t.id, t]));
   const pending = local.filter((t) => !t.id);
+  // Absorb a server row with no id match into a pending tab of the SAME kind
+  // first (an "open" event can arrive before the socket/element that spawned
+  // it fires bx-session): otherwise a fresh shell tab beside a spawning agent
+  // could swap kinds. Falls back to the first pending of any kind.
+  const takePending = (kind) => {
+    const i = pending.findIndex((t) => (t.kind || 'shell') === kind);
+    return i >= 0 ? pending.splice(i, 1)[0] : pending.shift();
+  };
   const tabs = [];
   for (const s of server) {
-    const was = byId.get(s.id) ?? pending.shift();
+    const kind = s.kind || 'shell';
+    const was = byId.get(s.id) ?? takePending(kind);
     tabs.push({
-      key: was?.key ?? uid(), id: s.id,
+      key: was?.key ?? uid(), id: s.id, kind,
+      provider: s.provider || was?.provider || '', status: s.status || was?.status || '',
       net: was ? (was.net ?? null) : (s.net || null), gpu: was ? (was.gpu || 'none') : (s.gpu || 'none'), api: was ? was.api !== false : s.api !== false,
       name: s.name || '', scopes: s.scopes ?? was?.scopes ?? null, label: s.label || '',
       baseOutdated: !!was?.baseOutdated,

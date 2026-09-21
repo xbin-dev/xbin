@@ -40,8 +40,10 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
-import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
+import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, clampActive } from '/vendor/term-sessions.js';
+import { titlebar } from '/vendor/frame-titlebar.js';
+import '/vendor/bx-agent.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -621,6 +623,16 @@ export class BxFrame extends LitElement {
       setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
+      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name })); },
+      get activeTab() { return f._active; },
+      setActiveTab(i) { f._active = i | 0; },
+      newAgent() { f._newAgent(); },
+      // the <bx-agent> testApi for tab i (default: the active one) — the agent
+      // elements are in session order among agent tabs
+      agent(i = f._active) {
+        const idx = f._sessions.filter((s) => s.kind === 'agent').indexOf(f._sessions[i]);
+        return f.renderRoot.querySelectorAll('bx-agent')[idx >= 0 ? idx : 0]?.testApi?.();
+      },
     };
   }
 
@@ -665,8 +677,26 @@ export class BxFrame extends LitElement {
 
   _newTerm() {
     // net null = the server picks this tile's default scope (D54).
-    this._sessions = [...this._sessions, { key: uid(), id: null, net: null, gpu: 'none', name: '' }];
+    this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'shell', net: null, gpu: 'none', name: '' }];
     this._active = this._sessions.length - 1;
+  }
+
+  // Open a new AGENT tab (D74): a session whose sandbox runs a coding agent
+  // instead of a shell. <bx-agent> creates the server session when the user
+  // picks a provider and sends the first prompt, then fires bx-session with
+  // the id — the same lazy pattern <bx-terminal> uses.
+  _newAgent() {
+    this._layout = 'term';
+    this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'agent', name: '' }];
+    this._active = this._sessions.length - 1;
+  }
+
+  // The term-host holds both the shells and the agents; it shows whenever the
+  // active tab is an agent (agents have no code/logs panels) or a shell tab
+  // is in a terminal-bearing layout.
+  _panelVisible() {
+    const c = this._sessions[this._active];
+    return c?.kind === 'agent' || this._layout === 'term' || this._layout === 'split';
   }
 
   // Rename the terminal on tab i (blank clears back to its number). Names are
@@ -703,7 +733,8 @@ export class BxFrame extends LitElement {
     const cur = s[i] || {};
     // The server reports the EFFECTIVE scope plus the scopes this user may
     // pick on this tile — the select renders exactly that list (D54).
-    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, net: ev.detail.net || cur.net || null,
+    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, kind: ev.detail.kind || cur.kind || 'shell',
+             net: ev.detail.net || cur.net || null,
              scopes: ev.detail.scopes || cur.scopes || null, label: ev.detail.label || '',
              baseOutdated: !!ev.detail.baseOutdated };
     this._sessions = s;
@@ -813,80 +844,24 @@ export class BxFrame extends LitElement {
         <div class="pop"
              style="left:${x}px; top:${y}px; width:${w}px; height:${h}px"
              @pointerdown=${this._popDown}>
-          <div class="titlebar" @pointerdown=${this._dragStart}>
-            <span class="path">${this.src}</span>
-            ${this._sessions.map((s, i) => html`
-              <span class="tab ${i === this._active ? 'on' : ''}"
-                    @click=${() => { this._active = i; }}
-                    @dblclick=${() => this._renameTerm(i)}
-                    title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>
-                <span class="lbl">${s.name || (i + 1)}</span>
-                <button class="tabx" title="close this terminal"
-                        @click=${(e) => { e.stopPropagation(); this._closeTerm(i); }}>✕</button>
-              </span>`)}
-            <button title="new terminal" @click=${this._newTerm}>+</button>
-            <span class="lyt">
-              <button class=${this._layout === 'term' ? 'on' : ''} title="terminal only"
-                      @click=${() => this._setLayout('term')}>&gt;_</button>
-              <button class=${this._layout === 'code' ? 'on' : ''} title="code browser + review"
-                      @click=${() => this._setLayout('code')}>{ }</button>
-              <button class=${this._layout === 'split' ? 'on' : ''} title="code + terminal side by side"
-                      @click=${() => this._setLayout('split')}>⇋</button>
-              <button class=${this._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
-                      @click=${() => this._setLayout('logs')}>▤</button>
-              <button class=${this._layout === 'prs' ? 'on' : ''}
-                      title="change proposals — patches other tiles' agents suggested for this one"
-                      @click=${() => this._setLayout('prs')}>⇄${this._prCount ? ` ${this._prCount}` : ''}</button>
-            </span>
-            <span class="spacer"></span>
-            ${(() => {
-              // Scopes come from the session frame (what the server will honour
-              // for this user on this tile); before it arrives, the classic list.
-              const cur = this._sessions[this._active];
-              const scopes = cur?.scopes ?? [
-                { id: 'internet', label: 'internet' }, { id: 'host', label: 'host net' }, { id: 'none', label: 'offline' }];
-              const now = scopes.find((s) => s.id === (cur?.net || scopes[0].id)) ?? scopes[0];
-              return html`<select class="scope"
-                    title=${'network scope (switching restarts the terminal)' + (now?.desc ? '\n' + now.desc : '')}
-                    .value=${now.id}
-                    @change=${(e) => this._setNet(this._active, e.target.value)}>
-                ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${scopeIcon(s.id)} ${s.label}</option>`)}
-              </select>`;
-            })()}
-            <select class="scope" title="live tile API access — off = the shell can read/edit code but every API call is unauthorized (switching restarts the terminal)"
-                    .value=${this._sessions[this._active]?.api === false ? 'off' : 'on'}
-                    @change=${(e) => this._setApi(this._active, e.target.value === 'on')}>
-              <option value="on">🔌 tile API</option>
-              <option value="off">⛔ no API</option>
-            </select>
-            ${this._gpus.length ? html`
-              <select class="scope" title="GPU (switching restarts the terminal)"
-                      .value=${this._sessions[this._active]?.gpu || 'none'}
-                      @change=${(e) => this._setGpu(this._active, e.target.value)}>
-                <option value="none">no GPU</option>
-                ${this._gpus.map((g) => html`<option value=${g.index}>🎮 GPU ${g.index}</option>`)}
-                ${this._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
-              </select>` : nothing}
-            ${this._sessions[this._active]?.baseOutdated ? html`
-              <button class="upgrade" title="a newer base image is installed — upgrade rebuilds this terminal on it (wipes installed packages; your files & $HOME are kept)"
-                      @click=${this._resetEnv}>⬆ base update</button>` : nothing}
-            <button title="reset this component's sandbox (wipe installed packages)"
-                    @click=${this._resetEnv}>⟲</button>
-            <button title="close (session keeps running)"
-                    @click=${() => { this._termOpen = false; }}>✕</button>
-          </div>
+          ${titlebar(this)}
           <div class="panels">
+            ${(() => { const c = this._sessions[this._active]; return c?.kind === 'agent'; })() ? nothing : html`
             ${this._layout === 'code' || this._layout === 'split' ? html`<bx-code src=${this.src}
                 style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
             ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
-            ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}
-            <div class="term-host" style="display:${this._layout === 'term' || this._layout === 'split' ? 'flex' : 'none'}; flex-direction:column">
-            ${repeat(this._sessions, (s) => s.key, (s, i) => html`
-              <bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
-                @bx-session=${(ev) => this._gotSession(i, ev)}
-                @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
+            ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}`}
+            <div class="term-host" style="display:${this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
+            ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
+              ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
+                  component=${this.src} session=${s.id ?? nothing}
+                  @bx-session=${(ev) => this._gotSession(i, ev)}
+                  @bx-exit=${() => this._closeTerm(i, true)}></bx-agent>`
+              : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
+                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
+                  @bx-session=${(ev) => this._gotSession(i, ev)}
+                  @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
             </div>
           </div>
         </div>`)(this._popBox()) : nothing}

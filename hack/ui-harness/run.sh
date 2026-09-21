@@ -42,12 +42,14 @@ stop() {
 # serves the repo's workspace-template/ over them, so the shell and tiles
 # under test are always the source tree (web/ is served from source by --dev).
 start() {
-  (cd "$REPO" && nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
+  # XBIN_AGENT_FAKE registers the scripted "fake" agent provider (D74) and
+  # XBIN_BIN points the daemon at the bx it binds in as the agent host.
+  (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
-build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind); }
+build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp); }
 
 case "$mode" in
   --stop) stop; exit 0 ;;

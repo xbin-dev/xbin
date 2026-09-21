@@ -28,7 +28,7 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-allow.js` | the allowance grammar (`ALLOW_KINDS`, `parseAllow`, `fmtAllow`, `allowProblem`, `describeAllow`, `capInfo`) (D57) |
 | `/vendor/bx-grant-row.js` | `grantArrow(g)` — a grant or request's `from → target` with the policy-block / capability tooltip, as rendered by the shell, the admin console and the organisations tile |
 | `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor` |
-| `/vendor/events-socket.js` | `onEvent(type, fn)` over the shared `/ws/events` socket |
+| `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (`--bx-bg`, `--bx-panel`, `--bx-text`, …) plus opt-in `.bx` control styles. Link it to take the theme; it is **never injected** into your document |
 | `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself |
 
@@ -37,9 +37,12 @@ import '/vendor/bx-frame.js';
 `/vendor/bx-menu.js` (the shell's context menus — action closures, not a
 tile API; tiles use `xbin.dialog` / `xbin.window`), `/vendor/bx-terminal.js`,
 `/vendor/bx-logs.js`, `/vendor/bx-prs.js` (the terminal pop-up's panels —
-reachable through `<bx-frame>`), `/vendor/term-predict.js` (the terminal's
-prediction engine, D70), `/vendor/term-sessions.js` (the frame's view of the
-terminal session directory, D73), and the shell's own siblings under
+reachable through `<bx-frame>`), `/vendor/bx-agent.js` (the pop-up's Agent
+tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer) and
+`/vendor/frame-titlebar.js` (the pop-up's title bar), `/vendor/term-predict.js`
+(the terminal's prediction engine, D70), `/vendor/term-sessions.js` (the
+frame's view of the terminal session directory, D73), and the shell's own
+siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 

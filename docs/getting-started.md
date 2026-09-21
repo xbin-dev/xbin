@@ -53,6 +53,13 @@ shows the working-tree diff (what you're about to commit) and any commit's diff
 for review — right beside the terminal in split mode. It's read-only; editing
 is the terminal's job.
 
+Beside the `+` that opens a new terminal tab is **`+🤖`**, which opens an
+**agent session**: a coding agent (Claude Code, Codex, Gemini or OpenCode)
+running in this same tile sandbox, with a transcript, tool cards and a
+permission prompt you answer inline. It uses the tile's vault keys when set,
+otherwise the login in your `$HOME` (a `claude auth login` from a shell
+terminal serves it too). `bx agent` drives the same sessions from a shell.
+
 That terminal is **scoped to its component**: it can write its own directory and
 `$HOME`, but the rest of the workspace is **read-only** (you can read other
 tiles' source, but the platform's secrets — `.xbin/`, `data/`, other users'

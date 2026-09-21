@@ -239,6 +239,13 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   signed into (the session directory, D73: the frame asks
   `GET /api/xbin/term/sessions?cwd=` for its tabs, remembers nothing itself,
   and follows `term` events so a tab opened elsewhere appears here).
+- **Agent tab**: the `+🤖` button opens an **agent session** (D74) instead
+  of a shell — a coding agent (Claude Code, Codex, Gemini, OpenCode) running
+  in this tile's sandbox, driven over the Agent Client Protocol. The tab
+  shows the transcript, tool cards, the plan, and a permission card any
+  attached client can answer (first answer wins); the same session is
+  reachable from another browser or from `bx agent`
+  (docs/overview/09-terminals.md §Agent sessions).
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
   whole `apps/cal` frame, when both are mounted.
