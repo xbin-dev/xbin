@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll for new xbin releases (QA box)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=xbin-qa-update.service
+
+[Install]
+WantedBy=timers.target

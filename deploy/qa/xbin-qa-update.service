@@ -1,0 +1,10 @@
+[Unit]
+Description=xbin QA auto-updater (poll releases, install, restart)
+After=network-online.target xbin.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/xbin-qa/xbin-qa-update.sh
+# The updater reinstalls xbind and restarts it; give it room.
+TimeoutStartSec=600

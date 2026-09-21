@@ -1,0 +1,20 @@
+[Unit]
+Description=xbin QA front proxy (updating-aware, localhost only)
+After=network.target
+Wants=xbin.service
+
+[Service]
+Type=simple
+ExecStart=/opt/xbin-qa/xbin-qa-proxy
+Environment=XBIN_QA_LISTEN=127.0.0.1:9988
+Environment=XBIN_QA_BACKEND=http://127.0.0.1:8642
+Environment=XBIN_QA_STATE=/run/xbin-qa/state
+Restart=always
+RestartSec=2
+# /run/xbin-qa is shared with the updater (which writes the state file); keep it
+# across proxy restarts so an in-flight update's status survives.
+RuntimeDirectory=xbin-qa
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target
