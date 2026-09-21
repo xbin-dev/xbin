@@ -40,6 +40,7 @@ type fake struct {
 	mu     sync.Mutex
 	mode   string
 	model  string
+	titled bool
 	cwd    string
 	prompt json.RawMessage // in-flight prompt id
 	cancel chan struct{}
@@ -257,6 +258,17 @@ func (f *fake) turn(text string) {
 		return
 	}
 	f.update(map[string]any{"sessionUpdate": acp.UpUsage, "used": 42, "size": 1000})
+	f.mu.Lock()
+	first := !f.titled
+	f.titled = true
+	f.mu.Unlock()
+	if first { // the adapters title a session from its first prompt
+		t := text
+		if len(t) > 40 {
+			t = t[:40]
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpSessionInfo, "title": "fake: " + t})
+	}
 	f.end("end_turn")
 }
 

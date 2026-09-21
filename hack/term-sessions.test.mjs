@@ -4,7 +4,7 @@
 // tab list, and how the legacy browser record is adopted once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, tabsFrom, clampActive, legacyKey, prefKey } from '../web/term-sessions.js';
+import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey } from '../web/term-sessions.js';
 
 // a fetch that records calls and answers from a table
 function fakeFetch(answers = {}) {
@@ -102,4 +102,32 @@ test('the legacy browser record is adopted once and removed', () => {
   assert.equal(st.migrateLegacy('apps/bad'), null);
   assert.equal(storage.has('bx-term:apps/bad'), false, 'garbage is removed too');
   assert.equal(makeStore({ fetch: fakeFetch({}).f, storage: undefined }).migrateLegacy('apps/x'), null, 'no storage: fine');
+});
+
+test('tabsFrom: an ended agent tab is kept (marked), a vanished shell tab is dropped, kinds carry', () => {
+  const local = [
+    { key: 'sh', id: 'shell-gone', kind: 'shell' },
+    { key: 'ag', id: 'agent-gone', kind: 'agent', name: 'Claude' },
+    { key: 'ag2', id: 'agent-live', kind: 'agent' },
+  ];
+  const server = [{ id: 'agent-live', kind: 'agent', provider: 'claude', status: 'idle' }];
+  const tabs = tabsFrom(server, local);
+  assert.deepEqual(tabs.map((t) => [t.key, t.id, !!t.ended]), [['ag2', 'agent-live', false], ['ag', 'agent-gone', true]],
+    'the live agent leads (server order), the ended agent trails marked, the vanished shell is gone');
+  assert.equal(tabs[0].provider, 'claude', 'provider rides the tab');
+  assert.equal(tabs[1].name, 'Claude', 'an ended tab keeps its name');
+  // idempotent: a second listing keeps the ended tab ended, once
+  const again = tabsFrom(server, tabs);
+  assert.deepEqual(again.map((t) => [t.key, !!t.ended]), [['ag2', false], ['ag', true]]);
+});
+
+test('activeIndex: by identity, falling back to a clamped index', () => {
+  const tabs = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+  assert.equal(activeIndex(tabs, 'c', 0), 2, 'found by key');
+  assert.equal(activeIndex(tabs, 'zz', 1), 1, 'unknown key: the fallback index');
+  assert.equal(activeIndex(tabs, 'zz', 9), 2, 'the fallback is clamped');
+  assert.equal(activeIndex([], 'a', 3), 0, 'no tabs: 0');
+  // the case that used to select the wrong shell: tab 0 of three dies
+  const after = tabs.filter((t) => t.key !== 'a');
+  assert.equal(activeIndex(after, 'b', 1), 0, 'b stays selected although its index moved');
 });

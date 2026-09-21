@@ -8,11 +8,18 @@
 // purpose — the admin may OPEN a terminal under infra-net on a devs tile (a
 // human act, outside the tile ceiling) but may not BIND the tile to it
 // (uncovered) — that asymmetry is documented in auth.md.
-const { URL, login, closeCtx, settle, waitSel, sh, fr, openShell, usePersonalScreen, openTile, shot, dumpSelects, checker } = require('../lib');
+const { URL, login, closeCtx, settle, waitSel, waitFor, sh, fr, openShell, usePersonalScreen, openTile, shot, dumpSelects, checker } = require('../lib');
 
 async function termSets(browser) {
   const { check, done } = checker('term-sets');
   const picker = (page) => page.locator('bx-frame[src="apps/crawler"] select.scope').first();
+  // a scope change on a LIVE terminal asks before restarting it (bx-dialog):
+  // pick, then answer the confirm through the frame's test surface
+  const pick = async (page, value) => {
+    await picker(page).selectOption(value);
+    await waitFor(page, (t) => !!t.frameFor('apps/crawler')?.testApi().dialog, null, { timeout: 5000, label: 'the restart confirm' });
+    await fr(page, 'apps/crawler', (f) => f.answerDialog('ok'));
+  };
   const pickerState = (page) => picker(page).evaluate((sel) => ({
     value: sel.value,
     ids: [...sel.options].map((o) => o.value),
@@ -35,7 +42,7 @@ async function termSets(browser) {
     check(!s.ids.includes('set:vpn-only'), 'admin: a provider-only set is not a scope');
     check(/host networking/.test(s.titles['set:infra-net'] ?? ''), `admin: the host set says so in its tooltip (${s.titles['set:infra-net']})`);
     check(s.ids.indexOf('set:devs-net') === s.ids.indexOf('org') + 1, 'admin: sets sit right after org');
-    await picker(page).selectOption('set:infra-net');
+    await pick(page, 'set:infra-net');
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[net="set:infra-net"]', { state: 'attached', timeout: 20000 });
     await page.locator('bx-frame[src="apps/crawler"] select.scope option[value="org"]').first().waitFor({ state: 'attached', timeout: 20000 });
     s = await pickerState(page);
@@ -43,7 +50,7 @@ async function termSets(browser) {
     await settle(page);
     await shot(page, 'term-admin-crawler-set', { fullPage: false });
     await dumpSelects(page, 'term-admin-crawler-set-selects', 'bx-frame select.scope');
-    await picker(page).selectOption('org');
+    await pick(page, 'org');
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[net="org"]', { state: 'attached', timeout: 20000 });
     await fr(page, 'apps/crawler', (f) => f?.closeTerminal());
     await settle(page);

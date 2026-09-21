@@ -115,6 +115,13 @@ type ConfigOptionUpdate struct {
 	ConfigOptions []ConfigOption `json:"configOptions"`
 }
 
+// SessionInfoUpdate: the agent's own title for the session (auto-generated
+// by most adapters after the first turn) and a bump time.
+type SessionInfoUpdate struct {
+	Title     string `json:"title,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
 type SessionModes struct {
 	CurrentModeID  string      `json:"currentModeId"`
 	AvailableModes []ModeEntry `json:"availableModes"`

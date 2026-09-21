@@ -153,6 +153,11 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 		t.Fatalf("turn.end: %v", d)
 	}
 
+	// the agent titled the session after the first turn: the unnamed tab took it — but ours is named
+	if info, _ := m.Info(id); info.Name != "my agent" {
+		t.Fatalf("a user-named tab keeps its name over the agent's title: %q", info.Name)
+	}
+
 	// a setting changed mid-session applies to the next turn and shows in the row
 	if err := m.AgentSetOption(ctx, id, "model", "fake-default"); err != nil {
 		t.Fatal(err)
@@ -422,6 +427,11 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	e := r.until(t, func(e SessionEvent) bool { return e.Type == agent.EvTurnEnd || e.Type == agent.EvPermissionRequest })
 	if e.Type != agent.EvTurnEnd {
 		t.Fatal("yolo asked for permission")
+	}
+	// the agent's title named this unnamed tab, and the directory was told
+	waitClose(t, r.change, "rename:"+info.ID)
+	if row, _ := m.Info(info.ID); row.Name != "fake: perm" {
+		t.Fatalf("the agent's title names an unnamed tab: %q", row.Name)
 	}
 	// /ws/term refuses to attach to an agent session
 	m.Kill(info.ID)

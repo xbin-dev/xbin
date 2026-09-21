@@ -5,7 +5,7 @@
 // one agent session, see the same transcript; (b) a permission answered in
 // one context resolves in the other (first answer wins); (c) the composer
 // sends, Stop cancels a turn; (d) a reload replays the log from the cursor.
-const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shot, checker } = require('../lib');
+const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
 
@@ -37,10 +37,10 @@ async function agentTab(browser) {
   const idA = await fr(A.page, TILE, (f) => f.agent().sessionId);
   check(!!idA, `A created an agent session (${idA})`);
   const pendA = await fr(A.page, TILE, (f) => f.agent().pending);
-  check(pendA.length === 1, `A shows one pending permission (${JSON.stringify(pendA)})`);
+  check(pendA.length === 1 && pendA[0].cmd === '', `A shows one pending permission (${JSON.stringify(pendA)})`); // the fake's run-ls has no rawInput
   const tabKind = await fr(A.page, TILE, (f) => f.tabs[f.activeTab]?.kind);
   check(tabKind === 'agent', `the active tab is an agent tab (${tabKind})`);
-  await shot(A.page, 'agent-tab-a-permission', { fullPage: false });
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-a-permission');
 
   // ---- B: the same user in a second browser sees the same session + pending ----
   const B = await login(browser, 'admin', 'admin');
@@ -50,6 +50,8 @@ async function agentTab(browser) {
   await fr(B.page, TILE, (f) => { const i = f.tabs.findIndex((x) => x.kind === 'agent'); f.setActiveTab(i); });
   await waitSel(B.page, `bx-frame[src="${TILE}"] bx-agent`, { timeout: 15000 });
   await waitFor(B.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.pending || []).length === 1, null, { timeout: 15000, label: 'B replays the pending permission' });
+  const pB = await fr(B.page, TILE, (f) => f.agent().pending);
+  check(pB[0].options.includes('always') && pB[0].scoped, `B sees the agent's real options, scoped (${JSON.stringify(pB[0])})`);
   const idB = await fr(B.page, TILE, (f) => f.agent().sessionId);
   check(idB === idA, `B attached to the same session (${idB})`);
   const blkA = await blocks(A.page), blkB = await blocks(B.page);
@@ -57,13 +59,13 @@ async function agentTab(browser) {
   check(blkA.filter((b) => b.kind === 'tool').length === blkB.filter((b) => b.kind === 'tool').length, 'both see the same tool call');
 
   // ---- B answers the permission; A sees it resolve and the turn complete ----
-  const pid = (await fr(B.page, TILE, (f) => f.agent().pending))[0];
+  const pid = (await fr(B.page, TILE, (f) => f.agent().pending))[0].pid;
   await fr(B.page, TILE, (f, t, p) => f.agent().permit(p, 'allow_once'), pid);
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: "A's turn completes after B answered" });
   const resolvedA = (await blocks(A.page)).find((b) => b.kind === 'perm' && b.by);
   check(!!resolvedA && /user:/.test(resolvedA.by), `A shows the permission resolved by the user (${resolvedA?.by})`);
   check((await blocks(A.page)).some((b) => b.kind === 'turn' && b.stopReason === 'end_turn'), 'A shows the turn ended');
-  await shot(B.page, 'agent-tab-b-resolved', { fullPage: false });
+  await shotEl(B.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-b-resolved');
 
   // ---- settings: the agent's options show after start; A picks a model, B sees it ----
   const optsA = await fr(A.page, TILE, (f) => f.agent().options);
@@ -89,7 +91,7 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).length >= 3, null, { timeout: 15000, label: 'the transcript replays after a reload' });
   const after = (await blocks(A.page)).length;
   check(after >= Math.min(before, 3), `the reload replayed the transcript (${after} blocks)`);
-  await shot(A.page, 'agent-tab-reload', { fullPage: false });
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-reload');
 
   await settle(A.page);
   done();

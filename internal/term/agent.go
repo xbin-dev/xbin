@@ -354,10 +354,11 @@ ended:
 func (s *Session) logEvent(m *Manager, e agent.Event) {
 	st := s.agent
 	ev := st.log.Append(e)
+	renamed := false
 	if e.Type == agent.EvStatus {
 		var d struct {
-			Status, CurrentMode string
-			Options             []struct{ ID, CurrentValue string }
+			Status, CurrentMode, Title string
+			Options                    []struct{ ID, CurrentValue string }
 		}
 		_ = json.Unmarshal(e.Data, &d)
 		st.mu.Lock()
@@ -373,12 +374,25 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			}
 		}
 		st.mu.Unlock()
+		// the agent's own title (most adapters generate one after the first
+		// turn) names a tab the user has not named — it follows the user like
+		// any name (D73)
+		if d.Title != "" {
+			s.mu.Lock()
+			if s.name == "" {
+				s.name, renamed = d.Title, true
+			}
+			s.mu.Unlock()
+		}
 	}
 	s.mu.Lock()
 	s.lastActive = time.Now()
 	s.mu.Unlock()
 	if m.OnEvent != nil {
 		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID})
+	}
+	if renamed {
+		m.changed("rename", s)
 	}
 }
 

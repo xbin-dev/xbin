@@ -116,6 +116,14 @@ async function shot(page, name, opts = {}) {
   log('wrote', name + '.png');
 }
 
+// shotEl: screenshot one element (a pop-up window): a page shot may not frame it.
+async function shotEl(page, selector, name) {
+  const el = page.locator(selector).first();
+  await el.scrollIntoViewIfNeeded().catch(() => {});
+  await el.screenshot({ path: `${OUT}/${name}.png` });
+  log('wrote', name + '.png');
+}
+
 // Text dump of every <select> under a selector (native dropdowns don't render
 // in screenshots) → out/<name>.txt
 async function dumpSelects(page, name, selector = 'select') {
@@ -146,4 +154,4 @@ function checker(name) {
   return { check, done };
 }
 
-module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker };
+module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker };

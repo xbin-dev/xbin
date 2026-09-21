@@ -420,6 +420,10 @@ What the agent gets:
   (`bx agent run` in a tile terminal) is restricted even for an admin —
   the terminal token is the tile's element principal, not the human.
 
+When the session ends — the agent crashed, or it could not sign in — the
+tab stays, greyed, with the transcript and the reason, until you dismiss
+it; the agent's own title for the session names the tab if you have not.
+
 Start one from the terminal window's **+ Agent** button, or from a shell:
 `bx agent run --provider opencode "list the files here"` (docs/bx.md).
 

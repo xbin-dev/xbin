@@ -44,13 +44,14 @@ func TestAgentRoutesGates(t *testing.T) {
 	// per-session routes: unknown ids are 404 for everyone
 	for _, r := range [][3]string{{"GET", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events", ""}, {"GET", "/term/sessions/nope/log", ""},
 		{"POST", "/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/term/sessions/nope/cancel", ""},
-		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"DELETE", "/term/sessions/nope", ""}} {
+		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"POST", "/term/sessions/nope/options", `{"id":"model","value":"x"}`},
+		{"DELETE", "/term/sessions/nope", ""}} {
 		if c, b := do(alice, r[0], r[1], r[2]); c != 404 {
 			t.Fatalf("%s %s: %d %s", r[0], r[1], c, b)
 		}
 	}
 	// the driving routes are the data plane for the audit log; create/end are not
-	if auditable("POST", "/term/sessions/a1/prompt") || auditable("POST", "/term/sessions/a1/cancel") || auditable("POST", "/term/sessions/a1/permissions/p1") {
+	if auditable("POST", "/term/sessions/a1/prompt") || auditable("POST", "/term/sessions/a1/cancel") || auditable("POST", "/term/sessions/a1/permissions/p1") || auditable("POST", "/term/sessions/a1/options") {
 		t.Fatal("driving an agent must not be audited per call")
 	}
 	if !auditable("POST", "/term/sessions") || !auditable("DELETE", "/term/sessions/a1") {

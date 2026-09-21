@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-21
 
+- **Terminal window: the title bar degrades instead of clipping, and a
+  dead tab no longer takes its transcript with it.** Below ~640 px (and on
+  the phone sheet) the layout switcher and the net/API/GPU pickers move
+  into a tools row behind a `⋯` button and the tab strip scrolls, so the
+  tabs and the window's ✕ are always reachable (the previous release could
+  push the ✕ off a phone screen). The pickers now **ask before restarting**
+  a live session (they end its shell and scrollback); a declined change
+  snaps back. Rename and reset use the themed dialog, not the browser's
+  `prompt`/`confirm`; "base update" and "reset" are distinct actions and
+  every terminal on the tile restarts on the clean layer. The active tab is
+  tracked by identity: a tab ending elsewhere no longer moves your
+  selection onto a different session. An **agent tab whose session ended**
+  (a crash, a login error) stays, greyed, with its transcript and the
+  reason, until you dismiss it. The window remembers its layout, split
+  and a native resize; agent tabs default to the provider's name and take
+  the agent's own title for the session when you have not named them.
 - **Agent sessions: pick the model (and any setting the agent offers).**
   The agent's config options — model, reasoning effort, mode, whatever the
   adapter advertises — ride the session's idle `status` event as `options`

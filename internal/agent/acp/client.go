@@ -197,12 +197,47 @@ func (c *Client) setOption(id, value string) error {
 // options ride a status event.
 func (c *Client) SetOption(ctx context.Context, id, value string) error {
 	if _, ok := c.option(id); !ok {
+		if id == "mode" && c.hasMode(value) { // no "mode" config option: the older session/set_mode
+			return c.setModeLive(value)
+		}
 		return fmt.Errorf("the agent offers no option %q", id)
 	}
 	if err := c.setOption(id, value); err != nil {
 		return err
 	}
 	c.emitOptions()
+	return nil
+}
+
+func (c *Client) hasMode(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.modes == nil {
+		return false
+	}
+	for _, m := range c.modes.AvailableModes {
+		if m.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// setModeLive switches the permission mode mid-session (session/set_mode)
+// and tells the clients through a status {currentMode}.
+func (c *Client) setModeLive(mode string) error {
+	c.mu.Lock()
+	sid := c.sessionID
+	c.mu.Unlock()
+	if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sid, ModeID: mode}, nil); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if c.modes != nil {
+		c.modes.CurrentModeID = mode
+	}
+	c.mu.Unlock()
+	c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "currentMode": mode}))
 	return nil
 }
 
@@ -424,18 +459,22 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 	switch env.SessionUpdate {
 	case UpAgentChunk, UpUserChunk, UpThoughtChunk:
 		var u ChunkUpdate
-		if json.Unmarshal(raw, &u) != nil || u.Content.Type != "text" {
+		if json.Unmarshal(raw, &u) != nil {
 			return
 		}
+		text := u.Content.Text
+		if u.Content.Type != "text" { // an image, a resource, a link: say so rather than drop it
+			text = contentPlaceholder(raw)
+		}
 		if env.SessionUpdate == UpThoughtChunk {
-			c.emit(agent.New(agent.EvThoughtDelta, map[string]any{"text": u.Content.Text}))
+			c.emit(agent.New(agent.EvThoughtDelta, map[string]any{"text": text}))
 			return
 		}
 		role := "agent"
 		if env.SessionUpdate == UpUserChunk {
 			role = "user"
 		}
-		d := map[string]any{"role": role, "text": u.Content.Text}
+		d := map[string]any{"role": role, "text": text}
 		if u.MessageID != "" {
 			d["messageId"] = u.MessageID
 		}
@@ -506,8 +545,45 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			c.mu.Unlock()
 			c.emitOptions()
 		}
-	default: // available_commands_update, session_info_update, unknown: nothing to show
+	case UpSessionInfo:
+		var u SessionInfoUpdate
+		if json.Unmarshal(raw, &u) == nil && u.Title != "" {
+			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "title": u.Title}))
+		}
+	case UpAvailableCmds: // slash commands: not surfaced yet (D74 stage 2)
+	default:
+		c.logf("ignoring session update %s", env.SessionUpdate)
 	}
+}
+
+// contentPlaceholder names a non-text content block in a chunk so the
+// transcript shows that something was said: [image], [audio],
+// [link: name], [resource: uri].
+func contentPlaceholder(raw json.RawMessage) string {
+	var u struct {
+		Content struct {
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+			URI      string `json:"uri"`
+			Resource struct {
+				URI string `json:"uri"`
+			} `json:"resource"`
+		} `json:"content"`
+	}
+	_ = json.Unmarshal(raw, &u)
+	cb := u.Content
+	switch cb.Type {
+	case "resource_link":
+		if cb.Name != "" {
+			return "[link: " + cb.Name + "]"
+		}
+		return "[link: " + cb.URI + "]"
+	case "resource":
+		return "[resource: " + cb.Resource.URI + "]"
+	case "":
+		return "[content]"
+	}
+	return "[" + cb.Type + "]"
 }
 
 func (c *Client) onRequest(m *Message) (any, *Error) {

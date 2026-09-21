@@ -35,33 +35,32 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { repeat, keyed } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
-import { scopeIcon } from '/vendor/bx-netrules.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
-import { makeStore, tabsFrom, clampActive } from '/vendor/term-sessions.js';
-import { titlebar } from '/vendor/frame-titlebar.js';
+import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
+import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
 import '/vendor/bx-agent.js';
+import '/vendor/bx-dialog.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
 // On phones the pop-up is a full-screen sheet (CSS) — no geometry to follow.
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 
-const uid = () => Math.random().toString(36).slice(2, 9);
 // The terminal session directory (D73): which live sessions are the user's
 // on a tile is asked of the server, never remembered in this browser.
 const sessions = makeStore();
 
-// clampBox (bx-kit) keeps a viewport-fixed window reachable: never wider/
-// taller than the viewport (minus an 8px margin), never positioned outside
-// it. Geometry is persisted per tile and restored on another monitor, a
-// smaller browser window or a different zoom — a saved {x:2270, y:1217} once
-// rendered a perfectly working terminal nobody could see. Re-exported here
-// because importers of this module relied on it before the kit existed.
+// clampBox lives in bx-kit; re-exported because importers of this module
+// relied on it before the kit existed (docs/frontend-kit.md — kept).
 export { clampBox };
+
+// endSession: the API-side end of a session of either kind (audited; the
+// twin of DELETE /ws/term?session=, which the pre-D74 browser used).
+const endSession = (id) => fetch(`/api/xbin/term/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => { });
 
 // A browser window that shrinks pulls every open pop-up back inside it.
 window.addEventListener('resize', () => {
@@ -140,12 +139,16 @@ export class BxFrame extends LitElement {
     _codeW: { state: true },   // code panel width % in split
     _frame: { state: true },   // {url, sandboxed, credentialless} | null
     _prCount: { state: true }, // open change proposals targeting this tile
+    _z: { state: true },       // this window's place in the shared z-order (in the style binding: a render never drops it)
+    _narrow: { state: true },  // the pop is too narrow for the full bar: the pickers live in the tools row
+    _tools: { state: true },   // the tools row is open (narrow only)
+    _dialog: { state: true },  // an open <bx-dialog>: {spec, resolve}
     // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
     // null (the viewport clamps instead). The shell's canvas sets it (D66).
     popBounds: { attribute: false },
   };
 
-  static styles = css`
+  static styles = [titlebarCss, css`
     :host { display: block; position: relative; }
     /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
        floating windows pin the host with position:absolute; inset:0) flow a
@@ -192,82 +195,12 @@ export class BxFrame extends LitElement {
       .pop { inset: 0 !important; width: auto !important; height: auto !important;
         resize: none !important; border-radius: 0; min-width: 0; min-height: 0; }
     }
-    .titlebar {
-      display: flex; align-items: center; gap: 2px;
-      background: var(--bx-panel-2, #2b3038);
-      border-bottom: 1px solid var(--bx-border, #363c45);
-      padding: 3px 6px; user-select: none; cursor: grab;
-      touch-action: none; flex: none;
-    }
-    .titlebar:active { cursor: grabbing; }
-    .titlebar .path {
-      color: var(--bx-text, #d4d9e0); font-weight: 600;
-      font: 11px var(--bx-mono, ui-monospace, monospace);
-      padding: 0 8px 0 4px; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
-    }
-    .titlebar .spacer { flex: 1; }
-    .titlebar button {
-      border: 1px solid transparent; background: transparent;
-      color: var(--bx-muted, #868f9a);
-      font: 11px var(--bx-mono, ui-monospace, monospace); padding: 1px 7px;
-      border-radius: 4px; cursor: pointer;
-    }
-    .titlebar button.on {
-      background: var(--bx-panel, #23272e);
-      border-color: var(--bx-border, #363c45);
-      color: var(--bx-text, #d4d9e0);
-    }
-    .titlebar button:hover { color: var(--bx-text, #d4d9e0); }
-    .titlebar button.upgrade {
-      color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
-      border-radius: 5px; padding: 1px 8px; white-space: nowrap;
-    }
-    .titlebar button.upgrade:hover { color: #23272e; filter: brightness(1.06); }
-    /* Tabs are spans (not buttons) so each can hold a close button — nested
-       buttons are invalid HTML. Styled like the titlebar buttons. */
-    .titlebar .tab {
-      display: inline-flex; align-items: center; gap: 2px; max-width: 150px;
-      border: 1px solid transparent; border-radius: 4px; padding: 1px 3px 1px 7px;
-      color: var(--bx-muted, #868f9a);
-      font: 11px var(--bx-mono, ui-monospace, monospace); cursor: pointer;
-    }
-    .titlebar .tab.on {
-      background: var(--bx-panel, #23272e);
-      border-color: var(--bx-border, #363c45);
-      color: var(--bx-text, #d4d9e0);
-    }
-    .titlebar .tab:hover { color: var(--bx-text, #d4d9e0); }
-    .titlebar .tab .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .titlebar .tab .tabx {
-      flex: none; padding: 0 3px; border: 0; border-radius: 3px;
-      background: transparent; color: inherit; opacity: .45;
-      font-size: 12px; line-height: 1; cursor: pointer;
-    }
-    .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #363c45); }
-    /* Agent tabs read as agents without an emoji: an accent left edge + the
-       accent colour on the label. */
-    .titlebar .tab.agent { border-left: 2px solid var(--bx-accent, #f5a623); padding-left: 5px; }
-    .titlebar .tab.agent.on .lbl, .titlebar .tab.agent:hover .lbl { color: var(--bx-accent, #f5a623); }
-    .titlebar button.mkagent { color: var(--bx-accent, #f5a623); white-space: nowrap; }
-    .titlebar select.scope {
-      margin-left: 2px; border: 1px solid var(--bx-border, #363c45);
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-      font: 11px var(--bx-mono, ui-monospace, monospace);
-      padding: 1px 4px; border-radius: 4px; cursor: pointer;
-      /* the org scope's label names the sets ("org network (devs-net + …)")
-         — cap it so the API/GPU pickers stay on the bar; the tooltip has it all */
-      max-width: 24ch; text-overflow: ellipsis;
-    }
     .panels { display: flex; flex: 1; min-height: 0; }
     bx-code { min-width: 0; overflow: hidden; border-right: 1px solid var(--bx-border, #363c45); }
     .vsplit { flex: none; width: 5px; cursor: col-resize; background: var(--bx-border, #363c45); }
     .vsplit:hover { background: var(--bx-accent, #f5a623); }
     .term-host { flex: 1; min-height: 0; min-width: 0; background: var(--bx-term-bg, #262c36); }
-    .lyt { display: inline-flex; margin-left: 2px; }
-    .lyt button { padding: 1px 6px; }
-    .lyt button.on { background: var(--bx-panel, #23272e); border-color: var(--bx-border, #363c45); color: var(--bx-text, #d4d9e0); }
-  `;
+  `];
 
   constructor() {
     super();
@@ -286,6 +219,10 @@ export class BxFrame extends LitElement {
     this._onMsg = (e) => this._message(e);
     this._winTimer = null; // the debounced per-user window-state save
     this._onVisible = () => { if (document.visibilityState === 'visible') this._relist(); };
+    this._restored = false; this._hadWindow = false; this._frameKey = 0;
+    this._z = ++zTop; this._narrow = false; this._tools = false; this._dialog = null;
+    this._activeKey = null; // the active tab's key: the selection tracks identity, not position
+    this._ro = null; // ResizeObserver on the pop (narrow mode, size persistence)
   }
 
   connectedCallback() {
@@ -346,9 +283,40 @@ export class BxFrame extends LitElement {
   // whenever it changes (pop geometry is imperative → saved in the drag/resize
   // handlers); the sessions themselves are the server's to remember.
   updated(changed) {
-    if (changed.has('_active') || changed.has('_termOpen')) this._saveTerm();
-    if (changed.has('_termOpen')) { if (this._termOpen) this._follow(); this._popChanged(); }
+    if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_codeW')) this._saveTerm();
+    if (changed.has('_termOpen')) {
+      if (this._termOpen) { this._follow(); this._observePop(); } else { this._ro?.disconnect(); this._ro = null; }
+      this._popChanged();
+    }
   }
+
+  // A ResizeObserver on the pop: below ~640 px (or on the phone sheet) the
+  // title bar degrades — the pickers move to the tools row — and a native
+  // resize is remembered (the handle writes nothing; only a pointerdown or a
+  // drag end used to read the size back).
+  _observePop() {
+    const el = this._popEl;
+    if (!el || this._ro || typeof ResizeObserver !== 'function') return;
+    this._ro = new ResizeObserver(() => {
+      const w = el.offsetWidth, h = el.offsetHeight;
+      this._narrow = SHEET.matches || w < 640;
+      if (this._pop && !SHEET.matches && (this._pop.w !== w || this._pop.h !== h)) { this._pop.w = w; this._pop.h = h; this._saveTerm(); }
+    });
+    this._ro.observe(el);
+  }
+
+  // The active tab: an index for rendering, a key for identity — a listing
+  // that reorders or drops a tab never moves the selection onto a different
+  // session (activeIndex, term-sessions.js).
+  _setActive(i) {
+    this._active = activeIndex(this._sessions, this._sessions[i]?.key, i);
+    this._activeKey = this._sessions[this._active]?.key ?? null;
+  }
+  _reindex() {
+    this._active = activeIndex(this._sessions, this._activeKey, this._active);
+    this._activeKey = this._sessions[this._active]?.key ?? null;
+  }
+  get _isAgent() { return this._sessions[this._active]?.kind === 'agent'; }
 
   // ---- pop-up geometry (D66): relative to this frame, inside the host's bounds ----
   _bounds() { return typeof this.popBounds === 'function' ? this.popBounds() : null; }
@@ -371,7 +339,9 @@ export class BxFrame extends LitElement {
   }
   _flushWindow() {
     clearTimeout(this._winTimer); this._winTimer = null;
-    const w = this._termOpen || this._sessions.length ? { open: !!this._termOpen, active: this._active, pop: this._pop } : null;
+    const w = this._termOpen || this._sessions.length
+      ? { open: !!this._termOpen, active: this._active, activeId: this._sessions[this._active]?.id ?? null, pop: this._pop, layout: this._layout, codeW: this._codeW }
+      : null;
     if (w || this._hadWindow) sessions.saveWindow(this.src, w);
     this._hadWindow = !!w;
   }
@@ -388,7 +358,10 @@ export class BxFrame extends LitElement {
     const w = win ?? legacy?.window;
     if (w) {
       this._hadWindow = !!win;
-      this._active = clampActive(w.active, this._sessions.length);
+      const byId = w.activeId ? this._sessions.findIndex((t) => t.id === w.activeId) : -1;
+      this._setActive(byId >= 0 ? byId : (w.active | 0));
+      if (w.layout) this._layout = w.layout;
+      if (w.codeW) this._codeW = w.codeW;
       if (w.pop && 'dx' in w.pop) this._pop = w.pop;
       if (w.open && this._sessions.length) {
         await this.updateComplete;
@@ -406,7 +379,7 @@ export class BxFrame extends LitElement {
     const rows = await sessions.list(this.src);
     if (!this.isConnected) return;
     this._sessions = tabsFrom(rows, this._sessions);
-    this._active = clampActive(this._active, this._sessions.length);
+    this._reindex();
     if (!this._sessions.length && this._termOpen) this._termOpen = false;
   }
 
@@ -414,6 +387,7 @@ export class BxFrame extends LitElement {
     super.disconnectedCallback();
     mountedFrames.delete(this);
     this._stopFollow?.();
+    this._ro?.disconnect(); this._ro = null;
     this._offEvents?.();
     window.removeEventListener('message', this._onMsg);
     document.removeEventListener('visibilitychange', this._onVisible);
@@ -628,15 +602,22 @@ export class BxFrame extends LitElement {
       setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name })); },
+      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, net: s.net, api: s.api !== false, gpu: s.gpu })); },
       get activeTab() { return f._active; },
-      setActiveTab(i) { f._active = i | 0; },
+      setActiveTab(i) { f._setActive(i | 0); },
+      get layout() { return f._layout; },
+      get narrow() { return f._narrow; },
+      newTerm() { f._newTerm(); },
       newAgent() { f._newAgent(); },
-      // the <bx-agent> testApi for tab i (default: the active one) — the agent
-      // elements are in session order among agent tabs
+      closeTab(i) { f._closeTerm(i | 0); },
+      get dialog() { return f._dialog?.spec ?? null; },
+      answerDialog(button, values = {}) { f._dialogDone({ detail: { button, values } }); },
+      // the <bx-agent> testApi for tab i (default: the active one); null for a shell tab
       agent(i = f._active) {
-        const idx = f._sessions.filter((s) => s.kind === 'agent').indexOf(f._sessions[i]);
-        return f.renderRoot.querySelectorAll('bx-agent')[idx >= 0 ? idx : 0]?.testApi?.();
+        const t = f._sessions[i];
+        if (t?.kind !== 'agent') return null;
+        const idx = f._sessions.filter((s) => s.kind === 'agent').indexOf(t);
+        return f.renderRoot.querySelectorAll('bx-agent')[idx]?.testApi?.() ?? null;
       },
     };
   }
@@ -645,7 +626,7 @@ export class BxFrame extends LitElement {
     if (this._termOpen) { this._termOpen = false; return; }
     if (!this._pop) {
       // Anchor at the frame's top-right; when the tile is on screen, also inside the window.
-      const r = this.getBoundingClientRect(), w = 560, h = 320;
+      const r = this.getBoundingClientRect(), w = 680, h = 400;
       const box = anchorBox(r, { dx: r.width - w, dy: 8, w, h }, this._bounds());
       const visible = r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
       this._setPopBox(visible ? clampBox(box) : box);
@@ -657,10 +638,7 @@ export class BxFrame extends LitElement {
     this.updateComplete.then(() => this._front());
   }
 
-  _front() {
-    const el = this._popEl;
-    if (el) el.style.zIndex = String(++zTop);
-  }
+  _front() { this._z = ++zTop; }
 
   // Title-bar drag (kit dragWindow, fenced inside the canvas — D66); the
   // native CSS resize handle owns width/height, read back into _pop on release.
@@ -683,7 +661,7 @@ export class BxFrame extends LitElement {
   _newTerm() {
     // net null = the server picks this tile's default scope (D54).
     this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'shell', net: null, gpu: 'none', name: '' }];
-    this._active = this._sessions.length - 1;
+    this._setActive(this._sessions.length - 1);
   }
 
   // Open a new AGENT tab (D74): a session whose sandbox runs a coding agent
@@ -693,23 +671,22 @@ export class BxFrame extends LitElement {
   _newAgent() {
     this._layout = 'term';
     this._sessions = [...this._sessions, { key: uid(), id: null, kind: 'agent', name: '' }];
-    this._active = this._sessions.length - 1;
+    this._setActive(this._sessions.length - 1);
   }
 
   // The term-host holds both the shells and the agents; it shows whenever the
   // active tab is an agent (agents have no code/logs panels) or a shell tab
   // is in a terminal-bearing layout.
-  _panelVisible() {
-    const c = this._sessions[this._active];
-    return c?.kind === 'agent' || this._layout === 'term' || this._layout === 'split';
-  }
+  _panelVisible() { return this._isAgent || this._layout === 'term' || this._layout === 'split'; }
 
   // Rename the terminal on tab i (blank clears back to its number). Names are
   // per-component and persist like the session list.
-  _renameTerm(i) {
+  async _renameTerm(i) {
     const cur = this._sessions[i];
     if (!cur) return;
-    const n = prompt('Terminal name (blank to number it):', cur.name || '');
+    const agent = cur.kind === 'agent';
+    const n = await this._prompt(agent ? 'Name this agent tab' : 'Name this terminal',
+      agent ? "blank shows the provider's name" : 'blank numbers it', cur.name || '');
     if (n === null) return;
     const s = [...this._sessions];
     s[i] = { ...cur, name: n.trim() };
@@ -720,72 +697,95 @@ export class BxFrame extends LitElement {
   // Close terminal i. ended=true means the shell already exited (no DELETE
   // needed); otherwise this is a user close and we end the server session.
   // Closing the last one closes the window.
-  _closeTerm(i, ended = false) {
+  // ref: an index (the title bar) or a key (an element's exit event).
+  // ended=true: the session is already gone (no DELETE); an ended tab is only
+  // dismissed. Closing the last tab closes the window.
+  _closeTerm(ref, ended = false) {
+    const i = typeof ref === 'number' ? ref : this._sessions.findIndex((t) => t.key === ref);
     const s = this._sessions[i];
     if (!s) return;
-    if (!ended && s.id) fetch(`/ws/term?session=${encodeURIComponent(s.id)}`, { method: 'DELETE' }).catch(() => { });
+    if (!ended && !s.ended && s.id) endSession(s.id);
     const rest = this._sessions.filter((_, j) => j !== i);
     if (!rest.length) { this._sessions = []; this._termOpen = false; return; }
+    const wasActive = i === this._active;
     this._sessions = rest;
-    if (this._active >= rest.length) this._active = rest.length - 1;
-    else if (this._active > i) this._active -= 1;
+    if (wasActive) this._setActive(Math.min(i, rest.length - 1)); else this._reindex();
   }
 
-  _gotSession(i, ev) {
-    // a listing may already have absorbed this id into another tab (tabsFrom): one tab per session
-    const s = this._sessions.filter((t, j) => j === i || t.id !== ev.detail.id);
-    i = Math.min(i, s.length - 1);
-    const cur = s[i] || {};
+  // An agent tab's session ended (exit, crash, a login error): the tab and
+  // its transcript stay, greyed, until the user dismisses it — the reason it
+  // ended is exactly what must not vanish.
+  _endTab(key) {
+    this._sessions = this._sessions.map((t) => (t.key === key ? { ...t, ended: true } : t));
+  }
+
+  // Themed, harness-drivable dialogs (bx-dialog, rendered in the pop) in
+  // place of the native confirm()/prompt(): one at a time.
+  _ask(spec) { return new Promise((resolve) => { this._dialog = { spec, resolve }; }); }
+  async _confirm(title, message, okLabel = 'OK') {
+    const r = await this._ask({ title, message, buttons: [{ label: 'Cancel', value: null }, { label: okLabel, value: 'ok', primary: true }] });
+    return r?.button === 'ok';
+  }
+  async _prompt(title, label, value) {
+    const r = await this._ask({ title, fields: [{ name: 'v', label, value }] });
+    return r?.button === 'ok' ? String(r.values?.v ?? '') : null;
+  }
+  _dialogDone(e) { const d = this._dialog; this._dialog = null; d?.resolve(e.detail); }
+
+  // The element on tab `key` learned its session id (bx-terminal's session
+  // frame, bx-agent's create). A listing may already have absorbed the same
+  // id into another tab: one tab per session — the element's own tab wins.
+  _gotSession(key, ev) {
+    const d = ev.detail;
+    const s = this._sessions.filter((t) => t.key === key || t.id !== d.id);
+    const i = s.findIndex((t) => t.key === key);
+    if (i < 0) return;
+    const cur = s[i];
     // The server reports the EFFECTIVE scope plus the scopes this user may
     // pick on this tile — the select renders exactly that list (D54).
-    s[i] = { ...cur, key: cur.key ?? uid(), id: ev.detail.id, kind: ev.detail.kind || cur.kind || 'shell',
-             net: ev.detail.net || cur.net || null,
-             scopes: ev.detail.scopes || cur.scopes || null, label: ev.detail.label || '',
-             baseOutdated: !!ev.detail.baseOutdated };
+    s[i] = { ...cur, id: d.id, kind: d.kind || cur.kind || 'shell', name: cur.name || d.name || '',
+             net: d.net || cur.net || null, scopes: d.scopes || cur.scopes || null, label: d.label || '',
+             baseOutdated: !!d.baseOutdated };
     this._sessions = s;
+    this._reindex();
   }
 
-  // Switch the active terminal's GPU (device binds are fixed at spawn, so this
-  // restarts the session), mirroring _setNet.
-  _setGpu(i, gpu) {
+  // Restart tab i's session with a changed picker: the netns/relay, the
+  // device binds and the per-session token are fixed at spawn. A live session
+  // is ended only after the user confirms — it takes its shell, its jobs and
+  // its scrollback with it. Resolves false when declined (the picker snaps
+  // back; bx-terminal reconnects on the attribute change otherwise).
+  async _respawn(i, patch, what) {
     const cur = this._sessions[i];
-    if (!cur || (cur.gpu || 'none') === gpu) return;
-    if (cur.id) {
-      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' }).catch(() => { });
-    }
+    if (!cur) return false;
+    const live = cur.id && !cur.ended;
+    if (live && !(await this._confirm(`Restart this terminal ${what}?`, 'Its shell and anything running in it end, and the scrollback is lost.', 'Restart'))) return false;
+    if (live) endSession(cur.id);
     const s = [...this._sessions];
-    s[i] = { ...cur, id: null, gpu };
+    s[i] = { ...cur, id: null, ended: false, ...patch };
     this._sessions = s;
+    return true;
   }
+  _setNet(i, net) { const c = this._sessions[i]; return !c || c.net === net ? Promise.resolve(false) : this._respawn(i, { net }, `on the ${net} network`); }
+  _setGpu(i, gpu) { const c = this._sessions[i]; return !c || (c.gpu || 'none') === gpu ? Promise.resolve(false) : this._respawn(i, { gpu }, gpu === 'none' ? 'without a GPU' : `with GPU ${gpu}`); }
+  _setApi(i, on) { const c = this._sessions[i]; return !c || (c.api !== false) === on ? Promise.resolve(false) : this._respawn(i, { api: on }, on ? 'with tile API access' : 'without API access'); }
 
-  // Reset the component's persistent terminal sandbox layer (installed packages,
-  // system configs). Wipes it server-side, then restarts the active terminal on
-  // the now-clean layer.
-  _resetEnv() {
-    if (!confirm(`Reset the sandbox for ${this.src}? Installed packages and system changes in this component's terminal will be wiped (your workspace files and $HOME are untouched).`)) return;
+  // Reset the tile's persistent terminal layer (installed packages, system
+  // config) — or rebuild it on the newer base image. The server ends every
+  // session on the layer, so every shell tab spawns fresh on the clean one
+  // and an agent tab ends (the listing marks it).
+  async _resetEnv(upgrade = false) {
+    const ok = await this._confirm(
+      upgrade ? `Rebuild ${this.src}'s terminals on the newer base image?` : `Reset the sandbox for ${this.src}?`,
+      `${upgrade ? 'The persistent layer is rebuilt on the current base. ' : ''}Installed packages and system changes in this tile's terminals are wiped; your files and $HOME are kept. Every terminal and agent on this tile restarts.`,
+      upgrade ? 'Rebuild' : 'Reset');
+    if (!ok) return;
     fetch(`/ws/term/env?cwd=${encodeURIComponent(this.src)}`, { method: 'DELETE' })
       .catch(() => { })
       .finally(() => {
-        const s = [...this._sessions];
-        if (s[this._active]) s[this._active] = { ...s[this._active], id: null };
-        this._sessions = s;
-        this.renderRoot?.querySelectorAll('bx-terminal')[this._active]?.restartFresh?.();
+        this._sessions = this._sessions.map((t) => (t.kind === 'agent' ? t : { ...t, id: null }));
+        this.renderRoot?.querySelectorAll('bx-terminal').forEach((el) => el.restartFresh?.());
       });
-  }
-
-  // Switch the active terminal's network scope. The netns/relay is fixed at
-  // spawn, so this restarts the session: end the old one and drop to a fresh
-  // session in the new scope (bx-terminal reconnects on the net change).
-  _setNet(i, net) {
-    const cur = this._sessions[i];
-    if (!cur || cur.net === net) return;
-    if (cur.id) {
-      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' })
-        .catch(() => { });
-    }
-    const s = [...this._sessions];
-    s[i] = { ...cur, id: null, net };
-    this._sessions = s;
   }
 
   // Switch the pop-up layout: terminal only, code browser/review only, a
@@ -798,7 +798,7 @@ export class BxFrame extends LitElement {
       // widen for the code panel, keeping the window reachable
       const box = { ...this._popBox(), w: 960 };
       this._setPopBox(this._bounds() ? box : clampBox(box));
-      this._saveTerm?.(); this._popChanged();
+      this._saveTerm(); this._popChanged();
     }
   }
 
@@ -812,21 +812,6 @@ export class BxFrame extends LitElement {
       cursor: 'col-resize',
       onMove: (ev) => { this._codeW = Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100)); },
     });
-  }
-
-  // Toggle whether this terminal can call the live tile (and xbin) API. The
-  // per-session token is minted at spawn, so like net/GPU this restarts the
-  // session: api=false → no token → the shell can read/edit code but every API
-  // call is unauthorized. Mirrors _setNet.
-  _setApi(i, on) {
-    const cur = this._sessions[i];
-    if (!cur || (cur.api !== false) === on) return;
-    if (cur.id) {
-      fetch(`/ws/term?session=${encodeURIComponent(cur.id)}`, { method: 'DELETE' }).catch(() => { });
-    }
-    const s = [...this._sessions];
-    s[i] = { ...cur, id: null, api: on };
-    this._sessions = s;
   }
 
   render() {
@@ -846,12 +831,14 @@ export class BxFrame extends LitElement {
           <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
       </div>
       ${this._termOpen ? (({ x, y, w, h }) => html`
-        <div class="pop"
-             style="left:${x}px; top:${y}px; width:${w}px; height:${h}px"
+        <div class="pop ${this._narrow ? 'narrow' : ''}"
+             style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; z-index:${this._z}"
              @pointerdown=${this._popDown}>
           ${titlebar(this)}
+          ${this._narrow && this._tools ? toolsRow(this) : nothing}
+          ${this._dialog ? html`<bx-dialog open .spec=${this._dialog.spec} @bx-dialog-resolve=${this._dialogDone}></bx-dialog>` : nothing}
           <div class="panels">
-            ${(() => { const c = this._sessions[this._active]; return c?.kind === 'agent'; })() ? nothing : html`
+            ${this._isAgent ? nothing : html`
             ${this._layout === 'code' || this._layout === 'split' ? html`<bx-code src=${this.src}
                 style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
@@ -860,13 +847,13 @@ export class BxFrame extends LitElement {
             <div class="term-host" style="display:${this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
               ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
-                  component=${this.src} session=${s.id ?? nothing}
-                  @bx-session=${(ev) => this._gotSession(i, ev)}
-                  @bx-exit=${() => this._closeTerm(i, true)}></bx-agent>`
+                  component=${this.src} session=${s.id ?? nothing} ?ended=${!!s.ended}
+                  @bx-session=${(ev) => this._gotSession(s.key, ev)}
+                  @bx-exit=${() => this._endTab(s.key)}></bx-agent>`
               : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
                   cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'}
-                  @bx-session=${(ev) => this._gotSession(i, ev)}
-                  @bx-exit=${() => this._closeTerm(i, true)}></bx-terminal>`)}
+                  @bx-session=${(ev) => this._gotSession(s.key, ev)}
+                  @bx-exit=${() => this._closeTerm(s.key, true)}></bx-terminal>`)}
             </div>
           </div>
         </div>`)(this._popBox()) : nothing}

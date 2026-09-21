@@ -20,8 +20,8 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { repeat } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
-import { esc } from '/vendor/bx-kit.js';
 import { md } from '/vendor/bx-md.js';
+import { diffHTML, diffStats } from '/vendor/bx-code.js';
 
 const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', other: '•' };
 
@@ -29,6 +29,7 @@ export class BxAgent extends LitElement {
   static properties = {
     session: { type: String },
     component: { type: String },
+    ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
     _events: { state: true },
     _providers: { state: true },
     _provider: { state: true },
@@ -54,8 +55,11 @@ export class BxAgent extends LitElement {
     .bubble :not(pre) > code { background: var(--bx-term-bg, #262c36); padding: .1em .3em; border-radius: 3px; }
     .bubble a { color: var(--bx-accent, #f5a623); }
     .md-img { color: var(--bx-muted, #868f9a); font-style: italic; }
-    .thought { color: var(--bx-muted, #868f9a); font-style: italic; white-space: pre-wrap;
-      border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; }
+    .thought { color: var(--bx-muted, #868f9a); border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; }
+    .thought > summary { list-style: none; cursor: pointer; font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .04em; }
+    .thought > summary::-webkit-details-marker { display: none; }
+    .thought .md { font-style: italic; font-size: 12px; }
+    .thought .md > :first-child { margin-top: 4px; } .thought .md > :last-child { margin-bottom: 0; }
     .tool { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; margin: 0 0 8px; overflow: hidden; }
     .tool > summary { list-style: none; cursor: pointer; padding: 5px 9px; display: flex; align-items: center; gap: 6px;
       font: 11px var(--bx-mono, ui-monospace, monospace); }
@@ -68,8 +72,12 @@ export class BxAgent extends LitElement {
     .chip.in_progress, .chip.pending { color: var(--bx-amber, #f2a71b); }
     .tool .body { padding: 6px 9px; border-top: 1px solid var(--bx-border, #363c45); }
     .tool pre { margin: 0; font: 11px var(--bx-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; }
-    .diff .add { color: var(--bx-green, #4caf50); }
-    .diff .del { color: var(--bx-red, #ef5350); }
+    .diff { font: 11px var(--bx-mono, ui-monospace, monospace); }
+    .diff .fh { color: var(--bx-muted, #868f9a); display: block; }
+    .diff .h { color: var(--bx-accent, #f5a623); display: block; }
+    .diff .d { color: var(--bx-green, #4caf50); display: block; background: color-mix(in srgb, var(--bx-green, #4caf50) 12%, transparent); }
+    .diff .a { color: var(--bx-red, #ef5350); display: block; background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
+    .diff .ctx { display: block; color: var(--bx-text, #d4d9e0); }
     .plan { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; }
     .plan .h { font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
     .plan li { list-style: none; margin: 1px 0; }
@@ -77,6 +85,13 @@ export class BxAgent extends LitElement {
     .perm { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
       background: color-mix(in srgb, var(--bx-amber, #f2a71b) 8%, var(--bx-panel, #23272e)); }
     .perm .q { margin-bottom: 6px; }
+    .perm .desc { color: var(--bx-muted, #868f9a); font-size: 12px; margin-top: 2px; }
+    .perm .cmd { background: var(--bx-term-bg, #262c36); border-radius: 5px; padding: 6px 8px; margin: 0 0 6px;
+      font: 11.5px var(--bx-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; max-height: 200px; }
+    .perm .body { margin-bottom: 6px; }
+    .perm .body pre, .perm .body .diff { margin: 0; font: 11px var(--bx-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; max-height: 240px; }
+    .perm .rulenote { color: var(--bx-muted, #868f9a); font-size: 11.5px; margin-bottom: 6px; }
+    .perm.settled-card { opacity: .8; }
     .perm .btns { display: flex; gap: 6px; flex-wrap: wrap; }
     .perm button { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
       border-radius: 5px; padding: 3px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); }
@@ -140,8 +155,9 @@ export class BxAgent extends LitElement {
   }
 
   updated(ch) {
+    if (ch.has('ended') && this.ended) this._maybePoll();
     // a reattach (the frame set our session after a listing): start replaying
-    if (ch.has('session') && this.session && !this._lastSeq && !this._events.length) this._load(0);
+    if (ch.has('session') && this.session && !this._lastSeq && !this._events.length && !this.ended) this._load(0);
     const sc = this.renderRoot?.querySelector('.scroll');
     if (sc && this._atBottom !== false) sc.scrollTop = sc.scrollHeight;
   }
@@ -200,13 +216,16 @@ export class BxAgent extends LitElement {
   }
 
   _maybePoll() {
-    const busy = this._status() === 'running' || this._status() === 'waiting_permission';
+    const busy = !this.ended && (this._status() === 'running' || this._status() === 'waiting_permission' || this._status() === 'cancelling');
     if (busy && !this._poll) this._poll = setInterval(() => this._refetch(), 2000);
     else if (!busy && this._poll) { clearInterval(this._poll); this._poll = null; }
   }
 
   _end() {
-    // the session is gone server-side (exited, or removed): let the frame close the tab
+    // the session is gone server-side (exited, removed): the frame keeps the
+    // tab as ended so the transcript — and the reason — stay readable
+    this.ended = true;
+    this._maybePoll();
     this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true }));
   }
 
@@ -220,12 +239,11 @@ export class BxAgent extends LitElement {
       if (!text) return; // started; the settings pickers show now, the first prompt can wait
     }
     if (!text) return;
-    this._draft = '';
     try {
       const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/prompt`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
-      if (!r.ok) this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`;
-      else { this._error = ''; this._refetch(); }
+      if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; return; } // keep the draft to retry
+      this._error = ''; this._draft = ''; this._refetch();
     } catch (e) { this._error = String(e.message || e); }
   }
 
@@ -253,10 +271,11 @@ export class BxAgent extends LitElement {
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/cancel`, { method: 'POST' }).catch(() => { });
   }
 
-  _permit(pid, decision) {
+  _permit(pid, decision, optionId) {
+    const body = optionId ? { optionId } : { decision };
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/permissions/${encodeURIComponent(pid)}`,
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision }) })
-      .then((r) => { if (r.ok) this._refetch(); });
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(async (r) => { if (r.ok) { this._error = ''; this._refetch(); } else this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`; });
   }
 
   _setOption(id, value) {
@@ -275,7 +294,7 @@ export class BxAgent extends LitElement {
   }
 
   _key(ev) {
-    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this._submit(); }
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this._submit(); } // isComposing: don't send on an IME confirm
   }
 
   // ---- view model ----
@@ -286,7 +305,7 @@ export class BxAgent extends LitElement {
     const blocks = [];
     const tools = new Map();
     const perms = new Map();
-    let plan = null, cur = null;
+    let plan = null, cur = null, turn = 0;
     for (const e of this._events) {
       const d = e.data || {};
       switch (e.type) {
@@ -302,8 +321,9 @@ export class BxAgent extends LitElement {
           break;
         case 'tool.call': case 'tool.update': {
           cur = null;
-          let t = tools.get(d.id);
-          if (!t) { t = { kind: 'tool', id: d.id, title: '', tk: 'other', status: 'pending', content: null }; tools.set(d.id, t); blocks.push(t); }
+          const tkey = turn + '/' + d.id; // scope ids to the turn: an agent may reuse them
+          let t = tools.get(tkey);
+          if (!t) { t = { kind: 'tool', id: d.id, title: '', tk: 'other', status: 'pending', content: null }; tools.set(tkey, t); blocks.push(t); }
           if (d.title != null) t.title = d.title;
           if (d.kind != null) t.tk = d.kind;
           if (d.status != null) t.status = d.status;
@@ -317,7 +337,7 @@ export class BxAgent extends LitElement {
           break;
         case 'permission.request': {
           cur = null;
-          const p = { kind: 'perm', pid: d.pid, tool: d.toolCall || {}, options: d.options || [], by: null, optionId: null };
+          const p = { kind: 'perm', pid: d.pid, tool: d.toolCall || {}, options: d.options || [], rule: d.rule || null, meta: d.meta || null, by: null, optionId: null };
           perms.set(d.pid, p); blocks.push(p);
           break;
         }
@@ -328,6 +348,8 @@ export class BxAgent extends LitElement {
         }
         case 'turn.end':
           cur = null;
+          plan = null; // a new turn starts a fresh plan
+          turn = (d.turn || turn) + 0.5; // tool ids in the next turn don't collide with this one's
           blocks.push({ kind: 'turn', turn: d.turn, stopReason: d.stopReason, usage: d.usage, error: d.error });
           break;
         case 'gap':
@@ -360,8 +382,8 @@ export class BxAgent extends LitElement {
   // ---- render ----
 
   render() {
-    const status = this._status();
-    const busy = status === 'running' || status === 'waiting_permission';
+    const status = this.ended ? 'exited' : this._status();
+    const busy = !this.ended && (status === 'running' || status === 'waiting_permission' || status === 'cancelling');
     return html`
       <div class="scroll" @scroll=${this._onScroll}>
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
@@ -369,6 +391,7 @@ export class BxAgent extends LitElement {
         ${repeat(this._blocks(), (b, i) => b.pid || b.id || i, (b) => this._block(b))}
       </div>
       <div class="foot">
+        ${this.ended ? html`<div class="status ended"><span class="dot exited"></span><span>this session has ended — the transcript stays until you close the tab</span></div>` : nothing}
         <div class="status">
           <span class="dot ${status}"></span>
           <span>${this.session ? status.replace('_', ' ') : 'not started'}</span>
@@ -378,12 +401,12 @@ export class BxAgent extends LitElement {
         </div>
         ${!this.session ? this._chooser() : this._settings()}
         <div class="compose">
-          <textarea rows="1" placeholder=${busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
+          <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
             .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._autosize(e.target); }}
             @keydown=${this._key}></textarea>
           ${busy
             ? html`<button class="cancel" @click=${this._cancel} title="interrupt the running turn">Stop</button>`
-            : html`<button @click=${this._submit} ?disabled=${this._creating} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
+            : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
         </div>
       </div>`;
   }
@@ -429,7 +452,7 @@ export class BxAgent extends LitElement {
           ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}</div></div>`
           : html`<div class="row agent"><div class="who">agent</div><div class="bubble" .innerHTML=${md(b.text)}></div></div>`;
       case 'thought':
-        return html`<div class="row"><div class="thought">${b.text}</div></div>`;
+        return html`<div class="row"><details class="thought"><summary>thinking</summary><div class="md" .innerHTML=${md(b.text)}></div></details></div>`;
       case 'tool':
         return html`<details class="tool" ?open=${b.status === 'failed'}>
           <summary><span>${KIND_ICON[b.tk] || KIND_ICON.other}</span>
@@ -455,36 +478,58 @@ export class BxAgent extends LitElement {
   _toolBody(b) {
     const items = Array.isArray(b.content) ? b.content : null;
     if (!items || !items.length) return nothing;
-    return html`<div class="body">${items.map((it) => {
-      if (it.type === 'diff') {
-        return html`<pre class="diff">${diffLines(it.oldText, it.newText, it.path)}</pre>`;
-      }
-      if (it.type === 'terminal') return html`<pre>[terminal ${esc(it.terminalId || '')}]</pre>`;
-      const text = it.content?.text ?? it.text ?? '';
-      return html`<pre>${String(text)}</pre>`;
-    })}</div>`;
+    return html`<div class="body">${items.map((it) => this._contentItem(it))}</div>`;
   }
 
+  // One tool-content item: a real diff (reusing bx-code's renderer), a
+  // terminal reference, or text.
+  _contentItem(it) {
+    if (it.type === 'diff') {
+      return html`<pre class="diff" .innerHTML=${diffHTML(unifiedDiff(it.path, it.oldText, it.newText))}></pre>`;
+    }
+    if (it.type === 'terminal') return html`<pre class="term">[terminal ${it.terminalId || ''}]</pre>`;
+    const text = it.content?.text ?? it.text ?? '';
+    return html`<pre>${String(text)}</pre>`;
+  }
+
+  // +added/-removed across a tool's diff content (real counts, via a proper
+  // diff — not the whole-file line totals the old code reported).
   _diffStat(content) {
     const items = Array.isArray(content) ? content : [];
     let add = 0, del = 0;
-    for (const it of items) if (it.type === 'diff') { add += count(it.newText); del += count(it.oldText); }
+    for (const it of items) if (it.type === 'diff') { const st = diffStats(unifiedDiff(it.path, it.oldText, it.newText)); add += st.add; del += st.del; }
     return add || del ? html` +${add}/-${del}` : nothing;
   }
 
   _permCard(b) {
-    const title = b.tool?.title || b.tool?.id || 'a tool call';
+    const tc = b.tool || {};
+    const title = (b.meta && b.meta.title) || tc.title || tc.kind || tc.id || 'a tool call';
+    const cmd = rawText(tc.rawInput);
     if (b.by) {
-      const who = b.by === 'auto' ? 'the session rule' : b.by === 'cancel' ? 'cancel' : b.by.replace('user:', '');
-      const verb = (b.optionId && /allow/i.test(b.optionId)) || b.by === 'auto' ? 'allowed' : 'answered';
-      return html`<div class="perm"><div class="q">${esc(title)}</div><div class="settled">${verb} by ${esc(who)}</div></div>`;
+      const who = b.by === 'auto' ? 'a session rule' : b.by === 'cancel' ? 'cancel' : b.by.replace('user:', '');
+      const opt = (b.options || []).find((o) => o.optionId === b.optionId);
+      const denied = opt ? /reject/.test(opt.kind || '') : false;
+      const verb = b.by === 'cancel' ? 'cancelled' : denied ? 'denied' : 'allowed';
+      return html`<div class="perm settled-card"><div class="q">${title}</div><div class="settled">${verb} by ${who}</div></div>`;
     }
+    // the agent's real options (name + a kind badge), reject first when the
+    // adapter asked us to default to no; the exact command/diff is shown so
+    // the user judges what they approve
+    const opts = (b.options || []).slice();
+    const defNo = !!(b.meta && b.meta.defaultToNo);
+    if (defNo) opts.sort((a, c) => (/reject/.test(a.kind || '') ? -1 : 0) - (/reject/.test(c.kind || '') ? -1 : 0));
+    const scoped = b.rule ? b.rule.scoped : true; // hide "for the session" when it can't be scoped
     return html`<div class="perm">
-      <div class="q"><b>Permission:</b> ${esc(title)}</div>
+      <div class="q"><b>Permission</b> — ${title}${b.meta && b.meta.description ? html`<div class="desc">${b.meta.description}</div>` : nothing}</div>
+      ${cmd ? html`<pre class="cmd">${cmd}</pre>` : nothing}
+      ${this._toolBody(b.tool)}
+      ${scoped && b.rule && (b.rule.kind || b.rule.title) ? html`<div class="rulenote">“Allow for the session” auto-approves later ${b.rule.kind || ''} calls${b.rule.title ? html` titled “${b.rule.title}”` : ''}.</div>` : nothing}
       <div class="btns">
-        <button class="allow" @click=${() => this._permit(b.pid, 'allow_once')}>Allow once</button>
-        <button class="allow" @click=${() => this._permit(b.pid, 'allow_always')}>Allow for session</button>
-        <button class="deny" @click=${() => this._permit(b.pid, 'reject_once')}>Deny</button>
+        ${opts.length
+          ? opts.filter((o) => scoped || o.kind !== 'allow_always').map((o) => html`<button class="${/reject/.test(o.kind || '') ? 'deny' : 'allow'}" @click=${() => this._permit(b.pid, null, o.optionId)}>${o.name || o.optionId}</button>`)
+          : html`<button class="allow" @click=${() => this._permit(b.pid, 'allow_once')}>Allow once</button>
+             ${scoped ? html`<button class="allow" @click=${() => this._permit(b.pid, 'allow_always')}>Allow for the session</button>` : nothing}
+             <button class="deny" @click=${() => this._permit(b.pid, 'reject_once')}>Deny</button>`}
       </div>
     </div>`;
   }
@@ -507,7 +552,7 @@ export class BxAgent extends LitElement {
       get sessionId() { return a.session || null; },
       get provider() { return a._provider; },
       get blocks() { return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, stopReason: b.stopReason })); },
-      get pending() { return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => b.pid); },
+      get pending() { return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => ({ pid: b.pid, cmd: rawText(b.tool?.rawInput), options: (b.options || []).map((o) => o.optionId), scoped: b.rule ? b.rule.scoped : true })); },
       setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
       get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
       setOption(id, value) { a._setOption(id, value); },
@@ -520,17 +565,46 @@ export class BxAgent extends LitElement {
 }
 
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-const count = (s) => (s ? String(s).split('\n').length - (String(s).endsWith('\n') ? 1 : 0) : 0);
 
-// diffLines(old, new, path): a compact unified-ish view — every old line with
-// a '-', every new line with a '+', the path as a header. Not a real diff
-// (the ACP block already is the change); enough to read.
-function diffLines(oldText, newText, path) {
-  const out = [];
-  if (path) out.push(html`<span class="del">--- ${esc(path)}</span>\n`);
-  for (const l of String(oldText || '').split('\n')) if (l) out.push(html`<span class="del">- ${esc(l)}</span>\n`);
-  for (const l of String(newText || '').split('\n')) if (l) out.push(html`<span class="add">+ ${esc(l)}</span>\n`);
-  return out;
+// rawText renders a tool's rawInput for the permission card: a shell
+// command verbatim (the common {command}/{cmd} shapes), else compact JSON.
+function rawText(raw) {
+  if (raw == null) return '';
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'object') {
+    const cmd = raw.command ?? raw.cmd ?? raw.script;
+    if (typeof cmd === 'string') return cmd + (Array.isArray(raw.args) ? ' ' + raw.args.join(' ') : '');
+    try { return JSON.stringify(raw, null, 1); } catch { return ''; }
+  }
+  return String(raw);
+}
+
+// unifiedDiff(path, old, new): a git-style unified diff from an ACP diff
+// block's whole old/new text, via a line LCS — so bx-code's diffHTML gives
+// the same syntax-highlighted +/- view the code panel uses. Cheap: ACP diff
+// blocks are a single file's before/after, not a whole tree.
+function unifiedDiff(path, oldText, newText) {
+  const a = String(oldText ?? '').split('\n'), b = String(newText ?? '').split('\n');
+  if ((oldText ?? '') === (newText ?? '')) return `diff --git a/${path || 'file'} b/${path || 'file'}\n`;
+  const n = a.length, m = b.length;
+  // LCS table (bounded: skip the O(nm) table for very large inputs, fall back to replace-all)
+  let body;
+  if (n * m > 400000) {
+    body = a.map((l) => '-' + l).concat(b.map((l) => '+' + l));
+  } else {
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    body = []; let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) { body.push(' ' + a[i]); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { body.push('-' + a[i]); i++; }
+      else { body.push('+' + b[j]); j++; }
+    }
+    while (i < n) body.push('-' + a[i++]);
+    while (j < m) body.push('+' + b[j++]);
+  }
+  const p = path || 'file';
+  return `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n@@ -1,${n} +1,${m} @@\n` + body.join('\n') + '\n';
 }
 
 customElements.define('bx-agent', BxAgent);

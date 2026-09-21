@@ -500,3 +500,39 @@ func TestPermissionRuleScope(t *testing.T) {
 		t.Fatal("a fallback to allow_once recorded a rule")
 	}
 }
+
+// session_info_update titles the session; a non-text chunk leaves a
+// placeholder; "mode" is settable through SetOption even without a mode
+// config option (session/set_mode).
+func TestTitleModeAndPlaceholders(t *testing.T) {
+	c, f, _, _ := rig(t, standard, "")
+	defer c.Close()
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	f.update(map[string]any{"sessionUpdate": UpSessionInfo, "title": "Fix the build"})
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["title"] == "Fix the build" })
+	if len(es) == 0 {
+		t.Fatal("no title status")
+	}
+	f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": map[string]any{"type": "image", "mimeType": "image/png", "data": "AAAA"}})
+	f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": map[string]any{"type": "resource_link", "uri": "file:///w/a.go", "name": "a.go"}})
+	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvMessageDelta && data(e)["text"] == "[link: a.go]" })
+	if len(es) < 2 || data(es[len(es)-2])["text"] != "[image]" {
+		t.Fatalf("placeholders: %v", types(es))
+	}
+	if err := c.SetOption(context.Background(), "mode", "yolo"); err != nil {
+		t.Fatal(err)
+	}
+	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["currentMode"] == "yolo" })
+	if len(es) == 0 || c.Mode() != "yolo" {
+		t.Fatalf("mode via SetOption: %s / %s", types(es), c.Mode())
+	}
+	f.mu.Lock()
+	mode := f.mode
+	f.mu.Unlock()
+	if mode != "yolo" {
+		t.Fatal("set_mode did not reach the agent")
+	}
+	if err := c.SetOption(context.Background(), "mode", "nope"); err == nil {
+		t.Fatal("an unknown mode was accepted")
+	}
+}

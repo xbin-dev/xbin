@@ -15,8 +15,18 @@ async function termSessions(browser) {
     await usePersonalScreen(page);
     await openTile(page, 'apps/crawler');
     await fr(page, 'apps/crawler', (f) => f.open('term'));
+    await settle(page);
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[session]', { timeout: 20000 });
   };
+  // The `windows` pass leaves the shared per-user window pref off-screen (it
+  // tests clamping) — reset it to a clean on-screen box BEFORE opening, so the
+  // restored window (anchored to the tile, D66) is reachable. This pass
+  // exercises the tab strip, not geometry.
+  const resetWindow = (ctx) => ctx.request.put(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`,
+    { data: { open: true, active: 0, pop: { dx: 24, dy: 44, w: 680, h: 360 } } });
+  // dblclick the tab near its left edge (the label side): a one-char tab's
+  // centre lands on the ✕, and the exact label box shifts with the window.
+  const renameTab = (page, i = 0) => page.locator('bx-frame[src="apps/crawler"] .titlebar .tab').nth(i).dblclick({ position: { x: 6, y: 9 } });
 
   // ---- A: admin opens a terminal and names the tab ----
   const A = await login(browser, 'admin', 'admin');
@@ -24,11 +34,14 @@ async function termSessions(browser) {
     for (const s of await (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
   };
   await purge(A.ctx);
+  await resetWindow(A.ctx);
   await openCrawlerTerm(A.page);
   const idA = await sessionId(A.page);
   check(!!idA, `A opened a session (${idA})`);
-  A.page.once('dialog', (d) => d.accept('deploy'));
-  await A.page.locator('bx-frame[src="apps/crawler"] .titlebar .tab .lbl').first().dblclick(); // the label: a one-char tab's centre is its ✕
+  await renameTab(A.page);
+  // the rename is a bx-dialog (no native prompt any more): answer it through the frame's test surface
+  await waitFor(A.page, (t) => !!t.frameFor('apps/crawler')?.testApi().dialog, null, { timeout: 5000, label: 'the rename dialog' });
+  await fr(A.page, 'apps/crawler', (f) => f.answerDialog('ok', { v: 'deploy' }));
   await settle(A.page);
   // the window state reaches the server on a 400 ms debounce: wait for it, not for time
   for (let i = 0; i < 40; i++) {

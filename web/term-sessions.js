@@ -87,8 +87,24 @@ export function tabsFrom(server, local) {
       baseOutdated: !!was?.baseOutdated,
     });
   }
-  return [...tabs, ...pending];
+  // An AGENT tab whose session the server no longer lists is kept, marked
+  // ended: its transcript (and the error that ended it — the login hint, a
+  // crash) must outlive the session, until the user dismisses the tab. A
+  // shell tab that vanished is dropped as before (its scrollback is gone
+  // with the PTY; the emulator convention is that an exited shell closes).
+  const listed = new Set(server.map((s) => s.id));
+  const ended = local.filter((t) => t.id && !listed.has(t.id) && t.kind === 'agent').map((t) => ({ ...t, ended: true }));
+  return [...tabs, ...ended, ...pending];
 }
 
 // clampActive(i, n): the active index inside the tab list.
 export const clampActive = (i, n) => (n ? Math.min(Math.max(0, i | 0), n - 1) : 0);
+
+// activeIndex(tabs, key, fallback): the index of the tab with `key` — the
+// active tab is tracked by identity, so a tab ending or a listing reordering
+// never moves the selection onto a DIFFERENT session — else the clamped
+// fallback index.
+export function activeIndex(tabs, key, fallback) {
+  const i = key ? tabs.findIndex((t) => t.key === key) : -1;
+  return i >= 0 ? i : clampActive(fallback, tabs.length);
+}
