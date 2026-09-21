@@ -222,6 +222,8 @@ func TestReadOnlyAllowed(t *testing.T) {
 		{"POST", "/api/xbin/impersonate", false},
 		{"PUT", "/api/xbin/prefs/layout", false},
 		{"DELETE", "/ws/term", false},
+		{"GET", "/api/xbin/term/sessions", true},
+		{"PATCH", "/api/xbin/term/sessions/abc", false},
 		{"POST", "/api/apps/x/save", false},
 	} {
 		r := httptest.NewRequest(c.method, c.path, nil)

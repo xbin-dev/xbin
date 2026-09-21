@@ -235,7 +235,10 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   exposes `popBox()` (its viewport box, `null` while closed).
   Ctrl+scroll inside adjusts the font size (remembered across terminals).
   Multiple terminal tabs per window; sessions persist server-side when you
-  close it — reopening reattaches with scrollback.
+  close it — reopening reattaches with scrollback, from any browser you are
+  signed into (the session directory, D73: the frame asks
+  `GET /api/xbin/term/sessions?cwd=` for its tabs, remembers nothing itself,
+  and follows `term` events so a tab opened elsewhere appears here).
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
   whole `apps/cal` frame, when both are mounted.

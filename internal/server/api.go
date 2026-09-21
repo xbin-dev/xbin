@@ -25,6 +25,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
 	s.RegisterAPI("POST /impersonate", s.apiImpersonate)          // view as user (impersonate.go)
 	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
+	s.registerTermAPI()                                           // the session directory (termsessions.go, D73)
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.

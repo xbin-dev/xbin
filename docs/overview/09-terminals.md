@@ -93,6 +93,23 @@ This is **hygiene, not a security boundary**: all terminals share one unix
 user, so a determined shell could reach another home at the filesystem layer
 were it not masked. The real per-session boundary is the API credential (below).
 
+### The session directory: whose sessions are where (D73)
+
+A session is owned by its creator (the same key as `$HOME`) — and xbind is
+the only place that knows which live sessions a user has on a tile:
+`GET /api/xbin/term/sessions?cwd=` lists them (id, effective scope, the
+pickers it was opened with, the tab's name — set with `PATCH
+/term/sessions/<id>`), and a `term` event on `/ws/events` tells the owner's
+browsers (and admins) when one opens, ends or is renamed. `<bx-frame>` builds
+its tab bar from that answer and keeps no session ids of its own, so a
+second browser signed in as the same user shows the same tabs and attaches
+to the same PTYs (several sockets may attach to one session; output fans
+out), while another user on the same browser sees only their own. The
+window's state (open, active tab, geometry) is a per-user pref. Reattaching
+re-checks the tile's terminal level: a creator whose level was withdrawn is
+refused (403) — the session lives on until it ends or is reaped. Sessions
+are in-memory: an xbind restart ends them, directory included.
+
 ### The masks
 
 Three things are covered with an empty tmpfs even though the root is bound

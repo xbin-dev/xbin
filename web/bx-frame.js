@@ -40,7 +40,8 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
-import { deepActive, clampBox, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
+import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
+import { makeStore, tabsFrom, clampActive } from '/vendor/term-sessions.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -48,6 +49,9 @@ let zTop = 2000;
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+// The terminal session directory (D73): which live sessions are the user's
+// on a tile is asked of the server, never remembered in this browser.
+const sessions = makeStore();
 
 // clampBox (bx-kit) keeps a viewport-fixed window reachable: never wider/
 // taller than the viewport (minus an 8px margin), never positioned outside
@@ -273,6 +277,8 @@ export class BxFrame extends LitElement {
     this._offEvents = null;
     this._frame = null; // {url, sandboxed, credentialless} — null until resolved
     this._onMsg = (e) => this._message(e);
+    this._winTimer = null; // the debounced per-user window-state save
+    this._onVisible = () => { if (document.visibilityState === 'visible') this._relist(); };
   }
 
   connectedCallback() {
@@ -281,6 +287,7 @@ export class BxFrame extends LitElement {
     this._autoHeight = !this.height && !this.style.height;
     this._offEvents = onEvent((e) => this._event(e));
     window.addEventListener('message', this._onMsg);
+    document.addEventListener('visibilitychange', this._onVisible);
     this._restoreTerm();
     this._prepareFrame();
   }
@@ -328,15 +335,11 @@ export class BxFrame extends LitElement {
     this._reload();
   }
 
-  // Persist terminal session ids + window state per component, and save whenever
-  // the reactive terminal state changes, so a page reload reattaches to the
-  // still-running server-side session(s) with scrollback instead of orphaning
-  // them and opening a fresh shell. (Pop geometry is imperative → saved in the
-  // drag/resize handlers.)
+  // The window's state (open, active tab, geometry) is a per-user pref, saved
+  // whenever it changes (pop geometry is imperative → saved in the drag/resize
+  // handlers); the sessions themselves are the server's to remember.
   updated(changed) {
-    if (changed.has('_sessions') || changed.has('_active') || changed.has('_termOpen')) {
-      this._saveTerm();
-    }
+    if (changed.has('_active') || changed.has('_termOpen')) this._saveTerm();
     if (changed.has('_termOpen')) { if (this._termOpen) this._follow(); this._popChanged(); }
   }
 
@@ -354,42 +357,50 @@ export class BxFrame extends LitElement {
       () => this._termOpen && this.isConnected);
   }
 
-  _termKey() { return `bx-term:${this.src}`; }
-
-  _loadTerm() {
-    try { const r = localStorage.getItem(this._termKey()); return r ? JSON.parse(r) : null; }
-    catch { return null; }
-  }
-
   _saveTerm() {
-    try {
-      const sessions = this._sessions
-        .filter((s) => s.id) // only server-assigned sessions can be reattached
-        .map((s) => ({ id: s.id, net: s.net, gpu: s.gpu, api: s.api, name: s.name || '', key: s.key, scopes: s.scopes || null, label: s.label || '' }));
-      if (!sessions.length && !this._termOpen) { localStorage.removeItem(this._termKey()); return; }
-      localStorage.setItem(this._termKey(), JSON.stringify({
-        open: !!this._termOpen, active: this._active, pop: this._pop, sessions,
-      }));
-    } catch { /* storage disabled/full — non-fatal */ }
+    if (!this._restored) return; // lit's first update reports every field as changed; a frame that has not restored yet has nothing of the user's to say
+    clearTimeout(this._winTimer);
+    this._winTimer = setTimeout(() => this._flushWindow(), 400);
+  }
+  _flushWindow() {
+    clearTimeout(this._winTimer); this._winTimer = null;
+    const w = this._termOpen || this._sessions.length ? { open: !!this._termOpen, active: this._active, pop: this._pop } : null;
+    if (w || this._hadWindow) sessions.saveWindow(this.src, w);
+    this._hadWindow = !!w;
   }
 
-  // Restore persisted sessions on mount; reopen the pop-up if it was open so the
-  // <bx-terminal>s reattach (a stale id falls back to a fresh session there).
-  _restoreTerm() {
-    const saved = this._loadTerm();
-    if (!saved?.sessions?.length) return;
-    this._sessions = saved.sessions.map((s) => ({
-      key: s.key || uid(), id: s.id ?? null, net: s.net || null, gpu: s.gpu || 'none',
-      api: s.api !== false, name: s.name || '', scopes: s.scopes || null, label: s.label || '',
-    }));
-    this._active = Math.min(Math.max(0, saved.active | 0), this._sessions.length - 1);
-    if (saved.pop && 'dx' in saved.pop) this._pop = saved.pop; // an old viewport-fixed {x,y} re-anchors
-    if (saved.open) {
-      this.updateComplete.then(() => {
+  // On mount: the user's live sessions on this tile from the server (they are
+  // the same in every browser the user signs into), the window as they left
+  // it, and — once — whatever the browser's legacy record held (D73).
+  async _restoreTerm() {
+    const legacy = sessions.migrateLegacy(this.src);
+    const [rows, win] = await Promise.all([sessions.list(this.src), sessions.loadWindow(this.src)]);
+    if (!this.isConnected) return;
+    for (const r of rows) if (legacy?.names?.[r.id] && !r.name) { r.name = legacy.names[r.id]; sessions.rename(r.id, r.name); }
+    this._sessions = tabsFrom(rows, this._sessions);
+    const w = win ?? legacy?.window;
+    if (w) {
+      this._hadWindow = !!win;
+      this._active = clampActive(w.active, this._sessions.length);
+      if (w.pop && 'dx' in w.pop) this._pop = w.pop;
+      if (w.open && this._sessions.length) {
+        await this.updateComplete;
         this._termOpen = true;
         this.updateComplete.then(() => this._front());
-      });
+      }
     }
+    this._restored = true;
+    if (w && !win) this._saveTerm(); // adopted: now the server's
+  }
+
+  // A session of the user's opened, ended or was renamed — here or in another
+  // browser: the directory says what the tabs are now.
+  async _relist() {
+    const rows = await sessions.list(this.src);
+    if (!this.isConnected) return;
+    this._sessions = tabsFrom(rows, this._sessions);
+    this._active = clampActive(this._active, this._sessions.length);
+    if (!this._sessions.length && this._termOpen) this._termOpen = false;
   }
 
   disconnectedCallback() {
@@ -398,6 +409,8 @@ export class BxFrame extends LitElement {
     this._stopFollow?.();
     this._offEvents?.();
     window.removeEventListener('message', this._onMsg);
+    document.removeEventListener('visibilitychange', this._onVisible);
+    if (this._winTimer) this._flushWindow();
   }
 
   get _iframe() { return this.renderRoot?.querySelector('iframe'); }
@@ -428,6 +441,9 @@ export class BxFrame extends LitElement {
         // while the terminal window is open (the shell sidebar carries the
         // ambient badge when it isn't).
         if (e.component === this.src && this._termOpen) this._loadPRCount();
+        break;
+      case 'term': // the session directory changed for this tile (D73)
+        if (e.component === this.src) this._relist();
         break;
     }
   }
@@ -629,35 +645,14 @@ export class BxFrame extends LitElement {
     if (el) el.style.zIndex = String(++zTop);
   }
 
-  // Title-bar drag; the native CSS resize handle owns width/height, and we
-  // read the final geometry back into _pop so reopening keeps it.
+  // Title-bar drag (kit dragWindow, fenced inside the canvas — D66); the
+  // native CSS resize handle owns width/height, read back into _pop on release.
   _dragStart(ev) {
-    // Don't start a window drag from an interactive control in the titlebar —
-    // buttons, selects, or a terminal tab (a <span>, so it needs naming).
-    if (ev.button !== 0 || ev.target.closest('button, select, .tab')) return;
-    const el = this._popEl;
-    if (!el) return;
-    ev.preventDefault();
-    const startX = ev.clientX - el.offsetLeft;
-    const startY = ev.clientY - el.offsetTop;
-    const r0 = this.getBoundingClientRect(), bounds = this._bounds(); // fixed for the drag (the shield blocks scrolling)
-    dragPointer({
-      onMove: (e) => {
-        let x = e.clientX - startX, y = e.clientY - startY;
-        if (bounds) { // inside the canvas (D66)
-          ({ x, y } = anchorBox({ left: 0, top: 0 }, { dx: x, dy: y }, bounds));
-        } else {
-          x = Math.max(-el.offsetWidth + 60, Math.min(x, window.innerWidth - 40));
-          y = Math.max(0, Math.min(y, window.innerHeight - 24));
-        }
-        el.style.left = x + 'px'; el.style.top = y + 'px';
-        this._pop.dx = x - r0.left; this._pop.dy = y - r0.top;
-      },
-      onUp: () => {
-        this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight;
-        this._saveTerm();
-        this._popChanged();
-      },
+    const el = this._popEl, r0 = this.getBoundingClientRect(); // fixed for the drag (the shield blocks scrolling)
+    dragWindow(ev, el, {
+      bounds: this._bounds(),
+      onMove: (x, y) => { this._pop.dx = x - r0.left; this._pop.dy = y - r0.top; },
+      onUp: () => { this._pop.w = el.offsetWidth; this._pop.h = el.offsetHeight; this._saveTerm(); this._popChanged(); },
     });
   }
 
@@ -684,6 +679,7 @@ export class BxFrame extends LitElement {
     const s = [...this._sessions];
     s[i] = { ...cur, name: n.trim() };
     this._sessions = s;
+    if (cur.id) sessions.rename(cur.id, n.trim()); // the name lives on the session (D73)
   }
 
   // Close terminal i. ended=true means the shell already exited (no DELETE
@@ -701,7 +697,9 @@ export class BxFrame extends LitElement {
   }
 
   _gotSession(i, ev) {
-    const s = [...this._sessions];
+    // a listing may already have absorbed this id into another tab (tabsFrom): one tab per session
+    const s = this._sessions.filter((t, j) => j === i || t.id !== ev.detail.id);
+    i = Math.min(i, s.length - 1);
     const cur = s[i] || {};
     // The server reports the EFFECTIVE scope plus the scopes this user may
     // pick on this tile — the select renders exactly that list (D54).

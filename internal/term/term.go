@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +57,9 @@ type Session struct {
 	token   string       // per-session terminal token (revoked when the session dies)
 	baseOld bool         // the held layer's base is older than the current rootfs (offer upgrade)
 	born    time.Time
+	gpu     string // the pickers this session was opened with (the directory restores a tab from them, D73)
+	api     bool
+	name    string // the tab's name, per session (sessions.go); guarded by mu
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -67,6 +69,10 @@ type Session struct {
 }
 
 type Manager struct {
+	// OnChange is told when a session is opened ("open"), ends for any reason
+	// ("close") or is renamed ("rename") — the server relays it to the owner's
+	// browsers as a `term` event (D73). Optional.
+	OnChange func(op, homeKey, id, cwd string)
 	Root     string          // workspace root
 	Listen   string          // xbind's listen addr (host:port) — for the relay host-forward
 	Env      func() []string // extra env for shells (token, HOME, …)
@@ -175,9 +181,11 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// A session mounts its creator's $HOME — another user may not attach
-		// to it (admins may, for debugging; they own the workspace anyway).
-		if s.homeKey != homeKey && !p.IsAdmin() {
-			http.Error(w, "session belongs to another user", http.StatusForbidden)
+		// to it (admins may, for debugging; they own the workspace anyway),
+		// and a creator whose terminal level on the tile was revoked since may
+		// not either (sessions.go).
+		if why := s.mayReattach(p); why != "" {
+			http.Error(w, why, http.StatusForbidden)
 			return
 		}
 	} else {
@@ -239,26 +247,14 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 // List returns session metadata for the status API, ordered by creation time
 // (m.sessions is a map, so without sorting the admin view would reshuffle).
 func (m *Manager) List() []map[string]any {
-	m.mu.Lock()
-	sessions := make([]*Session, 0, len(m.sessions))
-	for _, s := range m.sessions {
-		sessions = append(sessions, s)
-	}
-	m.mu.Unlock()
-	sort.Slice(sessions, func(i, j int) bool {
-		if sessions[i].born.Equal(sessions[j].born) {
-			return sessions[i].ID < sessions[j].ID
-		}
-		return sessions[i].born.Before(sessions[j].born)
-	})
 	out := []map[string]any{}
-	for _, s := range sessions {
+	for _, s := range m.sorted() {
 		s.mu.Lock()
 		out = append(out, map[string]any{
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
 			"user":    s.homeKey,
 			"created": s.born.UTC().Format(time.RFC3339),
-			"label":   s.Label, "scopes": s.Scopes,
+			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
 		})
 		s.mu.Unlock()
 	}
@@ -365,12 +361,13 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey),
-		born:    time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
+		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
+	m.changed("open", s)
 
 	// A restricted session's sandbox goes into its own resource-limited cgroup
 	// leaf (D17d) — children (the shell, builds) follow the leader in.
@@ -381,6 +378,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	go s.pump(func() {
 		m.remove(s.ID)
+		m.changed("close", s)
 		revokeTok() // the session's API credential dies with it
 		if envKey != "" {
 			m.releaseEnv(envKey)
@@ -905,8 +903,7 @@ func (m *Manager) reaper() {
 			s.mu.Unlock()
 			if idle {
 				slog.Info("reaping idle terminal session", "id", id)
-				s.kill()
-				delete(m.sessions, id)
+				s.kill() // pump's exit path removes it and tells the directory
 			}
 		}
 		m.mu.Unlock()

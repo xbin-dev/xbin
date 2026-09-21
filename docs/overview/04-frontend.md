@@ -120,9 +120,13 @@ and embedded panel:
 - **The edit button** (the 7×7 corner dot; the shell renders its own header
   button instead) opens the floating per-tile work window: tabbed terminal
   sessions plus layout modes — terminal (`>_`), code browser/review (`{ }`),
-  split (`⇋`), and a read-only backend-logs view (`▤`). Session state
-  (including window geometry) persists in the browser and reattaches to the
-  still-running server-side PTYs across reloads; the window is clamped to
+  split (`⇋`), and a read-only backend-logs view (`▤`). Which sessions are
+  yours on a tile is the server's knowledge — the **session directory**
+  (`GET /api/xbin/term/sessions`, D73): every browser you sign into shows
+  the same tabs, names included, and attaches to the same still-running
+  PTYs; another user on the same browser sees only their own. The window's
+  state (open, active tab, geometry) is a per-user pref; the browser keeps
+  no session ids. The window is clamped to
   the viewport whenever it opens, restores or the browser window shrinks,
   and the canvas menu's **Bring windows on-screen** recovers any floating
   window still out of reach. Per-session pickers for

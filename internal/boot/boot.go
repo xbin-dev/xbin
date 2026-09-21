@@ -623,6 +623,9 @@ func (st *State) stepServer() error {
 		ExternalURL:    st.externalURL,
 		Overlay:        st.overlay,
 	}
+	if st.Term != nil {
+		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
+	}
 	if st.overlay != "" {
 		slog.Info("dev overlay: /c/ files shadowed from disk (manifests excluded)", "dir", st.overlay)
 	}

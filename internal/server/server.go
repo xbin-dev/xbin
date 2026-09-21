@@ -532,6 +532,9 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		if e.Type == "pr" {
 			return p.IsAdmin() || p.CanReadTile(e.Component)
 		}
+		if e.Type == "term" { // the session directory: the owner's browsers, and admins (D73)
+			return termEventFor(p, e)
+		}
 		if e.Type != "bus" {
 			return true
 		}

@@ -1796,3 +1796,32 @@ Deviations and refinements made while implementing; all deliberate:
   skills store crosses lanes — a private-lane run can write a skill a
   web-lane run reads and sends out; fixing it needs per-lane skills or no
   skill writes from the private lane, a design call not taken here.
+
+- **D73 — Terminal sessions are directed by xbind per user; the browser
+  keeps no session ids (2026-09-21).** Sessions were owned per user
+  server-side all along (`homeKey`), but the only pointer to them — which
+  ids belong on which tile, their tab names and pickers — sat in the
+  browser's `localStorage['bx-term:<tile>']`, keyed by tile alone. So a
+  session was reachable only from the browser profile that opened it; a
+  user switch on one browser inherited the previous user's tab list (names,
+  pickers, geometry), tried their ids, and read the 403 as "session gone"
+  — or, for an admin, attached to the other user's live shells; and no
+  endpoint let a user find their own sessions. Now the server answers
+  "which are mine here" (`GET /api/xbin/term/sessions`, `ListFor` over the
+  in-memory map, filtered to tiles the caller may still open a terminal
+  on), a tab's name lives on the session (`PATCH`), and a `term` event
+  tells the owner's browsers when the directory changes; the frame's tab
+  bar is a view of that answer (`web/term-sessions.js`, unit-tested), the
+  window's own state is a per-user pref, and the legacy record is adopted
+  once and removed. Chosen over syncing the browser record through prefs
+  (prefs would carry stale ids across daemon restarts and cannot express
+  "mine" — an admin's prefs on a shared browser would still name another
+  user's sessions) and over a persisted directory (nothing it would point
+  at survives a restart). Window state is per user rather than per browser
+  because there is one place for it and the geometry is tile-anchored and
+  re-fitted on open. Reattach re-checks `CanTerminalTile` so a withdrawn
+  level closes the door to sessions already open there; the sessions are
+  not killed (a policy change left for its own decision). Admins keep the
+  explicit by-id attach for debugging; only the auto-restore stops crossing
+  users. `DELETE /ws/term/env` still kills every user's sessions on a tile
+  — flagged, not changed.

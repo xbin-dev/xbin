@@ -10,6 +10,29 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-21
+
+- **Terminals follow the user, not the browser (D73).** Which terminal
+  sessions are yours on a tile is now the server's knowledge — the
+  **session directory**: `GET /api/xbin/term/sessions[?cwd=]` lists the
+  caller's live sessions (id, tile, effective scope and pickable scopes, the
+  gpu/api pickers, tab name, created/lastActive, attached client count),
+  `PATCH /term/sessions/<id> {name}` names a tab, and a new `term` event on
+  `/ws/events` reaches the owner's browsers (and admins) when a session
+  opens, ends or is renamed. `<bx-frame>` builds its tab bar from that
+  answer and keeps no session ids in the browser any more; the window's
+  own state (open, active tab, geometry) is a per-user pref. So a second
+  browser signed in as the same user shows the same tabs, names included,
+  and attaches to the same shells; signing in as another user on the same
+  browser shows only that user's — before, the previous user's tab list
+  bled through (and an admin silently attached to their shells). The
+  legacy browser record is adopted once, then removed. Reattaching now
+  re-checks the tile's terminal level: a creator whose level was withdrawn
+  is refused until the session ends. Kit: `dragWindow(ev, el, {bounds,
+  onMove, onUp})`, the title-bar drag of a fixed window. No `bx builtin
+  update` needed. Docs: [protocol.md](/docs/protocol.md) §`/api/xbin` and
+  §`/ws/events`, overview/09-terminals.md.
+
 ## 2026-09-19
 
 - **Frontend kit: `esc()` escapes quotes.** `/vendor/bx-kit.js`'s `esc` now

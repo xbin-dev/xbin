@@ -273,6 +273,20 @@ POST   /impersonate/stop          a view-as session. ends the view, hands
                                    it had expired — sign in again). POST
                                    /logout from a view does the same
 
+GET    /term/sessions             authenticated. the caller's live terminal
+                                   sessions — the session directory (D73):
+                                   [{id,cwd,net,label,scopes,gpu,api,name,
+                                   created,lastActive,clients,envHeld}], oldest
+                                   first; ?cwd=<p> one tile only. [] without
+                                   terminal rights; a tile the caller may no
+                                   longer open a terminal on is omitted.
+                                   ?user=<id> admin: another user's. Every
+                                   browser the user signs into sees the same
+                                   tabs (the shell's <bx-frame> lists them here,
+                                   not in the browser)
+PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
+                                   clears; lives on the session → follows the
+                                   user) → ok
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
 PUT    /prefs/<key>               set it (body = JSON value)
@@ -1053,12 +1067,16 @@ Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
 where the caller's access level is **terminal** (docs/auth.md), mounts its
 creator's `$HOME`, and carries a per-session `XBIN_TOKEN` scoped to that tile
-(docs/overview/09-terminals.md). Under `--isolate` the workspace mounts read-only
+(docs/overview/09-terminals.md). Reattaching re-checks that level: a creator
+whose terminal level on the tile was withdrawn since gets 403 ("revoked")
+until the session ends. Under `--isolate` the workspace mounts read-only
 (all tiles' source — for a non-admin, minus tiles below their read level,
 which are masked out) with `.xbin/`, `data/`, and other users' `homes/`
 **masked out** (docs/isolation.md), so the terminal can't read the owner
 token or resource state. **The root terminal (no cwd) is disabled** — 403 for
-everyone. Reattach/kill of another user's session: admins only.
+everyone. Reattach/kill of another user's session: admins only. Which
+sessions are yours on a tile: `GET /api/xbin/term/sessions?cwd=` (the
+session directory, D73) — a browser keeps no session ids of its own.
 
 For a **non-admin**, the query params below are clamped rather than honored
 (docs/isolation.md): `api` is forced to `0` without the `termApi` grant; on a
@@ -1153,9 +1171,14 @@ cookie required). JSON text frames:
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
+{"type":"term","component":"apps/thing",             // a terminal session of yours was
+ "data":{"op":"open|close|rename","id":"…","user":"…"}} // opened/ended/renamed (D73): re-list
 ```
 
-Non-bus events go to every subscriber. `bus` events are delivered only to
+Non-bus events go to every subscriber, except `term` events, which reach
+the session's owner (`data.user`) and admins — re-list `GET /term/sessions`
+on one; the id and op are enough to update a tab bar in place. `bus` events
+are delivered only to
 the owner and to elements holding a reader grant on the resource. `status`
 events broadcast like the build events (the shell renders each only for tiles
 it shows; the `GET /tile-report` snapshot below is read-filtered per caller).

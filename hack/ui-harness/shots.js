@@ -15,7 +15,7 @@ const {
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
-const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict');
+const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions');
 const { viewAs } = require('./passes/viewas');
 const { windows } = require('./passes/windows');
 
@@ -393,7 +393,8 @@ async function reloadFocus(browser) {
   check(s.active === 'TEXTAREA', `reload hands focus back to the terminal (${JSON.stringify(s)})`);
   await shot(page, 'reload-focus', { fullPage: false });
   // tidy
-  await sh(page, (t) => { t.closeTile('apps/crawler'); t.closeTile('apps/focusy'); localStorage.removeItem('bx-term:apps/crawler'); });
+  await sh(page, (t) => { t.closeTile('apps/crawler'); t.closeTile('apps/focusy'); });
+  await ctx.request.delete(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`);
   await settle(page);
   await closeCtx(ctx, page);
   done();
@@ -818,7 +819,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions,
 };
 
 (async () => {

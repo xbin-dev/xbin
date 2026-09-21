@@ -136,6 +136,28 @@ export function dragShield(cursor = 'grabbing') {
 // pointermove, then on pointerup the listeners and the shield go and onUp
 // commits. Guards (which button, which target, mobile) stay with the caller.
 // Returns a function that ends the drag early.
+// dragWindow(ev, el, {bounds, onMove, onUp}): a title-bar drag of a
+// position:fixed window `el` from pointerdown `ev`: the window follows the
+// pointer, fenced by `bounds` (a viewport rect its top-left stays inside —
+// the shell's canvas) or, without one, kept reachable on screen; onMove(x, y)
+// gets each placement, onUp() the release. Ignores anything but the main
+// button and any drag starting on a control (button, select, .tab).
+export function dragWindow(ev, el, { bounds = null, onMove, onUp } = {}) {
+  if (!el || ev.button !== 0 || ev.target.closest('button, select, .tab')) return;
+  ev.preventDefault();
+  const sx = ev.clientX - el.offsetLeft, sy = ev.clientY - el.offsetTop;
+  dragPointer({
+    onMove: (e) => {
+      let x = e.clientX - sx, y = e.clientY - sy;
+      if (bounds) ({ x, y } = anchorBox({ left: 0, top: 0 }, { dx: x, dy: y }, bounds));
+      else { x = Math.max(-el.offsetWidth + 60, Math.min(x, window.innerWidth - 40)); y = Math.max(0, Math.min(y, window.innerHeight - 24)); }
+      el.style.left = x + 'px'; el.style.top = y + 'px';
+      onMove?.(x, y);
+    },
+    onUp,
+  });
+}
+
 export function dragPointer({ cursor = 'grabbing', onMove, onUp } = {}) {
   const unshield = dragShield(cursor);
   const move = (e) => onMove?.(e);

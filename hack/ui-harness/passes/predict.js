@@ -8,6 +8,9 @@ const { URL, login, closeCtx, settle, fr, waitSel, openShell, openTile, shot, ch
 async function predict(browser) {
   const { check, done } = checker('predict');
   const { ctx, page } = await login(browser, 'admin', 'admin');
+  // the pass types into a FRESH shell: end the crawler sessions earlier passes
+  // left (the directory would restore every one of them as a tab, D73)
+  for (const s of await (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
   await openShell(page);
   await openTile(page, 'apps/crawler');
   await fr(page, 'apps/crawler', (f) => f.open('term'));
@@ -116,7 +119,8 @@ async function predict(browser) {
   const sid = await term.getAttribute('session');
   await fr(page, 'apps/crawler', (f) => f.closeTerminal());
   if (sid) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(sid)}`);
-  await page.evaluate(() => { localStorage.removeItem('bx-term-predict'); localStorage.removeItem('bx-term:apps/crawler'); });
+  await page.evaluate(() => localStorage.removeItem('bx-term-predict'));
+  await ctx.request.delete(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`);
   await closeCtx(ctx, page);
   done();
 }

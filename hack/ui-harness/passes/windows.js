@@ -27,17 +27,19 @@ async function windows(browser) {
 
   // 1. a persisted pop-up planted left of / above the canvas origin restores
   // inside the canvas (never outside the scroll area, D66), and the canvas
-  // grows to contain it. The
-  // planted state is consumed by the FIRST crawler frame to mount, so the
-  // reload must start on a personal screen without the crawler: an org
-  // screen that holds it (Devs HQ) renders it for a moment while the layout
-  // loads, and that frame would take the restore and rewrite the key.
+  // grows to contain it. The window state is the user's pref (D73); a live
+  // session on the tile makes it restore with a tab. The reload must start
+  // on a personal screen without the crawler: an org screen that holds it
+  // (Devs HQ) renders it for a moment while the layout loads, and that
+  // frame's own save would rewrite the pref.
   await openShell(page);
   await usePersonalScreen(page);
   await sh(page, (t) => { t.closeTile('apps/crawler'); return t.flushSave(); });
-  await page.evaluate(() => localStorage.setItem('bx-term:apps/crawler', JSON.stringify({
-    open: true, active: 0, pop: { dx: -2270, dy: -1217, w: 1003, h: 868 },
-    sessions: [{ key: 'k1', id: null, net: null, gpu: 'none', api: true, name: '' }] })));
+  await ctx.request.put(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`, { data: { open: true, active: 0, pop: { dx: -2270, dy: -1217, w: 1003, h: 868 } } });
+  await page.evaluate(() => new Promise((res, rej) => { // a live session on the tile: opened from the page, then left running server-side
+    const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws/term?cwd=apps%2Fcrawler`);
+    ws.onmessage = () => { ws.close(); res(); }; ws.onerror = rej;
+  }));
   await page.reload();
   await page.waitForSelector('bx-shell', { timeout: 15000 });
   await waitFor(page, (t) => !!t && t.screens.length > 0, null, { timeout: 15000, label: 'shell layout loaded' });
@@ -180,7 +182,9 @@ async function windows(browser) {
   check(await page.evaluate(() => !document.querySelector('body > div[style*="2147483647"]')), 'the drag shield is gone after pointerup');
 
   // tidy: the next pass starts from the seeded layout
-  await sh(page, (t) => { t.setSpawnWindows([]); t.closeTile('apps/offline'); localStorage.removeItem('bx-term:apps/crawler'); });
+  await sh(page, (t) => { t.setSpawnWindows([]); t.closeTile('apps/offline'); });
+  await ctx.request.delete(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`);
+  for (const s of await (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
   await settle(page);
   await closeCtx(ctx, page);
   done();

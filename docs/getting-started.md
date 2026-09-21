@@ -143,8 +143,11 @@ still works because each component is its own repo. There is **no root
 terminal** — cross-component work and creating components happen in the browser
 (Tile Manager) or from a host shell. Full model: [isolation.md](/docs/isolation.md).
 
-Sessions survive browser disconnects (reattach happens automatically) but
-not xbind restarts — run `tmux` inside if that matters to you.
+Sessions survive browser disconnects (reattach happens automatically) and
+follow you: sign in from another browser and the same tabs are there,
+attached to the same shells; sign in as someone else on this browser and
+only their tabs show. They do not survive xbind restarts — run `tmux`
+inside if that matters to you.
 
 The base rootfs is read-only, but each terminal stacks a **persistent
 per-component overlay** on top (`.xbin/term/<component>/`). So an `apt install`,
