@@ -401,7 +401,6 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
-	st.Term.Secrets = brk.VaultFor // provider keys for agent sessions (D74)
 	brk.ExternalURL = st.externalURL
 	st.Broker = brk
 	return nil

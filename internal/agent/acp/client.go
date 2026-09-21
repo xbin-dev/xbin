@@ -105,18 +105,10 @@ func (c *Client) handshake() error {
 	if init.ProtocolVersion != ProtocolVersion {
 		c.logf("agent speaks protocol version %d, we speak %d — continuing", init.ProtocolVersion, ProtocolVersion)
 	}
-	// An API-key auth method is called when the provider names one and the
-	// key is present; every other method is the CLI's own business (its
-	// home holds the login). Unknown-method errors are not fatal here.
-	if m := c.cfg.Provider.Auth; m != "" && hasKey(c.cfg) {
-		for _, am := range init.AuthMethods {
-			if am.ID == m {
-				if err := c.conn.Call(MAuthenticate, map[string]string{"methodId": m}, nil); err != nil {
-					c.logf("authenticate %s: %v", m, err)
-				}
-			}
-		}
-	}
+	// No authenticate call: the CLI authenticates itself from its own $HOME
+	// (the same per-user home a shell terminal gets), so a login done once in
+	// a terminal serves every agent session. If the home holds no login,
+	// session/new returns -32000 and we surface how to sign in.
 	var sess SessionNewResult
 	if err := c.conn.Call(MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
 		return fmt.Errorf("session/new: %w", authHint(err, c.cfg))
@@ -138,22 +130,12 @@ func (c *Client) handshake() error {
 	return nil
 }
 
-func hasKey(cfg agent.Config) bool {
-	for _, e := range cfg.Env {
-		for _, k := range cfg.Provider.Keys {
-			if strings.HasPrefix(e, k+"=") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// authHint turns the agent's -32000 into the operator's next step.
+// authHint turns the agent's -32000 into the operator's next step: sign the
+// CLI in from a terminal, whose $HOME the agent shares.
 func authHint(err error, cfg agent.Config) error {
 	var re *Error
 	if errors.As(err, &re) && re.Code == ErrAuthRequired {
-		return fmt.Errorf("the agent needs credentials (%s): %s", re.Message, cfg.Provider.KeyHint(tileOf(cfg)))
+		return fmt.Errorf("%s: %s", re.Message, cfg.Provider.LoginHint(tileOf(cfg)))
 	}
 	return err
 }

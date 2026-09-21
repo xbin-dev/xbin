@@ -132,13 +132,10 @@ type Manager struct {
 
 	// BxPath is the daemon's own bx binary (located at boot): an agent
 	// session binds it read-only into its sandbox as the entry (`bx
-	// __agent-host`, D74) — host and daemon are one build. Secrets reads a
-	// tile's vault for the provider keys an agent session injects (the
-	// broker's VaultFor; nil ⇒ no keys). OnEvent receives every agent
-	// session event as it is logged (the server publishes it as a `session`
-	// event). agent.go.
+	// __agent-host`, D74) — host and daemon are one build. OnEvent receives
+	// every agent session event as it is logged (the server publishes it as a
+	// `session` event). agent.go.
 	BxPath  string
-	Secrets func(rel string) (map[string]string, error)
 	OnEvent func(cwd string, ev SessionEvent)
 
 	// Cgroup, when set (main wires it under cgroup delegation), puts each

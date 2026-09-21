@@ -245,6 +245,11 @@ export class BxFrame extends LitElement {
       font-size: 12px; line-height: 1; cursor: pointer;
     }
     .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #363c45); }
+    /* Agent tabs read as agents without an emoji: an accent left edge + the
+       accent colour on the label. */
+    .titlebar .tab.agent { border-left: 2px solid var(--bx-accent, #f5a623); padding-left: 5px; }
+    .titlebar .tab.agent.on .lbl, .titlebar .tab.agent:hover .lbl { color: var(--bx-accent, #f5a623); }
+    .titlebar button.mkagent { color: var(--bx-accent, #f5a623); white-space: nowrap; }
     .titlebar select.scope {
       margin-left: 2px; border: 1px solid var(--bx-border, #363c45);
       background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);

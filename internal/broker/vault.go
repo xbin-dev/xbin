@@ -52,17 +52,6 @@ func (b *Broker) vaultSealed() bool {
 	return b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
 }
 
-// VaultFor is the term manager's Secrets hook (D74): a tile's vault, read
-// by the daemon at an agent session's spawn so the provider's keys reach
-// the agent process — the tile's own secrets handed to the tile's own
-// plane, never over the API (the D30 rule for humans and terminals holds).
-func (b *Broker) VaultFor(comp string) (map[string]string, error) {
-	if b.vaultSealed() {
-		return nil, vault.ErrSealed
-	}
-	return b.vaultRead(comp)
-}
-
 func (b *Broker) vaultRead(comp string) (map[string]string, error) {
 	out := map[string]string{}
 	bts, err := os.ReadFile(b.vaultPath(comp))

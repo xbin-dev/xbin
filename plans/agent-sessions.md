@@ -1,6 +1,7 @@
 # Agent sessions (D74)
 
-> Status: live — stages 0–1 implemented (2026-09-21); stages 2–3 in progress.
+> Status: live — stages 0–3 implemented and released as v0.3.51 (2026-09-21).
+> Auth is the home's, not the vault's (the vault-key path was reverted same-day).
 
 A terminal session whose sandbox runs a coding-agent CLI instead of a
 shell, driven over the Agent Client Protocol (ACP, JSON-RPC 2.0 over the
@@ -34,10 +35,10 @@ docker/rootfs.Dockerfile pins claude-agent-acp, codex-acp, gemini-cli
 
 The sandbox leader's stdio, both directions JSON-RPC as-is. The daemon's
 first frame is the notification `_xbin/spawn {argv, env, cwd}` — the
-agent's full env (sandbox env + provider Env + the vault keys); the host
-starts the agent with exactly that env, so the keys are in one process's
-environ only (not in the spec temp file, not inherited by `terminal/*`
-children, which get the host's own environ). The host answers `_xbin/hello
+agent's full env (the sandbox env — which carries the per-user `$HOME` the
+CLI reads its login from — plus the provider's non-secret Env); the host
+starts the agent with exactly that env. There are no API keys: the agent
+authenticates from its home, like a shell. The host answers `_xbin/hello
 {version}`, then proxies every frame except agent→daemon requests with
 method `fs/*` or `terminal/*`, which it answers itself. A non-frame line on
 the agent's stdout reaches the daemon as `_xbin/log {text}`. The agent's
@@ -51,7 +52,7 @@ makes itself a sub-reaper.
 | ACP (direction) | xbind |
 |---|---|
 | `initialize` (→ agent) `clientCapabilities {fs:{readTextFile,writeTextFile:true}, terminal:true}`, `clientInfo {name:"xbin", version}` | driver `Start`; `status starting` |
-| `authenticate {methodId}` (→ agent) | only when the provider table names a method (codex `api-key`) and the key is present; a `-32000` anywhere → `status error {detail: "… bx vault set <tile> <KEY> …"}` |
+| `authenticate` (→ agent) | never called — the CLI authenticates from its `$HOME`; a `-32000` on session/new → `status error` naming the login command to run in a terminal (Provider.LoginHint) |
 | `session/new {cwd, mcpServers:[]}` (→ agent) | once per session; `modes` → `status idle {modes, currentMode}`; then `session/set_mode` if the requested mode differs from `currentModeId` (after the CLI loaded its settings) |
 | `session/prompt {sessionId, prompt:[{type:"text",text}]}` (→ agent) | `AgentPrompt`: logs `message.delta{user}`, `status running`; the response `{stopReason}` → `turn.end`; one turn at a time (`agent.ErrBusy` → 409) |
 | `session/cancel` (→ agent, notification) | `AgentCancel`: unfinished tool calls marked `cancelled` (`tool.update`), pending permissions answered `{outcome:"cancelled"}` + `permission.resolved{by:"cancel"}` — both logged before the agent hears it — then the notification; the prompt's `stopReason:"cancelled"` ends the turn |
@@ -71,13 +72,13 @@ makes itself a sub-reaper.
 
 ## Provider table (`internal/agent/providers.go`)
 
-| id | command | keys (vault → env) | auth | modes (default first; *explicit* never a default) |
-|---|---|---|---|---|
-| claude | `claude-agent-acp` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | — | default, acceptEdits, plan, auto, *bypassPermissions* |
-| codex | `codex-acp` (`NO_BROWSER=1`) | `OPENAI_API_KEY`, `CODEX_API_KEY` | `api-key` | read-only, agent, *agent-full-access* |
-| gemini | `gemini --acp` | `GEMINI_API_KEY`, `GOOGLE_AI_API_KEY` | — | default, autoEdit, plan, *yolo* |
-| opencode | `opencode acp` | every `*_API_KEY` | — | the agent's |
-| fake | `$XBIN_AGENT_FAKE` | `FAKE_API_KEY` | — | ask, *yolo* (tests, harness) |
+| id | command | login (in a terminal; its $HOME serves the agent) | modes (default first; *explicit* never a default) |
+|---|---|---|---|
+| claude | `claude-agent-acp` | `claude /login` | default, acceptEdits, plan, auto, *bypassPermissions* |
+| codex | `codex-acp` (`NO_BROWSER=1`) | `codex login` | read-only, agent, *agent-full-access* |
+| gemini | `gemini --acp` | `gemini` (Login with Google) | default, autoEdit, plan, *yolo* |
+| opencode | `opencode acp` | `opencode auth login` | the agent's |
+| fake | `$XBIN_AGENT_FAKE` | none | ask, *yolo* (tests, harness) |
 
 ## Stages
 
@@ -90,8 +91,9 @@ makes itself a sub-reaper.
   session rule, terminal without the key, fs write scoping, coalescing,
   replay by cursor, cancel, kill leaves no process), `internal/server/
   agentapi_test.go`, `internal/auth/sessiongate_test.go`, `cmd/bx/agent_test.go`.
-- **2 — claude and codex via the adapters with vault keys.** Manual
-  checks on a box with the stage-0 rootfs (see the plan's go/no-go list).
+- **2 — claude and codex via the adapters, home login.** Verified on a
+  box with the stage-0 rootfs: a `claude /login` in a shell terminal serves
+  the agent with no vault key; an unsigned provider names its login command.
 - **3 — the Agent tab** in the terminal window (`web/bx-agent.js`).
 
 ## Out of scope, flagged

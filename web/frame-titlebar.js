@@ -4,8 +4,8 @@
  * and calls its `_` handlers. Two tab kinds share the bar: a shell tab
  * (kind:"shell") carries the layout switcher and the net/API/GPU pickers; an
  * AGENT tab (kind:"agent", D74) has a fixed sandbox and shows none of them —
- * just the tab strip and the close controls. The `+` opens a shell, `+🤖`
- * an agent.
+ * just the tab strip and the close controls. The `+` opens a shell,
+ * `+ Agent` an agent.
  */
 import { html, nothing } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
@@ -21,12 +21,12 @@ export function titlebar(f) {
               @click=${() => { f._active = i; }}
               @dblclick=${() => f._renameTerm(i)}
               title=${s.name ? `${s.name} — double-click to rename` : 'double-click to rename'}>
-          <span class="lbl">${s.kind === 'agent' ? `🤖 ${s.name || 'Agent'}` : (s.name || (i + 1))}</span>
+          <span class="lbl">${s.kind === 'agent' ? (s.name || 'Agent') : (s.name || (i + 1))}</span>
           <button class="tabx" title="close this ${s.kind === 'agent' ? 'agent' : 'terminal'}"
                   @click=${(e) => { e.stopPropagation(); f._closeTerm(i); }}>✕</button>
         </span>`)}
       <button title="new terminal" @click=${f._newTerm}>+</button>
-      <button title="new agent session" @click=${f._newAgent}>+🤖</button>
+      <button class="mkagent" title="new agent session" @click=${f._newAgent}>+ Agent</button>
       ${isAgent ? nothing : html`
         <span class="lyt">
           <button class=${f._layout === 'term' ? 'on' : ''} title="terminal only"

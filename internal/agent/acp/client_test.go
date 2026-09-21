@@ -126,7 +126,7 @@ func rig(t *testing.T, script func(f *fakeAgent, text string), mode string, env 
 	perms := agent.NewPermissions()
 	var logs []string
 	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Keys: []string{"FAKE_API_KEY"}, Auth: "api-key"}, Mode: mode, Cwd: "/w/apps/x",
+	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Mode: mode, Cwd: "/w/apps/x",
 		Env: env, Spawn: spawn, Perms: perms, Version: "test", Log: func(s string) { logs = append(logs, s) }, Meta: map[string]string{"tile": "apps/x"}}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatalf("start: %v", err)
@@ -170,7 +170,7 @@ func data(e agent.Event) map[string]any {
 }
 
 func TestHandshakeAuthAndMode(t *testing.T) {
-	c, f, _, _ := rig(t, standard, "yolo", "FAKE_API_KEY=k")
+	c, f, _, _ := rig(t, standard, "yolo")
 	defer c.Close()
 	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
 	if types(es) != "status status" {
@@ -179,8 +179,8 @@ func TestHandshakeAuthAndMode(t *testing.T) {
 	f.mu.Lock()
 	authed, mode := f.authed, f.mode
 	f.mu.Unlock()
-	if !authed {
-		t.Fatal("authenticate was not called although the key is present and the provider names the method")
+	if authed {
+		t.Fatal("authenticate must not be called — the CLI authenticates from its own $HOME")
 	}
 	if mode != "yolo" || c.Mode() != "yolo" {
 		t.Fatalf("mode: agent %q client %q", mode, c.Mode())
@@ -303,7 +303,7 @@ func TestCancelResolvesPermissionAndEndsTurn(t *testing.T) {
 	}
 }
 
-func TestAuthErrorNamesTheVault(t *testing.T) {
+func TestAuthErrorNamesTheLogin(t *testing.T) {
 	c, _, _, _ := rig(t, func(f *fakeAgent, text string) {
 		f.mu.Lock()
 		id := f.prompt
@@ -316,8 +316,9 @@ func TestAuthErrorNamesTheVault(t *testing.T) {
 	_ = c.Send(context.Background(), "hi")
 	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusError })
 	d := data(es[len(es)-1])
-	if !strings.Contains(d["detail"].(string), "bx vault set apps/x FAKE_API_KEY") {
-		t.Fatalf("detail: %v", d["detail"])
+	detail := d["detail"].(string)
+	if !strings.Contains(detail, "fake-login") || !strings.Contains(detail, "apps/x") || strings.Contains(detail, "vault") {
+		t.Fatalf("the auth error points at the home login, not a vault key: %v", detail)
 	}
 	for _, e := range es {
 		if e.Type == agent.EvTurnEnd && data(e)["stopReason"] != "error" {

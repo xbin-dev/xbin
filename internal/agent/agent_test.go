@@ -138,25 +138,15 @@ func TestProviders(t *testing.T) {
 			t.Fatal("an explicit mode must never be the default")
 		}
 	}
-	env, primary := c.KeysFrom(map[string]string{"ANTHROPIC_API_KEY": "sk", "OPENAI_API_KEY": "no", "ANTHROPIC_BASE_URL": "https://x"})
-	if !primary || len(env) != 2 || env[0] != "ANTHROPIC_API_KEY=sk" || env[1] != "ANTHROPIC_BASE_URL=https://x" {
-		t.Fatalf("claude keys: %v %v", env, primary)
-	}
-	if env, primary := c.KeysFrom(map[string]string{"ANTHROPIC_BASE_URL": "https://x"}); primary || len(env) != 1 {
-		t.Fatalf("no primary key: %v %v", env, primary)
-	}
 	o, _ := Lookup("opencode")
-	env, primary = o.KeysFrom(map[string]string{"OPENAI_API_KEY": "a", "ANTHROPIC_API_KEY": "b", "OTHER": "c"})
-	if !primary || len(env) != 2 || env[0] != "ANTHROPIC_API_KEY=b" {
-		t.Fatalf("opencode glob: %v", env)
-	}
 	if m, err := o.ResolveMode("whatever"); err != nil || m != "whatever" {
 		t.Fatal("a provider without a mode table lets the agent judge")
 	}
-	if !strings.Contains(c.KeyHint("apps/x"), "bx vault set apps/x ANTHROPIC_API_KEY") {
-		t.Fatal(c.KeyHint("apps/x"))
+	// the auth hint points at the home login, per provider — never a vault key
+	if h := c.LoginHint("apps/x"); !strings.Contains(h, "claude /login") || !strings.Contains(h, "apps/x") || strings.Contains(h, "vault") {
+		t.Fatalf("claude login hint: %q", h)
 	}
-	if !strings.Contains(o.KeyHint("apps/x"), "<PROVIDER>_API_KEY") {
-		t.Fatal(o.KeyHint("apps/x"))
+	if h := o.LoginHint("apps/x"); !strings.Contains(h, "opencode auth login") {
+		t.Fatalf("opencode login hint: %q", h)
 	}
 }

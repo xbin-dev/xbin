@@ -65,9 +65,6 @@ func newAgentRig(t *testing.T) *agentRig {
 	}
 	r := &agentRig{m: NewManager(root, nil), root: root, events: make(chan SessionEvent, 4096), change: make(chan string, 64)}
 	r.m.BxPath = bxBin
-	r.m.Secrets = func(rel string) (map[string]string, error) {
-		return map[string]string{"FAKE_API_KEY": "k-" + rel, "OTHER": "x"}, nil
-	}
 	r.m.OnEvent = func(cwd string, ev SessionEvent) { r.events <- ev }
 	r.m.OnChange = func(op, homeKey, id, cwd string) { r.change <- op + ":" + id }
 	return r
@@ -146,7 +143,9 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 	}
 	e = r.until(t, func(e SessionEvent) bool { return e.Type == agent.EvMessageDelta && edata(e.Event)["role"] == "agent" })
 	text, _ := edata(e.Event)["text"].(string)
-	if !strings.Contains(text, "HOME="+home) || !strings.Contains(text, "key=yes") || !strings.Contains(text, `"defaultMode":"plan"`) {
+	// the agent runs with the per-user home, so its login/settings carry over;
+	// there is no injected API key (key=no) — auth is the home's, like a shell's
+	if !strings.Contains(text, "HOME="+home) || !strings.Contains(text, "key=no") || !strings.Contains(text, `"defaultMode":"plan"`) {
 		t.Fatalf("the agent's view of its home: %q", text)
 	}
 	e = r.until(t, ofType(agent.EvTurnEnd))
@@ -367,11 +366,6 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 		t.Fatalf("no bx: %d", code)
 	}
 	m.BxPath = bxBin
-	m.Secrets = func(string) (map[string]string, error) { return nil, errors.New("vault is sealed") }
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", ""); code != 503 {
-		t.Fatalf("sealed vault: %d", code)
-	}
-	m.Secrets = nil
 
 	// a terminal token drives its OWN tile's sessions; another tile's, no
 	termTok := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal",
@@ -428,8 +422,8 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	e = r.until(t, func(e SessionEvent) bool {
 		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusError
 	})
-	if d, _ := edata(e.Event)["detail"].(string); !strings.Contains(d, "bx vault set apps/x FAKE_API_KEY") {
-		t.Fatalf("error detail: %q", d)
+	if d, _ := edata(e.Event)["detail"].(string); !strings.Contains(d, "apps/x") || !strings.Contains(d, "terminal") || strings.Contains(d, "vault") {
+		t.Fatalf("the auth error points at the home login, not a vault key: %q", d)
 	}
 	if _, err := m.AgentPrompt(context.Background(), info.ID, "crash"); err != nil {
 		t.Fatal(err)

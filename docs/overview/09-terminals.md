@@ -390,17 +390,15 @@ What the agent gets:
   mode you pass at creation is applied after the CLI has loaded its
   settings, so a `permissions.defaultMode` in your settings is the default
   when you pass none.
-- **provider keys from the tile's vault, only when present.** At spawn
-  xbind reads the tile's vault and hands the provider's keys
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`CODEX_API_KEY`, `GEMINI_API_KEY`,
-  every `*_API_KEY` for OpenCode) to the agent process — and to it alone:
-  they travel in the spawn frame to the host, not in the sandbox spec, and
-  a terminal the agent opens does not inherit them (`printenv` there shows
-  none). This is the one amendment to D30: the tile's own secrets reach the
-  tile's own plane, never a human or a terminal, never over the API. Absent
-  a key, the CLI falls back to its home's login; a missing one surfaces as
-  a `status error` naming the `bx vault set` command. The audit log
-  records the key *names* handed over, never values.
+- **credentials from the home — the same place a shell terminal gets
+  them.** There are no provider keys in the tile vault. The agent
+  authenticates exactly as the CLI would in a shell: from its own `$HOME`
+  (`~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.gemini/`,
+  `~/.local/share/opencode/`), which is the per-user home shared with every
+  terminal. So `claude /login` (or `codex login`, `opencode auth login`, …)
+  run once in a shell terminal signs the agent in on every tile. When the
+  home holds no login, the first turn ends with a `status error` telling you
+  which command to run in a terminal — never a vault command.
 - **conservative modes by default.** Claude Code starts in `default` (ask
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must

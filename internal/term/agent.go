@@ -10,9 +10,10 @@ package term
 // numbers them into the session's log (replay by cursor) and hands each to
 // Manager.OnEvent (the live `session` event). Prompts, cancels and
 // permission answers come through the Manager from the API; any client may
-// answer a permission — the first wins. Provider keys come from the tile's
-// vault (Manager.Secrets) and travel in the spawn frame only, so they sit
-// in the agent process's environ and nowhere else.
+// answer a permission — the first wins. The agent authenticates from the
+// session's per-user $HOME (D6) — the same home a shell terminal gets, so a
+// `claude /login` / `codex login` / … done once in a terminal serves the
+// agent on every tile. There are no provider keys in the tile vault.
 
 import (
 	"context"
@@ -119,11 +120,8 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 	o.kind = KindAgent
 	s, err := m.createAgent(o, prov, mode)
 	if err != nil {
-		switch {
-		case errors.Is(err, errLimit):
+		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
-		case isSealed(err):
-			return SessionInfo{}, 503, err
 		}
 		return SessionInfo{}, 400, err
 	}
@@ -166,28 +164,10 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	return nil
 }
 
-// isSealed matches the vault's sealed error without importing the barrier.
-func isSealed(err error) bool {
-	for e := err; e != nil; e = errors.Unwrap(e) {
-		if e.Error() == "vault is sealed" {
-			return true
-		}
-	}
-	return false
-}
-
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
 // the handshake is done — a prompt waits for it).
 func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string) (*Session, error) {
-	var keys []string
-	if m.Secrets != nil {
-		v, err := m.Secrets(o.cwd)
-		if err != nil {
-			return nil, fmt.Errorf("reading the tile's vault: %w", err)
-		}
-		keys, _ = prov.KeysFrom(v)
-	}
 	dir, rel, homeDir, token, revokeTok, err := m.prepare(o)
 	if err != nil {
 		return nil, err
@@ -239,18 +219,14 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string) (*Se
 		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
 	}
 
-	// The agent's env: the sandbox env, the provider's own knobs, the keys.
+	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
+	// its login from) plus the provider's own non-secret knobs. No API keys —
+	// the CLI authenticates from its home, exactly as a shell terminal does.
 	agentEnv := append([]string(nil), env...)
 	for _, k := range sortedKeys(prov.Env) {
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
-	agentEnv = append(agentEnv, keys...)
-	if len(keys) > 0 { // names only: the audit line never sees a value
-		slog.Info("audit", "action", "agent-secrets", "tile", rel, "provider", prov.ID, "keys", keyNames(keys))
-	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		// the first frame tells the host what to run: the keys reach the
-		// agent's environ and nothing else (not the spec, not a terminal)
 		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
@@ -279,7 +255,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string) (*Se
 		st.mu.Unlock()
 		close(st.ready)
 	}()
-	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted, "keys", len(keys))
+	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
 	return s, nil
 }
 
@@ -289,20 +265,6 @@ func sortedKeys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
-	return out
-}
-
-func keyNames(kv []string) []string {
-	out := make([]string, len(kv))
-	for i, e := range kv {
-		out[i] = e
-		for j := 0; j < len(e); j++ {
-			if e[j] == '=' {
-				out[i] = e[:j]
-				break
-			}
-		}
-	}
 	return out
 }
 

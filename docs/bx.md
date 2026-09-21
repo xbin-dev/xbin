@@ -213,11 +213,12 @@ prints as a block naming the answer command — `bx agent permit <id> <pid>
 once|always|deny` — and, when stdin is a terminal, a line `a` / `s` / `d`
 answers the latest one. `always` is **allow for the session**: later
 requests of the same kind and title are answered automatically; nothing is
-written to `xbin.json`. Provider keys come from the tile's vault (`bx vault
-set <tile> ANTHROPIC_API_KEY …`); without one the CLI uses whatever login
-its `$HOME` holds (a `claude auth login` done in a shell terminal serves
-the agent too — same home). Bypass modes (`bypassPermissions`,
-`agent-full-access`, `yolo`) are never defaults: pass `--mode` explicitly.
+written to `xbin.json`. The agent authenticates from its `$HOME` — the same
+per-user home a shell terminal gets — so a `claude /login` (or `codex
+login`, `opencode auth login`, …) done once in a shell terminal signs the
+agent in on every tile; no per-tile API key, no vault. Bypass modes
+(`bypassPermissions`, `agent-full-access`, `yolo`) are never defaults: pass
+`--mode` explicitly.
 `XBIN_AGENT_PROVIDER` sets the default provider (else `claude`).
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend

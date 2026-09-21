@@ -1243,7 +1243,7 @@ hub drops a slow subscriber rather than queue for it).
 | `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}]}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>` |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
-| `status` | `{status, detail?, modes?, currentMode?, usage?}` — status: starting \| idle \| running \| waiting_permission \| error \| exited; `modes` (the agent's available modes) rides the first `idle`; an `error` names what to do (a missing key names the `bx vault set` command) |
+| `status` | `{status, detail?, modes?, currentMode?, usage?}` — status: starting \| idle \| running \| waiting_permission \| error \| exited; `modes` (the agent's available modes) rides the first `idle`; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 
 The session dies with the daemon (the log is in memory); an `exited` or
 `error` status is final and the session leaves the directory (`term`

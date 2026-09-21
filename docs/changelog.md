@@ -21,9 +21,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   calls, permission requests, turn ends) and `?follow=1` or the new
   `session` event on `/ws/events` follows it live. Any attached client may
   answer a permission request — the first wins; *allow for the session* is
-  a rule on the session, not a grant. Provider keys come from the tile's
-  vault, only when present, and reach the agent process alone; the agent's
-  home is your per-user home, so CLI settings and logins carry over. New:
+  a rule on the session, not a grant. The agent authenticates from its
+  `$HOME` — the same per-user home a shell terminal gets — so a `claude
+  /login` (or `codex login`, …) done once in a terminal signs it in on every
+  tile; there are no per-tile API keys. New:
   `bx agent run|send|permit|attach|ls|stop`, `GET /api/xbin/agent/
   providers`, `GET/DELETE /term/sessions/<id>`, `kind`/`provider`/`mode`/
   `status`/`pending` on session rows, `GET /ws/term?session=<agent id>` →

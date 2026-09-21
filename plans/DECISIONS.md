@@ -1851,22 +1851,24 @@ Deviations and refinements made while implementing; all deliberate:
   truth, the socket the hint). Permissions: any client answers, first
   wins; "allow for session" answers the agent's `allow_always` option and
   records a rule on the *session* — not a grant, because grants have no
-  session scope and a terminal-level user cannot approve one. Provider keys:
-  the daemon reads the tile's vault at spawn and hands the provider's key
-  names to the agent process through the spawn frame — the one amendment
-  to D30 (values readable by the tile's backend only): the tile's own
-  secrets reach the tile's own plane, never a human, a terminal, or the
-  API; not in the sandbox spec (a temp file) and not inherited by the
-  terminals the agent opens; the audit line names the keys, never values.
-  Absent a key the CLI uses its home's login, so the per-user home (D6)
-  carries settings and logins to the agent unchanged — the daemon never
-  overrides `HOME` or the CLIs' config env, and the requested mode is
-  applied after the CLI loaded its settings. Conservative modes are the
+  session scope and a terminal-level user cannot approve one. Credentials:
+  the agent authenticates from the session's per-user `$HOME` (D6) — the
+  same home a shell terminal gets — and nowhere else. The daemon never
+  overrides `HOME` or the CLIs' config env, so a `claude /login` / `codex
+  login` / `opencode auth login` done once in a shell terminal signs the
+  agent in on every tile; no login → the first turn's `status error` names
+  the command to run in a terminal. (v0.3.51 shipped an extra path that
+  injected keys from the tile vault into the agent process; it was reverted
+  the same day as needless jank — the home is the whole point of per-user
+  terminals, and agent sessions are terminals. There are no provider keys
+  in the vault.) The requested mode is applied after the CLI has loaded its
+  settings, so a `permissions.defaultMode` in `~/.claude/settings.json` is
+  the default when no mode is asked. Conservative modes are the
   defaults; bypass modes are `explicit` in the provider table and must be
   named. A shell's own terminal token may open and drive a session for its
   OWN tile (`CanTerminalTileVia`, revocation-safe) so `bx agent run` works
   inside a terminal, but never another tile's (tile A's agent must not
-  reach tile B's vault through B's agent); such a session is restricted
+  drive tile B's session); such a session is restricted
   even for an admin — the token is the tile, not the human. The daemon's
   `bx` is bound in rather than the rootfs's (`/usr/local/bin/bx` drifts
   from the daemon; the host must be the daemon's version), so the dev `bx`
