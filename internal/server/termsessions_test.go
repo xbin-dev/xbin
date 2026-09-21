@@ -73,7 +73,7 @@ func TestTermSessionsRoutes(t *testing.T) {
 }
 
 func TestTermEventFilter(t *testing.T) {
-	ev := events.Event{Type: "term", Component: "apps/x", Data: map[string]any{"op": "open", "id": "s1", "user": "alice"}}
+	ev := events.Event{Type: "term", Component: "apps/x", Data: termChange{Op: "open", ID: "s1", User: "alice"}}
 	alice := auth.Principal{UserID: "alice", Via: "session", User: &users.User{ID: "alice", Role: "user"}}
 	bob := auth.Principal{UserID: "bob", Via: "session", User: &users.User{ID: "bob", Role: "user"}}
 	admin := auth.Principal{Owner: true}
@@ -89,8 +89,8 @@ func TestTermEventFilter(t *testing.T) {
 	defer cancel()
 	s.TermChanged("close", "alice", "s1", "apps/x")
 	got := <-ch
-	d, _ := got.Data.(map[string]any)
-	if got.Type != "term" || got.Component != "apps/x" || d["op"] != "close" || d["id"] != "s1" || d["user"] != "alice" {
-		t.Fatalf("published %+v", got)
+	b, _ := json.Marshal(got.Data)
+	if got.Type != "term" || got.Component != "apps/x" || string(b) != `{"op":"close","id":"s1","user":"alice"}` {
+		t.Fatalf("published %+v (%s)", got, b)
 	}
 }

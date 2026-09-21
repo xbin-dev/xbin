@@ -532,7 +532,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		if e.Type == "pr" {
 			return p.IsAdmin() || p.CanReadTile(e.Component)
 		}
-		if e.Type == "term" { // the session directory: the owner's browsers, and admins (D73)
+		if e.Type == "term" || e.Type == "session" { // per-user: the owner's browsers, and admins (D73/D74)
 			return termEventFor(p, e)
 		}
 		if e.Type != "bus" {
@@ -592,6 +592,11 @@ func auditable(method, path string) bool {
 		if strings.HasPrefix(path, dp) {
 			return false
 		}
+	}
+	// Driving an agent session (prompt/cancel/permission answers) is the
+	// same plane: creating and ending one stays audited.
+	if strings.HasPrefix(path, "/term/sessions/") && (strings.HasSuffix(path, "/prompt") || strings.HasSuffix(path, "/cancel") || strings.Contains(path, "/permissions/")) {
+		return false
 	}
 	return true
 }

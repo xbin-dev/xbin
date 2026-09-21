@@ -48,13 +48,13 @@ gocryptfs: $(GOCRYPTFS)
 # printed for the root admin. Use `make dev-noauth` for admin-everything.
 dev: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
-	go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev
+	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev; static: it is also the agent host bound into sandboxes (D74)
 	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # Frictionless mode: no auth, every request is admin (still isolated).
 dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
-	go build -o bin/bx ./cmd/bx
+	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # A bare `make dev` encrypts tile data at rest by default (a built-in dev key;
@@ -65,7 +65,7 @@ dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 # sqlite isn't auto-migrated.
 dev-plaintext: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
-	go build -o bin/bx ./cmd/bx
+	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:

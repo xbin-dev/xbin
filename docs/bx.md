@@ -101,6 +101,15 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--net s] "<prompt>"
+                                       an AGENT SESSION on a tile: the coding
+                                       agent runs in the tile's sandbox, its
+                                       stream lands here (D74)
+bx agent send <id> "<text>" | permit <id> <pid> once|always|deny
+                                       prompt a running one · answer a
+                                       permission request (first answer wins)
+bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
+                                       replay + follow · list yours · end one
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (docs/overview/14-lifecycle.md)
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
@@ -192,6 +201,24 @@ sets (unknown attachments, rules that can't parse, orgs granted HOST
 networking, inert net bindings); go.work ownership; host inotify budget;
 toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
+
+**`bx agent`** — drives an **agent session** (docs/overview/09-terminals.md
+§Agent sessions): `run` opens one on a tile (inside a tile's terminal the
+tile is implied and the terminal's own token is accepted for it), sends the
+prompt and follows the stream until the turn ends — exit 0 on `end_turn`,
+3 on a refusal or error, 130 when cancelled. Kill the client any time: the
+session keeps running, `bx agent attach <id>` replays it from the start
+(`--since <seq>` from a cursor) and continues live. A permission request
+prints as a block naming the answer command — `bx agent permit <id> <pid>
+once|always|deny` — and, when stdin is a terminal, a line `a` / `s` / `d`
+answers the latest one. `always` is **allow for the session**: later
+requests of the same kind and title are answered automatically; nothing is
+written to `xbin.json`. Provider keys come from the tile's vault (`bx vault
+set <tile> ANTHROPIC_API_KEY …`); without one the CLI uses whatever login
+its `$HOME` holds (a `claude auth login` done in a shell terminal serves
+the agent too — same home). Bypass modes (`bypassPermissions`,
+`agent-full-access`, `yolo`) are never defaults: pass `--mode` explicitly.
+`XBIN_AGENT_PROVIDER` sets the default provider (else `claude`).
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
 generation is delimited by a `--- gen N start …` line.

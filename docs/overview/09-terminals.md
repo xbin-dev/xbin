@@ -362,6 +362,63 @@ terminals stay unlimited (dev builds are hungry). Session caps: **32 per user,
 (`?gpu=all|<index>`, owner plane) — the device nodes and driver libs are bound
 in like a `gpu:*` backend grant.
 
+## Agent sessions (D74)
+
+An **agent session** is a terminal session whose sandbox runs a coding
+agent instead of a shell. Same mounts, same per-user `$HOME`, same tile
+token and network scope — but the entry is xbind's own `bx __agent-host`,
+which spawns the provider's CLI (Claude Code through `claude-agent-acp`,
+Codex through `codex-acp`, `gemini --acp`, `opencode acp`) and speaks the
+Agent Client Protocol (ACP, JSON-RPC over the process's stdio) between it
+and xbind. There is no PTY: xbind sends prompts, receives typed updates
+(message and thought deltas, plans, tool calls, permission requests) and
+keeps them in an **append-only event log** per session that any client
+replays by cursor and follows live (`GET /api/xbin/term/sessions/<id>/events`,
+`session` events on `/ws/events`). Two clients on one session — the Agent
+tab in two browsers, or `bx agent attach` in a shell — see one stream; a
+**permission request** is answered by whichever answers first, and *allow
+for the session* records a rule on the session (later requests of the same
+kind and title auto-resolve; nothing lands in `xbin.json`). The session
+outlives every client and dies with the daemon.
+
+What the agent gets:
+
+- **its home.** `HOME` is the same `homes/<you>` a shell gets, so
+  `~/.claude/settings.json`, `~/.codex/config.toml`, `~/.gemini/`,
+  `~/.config/opencode/` and the logins kept there carry over — a `claude
+  auth login` done in a shell terminal serves the agent on every tile. The
+  mode you pass at creation is applied after the CLI has loaded its
+  settings, so a `permissions.defaultMode` in your settings is the default
+  when you pass none.
+- **provider keys from the tile's vault, only when present.** At spawn
+  xbind reads the tile's vault and hands the provider's keys
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`CODEX_API_KEY`, `GEMINI_API_KEY`,
+  every `*_API_KEY` for OpenCode) to the agent process — and to it alone:
+  they travel in the spawn frame to the host, not in the sandbox spec, and
+  a terminal the agent opens does not inherit them (`printenv` there shows
+  none). This is the one amendment to D30: the tile's own secrets reach the
+  tile's own plane, never a human or a terminal, never over the API. Absent
+  a key, the CLI falls back to its home's login; a missing one surfaces as
+  a `status error` naming the `bx vault set` command. The audit log
+  records the key *names* handed over, never values.
+- **conservative modes by default.** Claude Code starts in `default` (ask
+  before acting), Codex in `read-only`, Gemini in `default`; the bypass
+  modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must
+  be asked for by name — never a default, never chosen for you.
+- **files and terminals inside the sandbox.** The agent's file reads and
+  writes and the terminals it opens are served by the host *inside* the
+  sandbox, so the kernel's mount view — the allow-list, the masks, the
+  read-only tiles — is the authority; writes are confined to the tile.
+  `bx` inside such a terminal carries the session's tile token, so a
+  cross-tile call is refused until a grant says otherwise, like a shell's.
+- **the shell's restrictions.** A non-admin's agent session is a
+  restricted session (D18/D17); one started from a shell's own token
+  (`bx agent run` in a tile terminal) is restricted even for an admin —
+  the terminal token is the tile's element principal, not the human.
+
+Start one from the terminal window's **+ Agent** button, or from a shell:
+`bx agent run --provider opencode "list the files here"` (docs/bx.md).
+
 ## The logs tab
 
 The terminal window also carries a read-only **logs** tab (the `▤` button):

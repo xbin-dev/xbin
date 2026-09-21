@@ -265,6 +265,10 @@ func (st *State) stepTerminals() error {
 	tm.Listen = st.Cfg.Listen      // for the internet-scope relay host-forward to xbind
 	tm.SeedHome = seedHomeSkeleton // .zshrc/.bashrc/… into a fresh per-user home
 	tm.Tokens = st.Auth            // per-session tile-scoped terminal tokens (plans/terminal-tokens.md)
+	if bxDir != "" {               // the agent host bound into agent sandboxes (D74)
+		tm.BxPath = filepath.Join(bxDir, "bx")
+	}
+	term.Version = st.Cfg.Version
 	// D17a: a non-admin's terminal masks out the source of every tile below
 	// their read level — the mount-level half of the same visibility rule the
 	// tile list applies (chrome isn't a registry component, so no exception
@@ -397,6 +401,7 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
+	st.Term.Secrets = brk.VaultFor // provider keys for agent sessions (D74)
 	brk.ExternalURL = st.externalURL
 	st.Broker = brk
 	return nil
@@ -625,6 +630,7 @@ func (st *State) stepServer() error {
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
+		st.Term.OnEvent = srv.SessionEvent // agent session events (D74)
 	}
 	if st.overlay != "" {
 		slog.Info("dev overlay: /c/ files shadowed from disk (manifests excluded)", "dir", st.overlay)

@@ -100,7 +100,7 @@ func main() {
 	case "backup-schedule":
 		err = cmdBackupSchedule(os.Args[2:])
 	default:
-		usage()
+		err = cmdExtra(os.Args[1], os.Args[2:])
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bx:", err)
@@ -164,10 +164,11 @@ func usage() {
   bx backups <component>                list archived versions
   bx restore <component> [--version v] [--file path]
                                         restore a version, or one file to stdout
-  bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]
-                                        list/set/remove scheduled backups
+  bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]   scheduled backups
   bx vault status|unseal|seal|rekey     encryption-at-rest barrier
   bx vault ls|get|set|rm <component> [key] [value]
+  bx agent run|send|permit|attach|ls|stop
+                                        drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
 `)

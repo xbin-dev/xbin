@@ -1825,3 +1825,52 @@ Deviations and refinements made while implementing; all deliberate:
   explicit by-id attach for debugging; only the auto-restore stops crossing
   users. `DELETE /ws/term/env` still kills every user's sessions on a tile
   — flagged, not changed.
+- **D74 — Agent sessions: a terminal session with an agent driver, the
+  host inside the sandbox, keys from the tile vault (2026-09-21).** A
+  coding agent should run where a shell runs — the tile's sandbox, the
+  user's home, the tile's token and network scope — and be driven from
+  anywhere: a browser tab, a second browser, `bx` in a shell, all seeing
+  one stream. So an agent session IS a terminal session (`kind:"agent"`,
+  same `Manager`, directory, per-user ownership, reaper, limits) whose
+  entry is not a shell but the daemon's own `bx __agent-host`, bound
+  read-only into the sandbox (host and daemon are one build): it spawns
+  the provider's ACP adapter from the first frame xbind sends and proxies
+  the Agent Client Protocol between them, serving `fs/*` and `terminal/*`
+  itself *inside* the sandbox, where the kernel's mount view (the
+  allow-list, the masks, the read-only tiles) is the authority instead of
+  a second copy of the visibility rules in the daemon. Chosen over a
+  supervisor in xbind (nothing can run a second process in the sandbox's
+  namespaces after the init has exec'd — `init_linux.go` applies the
+  guards and execs, PID 1 is the entry) and over a sub-sandbox for the ACP
+  handling (agreed overkill: the host is xbind code, a descendant of the
+  init, under every guard already). Events are an append-only per-session
+  log (ring: 5000 events / 8 MiB) replayed by cursor and mirrored live as
+  `session` hub events filtered like `term` ones — chosen over a stateful
+  channel on `/ws/events` (the hub has no history and evicts slow
+  subscribers, so a client re-fetches on a skipped seq; the log is the
+  truth, the socket the hint). Permissions: any client answers, first
+  wins; "allow for session" answers the agent's `allow_always` option and
+  records a rule on the *session* — not a grant, because grants have no
+  session scope and a terminal-level user cannot approve one. Provider keys:
+  the daemon reads the tile's vault at spawn and hands the provider's key
+  names to the agent process through the spawn frame — the one amendment
+  to D30 (values readable by the tile's backend only): the tile's own
+  secrets reach the tile's own plane, never a human, a terminal, or the
+  API; not in the sandbox spec (a temp file) and not inherited by the
+  terminals the agent opens; the audit line names the keys, never values.
+  Absent a key the CLI uses its home's login, so the per-user home (D6)
+  carries settings and logins to the agent unchanged — the daemon never
+  overrides `HOME` or the CLIs' config env, and the requested mode is
+  applied after the CLI loaded its settings. Conservative modes are the
+  defaults; bypass modes are `explicit` in the provider table and must be
+  named. A shell's own terminal token may open and drive a session for its
+  OWN tile (`CanTerminalTileVia`, revocation-safe) so `bx agent run` works
+  inside a terminal, but never another tile's (tile A's agent must not
+  reach tile B's vault through B's agent); such a session is restricted
+  even for an admin — the token is the tile, not the human. The daemon's
+  `bx` is bound in rather than the rootfs's (`/usr/local/bin/bx` drifts
+  from the daemon; the host must be the daemon's version), so the dev `bx`
+  is built static. Out of scope, flagged: persisting logs across restarts,
+  ACP v2 (fs/terminal move out of the protocol — the host becomes
+  optional), MCP servers handed to the agent (`mcpServers: []`), per-user
+  "always" rules across sessions.

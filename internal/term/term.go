@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -60,6 +61,9 @@ type Session struct {
 	gpu     string // the pickers this session was opened with (the directory restores a tab from them, D73)
 	api     bool
 	name    string // the tab's name, per session (sessions.go); guarded by mu
+	kind    string // KindShell (a PTY) or KindAgent (agent.go: no PTY, an ACP driver over pipes)
+	agent   *agentState
+	pgid    bool // the process leads its own group (the non-isolated agent host): kill the group
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -126,6 +130,17 @@ type Manager struct {
 	// sandbox. nil ⇒ the old deny-list masking via HiddenTiles.
 	TermView func(p auth.Principal) (readable []string, rootFiles map[string][]byte)
 
+	// BxPath is the daemon's own bx binary (located at boot): an agent
+	// session binds it read-only into its sandbox as the entry (`bx
+	// __agent-host`, D74) — host and daemon are one build. Secrets reads a
+	// tile's vault for the provider keys an agent session injects (the
+	// broker's VaultFor; nil ⇒ no keys). OnEvent receives every agent
+	// session event as it is logged (the server publishes it as a `session`
+	// event). agent.go.
+	BxPath  string
+	Secrets func(rel string) (map[string]string, error)
+	OnEvent func(cwd string, ev SessionEvent)
+
 	// Cgroup, when set (main wires it under cgroup delegation), puts each
 	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a
 	// runaway non-admin terminal OOMs/throttles alone instead of taking the
@@ -166,7 +181,6 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// read/edit source but can't call the live tile (or xbin) API. Default on.
 	apiAccess := r.URL.Query().Get("api") != "0"
 	p := auth.PrincipalOf(r)
-	homeKey := HomeKey(p)
 
 	var (
 		s   *Session
@@ -188,6 +202,10 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, why, http.StatusForbidden)
 			return
 		}
+		if s.kind == KindAgent {
+			http.Error(w, "an agent session has no terminal socket — use the agent API (docs/protocol.md)", http.StatusConflict)
+			return
+		}
 	} else {
 		// Session-open gates — the "user" half of min(user, tile)
 		// (plans/terminal-tokens.md). The root terminal (no cwd) is disabled
@@ -203,32 +221,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 			return
 		}
-		// Non-admin users get the restricted tier: the D18 kernel lockdown (no
-		// nested user/mount namespaces, dangerous caps dropped — apt still
-		// works), the D17 scope clamps (api/net below), source visibility cut
-		// to their allow-list, and resource limits. Admins and the owner keep
-		// full caps + full view for dev work.
-		o := openOpts{
-			cwd: cwd, net: netMode, gpu: gpuMode,
-			homeKey: homeKey, userID: p.UserID,
-			api: apiAccess, restricted: !p.IsAdmin(),
-			netGrant: m.termNetFor(p, rel),
-		}
-		asked := o.net
-		o.api, o.net = clampTermScopes(p, o.api, o.net, o.netGrant)
-		o.scopes, _ = ScopesFor(p, o.netGrant)
-		if asked != "" && asked != o.net {
-			o.netNote = clampNote(asked, o.net, o.netGrant)
-		}
-		o.netHost, o.netRules, o.label = resolveNet(o.net, o.netGrant)
-		if o.restricted {
-			if m.TermView != nil { // D40 allow-list view
-				o.readable, o.rootFiles = m.TermView(p)
-			} else if m.HiddenTiles != nil { // deny-list fallback
-				o.hide = m.HiddenTiles(p)
-			}
-		}
-		s, err = m.create(o)
+		s, err = m.create(m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -279,26 +272,28 @@ type openOpts struct {
 	hide       []string          // component dirs masked out of the mount (D17a fallback)
 	readable   []string          // allow-list view: components bound into the mount (D40)
 	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
+	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
 }
 
-func (m *Manager) create(o openOpts) (*Session, error) {
-	dir := m.Root
-	rel := ""
+// prepare is the part of opening a session that both kinds share: the cwd,
+// the limits, the user's home and the terminal token. Returns the token's
+// revoke.
+func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTok func(), err error) {
+	dir = m.Root
 	if o.cwd != "" {
-		var err error
 		dir, rel, err = util.SafeJoin(m.Root, o.cwd)
 		if err != nil {
-			return nil, err
+			return
 		}
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("cwd %q is not a directory", o.cwd)
+			return "", "", "", "", nil, fmt.Errorf("cwd %q is not a directory", o.cwd)
 		}
 	}
 
 	m.mu.Lock()
 	if len(m.sessions) >= maxSessions {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("session limit (%d) reached", maxSessions)
+		return "", "", "", "", nil, fmt.Errorf("session limit (%d) reached%w", maxSessions, errLimit)
 	}
 	perUser := 0 // one user can't exhaust the global pool
 	for _, s := range m.sessions {
@@ -308,14 +303,14 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	}
 	m.mu.Unlock()
 	if perUser >= maxSessionsPerUser {
-		return nil, fmt.Errorf("per-user terminal limit (%d) reached — close some terminals", maxSessionsPerUser)
+		return "", "", "", "", nil, fmt.Errorf("per-user terminal limit (%d) reached — close some terminals%w", maxSessionsPerUser, errLimit)
 	}
 
 	// This user's $HOME, created + skeleton-seeded on first use (lazy: the user
 	// set is dynamic, so homes materialize per user, not at scaffold time).
-	homeDir := HomeDir(m.Root, o.homeKey)
-	if err := os.MkdirAll(homeDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create home %s: %w", homeDir, err)
+	homeDir = HomeDir(m.Root, o.homeKey)
+	if err = os.MkdirAll(homeDir, 0o700); err != nil {
+		return "", "", "", "", nil, fmt.Errorf("create home %s: %w", homeDir, err)
 	}
 	if m.SeedHome != nil {
 		if err := m.SeedHome(homeDir); err != nil {
@@ -326,17 +321,23 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	// Per-session terminal token: the shell's XBIN_TOKEN resolves to THIS
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
 	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
-	token := ""
 	if m.Tokens != nil && o.api {
 		token = m.Tokens.MintTerminal(rel, o.userID)
 	}
-	revokeTok := func() {
+	revokeTok = func() {
 		if token != "" {
 			m.Tokens.RevokeTerminal(token)
 		}
 	}
+	return
+}
 
-	cmd, cleanup, postStart, envKey := m.shellCmd(dir, rel, homeDir, token, o)
+func (m *Manager) create(o openOpts) (*Session, error) {
+	dir, rel, homeDir, token, revokeTok, err := m.prepare(o)
+	if err != nil {
+		return nil, err
+	}
+	cmd, cleanup, postStart, envKey, _ := m.shellCmd(dir, rel, homeDir, token, o)
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -358,7 +359,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	}
 
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f,
+		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
@@ -396,11 +397,12 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 // an optional postStart hook (run after the PTY starts) that wires the egress
 // relay, and the persistent env-layer key this session holds ("" = none).
 // homeDir is the session user's $HOME (homes/<user>); token the per-session
-// terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none).
-func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string) {
+// terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none). The last
+// result is the entry's env (an agent session builds the agent's from it).
+func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string) {
 	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, err := m.sandboxShell(dir, rel, homeDir, token, o); err == nil {
-			return cmd, cleanup, post, envKey
+		if cmd, cleanup, post, envKey, env, err := m.sandboxShell(dir, rel, homeDir, token, o); err == nil {
+			return cmd, cleanup, post, envKey, env
 		} else {
 			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
 		}
@@ -410,6 +412,10 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 		shell = "/bin/bash"
 	}
 	cmd := exec.Command(shell)
+	if o.kind == KindAgent { // the agent host as a plain child, leading its own group (agent.go)
+		cmd = exec.Command(m.BxPath, "__agent-host")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	cmd.Dir = dir
 	// Host HOME is dropped: even the fallback shell keeps dotfiles/agent config
 	// in the per-user workspace home. XBIN_TOKEN likewise: only the session's
@@ -437,7 +443,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	if token != "" {
 		cmd.Env = append(cmd.Env, "XBIN_TOKEN="+token)
 	}
-	return cmd, func() {}, nil, ""
+	return cmd, func() {}, nil, "", cmd.Env
 }
 
 // termKey is the per-component key for a terminal's persistent layer.
@@ -638,16 +644,19 @@ func scopedBindsView(root, rel, homeDir, viewDir string, readable []string, extr
 // — a resettable dev sandbox per component (plans/component-env.md). Only one
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
-func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, error) {
+func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string, error) {
 	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds, o.hide)
 	viewDir := ""
 	if o.restricted && rel != "" && o.rootFiles != nil { // D40 allow-list view
 		vd, err := m.stageView(rel, o.homeKey, o.readable, o.rootFiles)
 		if err != nil {
-			return nil, nil, nil, "", fmt.Errorf("stage terminal view: %w", err)
+			return nil, nil, nil, "", nil, fmt.Errorf("stage terminal view: %w", err)
 		}
 		viewDir = vd
 		binds = scopedBindsView(m.Root, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
+	}
+	if o.kind == KindAgent { // the daemon's own bx, read-only, is the entry (agent.go)
+		binds = append(binds, sandbox.Bind{Src: m.BxPath, Dst: agentHostPath, RO: true})
 	}
 	dropView := func() {
 		if viewDir != "" {
@@ -679,12 +688,15 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		// Non-admin user terminals additionally get the ns/cap lockdown (D18).
 		Restricted: o.restricted && rel != "",
 	}
+	if o.kind == KindAgent {
+		spec.Entry, spec.Argv = agentHostPath, []string{"bx", "__agent-host"}
+	}
 	if rel != "" {
 		// AllowUnder: the own $HOME (under the otherwise-masked homes/), plus
 		// every explicit read-only extra mount (the SDK for `go build`) — a
 		// bind the sandbox itself makes must never be read-blocked, wherever
 		// it lands (the /opt/xbin/sdk regression, 2026-07-12).
-		allow := []string{homeDir}
+		allow := []string{homeDir, agentHostPath}
 		for _, b := range m.ExtraBinds {
 			allow = append(allow, b.Dst)
 		}
@@ -708,7 +720,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			// gate normally prevents reaching here). Reset the terminal to upgrade.
 			m.releaseEnv(envKey)
 			dropView()
-			return nil, nil, nil, "", fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
+			return nil, nil, nil, "", nil, fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
 		}
 		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
 			spec.Lower = []string{base}
@@ -741,7 +753,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
-		return nil, nil, nil, "", err
+		return nil, nil, nil, "", nil, err
 	}
 
 	hostFwd := m.hostForward()
@@ -780,7 +792,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		h.Cleanup()
 		dropView()
 	}
-	return cmd, cleanup, post, envKey, nil
+	return cmd, cleanup, post, envKey, env, nil
 }
 
 // hostForward maps the xbind listen port on the relay gateway IP to xbind on
@@ -1005,7 +1017,12 @@ func scrollTail(b []byte, n int) string {
 
 func (s *Session) kill() {
 	if s.cmd.Process != nil {
+		if s.pgid { // the non-isolated agent host and its agent: the whole group
+			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		}
 		_ = s.cmd.Process.Kill()
 	}
-	_ = s.pty.Close()
+	if s.pty != nil {
+		_ = s.pty.Close()
+	}
 }

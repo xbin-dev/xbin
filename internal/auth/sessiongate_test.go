@@ -1,0 +1,39 @@
+package auth
+
+import (
+	"testing"
+
+	"github.com/xbin-dev/xbin/internal/users"
+)
+
+func TestCanTerminalTileVia(t *testing.T) {
+	u := &users.User{ID: "alice", Role: "user", Tiles: map[string]string{"apps/x": users.LevelTerminal, "apps/y": users.LevelTerminal}}
+	// a human session: the plain gate
+	if p := (Principal{UserID: "alice", Via: "session", User: u}); !p.CanTerminalTileVia("apps/x") || p.CanTerminalTileVia("apps/z") {
+		t.Fatal("session principal")
+	}
+	// a terminal token: its own tile only, while the user's level holds
+	tok := Principal{Component: "apps/x", UserID: "alice", Via: "terminal", User: u}
+	if !tok.CanTerminalTileVia("apps/x") {
+		t.Fatal("own tile refused")
+	}
+	if tok.CanTerminalTileVia("apps/y") {
+		t.Fatal("another tile (terminal-level for the user) must be refused from a terminal token")
+	}
+	revoked := tok
+	revoked.User = &users.User{ID: "alice", Role: "user", Tiles: map[string]string{"apps/x": users.LevelWrite}}
+	if revoked.CanTerminalTileVia("apps/x") {
+		t.Fatal("a withdrawn level must close the door")
+	}
+	// an owner-driven terminal (no user id): its own tile
+	if p := (Principal{Component: "apps/x", Via: "terminal"}); !p.CanTerminalTileVia("apps/x") || p.CanTerminalTileVia("apps/y") {
+		t.Fatal("owner terminal")
+	}
+	// other elements: never (as CanTerminalTile)
+	if p := (Principal{Component: "apps/x", Via: "instance"}); p.CanTerminalTileVia("apps/x") {
+		t.Fatal("an instance token is not a terminal")
+	}
+	if p := (Principal{Component: "apps/x", UserID: "alice", Via: "frame", User: u}); p.CanTerminalTileVia("apps/x") {
+		t.Fatal("a frame token is not a terminal")
+	}
+}

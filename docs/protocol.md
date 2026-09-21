@@ -287,6 +287,39 @@ GET    /term/sessions             authenticated. the caller's live terminal
 PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
                                    clears; lives on the session → follows the
                                    user) → ok
+GET    /agent/providers           authenticated. the coding agents this daemon
+                                   runs: [{id,name,modes:[{id,name,explicit?}],
+                                   defaultMode,keys}] (D74; explicit modes are
+                                   never defaults)
+POST   /term/sessions             terminal-level on the tile (a shell's own
+                                   terminal token counts). {cwd, kind:"agent",
+                                   provider, mode?, net?, name?} → SessionInfo
+                                   (kind agent, status starting): an AGENT
+                                   SESSION — the tile's sandbox runs the
+                                   provider's ACP adapter instead of a shell.
+                                   400 unknown provider/mode, 403, 409 per-user
+                                   limit, 503 vault sealed / no bx. Shells
+                                   still open on /ws/term
+GET    /term/sessions/<id>        creator or admin → {session, permissions:
+                                   [{pid,toolCall,options}]} (either kind)
+DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
+                                   API twin of DELETE /ws/term?session=)
+POST   /term/sessions/<id>/prompt creator or admin. {text} → {ok, turn};
+                                   409 while a turn runs
+POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
+                                   cancelled; pending permissions cancelled)
+POST   /term/sessions/<id>/permissions/<pid>
+                                   creator or admin. {optionId} | {decision:
+                                   allow_once|allow_always|reject_once|
+                                   reject_always} → ok; the first answer
+                                   wins (404 after); allow_always records a
+                                   session rule (nothing in xbin.json)
+GET    /term/sessions/<id>/events creator or admin. ?since=<seq> → {events,
+                                   next, truncated}; ?follow=1 streams NDJSON
+                                   from the cursor until the client or the
+                                   session goes (§Agent session events)
+GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
+                                   stderr + driver notes (debugging)
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
 PUT    /prefs/<key>               set it (body = JSON value)
@@ -1076,7 +1109,10 @@ which are masked out) with `.xbin/`, `data/`, and other users' `homes/`
 token or resource state. **The root terminal (no cwd) is disabled** — 403 for
 everyone. Reattach/kill of another user's session: admins only. Which
 sessions are yours on a tile: `GET /api/xbin/term/sessions?cwd=` (the
-session directory, D73) — a browser keeps no session ids of its own.
+session directory, D73) — a browser keeps no session ids of its own. An
+**agent session** (`kind:"agent"`, created on `POST /api/xbin/term/sessions`)
+has no terminal socket: `?session=<agent id>` answers **409** — drive it
+through the agent routes above.
 
 For a **non-admin**, the query params below are clamped rather than honored
 (docs/isolation.md): `api` is forced to `0` without the `termApi` grant; on a
@@ -1173,17 +1209,45 @@ cookie required). JSON text frames:
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
 {"type":"term","component":"apps/thing",             // a terminal session of yours was
  "data":{"op":"open|close|rename","id":"…","user":"…"}} // opened/ended/renamed (D73): re-list
+{"type":"session","topic":"session.<id>","component":"apps/thing", // an agent session event (D74):
+ "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
 ```
 
-Non-bus events go to every subscriber, except `term` events, which reach
-the session's owner (`data.user`) and admins — re-list `GET /term/sessions`
-on one; the id and op are enough to update a tab bar in place. `bus` events
+Non-bus events go to every subscriber, except `term` and `session` events,
+which reach the session's owner (`data.user`) and admins — re-list `GET
+/term/sessions` on a `term` one; the id and op are enough to update a tab
+bar in place. `bus` events
 are delivered only to
 the owner and to elements holding a reader grant on the resource. `status`
 events broadcast like the build events (the shell renders each only for tiles
 it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
 do).
+
+### Agent session events
+
+An agent session's log (`GET /term/sessions/<id>/events`) and its live
+`session` events carry the same entries: `{seq, ts, type, data}` — `seq`
+from 1 per session, `ts` unix milliseconds. A client renders from the
+replay and applies live events by `seq`; on a skipped `seq`, a socket
+reconnect, or a tab becoming visible it re-fetches `?since=<last>` (the
+hub drops a slow subscriber rather than queue for it).
+
+| type | data |
+|---|---|
+| `message.delta` | `{role:"user"\|"agent", text, messageId?}` — a prompt is logged as one `user` delta, so every client sees it; agent text arrives in runs (a burst of tokens is coalesced into a few events) |
+| `thought.delta` | `{text}` — the agent's reasoning, when it shares it |
+| `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
+| `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| other; content items are `{type:"content", content:{type:"text", text}}`, `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}` |
+| `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace |
+| `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}]}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>` |
+| `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
+| `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
+| `status` | `{status, detail?, modes?, currentMode?, usage?}` — status: starting \| idle \| running \| waiting_permission \| error \| exited; `modes` (the agent's available modes) rides the first `idle`; an `error` names what to do (a missing key names the `bx vault set` command) |
+
+The session dies with the daemon (the log is in memory); an `exited` or
+`error` status is final and the session leaves the directory (`term`
+event `close`).
 
 ## Tile ↔ shell messaging (window.postMessage)
 

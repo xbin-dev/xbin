@@ -111,6 +111,18 @@ RUN bun add -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} || npm install -
 ARG CODEX_VERSION=0.153.2
 RUN bun add -g @openai/codex@${CODEX_VERSION} || npm install -g @openai/codex@${CODEX_VERSION} || true
 
+# ACP adapters — what an AGENT SESSION drives over the Agent Client Protocol
+# (D74): claude-agent-acp wraps the Claude Agent SDK (node ≥ 22, bundles its
+# own Claude Code), codex-acp wraps Codex's app server (bundles its own
+# codex), gemini speaks ACP natively (`gemini --acp`), and so does opencode
+# (`opencode acp`, above). Same one-tool-per-step, pinned, best-effort rule.
+ARG CLAUDE_ACP_VERSION=0.79.0
+RUN bun add -g @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION} || npm install -g @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION} || true
+ARG CODEX_ACP_VERSION=1.12.0
+RUN bun add -g @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} || npm install -g @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} || true
+ARG GEMINI_CLI_VERSION=0.60.0
+RUN bun add -g @google/gemini-cli@${GEMINI_CLI_VERSION} || npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION} || true
+
 # opencode from its release binary (same asset its official installer uses),
 # NOT npm: its npm postinstall re-invokes npm with the parent's lifecycle env
 # (npm_config_global etc.) and misplaces the platform binary, and npm treats
@@ -158,7 +170,7 @@ RUN useradd -m -s /bin/bash builder || true
 # best-effort by design; this makes anything missing IMPOSSIBLE to miss and
 # stamps the manifest into the image for doctor-style checks. The build
 # stays green (see the per-step comments), the log does not stay quiet.
-RUN set -- node bun go claude codex opencode pnpm yarn npm gopls dlv gh bx playwright; \
+RUN set -- node bun go claude codex opencode claude-agent-acp codex-acp gemini pnpm yarn npm gopls dlv gh bx playwright; \
     ok=1; : > /etc/xbin-rootfs-tools; \
     for t in "$@"; do \
       if command -v "$t" >/dev/null 2>&1; then \

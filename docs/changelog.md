@@ -12,6 +12,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-21
 
+- **Agent sessions: a coding agent in the tile's sandbox, driven over the
+  API (D74).** `POST /api/xbin/term/sessions {cwd, kind:"agent", provider,
+  mode?}` opens a terminal session whose sandbox runs Claude Code, Codex,
+  Gemini CLI or OpenCode through the Agent Client Protocol instead of a
+  shell; `…/prompt`, `…/cancel`, `…/permissions/<pid>` drive it; `…/events
+  ?since=` replays its typed event log (messages, thoughts, plans, tool
+  calls, permission requests, turn ends) and `?follow=1` or the new
+  `session` event on `/ws/events` follows it live. Any attached client may
+  answer a permission request — the first wins; *allow for the session* is
+  a rule on the session, not a grant. Provider keys come from the tile's
+  vault, only when present, and reach the agent process alone; the agent's
+  home is your per-user home, so CLI settings and logins carry over. New:
+  `bx agent run|send|permit|attach|ls|stop`, `GET /api/xbin/agent/
+  providers`, `GET/DELETE /term/sessions/<id>`, `kind`/`provider`/`mode`/
+  `status`/`pending` on session rows, `GET /ws/term?session=<agent id>` →
+  409. The base rootfs pins `@agentclientprotocol/claude-agent-acp`,
+  `@agentclientprotocol/codex-acp` and `@google/gemini-cli` (a base update
+  — persistent terminal layers offer the usual upgrade). Docs:
+  overview/09-terminals.md §Agent sessions, bx.md, protocol.md.
 - **Terminals follow the user, not the browser (D73).** Which terminal
   sessions are yours on a tile is now the server's knowledge — the
   **session directory**: `GET /api/xbin/term/sessions[?cwd=]` lists the

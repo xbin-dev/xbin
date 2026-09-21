@@ -17,7 +17,21 @@ import (
 func (s *Server) registerTermAPI() {
 	s.RegisterAPI("GET /term/sessions", s.apiTermSessions)
 	s.RegisterAPI("PATCH /term/sessions/{id}", s.apiTermRename)
+	s.registerAgentAPI() // agent sessions (agentapi.go, D74)
 }
+
+// termChange is a `term` event's data: which session changed, whose.
+type termChange struct {
+	Op   string `json:"op"`
+	ID   string `json:"id"`
+	User string `json:"user"`
+}
+
+func (c termChange) Owner() string { return c.User }
+
+// owned is what the per-user event kinds (`term`, `session`) carry: whose
+// they are, for the filter.
+type owned interface{ Owner() string }
 
 // TermChanged is the Manager.OnChange hook: one `term` event per change,
 // filtered per subscriber in handleEventsWS to the owner and admins.
@@ -25,16 +39,17 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 	if s.Hub == nil {
 		return
 	}
-	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: map[string]any{"op": op, "id": id, "user": homeKey}})
+	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: termChange{Op: op, ID: id, User: homeKey}})
 }
 
-// termEventFor reports whether a `term` event is p's to see.
+// termEventFor reports whether a per-user event (`term`, `session`) is p's
+// to see: the owner's, and admins'.
 func termEventFor(p auth.Principal, e events.Event) bool {
 	if p.IsAdmin() {
 		return true
 	}
-	d, _ := e.Data.(map[string]any)
-	return d != nil && d["user"] == term.HomeKey(p)
+	o, ok := e.Data.(owned)
+	return ok && o.Owner() == term.HomeKey(p)
 }
 
 // apiTermSessions lists the caller's live sessions (?cwd= narrows to one
@@ -46,11 +61,11 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "admin only")
 		return
 	}
-	if s.Term == nil || !p.CanTerminal() {
+	if s.Term == nil || !(p.CanTerminal() || p.Via == "terminal") {
 		WriteJSON(w, http.StatusOK, []term.SessionInfo{})
 		return
 	}
-	homeKey, may := term.HomeKey(p), p.CanTerminalTile
+	homeKey, may := term.HomeKey(p), p.CanTerminalTileVia // a terminal's own tile counts (D74)
 	if u := r.URL.Query().Get("user"); u != "" {
 		homeKey, may = u, nil
 	} else if p.IsAdmin() {
