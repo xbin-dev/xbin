@@ -498,7 +498,11 @@ export class BxAgent extends LitElement {
   // mode, …), live — changing one calls set_config_option for the next turn.
   _settings() {
     const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);
-    const modes = this._modes();
+    // the agent exposes its permission mode EITHER as availableModes
+    // (session/set_mode) OR as a config option (category "mode") — show one
+    // picker, never both, or a "mode" agent renders the select twice
+    const hasModeOpt = opts.some((o) => o.category === 'mode' || o.id === 'mode' || (o.name || '').toLowerCase() === 'mode');
+    const modes = hasModeOpt ? [] : this._modes();
     if (!opts.length && !modes.length) {
       // eager-created and still starting: the config options (model, effort, …)
       // have not landed yet — say so rather than render an empty row
