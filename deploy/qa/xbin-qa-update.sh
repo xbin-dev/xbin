@@ -49,11 +49,19 @@ fi
 newest="$(printf '%s\n%s\n' "${current:-v0.0.0}" "$latest" | sort -V | tail -1)"
 [ "$newest" = "$latest" ] || { log "installed ($current) is newer than $latest — skipping"; exit 0; }
 
+# A release pushes its tag BEFORE it uploads the bundles (the build runs in
+# between, ~15 min). Act only once the tag's manifest is published; the
+# installer would otherwise fall back to building from source on this box.
+if ! curl -fsSL -o /dev/null "https://github.com/$REPO/releases/download/$latest/release-manifest.json"; then
+  log "$latest is tagged but its bundles aren't published yet — waiting"; exit 0
+fi
+
 log "updating $current -> $latest"
 set_state "Updating to $latest — downloading…"
 pass="$(vault_pass)"
+# --prebuilt-rootfs: the prebuilt bundle or nothing — never a source build here
 if XBIN_VERSION="$latest" XBIN_VAULT_MODE=auto XBIN_VAULT_PASSPHRASE="$pass" \
-     bash -c 'curl -fsSL https://xbin.dev/install.sh | bash -s -- --yes --system'; then
+     bash -c 'curl -fsSL https://xbin.dev/install.sh | bash -s -- --yes --system --prebuilt-rootfs'; then
   set_state "Updating to $latest — restarting…"
   systemctl restart xbin || true
   for _ in $(seq 1 90); do

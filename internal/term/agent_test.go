@@ -184,8 +184,17 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 	}
 	e = r.until(t, ofType(agent.EvPermissionRequest))
 	pid, _ := edata(e.Event)["pid"].(string)
-	if info, _ := m.Info(id); info.Status != agent.StatusWaiting || info.Pending != 1 {
-		t.Fatalf("waiting: %+v", info)
+	// the row's status follows the status event that comes right AFTER the
+	// request (the client emits the request, then setStatus(waiting)) — wait
+	// for it rather than read the row the instant the request lands (a CI flake)
+	var row SessionInfo
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if row, _ = m.Info(id); (row.Status == agent.StatusWaiting && row.Pending == 1) || time.Now().After(deadline) {
+			break
+		}
+	}
+	if row.Status != agent.StatusWaiting || row.Pending != 1 {
+		t.Fatalf("waiting: %+v", row)
 	}
 	if pend, _ := m.AgentPending(id); len(pend) != 1 || pend[0].PID != pid || pend[0].ToolCall.Title != "run ls" {
 		t.Fatalf("pending: %+v", pend)

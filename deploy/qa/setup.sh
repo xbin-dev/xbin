@@ -33,7 +33,7 @@ install -d -m 0700 /etc/xbin
 PASS="$(sed -n 's/^XBIN_VAULT_PASSPHRASE=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)"
 [ -n "$PASS" ] || PASS="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc a-f0-9 | head -c 48)"
 XBIN_VAULT_MODE=auto XBIN_VAULT_PASSPHRASE="$PASS" \
-  bash -c 'curl -fsSL https://xbin.dev/install.sh | bash -s -- --yes --system'
+  bash -c 'curl -fsSL https://xbin.dev/install.sh | bash -s -- --yes --system --prebuilt-rootfs'
 
 say "installing the QA front proxy + auto-updater"
 install -d "$QA_DIR"
