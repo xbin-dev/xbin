@@ -296,14 +296,17 @@ also carries a text filter and, where it helps, scope/org category chips):
   *resources* (host health + brokered-resource footprint) · *backup*
   (archiver bindings, schedules, restore) · *cron* (scheduled jobs).
 - **user management** — *users* (accounts, roles, per-tile levels) ·
-  *organisations* (D19–21) · *teams* (cross-org roster) · *access map*
-  (who-can-what matrix with provenance).
+  *sign-in* (token login, SSO) · *sessions* (live logins) · *organisations*
+  (D19–21) · *permission sets* · *network sets* · *access map* (who-can-what
+  matrix with provenance).
 - **vault** — seal/unseal, per-tile secrets.
 - **binding** — *roles* (the exposed-role catalog) · *grants* (pending
   approvals + grant table) · *interface providers* · *binding* (wire each
   requested slot to a provider).
 - **ingress** — *endpoints* (the live public routing table + listeners) ·
   *services / expose* (publish/unpublish exposed endpoints).
+- **workspace** — *branding* (the workspace's title and icon: the shell
+  header, the browser tab, the favicon and the sign-in pages; D76).
 
 Old hash deep-links (`#overview`, `#runtime`, `#interfaces`) redirect to their
 new homes.

@@ -1896,3 +1896,27 @@ Deviations and refinements made while implementing; all deliberate:
   are gone) or a provider `--resume` argv (adapter-specific, bypasses ACP).
   An agent without `loadSession` gets read-only history and a "start a new
   session here" fallback, so nothing breaks where support is thin.
+
+- **D76 — Workspace branding: a title and an icon, stored as a size-capped
+  data URI in a sealed-safe `data/branding.json`; the brand replaces the
+  logo (2026-09-23).** Every workspace said "workspace" and wore xbin's mark
+  — the word was only the `<bx-shell name>` attribute in the workspace-owned
+  `root/index.html`, and the mark was hand-copied into five places. An admin
+  should set both from the admin tile, and have them show everywhere the
+  word/mark shows — including the sign-in page, which renders before auth
+  and before the vault is unsealed. That last constraint decided the storage:
+  the blob and KV planes are authenticated *and* 503 while sealed, `/c/`
+  chrome needs a principal, `/vendor/` is the embedded FS; so the icon is a
+  data URI (allowed image types, bytes sniffed to match, ≤ 256 KiB) in a
+  plain xbind-owned JSON doc under `data/` (`internal/branding`), templated
+  straight into the login/invite HTML and handed to the shell over
+  `GET /api/xbin/branding`. A data URI only ever lands in `<img>` and
+  `<link rel=icon>` — never a navigable same-origin URL — so an SVG's scripts
+  are inert; no new unauthenticated route, no cache story, no file store.
+  UX: a set brand *replaces* the logo (icon + title, no X/BIN wordmark); the
+  tab title keeps its shape (`<Title> · xbin`); `root/index.html` is never
+  rewritten (fork-and-merge contract) — the shell overrides title and favicon
+  at runtime, as it already did for the title. Admin `PUT` is audited like
+  every admin write and publishes a `branding` hub event so open shells
+  update live. Not chosen: a dedicated open `/branding/icon` route (a second
+  static plane with its own cache/CSP/sniff rules for a few KB of image).

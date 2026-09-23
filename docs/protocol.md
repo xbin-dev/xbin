@@ -670,6 +670,25 @@ GET    /orgs/<org>/policy         admin/xbin:users, or that org's admins
                                    approvals can trip on). Rows apply to
                                    tiles the org OWNS
 PUT    /orgs/<org>/policy         admin/xbin:users. replace them
+GET    /branding                  authenticated. {title, icon, hasIcon} — the
+                                   workspace's branding (D76): title replaces
+                                   "workspace" in the shell header and the
+                                   tab title ("<title> · xbin"); icon is a
+                                   data: URI that replaces xbin's mark as the
+                                   favicon and logo on the workspace page and
+                                   the sign-in / invite pages. Empty = xbin's
+                                   own. The shell reads it at boot and on the
+                                   `branding` event
+PUT    /branding                  admin. {title?, icon?}: each present key
+                                   is a whole-value replace ("" clears), an
+                                   absent one is left alone. title ≤ 64 chars;
+                                   icon a base64 data: URI of image/svg+xml |
+                                   png | jpeg | webp | x-icon whose bytes
+                                   match, ≤ 256 KiB (body ≤ 512 KiB) → the
+                                   full view; publishes `branding`; audited.
+                                   Kept in data/branding.json — readable while
+                                   the vault is sealed, so the sign-in page
+                                   shows it
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}, newUsers: {tiles,
                                    canCreate, termApi, termNet, orgs:
@@ -1232,6 +1251,7 @@ cookie required). JSON text frames:
 {"type":"build-error","component":"apps/thing","text":"compiler output"}
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
+{"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

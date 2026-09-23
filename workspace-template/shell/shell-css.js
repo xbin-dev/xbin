@@ -24,6 +24,8 @@ export const shellCss = css`
     }
     .logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; letter-spacing: .04em; }
     .logo .mark { flex: none; }
+    .logo img.mark { width: 20px; height: 20px; object-fit: contain; border-radius: 4px; }
+    .ws-title { font-weight: 700; letter-spacing: 0; }
     .ws-chip {
       font-size: 11.5px; color: var(--bx-muted, #868f9a);
       background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);

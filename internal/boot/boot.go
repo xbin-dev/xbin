@@ -14,6 +14,7 @@ import (
 
 	"github.com/xbin-dev/xbin"
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -626,6 +627,7 @@ func (st *State) stepServer() error {
 		TrustedProxies: st.trusted,
 		ExternalURL:    st.externalURL,
 		Overlay:        st.overlay,
+		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)

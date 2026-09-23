@@ -122,8 +122,8 @@ func (s *Server) trustedProxyAddr(addr netip.Addr) bool {
 
 const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xbin — sign in</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJYL0JJTiI+CiAgPHBhdGggZD0iTTE4IDRINTZhNCA0IDAgMCAxIDQgNHYzOEw0NiA2MEg4YTQgNCAwIDAgMS00LTRWMTh6IiBmaWxsPSIjZjVhNjIzIi8+CiAgPHBhdGggZD0iTTIxIDIxIDQzIDQzTTQzIDIxIDIxIDQzIiBzdHJva2U9IiMyMzI3MmUiIHN0cm9rZS13aWR0aD0iOSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiLz4KICA8Y2lyY2xlIGN4PSI1MyIgY3k9IjExIiByPSIyLjYiIGZpbGw9IiMyMzI3MmUiIG9wYWNpdHk9Ii40Ii8+CiAgPGNpcmNsZSBjeD0iMTEiIGN5PSI1MyIgcj0iMi42IiBmaWxsPSIjMjMyNzJlIiBvcGFjaXR5PSIuNCIvPgo8L3N2Zz4K">
+<title>{{TITLE}}</title>
+<link rel="icon" href="{{ICON}}">
 <style>
 :root{color-scheme:dark}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -131,7 +131,8 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 .card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
   padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
 .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:18px}
-.logo svg{flex:none}
+.logo svg,.logo img.mark{flex:none}
+.logo img.mark{width:22px;height:22px;object-fit:contain;border-radius:4px}
 label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:#868f9a;margin:10px 0 3px}
 .warn{background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
@@ -152,7 +153,7 @@ a.sso:hover{border-color:#f5a623}
 .or::before,.or::after{content:"";flex:1;border-top:1px solid #363c45}
 </style></head><body>
 <form class="card" method="post" action="/login">
-  <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
+  <div class="logo">{{LOGO}}</div>
   {{ERR}}{{SSO}}{{PWNOTE}}<label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
@@ -167,7 +168,8 @@ a.sso:hover{border-color:#f5a623}
 // finishes an admin-created account.
 const invitePageHTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xbin — welcome</title>
+<title>{{TITLE}}</title>
+<link rel="icon" href="{{ICON}}">
 <style>
 :root{color-scheme:dark}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -175,6 +177,7 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 .card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
   padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
 .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:14px}
+.logo img.mark{flex:none;width:22px;height:22px;object-fit:contain;border-radius:4px}
 h1{font-size:15px;margin:0 0 4px}
 p{font-size:12.5px;color:#868f9a;margin:0 0 8px}
 label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
@@ -190,7 +193,7 @@ button:hover{background:#e0912a}
 .err{margin-top:10px;font-size:12px;color:#ef5350}
 </style></head><body>
 <form class="card" method="post" action="/login/invite">
-  <div class="logo"><svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"/></svg>X/BIN</div>
+  <div class="logo">{{LOGO}}</div>
   <h1>Welcome, {{USER}}</h1>
   <p>Choose a password to finish setting up your account. This link works once.</p>
   <input type="hidden" name="invite" value="{{TOKEN}}">

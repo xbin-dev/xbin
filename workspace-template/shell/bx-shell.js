@@ -41,6 +41,7 @@ import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
+import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
 
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
@@ -92,6 +93,7 @@ function gridMigrate(tiles) {
 export class BxShell extends LitElement {
   static properties = {
     name: { type: String },
+    _brand: { state: true }, // the workspace's title + icon (shell-brand.js, D76)
     _components: { state: true },
     _screens: { state: true }, // [{id, name, tiles: [{path, x, y, w, h, float?:{x,y,w,h,z}}]}]
     _active: { state: true },  // active screen id
@@ -187,8 +189,10 @@ export class BxShell extends LitElement {
     this._load();
     this._loadLayout();
     this._loadSettings();
+    loadBrand().then((b) => this._setBrand(b));
     this._off = window.xbin?.events.on((e) => {
       if (e.type === 'reload' || e.type === 'grants') this._load();
+      if (e.type === 'branding') loadBrand().then((b) => this._setBrand(b)); // the admin changed the title/icon
       if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
       if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
@@ -1266,8 +1270,10 @@ export class BxShell extends LitElement {
   _reflectTitle() {
     const worst = worstStatus(this._status, Object.keys(this._status));
     const mark = worst === 'error' ? '🔴 ' : worst === 'warn' ? '🟡 ' : '';
-    document.title = mark + (this.name ? `${this.name} · xbin` : 'xbin');
+    const nm = this._brand?.title || this.name; // the admin's title, else the name attribute (D76)
+    document.title = mark + (nm ? `${nm} · xbin` : 'xbin');
   }
+  _setBrand(b) { this._brand = b; applyFavicon(b); this._reflectTitle(); }
   _pushToast(comp, d, ttl = 6500) {
     const id = uid();
     this._toasts = [...this._toasts, { id, comp, level: d.level || 'info', message: d.message || '', action: d.action }];
@@ -1732,15 +1738,7 @@ export class BxShell extends LitElement {
       <div class="top">
         ${this._mobile ? html`<button class="ham" title="menu"
           @click=${() => { this._drawer = !this._drawer; }}>☰</button>` : nothing}
-        <span class="logo">
-          <svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
-            <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#f5a623)"></path>
-            <path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"></path>
-            <circle cx="53" cy="11" r="2.6" fill="#23272e" opacity=".4"></circle>
-            <circle cx="11" cy="53" r="2.6" fill="#23272e" opacity=".4"></circle>
-          </svg>
-          X/BIN</span>
-        <span class="ws-chip">${this.name}</span>
+        ${brandLogo(this)}
         <span class="spacer"></span>
         <button class="chip" style="cursor:pointer; font:inherit" title="workspace settings (per user)"
                 @click=${() => { this._settingsOpen = !this._settingsOpen; }}>🔧</button>

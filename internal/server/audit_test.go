@@ -10,6 +10,7 @@ func TestAuditable(t *testing.T) {
 		{"POST", "/users", true},          // create a user — governance
 		{"DELETE", "/users/bob", true},    // remove a user
 		{"PATCH", "/auth-settings", true}, // sign-in policy
+		{"PUT", "/branding", true},        // the workspace's title/icon (D76)
 		{"POST", "/auth-rotate-token", true},
 		{"POST", "/grants", true}, // approve a grant
 		{"GET", "/users", false},  // reads are never audited

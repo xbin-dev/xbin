@@ -20,6 +20,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -35,6 +36,10 @@ type Server struct {
 	WebFS   fs.FS  // core elements + vendored deps, served at /vendor/
 	DocsFS  fs.FS  // builder docs, served at /docs/
 	Version string // the running xbind build id (commit/describe), for /status
+	// Brand is the workspace's title + icon (D76, branding.go): what an admin
+	// set from the admin tile, shown by the shell and the sign-in pages. nil
+	// (tests) = xbin's own.
+	Brand *branding.Store
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
@@ -140,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
+	s.registerBrandingAPI()
 	return logRequests(nullOriginCORS(mux))
 }
 
@@ -339,7 +345,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	page := loginPageHTML
+	page := s.brandPage(loginPageHTML, " — sign in") // the workspace's title/icon, or xbin's (D76)
 	// SSO button — rendered only when configured AND startable (external-url
 	// set). Label is admin-config, HTML-escaped.
 	sso := ""
@@ -383,7 +389,7 @@ func (s *Server) serveInvitePage(w http.ResponseWriter, r *http.Request, tok, er
 		_, _ = w.Write([]byte(inviteBadHTML))
 		return
 	}
-	page := strings.ReplaceAll(invitePageHTML, "{{USER}}", htmlEscape(u.ID))
+	page := strings.ReplaceAll(s.brandPage(invitePageHTML, " — welcome"), "{{USER}}", htmlEscape(u.ID))
 	page = strings.ReplaceAll(page, "{{TOKEN}}", htmlEscape(tok))
 	errHTML := ""
 	if errMsg != "" {

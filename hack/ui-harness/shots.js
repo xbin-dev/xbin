@@ -19,6 +19,7 @@ const { gridScale } = require('./passes/gridscale'), { predict } = require('./pa
 const { viewAs } = require('./passes/viewas');
 const { windows } = require('./passes/windows');
 const { agentTab } = require('./passes/agenttab');
+const { branding } = require('./passes/branding');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -789,7 +790,7 @@ async function adminTabs(browser) {
   const { check, done } = checker('admin-tabs');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   const tabs = ['components', 'resources', 'backup', 'cron', 'users', 'sign-in', 'sessions', 'orgs', 'permsets', 'netsets', 'map',
-    'vault', 'roles', 'grants', 'providers', 'wiring', 'endpoints', 'expose'];
+    'vault', 'roles', 'grants', 'providers', 'wiring', 'endpoints', 'expose', 'branding'];
   for (const id of tabs) {
     await page.goto(`${URL}/c/tiles/admin/#${id}`);
     await page.reload();
@@ -821,7 +822,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding,
 };
 
 (async () => {

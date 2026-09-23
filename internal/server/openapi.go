@@ -205,6 +205,11 @@ func endpoints() []ep {
 		{"POST", "/auth-settings/sso/test", "Users", "Test the SSO provider", "xbin:users",
 			"Probes the provider without a user: OIDC discovery + a JWKS fetch, or GitHub API reachability. Tests the stored config, or an unsaved draft passed as {sso:{…}} (empty clientSecret = the stored one). Always 200 — the body is a report, ok:false included.", nil,
 			freeBody("{} | {sso:{kind,preset,issuer,clientId,…}}"), "{ok,kind,issuer,redirectUri,externalUrl,ready,endpoints,jwksKeys,warnings,error}"},
+		{"GET", "/branding", "Workspace", "The workspace's title and icon", "authenticated",
+			"{title, icon, hasIcon} — the branding an admin set (D76): title replaces the word \"workspace\" in the shell header and the browser tab (\"<title> · xbin\"); icon is a data: URI (image/svg+xml | png | jpeg | webp | x-icon, ≤ 256 KiB) that replaces xbin's mark as the favicon and logo, on the workspace page and the sign-in / invite pages. Empty = xbin's own. The shell reads this at boot and again on the `branding` event.", nil, nil, "{title, icon, hasIcon}"},
+		{"PUT", "/branding", "Workspace", "Set the workspace's title and/or icon", "admin",
+			"{title?, icon?} — each present key is a whole-value replace, \"\" clears it, an absent key leaves it alone. title ≤ 64 characters, no control characters; icon a base64 data: URI of an allowed image type whose bytes match it (≤ 256 KiB decoded; body ≤ 512 KiB). Persisted in data/branding.json (readable while the vault is sealed, so the sign-in page can show it). Publishes a `branding` event; audited.",
+			nil, freeBody("{title?:string, icon?:string}"), "{title, icon, hasIcon}"},
 
 		// --- orgs & teams (docs/auth.md) ---
 		{"GET", "/orgs", "Orgs", "List orgs (management view)", "xbin:users",

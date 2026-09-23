@@ -10,6 +10,18 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-23
+
+- **Workspace branding: a title and an icon, set from the admin tile.** The
+  admin console's new **workspace → branding** tab sets a workspace title and
+  icon. The title replaces the word "workspace" in the shell header and the
+  browser tab (`<title> · xbin`); the icon (SVG/PNG/JPEG/WebP/ICO, ≤ 256 KiB)
+  replaces xbin's mark as the favicon and the header logo — and both show on
+  the sign-in and invite pages too. Everything is optional and reversible
+  (clear a field to get xbin's own back); open shells update live. Stored in
+  `data/branding.json` (never in the workspace's git). New: `GET/PUT
+  /api/xbin/branding`, a `branding` event on `/ws/events`.
+
 ## 2026-09-22
 
 - **Agent sessions: history and resume.** A coding-agent session's
