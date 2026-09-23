@@ -383,7 +383,8 @@ outlives every client; its **transcript outlives the session**: once it took a
 prompt and ended — or the daemon stopped — the log is kept on disk (per user,
 per tile, the newest 20; `GET /api/xbin/agent/history`), so a finished
 conversation can be read back, and **resumed** where the agent can reopen its
-own session (it replays the earlier turns, then continues).
+own session (it replays the earlier turns, then continues — Claude Code and
+OpenCode do; an agent that cannot offers a fresh start instead).
 
 What the agent gets:
 
