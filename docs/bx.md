@@ -112,6 +112,11 @@ bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
                                        replay + follow · list yours · end one
 bx agent set <id> <option> <value>    change a setting the agent offers
                                        (model, effort, …) for its next turn
+bx agent history [--tile p]            your PAST sessions — the transcripts
+                                       kept when one ended (resumable or
+                                       read-only per the agent)
+bx agent resume <past-id> ["<prompt>"] reopen one: the agent replays the
+                                       earlier turns, then continues
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (docs/overview/14-lifecycle.md)
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
@@ -225,7 +230,13 @@ effort, whatever it advertises — are shown on the `[ready]` line
 (`[ready] mode default · model default · effort default`); pick one at
 start with `--model sonnet` / `--option effort=high`, or change it mid-session
 with `bx agent set <id> model sonnet` (applies to the next turn).
-`XBIN_AGENT_PROVIDER` sets the default provider (else `claude`).
+`XBIN_AGENT_PROVIDER` sets the default provider (else `claude`). A session's
+transcript outlives it: once it took a prompt and ended (or the daemon
+stopped), `bx agent history` lists it — `resumable` when the agent can reopen
+its own session, else `read-only` — and `bx agent resume <past-id>
+["<prompt>"]` continues it on the same tile (provider, mode and name carry
+over; the agent replays the earlier turns first). The Agent tab shows the same
+list under **Recent sessions**.
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
 generation is delimited by a `--- gen N start …` line.

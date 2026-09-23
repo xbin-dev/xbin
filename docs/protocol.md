@@ -296,13 +296,18 @@ GET    /agent/providers           authenticated. the coding agents this daemon
 POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token counts). {cwd, kind:"agent",
                                    provider, mode?, model?, options?, net?,
-                                   name?} → SessionInfo
+                                   name?, resume?} → SessionInfo
                                    (kind agent, status starting): an AGENT
                                    SESSION — the tile's sandbox runs the
                                    provider's ACP adapter instead of a shell.
-                                   400 unknown provider/mode, 403, 409 per-user
-                                   limit, 503 vault sealed / no bx. Shells
-                                   still open on /ws/term
+                                   resume: a past session id (GET
+                                   /agent/history) to reopen — provider, mode
+                                   and name carry over, the agent replays the
+                                   earlier turns (session/load); 409 when it
+                                   cannot (start a new one). 400 unknown
+                                   provider/mode, 403, 409 per-user limit,
+                                   503 vault sealed / no bx. Shells still
+                                   open on /ws/term
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
                                    [{pid,toolCall,options}]} (either kind)
 DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
@@ -330,6 +335,19 @@ POST   /term/sessions/<id>/options
                                    the next status event → ok
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
                                    stderr + driver notes (debugging)
+GET    /agent/history             terminal-level. Your past agent sessions,
+                                   newest first: [{id, cwd, provider, mode,
+                                   name, created, ended, turns, preview,
+                                   loadable}] — the transcripts kept when a
+                                   session ended or the daemon stopped (per
+                                   user × tile, the newest 20 per tile;
+                                   never-prompted sessions are not kept).
+                                   ?cwd= narrows to a tile. loadable: the
+                                   agent can reopen it (resume)
+GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
+                                   persisted transcript in the live /events
+                                   shape; 404 when not yours or gone
+DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
 PUT    /prefs/<key>               set it (body = JSON value)
@@ -1256,9 +1274,15 @@ hub drops a slow subscriber rather than queue for it).
 | `status` | `{status, detail?, modes?, currentMode?, options?, agent?, login?, usage?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 
-The session dies with the daemon (the log is in memory); an `exited` or
-`error` status is final and the session leaves the directory (`term`
-event `close`).
+The live log is in memory; an `exited` or `error` status is final and the
+session leaves the directory (`term` event `close`). Its transcript does not
+die with it: when a session ends — or the daemon stops — the log and a little
+metadata are written to `data/agent-history/` (per user × tile, the newest 20
+per tile; a session that never took a prompt is not kept). `GET
+/agent/history` lists them and `GET /agent/history/<id>/events` serves one in
+this same shape, read-only; where the agent advertised `loadSession`, `POST
+/term/sessions {resume:<id>}` reopens it (the agent replays the earlier turns
+as events, then continues) and the continuation supersedes the entry.
 
 ## Tile ↔ shell messaging (window.postMessage)
 

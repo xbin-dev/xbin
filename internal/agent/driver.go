@@ -8,8 +8,9 @@ import (
 
 // Errors a driver returns that the API maps to a status.
 var (
-	ErrBusy  = errors.New("a turn is running — cancel it or wait for turn.end")
-	ErrEnded = errors.New("the agent session has ended")
+	ErrBusy              = errors.New("a turn is running — cancel it or wait for turn.end")
+	ErrEnded             = errors.New("the agent session has ended")
+	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns
@@ -30,6 +31,10 @@ type Driver interface {
 	// it advertised: model, effort, …); the driver emits a status event with
 	// the refreshed options.
 	SetOption(ctx context.Context, id, value string) error
+	// Session reports the agent's own id for this session and whether the
+	// agent could reopen it later (session/load) — persisted with the
+	// transcript so a past session can be resumed (term/history.go).
+	Session() (id string, loadable bool)
 }
 
 // Config is what a session hands its driver.
@@ -37,6 +42,7 @@ type Config struct {
 	Provider Provider
 	Mode     string            // requested mode ("" = the provider's default)
 	Options  map[string]string // requested config options at start (model, effort, …), applied after session/new
+	ResumeID string            // the agent's own earlier session id to reopen (session/load) instead of starting fresh
 	Cwd      string            // the agent's working directory (as the agent sees it)
 	Env      []string          // the agent process env (sandbox env + provider keys)
 	Argv     []string          // the agent command (Provider.Argv unless overridden)

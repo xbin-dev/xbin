@@ -1,7 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The agent routes' gates over the term server (no bx binary: creation
@@ -80,5 +84,60 @@ func TestSessionEventFilter(t *testing.T) {
 	got := <-ch
 	if got.Type != "session" || got.Topic != "session.a1" || got.Data.(term.SessionEvent).Seq != 7 {
 		t.Fatalf("published: %+v", got)
+	}
+}
+
+// The past-session routes (term/history.go) over the term server: a seeded
+// entry lists for its owner only (terminal level), reads back in the /events
+// shape, resumes (the create path resolves the provider from it and stops at
+// the missing bx) or refuses a non-loadable one, and deletes.
+func TestAgentHistoryRoutes(t *testing.T) {
+	h, s := termServer(t)
+	alice := s.Auth.NewSession("alice", "")
+	bob := s.Auth.NewSession("bob", "")
+	do := func(sid, method, path, body string) (int, string) {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie(method, "/api/xbin"+path, body, sid))
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	seed := func(id string, loadable bool) {
+		dir := filepath.Join(s.Term.Root, "data", "agent-history", "alice", util.CompKey("apps/x"))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f := fmt.Sprintf(`{"meta":{"id":%q,"cwd":"apps/x","provider":"claude","mode":"plan","name":"old","created":"2026-01-01T00:00:00Z","ended":"2026-01-01T00:01:00Z","turns":2,"preview":"fix the tests","acpSessionId":"c-123","loadable":%v},"events":[{"seq":1,"ts":1,"type":"status","data":{"status":"idle"}}]}`, id, loadable)
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("h1", true)
+	seed("h2", false)
+	if c, b := do(alice, "GET", "/agent/history?cwd=apps/x", ""); c != 200 || !strings.Contains(b, `"id":"h1"`) || !strings.Contains(b, `"loadable":true`) || !strings.Contains(b, `"preview":"fix the tests"`) {
+		t.Fatalf("list: %d %s", c, b)
+	}
+	if c, _ := do(bob, "GET", "/agent/history", ""); c != 403 {
+		t.Fatalf("no terminal level: %d", c)
+	}
+	if c, b := do(alice, "GET", "/agent/history/h1/events", ""); c != 200 || !strings.Contains(b, `"events":[{"seq":1`) || !strings.Contains(b, `"acpSessionId":"c-123"`) {
+		t.Fatalf("events: %d %s", c, b)
+	}
+	if c, _ := do(alice, "GET", "/agent/history/nope/events", ""); c != 404 {
+		t.Fatalf("unknown: %d", c)
+	}
+	// resume: the provider comes from the entry; every gate passes and creation stops at the missing bx
+	if c, b := do(alice, "POST", "/term/sessions", `{"cwd":"apps/x","kind":"agent","resume":"h1"}`); c != 503 || !strings.Contains(b, "bx binary") {
+		t.Fatalf("resume h1: %d %s", c, b)
+	}
+	if c, b := do(alice, "POST", "/term/sessions", `{"cwd":"apps/x","kind":"agent","resume":"h2"}`); c != 409 || !strings.Contains(b, "cannot reopen") {
+		t.Fatalf("resume a non-loadable entry: %d %s", c, b)
+	}
+	if c, _ := do(alice, "POST", "/term/sessions", `{"cwd":"apps/x","kind":"agent","resume":"nope"}`); c != 404 {
+		t.Fatalf("resume unknown: %d", c)
+	}
+	if c, _ := do(alice, "DELETE", "/agent/history/h1", ""); c != 204 {
+		t.Fatalf("delete: %d", c)
+	}
+	if c, _ := do(alice, "GET", "/agent/history/h1/events", ""); c != 404 {
+		t.Fatalf("deleted: %d", c)
 	}
 }

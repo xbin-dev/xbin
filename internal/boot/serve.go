@@ -137,6 +137,9 @@ func (st *State) serve(ctx context.Context) error {
 		_ = httpSrv.Close()
 	}()
 	err = httpSrv.Serve(ln)
+	if st.Term != nil {
+		st.Term.FlushAgents() // open agent conversations become history, not losses (term/history.go)
+	}
 	run.StopAll()
 	_ = gwSrv.Close()
 	if iSrv != nil {

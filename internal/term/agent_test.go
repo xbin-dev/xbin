@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -108,7 +109,7 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := auth.Principal{Owner: true}
-	info, code, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "my agent", map[string]string{"model": "fake-fast"})
+	info, code, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "my agent", "", map[string]string{"model": "fake-fast"})
 	if err != nil || code != 200 {
 		t.Fatalf("open: %d %v", code, err)
 	}
@@ -373,20 +374,20 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	m := r.m
 	bob := auth.Principal{UserID: "bob", Via: "session",
 		User: &users.User{ID: "bob", Role: "user", Tiles: map[string]string{"apps/x": users.LevelWrite}}}
-	if _, code, err := m.OpenAgent(bob, "apps/x", "", "fake", "", "", nil); code != 403 || err == nil {
+	if _, code, err := m.OpenAgent(bob, "apps/x", "", "fake", "", "", "", nil); code != 403 || err == nil {
 		t.Fatalf("write-level user: %d %v", code, err)
 	}
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "", "", "fake", "", "", nil); code != 403 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "", "", "fake", "", "", "", nil); code != 403 {
 		t.Fatalf("no cwd: %d", code)
 	}
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "nope", "", "", nil); code != 400 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "nope", "", "", "", nil); code != 400 {
 		t.Fatalf("unknown provider: %d", code)
 	}
-	if _, code, err := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "ludicrous", "", nil); code != 400 || !strings.Contains(err.Error(), "unknown mode") {
+	if _, code, err := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "ludicrous", "", "", nil); code != 400 || !strings.Contains(err.Error(), "unknown mode") {
 		t.Fatalf("unknown mode: %d %v", code, err)
 	}
 	m.BxPath = ""
-	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", nil); code != 503 {
+	if _, code, _ := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil); code != 503 {
 		t.Fatalf("no bx: %d", code)
 	}
 	m.BxPath = bxBin
@@ -394,7 +395,7 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	// a terminal token drives its OWN tile's sessions; another tile's, no
 	termTok := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal",
 		User: &users.User{ID: "alice", Role: "user", Tiles: map[string]string{"apps/x": users.LevelTerminal}}}
-	info, code, err := m.OpenAgent(termTok, "apps/x", "", "fake", "yolo", "", nil)
+	info, code, err := m.OpenAgent(termTok, "apps/x", "", "fake", "yolo", "", "", nil)
 	if err != nil || code != 200 || info.Mode != "yolo" {
 		t.Fatalf("from a terminal: %d %v %+v", code, err, info)
 	}
@@ -438,7 +439,7 @@ func TestAgentSessionGatesAndFailures(t *testing.T) {
 	waitClose(t, r.change, "close:"+info.ID)
 
 	// the agent fails a turn: status error names the vault command; a crash ends the session
-	info, _, err = m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", nil)
+	info, _, err = m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,5 +474,118 @@ func TestServeWSRefusesAgentSessions(t *testing.T) {
 	m.ServeWS(w, r)
 	if w.Code != 409 {
 		t.Fatalf("attach to an agent session: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// History + resume (history.go): an ended session's transcript is kept on
+// disk and listed; reopening it (resume) carries the provider/name over and
+// replays the earlier turns; once that continuation took a prompt and ended,
+// it supersedes the entry. FlushAgents (shutdown) keeps a live one too.
+func TestAgentHistoryAndResume(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	owner := auth.Principal{Owner: true}
+	ctx := context.Background()
+	info, code, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "first", "", nil)
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
+	}
+	id := info.ID
+	<-r.change // open
+	r.until(t, func(e SessionEvent) bool {
+		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	// a session that never took a prompt is not history
+	if m.FlushAgents(); len(m.ListHistory("owner", "apps/x", nil)) != 0 {
+		t.Fatal("an unprompted session must not be kept")
+	}
+	if _, err := m.AgentPrompt(ctx, id, "remember this"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, ofType(agent.EvTurnEnd))
+	// a live session flushes (shutdown): the entry exists while it still runs
+	m.FlushAgents()
+	hist := m.ListHistory("owner", "apps/x", nil)
+	if len(hist) != 1 || hist[0].ID != id || hist[0].Turns != 1 || hist[0].Preview != "remember this" || hist[0].Provider != "fake" ||
+		hist[0].Name != "first" || !hist[0].Loadable || hist[0].ACPSessionID != "fake-1" {
+		t.Fatalf("history after flush: %+v", hist)
+	}
+	// ending it writes it again; the transcript reads back; it left the live directory
+	m.Kill(id)
+	for op := ""; op != "close:"+id; op = <-r.change {
+	}
+	meta, evs, err := m.ReadHistory("owner", id)
+	if err != nil || meta.ID != id || len(evs) == 0 {
+		t.Fatalf("read: %v %+v %d events", err, meta, len(evs))
+	}
+	if rows := m.ListFor("owner", "apps/x", nil); len(rows) != 0 {
+		t.Fatalf("ended, yet still live: %+v", rows)
+	}
+	if len(m.ListHistory("bob", "", nil)) != 0 {
+		t.Fatal("history is per user")
+	}
+	if _, _, err := m.ReadHistory("owner", "nope"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("unknown id: %v", err)
+	}
+
+	// resume: provider/name carry over; the fake replays the earlier turns
+	info2, code, err := m.OpenAgent(owner, "apps/x", "", "", "", "", id, nil)
+	if err != nil || code != 200 {
+		t.Fatalf("resume: %d %v", code, err)
+	}
+	if info2.Provider != "fake" || info2.Name != "first" {
+		t.Fatalf("resumed row: %+v", info2)
+	}
+	<-r.change // open
+	e := r.until(t, func(e SessionEvent) bool {
+		return e.ID == info2.ID && e.Type == agent.EvMessageDelta && edata(e.Event)["role"] == "user"
+	})
+	if txt, _ := edata(e.Event)["text"].(string); !strings.Contains(txt, "resumed fake-1") {
+		t.Fatalf("the earlier turns replay into the new session: %q", txt)
+	}
+	r.until(t, func(e SessionEvent) bool {
+		return e.ID == info2.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	// resuming on another tile, or an unknown entry, is refused
+	if _, code, _ := m.OpenAgent(owner, "apps/y", "", "", "", "", id, nil); code != 400 && code != 403 {
+		t.Fatalf("resume on another tile: %d", code)
+	}
+	if _, code, _ := m.OpenAgent(owner, "apps/x", "", "", "", "", "nope", nil); code != 404 {
+		t.Fatalf("resume unknown: %d", code)
+	}
+	// the continuation, once prompted and ended, supersedes the original entry
+	if _, err := m.AgentPrompt(ctx, info2.ID, "and this"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, func(e SessionEvent) bool { return e.ID == info2.ID && e.Type == agent.EvTurnEnd })
+	m.Kill(info2.ID)
+	for op := ""; op != "close:"+info2.ID; op = <-r.change {
+	}
+	hist = m.ListHistory("owner", "apps/x", nil)
+	if len(hist) != 1 || hist[0].ID != info2.ID {
+		t.Fatalf("the continuation supersedes the original: %+v", hist)
+	}
+	if err := m.DeleteHistory("owner", info2.ID); err != nil || len(m.ListHistory("owner", "", nil)) != 0 {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestHistoryPrune(t *testing.T) {
+	m := NewManager(t.TempDir(), nil)
+	dir := m.historyDir("owner", "apps/x")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < historyKeep+5; i++ {
+		f := historyFile{Meta: HistoryMeta{ID: fmt.Sprintf("s%02d", i), Cwd: "apps/x", Ended: fmt.Sprintf("2026-01-01T00:00:%02dZ", i)}}
+		b, _ := json.Marshal(f)
+		if err := os.WriteFile(filepath.Join(dir, f.Meta.ID+".json"), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.pruneHistory(dir)
+	hist := m.ListHistory("owner", "apps/x", nil)
+	if len(hist) != historyKeep || hist[0].ID != fmt.Sprintf("s%02d", historyKeep+4) || hist[len(hist)-1].ID != "s05" {
+		t.Fatalf("prune keeps the newest %d: got %d, first %s, last %s", historyKeep, len(hist), hist[0].ID, hist[len(hist)-1].ID)
 	}
 }

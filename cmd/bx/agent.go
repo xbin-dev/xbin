@@ -39,9 +39,13 @@ func cmdExtra(cmd string, args []string) error {
 
 func cmdAgent(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: bx agent run|send|permit|attach|ls|stop … (docs/bx.md)")
+		return errors.New("usage: bx agent run|send|permit|attach|ls|stop|set|history|resume … (docs/bx.md)")
 	}
 	switch args[0] {
+	case "history":
+		return cmdAgentHistory(args[1:])
+	case "resume":
+		return cmdAgentResume(args[1:])
 	case "run":
 		return cmdAgentRun(args[1:])
 	case "send":
@@ -57,7 +61,90 @@ func cmdAgent(args []string) error {
 	case "set":
 		return cmdAgentSet(args[1:])
 	}
-	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|permit|attach|ls|stop|set)", args[0])
+	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|permit|attach|ls|stop|set|history|resume)", args[0])
+}
+
+// cmdAgentHistory lists the caller's past agent sessions — the transcripts
+// kept when a session ended (--tile narrows). resumable = the agent can
+// reopen it (bx agent resume <id>).
+func cmdAgentHistory(args []string) error {
+	tile := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--tile" {
+			v, err := nextArg(args, &i)
+			if err != nil {
+				return err
+			}
+			tile = v
+		} else {
+			return unknownFlag("agent history", args[i], false)
+		}
+	}
+	var rows []struct {
+		ID, Cwd, Provider, Mode, Name, Ended, Preview string
+		Turns                                         int
+		Loadable                                      bool
+	}
+	if err := apiJSON("GET", "/api/xbin/agent/history?cwd="+tile, nil, &rows); err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		fmt.Println("no past agent sessions (a session is kept once it took a prompt and ended)")
+		return nil
+	}
+	for _, r := range rows {
+		how := "read-only"
+		if r.Loadable {
+			how = "resumable"
+		}
+		title := r.Name
+		if title == "" {
+			title = r.Preview
+		}
+		fmt.Printf("%-10s %-24s %-9s %-20s %2d turn(s)  %-9s  %s\n", r.ID, r.Cwd, r.Provider, r.Ended, r.Turns, how, orDash(title))
+	}
+	return nil
+}
+
+// cmdAgentResume reopens a past session (its provider, mode and name carry
+// over; the agent replays the earlier turns, then continues). With a prompt,
+// sends it and follows the turn; without, prints the live session id.
+func cmdAgentResume(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: bx agent resume <past-session-id> [\"<prompt>\"]   (bx agent history lists them)")
+	}
+	id, text := args[0], strings.Join(args[1:], " ")
+	var past []struct{ ID, Cwd string }
+	if err := apiJSON("GET", "/api/xbin/agent/history", nil, &past); err != nil {
+		return err
+	}
+	cwd := ""
+	for _, p := range past {
+		if p.ID == id {
+			cwd = p.Cwd
+		}
+	}
+	if cwd == "" {
+		return fmt.Errorf("no past session %q (bx agent history lists them)", id)
+	}
+	var info struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+		Mode     string `json:"mode"`
+		Cwd      string `json:"cwd"`
+	}
+	if err := apiJSON("POST", "/api/xbin/term/sessions", map[string]any{"cwd": cwd, "kind": "agent", "resume": id}, &info); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "session %s: %s on %s (mode %s) — resumed from %s\n", info.ID, info.Provider, info.Cwd, orDash(info.Mode), id)
+	if text == "" {
+		fmt.Printf("%s\n", info.ID)
+		return nil
+	}
+	if err := agentPrompt(info.ID, text); err != nil {
+		return err
+	}
+	return agentFollow(info.ID, 0, true)
 }
 
 // agentEvent is one entry of the session's log as the API renders it.

@@ -66,7 +66,10 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
 // mis-absorption when two browsers spawn at once).
 export function tabsFrom(server, local) {
   const byId = new Map(local.filter((t) => t.id).map((t) => [t.id, t]));
-  const pending = local.filter((t) => !t.id);
+  // A PAST-session tab (history: a persisted transcript, read-only) has no
+  // live id and never gets one: kept as is, never absorbed into a server row.
+  const past = local.filter((t) => !t.id && t.history);
+  const pending = local.filter((t) => !t.id && !t.history);
   // Absorb a server row with no id match into a pending tab of the SAME kind
   // first (an "open" event can arrive before the socket/element that spawned
   // it fires bx-session): otherwise a fresh shell tab beside a spawning agent
@@ -94,7 +97,7 @@ export function tabsFrom(server, local) {
   // with the PTY; the emulator convention is that an exited shell closes).
   const listed = new Set(server.map((s) => s.id));
   const ended = local.filter((t) => t.id && !listed.has(t.id) && t.kind === 'agent').map((t) => ({ ...t, ended: true }));
-  return [...tabs, ...ended, ...pending];
+  return [...tabs, ...ended, ...past, ...pending];
 }
 
 // clampActive(i, n): the active index inside the tab list.

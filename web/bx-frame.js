@@ -42,7 +42,7 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcher, launcherCss } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadHistory, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
@@ -146,6 +146,7 @@ export class BxFrame extends LitElement {
     _tools: { state: true },   // the tools row is open (narrow only)
     _dialog: { state: true },  // an open <bx-dialog>: {spec, resolve}
     _providers: { state: true }, // the agent providers, for the launcher (null until fetched)
+    _history: { state: true }, // the tile's past agent sessions (frame-launcher.js: recent sessions, resume)
     _menu: { state: true },    // an open <bx-menu>: {items, anchor, sheet}
     // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
     // null (the viewport clamps instead). The shell's canvas sets it (D66).
@@ -384,6 +385,7 @@ export class BxFrame extends LitElement {
     if (!this.isConnected) return;
     this._sessions = tabsFrom(rows, this._sessions);
     this._reindex();
+    loadHistory(this); // a session that ended is history now
     if (!this._sessions.length && this._termOpen) this._termOpen = false;
   }
 
@@ -606,7 +608,8 @@ export class BxFrame extends LitElement {
       setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, net: s.net, api: s.api !== false, gpu: s.gpu })); },
+      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu })); },
+      get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
       get activeTab() { return f._active; },
       setActiveTab(i) { f._setActive(i | 0); },
       get layout() { return f._layout; },
@@ -640,6 +643,7 @@ export class BxFrame extends LitElement {
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    loadHistory(this);
     // no auto-bash: an empty window shows the launcher chooser (render()).
     this._loadPRCount();
     this.updateComplete.then(() => this._front());
@@ -873,8 +877,10 @@ export class BxFrame extends LitElement {
             ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
               ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
-                  component=${this.src} session=${s.id ?? nothing} provider=${s.provider || nothing} ?ended=${!!s.ended}
+                  component=${this.src} session=${s.id ?? nothing} provider=${s.history ? nothing : (s.provider || nothing)} ?ended=${!!s.ended}
+                  history=${s.history || nothing} resume=${s.resume || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
+                  @bx-resume=${(ev) => resumeHistory(this, ev.detail, s.key)} @bx-new-agent=${(ev) => this._startKind('agent', ev.detail.provider)}
                   @bx-open-terminal=${this._signIn}
                   @bx-exit=${() => this._endTab(s.key)}></bx-agent>`
               : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"

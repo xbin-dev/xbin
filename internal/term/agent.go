@@ -84,6 +84,9 @@ type agentState struct {
 	status   string
 	turn     uint64
 	text     []byte
+	acpID    string // the agent's own session id (after the handshake)
+	loadable bool   // the agent can reopen acpID later (session/load) — resume
+	resumed  string // the history entry this session reopened (superseded when this one is saved)
 }
 
 func (st *agentState) logf(line string) {
@@ -99,13 +102,36 @@ func (st *agentState) logf(line string) {
 // OpenAgent opens an agent session for p on a tile (the API's POST
 // /term/sessions): the gates, the provider and mode, then createAgent.
 // The int is the HTTP status for a refusal.
-func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, name string, options map[string]string) (SessionInfo, int, error) {
+func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, name, resume string, options map[string]string) (SessionInfo, int, error) {
 	if cwd == "" {
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
 	_, rel, err := util.SafeJoin(m.Root, cwd)
 	if err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
 		return SessionInfo{}, 403, errors.New("your account doesn't have terminal access to this tile")
+	}
+	// resume: reopen one of the caller's past sessions on this tile
+	// (history.go) — its provider, mode and name carry over; the agent must
+	// have advertised loadSession, else 409 and the UI offers a fresh start
+	var resumeID string
+	if resume != "" {
+		meta, _, err := m.ReadHistory(HomeKey(p), resume)
+		if err != nil {
+			return SessionInfo{}, 404, fmt.Errorf("no such past session %q", resume)
+		}
+		if meta.Cwd != rel {
+			return SessionInfo{}, 400, errors.New("a past session resumes on the tile it ran on")
+		}
+		if !meta.Loadable || meta.ACPSessionID == "" {
+			return SessionInfo{}, 409, agent.ErrResumeUnsupported
+		}
+		providerID, resumeID = meta.Provider, meta.ACPSessionID
+		if mode == "" {
+			mode = meta.Mode
+		}
+		if name == "" {
+			name = meta.Name
+		}
 	}
 	prov, ok := agent.Lookup(providerID)
 	if !ok {
@@ -119,7 +145,7 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), "", true)
 	o.kind = KindAgent
-	s, err := m.createAgent(o, prov, mode, options)
+	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
@@ -168,7 +194,7 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
 // the handshake is done — a prompt waits for it).
-func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, options map[string]string) (*Session, error) {
+func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, options map[string]string, resumeID, resumed string) (*Session, error) {
 	dir, rel, homeDir, token, revokeTok, err := m.prepare(o)
 	if err != nil {
 		return nil, err
@@ -203,7 +229,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		rl = postStart()
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
-		ready: make(chan struct{}), done: make(chan struct{}), mode: mode, status: agent.StatusStarting}
+		ready: make(chan struct{}), done: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
@@ -236,7 +262,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	}
 	drv := acp.New()
 	st.drv = drv
-	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
+	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
 		m.remove(s.ID)
@@ -251,8 +277,10 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	})
 	go func() {
 		err := drv.Start(context.Background(), cfg)
+		id, loadable := drv.Session()
 		st.mu.Lock()
 		st.startErr = err
+		st.acpID, st.loadable = id, loadable
 		st.mu.Unlock()
 		close(st.ready)
 	}()
@@ -334,6 +362,7 @@ ended:
 		s.cleanup()
 	}
 	close(st.done)
+	m.saveHistory(s) // the transcript outlives the session (history.go: read back, resume)
 	onExit()
 	slog.Info("agent session ended", "id", s.ID, "uptime", time.Since(s.born).Round(time.Second), "exit", exitString(waitErr))
 	if time.Since(s.born) < 10*time.Second {

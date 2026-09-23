@@ -1876,3 +1876,23 @@ Deviations and refinements made while implementing; all deliberate:
   ACP v2 (fs/terminal move out of the protocol — the host becomes
   optional), MCP servers handed to the agent (`mcpServers: []`), per-user
   "always" rules across sessions.
+
+- **D75 — Agent session history and resume: the transcript outlives the
+  session; resume is the agent's own `session/load`, capability-gated
+  (2026-09-22).** A finished conversation is worth reading back and, often,
+  continuing — and on an auto-updating box every restart would otherwise
+  erase it. So when an agent session ends (or the daemon stops, `FlushAgents`
+  on the SIGTERM path) its event log and a little metadata are written to
+  `data/agent-history/<user>/<tile>/<id>.json` — per user × tile like the
+  prefs store, the newest 20 per tile, never a session that took no prompt
+  (`internal/term/history.go`). Read-back reuses the live `/events` shape so
+  the Agent tab renders it unchanged, read-only. *Resume* means the agent
+  reopens its OWN session: the client reads `agentCapabilities.loadSession`
+  at initialize, persists the agent's session id, and `POST /term/sessions
+  {resume}` runs `session/load` instead of `session/new` — the agent replays
+  the earlier turns as updates, then continues; the continuation supersedes
+  the entry it reopened. Not chosen: re-seeding a fresh session with the old
+  transcript (lossy — the agent's own state, tool results and files context
+  are gone) or a provider `--resume` argv (adapter-specific, bypasses ACP).
+  An agent without `loadSession` gets read-only history and a "start a new
+  session here" fallback, so nothing breaks where support is thin.

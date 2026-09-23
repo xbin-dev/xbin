@@ -22,7 +22,9 @@
 // `model` (fake-default | fake-fast), settable with
 // session/set_config_option (the response carries the refreshed list, and
 // a config_option_update follows) — the "env" script reports the current
-// value too, so a test can see a requested model applied.
+// value too, so a test can see a requested model applied. It advertises
+// loadSession: session/load replays one canned earlier turn ("resumed <id>"
+// and the agent's echo) before answering — the resume tests.
 package main
 
 import (
@@ -60,7 +62,8 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	switch m.Method {
 	case acp.MInitialize:
 		return acp.InitializeResult{ProtocolVersion: 1, AgentInfo: &acp.Info{Name: "fakeacp", Version: "1"},
-			AuthMethods: []acp.AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
+			AgentCapabilities: &acp.AgentCapabilities{LoadSession: true}, // session/load replays a canned history (resume tests)
+			AuthMethods:       []acp.AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
 	case acp.MAuthenticate:
 		return map[string]any{}, nil
 	case acp.MSessionNew:
@@ -70,6 +73,19 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		f.cwd = p.Cwd
 		f.mu.Unlock()
 		return acp.SessionNewResult{SessionID: "fake-1", Modes: &acp.SessionModes{CurrentModeID: "ask",
+			AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
+			ConfigOptions: f.configOptions()}, nil
+	case acp.MSessionLoad:
+		// resume: the prior turns stream back as session/update BEFORE the
+		// answer — a user line and the agent's echo of it, tagged with the id
+		var p acp.SessionLoadParams
+		_ = json.Unmarshal(m.Params, &p)
+		f.mu.Lock()
+		f.cwd = p.Cwd
+		f.mu.Unlock()
+		f.update(map[string]any{"sessionUpdate": acp.UpUserChunk, "content": acp.ContentBlock{Type: "text", Text: "resumed " + p.SessionID}})
+		f.update(map[string]any{"sessionUpdate": acp.UpAgentChunk, "content": acp.ContentBlock{Type: "text", Text: "echo: resumed " + p.SessionID}, "messageId": "m0"})
+		return acp.SessionLoadResult{Modes: &acp.SessionModes{CurrentModeID: "ask",
 			AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
 			ConfigOptions: f.configOptions()}, nil
 	case acp.MSessionSetConfig:

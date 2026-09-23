@@ -12,6 +12,7 @@ const (
 	MInitialize        = "initialize"
 	MAuthenticate      = "authenticate"
 	MSessionNew        = "session/new"
+	MSessionLoad       = "session/load"
 	MSessionPrompt     = "session/prompt"
 	MSessionCancel     = "session/cancel"
 	MSessionSetMode    = "session/set_mode"
@@ -57,12 +58,19 @@ type Info struct {
 }
 
 type InitializeResult struct {
-	ProtocolVersion   int             `json:"protocolVersion"`
-	AgentCapabilities json.RawMessage `json:"agentCapabilities,omitempty"`
-	AuthMethods       []AuthMethod    `json:"authMethods,omitempty"`
-	AgentInfo         *Info           `json:"agentInfo,omitempty"`
-	Meta              map[string]any  `json:"_meta,omitempty"`
-	Extra             map[string]any  `json:"-"`
+	ProtocolVersion   int                `json:"protocolVersion"`
+	AgentCapabilities *AgentCapabilities `json:"agentCapabilities,omitempty"`
+	AuthMethods       []AuthMethod       `json:"authMethods,omitempty"`
+	AgentInfo         *Info              `json:"agentInfo,omitempty"`
+	Meta              map[string]any     `json:"_meta,omitempty"`
+	Extra             map[string]any     `json:"-"`
+}
+
+// AgentCapabilities is what the agent can do beyond the baseline. loadSession
+// means session/load can reopen one of its earlier sessions by id — the
+// resume path; without it a past session is read-only history.
+type AgentCapabilities struct {
+	LoadSession bool `json:"loadSession,omitempty"`
 }
 
 type AuthMethod struct {
@@ -79,6 +87,20 @@ type SessionNewParams struct {
 
 type SessionNewResult struct {
 	SessionID     string         `json:"sessionId"`
+	Modes         *SessionModes  `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+}
+
+// SessionLoadParams reopens an earlier session of the agent's (its own id,
+// the same cwd). The agent streams the prior turns back as session/update
+// notifications before it answers; then the session is live like a new one.
+type SessionLoadParams struct {
+	SessionID  string `json:"sessionId"`
+	Cwd        string `json:"cwd"`
+	MCPServers []any  `json:"mcpServers"`
+}
+
+type SessionLoadResult struct {
 	Modes         *SessionModes  `json:"modes,omitempty"`
 	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
 }

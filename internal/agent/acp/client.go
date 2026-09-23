@@ -35,6 +35,7 @@ type Client struct {
 	options    []ConfigOption // the agent's session settings (model, effort, …)
 	agentInfo  *Info          // what initialize said the agent is
 	authNeeded bool           // the agent reported it is not signed in (login required)
+	loadable   bool           // the agent advertised loadSession: its session id can be reopened later
 	turn       uint64
 	busy       bool
 	status     string
@@ -116,6 +117,7 @@ func (c *Client) handshake() error {
 	}
 	c.mu.Lock()
 	c.agentInfo = init.AgentInfo
+	c.loadable = init.AgentCapabilities != nil && init.AgentCapabilities.LoadSession
 	c.mu.Unlock()
 	if init.ProtocolVersion != ProtocolVersion {
 		c.logf("agent speaks protocol version %d, we speak %d — continuing", init.ProtocolVersion, ProtocolVersion)
@@ -125,7 +127,19 @@ func (c *Client) handshake() error {
 	// a terminal serves every agent session. If the home holds no login,
 	// session/new returns -32000 and we surface how to sign in.
 	var sess SessionNewResult
-	if err := c.conn.CallCtx(ctx, MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
+	if c.cfg.ResumeID != "" {
+		// resume: reopen the agent's earlier session — it streams the prior
+		// turns back as session/update (they land in the log like live ones),
+		// then the session continues. Only an agent that said loadSession.
+		if !c.loadable {
+			return agent.ErrResumeUnsupported
+		}
+		var ld SessionLoadResult
+		if err := c.conn.CallCtx(ctx, MSessionLoad, SessionLoadParams{SessionID: c.cfg.ResumeID, Cwd: c.cfg.Cwd, MCPServers: []any{}}, &ld); err != nil {
+			return fmt.Errorf("session/load: %w", authHint(deadlineHint(err, "reopen the session"), c.cfg))
+		}
+		sess = SessionNewResult{SessionID: c.cfg.ResumeID, Modes: ld.Modes, ConfigOptions: ld.ConfigOptions}
+	} else if err := c.conn.CallCtx(ctx, MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
 		return fmt.Errorf("session/new: %w", authHint(deadlineHint(err, "open a session"), c.cfg))
 	}
 	c.mu.Lock()
@@ -157,6 +171,15 @@ func (c *Client) handshake() error {
 	}
 	c.setStatus(agent.StatusIdle, "")
 	return nil
+}
+
+// Session is the agent's own session id and whether it advertised
+// loadSession — persisted with the transcript so the id can reopen the
+// conversation later (resume).
+func (c *Client) Session() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionID, c.loadable
 }
 
 // option finds one of the agent's config options by id.

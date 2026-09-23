@@ -10,6 +10,23 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-22
+
+- **Agent sessions: history and resume.** A coding-agent session's
+  transcript now outlives it: once it took a prompt and ended — or the
+  daemon stopped — the event log is kept on disk (per user and tile, the
+  newest 20 per tile; `data/agent-history/`). The terminal window's empty
+  state and `+` menu list them under **Recent sessions**: open one to read the
+  transcript, or **Resume** to continue it — the agent reopens its own
+  session (ACP `session/load`) and replays the earlier turns before going
+  live; the continuation supersedes the entry. An agent that cannot reopen
+  sessions shows the transcript read-only and offers a fresh start. New:
+  `GET /api/xbin/agent/history[?cwd=]`, `GET /agent/history/{id}/events`,
+  `DELETE /agent/history/{id}`, `resume` on `POST /term/sessions`;
+  `bx agent history` / `bx agent resume <id> ["<prompt>"]`. Also: the Mode
+  picker no longer renders twice for an agent that advertises its mode both
+  as a session mode and a config option.
+
 ## 2026-09-21
 
 - **Terminal window: one `+` menu to start a session, a first-open

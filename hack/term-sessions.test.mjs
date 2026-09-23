@@ -131,3 +131,13 @@ test('activeIndex: by identity, falling back to a clamped index', () => {
   const after = tabs.filter((t) => t.key !== 'a');
   assert.equal(activeIndex(after, 'b', 1), 0, 'b stays selected although its index moved');
 });
+
+test('tabsFrom: a past-session (history) tab is kept and never absorbs a server row', () => {
+  const local = [{ key: 'h', id: null, kind: 'agent', history: 'old-1', name: 'old', ended: true }];
+  const server = [{ id: 'agent-new', kind: 'agent', provider: 'claude', status: 'idle' }];
+  const tabs = tabsFrom(server, local);
+  assert.deepEqual(tabs.map((t) => [t.key === 'h' ? 'h' : 'new', t.id, t.history || null]), [['new', 'agent-new', null], ['h', null, 'old-1']],
+    'the server row gets its own tab; the history tab stays, id-less, after it');
+  assert.equal(tabs[1].ended, true, 'a history tab stays ended (read-only)');
+  assert.deepEqual(tabsFrom([], local).map((t) => t.history), ['old-1'], 'nothing on the server: the history tab remains');
+});

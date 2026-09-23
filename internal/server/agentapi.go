@@ -30,6 +30,10 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
 	s.RegisterAPI("GET /term/sessions/{id}/events", s.apiAgentEvents)
 	s.RegisterAPI("GET /term/sessions/{id}/log", s.apiAgentLog)
+	// past sessions (term/history.go): the persisted transcripts
+	s.RegisterAPI("GET /agent/history", s.apiAgentHistory)
+	s.RegisterAPI("GET /agent/history/{id}/events", s.apiAgentHistoryEvents)
+	s.RegisterAPI("DELETE /agent/history/{id}", s.apiAgentHistoryDelete)
 }
 
 // SessionEvent is the Manager.OnEvent hook: every logged agent event, as
@@ -47,18 +51,20 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, name?} → SessionInfo (status starting).
+// mode?, net?, name?, resume?} → SessionInfo (status starting). resume names a
+// past session of the caller's on this tile (GET /agent/history) to reopen
+// (session/load); 409 when that agent cannot.
 func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if s.Term == nil {
 		apiErr(w, http.StatusNotImplemented, "terminals are not enabled")
 		return
 	}
 	var body struct {
-		Cwd, Kind, Provider, Mode, Net, Name, Model string
-		Options                                     map[string]string
+		Cwd, Kind, Provider, Mode, Net, Name, Model, Resume string
+		Options                                             map[string]string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, name?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, name?, resume?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -74,7 +80,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Name) > 64 {
 		body.Name = body.Name[:64]
 	}
-	info, code, err := s.Term.OpenAgent(auth.PrincipalOf(r), body.Cwd, body.Net, body.Provider, body.Mode, body.Name, body.Options)
+	info, code, err := s.Term.OpenAgent(auth.PrincipalOf(r), body.Cwd, body.Net, body.Provider, body.Mode, body.Name, body.Resume, body.Options)
 	if err != nil {
 		apiErr(w, code, err.Error())
 		return
@@ -104,10 +110,68 @@ func agentStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
-	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded):
+	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported):
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest
+}
+
+// historyScope gates the past-session routes like apiTermSessions: the
+// caller's own history, on tiles they may still open a terminal on (admins
+// see all of their own). Writes the refusal itself.
+func (s *Server) historyScope(w http.ResponseWriter, r *http.Request) (homeKey string, may func(string) bool, ok bool) {
+	p := auth.PrincipalOf(r)
+	if s.Term == nil || !(p.CanTerminal() || p.Via == "terminal") {
+		apiErr(w, http.StatusForbidden, "terminal access required")
+		return "", nil, false
+	}
+	may = p.CanTerminalTileVia
+	if p.IsAdmin() {
+		may = nil
+	}
+	return term.HomeKey(p), may, true
+}
+
+// apiAgentHistory lists the caller's past agent sessions, newest first
+// (?cwd= narrows to a tile): the persisted transcripts (term/history.go).
+func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
+	homeKey, may, ok := s.historyScope(w, r)
+	if !ok {
+		return
+	}
+	WriteJSON(w, http.StatusOK, s.Term.ListHistory(homeKey, r.URL.Query().Get("cwd"), may))
+}
+
+// apiAgentHistoryEvents is a past session's transcript, {meta, events} in
+// the live /events shape so the same client renders it.
+func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
+	homeKey, may, ok := s.historyScope(w, r)
+	if !ok {
+		return
+	}
+	meta, evs, err := s.Term.ReadHistory(homeKey, r.PathValue("id"))
+	if err != nil || (may != nil && !may(meta.Cwd)) {
+		apiErr(w, http.StatusNotFound, "no such past session")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"meta": meta, "events": evs})
+}
+
+func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
+	homeKey, may, ok := s.historyScope(w, r)
+	if !ok {
+		return
+	}
+	meta, _, err := s.Term.ReadHistory(homeKey, r.PathValue("id"))
+	if err != nil || (may != nil && !may(meta.Cwd)) {
+		apiErr(w, http.StatusNotFound, "no such past session")
+		return
+	}
+	if err := s.Term.DeleteHistory(homeKey, r.PathValue("id")); err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) apiAgentGet(w http.ResponseWriter, r *http.Request) {

@@ -26,6 +26,7 @@ type fakeAgent struct {
 	sid    string
 	model  string   // the one config option
 	sets   []string // set_config_option calls seen ("id=value")
+	noLoad bool     // don't advertise loadSession (resume unsupported)
 }
 
 // opts is the fake's config options: one select, "model".
@@ -57,7 +58,8 @@ func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, agent.Spawner)
 func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 	switch m.Method {
 	case MInitialize:
-		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
+		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}},
+			AgentCapabilities: &AgentCapabilities{LoadSession: !f.noLoad}}, nil
 	case MAuthenticate:
 		f.mu.Lock()
 		f.authed = true
@@ -66,6 +68,15 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 	case MSessionNew:
 		f.sid = "s-1"
 		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
+			ConfigOptions: f.opts()}, nil
+	case MSessionLoad:
+		// resume: the earlier turns stream back as updates before the answer
+		var p SessionLoadParams
+		_ = json.Unmarshal(m.Params, &p)
+		f.sid = p.SessionID
+		f.update(map[string]any{"sessionUpdate": UpUserChunk, "content": ContentBlock{Type: "text", Text: "earlier: " + p.SessionID}})
+		f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": ContentBlock{Type: "text", Text: "echo earlier"}, "messageId": "m0"})
+		return SessionLoadResult{Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
 			ConfigOptions: f.opts()}, nil
 	case MSessionSetConfig:
 		var p SetConfigParams
@@ -587,5 +598,42 @@ func TestTitleModeAndPlaceholders(t *testing.T) {
 	}
 	if err := c.SetOption(context.Background(), "mode", "nope"); err == nil {
 		t.Fatal("an unknown mode was accepted")
+	}
+}
+
+// Resume: with ResumeID the handshake calls session/load instead of new; the
+// agent replays the earlier turns as updates (they land in the log before
+// idle), the session id is the reopened one, and Session() says it is
+// loadable. An agent without loadSession refuses with ErrResumeUnsupported.
+func TestSessionLoadResume(t *testing.T) {
+	_, spawn := newFake(standard)
+	c := New()
+	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", ResumeID: "s-old", Spawn: spawn,
+		Perms: agent.NewPermissions(), Version: "test", Meta: map[string]string{"tile": "apps/x"}}
+	if err := c.Start(context.Background(), cfg); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer c.Close()
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	replayed := false
+	for _, e := range es {
+		txt, _ := data(e)["text"].(string)
+		if e.Type == agent.EvMessageDelta && data(e)["role"] == "user" && strings.Contains(txt, "earlier: s-old") {
+			replayed = true
+		}
+	}
+	if !replayed {
+		t.Fatalf("the earlier turns replay into the log before idle: %s", types(es))
+	}
+	if id, ok := c.Session(); id != "s-old" || !ok {
+		t.Fatalf("Session() = %q,%v; want the reopened id, loadable", id, ok)
+	}
+
+	// an agent that did not advertise loadSession cannot resume
+	f2, spawn2 := newFake(standard)
+	f2.noLoad = true
+	cfg.Spawn = spawn2
+	if err := New().Start(context.Background(), cfg); err != agent.ErrResumeUnsupported {
+		t.Fatalf("resume on a non-loadable agent: %v", err)
 	}
 }

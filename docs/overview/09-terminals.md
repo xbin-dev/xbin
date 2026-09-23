@@ -379,7 +379,11 @@ tab in two browsers, or `bx agent attach` in a shell — see one stream; a
 **permission request** is answered by whichever answers first, and *allow
 for the session* records a rule on the session (later requests of the same
 kind and title auto-resolve; nothing lands in `xbin.json`). The session
-outlives every client and dies with the daemon.
+outlives every client; its **transcript outlives the session**: once it took a
+prompt and ended — or the daemon stopped — the log is kept on disk (per user,
+per tile, the newest 20; `GET /api/xbin/agent/history`), so a finished
+conversation can be read back, and **resumed** where the agent can reopen its
+own session (it replays the earlier turns, then continues).
 
 What the agent gets:
 
@@ -428,8 +432,13 @@ What the agent gets:
 When the session ends — the agent crashed, or it could not sign in — the
 tab stays, greyed, with the transcript and the reason, until you dismiss
 it; the agent's own title for the session names the tab if you have not.
+Every session that took a prompt is then under **Recent sessions** (the
+empty window and the `+` menu): open one to read the transcript, or
+**Resume** to continue it — the agent reopens its own session and replays the
+turns first. An agent that cannot reopen sessions shows the transcript
+read-only and offers a fresh start on the tile instead.
 
-Start one from the terminal window's **+ Agent** button, or from a shell:
+Start one from the terminal window's **`+`** menu, or from a shell:
 `bx agent run --provider opencode "list the files here"` (docs/bx.md).
 
 ## The logs tab

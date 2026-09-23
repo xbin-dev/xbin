@@ -31,7 +31,10 @@ export class BxAgent extends LitElement {
     component: { type: String },
     provider: { type: String }, // set by the launcher: create eagerly so the model picker loads before the first prompt
     mode: { type: String },
+    history: { type: String }, // a PAST session id (GET /agent/history): its persisted transcript, read-only
+    resume: { type: String }, // a past session id to reopen when creating (POST /term/sessions {resume})
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
+    _historyMeta: { state: true },
     _events: { state: true },
     _providers: { state: true },
     _provider: { state: true },
@@ -130,6 +133,9 @@ export class BxAgent extends LitElement {
     .signin .msg { flex: 1; }
     .signin button { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #1b1e24;
       border-radius: 5px; padding: 3px 10px; font-weight: 700; cursor: pointer; font: inherit; white-space: nowrap; }
+    .status.ended button { margin-left: auto; border: 1px solid var(--bx-accent, #f5a623); background: transparent; color: var(--bx-accent, #f5a623);
+      border-radius: 5px; padding: 2px 8px; cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); font-weight: 600; white-space: nowrap; }
+    .status.ended button:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
   `;
 
   constructor() {
@@ -154,6 +160,7 @@ export class BxAgent extends LitElement {
     super.connectedCallback();
     this._off = onEvent((e) => this._live(e));
     document.addEventListener('visibilitychange', this._onVisible);
+    if (this.history) { this._loadHistory(); return; }
     if (this.session) { this._load(0); return; }
     this._loadProviders(); // for the sign-in command and mode names, both paths
     this._maybeEager();
@@ -192,12 +199,27 @@ export class BxAgent extends LitElement {
   // config options (model, effort, …) land — the model picker then shows
   // before the first prompt, which is the whole point of the eager create.
   _maybeEager() {
-    if (this._started || this.session || this.ended || this._creating || !this.provider) return;
+    if (this._started || this.session || this.history || this.ended || this._creating || !this.provider) return;
     this._started = true;
     this._provider = this.provider;
     this._mode = this.mode || this._mode || '';
     this._create();
   }
+
+  // A PAST session (the history attribute): the persisted transcript, read-
+  // only — no process, no polling. The foot offers Resume where the agent can
+  // reopen it, else a fresh start on this tile.
+  async _loadHistory() {
+    try {
+      const r = await fetch(`/api/xbin/agent/history/${encodeURIComponent(this.history)}/events`);
+      if (!r.ok) this._error = r.status === 404 ? 'this past session is gone' : `could not load it (${r.status})`;
+      else { const { meta, events } = await r.json(); this._historyMeta = meta || null; this._merge(events || [], false); }
+    } catch (e) { this._error = String(e.message || e); }
+    this.ended = true;
+  }
+
+  _doResume() { if (this._historyMeta) this.dispatchEvent(new CustomEvent('bx-resume', { detail: this._historyMeta, bubbles: true })); }
+  _doNewHere() { if (this._historyMeta) this.dispatchEvent(new CustomEvent('bx-new-agent', { detail: { provider: this._historyMeta.provider }, bubbles: true })); }
 
   async _load(since) {
     if (!this.session) return;
@@ -277,7 +299,7 @@ export class BxAgent extends LitElement {
     try {
       const r = await fetch('/api/xbin/term/sessions', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode }),
+        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode, resume: this.resume || undefined }),
       });
       const info = await r.json().catch(() => ({}));
       if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
@@ -451,15 +473,19 @@ export class BxAgent extends LitElement {
     return html`
       <div class="scroll" @scroll=${this._onScroll}>
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
-        ${!this.session && !this.provider && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
-        ${!this.session && this.provider && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
+        ${!this.session && !this.provider && !this.history && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
+        ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
         ${repeat(this._blocks(), (b, i) => b.pid || b.id || i, (b) => this._block(b))}
       </div>
       <div class="foot">
-        ${this.ended ? html`<div class="status ended"><span class="dot exited"></span><span>this session has ended — the transcript stays until you close the tab</span></div>` : nothing}
+        ${this.ended ? html`<div class="status ended"><span class="dot exited"></span>
+          <span>${this.history ? 'a past session — read-only' : 'this session has ended — the transcript stays until you close the tab'}</span>
+          ${this.history && this._historyMeta?.loadable ? html`<button @click=${this._doResume} title="reopen this conversation: the agent replays these turns, then continues">Resume</button>` : nothing}
+          ${this.history && this._historyMeta && !this._historyMeta.loadable ? html`<button @click=${this._doNewHere} title="this agent cannot reopen a session — start a fresh one on this tile">Start a new session here</button>` : nothing}
+        </div>` : nothing}
         <div class="status">
           <span class="dot ${status}"></span>
-          <span>${this.session ? status.replace('_', ' ') : 'not started'}</span>
+          <span>${this.history ? 'past session' : this.session ? status.replace('_', ' ') : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${this._usage()}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
@@ -642,6 +668,8 @@ export class BxAgent extends LitElement {
       get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
       get modes() { return a._modes().map((m) => ({ id: m.id, name: m.name })); },
       get login() { return a._login(); },
+      get history() { return a._historyMeta || null; }, // the past session shown read-only (history mode)
+      resumeHistory() { a._doResume(); },
       signIn() { const lg = a._login(); if (lg) a._doSignIn(lg); },
       setOption(id, value) { a._setOption(id, value); },
       start() { return a._create(); },

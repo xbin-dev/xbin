@@ -99,7 +99,12 @@ makes itself a sub-reaper.
 
 ## Out of scope, flagged
 
-Persisting event logs across daemon restarts; ACP v2 (`fs`/`terminal`
-leave the protocol — the host becomes optional); MCP servers handed to
-the agent (`mcpServers: []`); elicitation; image prompts; `session/load`;
-per-user "always" rules across sessions.
+ACP v2 (`fs`/`terminal` leave the protocol — the host becomes optional);
+MCP servers handed to the agent (`mcpServers: []`); elicitation; image
+prompts; per-user "always" rules across sessions.
+
+Landed since (2026-09-22, `internal/term/history.go`): the event log is
+persisted when a session ends or the daemon stops (`data/agent-history/`,
+per user × tile, newest 20), listed and read back read-only
+(`/agent/history*`), and `session/load` resumes a past session where the
+agent advertises `loadSession` (`POST /term/sessions {resume}`).
