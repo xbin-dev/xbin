@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-23
 
+- **Base image: agent harnesses updated** — claude-code 2.1.280, codex
+  0.156.1, claude-agent-acp 0.81.1, codex-acp 1.13.1, opencode 1.18.32
+  (gemini-cli 0.60.0 was already current), node 22.23.3. opencode on amd64
+  is now the `-baseline` build, so a prebuilt bundle's opencode no longer
+  dies with "Illegal instruction" on CPUs without AVX2. Terminals and agent
+  sessions pick them up on the next install/upgrade.
 - **Workspace branding: a title and an icon, set from the admin tile.** The
   admin console's new **workspace → branding** tab sets a workspace title and
   icon. The title replaces the word "workspace" in the shell header and the

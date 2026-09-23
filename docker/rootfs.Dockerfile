@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # linux/amd64` or `linux/arm64` (prebuilt-bundle variants) with no build-args.
 #   DPKG_ARCH : amd64 | arm64      (Go's naming, and apt's [arch=])
 #   NODE_ARCH : x64   | arm64      (nodejs.org)
-#   OC_ARCH   : x64   | arm64      (opencode release asset)
+#   OC_ARCH   : x64-baseline | arm64   (opencode release asset)
 
 # Go (full toolchain — components build against it).
 ARG GO_VERSION=1.24.0
@@ -38,7 +38,7 @@ RUN a="$(dpkg --print-architecture)" \
 
 # Node LTS. Keep this fresh within the LTS line: current pnpm requires
 # >=22.13, and an old pin ships a silently broken pnpm (2026-08-07 find).
-ARG NODE_VERSION=22.23.2
+ARG NODE_VERSION=22.23.3
 RUN case "$(dpkg --print-architecture)" in amd64) na=x64 ;; arm64) na=arm64 ;; esac \
     && mkdir -p /usr/local/node \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${na}.tar.xz" \
@@ -106,9 +106,9 @@ RUN bun add -g pnpm yarn || npm install -g pnpm yarn || true
 # when the layer was FIRST built — the docker cache served claude-code
 # 2.1.207 across a month of releases. Bumping an ARG both updates the tool
 # and busts the cache; updating the base image = bump → release.
-ARG CLAUDE_CODE_VERSION=2.1.260
+ARG CLAUDE_CODE_VERSION=2.1.280
 RUN bun add -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} || npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} || true
-ARG CODEX_VERSION=0.153.2
+ARG CODEX_VERSION=0.156.1
 RUN bun add -g @openai/codex@${CODEX_VERSION} || npm install -g @openai/codex@${CODEX_VERSION} || true
 
 # ACP adapters — what an AGENT SESSION drives over the Agent Client Protocol
@@ -116,9 +116,9 @@ RUN bun add -g @openai/codex@${CODEX_VERSION} || npm install -g @openai/codex@${
 # own Claude Code), codex-acp wraps Codex's app server (bundles its own
 # codex), gemini speaks ACP natively (`gemini --acp`), and so does opencode
 # (`opencode acp`, above). Same one-tool-per-step, pinned, best-effort rule.
-ARG CLAUDE_ACP_VERSION=0.79.0
+ARG CLAUDE_ACP_VERSION=0.81.1
 RUN bun add -g @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION} || npm install -g @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION} || true
-ARG CODEX_ACP_VERSION=1.12.0
+ARG CODEX_ACP_VERSION=1.13.1
 RUN bun add -g @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} || npm install -g @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} || true
 ARG GEMINI_CLI_VERSION=0.60.0
 RUN bun add -g @google/gemini-cli@${GEMINI_CLI_VERSION} || npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION} || true
@@ -127,9 +127,12 @@ RUN bun add -g @google/gemini-cli@${GEMINI_CLI_VERSION} || npm install -g @googl
 # NOT npm: its npm postinstall re-invokes npm with the parent's lifecycle env
 # (npm_config_global etc.) and misplaces the platform binary, and npm treats
 # a failed optionalDependency as a silent skip — both bit us. A pinned glibc
-# binary sidesteps every layer of that. Bump the pin to update.
-ARG OPENCODE_VERSION=1.18.27
-RUN case "$(dpkg --print-architecture)" in amd64) oa=x64 ;; arm64) oa=arm64 ;; esac \
+# binary sidesteps every layer of that. Bump the pin to update. amd64 takes
+# the -baseline build: the stock x64 one needs AVX2 and dies with SIGILL on
+# CPUs without it, and a PREBUILT bundle is built on one host and run on
+# another — baseline runs on every x86-64 we support.
+ARG OPENCODE_VERSION=1.18.32
+RUN case "$(dpkg --print-architecture)" in amd64) oa=x64-baseline ;; arm64) oa=arm64 ;; esac \
     && curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${oa}.tar.gz" \
        | tar -xz -C /usr/local/bin opencode \
     && chmod 755 /usr/local/bin/opencode || true
