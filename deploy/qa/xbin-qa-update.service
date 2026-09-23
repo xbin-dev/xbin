@@ -6,5 +6,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/opt/xbin-qa/xbin-qa-update.sh
+# A oneshot has no login environment; the installer (set -u) reads $HOME &
+# co. — give it root's, as `sudo bash setup.sh` did on first install.
+Environment=HOME=/root USER=root LOGNAME=root
 # The updater reinstalls xbind and restarts it; give it room.
 TimeoutStartSec=600
