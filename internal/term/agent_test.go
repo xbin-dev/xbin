@@ -609,7 +609,10 @@ func TestAgentSessionQuestion(t *testing.T) {
 	if err != nil || code != 200 {
 		t.Fatalf("open: %d %v", code, err)
 	}
-	defer r.m.Kill(info.ID)
+	defer func() { // ended and saved before the temp dir goes (its history lands under it)
+		r.m.Kill(info.ID)
+		waitClose(t, r.change, "close:"+info.ID)
+	}()
 	r.until(t, func(e SessionEvent) bool {
 		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
 	})

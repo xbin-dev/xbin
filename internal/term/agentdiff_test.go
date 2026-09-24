@@ -188,4 +188,5 @@ func TestAgentSessionFilesChanged(t *testing.T) {
 		t.Fatalf("files.changed in the log: %d", n)
 	}
 	r.m.Kill(info.ID)
+	waitClose(t, r.change, "close:"+info.ID) // ended and saved before the temp dir goes
 }
