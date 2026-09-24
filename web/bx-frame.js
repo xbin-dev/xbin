@@ -42,7 +42,7 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadHistory, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
@@ -147,6 +147,7 @@ export class BxFrame extends LitElement {
     _dialog: { state: true },  // an open <bx-dialog>: {spec, resolve}
     _providers: { state: true }, // the agent providers, for the launcher (null until fetched)
     _history: { state: true }, // the tile's past agent sessions (frame-launcher.js: recent sessions, resume)
+    _envOld: { state: true }, // the tile's terminal layer is on an older base (frame-launcher.js loadTileState)
     _menu: { state: true },    // an open <bx-menu>: {items, anchor, sheet}
     // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
     // null (the viewport clamps instead). The shell's canvas sets it (D66).
@@ -385,7 +386,7 @@ export class BxFrame extends LitElement {
     if (!this.isConnected) return;
     this._sessions = tabsFrom(rows, this._sessions);
     this._reindex();
-    loadHistory(this); // a session that ended is history now
+    loadTileState(this); // a session that ended is history now; a reset/rebuilt layer is current
     if (!this._sessions.length && this._termOpen) this._termOpen = false;
   }
 
@@ -643,7 +644,7 @@ export class BxFrame extends LitElement {
     this._termOpen = true;
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
     if (!this._providers) agentProviders().then((p) => { this._providers = p; });
-    loadHistory(this);
+    loadTileState(this);
     // no auto-bash: an empty window shows the launcher chooser (render()).
     this._loadPRCount();
     this.updateComplete.then(() => this._front());
@@ -700,10 +701,10 @@ export class BxFrame extends LitElement {
     if (run) this._startKind('shell', null, { run });
   }
 
-  // The term-host holds both the shells and the agents; it shows whenever the
-  // active tab is an agent (agents have no code/logs panels) or a shell tab
-  // is in a terminal-bearing layout.
-  _panelVisible() { return this._isAgent || this._layout === 'term' || this._layout === 'split'; }
+  // The term-host holds both the shells and the agents; it shows in the
+  // terminal-bearing layouts — for an agent tab as for a shell (the code,
+  // logs and PR panels sit beside an agent just the same).
+  _panelVisible() { return this._layout === 'term' || this._layout === 'split'; }
 
 
   // Rename the terminal on tab i (blank clears back to its number). Names are
@@ -810,7 +811,7 @@ export class BxFrame extends LitElement {
     fetch(`/ws/term/env?cwd=${encodeURIComponent(this.src)}`, { method: 'DELETE' })
       .catch(() => { })
       .finally(() => {
-        this._sessions = this._sessions.map((t) => (t.kind === 'agent' ? t : { ...t, id: null }));
+        this._envOld = false; this._sessions = this._sessions.map((t) => (t.kind === 'agent' ? t : { ...t, id: null }));
         this.renderRoot?.querySelectorAll('bx-terminal').forEach((el) => el.restartFresh?.());
       });
   }
@@ -867,12 +868,11 @@ export class BxFrame extends LitElement {
           ${this._menu ? html`<bx-menu open .items=${this._menu.items} .anchor=${this._menu.anchor} ?sheet=${this._menu.sheet}
               @bx-menu-close=${() => { this._menu = null; }}></bx-menu>` : nothing}
           <div class="panels">
-            ${this._isAgent ? nothing : html`
             ${this._layout === 'code' || this._layout === 'split' ? html`<bx-code src=${this.src}
                 style="flex-basis:${this._layout === 'split' ? this._codeW + '%' : '100%'}"></bx-code>` : nothing}
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
             ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
-            ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}`}
+            ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}
             <div class="term-host" style="display:${this._sessions.length === 0 || this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
             ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'

@@ -1150,8 +1150,9 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 ```
 GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session (below)
 DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
-DELETE /ws/term/env?cwd=<p>        owner only: wipe the component's persistent
+DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
+GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated}
 ```
 
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
@@ -1236,12 +1237,17 @@ ends the old one and opens a new WS).
 `DELETE /ws/term?session=<id>` ends a session immediately (creator or admin;
 used by the UI to restart under a new scope); `204` on success, `404` unknown.
 
-`DELETE /ws/term/env?cwd=<component-path>` (owner only) wipes that component's
+`DELETE /ws/term/env?cwd=<component-path>` (terminal level on that tile; the
+root layer — `cwd` empty — admin-only) wipes that component's
 **persistent terminal layer** (installed packages / system changes) back to the
 base rootfs, killing any live session on it first; `204` on success. Each
 component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.
+`GET /ws/term/env?cwd=<component-path>` (same gate) reports that layer
+without opening a terminal: `{"exists":bool,"baseOutdated":bool}` —
+`baseOutdated` as on the session frame, so the terminal window offers the
+base update on its session chooser too.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).

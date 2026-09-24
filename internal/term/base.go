@@ -72,6 +72,15 @@ func (m *Manager) ensureLayerBase(layer string) string {
 
 // layerOutdated reports whether a held layer's base differs from the current
 // rootfs (so the tile can offer an upgrade/reset).
+// EnvStatus reports a component's persistent terminal layer before any
+// terminal is open: whether one exists, and whether it was built on an older
+// base image than the current rootfs (the terminal window's "base update").
+func (m *Manager) EnvStatus(rel string) (exists, outdated bool) {
+	key := termKey(rel)
+	_, err := os.Stat(filepath.Join(m.Root, ".xbin", "term", key))
+	return err == nil, m.layerOutdated(key)
+}
+
 func (m *Manager) layerOutdated(envKey string) bool {
 	if envKey == "" || m.Rootfs == "" {
 		return false

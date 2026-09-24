@@ -5,7 +5,8 @@
  *
  * Two tab kinds share the bar: a shell tab (kind:"shell") has the layout
  * switcher and the net/API/GPU pickers; an agent tab (kind:"agent", D74)
- * has a fixed sandbox and shows neither. The bar DEGRADES, it never clips:
+ * has the layout switcher too (code, logs, PRs beside the agent) but a
+ * fixed sandbox — no pickers, only the tile layer's base update / reset. The bar DEGRADES, it never clips:
  * when the pop is narrower than the bar's content (f._narrow — below
  * ~640 px, or the phone sheet) the layout switcher and the pickers move
  * into a tools row behind a "⋯" toggle, and the tab strip scrolls, so the
@@ -36,7 +37,7 @@ export function titlebar(f) {
       ${f._narrow
         ? html`<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
                   @click=${() => { f._tools = !f._tools; }}>⋯</button>`
-        : html`${isAgent ? nothing : layoutGroup(f)}<span class="spacer"></span>${isAgent ? nothing : pickers(f)}`}
+        : html`${layoutGroup(f)}<span class="spacer"></span>${isAgent ? layerButtons(f) : pickers(f)}`}
       <button class="winx" title="close (session keeps running)"
               @click=${() => { f._termOpen = false; }}>✕</button>
     </div>`;
@@ -45,8 +46,7 @@ export function titlebar(f) {
 // toolsRow: where the layout switcher and the pickers live when the bar is
 // narrow (rendered by the frame under the title bar while f._tools is on).
 export function toolsRow(f) {
-  if (f._isAgent) return nothing;
-  return html`<div class="toolsrow">${layoutGroup(f)}<span class="spacer"></span>${pickers(f)}</div>`;
+  return html`<div class="toolsrow">${layoutGroup(f)}<span class="spacer"></span>${f._isAgent ? layerButtons(f) : pickers(f)}</div>`;
 }
 
 function tabLabel(s, i) {
@@ -62,11 +62,11 @@ function tabTitle(s) {
 function layoutGroup(f) {
   return html`
     <span class="lyt">
-      <button class=${f._layout === 'term' ? 'on' : ''} title="terminal only"
+      <button class=${f._layout === 'term' ? 'on' : ''} title=${f._isAgent ? 'agent only' : 'terminal only'}
               @click=${() => f._setLayout('term')}>&gt;_</button>
       <button class=${f._layout === 'code' ? 'on' : ''} title="code browser + review"
               @click=${() => f._setLayout('code')}>{ }</button>
-      <button class=${f._layout === 'split' ? 'on' : ''} title="code + terminal side by side"
+      <button class=${f._layout === 'split' ? 'on' : ''} title=${f._isAgent ? 'code + agent side by side' : 'code + terminal side by side'}
               @click=${() => f._setLayout('split')}>⇋</button>
       <button class=${f._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
               @click=${() => f._setLayout('logs')}>▤</button>
@@ -107,7 +107,15 @@ function pickers(f) {
         ${f._gpus.map((g) => html`<option value=${g.index}>🎮 GPU ${g.index}</option>`)}
         ${f._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
       </select>` : nothing}
-    ${cur?.baseOutdated ? html`
+    ${layerButtons(f)}`;
+}
+
+// The tile's persistent terminal layer — shared by its shells and agents:
+// rebuild it on a newer base image (offered when it is outdated), or reset it.
+function layerButtons(f) {
+  const cur = f._sessions[f._active];
+  return html`
+    ${cur?.baseOutdated || f._envOld ? html`
       <button class="upgrade" title="a newer base image is installed — rebuild this tile's terminals on it (installed packages are wiped; your files & $HOME are kept)"
               @click=${() => f._resetEnv(true)}>⬆ base update</button>` : nothing}
     <button title="reset this component's sandbox (wipe installed packages)"
@@ -152,6 +160,8 @@ export const titlebarCss = css`
   .titlebar button.upgrade, .toolsrow button.upgrade {
     color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
     border-radius: 5px; padding: 1px 8px; white-space: nowrap;
+    /* the one button that gives way (to "⬆…") before the window's ✕ is pushed out */
+    flex: 0 1 auto; min-width: 26px; overflow: hidden; text-overflow: ellipsis;
   }
   .titlebar button.upgrade:hover, .toolsrow button.upgrade:hover { color: #23272e; filter: brightness(1.06); }
   /* Tabs are spans (not buttons) so each can hold a close button — nested

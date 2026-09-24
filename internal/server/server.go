@@ -142,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
 	handle("DELETE /ws/term/env", s.authedTerminal(http.HandlerFunc(s.handleTermReset)))
+	handle("GET /ws/term/env", s.authedTerminal(http.HandlerFunc(s.handleTermEnv)))
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
@@ -281,19 +282,8 @@ func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 // back to the base rootfs, killing any live session on it first
 // (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
 func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
-	cwd := r.URL.Query().Get("cwd")
-	// Resetting a tile's dev layer is a terminal-plane action (it IS the
-	// terminal's overlay), so it needs terminal level on that tile (admins:
-	// any); the legacy root layer ("" — root terminals are disabled) is
-	// admin-only.
-	p := auth.PrincipalOf(r)
-	if cwd == "" {
-		if !p.IsAdmin() {
-			http.Error(w, "resetting the root layer is admin-only", http.StatusForbidden)
-			return
-		}
-	} else if !p.CanTerminalTile(strings.Trim(cwd, "/")) {
-		http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
+	cwd, ok := termEnvGate(w, r)
+	if !ok {
 		return
 	}
 	if err := s.Term.ResetEnv(cwd); err != nil {
@@ -301,6 +291,37 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleTermEnv reports a component's persistent terminal layer (?cwd=):
+// {exists, baseOutdated} — so the terminal window can offer the base update
+// before any terminal is open (GET /ws/term/env).
+func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := termEnvGate(w, r)
+	if !ok {
+		return
+	}
+	exists, old := s.Term.EnvStatus(cwd)
+	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old})
+}
+
+// termEnvGate: a tile's dev layer is the terminal plane (it IS the terminal's
+// overlay), so reading or resetting it needs terminal level on that tile
+// (admins: any); the legacy root layer ("" — root terminals are disabled) is
+// admin-only.
+func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
+	cwd := r.URL.Query().Get("cwd")
+	p := auth.PrincipalOf(r)
+	if cwd == "" {
+		if !p.IsAdmin() {
+			http.Error(w, "the root layer is admin-only", http.StatusForbidden)
+			return "", false
+		}
+	} else if !p.CanTerminalTile(strings.Trim(cwd, "/")) {
+		http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
+		return "", false
+	}
+	return cwd, true
 }
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {

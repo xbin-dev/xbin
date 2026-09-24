@@ -14,7 +14,8 @@
 // (h) a subagent's thought, calls and text nest under its Task card;
 // (i) "/" in the composer offers the agent's slash commands, Tab completes;
 // (j) a question (AskUserQuestion → elicitation) is a form: radios, checkboxes,
-// an "Other" box; Submit sends the values and the card settles as answered.
+// an "Other" box; Submit sends the values and the card settles as answered;
+// (k) an agent tab has the layout switcher: the code panel beside the agent.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -203,6 +204,20 @@ async function agentTab(browser) {
   const settledAsk = A.page.locator(`${agentSel} .perm.ask.settled-card`).last();
   check(/answered by/.test(await settledAsk.innerText()) && /SQLite/.test(await settledAsk.innerText()), 'the question settles showing the answers');
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the question' });
+
+  // ---- an agent tab has the layout switcher (code / logs / PRs beside it) ----
+  const bar = A.page.locator(`bx-frame[src="${TILE}"] .titlebar`);
+  const host = A.page.locator(`bx-frame[src="${TILE}"] .term-host`);
+  check(await bar.locator('.lyt button').count() === 5 && await bar.locator('select.scope').count() === 0,
+    'the agent tab has the layout switcher — and no net/API/GPU pickers (its sandbox is fixed)');
+  await bar.locator('.lyt button[title="code browser + review"]').click();
+  await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code`, { timeout: 10000 });
+  check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await host.evaluate((el) => el.style.display) === 'none', 'the code layout shows the code panel instead of the agent');
+  await bar.locator('.lyt button[title="code + agent side by side"]').click();
+  await A.page.waitForTimeout(200);
+  check(await host.evaluate((el) => el.style.display) === 'flex' && await A.page.locator(`bx-frame[src="${TILE}"] bx-code`).count() === 1, 'split: code and agent side by side');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-split');
+  await bar.locator('.lyt button[title="agent only"]').click();
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Terminal window: the base update from the session chooser, and code /
+  logs / PRs beside an agent.** When a tile's terminal layer was built on an
+  older base image, the "Start a session in …" chooser now says so and offers
+  **⬆ base update** (and the title bar shows it with no session open — before,
+  only an open Bash tab did). An Agent tab now has the same layout switcher as
+  a Bash tab — code browser, code + agent side by side, backend logs, change
+  proposals — and the layer's base update / reset buttons (its network and
+  API settings stay fixed). New `GET /ws/term/env?cwd=<tile>` →
+  `{exists, baseOutdated}` (docs/protocol.md; same gate as the reset).
+
 - **BREAKING (security) — nothing runs as xbind on your tile anymore.** Tools
   xbind runs on workspace data — git for the Code panel, repo init, fork,
   import, template instances and builtin updates, the Agent tab's changed

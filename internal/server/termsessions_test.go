@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The directory routes over the impersonation test server (alice/dave
@@ -92,5 +95,40 @@ func TestTermEventFilter(t *testing.T) {
 	b, _ := json.Marshal(got.Data)
 	if got.Type != "term" || got.Component != "apps/x" || string(b) != `{"op":"close","id":"s1","user":"alice"}` {
 		t.Fatalf("published %+v (%s)", got, b)
+	}
+}
+
+// GET /ws/term/env reports a tile's terminal layer — whether it exists and
+// whether its base image is older than the current rootfs — under the same
+// gate as the reset: terminal level on the tile, the root layer admin-only.
+func TestTermEnvStatus(t *testing.T) {
+	h, s := termServer(t)
+	alice := s.Auth.NewSession("alice", "")
+	bob := s.Auth.NewSession("bob", "")
+	get := func(sid, cwd string) (int, string) {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie("GET", "/ws/term/env?cwd="+cwd, "", sid))
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":false,"exists":false}` {
+		t.Fatalf("no layer yet: %d %s", c, b)
+	}
+	if c, _ := get(bob, "apps/x"); c != 403 {
+		t.Fatalf("a user without terminal level: %d", c)
+	}
+	// a layer stamped with an older base than the rootfs's
+	rootfs := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(rootfs, "etc"), 0o755)
+	_ = os.WriteFile(filepath.Join(rootfs, "etc", "xbin-base-version"), []byte("v2\n"), 0o644)
+	s.Term.Rootfs = rootfs
+	layer := filepath.Join(s.Term.Root, ".xbin", "term", util.CompKey("apps/x"))
+	_ = os.MkdirAll(layer, 0o755)
+	_ = os.WriteFile(filepath.Join(layer, "base"), []byte("v1\n"), 0o644)
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":true,"exists":true}` {
+		t.Fatalf("an old-base layer: %d %s", c, b)
+	}
+	_ = os.WriteFile(filepath.Join(layer, "base"), []byte("v2\n"), 0o644)
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":false,"exists":true}` {
+		t.Fatalf("a current layer: %d %s", c, b)
 	}
 }
