@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -115,7 +117,7 @@ func (b *Broker) SeedInstanceRepo(instanceDir, name string) error {
 	// Bring the snapshot commit in from the local template repo and point
 	// main at it WITHOUT touching the working tree (which already holds the
 	// rewritten files); the follow-up commit is then exactly the rewrites.
-	if _, err := runGitIn(instanceDir, "fetch", "-q", tpl, "main"); err != nil {
+	if _, err := runGitWith(instanceDir, []sandbox.Bind{confine.RO(tpl)}, "fetch", "-q", tpl, "main"); err != nil {
 		return err
 	}
 	if _, err := runGitIn(instanceDir, "update-ref", "refs/heads/main", "FETCH_HEAD"); err != nil {

@@ -12,6 +12,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **BREAKING (security) — nothing runs as xbind on your tile anymore.** Tools
+  xbind runs on workspace data — git for the Code panel, repo init, fork,
+  import, template instances and builtin updates, the Agent tab's changed
+  files, and `go build` of Go backends — read tile content as configuration
+  (a repo's `.git/config` can name a command for git to run), and a tile is
+  written from inside sandboxes; run on the host, they handed whoever last
+  wrote a tile code execution as the daemon. They now run in throwaway
+  sandboxes (`--isolate` workspaces; docs/isolation.md → "Confined tool
+  runs"). Go builds keep the host's Go toolchain and the workspace's
+  `go.work`, but get per-tile caches, reach only public addresses for new
+  modules (new `XBIN_BUILD_NET=host` for a LAN proxy), stop stamping VCS
+  info, and no longer see `replace` targets outside the workspace and SDK.
+  Imports no longer use the daemon's global git credential helpers (ssh keys
+  in its `~/.ssh` still work). A terminal whose sandbox fails to start is now
+  an error instead of a shell on the host. The Code panel's diffs are git's
+  own (a tile's `diff.external`/textconv is ignored). Migration:
+  [changes/2026-09-24-confined-tools.md](/docs/changes/2026-09-24-confined-tools.md).
+
 - **Agent tab: the agent can ask you questions.** Claude Code's
   AskUserQuestion was disabled in agent sessions (the adapter drops it for a
   client that cannot show a form); the daemon now advertises form

@@ -83,6 +83,22 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
 - `sdk/` stays zero-dependency.
 - Grants/identity keep `plans/auth.md` semantics: xbind strips inbound
   `X-XBin-*`, default-deny for element principals, owner is admin.
+- **Nothing runs with xbind's privileges on data a sandbox can write**
+  (D78). Tile directories and homes are written from inside sandboxes —
+  terminals, coding agents — and tools read content as configuration: a
+  repo's `.git/config` names commands (`core.fsmonitor`, filters,
+  `diff.external`), `go build` runs git for VCS stamping, `go.mod` steers
+  downloads. So a host-side `git log` on a tile is code execution as xbind
+  for whoever last wrote that tile. Every tool on workspace data runs through
+  `internal/confine` — `confine.Git` / `GitRead` / `Run`: a throwaway sandbox
+  with only the paths it needs, no capabilities, no network unless asked.
+  A direct `exec.Command` in daemon code needs `// exec-ok: <why>` on the
+  call — legitimate only when isolation is off (no sandbox exists; tiles
+  already run as xbind) or the input is xbind's alone (`data/`, `.xbin/`,
+  host inventory); `TestNoDirectExec` (internal/confine) fails otherwise.
+  With isolation on, a sandbox that will not start is an error: never fall
+  back to running on the host (a terminal once did — a non-admin got a
+  host shell).
 - Never hardcode an install path in tiles OR persist one into workspace
   state — paths change under rename/clone.
 - **Never break an existing workspace.** `docs/compat.md` is the contract
@@ -91,7 +107,8 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
   URLs frozen, scaffold layouts additive (entry files keep their names, new
   siblings imported relatively, no bare import-map specifiers), theme
   fallbacks kept, CLI a superset, migrations idempotent with a fixture test.
-  A silent path that must become an error warns for one release first.
+  A silent path that must become an error warns for one release first —
+  except a security hole: that closes now, with a changelog entry.
 
 ## Docs discipline — docs are the contract
 

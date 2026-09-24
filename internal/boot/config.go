@@ -60,6 +60,7 @@ type Config struct {
 	Gocryptfs     string `env:"XBIN_GOCRYPTFS" readBy:"internal/resenc" doc:"the gocryptfs binary for encrypted file-backed resources (default: bundled next to xbind, then PATH; none ⇒ those resources stay plaintext)"`
 	FuseOverlayfs string `env:"XBIN_FUSE_OVERLAYFS" readBy:"internal/sandbox" doc:"the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay)"`
 	SandboxDebug  string `env:"XBIN_SANDBOX_DEBUG" readBy:"internal/sandbox" doc:"set to anything to make the sandbox init log its steps"`
+	BuildNet      string `env:"XBIN_BUILD_NET" readBy:"internal/runner" doc:"network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN)"`
 
 	// Runtime injection — not settings. Version is the build id main
 	// resolves; Listener replaces the console listener (tests bind :0 and set

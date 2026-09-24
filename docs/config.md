@@ -42,6 +42,7 @@ xbind version
 | Gocryptfs |  | `XBIN_GOCRYPTFS` |  | `internal/resenc` | the gocryptfs binary for encrypted file-backed resources (default: bundled next to xbind, then PATH; none ⇒ those resources stay plaintext) |
 | FuseOverlayfs |  | `XBIN_FUSE_OVERLAYFS` |  | `internal/sandbox` | the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay) |
 | SandboxDebug |  | `XBIN_SANDBOX_DEBUG` |  | `internal/sandbox` | set to anything to make the sandbox init log its steps |
+| BuildNet |  | `XBIN_BUILD_NET` |  | `internal/runner` | network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN) |
 
 The vault's boot mode follows from these settings, first match wins:
 `XBIN_VAULT_PASSPHRASE` set → auto-unseal; `--insecure-vault` or `--no-auth` →

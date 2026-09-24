@@ -18,6 +18,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/gpu"
@@ -63,6 +64,7 @@ type State struct {
 	reconcileIngress func()
 	watcher          *watch.Watcher
 	priv             Privileges
+	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
@@ -81,9 +83,12 @@ type Step struct {
 //     registry and then creates per-component repos.
 //   - broker before vault/proxy/ingress/isolation/server: they wire into it.
 //   - server last before watch/serve: every handler is registered by then.
+//   - confine first after privileges: the registry and broker steps run git
+//     on tiles (repo init, template repos), which must already be confined.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
+	{"confine", (*State).stepConfine},
 	{"auth+users", (*State).stepAuthUsers},
 	{"homes", (*State).stepHomes},
 	{"registry", (*State).stepRegistry},
@@ -556,8 +561,12 @@ func (st *State) stepCgroup() error {
 // Isolation is orthogonal to --dev/--no-auth (which only change asset serving
 // and logging): the sandbox network/fs model is different enough that dev
 // should run against it too (`make dev`).
-func (st *State) stepIsolation() error {
-	cfg, run, tm, brk := st.Cfg, st.Run, st.Term, st.Broker
+// stepConfine validates --isolate's rootfs and turns on confined tool runs:
+// every tool xbind runs on tile data (git, go build) runs in a sandbox over
+// that rootfs from here on — never as xbind (D78, internal/confine). Early,
+// so the boot's own repo work on tiles is confined too.
+func (st *State) stepConfine() error {
+	cfg := st.Cfg
 	if !cfg.Isolate {
 		return nil
 	}
@@ -571,6 +580,17 @@ func (st *State) stepIsolation() error {
 	if err != nil || !dirExists(abs) {
 		return fmt.Errorf("--isolate: rootfs %q not found", cfg.Rootfs)
 	}
+	st.rootfs = abs
+	confine.Configure(abs)
+	return nil
+}
+
+func (st *State) stepIsolation() error {
+	cfg, run, tm, brk := st.Cfg, st.Run, st.Term, st.Broker
+	if !cfg.Isolate {
+		return nil
+	}
+	abs := st.rootfs // validated by stepConfine
 	run.Rootfs = abs
 	run.Isolate = true
 	run.Egress = brk.EgressFor

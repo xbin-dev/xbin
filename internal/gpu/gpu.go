@@ -44,7 +44,7 @@ func discover() []Device {
 	if err != nil {
 		return nil
 	}
-	out, err := exec.Command(smi, "--query-gpu=index,uuid,name", "--format=csv,noheader").Output()
+	out, err := exec.Command(smi, "--query-gpu=index,uuid,name", "--format=csv,noheader").Output() // exec-ok: host inventory, no workspace input
 	if err != nil {
 		return nil
 	}

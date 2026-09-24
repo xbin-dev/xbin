@@ -12,17 +12,19 @@
 package builtins
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/confine"
 )
 
 const (
@@ -734,15 +736,14 @@ func patchSeries(from, to map[string][]byte, subject, body string) (string, erro
 		return "", err
 	}
 	defer os.RemoveAll(dir)
+	// confined (D78): the trees are an installed tile's files
 	git := func(args ...string) (string, error) {
-		full := append([]string{"-C", dir,
-			"-c", "user.email=builtins@xbin", "-c", "user.name=xbin builtins",
-			"-c", "commit.gpgsign=false"}, args...)
-		out, err := exec.Command("git", full...).CombinedOutput()
+		full := append([]string{"-c", "user.email=builtins@xbin", "-c", "user.name=xbin builtins"}, args...)
+		out, err := confine.Git(context.Background(), dir, nil, full...)
 		if err != nil {
-			return "", fmt.Errorf("git %v: %s", args, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf("git %v: %s", args, strings.TrimSpace(err.Error()))
 		}
-		return string(out), nil
+		return out, nil
 	}
 	writeTree := func(files map[string][]byte) error {
 		ents, err := os.ReadDir(dir)
@@ -830,13 +831,13 @@ func mergeFile(ours, base, theirs []byte) ([]byte, error) {
 	op, _ := write("ours", ours)
 	bp, _ := write("base", base)
 	tp, _ := write("theirs", theirs)
-	cmd := exec.Command("git", "merge-file", "-p", "--diff3", op, bp, tp)
-	outb, err := cmd.Output()
+	// confined (D78): "ours" is the installed tile's file
+	outs, err := confine.GitCmd(context.Background(), confine.Cmd{Dir: dir}, "merge-file", "-p", "--diff3", op, bp, tp)
 	// git merge-file exits with the conflict count (>0) — not a real error.
 	if err != nil {
-		if _, ok := err.(*exec.ExitError); !ok {
+		if code, ok := confine.ExitCode(err); !ok || code < 0 {
 			return nil, fmt.Errorf("git merge-file: %w", err)
 		}
 	}
-	return outb, nil
+	return []byte(outs), nil
 }

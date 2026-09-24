@@ -286,10 +286,11 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 			t.Fatalf("seq gap at %d", i)
 		}
 	}
-	// replay from a cursor
+	// replay from a cursor: exactly what followed it (a late event — the
+	// fake's slash-command status — may have landed after evs was read)
 	tail, _, _, _ := m.AgentEvents(id, evs[len(evs)-3].Seq)
-	if len(tail) != 2 {
-		t.Fatalf("since: %d", len(tail))
+	if len(tail) < 2 || tail[0].Seq != evs[len(evs)-2].Seq || tail[1].Seq != evs[len(evs)-1].Seq {
+		t.Fatalf("since: %d events from seq %d", len(tail), evs[len(evs)-3].Seq)
 	}
 
 	// cancel mid-turn: the turn ends cancelled

@@ -1974,3 +1974,43 @@ Deviations and refinements made while implementing; all deliberate:
   the per-question "Other" box. URL-mode elicitation is not advertised.
   **Slash commands** ride `status` like `options` (on change and every
   idle) and are sent as prompt text, ACP's own model.
+
+- **D78 — Nothing runs with xbind's privileges on data a sandbox can write:
+  tools on workspace data run in a throwaway sandbox (`internal/confine`),
+  enforced by a guard test; isolation failures fail closed (2026-09-24).**
+  Found while building D77's snapshot diffs: a host `git -C <tile> diff`
+  runs the tile's `.git/config` `core.fsmonitor` (verified with a marker
+  file), and a tile's `.git` is writable from its terminals and coding
+  agents — so every Code panel view, repo init, template check and builtin
+  update was "write my tile → run code as xbind". `go build` of backends was
+  the same through VCS stamping (and `go.mod` replaces reach any host
+  directory). The terminal manager, when its sandbox failed under
+  `--isolate`, fell back to a host shell — for a non-admin too. Fix, as a
+  rule rather than a patch list: `internal/confine` runs a tool in a fresh
+  sandbox over the base rootfs (`env` resolves the tool; only the paths the
+  job needs are bound; `Unprivileged`: no caps + the syscall block-list; no
+  netns unless the job fetches — `NetHost` for an import the operator asked
+  for, `NetInternet` through the relay for module downloads); `confine.Git`
+  adds hardened flags/env (no system/global config, fsmonitor/hooks off,
+  `safe.directory=*` since xbind is root inside). Measured ~45 ms per run
+  with fuse-overlayfs (~17 ms kernel overlay) — fine for the Code panel's
+  handful of calls, async for the snapshotter. `confine.Configure` runs in
+  an early boot step (`confine`, before registry/broker, which init repos).
+  Go builds keep compatibility where it matters: the host toolchain bound
+  read-only (the rootfs ships an older Go), the workspace read-only with
+  `.xbin`/`data`/`homes` masked so `go.work` resolves unchanged, per-tile
+  GOCACHE/GOMODCACHE (a shared writable cache is a cross-tile poisoning
+  channel) seeded offline from the host module cache as a read-only
+  `file://` GOPROXY, public-only egress (`XBIN_BUILD_NET=host` for LAN
+  proxies), `-buildvcs=false`. Without isolation there is no sandbox and no
+  boundary (backends and terminals already run as xbind), so confine runs
+  the tool directly with the same hardening. The rule is mechanical:
+  `TestNoDirectExec` fails on any exec in daemon code outside confine,
+  sandbox and the in-sandbox agent host unless the call says
+  `// exec-ok: <why>`; AGENTS.md/CLAUDE.md carry it as a hard rule. Not
+  chosen: hardening host git with `-c` overrides alone (a denylist — git
+  has many config-named commands, and `go build`/`git clone` run their own
+  git); running tools inside the tile's own long-lived sandbox (no such
+  process exists for most tiles, and a terminal's sandbox is the user's,
+  not xbind's); refusing the features without isolation (they'd lose the
+  Code panel in dev/no-isolate installs for no boundary gained).

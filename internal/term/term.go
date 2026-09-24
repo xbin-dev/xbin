@@ -12,6 +12,7 @@
 package term
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -334,7 +335,11 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd, cleanup, postStart, envKey, _ := m.shellCmd(dir, rel, homeDir, token, o)
+	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(dir, rel, homeDir, token, o)
+	if err != nil {
+		revokeTok()
+		return nil, err
+	}
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
@@ -390,27 +395,35 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 }
 
 // shellCmd builds the (unstarted) shell command: a rootfs sandbox when
-// isolation is on, else a plain host shell. Returns a cleanup for sandbox state,
-// an optional postStart hook (run after the PTY starts) that wires the egress
-// relay, and the persistent env-layer key this session holds ("" = none).
+// isolation is on, else a plain host shell. With isolation on, a sandbox that
+// cannot be set up is an error — never a host shell, which would hand the
+// session (a non-admin's, a coding agent's) xbind's own privileges (D78).
+// Returns a cleanup for sandbox state, an optional postStart hook (run after
+// the PTY starts) that wires the egress relay, and the persistent env-layer
+// key this session holds ("" = none).
 // homeDir is the session user's $HOME (homes/<user>); token the per-session
 // terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none). The last
 // result is the entry's env (an agent session builds the agent's from it).
-func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string) {
-	if m.Isolate && m.Rootfs != "" && sandbox.Available() {
-		if cmd, cleanup, post, envKey, env, err := m.sandboxShell(dir, rel, homeDir, token, o); err == nil {
-			return cmd, cleanup, post, envKey, env
-		} else {
-			slog.Warn("terminal sandbox setup failed; falling back to host shell", "err", err)
+func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string, error) {
+	if m.Isolate {
+		if m.Rootfs == "" || !sandbox.Available() {
+			return nil, nil, nil, "", nil, errors.New("terminal sandbox unavailable (isolation is on but there is no rootfs or user namespaces)")
 		}
+		cmd, cleanup, post, envKey, env, err := m.sandboxShell(dir, rel, homeDir, token, o)
+		if err != nil {
+			slog.Error("terminal sandbox setup failed", "err", err)
+			return nil, nil, nil, "", nil, fmt.Errorf("the terminal sandbox could not be set up: %w", err)
+		}
+		return cmd, cleanup, post, envKey, env, nil
 	}
+	// isolation off: the workspace has no sandbox at all (tiles run as xbind)
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
 	}
-	cmd := exec.Command(shell)
-	if o.kind == KindAgent { // the agent host as a plain child, leading its own group (agent.go)
-		cmd = exec.Command(m.BxPath, "__agent-host")
+	cmd := exec.Command(shell) // exec-ok: isolation off — no sandbox exists; the terminal is the owner's shell as xbind
+	if o.kind == KindAgent {   // the agent host as a plain child, leading its own group (agent.go)
+		cmd = exec.Command(m.BxPath, "__agent-host") // exec-ok: isolation off, as the shell above
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
 	cmd.Dir = dir
@@ -440,7 +453,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	if token != "" {
 		cmd.Env = append(cmd.Env, "XBIN_TOKEN="+token)
 	}
-	return cmd, func() {}, nil, "", cmd.Env
+	return cmd, func() {}, nil, "", cmd.Env, nil
 }
 
 // termKey is the per-component key for a terminal's persistent layer.

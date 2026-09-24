@@ -29,6 +29,11 @@ practices in full: `AGENTS.md`.
   has the template).
 - Grants/identity changes must keep `plans/auth.md` semantics: xbind strips
   inbound `X-XBin-*`, default-deny for element principals, owner is admin.
+- **Nothing runs as xbind on sandbox-writable data** (tiles, homes): git, go
+  and every other tool on workspace data go through `internal/confine` (a
+  throwaway sandbox). A direct `exec.Command` in daemon code needs
+  `// exec-ok: <why>` — `TestNoDirectExec` enforces it. Under isolation a
+  sandbox failure is an error, never a host fallback (D78, AGENTS.md).
 
 ## Layout
 

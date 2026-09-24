@@ -36,11 +36,48 @@ Two things always work regardless of the network:
 - **Nothing else, by default.** A backend has **no IP egress** until the owner
   binds its `net` interface (see **Network egress** below).
 
+## Confined tool runs (xbind's own work on your tile)
+
+Some work on your tile is done by xbind itself rather than by your code:
+the Code panel's history and diffs, giving a new tile its git repo, forking,
+importing from a git URL, template instances, builtin updates, the Agent
+tab's "changed files", and **compiling a Go backend**. Every one of those
+tools reads your tile's content as configuration — a repo's `.git/config`
+can name commands for git to run (`core.fsmonitor`, filters,
+`diff.external`), `go build` runs git, `go.mod` steers downloads — and your
+tile is written from inside sandboxes (terminals, coding agents). So none of
+it runs with xbind's privileges: each tool runs in a **throwaway sandbox**
+that sees only the paths it needs, has no capabilities, and no network
+unless the job is a fetch. Whatever your repo makes git do stays inside that
+box, with your own tile.
+
+What that means when you build a **Go backend** (`--isolate` workspaces):
+
+| | |
+|---|---|
+| toolchain | the host's Go, the same version as before, read-only |
+| sees | the workspace read-only (so `go.work` and every module it `use`s resolve as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
+| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile |
+| modules | whatever the host's module cache already holds is served from it read-only, offline; new modules are downloaded — **public addresses only** (the operator sets `XBIN_BUILD_NET=host` for a GOPROXY or private modules on the LAN) |
+| not honoured | a `replace` to a path outside the workspace and the SDK (it isn't there); VCS stamping (`-buildvcs=false` — nothing your repo's config says runs, even inside the box) |
+
+An **import from a git URL** runs its `git ls-remote`/`git clone` on the
+host's network (anything the host reaches, as before), with the daemon's
+`~/.ssh` visible read-only for `git@…` URLs — but in a sandbox that sees only
+the new tile's directory. The daemon's own global git config (credential
+helpers included) no longer applies to it.
+
+Workspaces without isolation have no sandbox to use: their backends and
+terminals already run as the xbind user, and these tools run directly, with
+system/global git config and repo hooks switched off.
+
 ## Terminal isolation (owner/editing plane)
 
 Terminals are the editing plane — a real shell, scoped to its tile, in a
 component's directory. (The **root terminal** — a shell on the workspace root —
 is **disabled**; workspace-wide work happens in the browser UI or a host shell.)
+A terminal (or agent session) whose sandbox cannot be set up does not open —
+the error says why; it never falls back to a shell on the host (D78).
 
 How a component terminal sees the workspace depends on who opened it (D40):
 

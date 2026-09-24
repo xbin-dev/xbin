@@ -200,7 +200,7 @@ func (m *Manager) SupportsSingleTenant() bool {
 		return false
 	}
 	if m.stSupport == nil {
-		out, _ := exec.Command(m.bin, "-hh").CombinedOutput()
+		out, _ := exec.Command(m.bin, "-hh").CombinedOutput() // exec-ok: gocryptfs's own help, no workspace input
 		ok := strings.Contains(string(out), "xbin-single-tenant")
 		m.stSupport = &ok
 	}
@@ -248,8 +248,8 @@ func (m *Manager) RecoverStale() {
 // --- helpers ---------------------------------------------------------------
 
 func (m *Manager) run(pw string, args ...string) error {
-	cmd := exec.Command(m.bin, args...)
-	cmd.Stdin = strings.NewReader(pw) // -passfile /dev/stdin reads one line
+	cmd := exec.Command(m.bin, args...) // exec-ok: gocryptfs on cipher dirs under data/ — xbind-only, never sandbox-writable
+	cmd.Stdin = strings.NewReader(pw)   // -passfile /dev/stdin reads one line
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
@@ -325,7 +325,7 @@ func fusermountU(dir string, lazy bool) error {
 	if lazy {
 		args = []string{"-uz", dir}
 	}
-	out, err := exec.Command(bin, args...).CombinedOutput()
+	out, err := exec.Command(bin, args...).CombinedOutput() // exec-ok: fusermount -u of xbind's own mountpoint
 	if err != nil {
 		return fmt.Errorf("%s -u %s: %v: %s", bin, dir, err, strings.TrimSpace(string(out)))
 	}

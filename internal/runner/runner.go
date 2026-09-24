@@ -356,16 +356,20 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return "", err
 		}
-		cmd := exec.Command("go", "build", "-o", out, entry)
+		if r.Isolate {
+			// in a sandbox, never as xbind (D78, build.go); fully static
+			// (CGO_ENABLED=0) so the backend runs on any sandbox rootfs,
+			// independent of the base image's glibc (plans/isolation-impl.md)
+			if err := r.buildConfined(c, entry, out); err != nil {
+				return "", err
+			}
+			return out, nil
+		}
+		cmd := exec.Command("go", "build", "-o", out, entry) // exec-ok: isolation off — no sandbox exists; backends run as xbind too
 		cmd.Dir = c.Dir
 		cmd.Env = append(os.Environ(),
 			"GOCACHE="+filepath.Join(r.Root, ".xbin", "cache", "go-build"),
 		)
-		if r.Isolate {
-			// Build fully static so the backend runs on any sandbox rootfs,
-			// independent of the base image's glibc (plans/isolation-impl.md).
-			cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
-		}
 		if outp, err := cmd.CombinedOutput(); err != nil {
 			return "", &BuildError{Output: string(outp)}
 		}
@@ -428,13 +432,13 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		cleanup = sb.Cleanup
 	} else {
-		switch c.Manifest.Runtime {
+		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
 		case "go":
-			cmd = exec.Command(bin)
+			cmd = exec.Command(bin) // exec-ok: see above
 		case "node":
-			cmd = exec.Command("node", bin)
+			cmd = exec.Command("node", bin) // exec-ok: see above
 		case "python":
-			cmd = exec.Command("python3", bin)
+			cmd = exec.Command("python3", bin) // exec-ok: see above
 		}
 		cmd.Dir = c.Dir
 		cmd.Env = env

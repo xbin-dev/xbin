@@ -201,7 +201,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if err != nil {
 		return nil, err
 	}
-	cmd, cleanup, postStart, envKey, env := m.shellCmd(dir, rel, homeDir, token, o)
+	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(dir, rel, homeDir, token, o)
+	if err != nil {
+		revokeTok()
+		return nil, err
+	}
 	fail := func(err error) (*Session, error) {
 		cleanup()
 		revokeTok()

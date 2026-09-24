@@ -33,7 +33,22 @@ target, so a red line names the guard that failed.
 | `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms) and the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/` and the site's `website/install.sh` bootstrap | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests) |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
-| unit tests incl. the embed guard, route inventory, docs check | `test` | see the sections below |
+| unit tests incl. the embed guard, route inventory, docs check, the exec guard | `test` | see the sections below |
+
+## Exec guard (nothing runs as xbind on tile data)
+
+`internal/confine` `TestNoDirectExec` fails `make test` when daemon code
+(`internal/`, `cmd/xbind`) starts a program — `exec.Command`,
+`CommandContext`, `exec.Cmd{}`, `os.StartProcess`, `syscall.Exec` — outside
+`internal/confine` (the confined run), `internal/sandbox` (the sandbox
+itself) and `internal/agent/host` (runs inside a sandbox), unless the call
+carries `// exec-ok: <reason>` on its line or the two above. Tools on
+workspace data — git on a tile, `go build` of a backend — go through
+`confine.Git` / `GitRead` / `Run`, which sandbox them when isolation is on
+(D78, [isolation.md](/docs/isolation.md) → "Confined tool runs"). An
+`exec-ok` is for isolation-off paths and input only xbind writes; a reviewer
+reads each one. The sandboxed half is exercised by `go test -tags=integration
+./internal/confine/ ./internal/runner/` (needs `.rootfs` + user namespaces).
 
 ## Size budget (the ratchet)
 

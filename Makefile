@@ -80,6 +80,8 @@ test:
 
 integration:
 	go test -tags=integration -count=1 -v ./test/...
+	# the confined tool runs (D78) in real sandboxes: skip without .rootfs/userns
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/
 
 vet:
 	go vet ./...

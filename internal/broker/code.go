@@ -2,10 +2,10 @@ package broker
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -56,19 +58,25 @@ func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, stri
 
 // runGitIn runs a git subcommand in dir (a component's own repo — each component
 // is its own repo, plans/lifecycle.md), returning stdout (and, on failure, stderr
-// as the error text).
+// as the error text). Confined (D78): a tile's .git is written from inside its
+// sandboxes, so git reading that repo's config must never run as xbind — it
+// runs in a throwaway sandbox that sees only dir.
 func runGitIn(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(errb.String())
+	return runGitWith(dir, nil, args...)
+}
+
+// runGitWith is runGitIn with more paths bound in (a repo to fetch from,
+// read-only).
+func runGitWith(dir string, binds []sandbox.Bind, args ...string) (string, error) {
+	out, err := confine.Git(context.Background(), dir, binds, args...)
+	if err != nil {
+		msg := strings.TrimSpace(err.Error())
 		if msg == "" {
-			msg = err.Error()
+			msg = "git " + strings.Join(args, " ") + " failed"
 		}
-		return out.String(), &gitError{msg}
+		return out, &gitError{msg}
 	}
-	return out.String(), nil
+	return out, nil
 }
 
 type gitError struct{ msg string }
@@ -390,16 +398,18 @@ func (b *Broker) apiGitDiff(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if rev == "" {
 		// Uncommitted changes in this component (vs last commit).
-		out, err = runGitIn(dir, "diff", "--no-color", "HEAD")
+		// --no-ext-diff/--no-textconv: the panel shows git's own diff, not
+		// whatever the tile's config names as its diff tool
+		out, err = runGitIn(dir, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "HEAD")
 		if err != nil { // no commits yet
-			out, err = runGitIn(dir, "diff", "--no-color")
+			out, err = runGitIn(dir, "diff", "--no-color", "--no-ext-diff", "--no-textconv")
 		}
 	} else {
 		if !revRE.MatchString(rev) {
 			server.WriteError(w, http.StatusBadRequest, "bad revision")
 			return
 		}
-		out, err = runGitIn(dir, "show", "--no-color", rev)
+		out, err = runGitIn(dir, "show", "--no-color", "--no-ext-diff", "--no-textconv", rev)
 	}
 	if err != nil {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"repo": true, "diff": "", "note": err.Error()})

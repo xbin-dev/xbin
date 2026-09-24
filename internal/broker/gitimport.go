@@ -4,13 +4,14 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -53,7 +54,20 @@ func repoNameFromURL(u string) string {
 	return util.Slugify(name)
 }
 
-func gitEnv() []string { return append(os.Environ(), "GIT_TERMINAL_PROMPT=0") }
+// remoteGit runs a network git command (ls-remote, clone) confined (D78):
+// on the host network — an import reaches whatever the host can, as before —
+// but in a sandbox that sees only dir (the clone target) and, read-only, the
+// daemon's ~/.ssh (where an ssh import's key lives; ssh reads it from uid
+// 0's home inside). A hostile remote gets no further than the sandbox.
+func remoteGit(ctx context.Context, dir string, timeout time.Duration, args ...string) (string, error) {
+	c := confine.Cmd{Dir: dir, Net: confine.NetHost, Timeout: timeout}
+	if home, err := os.UserHomeDir(); err == nil && pathIsDir(filepath.Join(home, ".ssh")) {
+		c.Binds = append(c.Binds, sandbox.Bind{Src: filepath.Join(home, ".ssh"), Dst: "/root/.ssh", RO: true})
+	}
+	return confine.GitCmd(ctx, c, args...)
+}
+
+func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
 // apiGitRemoteInfo (GET /git/remote-info?url=) inspects a remote without cloning:
 // its default branch and tags (newest first), so the UI can offer versions.
@@ -66,13 +80,9 @@ func (b *Broker) apiGitRemoteInfo(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "provide a git URL (https://…, git@…:…, ssh://…)")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", url)
-	cmd.Env = gitEnv()
-	out, err := cmd.CombinedOutput()
+	out, err := remoteGit(r.Context(), "", 25*time.Second, "ls-remote", "--symref", "--", url)
 	if err != nil {
-		server.WriteError(w, http.StatusBadGateway, "cannot reach the repo: "+firstLine(string(out)))
+		server.WriteError(w, http.StatusBadGateway, "cannot reach the repo: "+firstLine(err.Error()))
 		return
 	}
 	var defaultBranch string
@@ -152,13 +162,14 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
-	clone := exec.CommandContext(ctx, "git", "clone", "--", url, target)
-	clone.Env = gitEnv()
-	if out, err := clone.CombinedOutput(); err != nil {
+	// the target exists (empty) before the clone so the sandbox can bind it
+	if err := os.Mkdir(target, 0o755); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := remoteGit(r.Context(), target, 5*time.Minute, "clone", "--", url, target); err != nil {
 		_ = os.RemoveAll(target)
-		server.WriteError(w, http.StatusBadGateway, "clone failed: "+firstLine(string(out)))
+		server.WriteError(w, http.StatusBadGateway, "clone failed: "+firstLine(err.Error()))
 		return
 	}
 	if ref := strings.TrimSpace(body.Ref); ref != "" {

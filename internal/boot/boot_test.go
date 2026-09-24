@@ -54,7 +54,9 @@ func TestStepsOrder(t *testing.T) {
 		{"workspace", "privileges"}, // root seeds AGENTS.md/CLAUDE.md before becoming the owner
 		{"auth+users", "homes"},     // the home migration's target is the users store's one human
 		{"registry", "broker"},      // the essential-tile backfill rescans the registry
-		{"broker", "vault"},         // the vault is the broker's barrier
+		{"confine", "registry"},     // D78: git on tiles (repo init, template repos) is confined from the first run
+		{"confine", "broker"},
+		{"broker", "vault"}, // the vault is the broker's barrier
 		{"broker", "proxy"},
 		{"proxy", "ingress"},
 		{"ingress", "server"},

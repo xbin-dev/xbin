@@ -9,11 +9,12 @@ package term
 // finishes, and diffs consecutive trees.
 //
 // The tile's own repository is never used: the sandboxed agent can write its
-// .git/config, and a git run by xbind that reads it would run whatever
-// core.fsmonitor or filter it names, as xbind. Everything lives in a private
-// git dir (index, objects, config) with no system or global config; the
-// tile is only the work tree (its .gitignore files still apply — data, not
-// config). The user's repo, index and HEAD are untouched.
+// .git/config, and a git reading it runs whatever core.fsmonitor or filter it
+// names. Everything lives in a private git dir (index, objects, config) with
+// no system or global config; the tile is only the work tree (its .gitignore
+// files still apply — data, not config). The user's repo, index and HEAD are
+// untouched. And like every tool xbind runs on tile data, git runs confined
+// (D78, internal/confine): the private dir read-write, the tile read-only.
 
 import (
 	"bytes"
@@ -21,7 +22,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
 // EvFilesChanged is the snapshot diff event: {toolCallId? | turn?, changes,
@@ -85,9 +87,6 @@ func newSnapper(work string, emit func(agent.Event)) *snapper {
 	if _, err := os.Stat(filepath.Join(work, ".git")); err != nil {
 		return nil
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return nil
-	}
 	gd, err := os.MkdirTemp("", "xbin-agentdiff-")
 	if err != nil {
 		return nil
@@ -104,35 +103,19 @@ func newSnapper(work string, emit func(agent.Event)) *snapper {
 	return s
 }
 
-// git runs git on the private dir with the tile as work tree, hardened:
-// no system/global config, no fsmonitor, no hooks, no external diff or
-// textconv (the private config defines none either).
+// git runs git on the private dir with the tile as work tree, confined and
+// hardened (confine.Git: no system/global config, no fsmonitor, no hooks);
+// no external diff or textconv either — the private config defines none.
 func (s *snapper) git(ctx context.Context, args ...string) ([]byte, error) {
 	full := append([]string{"--git-dir=" + s.gitDir, "--work-tree=" + s.work,
-		"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.untrackedCache=false",
 		"-c", "core.excludesFile=" + filepath.Join(s.gitDir, "xbin-excludes"), "-c", "core.quotePath=false",
-		"-c", "core.autocrlf=false", "-c", "safe.directory=*", "-c", "gc.auto=0"}, args...)
+		"-c", "core.autocrlf=false", "-c", "gc.auto=0"}, args...)
 	if len(args) > 0 && args[0] == "init" {
-		full = append([]string{"-c", "safe.directory=*"}, args...)
+		full = args
 	}
-	cmd := exec.CommandContext(ctx, "git", full...)
-	cmd.Dir = s.gitDir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + s.gitDir, "LC_ALL=C", "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0"}
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
-		return nil, &gitErr{strings.TrimSpace(errb.String()), err}
-	}
-	return out.Bytes(), nil
+	out, err := confine.GitCmd(ctx, confine.Cmd{Dir: s.gitDir, Binds: []sandbox.Bind{confine.RO(s.work)}, Timeout: diffTimeout}, full...)
+	return []byte(out), err
 }
-
-type gitErr struct {
-	msg string
-	err error
-}
-
-func (e *gitErr) Error() string { return e.msg + " (" + e.err.Error() + ")" }
 
 func (s *snapper) enqueue(j diffJob) {
 	if s == nil {

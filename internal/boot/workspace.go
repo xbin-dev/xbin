@@ -2,6 +2,7 @@ package boot
 
 import (
 	"bytes"
+	"context"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/xbin-dev/xbin"
 	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/confine"
 )
 
 // homeSkel maps per-user home dotfiles to their embedded template sources
@@ -110,12 +112,8 @@ func InitWorkspace(dir string) error {
 		_ = os.Symlink("AGENTS.md", filepath.Join(dir, "CLAUDE.md"))
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		if git, err := exec.LookPath("git"); err == nil {
-			cmd := exec.Command(git, "init", "-q")
-			cmd.Dir = dir
-			if out, err := cmd.CombinedOutput(); err != nil {
-				slog.Warn("git init failed", "out", string(out))
-			}
+		if _, err := confine.Git(context.Background(), dir, nil, "init", "-q"); err != nil { // D78: every git xbind runs goes through confine
+			slog.Warn("git init failed", "err", err)
 		}
 	}
 	// Record scaffold provenance so a future xbind can offer updates to these
