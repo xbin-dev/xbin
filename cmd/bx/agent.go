@@ -263,16 +263,18 @@ func agentPrompt(id, text string) error {
 	return apiJSON("POST", "/api/xbin/term/sessions/"+id+"/prompt", map[string]string{"text": text}, nil)
 }
 
-// cmdAgentPermit answers a permission request: once | always | deny.
+// cmdAgentPermit answers a permission request: once | always | deny, or
+// one of the request's own option ids (a plan approval's choices are modes —
+// "clear context and auto", "keep planning" — so they are picked by id).
 func cmdAgentPermit(args []string) error {
 	if len(args) != 3 {
-		return errors.New("usage: bx agent permit <session> <pid> once|always|deny")
+		return errors.New("usage: bx agent permit <session> <pid> once|always|deny|<option id>")
 	}
-	decision := map[string]string{"once": "allow_once", "always": "allow_always", "deny": "reject_once", "reject": "reject_once"}[args[2]]
-	if decision == "" {
-		return fmt.Errorf("answer with once, always or deny (got %q)", args[2])
+	body := map[string]string{"optionId": args[2]}
+	if decision := map[string]string{"once": "allow_once", "always": "allow_always", "deny": "reject_once", "reject": "reject_once"}[args[2]]; decision != "" {
+		body = map[string]string{"decision": decision}
 	}
-	return apiJSON("POST", "/api/xbin/term/sessions/"+args[0]+"/permissions/"+args[1], map[string]string{"decision": decision}, nil)
+	return apiJSON("POST", "/api/xbin/term/sessions/"+args[0]+"/permissions/"+args[1], body, nil)
 }
 
 // cmdAgentAttach follows a session's stream: everything from the start
@@ -454,6 +456,9 @@ func agentKeys(ctx context.Context, id string, r *agentRenderer) {
 			continue
 		}
 		ans := map[string]string{"a": "once", "s": "always", "d": "deny"}[key]
+		if ans == "always" && r.plan[pid] {
+			ans = "" // a plan's allow_always options are modes, not "remember": pick one by id
+		}
 		if ans == "" {
 			continue
 		}
@@ -467,15 +472,16 @@ func agentKeys(ctx context.Context, id string, r *agentRenderer) {
 type agentRenderer struct {
 	w        io.Writer
 	id       string
-	pending  []string // unanswered pids, oldest first
-	inLine   bool     // an agent line is open (deltas print inline)
-	role     string   // whose delta the open line is
-	ready    bool     // the first idle (with the agent's modes) was shown
+	pending  []string        // unanswered pids, oldest first
+	plan     map[string]bool // pids that are plan approvals (switch_mode)
+	inLine   bool            // an agent line is open (deltas print inline)
+	role     string          // whose delta the open line is
+	ready    bool            // the first idle (with the agent's modes) was shown
 	exitCode int
 }
 
 func newAgentRenderer(w io.Writer, id string) *agentRenderer {
-	return &agentRenderer{w: w, id: id}
+	return &agentRenderer{w: w, id: id, plan: map[string]bool{}}
 }
 
 func (r *agentRenderer) lastPending() string {
@@ -521,7 +527,7 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		r.inLine = true
 	case "tool.call":
 		r.br()
-		fmt.Fprintf(r.w, "⚙ %s %s [%s]\n", str("id"), orDash(str("title")), str("kind"))
+		fmt.Fprintf(r.w, "⚙ %s %s [%s]\n", str("id"), orDash(toolHeadline(d)), str("kind"))
 	case "tool.update":
 		r.br()
 		if st := str("status"); st != "" {
@@ -541,15 +547,32 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		pid := str("pid")
 		r.pending = append(r.pending, pid)
 		tc, _ := d["toolCall"].(map[string]any)
-		title, _ := tc["title"].(string)
-		fmt.Fprintf(r.w, "⚠ permission %s: %s\n", pid, orDash(title))
+		if plan := planOf(tc); plan != "" {
+			r.plan[pid] = true
+			meta, _ := d["meta"].(map[string]any)
+			heading, _ := meta["title"].(string)
+			if heading == "" {
+				heading, _ = tc["title"].(string)
+			}
+			fmt.Fprintf(r.w, "⚠ plan %s: %s\n", pid, orDash(heading))
+			for _, ln := range strings.Split(strings.TrimRight(plan, "\n"), "\n") {
+				fmt.Fprintf(r.w, "  │ %s\n", ln)
+			}
+		} else {
+			title, _ := tc["title"].(string)
+			fmt.Fprintf(r.w, "⚠ permission %s: %s\n", pid, orDash(title))
+		}
 		if opts, ok := d["options"].([]any); ok {
 			for _, o := range opts {
 				m, _ := o.(map[string]any)
 				fmt.Fprintf(r.w, "    %-14s %s (%s)\n", m["optionId"], m["name"], m["kind"])
 			}
 		}
-		fmt.Fprintf(r.w, "  answer: bx agent permit %s %s once|always|deny   (or type a / s / d here)\n", r.id, pid)
+		if r.plan[pid] {
+			fmt.Fprintf(r.w, "  answer: bx agent permit %s %s <option id>   (or type a / d here)\n", r.id, pid)
+		} else {
+			fmt.Fprintf(r.w, "  answer: bx agent permit %s %s once|always|deny   (or type a / s / d here)\n", r.id, pid)
+		}
 	case "permission.resolved":
 		r.br()
 		pid := str("pid")
@@ -603,6 +626,42 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		}
 	}
 	return 0, false
+}
+
+// toolHeadline is what a tool call is called: the harness's description
+// (label) when it gave one, else the title's first line.
+func toolHeadline(d map[string]any) string {
+	if s, _ := d["label"].(string); s != "" {
+		return s
+	}
+	title, _ := d["title"].(string)
+	if first, _, more := strings.Cut(title, "\n"); more {
+		return first + " …"
+	}
+	return title
+}
+
+// planOf is the plan a permission request asks to approve (Claude's
+// ExitPlanMode, Codex's plan review): the text content, else rawInput.plan;
+// "" when it isn't a plan approval.
+func planOf(tc map[string]any) string {
+	raw, _ := tc["rawInput"].(map[string]any)
+	plan, _ := raw["plan"].(string)
+	if kind, _ := tc["kind"].(string); kind != "switch_mode" && plan == "" {
+		return ""
+	}
+	items, _ := tc["content"].([]any)
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		c, _ := m["content"].(map[string]any)
+		if s, _ := c["text"].(string); strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	if plan == "" {
+		return "(no plan text)"
+	}
+	return plan
 }
 
 func modeOf(mode string) string {

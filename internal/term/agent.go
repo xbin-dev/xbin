@@ -302,6 +302,7 @@ type delta struct {
 	Role      string `json:"role,omitempty"`
 	Text      string `json:"text"`
 	MessageID string `json:"messageId,omitempty"`
+	Parent    string `json:"parent,omitempty"` // a subagent's text never merges into the main thread's
 }
 
 // agentPump drains the driver's events into the log and the hub, merging
@@ -333,7 +334,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			if e.Type == agent.EvMessageDelta || e.Type == agent.EvThoughtDelta {
 				var d delta
 				_ = json.Unmarshal(e.Data, &d)
-				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID {
+				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent {
 					pd.Text += d.Text
 					continue
 				}

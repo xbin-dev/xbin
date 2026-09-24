@@ -6,6 +6,11 @@
 //	(default)   one agent_message_chunk "echo: <text>", usage, end_turn
 //	perm        a tool_call + session/request_permission (once/always/no);
 //	            selected → the tool completes, cancelled → the turn ends cancelled
+//	plan…       (a prefix) Claude's plan approval: an ExitPlanMode tool_call
+//	            (kind switch_mode, the plan as text content + rawInput.plan) and
+//	            a request_permission with its mode options (two allow_always)
+//	            and _meta.permission.title "Ready to code?"; approve →
+//	            "plan approved: <option>", reject → the turn ends cancelled
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
 //	run: <cmd>  terminal/create `sh -c '<cmd>'` the same way → "run: <output>"
@@ -118,8 +123,9 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		f.mu.Lock()
 		f.prompt = m.ID
 		f.cancel = make(chan struct{})
+		c := f.cancel
 		f.mu.Unlock()
-		go f.turn(text)
+		go f.turn(text, c)
 		return nil, nil
 	}
 	return nil, &acp.Error{Code: acp.ErrNotFound, Message: "method not found: " + m.Method}
@@ -168,10 +174,9 @@ func (f *fake) end(reason string) {
 	}
 }
 
-func (f *fake) cancelled() bool {
-	f.mu.Lock()
-	c := f.cancel
-	f.mu.Unlock()
+// cancelled reports whether THIS turn was cancelled (c is the turn's own
+// channel: a cancelled turn still sleeping must not see the next turn's).
+func cancelled(c chan struct{}) bool {
 	select {
 	case <-c:
 		return true
@@ -180,7 +185,7 @@ func (f *fake) cancelled() bool {
 	}
 }
 
-func (f *fake) turn(text string) {
+func (f *fake) turn(text string, cancel chan struct{}) {
 	f.mu.Lock()
 	mode, cwd := f.mode, f.cwd
 	f.mu.Unlock()
@@ -204,11 +209,15 @@ func (f *fake) turn(text string) {
 		}
 	case strings.Contains(text, "slow"):
 		for i := 0; i < 10; i++ {
-			if f.cancelled() {
+			if cancelled(cancel) {
 				return
 			}
 			f.say(fmt.Sprintf("tick %d ", i))
 			time.Sleep(200 * time.Millisecond)
+		}
+	case strings.HasPrefix(text, "plan"):
+		if !f.plan() {
+			return
 		}
 	case strings.Contains(text, "perm"):
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "t1", "title": "run ls", "kind": "execute", "rawInput": map[string]string{"cmd": "ls"}})
@@ -274,7 +283,7 @@ func (f *fake) turn(text string) {
 	default:
 		f.say("echo: " + text)
 	}
-	if f.cancelled() {
+	if cancelled(cancel) {
 		return
 	}
 	f.update(map[string]any{"sessionUpdate": acp.UpUsage, "used": 42, "size": 1000})
@@ -290,6 +299,32 @@ func (f *fake) turn(text string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpSessionInfo, "title": "fake: " + t})
 	}
 	f.end("end_turn")
+}
+
+// plan plays claude-agent-acp's ExitPlanMode approval; false when the turn
+// already ended (rejected: Claude ends it as cancelled).
+func (f *fake) plan() bool {
+	const md = "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+	body := []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: md}}}
+	raw := map[string]string{"plan": md, "planFilePath": "/tmp/fake-plan.md"}
+	f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "plan1", "title": "Ready to code?", "kind": "switch_mode",
+		"status": "pending", "content": body, "rawInput": raw, "_meta": map[string]any{"claudeCode": map[string]any{"toolName": "ExitPlanMode"}}})
+	var res acp.RequestPermissionResult
+	err := f.conn.Call(acp.MRequestPermission, map[string]any{"sessionId": "fake-1",
+		"toolCall": map[string]any{"toolCallId": "plan1", "title": "Approve Plan", "kind": "switch_mode", "content": body, "rawInput": raw},
+		"options": []acp.PermissionOption{{OptionID: "exit-plan-default", Name: "Yes, manually approve edits", Kind: "allow_once"},
+			{OptionID: "exit-plan-clear-auto", Name: "Yes, clear context (13% used) and use auto mode", Kind: "allow_always"},
+			{OptionID: "auto", Name: "Yes, and use auto mode", Kind: "allow_always"},
+			{OptionID: "reject", Name: "No, keep planning", Kind: "reject_once"}},
+		"_meta": map[string]any{"permission": map[string]any{"title": "Ready to code?"}}}, &res)
+	if err != nil || res.Outcome.Outcome != "selected" || res.Outcome.OptionID == "reject" {
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "plan1", "status": "failed"})
+		f.end("cancelled")
+		return false
+	}
+	f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "plan1", "status": "completed"})
+	f.say("plan approved: " + res.Outcome.OptionID)
+	return true
 }
 
 func strp(s string) *string { return &s }

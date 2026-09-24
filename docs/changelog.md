@@ -10,6 +10,30 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-24
+
+- **Agent tab: plan approvals are a plan card, never a session rule.**
+  Claude's "Ready to code?" (and Codex's "Implement this plan?") used to show
+  as a generic permission with the plan as raw JSON — and answering one with
+  any "Yes, and use … mode" choice recorded an *allow for the session* rule,
+  so the **next plan was approved without asking**, with the first such
+  choice ("clear context and use auto mode"). Now a `switch_mode` request is
+  never scoped (`rule.scoped:false`) and never auto-answered; the card shows
+  the plan as markdown and every choice in the agent's words, and *keep
+  planning* takes feedback that goes in as your next message. `bx agent`
+  prints the plan and takes an option id: `bx agent permit <id> <pid> auto`.
+- **Agent tab: readable tool calls.** A card is titled by what the harness
+  says the call does (Claude's description of a shell command), else by a
+  reading of the command (`python3 - <<'EOF' … open('main.go')` → *Python
+  script (12 lines) → main.go*); the command is collapsed beneath it with a
+  copy button, its output streams in (Codex's no longer shows as a bare
+  `[terminal …]`), a failure shows `exit N`, text results render as markdown
+  and raw JSON input sits behind a toggle. On the wire, `tool.call` /
+  `tool.update` gain `name`, `label`, `parent`, `subagent`, `planReview`,
+  `output` / `outputDelta` / `exitCode` (lifted from the adapters' `_meta`),
+  message and thought deltas gain `parent`, and `switch_mode` joins the tool
+  kinds — all additive (docs/protocol.md §Agent session events).
+
 ## 2026-09-23
 
 - **Base image: agent harnesses updated** — claude-code 2.1.280, codex

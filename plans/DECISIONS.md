@@ -1920,3 +1920,37 @@ Deviations and refinements made while implementing; all deliberate:
   every admin write and publishes a `branding` hub event so open shells
   update live. Not chosen: a dedicated open `/branding/icon` route (a second
   static plane with its own cache/CSP/sniff rules for a few KB of image).
+
+- **D77 — The Agent tab renders agent quirks from one normalized tool
+  record; richer adapter output is opted into by capability; plan approvals
+  are never session rules (2026-09-24).** The adapters say much more than
+  ACP's own fields: a shell command's human description (Claude keeps it out
+  of `title`, which is the command), the tool's name, the subagent a call
+  runs under, terminal output riding `_meta`, a plan approval dressed as a
+  `switch_mode` permission. Rendering ACP generically gave a heredoc as a card
+  title, raw JSON under "Permission — Ready to code?", and Codex's output as a
+  bare `[terminal id]`. What mature clients (Zed, Toad, agent-shell,
+  CodeCompanion, avante, Codeg) converged on, and what we do: the daemon lifts
+  the known `_meta` namespaces (`claudeCode`, `codex`, the shared
+  `terminal_output*`/`terminal_exit`) into plain event fields
+  (`internal/agent/acp/toolmeta.go`: `name`, `label`, `parent`, `subagent`,
+  `planReview`, `output`/`outputDelta`/`exitCode`), each key decoded alone so
+  an unknown shape drops only itself; the browser folds a call's events into
+  one record (`web/agent-tools.js`, pure, node-tested) and renders by kind
+  with special cards for plan approval, execute, diff (`web/agent-cards.js`).
+  The headline is **the harness's own description**; where there is none
+  (opencode, Codex) a deterministic reading of the command (heredoc → "Python
+  script (N lines) → main.go", `sed -i`/`cat >`/`tee`/`>` name their file).
+  Raw input is behind a toggle, text content is markdown. Richer output is
+  **opt-in by client capability** (`clientCapabilities._meta.terminal_output`
+  / `terminal_output_delta`), each flag flipped in the change that renders
+  it. **Plan approval**: ACP's `allow_always` on `switch_mode` means "approve
+  AND raise the mode" (the spec's own example), so `Permissions` never
+  records a rule from, nor auto-answers, a `switch_mode` — before this, the
+  second plan of a session was approved unseen with the first allow_always
+  option, Claude's "clear context and use auto mode". The plan card shows the
+  plan as markdown and every option in the agent's words; "keep planning"
+  takes feedback that is sent as the next prompt once the rejected turn
+  settles (what Claude's TUI does). Not chosen: an LLM to rephrase commands or
+  produce diffs — nobody does the latter (diffs come from snapshots), and a
+  model-written label is a guess where the harness usually already wrote one.

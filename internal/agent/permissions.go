@@ -26,11 +26,20 @@ const (
 // the fields worth showing): only ID is guaranteed.
 type ToolCallRef struct {
 	ID       string          `json:"id"`
+	Name     string          `json:"name,omitempty"` // the programmatic tool name, when the adapter says (ExitPlanMode, Bash, …)
 	Title    string          `json:"title,omitempty"`
 	Kind     string          `json:"kind,omitempty"`
 	RawInput json.RawMessage `json:"rawInput,omitempty"`
 	Content  json.RawMessage `json:"content,omitempty"`
 }
+
+// KindSwitchMode is the ACP tool kind of a mode switch — Claude's and
+// Codex's plan approval. Its "allow_always" options mean "approve AND raise
+// the permission mode" (the ACP spec's own example), never "remember this
+// answer": a switch_mode request is never scoped to a session rule, and a
+// rule never answers one (otherwise the next plan is approved unseen — with
+// whichever allow_always option comes first, e.g. "clear context").
+const KindSwitchMode = "switch_mode"
 
 // Pending is a permission request the agent is waiting on.
 type Pending struct {
@@ -72,7 +81,7 @@ func (p *Permissions) Request(tc ToolCallRef, options []PermissionOption, rpcID 
 	p.next++
 	pd := &Pending{PID: "p" + strconv.Itoa(p.next), ToolCall: tc, Options: append([]PermissionOption(nil), options...), rpcID: rpcID}
 	for _, r := range p.rules {
-		if r.matches(tc) {
+		if tc.Kind != KindSwitchMode && r.matches(tc) {
 			if o := optionOfKind(options, AllowAlways, AllowOnce); o != nil {
 				return pd, &Resolution{PID: pd.PID, OptionID: o.OptionID, By: "auto", RPCID: rpcID}
 			}
@@ -122,8 +131,8 @@ func (p *Permissions) Resolve(pid, optionID, decision, by string) (*Resolution, 
 
 // Rule reports whether "allow for the session" can be scoped to this call
 // (it has a kind or a title to match on). The clients hide the option
-// otherwise.
-func (t ToolCallRef) Rule() bool { return t.Kind != "" || t.Title != "" }
+// otherwise. Never for a mode switch (KindSwitchMode).
+func (t ToolCallRef) Rule() bool { return t.Kind != KindSwitchMode && (t.Kind != "" || t.Title != "") }
 
 // CancelAll settles every pending request as cancelled (a turn cancel).
 func (p *Permissions) CancelAll() []*Resolution {

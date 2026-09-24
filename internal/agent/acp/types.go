@@ -44,6 +44,9 @@ type InitializeParams struct {
 type ClientCapabilities struct {
 	FS       FSCapabilities `json:"fs"`
 	Terminal bool           `json:"terminal"`
+	// Meta advertises the adapter extensions this client renders (toolmeta.go
+	// clientMeta: terminal output on tool calls, subagent transcripts).
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 type FSCapabilities struct {
@@ -81,8 +84,9 @@ type AuthMethod struct {
 }
 
 type SessionNewParams struct {
-	Cwd        string `json:"cwd"`
-	MCPServers []any  `json:"mcpServers"`
+	Cwd        string         `json:"cwd"`
+	MCPServers []any          `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"` // Provider.SessionMeta (e.g. claude's thinking display)
 }
 
 type SessionNewResult struct {
@@ -95,9 +99,10 @@ type SessionNewResult struct {
 // the same cwd). The agent streams the prior turns back as session/update
 // notifications before it answers; then the session is live like a new one.
 type SessionLoadParams struct {
-	SessionID  string `json:"sessionId"`
-	Cwd        string `json:"cwd"`
-	MCPServers []any  `json:"mcpServers"`
+	SessionID  string         `json:"sessionId"`
+	Cwd        string         `json:"cwd"`
+	MCPServers []any          `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 type SessionLoadResult struct {
@@ -215,6 +220,7 @@ type ChunkUpdate struct {
 
 type ToolCallUpdate struct {
 	ToolCallID string          `json:"toolCallId"`
+	Name       *string         `json:"name,omitempty"` // the programmatic tool name (tool-call-name RFD)
 	Title      *string         `json:"title,omitempty"`
 	Kind       *string         `json:"kind,omitempty"`
 	Status     *string         `json:"status,omitempty"`
@@ -222,6 +228,7 @@ type ToolCallUpdate struct {
 	Locations  json.RawMessage `json:"locations,omitempty"`
 	RawInput   json.RawMessage `json:"rawInput,omitempty"`
 	RawOutput  json.RawMessage `json:"rawOutput,omitempty"`
+	Meta       json.RawMessage `json:"_meta,omitempty"` // adapter extensions, read by toolmeta.go
 }
 
 type PlanUpdate struct {

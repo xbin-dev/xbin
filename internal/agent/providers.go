@@ -22,6 +22,9 @@ type Provider struct {
 	Modes       []Mode            `json:"modes"`
 	DefaultMode string            `json:"defaultMode"` // "" = whatever the agent reports current
 	Env         map[string]string `json:"-"`           // extra env the adapter wants (mode hints)
+	// SessionMeta rides session/new and session/load as _meta: per-adapter
+	// knobs the protocol has no field for (claude: the thinking display).
+	SessionMeta map[string]any `json:"-"`
 }
 
 // Mode is one of a provider's session modes.

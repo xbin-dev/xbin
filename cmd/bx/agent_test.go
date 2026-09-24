@@ -91,3 +91,26 @@ func TestAgentRenderer(t *testing.T) {
 		t.Fatal("attach stops at turn.end")
 	}
 }
+
+// A plan approval prints the plan and its options, answerable by option id;
+// a shell call prints its description, not a multi-line heredoc.
+func TestAgentRendererPlan(t *testing.T) {
+	var out bytes.Buffer
+	r := newAgentRenderer(&out, "s1")
+	r.render(ev("tool.call", map[string]any{"id": "t1", "title": "python3 - <<'EOF'\nprint(1)\nEOF", "kind": "execute", "label": "Rewrite the handler"}), true)
+	r.render(ev("permission.request", map[string]any{"pid": "p1", "meta": map[string]any{"title": "Ready to code?"},
+		"toolCall": map[string]any{"title": "Approve Plan", "kind": "switch_mode", "rawInput": map[string]any{"plan": "# P\n1. x"},
+			"content": []map[string]any{{"type": "content", "content": map[string]any{"type": "text", "text": "# P\n1. x\n"}}}},
+		"options": []map[string]any{{"optionId": "auto", "name": "Yes, and use auto mode", "kind": "allow_always"},
+			{"optionId": "reject", "name": "No, keep planning", "kind": "reject_once"}}}), true)
+	s := out.String()
+	for _, want := range []string{"⚙ t1 Rewrite the handler [execute]", "⚠ plan p1: Ready to code?", "  │ # P\n  │ 1. x\n",
+		"auto           Yes, and use auto mode", "bx agent permit s1 p1 <option id>"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
+	}
+	if !r.plan["p1"] {
+		t.Fatal("the plan pid is not marked (the 's' key must not answer it)")
+	}
+}

@@ -565,6 +565,67 @@ func TestPermissionRuleScope(t *testing.T) {
 	}
 }
 
+// A plan approval (switch_mode — Claude's ExitPlanMode, Codex's plan review)
+// is never scoped: its allow_always options are modes ("clear context and
+// use auto mode"), so answering one records no rule and the next plan is
+// asked again, never approved unseen with the first allow_always option.
+func TestPlanApprovalNeverScoped(t *testing.T) {
+	perms := agent.NewPermissions()
+	plan := agent.ToolCallRef{ID: "t1", Name: "ExitPlanMode", Kind: agent.KindSwitchMode, Title: "Approve Plan"}
+	opts := []agent.PermissionOption{{OptionID: "exit-plan-clear-auto", Kind: agent.AllowAlways}, {OptionID: "auto", Kind: agent.AllowAlways},
+		{OptionID: "exit-plan-default", Kind: agent.AllowOnce}, {OptionID: "reject", Kind: agent.RejectOnce}}
+	if plan.Rule() {
+		t.Fatal("a switch_mode call must not be scopable")
+	}
+	pd, _ := perms.Request(plan, opts, nil)
+	if res, err := perms.Resolve(pd.PID, "auto", "", "u"); err != nil || res.OptionID != "auto" {
+		t.Fatalf("resolve: %+v %v", res, err)
+	}
+	plan.ID = "t2"
+	if pd, auto := perms.Request(plan, opts, nil); auto != nil || pd == nil {
+		t.Fatalf("the second plan was auto-answered: %+v", auto)
+	}
+}
+
+// The adapters' tool-call _meta lifts into plain event fields.
+func TestToolExtras(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		u    ToolCallUpdate
+		want map[string]any
+	}{
+		{"claude bash: name, description as label, terminal output + exit",
+			ToolCallUpdate{ToolCallID: "a", RawInput: json.RawMessage(`{"command":"ls","description":"List files"}`),
+				Meta: json.RawMessage(`{"claudeCode":{"toolName":"Bash"},"terminal_output":{"terminal_id":"a","data":"x\n"},"terminal_exit":{"terminal_id":"a","exit_code":2,"signal":null}}`)},
+			map[string]any{"name": "Bash", "label": "List files", "output": "x\n", "exitCode": 2}},
+		{"claude subagent child + the Task call itself",
+			ToolCallUpdate{ToolCallID: "b", Name: str("Task"), Meta: json.RawMessage(`{"claudeCode":{"toolName":"Task","parentToolUseId":"p0","title":"Explore the repo"}}`)},
+			map[string]any{"name": "Task", "label": "Explore the repo", "parent": "p0", "subagent": true}},
+		{"codex: streamed delta, plan review",
+			ToolCallUpdate{ToolCallID: "c", Meta: json.RawMessage(`{"terminal_output_delta":{"terminal_id":"c","data":"chunk"},"codex":{"kind":"plan_review"}}`)},
+			map[string]any{"outputDelta": "chunk", "planReview": true}},
+		{"codex: a finished command's formatted output",
+			ToolCallUpdate{ToolCallID: "d", RawOutput: json.RawMessage(`{"formatted_output":"done","exit_code":0}`)},
+			map[string]any{"output": "done"}},
+		{"an unknown _meta shape is ignored",
+			ToolCallUpdate{ToolCallID: "e", Meta: json.RawMessage(`{"claudeCode":"weird","terminal_output":7}`)},
+			map[string]any{}},
+	}
+	for _, c := range cases {
+		d := map[string]any{}
+		addToolExtras(d, c.u)
+		got, _ := json.Marshal(d)
+		want, _ := json.Marshal(c.want)
+		if string(got) != string(want) {
+			t.Errorf("%s:\n got %s\nwant %s", c.name, got, want)
+		}
+	}
+	if d := withParent(map[string]any{"text": "hi"}, json.RawMessage(`{"_meta":{"claudeCode":{"parentToolUseId":"p9"}}}`)); d["parent"] != "p9" {
+		t.Fatalf("withParent: %+v", d)
+	}
+}
+
 // session_info_update titles the session; a non-text chunk leaves a
 // placeholder; "mode" is settable through SetOption even without a mode
 // config option (session/set_mode).

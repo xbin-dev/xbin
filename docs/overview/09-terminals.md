@@ -378,7 +378,11 @@ replays by cursor and follows live (`GET /api/xbin/term/sessions/<id>/events`,
 tab in two browsers, or `bx agent attach` in a shell — see one stream; a
 **permission request** is answered by whichever answers first, and *allow
 for the session* records a rule on the session (later requests of the same
-kind and title auto-resolve; nothing lands in `xbin.json`). The session
+kind and title auto-resolve; nothing lands in `xbin.json`) — except a **plan
+approval** (Claude's "Ready to code?", Codex's "Implement this plan?"): its
+choices are modes ("clear context and use auto mode", "bypass permissions"),
+not "remember this", so it is never turned into a rule and every plan is
+asked for. The session
 outlives every client; its **transcript outlives the session**: once it took a
 prompt and ended — or the daemon stopped — the log is kept on disk (per user,
 per tile, the newest 20; `GET /api/xbin/agent/history`), so a finished
@@ -430,6 +434,19 @@ What the agent gets:
   restricted session (D18/D17); one started from a shell's own token
   (`bx agent run` in a tile terminal) is restricted even for an admin —
   the terminal token is the tile's element principal, not the human.
+
+**How the Agent tab shows what the agent does.** Every tool call is a card
+titled by what the harness says it does — Claude's own description of a
+shell command ("Run the unit tests"), else a reading of the command itself
+(`python3 - <<'EOF' … open('main.go')` reads *Python script (12 lines) →
+main.go*; `sed -i`, `cat >`, `tee`, `>` name the file they write). The
+command sits collapsed beneath it (first lines, *show all*, copy) with its
+output streamed in as it runs (Codex live, Claude when it finishes) and a red
+`exit N` chip on a failure. Text results render as markdown, file edits as
+diffs; a tool's raw JSON input is one click away, never the headline. A plan
+approval is a **plan card**: the plan as markdown, the agent's choices in its
+own words (the first one highlighted), and beside *keep planning* a box whose
+text goes in as your next message once the agent stops.
 
 When the session ends — the agent crashed, or it could not sign in — the
 tab stays, greyed, with the transcript and the reason, until you dismiss

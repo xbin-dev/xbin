@@ -4,7 +4,10 @@
 // What this checks: (a) two browser contexts as the same user, attached to
 // one agent session, see the same transcript; (b) a permission answered in
 // one context resolves in the other (first answer wins); (c) the composer
-// sends, Stop cancels a turn; (d) a reload replays the log from the cursor.
+// sends, Stop cancels a turn; (d) a reload replays the log from the cursor;
+// (e) a plan approval (Claude's ExitPlanMode) renders as a plan card — the
+// plan as markdown, the agent's mode options, no JSON, no session rule — and
+// "keep planning" with feedback sends the feedback as the next message.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -81,6 +84,38 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'turn' && b.stopReason === 'cancelled'), null, { timeout: 15000, label: 'the turn ended cancelled' });
   const cancelled = (await blocks(A.page)).filter((b) => b.kind === 'turn').pop();
   check(cancelled?.stopReason === 'cancelled', `the cancelled turn is recorded as cancelled (${cancelled?.stopReason})`);
+
+  // ---- plan approval: a plan card, never a session rule ----
+  const agentSel = `bx-frame[src="${TILE}"] bx-agent`;
+  const pendingPlan = async (label) => {
+    await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.pending || []).some((p) => p.plan), null, { timeout: 15000, label });
+    return (await fr(A.page, TILE, (f) => f.agent().pending)).find((p) => p.plan);
+  };
+  await fr(A.page, TILE, (f) => f.agent().send('plan one'));
+  const plan1 = await pendingPlan('the plan approval is pending');
+  check(plan1.scoped === false, `a plan approval is never scoped to a session rule (${JSON.stringify(plan1)})`);
+  const card = A.page.locator(`${agentSel} .plan-card`).last();
+  const cardText = await card.innerText();
+  check(await card.locator('.plan-md h1').count() === 1 && await card.locator('.plan-md strong').count() >= 1, 'the plan renders as markdown');
+  check(/Ready to code\?/.test(cardText) && !/"planFilePath"|"plan":/.test(cardText) && await card.locator('.rulenote').count() === 0,
+    'the card is headed "Ready to code?" — no raw JSON, no "allow for the session" note');
+  check(await card.locator('button.allow').count() === 3 && await card.locator('button.allow.primary').count() === 1 && await card.locator('button.deny').count() === 1,
+    'every option shows (three approvals, the first primary, one keep-planning)');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-plan');
+  await fr(A.page, TILE, (f, t, p) => f.agent().permit(p, null, 'auto'), plan1.pid);
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /plan approved: auto/.test(b.text || '')), null, { timeout: 15000, label: 'the plan was approved with "auto"' });
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the plan' });
+  // the same plan again: "Yes, and use auto mode" was allow_always — a mode,
+  // not "remember" — so it must be asked again, not approved unseen
+  await fr(A.page, TILE, (f) => f.agent().send('plan two'));
+  const plan2 = await pendingPlan('the second plan is asked again');
+  const autoAnswered = (await blocks(A.page)).filter((b) => b.kind === 'perm' && b.plan && b.by === 'auto');
+  check(plan2.pid !== plan1.pid && autoAnswered.length === 0, `the second plan waits for an answer (${plan2.pid}; auto-answered: ${autoAnswered.length})`);
+  // keep planning, with feedback: the reject ends the turn, then the feedback goes in
+  await fr(A.page, TILE, (f, t, p) => f.agent().rejectPlan(p, 'reject', 'make it shorter'), plan2.pid);
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && b.role !== 'user' && /echo: make it shorter/.test(b.text || '')), null, { timeout: 20000, label: 'the plan feedback was sent as the next message' });
+  const kept = A.page.locator(`${agentSel} .plan-card.settled-card`).last();
+  check(/Kept planning/.test(await kept.innerText()), 'the rejected plan settles as "Kept planning"');
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

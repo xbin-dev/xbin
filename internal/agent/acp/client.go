@@ -110,7 +110,7 @@ func (c *Client) handshake() error {
 	var init InitializeResult
 	if err := c.conn.CallCtx(ctx, MInitialize, InitializeParams{
 		ProtocolVersion:    ProtocolVersion,
-		ClientCapabilities: ClientCapabilities{FS: FSCapabilities{ReadTextFile: true, WriteTextFile: true}, Terminal: true},
+		ClientCapabilities: ClientCapabilities{FS: FSCapabilities{ReadTextFile: true, WriteTextFile: true}, Terminal: true, Meta: clientMeta()},
 		ClientInfo:         &Info{Name: "xbin", Version: c.cfg.Version},
 	}, &init); err != nil {
 		return fmt.Errorf("initialize: %w", deadlineHint(err, "answer initialize"))
@@ -135,11 +135,11 @@ func (c *Client) handshake() error {
 			return agent.ErrResumeUnsupported
 		}
 		var ld SessionLoadResult
-		if err := c.conn.CallCtx(ctx, MSessionLoad, SessionLoadParams{SessionID: c.cfg.ResumeID, Cwd: c.cfg.Cwd, MCPServers: []any{}}, &ld); err != nil {
+		if err := c.conn.CallCtx(ctx, MSessionLoad, SessionLoadParams{SessionID: c.cfg.ResumeID, Cwd: c.cfg.Cwd, MCPServers: []any{}, Meta: c.cfg.Provider.SessionMeta}, &ld); err != nil {
 			return fmt.Errorf("session/load: %w", authHint(deadlineHint(err, "reopen the session"), c.cfg))
 		}
 		sess = SessionNewResult{SessionID: c.cfg.ResumeID, Modes: ld.Modes, ConfigOptions: ld.ConfigOptions}
-	} else if err := c.conn.CallCtx(ctx, MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}}, &sess); err != nil {
+	} else if err := c.conn.CallCtx(ctx, MSessionNew, SessionNewParams{Cwd: c.cfg.Cwd, MCPServers: []any{}, Meta: c.cfg.Provider.SessionMeta}, &sess); err != nil {
 		return fmt.Errorf("session/new: %w", authHint(deadlineHint(err, "open a session"), c.cfg))
 	}
 	c.mu.Lock()
@@ -525,7 +525,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			text = contentPlaceholder(raw)
 		}
 		if env.SessionUpdate == UpThoughtChunk {
-			c.emit(agent.New(agent.EvThoughtDelta, map[string]any{"text": text}))
+			c.emit(agent.New(agent.EvThoughtDelta, withParent(map[string]any{"text": text}, raw)))
 			return
 		}
 		role := "agent"
@@ -536,7 +536,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 		if u.MessageID != "" {
 			d["messageId"] = u.MessageID
 		}
-		c.emit(agent.New(agent.EvMessageDelta, d))
+		c.emit(agent.New(agent.EvMessageDelta, withParent(d, raw)))
 	case UpToolCall, UpToolCallUpdate:
 		var u ToolCallUpdate
 		if json.Unmarshal(raw, &u) != nil {
@@ -559,6 +559,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 				d[k] = v
 			}
 		}
+		addToolExtras(d, u) // name, label, subagent parent, terminal output (toolmeta.go)
 		c.mu.Lock()
 		if s, ok := d["status"].(string); ok {
 			c.tools[u.ToolCallID] = s
@@ -651,13 +652,7 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 		if json.Unmarshal(m.Params, &p) != nil {
 			return nil, &Error{Code: ErrInvalidParam, Message: "bad request_permission params"}
 		}
-		tc := agent.ToolCallRef{ID: p.ToolCall.ToolCallID, RawInput: p.ToolCall.RawInput, Content: p.ToolCall.Content}
-		if p.ToolCall.Title != nil {
-			tc.Title = *p.ToolCall.Title
-		}
-		if p.ToolCall.Kind != nil {
-			tc.Kind = *p.ToolCall.Kind
-		}
+		tc := toolRef(p.ToolCall)
 		opts := make([]agent.PermissionOption, len(p.Options))
 		for i, o := range p.Options {
 			opts[i] = agent.PermissionOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind}

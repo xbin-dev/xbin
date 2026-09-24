@@ -105,7 +105,7 @@ bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
                                        stream lands here (D74)
-bx agent send <id> "<text>" | permit <id> <pid> once|always|deny
+bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
                                        prompt a running one · answer a
                                        permission request (first answer wins)
 bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
@@ -220,7 +220,11 @@ prints as a block naming the answer command — `bx agent permit <id> <pid>
 once|always|deny` — and, when stdin is a terminal, a line `a` / `s` / `d`
 answers the latest one. `always` is **allow for the session**: later
 requests of the same kind and title are answered automatically; nothing is
-written to `xbin.json`. The agent authenticates from its `$HOME` — the same
+written to `xbin.json`. Any of the request's own option ids works as the
+answer too. A **plan approval** (Claude's "Ready to code?") prints the plan
+and its choices — they are modes ("Yes, and use auto mode", "No, keep
+planning"), so answer with an option id (`a` / `d` still work); it is never
+remembered for the session. The agent authenticates from its `$HOME` — the same
 per-user home a shell terminal gets — so a `claude /login` (or `codex
 login`, `opencode auth login`, …) done once in a shell terminal signs the
 agent in on every tile; no per-tile API key, no vault. Bypass modes
