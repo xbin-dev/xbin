@@ -27,6 +27,7 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("POST /term/sessions/{id}/prompt", s.apiAgentPrompt)
 	s.RegisterAPI("POST /term/sessions/{id}/cancel", s.apiAgentCancel)
 	s.RegisterAPI("POST /term/sessions/{id}/permissions/{pid}", s.apiAgentPermit)
+	s.RegisterAPI("POST /term/sessions/{id}/elicitations/{eid}", s.apiAgentElicit)
 	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
 	s.RegisterAPI("GET /term/sessions/{id}/events", s.apiAgentEvents)
 	s.RegisterAPI("GET /term/sessions/{id}/log", s.apiAgentLog)
@@ -106,7 +107,7 @@ func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 // agentStatus maps the term package's errors to HTTP statuses.
 func agentStatus(err error) int {
 	switch {
-	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission):
+	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion):
 		return http.StatusNotFound
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
@@ -254,6 +255,38 @@ func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
 		by = "user:" + p.UserID
 	}
 	if err := s.Term.AgentPermit(id, r.PathValue("pid"), body.OptionID, body.Decision, by); err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	WriteOK(w)
+}
+
+// apiAgentElicit answers a question the agent asked (elicitation.request):
+// {action: accept | decline | cancel, content?} — content the form's values
+// on accept. First answer wins (404 after).
+func (s *Server) apiAgentElicit(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.drive(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Action  string          `json:"action"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.Action == "" {
+		apiErr(w, http.StatusBadRequest, "need {action: accept|decline|cancel, content?}")
+		return
+	}
+	if len(body.Content) > 0 && string(body.Content) != "null" && body.Content[0] != '{' {
+		apiErr(w, http.StatusBadRequest, "content must be an object (the form's values)")
+		return
+	}
+	p := auth.PrincipalOf(r)
+	by := "owner"
+	if p.UserID != "" {
+		by = "user:" + p.UserID
+	}
+	if err := s.Term.AgentElicit(id, r.PathValue("eid"), body.Action, body.Content, by); err != nil {
 		apiErr(w, agentStatus(err), err.Error())
 		return
 	}

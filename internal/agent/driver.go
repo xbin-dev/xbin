@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 )
@@ -11,6 +12,7 @@ var (
 	ErrBusy              = errors.New("a turn is running — cancel it or wait for turn.end")
 	ErrEnded             = errors.New("the agent session has ended")
 	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
+	ErrNoElicitation     = errors.New("no such pending question")
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns
@@ -25,6 +27,10 @@ type Driver interface {
 	Send(ctx context.Context, text string) error
 	Events() <-chan Event
 	RespondPermission(res *Resolution) error
+	// RespondElicitation answers a question the driver surfaced as an
+	// elicitation.request (action accept | decline | cancel; content the
+	// form's values on accept). ErrNoElicitation once it is answered.
+	RespondElicitation(eid, action string, content json.RawMessage, by string) error
 	Cancel() error
 	Close() error
 	// SetOption changes one of the agent's session settings (a config option

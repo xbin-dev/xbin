@@ -68,3 +68,25 @@ test('plan approval: claude (switch_mode + content), codex (planReview, rawInput
 test('stripAnsi removes colour and cursor escapes', () => {
   assert.equal(stripAnsi('\x1b[31mred\x1b[0m ok\x1b[2K'), 'red ok');
 });
+
+test('formFields/formContent: Claude\'s AskUserQuestion form — radios, checks, each with its Other box', async () => {
+  const { formFields, formContent, missingRequired } = await import('../web/agent-tools.js');
+  const other = (q) => ({ type: 'string', title: 'Other', description: 'Type your own', _meta: { _askUserQuestionCustomAnswer: { questionId: q, isCustomAnswer: true } } });
+  const schema = { type: 'object', properties: {
+    question_0: { type: 'string', title: 'DB', description: 'Which database?', oneOf: [{ const: 'Postgres', title: 'Postgres', description: 'default' }, { const: 'SQLite', title: 'SQLite' }] },
+    question_0_custom: other('question_0'),
+    question_1: { type: 'array', title: 'Extras', items: { anyOf: [{ const: 'Metrics', title: 'Metrics' }, { const: 'Tracing', title: 'Tracing' }] } },
+    question_1_custom: other('question_1'),
+    port: { type: 'integer', title: 'Port' }, tls: { type: 'boolean', title: 'TLS' }, name: { type: 'string', title: 'Name' },
+    mode: { type: 'string', enum: ['a', 'b'] },
+  }, required: ['name'] };
+  const f = formFields(schema);
+  assert.deepEqual(f.map((x) => [x.key, x.kind, x.other]), [['question_0', 'radio', 'question_0_custom'], ['question_1', 'check', 'question_1_custom'],
+    ['port', 'number', null], ['tls', 'bool', null], ['name', 'text', null], ['mode', 'radio', null]]);
+  assert.deepEqual(f[0].options[0], { value: 'Postgres', title: 'Postgres', description: 'default' });
+  assert.deepEqual(f[5].options.map((o) => o.value), ['a', 'b']);
+  const c = formContent(f, { question_0: 'SQLite', question_0_custom: '  ', question_1: ['Metrics'], question_1_custom: ' Admin UI ', port: '8080', tls: false, name: '' });
+  assert.deepEqual(c, { question_0: 'SQLite', question_1: ['Metrics'], question_1_custom: 'Admin UI', port: 8080, tls: false });
+  assert.deepEqual(missingRequired(f, c), ['Name']);
+  assert.deepEqual(formFields(null), []);
+});

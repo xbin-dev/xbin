@@ -616,6 +616,82 @@ func TestSlashCommands(t *testing.T) {
 	})
 }
 
+// A question (elicitation/create, form mode — Claude's AskUserQuestion) is
+// held like a permission: an elicitation.request event, the session waits,
+// the first answer goes back as the reply; a second answer finds nothing;
+// cancelling the turn answers "cancel". The client advertises form support.
+func TestElicitation(t *testing.T) {
+	answers := make(chan string, 4)
+	c, f, _, _ := rig(t, func(f *fakeAgent, text string) {
+		var res struct {
+			Action  string          `json:"action"`
+			Content json.RawMessage `json:"content"`
+		}
+		err := f.conn.Call(MElicitCreate, map[string]any{"mode": "form", "sessionId": f.sid, "toolCallId": "ask1", "message": "Pick one",
+			"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"question_0": map[string]any{"type": "string",
+				"oneOf": []any{map[string]string{"const": "A", "title": "A"}}}}}}, &res)
+		if err != nil {
+			answers <- "error: " + err.Error()
+		} else {
+			answers <- res.Action + " " + string(res.Content)
+		}
+		f.end("end_turn")
+	}, "")
+	defer c.Close()
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	f.mu.Lock()
+	caps := string(f.caps)
+	f.mu.Unlock()
+	if !strings.Contains(caps, `"elicitation":{"form":{}}`) {
+		t.Fatalf("form elicitation not advertised: %s", caps)
+	}
+	if err := c.Send(context.Background(), "ask"); err != nil {
+		t.Fatal(err)
+	}
+	var eid string
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusWaiting })
+	for _, e := range es {
+		if e.Type == agent.EvElicitRequest {
+			d := data(e)
+			eid, _ = d["eid"].(string)
+			if d["toolCallId"] != "ask1" || d["message"] != "Pick one" || d["schema"] == nil {
+				t.Fatalf("request: %v", d)
+			}
+		}
+	}
+	if eid == "" {
+		t.Fatalf("no elicitation.request: %s", types(es))
+	}
+	if err := c.RespondElicitation(eid, "maybe", nil, "u"); err == nil {
+		t.Fatal("an unknown action must fail")
+	}
+	if err := c.RespondElicitation(eid, "accept", json.RawMessage(`{"question_0":"A"}`), "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-answers; got != `accept {"question_0":"A"}` {
+		t.Fatalf("the agent got %q", got)
+	}
+	if err := c.RespondElicitation(eid, "decline", nil, "user:b"); !errors.Is(err, agent.ErrNoElicitation) {
+		t.Fatalf("second answer: %v", err)
+	}
+	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	if types(es) == "" || !strings.Contains(types(es), "elicitation.resolved") {
+		t.Fatalf("events after the answer: %s", types(es))
+	}
+	// cancelling the turn answers a pending question "cancel"
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	if err := c.Send(context.Background(), "ask again"); err != nil {
+		t.Fatal(err)
+	}
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvElicitRequest })
+	if err := c.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-answers; got != "cancel " {
+		t.Fatalf("cancel answered %q", got)
+	}
+}
+
 // The client asks for the adapter extensions it renders (terminal output in
 // the tool call's _meta), and a provider's SessionMeta rides session/new —
 // Claude's summarized thinking display, without which no thought streams.

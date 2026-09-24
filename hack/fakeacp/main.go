@@ -11,6 +11,11 @@
 //	            a request_permission with its mode options (two allow_always)
 //	            and _meta.permission.title "Ready to code?"; approve →
 //	            "plan approved: <option>", reject → the turn ends cancelled
+//	ask…        (a prefix) Claude's AskUserQuestion: a tool_call, then
+//	            elicitation/create (form: a single-select with descriptions, a
+//	            multi-select, each with its "Other" box, as claude-agent-acp
+//	            builds it); accept → "answers: <content json>", decline →
+//	            "skipped", cancel → the turn ends cancelled
 //	subagent…   (a prefix) Claude's Task call: a tool_call (name Task, kind
 //	            think, _meta.claudeCode.subagent) and, tagged with its id as
 //	            _meta.claudeCode.parentToolUseId, the subagent's thought, a Read
@@ -231,6 +236,39 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 			}
 			f.say(fmt.Sprintf("tick %d ", i))
 			time.Sleep(200 * time.Millisecond)
+		}
+	case strings.HasPrefix(text, "ask"):
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "ask1", "title": "AskUserQuestion", "kind": "other", "status": "pending",
+			"_meta": map[string]any{"claudeCode": map[string]any{"toolName": "AskUserQuestion"}}})
+		var res struct {
+			Action  string          `json:"action"`
+			Content json.RawMessage `json:"content"`
+		}
+		opt := func(label, desc string) map[string]string {
+			return map[string]string{"const": label, "title": label, "description": desc}
+		}
+		other := func(q string) map[string]any {
+			return map[string]any{"type": "string", "title": "Other", "description": "Type your own answer (optional).",
+				"_meta": map[string]any{"_askUserQuestionCustomAnswer": map[string]any{"questionId": q, "isCustomAnswer": true}}}
+		}
+		err := f.conn.Call(acp.MElicitCreate, map[string]any{"mode": "form", "sessionId": "fake-1", "toolCallId": "ask1",
+			"message": "Please answer the following questions.", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{
+				"question_0": map[string]any{"type": "string", "title": "Database", "description": "Which database should the service use?",
+					"oneOf": []any{opt("Postgres", "Relational, the default"), opt("SQLite", "One file, no server")}},
+				"question_0_custom": other("question_0"),
+				"question_1": map[string]any{"type": "array", "title": "Extras", "description": "What else should it ship with?",
+					"items": map[string]any{"anyOf": []any{opt("Metrics", ""), opt("Tracing", ""), opt("Admin UI", "")}}},
+				"question_1_custom": other("question_1")}}}, &res)
+		if err != nil || res.Action == "cancel" {
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "ask1", "status": "failed"})
+			f.end("cancelled")
+			return
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "ask1", "status": "completed"})
+		if res.Action == "decline" {
+			f.say("skipped")
+		} else {
+			f.say("answers: " + string(res.Content))
 		}
 	case strings.HasPrefix(text, "subagent"):
 		sub := map[string]any{"claudeCode": map[string]any{"parentToolUseId": "task1"}}

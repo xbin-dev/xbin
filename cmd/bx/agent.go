@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -533,6 +534,21 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		if st := str("status"); st != "" {
 			fmt.Fprintf(r.w, "  %s %s%s\n", str("id"), st, diffStats(d["content"]))
 		}
+	case "elicitation.request":
+		r.br()
+		fmt.Fprintf(r.w, "? question %s: %s\n", str("eid"), orDash(str("message")))
+		schema, _ := d["schema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		for _, k := range sortedKeys(props) {
+			p, _ := props[k].(map[string]any)
+			if desc, _ := p["description"].(string); desc != "" && !strings.HasSuffix(k, "_custom") {
+				fmt.Fprintf(r.w, "    %s: %s\n", k, desc)
+			}
+		}
+		fmt.Fprintf(r.w, "  answer it in the Agent tab (or POST …/term/sessions/%s/elicitations/%s)\n", r.id, str("eid"))
+	case "elicitation.resolved":
+		r.br()
+		fmt.Fprintf(r.w, "  → %s: %s by %s\n", str("eid"), str("action"), str("by"))
 	case "files.changed":
 		r.br()
 		who := "turn " + num(d["turn"])
@@ -633,6 +649,15 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		}
 	}
 	return 0, false
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // filesLine lists a files.changed event's files: "a.go +3/-1, new.txt (added +2)".

@@ -452,7 +452,11 @@ private git directory next to the tile (on tiles that are git repos) — your
 repo, index and history are never touched. A **subagent** (Claude's Task)
 is one card with everything it did nested beneath — its thinking, its tool
 calls, its text — open while it works and folded to its answer when done.
-Typing `/` at the start of the message box offers the agent's own **slash
+When the agent **asks you something** (Claude Code's AskUserQuestion — which
+it only uses because the tab can answer it), the question is a form: a choice
+per question with each option's explanation, several ticks where it allows
+several, an *Other* box for your own answer; *Submit* sends it, *Skip* tells
+the agent you passed. Typing `/` at the start of the message box offers the agent's own **slash
 commands** (Claude Code's `/review`, `/compact`, …): arrows pick, Tab or
 Enter completes, and the command's input hint shows until you type it. The
 agent's reasoning streams into an open *Thinking…* block (Claude Code's is

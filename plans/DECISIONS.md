@@ -1965,4 +1965,12 @@ Deviations and refinements made while implementing; all deliberate:
   produce diffs — nobody does the latter, and a model-written label is a
   guess where the harness usually already wrote one; Claude's own per-turn
   file-change reports (checkpointing) — they miss shell writes and exist for
-  one agent only.
+  one agent only. **Questions**: the client advertises ACP form elicitation
+  (`elicitation.form`), which is what turns Claude's AskUserQuestion back on
+  (the adapter disallows the tool for a client that cannot render a form); a
+  question is held like a permission (`elicitation.request`, first answer
+  wins, a turn cancel answers `cancel`) and rendered generically from its
+  JSON schema, honouring the shared `_askUserQuestionCustomAnswer` marker for
+  the per-question "Other" box. URL-mode elicitation is not advertised.
+  **Slash commands** ride `status` like `options` (on change and every
+  idle) and are sent as prompt text, ACP's own model.

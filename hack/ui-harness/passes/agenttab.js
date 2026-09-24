@@ -12,7 +12,9 @@
 // (g) a shell write reads as "Write <file>", shows its output, and the
 // snapshot diff (files.changed) names the file on the card and for the turn;
 // (h) a subagent's thought, calls and text nest under its Task card;
-// (i) "/" in the composer offers the agent's slash commands, Tab completes.
+// (i) "/" in the composer offers the agent's slash commands, Tab completes;
+// (j) a question (AskUserQuestion → elicitation) is a form: radios, checkboxes,
+// an "Other" box; Submit sends the values and the card settles as answered.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -180,6 +182,27 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /echo: \/review tests/.test(b.text || '')), null, { timeout: 15000, label: 'the slash command went in as the prompt' });
   check(true, 'the completed command is sent as the prompt text');
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the slash command' });
+
+  // ---- a question as a form ----
+  await fr(A.page, TILE, (f) => f.agent().send('ask me something'));
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.questions || []).length === 1, null, { timeout: 15000, label: 'the question is pending' });
+  const qs = (await fr(A.page, TILE, (f) => f.agent().questions))[0];
+  check(qs.fields.map((f) => `${f.key}:${f.kind}:${f.other}`).join(' ') === 'question_0:radio:question_0_custom question_1:check:question_1_custom',
+    `the form reads single- and multi-select questions, each with its Other box (${JSON.stringify(qs.fields)})`);
+  const ask = A.page.locator(`${agentSel} .perm.ask`).last();
+  await ask.locator('label.opt', { hasText: 'SQLite' }).click();
+  await ask.locator('label.opt', { hasText: 'Metrics' }).click();
+  await ask.locator('.field').nth(1).locator('input.other').fill('Admin UI');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-question');
+  await ask.locator('button.allow.primary').click();
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /^answers:/.test(b.text || '')), null, { timeout: 15000, label: 'the agent got the answers' });
+  const got = (await blocks(A.page)).filter((b) => b.kind === 'msg' && /^answers:/.test(b.text || '')).pop().text;
+  const sent = JSON.parse(got.replace(/^answers:\s*/, ''));
+  check(sent.question_0 === 'SQLite' && JSON.stringify(sent.question_1) === '["Metrics"]' && sent.question_1_custom === 'Admin UI' && !('question_0_custom' in sent),
+    `the agent got exactly the form's values (${got})`);
+  const settledAsk = A.page.locator(`${agentSel} .perm.ask.settled-card`).last();
+  check(/answered by/.test(await settledAsk.innerText()) && /SQLite/.test(await settledAsk.innerText()), 'the question settles showing the answers');
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the question' });
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

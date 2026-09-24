@@ -598,3 +598,42 @@ func TestHistoryPrune(t *testing.T) {
 		t.Fatalf("prune keeps the newest %d: got %d, first %s, last %s", historyKeep, len(hist), hist[0].ID, hist[len(hist)-1].ID)
 	}
 }
+
+// A question round trip through the real host and the fake: the fake's
+// "ask" (Claude's AskUserQuestion shape) waits on an elicitation; the answer
+// through AgentElicit reaches the agent; a second answer is ErrNoQuestion.
+func TestAgentSessionQuestion(t *testing.T) {
+	r := newAgentRig(t)
+	info, code, err := r.m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
+	}
+	defer r.m.Kill(info.ID)
+	r.until(t, func(e SessionEvent) bool {
+		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	if _, err := r.m.AgentPrompt(context.Background(), info.ID, "ask me"); err != nil {
+		t.Fatal(err)
+	}
+	q := edata(r.until(t, ofType(agent.EvElicitRequest)).Event)
+	eid, _ := q["eid"].(string)
+	props, _ := q["schema"].(map[string]any)["properties"].(map[string]any)
+	if eid == "" || q["toolCallId"] != "ask1" || props["question_0"] == nil || props["question_1_custom"] == nil {
+		t.Fatalf("question: %v", q)
+	}
+	r.until(t, func(e SessionEvent) bool {
+		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusWaiting
+	})
+	if err := r.m.AgentElicit(info.ID, eid, "accept", json.RawMessage(`{"question_0":"SQLite","question_1":["Metrics"]}`), "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.m.AgentElicit(info.ID, eid, "decline", nil, "owner"); !errors.Is(err, ErrNoQuestion) {
+		t.Fatalf("second answer: %v", err)
+	}
+	said := r.until(t, func(e SessionEvent) bool {
+		return e.Type == agent.EvMessageDelta && strings.HasPrefix(fmt.Sprint(edata(e.Event)["text"]), "answers:")
+	})
+	if txt := fmt.Sprint(edata(said.Event)["text"]); !strings.Contains(txt, `"question_0":"SQLite"`) || !strings.Contains(txt, `"question_1":["Metrics"]`) {
+		t.Fatalf("the agent got: %s", txt)
+	}
+}

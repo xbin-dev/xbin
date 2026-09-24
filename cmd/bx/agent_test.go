@@ -115,6 +115,12 @@ func TestAgentRendererPlan(t *testing.T) {
 	if !strings.Contains(out.String(), "  t1 changed made.txt (added) +1/-0, a.go → b.go +0/-0\n") {
 		t.Fatalf("files.changed line:\n%s", out.String())
 	}
+	r.render(ev("elicitation.request", map[string]any{"eid": "e1", "message": "Please answer", "schema": map[string]any{"properties": map[string]any{
+		"question_0": map[string]any{"description": "Which DB?"}, "question_0_custom": map[string]any{"description": "Other"}}}}), true)
+	r.render(ev("elicitation.resolved", map[string]any{"eid": "e1", "action": "accept", "by": "user:a"}), true)
+	if s := out.String(); !strings.Contains(s, "? question e1: Please answer\n    question_0: Which DB?\n  answer it in the Agent tab") || strings.Contains(s, "question_0_custom") || !strings.Contains(s, "→ e1: accept by user:a") {
+		t.Fatalf("question lines:\n%s", s)
+	}
 	if !r.plan["p1"] {
 		t.Fatal("the plan pid is not marked (the 's' key must not answer it)")
 	}

@@ -34,6 +34,7 @@ type Client struct {
 	modes      *SessionModes
 	options    []ConfigOption // the agent's session settings (model, effort, …)
 	commands   []Command      // its slash commands (commands.go)
+	elicits    elicits        // questions awaiting an answer (elicit.go)
 	agentInfo  *Info          // what initialize said the agent is
 	authNeeded bool           // the agent reported it is not signed in (login required)
 	loadable   bool           // the agent advertised loadSession: its session id can be reopened later
@@ -111,7 +112,7 @@ func (c *Client) handshake() error {
 	var init InitializeResult
 	if err := c.conn.CallCtx(ctx, MInitialize, InitializeParams{
 		ProtocolVersion:    ProtocolVersion,
-		ClientCapabilities: ClientCapabilities{FS: FSCapabilities{ReadTextFile: true, WriteTextFile: true}, Terminal: true, Meta: clientMeta()},
+		ClientCapabilities: ClientCapabilities{FS: FSCapabilities{ReadTextFile: true, WriteTextFile: true}, Terminal: true, Meta: clientMeta(), Elicitation: &ElicitationCaps{Form: &struct{}{}}},
 		ClientInfo:         &Info{Name: "xbin", Version: c.cfg.Version},
 	}, &init); err != nil {
 		return fmt.Errorf("initialize: %w", deadlineHint(err, "answer initialize"))
@@ -392,6 +393,7 @@ func (c *Client) Cancel() error {
 	for _, res := range c.cfg.Perms.CancelAll() {
 		_ = c.RespondPermission(res)
 	}
+	c.cancelElicits()
 	c.setStatus(agent.StatusCancelling, "")
 	return c.conn.Notify(MSessionCancel, SessionIDParams{SessionID: sid})
 }
@@ -415,7 +417,7 @@ func (c *Client) RespondPermission(res *agent.Resolution) error {
 	c.mu.Lock()
 	busy, st := c.busy, c.status
 	c.mu.Unlock()
-	if busy && st != agent.StatusCancelling && c.cfg.Perms.Count() == 0 {
+	if busy && st != agent.StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
 		c.setStatus(agent.StatusRunning, "")
 	}
 	return err
@@ -670,6 +672,8 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 		}
 		c.setStatus(agent.StatusWaiting, "")
 		return nil, nil // answered by RespondPermission
+	case MElicitCreate:
+		return c.onElicit(m)
 	case MFsRead, MFsWrite, MTermCreate, MTermOutput, MTermWait, MTermKill, MTermRelease:
 		// the in-sandbox host answers these before they reach us; without a
 		// host (a bare spawner) they are not served

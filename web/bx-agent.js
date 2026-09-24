@@ -21,8 +21,8 @@ import { LitElement, html, css, nothing } from 'lit';
 import { repeat } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
 import { md } from '/vendor/bx-md.js';
-import { newTool, foldTool, headline, isPlanApproval, rawText } from '/vendor/agent-tools.js';
-import { toolCard, permCard, changesCard, cardsCss } from '/vendor/agent-cards.js';
+import { newTool, foldTool, headline, isPlanApproval, rawText, formFields, missingRequired } from '/vendor/agent-tools.js';
+import { toolCard, permCard, changesCard, askCard, cardsCss } from '/vendor/agent-cards.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
 
 export class BxAgent extends LitElement {
@@ -134,6 +134,7 @@ export class BxAgent extends LitElement {
     this._followUp = null;
     this._slashSel = 0;
     this._slashOff = false;
+    this._askVals = {}; // eid → the form's values while a question is open
     this._planFeedback = {}; // pid → the feedback typed beside "keep planning"
     this._started = false; // guard: create the eager session at most once
     this._lastSeq = 0;
@@ -341,6 +342,18 @@ export class BxAgent extends LitElement {
     }
   }
 
+  // answer a question the agent asked: accept with the form's values,
+  // decline (skip)
+  _answer(eid, action, content, fields) {
+    if (action === 'accept' && fields) {
+      const miss = missingRequired(fields, content || {});
+      if (miss.length) { this._error = 'answer ' + miss.join(', '); return; }
+    }
+    fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/elicitations/${encodeURIComponent(eid)}`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'accept' ? { action, content: content || {} } : { action }) })
+      .then(async (r) => { if (r.ok) { this._error = ''; delete this._askVals[eid]; this._refetch(); } else this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`; });
+  }
+
   _setOption(id, value) {
     if (!this.session) return;
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/options`,
@@ -435,6 +448,7 @@ export class BxAgent extends LitElement {
     const tools = new Map();
     const byId = new Map(); // a call's latest record: files.changed may land after its turn ended
     const perms = new Map();
+    const asks = new Map();
     let plan = null, cur = null, turn = 0;
     for (const e of this._events) {
       const d = e.data || {};
@@ -492,6 +506,17 @@ export class BxAgent extends LitElement {
           perms.set(d.pid, p); blocks.push(p);
           break;
         }
+        case 'elicitation.request': {
+          cur = null;
+          const q = { kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', schema: d.schema || null, action: null, by: null, content: null };
+          asks.set(d.eid, q); blocks.push(q);
+          break;
+        }
+        case 'elicitation.resolved': {
+          const q = asks.get(d.eid);
+          if (q) { q.action = d.action; q.by = d.by; q.content = d.content || null; }
+          break;
+        }
         case 'permission.resolved': {
           const p = perms.get(d.pid);
           if (p) { p.by = d.by; p.optionId = d.optionId; }
@@ -543,7 +568,7 @@ export class BxAgent extends LitElement {
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
         ${!this.session && !this.provider && !this.history && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
         ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
-        ${repeat(blocks, (b, i) => b.pid || b.id || i, (b) => this._block(b))}
+        ${repeat(blocks, (b, i) => b.pid || b.eid || b.id || i, (b) => this._block(b))}
         ${this._activity(status, blocks)}
       </div>
       <div class="foot">
@@ -554,7 +579,7 @@ export class BxAgent extends LitElement {
         </div>` : nothing}
         <div class="status">
           <span class="dot ${status}"></span>
-          <span>${this.history ? 'past session' : this.session ? status.replace('_', ' ') : 'not started'}</span>
+          <span>${this.history ? 'past session' : this.session ? (status === 'waiting_permission' ? 'waiting for you' : status.replace('_', ' ')) : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${this._usage()}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
@@ -676,6 +701,8 @@ export class BxAgent extends LitElement {
         return permCard(this, b);
       case 'changes':
         return changesCard(b);
+      case 'ask':
+        return askCard(this, b);
       case 'turn':
         return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}${b.error ? html` — <span class="err">${b.error}</span>` : nothing}</div>`;
       case 'gap':
@@ -707,6 +734,7 @@ export class BxAgent extends LitElement {
           ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null,
             children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
           ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
+          ...(b.kind === 'ask' ? { eid: b.eid, action: b.action, fields: formFields(b.schema).map((f) => f.key), content: b.content } : {}),
           ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
           ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));
       },
@@ -716,6 +744,8 @@ export class BxAgent extends LitElement {
       },
       get followUp() { return a._followUp ? a._followUp.text : null; },
       get commands() { return a._commands().map((c) => c.name); },
+      get questions() { return a._blocks().filter((b) => b.kind === 'ask' && !b.action).map((b) => ({ eid: b.eid, message: b.message, fields: formFields(b.schema).map((f) => ({ key: f.key, kind: f.kind, other: f.other, options: f.options.map((o) => o.value) })) })); },
+      answer(eid, action, content) { a._answer(eid, action, content); },
       get slashMenu() { return a._slashItems().map((c) => c.name); },
       get draft() { return a._draft; },
       setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },

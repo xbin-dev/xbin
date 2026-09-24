@@ -601,7 +601,7 @@ func auditable(method, path string) bool {
 	}
 	// Driving an agent session (prompt/cancel/permission answers) is the
 	// same plane: creating and ending one stays audited.
-	if strings.HasPrefix(path, "/term/sessions/") && (strings.HasSuffix(path, "/prompt") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/options") || strings.Contains(path, "/permissions/")) {
+	if strings.HasPrefix(path, "/term/sessions/") && (strings.HasSuffix(path, "/prompt") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/options") || strings.Contains(path, "/permissions/") || strings.Contains(path, "/elicitations/")) {
 		return false
 	}
 	return true

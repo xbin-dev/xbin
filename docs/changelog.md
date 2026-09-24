@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Agent tab: the agent can ask you questions.** Claude Code's
+  AskUserQuestion was disabled in agent sessions (the adapter drops it for a
+  client that cannot show a form); the daemon now advertises form
+  elicitation, and a question renders as a form — single and multiple
+  choice with each option's explanation, an *Other* box per question,
+  *Submit* / *Skip*. New events `elicitation.request` /
+  `elicitation.resolved` and the route `POST
+  /api/xbin/term/sessions/<id>/elicitations/<eid>` (docs/protocol.md);
+  `bx agent` prints the question and points to the Agent tab.
 - **Agent tab: slash commands.** Typing `/` in the message box lists the
   commands the agent advertises (`/review`, `/compact`, `/init`, …) with
   their descriptions; arrows pick, Tab or Enter completes, and the input hint

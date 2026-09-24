@@ -19,6 +19,8 @@ const (
 	MSessionSetConfig  = "session/set_config_option"
 	MSessionUpdate     = "session/update"
 	MRequestPermission = "session/request_permission"
+	MElicitCreate      = "elicitation/create"
+	MElicitComplete    = "elicitation/complete"
 	MCancelRequest     = "$/cancel_request"
 	MFsRead            = "fs/read_text_file"
 	MFsWrite           = "fs/write_text_file"
@@ -47,6 +49,13 @@ type ClientCapabilities struct {
 	// Meta advertises the adapter extensions this client renders (toolmeta.go
 	// clientMeta: terminal output on tool calls, subagent transcripts).
 	Meta map[string]any `json:"_meta,omitempty"`
+	// Elicitation: the agent may ask the user a form (elicit.go) — Claude's
+	// AskUserQuestion is disallowed without it.
+	Elicitation *ElicitationCaps `json:"elicitation,omitempty"`
+}
+
+type ElicitationCaps struct {
+	Form *struct{} `json:"form,omitempty"`
 }
 
 type FSCapabilities struct {

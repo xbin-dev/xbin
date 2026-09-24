@@ -146,6 +146,62 @@ export function filesStat(f) {
   return { n: cs.length, add, del };
 }
 
+// formFields reads an elicitation's requested schema (a flat JSON Schema
+// object of primitives, ACP form mode) into what a form renders, in property
+// order: a single-select (`oneOf`/`enum`) → radio, a multi-select (array of
+// `anyOf`/`enum` items) → check, boolean, number/integer, else text. A text
+// field marked as another question's custom answer (the shared
+// `_askUserQuestionCustomAnswer` meta — Claude's and Codex's "Other" box)
+// rides on that question as `other` instead of standing alone.
+export function formFields(schema) {
+  const props = (schema && typeof schema === 'object' && schema.properties && typeof schema.properties === 'object') ? schema.properties : {};
+  const required = new Set(Array.isArray(schema && schema.required) ? schema.required : []);
+  const opts = (list) => (Array.isArray(list) ? list : []).map((o) => (o && typeof o === 'object'
+    ? { value: o.const ?? o.value ?? o.title, title: o.title ?? String(o.const ?? ''), description: o.description || '' }
+    : { value: o, title: String(o), description: '' }));
+  const fields = [];
+  const byKey = {};
+  const others = [];
+  for (const [key, p] of Object.entries(props)) {
+    if (!p || typeof p !== 'object') continue;
+    const custom = p._meta && p._meta._askUserQuestionCustomAnswer;
+    if (custom && custom.questionId) { others.push([custom.questionId, key, p]); continue; }
+    const f = { key, title: p.title || '', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '' };
+    if (p.type === 'array') { f.kind = 'check'; f.options = opts((p.items && (p.items.anyOf || p.items.oneOf || p.items.enum)) || []); }
+    else if (p.oneOf || p.enum) { f.kind = 'radio'; f.options = opts(p.oneOf || p.enum); }
+    else if (p.type === 'boolean') f.kind = 'bool';
+    else if (p.type === 'number' || p.type === 'integer') f.kind = 'number';
+    else f.kind = 'text';
+    fields.push(f); byKey[key] = f;
+  }
+  for (const [qid, key, p] of others) {
+    if (byKey[qid]) { byKey[qid].other = key; byKey[qid].otherHint = p.description || ''; }
+    else fields.push({ key, kind: 'text', title: p.title || 'Other', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '' });
+  }
+  return fields;
+}
+
+// formContent builds an accept's content from the form's values: empty
+// answers are left out (nothing in Claude's question form is required).
+export function formContent(fields, vals) {
+  const out = {};
+  const v = vals || {};
+  for (const f of fields) {
+    const x = v[f.key];
+    if (f.kind === 'check') { if (Array.isArray(x) && x.length) out[f.key] = x; }
+    else if (f.kind === 'bool') { if (typeof x === 'boolean') out[f.key] = x; }
+    else if (f.kind === 'number') { if (x !== '' && x != null && !Number.isNaN(Number(x))) out[f.key] = Number(x); }
+    else if (x != null && String(x).trim() !== '') out[f.key] = x;
+    if (f.other && v[f.other] != null && String(v[f.other]).trim() !== '') out[f.other] = String(v[f.other]).trim();
+  }
+  return out;
+}
+
+// missingRequired: the required fields a content leaves out.
+export function missingRequired(fields, content) {
+  return fields.filter((f) => f.required && !(f.key in content)).map((f) => f.title || f.key);
+}
+
 // stripAnsi drops terminal escapes (colour, cursor) from command output.
 // eslint-disable-next-line no-control-regex
 export const stripAnsi = (s) => String(s ?? '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g, '');

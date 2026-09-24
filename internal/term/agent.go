@@ -54,6 +54,7 @@ var (
 	ErrNoSession    = errors.New("no such session")
 	ErrNotAgent     = errors.New("not an agent session")
 	ErrNoPermission = errors.New("no such pending permission")
+	ErrNoQuestion   = errors.New("no such pending question")
 	ErrForbidden    = errors.New("forbidden")
 	errLimit        = errors.New("")
 )
@@ -514,6 +515,23 @@ func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string
 // AgentPermit answers pending permission pid with an option id or a
 // decision (an option kind); by names the answerer. First answer wins:
 // ErrNoPermission afterwards.
+// AgentElicit answers a question the agent asked (elicitation.request):
+// action accept (content = the form's values) | decline | cancel. The first
+// answer wins; ErrNoQuestion after.
+func (m *Manager) AgentElicit(id, eid, action string, content json.RawMessage, by string) error {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return err
+	}
+	if err := st.drv.RespondElicitation(eid, action, content, by); err != nil {
+		if errors.Is(err, agent.ErrNoElicitation) {
+			return fmt.Errorf("%w: %s", ErrNoQuestion, eid)
+		}
+		return err
+	}
+	return nil
+}
+
 func (m *Manager) AgentPermit(id, pid, optionID, decision, by string) error {
 	_, st, err := m.agentOf(id)
 	if err != nil {

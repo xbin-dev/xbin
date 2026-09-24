@@ -12,7 +12,7 @@
 import { html, css, nothing } from 'lit';
 import { md } from '/vendor/bx-md.js';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
-import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat } from '/vendor/agent-tools.js';
+import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
 
 export const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', switch_mode: '⇄', other: '•' };
 
@@ -134,6 +134,62 @@ function subagentCard(a, t) {
       ${!live && hasContent(t) ? html`<div class="answer">${contentItems(t)}</div>` : nothing}
     </div>
   </details>`;
+}
+
+// a question the agent asks (an elicitation: Claude's AskUserQuestion, an
+// MCP server's form): each question with its choices — radios or checkboxes,
+// an option's description beside it — and its "Other" box; Submit answers,
+// Skip declines (the agent hears the user skipped). Settled, it shows what
+// was answered.
+export function askCard(a, b) {
+  const fields = formFields(b.schema);
+  const who = whoOf(b.by);
+  if (b.action) {
+    const c = b.content || {};
+    const verb = b.action === 'accept' ? 'answered' : b.action === 'decline' ? 'skipped' : 'cancelled';
+    return html`<div class="perm ask settled-card"><div class="q md" .innerHTML=${md(b.message || 'A question')}></div>
+      ${b.action === 'accept' ? html`<ul class="answers">${fields.map((f) => answerLine(f, c))}</ul>` : nothing}
+      <div class="settled">${verb} by ${who}</div></div>`;
+  }
+  const vals = a._askVals[b.eid] || (a._askVals[b.eid] = {});
+  const set = (k, v) => { vals[k] = v; a.requestUpdate(); };
+  return html`<div class="perm ask">
+    <div class="q md" .innerHTML=${md(b.message || 'The agent asks')}></div>
+    ${fields.map((f) => fieldRow(f, vals, set, b.eid))}
+    <div class="btns">
+      <button class="allow primary" @click=${() => a._answer(b.eid, 'accept', formContent(fields, vals), fields)}>Submit</button>
+      <button class="deny" @click=${() => a._answer(b.eid, 'decline')}>Skip</button>
+    </div>
+  </div>`;
+}
+
+function fieldRow(f, vals, set, eid) {
+  const opt = (o, input) => html`<label class="opt">${input}<span><b>${o.title}</b>${o.description ? html` <span class="od">${o.description}</span>` : nothing}</span></label>`;
+  let body;
+  if (f.kind === 'radio') {
+    body = f.options.map((o) => opt(o, html`<input type="radio" name=${eid + '-' + f.key} .checked=${vals[f.key] === o.value} @change=${() => set(f.key, o.value)}>`));
+  } else if (f.kind === 'check') {
+    const cur = Array.isArray(vals[f.key]) ? vals[f.key] : [];
+    body = f.options.map((o) => opt(o, html`<input type="checkbox" .checked=${cur.includes(o.value)}
+      @change=${(e) => set(f.key, e.target.checked ? [...cur.filter((x) => x !== o.value), o.value] : cur.filter((x) => x !== o.value))}>`));
+  } else if (f.kind === 'bool') {
+    body = html`<label class="opt"><input type="checkbox" .checked=${vals[f.key] === true} @change=${(e) => set(f.key, e.target.checked)}><span>yes</span></label>`;
+  } else {
+    body = html`<input class="txt" type=${f.kind === 'number' ? 'number' : 'text'} .value=${vals[f.key] ?? ''} @input=${(e) => set(f.key, e.target.value)}>`;
+  }
+  return html`<div class="field">
+    ${f.title ? html`<div class="fh">${f.title}${f.required ? ' *' : ''}</div>` : nothing}
+    ${f.description ? html`<div class="fd">${f.description}</div>` : nothing}
+    <div class="opts">${body}</div>
+    ${f.other ? html`<input class="txt other" type="text" placeholder=${f.otherHint || 'Other…'} .value=${vals[f.other] ?? ''} @input=${(e) => set(f.other, e.target.value)}>` : nothing}
+  </div>`;
+}
+
+function answerLine(f, c) {
+  const v = c[f.key];
+  const o = f.other ? c[f.other] : undefined;
+  const shown = [Array.isArray(v) ? v.join(', ') : v, o].filter((x) => x != null && x !== '').join(' — ');
+  return shown ? html`<li><span class="muted">${f.title || f.description || f.key}:</span> ${shown}</li>` : nothing;
 }
 
 const whoOf = (by) => (by === 'auto' ? 'a session rule' : by === 'cancel' ? 'cancel' : String(by || '').replace('user:', ''));
@@ -268,6 +324,15 @@ export const cardsCss = css`
   .perm button.allow.primary { background: color-mix(in srgb, var(--bx-green, #4caf50) 22%, var(--bx-panel, #23272e)); font-weight: 600; }
   .perm button.deny { border-color: var(--bx-red, #ef5350); }
   .perm .settled { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); }
+  .ask .field { border-top: 1px solid var(--bx-border, #363c45); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .ask .fh { font-weight: 600; font-size: 12.5px; }
+  .ask .fd { color: var(--bx-text, #d4d9e0); font-size: 12.5px; }
+  .ask .opts { display: flex; flex-direction: column; gap: 2px; }
+  .ask .opt { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; cursor: pointer; }
+  .ask .opt .od { color: var(--bx-muted, #868f9a); }
+  .ask .txt { background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0); border: 1px solid var(--bx-border, #363c45);
+    border-radius: 5px; padding: 4px 7px; font: 12px var(--bx-sans, system-ui); }
+  .ask .answers { margin: 0; padding-left: 16px; font-size: 12.5px; }
   .plan-card { border-color: var(--bx-accent, #f5a623); background: color-mix(in srgb, var(--bx-accent, #f5a623) 6%, var(--bx-panel, #23272e)); }
   .plan-md { max-height: 50vh; overflow: auto; background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
     border-radius: 5px; padding: 8px 12px; font-size: 13px; }

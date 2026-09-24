@@ -17,15 +17,17 @@ import (
 
 // Event types, as they appear on the wire (docs/protocol.md).
 const (
-	EvMessageDelta       = "message.delta"       // {role, text, messageId?}
-	EvThoughtDelta       = "thought.delta"       // {text}
-	EvPlan               = "plan"                // {entries:[{content, priority, status}]}
-	EvToolCall           = "tool.call"           // {id, title, kind, status, content, locations, rawInput}
-	EvToolUpdate         = "tool.update"         // {id, …partial}
-	EvPermissionRequest  = "permission.request"  // {pid, toolCall, options}
-	EvPermissionResolved = "permission.resolved" // {pid, optionId, by}
-	EvTurnEnd            = "turn.end"            // {turn, stopReason, usage?}
-	EvStatus             = "status"              // {status, detail?, modes?, currentMode?, options?, usage?}
+	EvMessageDelta       = "message.delta"        // {role, text, messageId?}
+	EvThoughtDelta       = "thought.delta"        // {text}
+	EvPlan               = "plan"                 // {entries:[{content, priority, status}]}
+	EvToolCall           = "tool.call"            // {id, title, kind, status, content, locations, rawInput}
+	EvToolUpdate         = "tool.update"          // {id, …partial}
+	EvPermissionRequest  = "permission.request"   // {pid, toolCall, options}
+	EvPermissionResolved = "permission.resolved"  // {pid, optionId, by}
+	EvElicitRequest      = "elicitation.request"  // {eid, toolCallId?, message, schema}
+	EvElicitResolved     = "elicitation.resolved" // {eid, action, by, content?}
+	EvTurnEnd            = "turn.end"             // {turn, stopReason, usage?}
+	EvStatus             = "status"               // {status, detail?, modes?, currentMode?, options?, usage?}
 	// EvGap is never logged: a follow stream inserts it when the cursor
 	// predates the ring, so a client shows "earlier events dropped".
 	EvGap = "gap"
