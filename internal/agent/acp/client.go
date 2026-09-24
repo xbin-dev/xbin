@@ -59,11 +59,11 @@ func (c *Client) Events() <-chan agent.Event { return c.events }
 func (c *Client) Start(ctx context.Context, cfg agent.Config) error {
 	c.cfg = cfg
 	if cfg.Spawn == nil {
-		return errors.New("acp: no spawner")
+		return c.abort(errors.New("acp: no spawner"))
 	}
 	proc, err := cfg.Spawn(ctx, cfg)
 	if err != nil {
-		return err
+		return c.abort(err) // no read loop will close the events: abort.go
 	}
 	c.proc = proc
 	c.conn = NewConn(proc.Stdout, proc.Stdin)

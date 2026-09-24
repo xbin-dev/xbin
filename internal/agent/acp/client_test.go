@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -578,6 +579,36 @@ func TestPermissionRuleScope(t *testing.T) {
 	}
 	if _, auto := perms.Request(agent.ToolCallRef{ID: "t3", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil); auto != nil {
 		t.Fatal("a fallback to allow_once recorded a rule")
+	}
+}
+
+// A spawn that fails (the host killed while starting) still ends the event
+// stream — with the error status — so the session's pump tears down instead
+// of waiting forever (it used to: the session never left the directory).
+func TestSpawnFailureEndsEvents(t *testing.T) {
+	c := New()
+	err := c.Start(context.Background(), agent.Config{Provider: agent.Provider{ID: "fake"}, Perms: agent.NewPermissions(),
+		Spawn: func(context.Context, agent.Config) (*agent.Process, error) {
+			return nil, errors.New("write |1: broken pipe")
+		}})
+	if err == nil {
+		t.Fatal("Start succeeded")
+	}
+	var last agent.Event
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case e, ok := <-c.Events():
+			if !ok {
+				if d := data(last); last.Type != agent.EvStatus || d["status"] != agent.StatusError || !strings.Contains(fmt.Sprint(d["detail"]), "broken pipe") {
+					t.Fatalf("last event: %s %v", last.Type, d)
+				}
+				return
+			}
+			last = e
+		case <-timeout:
+			t.Fatal("the event stream never closed")
+		}
 	}
 }
 

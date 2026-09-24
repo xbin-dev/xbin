@@ -296,7 +296,7 @@ GET    /agent/providers           authenticated. the coding agents this daemon
 POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token counts). {cwd, kind:"agent",
                                    provider, mode?, model?, options?, net?,
-                                   name?, resume?} → SessionInfo
+                                   api?, gpu?, name?, resume?} → SessionInfo
                                    (kind agent, status starting): an AGENT
                                    SESSION — the tile's sandbox runs the
                                    provider's ACP adapter instead of a shell.
@@ -306,14 +306,28 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    earlier turns (session/load); 409 when it
                                    cannot (start a new one). 400 unknown
                                    provider/mode, 403, 409 per-user limit,
-                                   503 vault sealed / no bx. Shells still
-                                   open on /ws/term
+                                   503 vault sealed / no bx. net/api/gpu:
+                                   the sandbox pickers a shell's socket
+                                   takes (api false = code-only, no
+                                   terminal token). Shells still open on
+                                   /ws/term
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
                                    [{pid,toolCall,options}]} (either kind)
 DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
                                    API twin of DELETE /ws/term?session=)
 POST   /term/sessions/<id>/prompt creator or admin. {text} → {ok, turn};
                                    409 while a turn runs
+POST   /term/sessions/<id>/restart
+                                   the creator. {net?, api?, gpu?} →
+                                   {session, resumed}: the sandbox pickers
+                                   are fixed at start, so the session ends
+                                   and a new one opens — same tile,
+                                   provider, mode, settings, name —
+                                   resuming the conversation where the
+                                   agent can (session/load; resumed true,
+                                   its history entry superseded), else
+                                   fresh (the transcript stays in
+                                   /agent/history)
 POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
                                    cancelled; pending permissions cancelled)
 POST   /term/sessions/<id>/permissions/<pid>

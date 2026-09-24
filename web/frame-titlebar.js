@@ -3,10 +3,12 @@
  * row, extracted from bx-frame (markup and styles: the frame is at its size
  * budget). `f` is the BxFrame; this reads its state and calls its handlers.
  *
- * Two tab kinds share the bar: a shell tab (kind:"shell") has the layout
- * switcher and the net/API/GPU pickers; an agent tab (kind:"agent", D74)
- * has the layout switcher too (code, logs, PRs beside the agent) but a
- * fixed sandbox — no pickers, only the tile layer's base update / reset. The bar DEGRADES, it never clips:
+ * Both tab kinds — a shell (kind:"shell") and an agent (kind:"agent", D74)
+ * — share one bar: the layout switcher (code, logs, PRs beside either), the
+ * net/API/GPU pickers, the tile layer's base update / reset. The pickers
+ * are fixed when a sandbox starts: a change restarts a shell, and restarts
+ * an agent resuming its conversation (frame-launcher.js restartAgent). An
+ * ended or read-only (history) agent tab has no sandbox: layer buttons only. The bar DEGRADES, it never clips:
  * when the pop is narrower than the bar's content (f._narrow — below
  * ~640 px, or the phone sheet) the layout switcher and the pickers move
  * into a tools row behind a "⋯" toggle, and the tab strip scrolls, so the
@@ -18,7 +20,6 @@ import { html, css, nothing } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
 
 export function titlebar(f) {
-  const isAgent = f._isAgent;
   return html`
     <div class="titlebar" @pointerdown=${(e) => f._dragStart(e)}>
       <span class="path" title=${f.src}>${f.src}</span>
@@ -37,7 +38,7 @@ export function titlebar(f) {
       ${f._narrow
         ? html`<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
                   @click=${() => { f._tools = !f._tools; }}>⋯</button>`
-        : html`${layoutGroup(f)}<span class="spacer"></span>${isAgent ? layerButtons(f) : pickers(f)}`}
+        : html`${layoutGroup(f)}<span class="spacer"></span>${settings(f)}`}
       <button class="winx" title="close (session keeps running)"
               @click=${() => { f._termOpen = false; }}>✕</button>
     </div>`;
@@ -46,7 +47,14 @@ export function titlebar(f) {
 // toolsRow: where the layout switcher and the pickers live when the bar is
 // narrow (rendered by the frame under the title bar while f._tools is on).
 export function toolsRow(f) {
-  return html`<div class="toolsrow">${layoutGroup(f)}<span class="spacer"></span>${f._isAgent ? layerButtons(f) : pickers(f)}</div>`;
+  return html`<div class="toolsrow">${layoutGroup(f)}<span class="spacer"></span>${settings(f)}</div>`;
+}
+
+// the right side of the bar: the pickers for a tab with a (live or
+// restarting) sandbox, just the layer buttons for an ended / past agent tab
+function settings(f) {
+  const cur = f._sessions[f._active];
+  return cur && (cur.ended || cur.history) ? layerButtons(f) : pickers(f);
 }
 
 function tabLabel(s, i) {
@@ -86,21 +94,22 @@ function pickers(f) {
   const now = scopes.find((s) => s.id === (cur?.net || scopes[0].id)) ?? scopes[0];
   const api = cur?.api === false ? 'off' : 'on';
   const gpu = cur?.gpu || 'none';
+  const restarts = `switching restarts the ${f._isAgent ? 'agent (its conversation resumes)' : 'terminal'}`;
   return html`
     <select class="scope"
-            title=${'network scope (switching restarts the terminal)' + (now?.desc ? '\n' + now.desc : '')}
+            title=${`network scope (${restarts})` + (now?.desc ? '\n' + now.desc : '')}
             .value=${now.id}
             @change=${async (e) => { if (!(await f._setNet(f._active, e.target.value))) e.target.value = now.id; }}>
       ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${scopeIcon(s.id)} ${s.label}</option>`)}
     </select>
-    <select class="scope" title="live tile API access — off = the shell can read/edit code but every API call is unauthorized (switching restarts the terminal)"
+    <select class="scope" title=${`live tile API access — off = the ${f._isAgent ? 'agent' : 'shell'} can read/edit code but every API call is unauthorized (${restarts})`}
             .value=${api}
             @change=${async (e) => { if (!(await f._setApi(f._active, e.target.value === 'on'))) e.target.value = api; }}>
       <option value="on">🔌 tile API</option>
       <option value="off">⛔ no API</option>
     </select>
     ${f._gpus.length ? html`
-      <select class="scope" title="GPU (switching restarts the terminal)"
+      <select class="scope" title=${`GPU (${restarts})`}
               .value=${gpu}
               @change=${async (e) => { if (!(await f._setGpu(f._active, e.target.value))) e.target.value = gpu; }}>
         <option value="none">no GPU</option>

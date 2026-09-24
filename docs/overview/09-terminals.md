@@ -420,6 +420,15 @@ What the agent gets:
   before you type the first prompt; `bx agent run --model …` /
   `bx agent set` do the same from a shell. A change applies to the next
   turn. Nothing is hardcoded per provider: the list is the agent's.
+- **the same window bar as a shell.** An Agent tab has the Bash tab's title
+  bar: the layout switcher (the code browser, code beside the agent, backend
+  logs, change proposals), the network scope, tile-API and GPU pickers, and
+  the tile layer's base update / reset. Those three settings are fixed when a
+  sandbox starts, so changing one **restarts the agent** — and resumes its
+  conversation where the agent can reopen its own session (Claude Code,
+  OpenCode): it replays the turns in the new sandbox, then continues. An
+  agent that cannot starts fresh, and the old conversation stays under
+  Recent sessions (`POST /api/xbin/term/sessions/<id>/restart`).
 - **conservative modes by default.** Claude Code starts in `default` (ask
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must

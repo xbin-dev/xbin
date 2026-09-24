@@ -78,6 +78,7 @@ type agentState struct {
 	provider agent.Provider
 	ready    chan struct{} // closed once the driver's Start returned
 	done     chan struct{} // closed once the pump ended (the session is over)
+	gone     chan struct{} // closed after the teardown: history saved, layer released, row removed
 	mu       sync.Mutex
 	startErr error
 	mode     string
@@ -105,6 +106,21 @@ func (st *agentState) logf(line string) {
 // /term/sessions): the gates, the provider and mode, then createAgent.
 // The int is the HTTP status for a refusal.
 func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, name, resume string, options map[string]string) (SessionInfo, int, error) {
+	return m.OpenAgentWith(p, AgentOpen{Cwd: cwd, Net: netMode, Provider: providerID, Mode: mode, Name: name, Resume: resume, Options: options})
+}
+
+// AgentOpen is everything an agent session opens with: where, the
+// sandbox's pickers (the same as a shell's: network scope, tile-API access,
+// GPU), the provider and its mode/settings, a name, a past session to resume.
+type AgentOpen struct {
+	Cwd, Net, GPU, Provider, Mode, Name, Resume string
+	NoAPI                                       bool // a code-only sandbox: no terminal token (api=0 on a shell)
+	Options                                     map[string]string
+}
+
+// OpenAgentWith is OpenAgent with the sandbox pickers.
+func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int, error) {
+	cwd, netMode, providerID, mode, name, resume, options := a.Cwd, a.Net, a.Provider, a.Mode, a.Name, a.Resume, a.Options
 	if cwd == "" {
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
@@ -145,7 +161,7 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
-	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), "", true)
+	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind = KindAgent
 	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
 	if err != nil {
@@ -235,12 +251,12 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		rl = postStart()
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
-		ready: make(chan struct{}), done: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
+		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
 	s := &Session{
 		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: "none", api: o.api,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
@@ -374,6 +390,7 @@ ended:
 	close(st.done)
 	m.saveHistory(s) // the transcript outlives the session (history.go: read back, resume)
 	onExit()
+	close(st.gone)
 	slog.Info("agent session ended", "id", s.ID, "uptime", time.Since(s.born).Round(time.Second), "exit", exitString(waitErr))
 	if time.Since(s.born) < 10*time.Second {
 		st.mu.Lock()

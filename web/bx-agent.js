@@ -14,7 +14,8 @@
  * browser, `bx agent`) sees the same stream, and the first to answer a
  * permission request wins.
  *
- * Events: 'bx-session' (detail {id, kind:'agent'}) when it creates the
+ * Events: 'bx-session' (detail {id, kind:'agent', provider, name, net,
+ * scopes, label, gpu, api}) when it creates the
  * session, so the frame records the id; 'bx-exit' when the session ends.
  */
 import { LitElement, html, css, nothing } from 'lit';
@@ -34,6 +35,7 @@ export class BxAgent extends LitElement {
     history: { type: String }, // a PAST session id (GET /agent/history): its persisted transcript, read-only
     resume: { type: String }, // a past session id to reopen when creating (POST /term/sessions {resume})
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
+    restarting: { type: Boolean }, // the frame is restarting this tab's agent with other sandbox pickers (frame-launcher.js restartAgent)
     _historyMeta: { state: true },
     _events: { state: true },
     _providers: { state: true },
@@ -269,7 +271,7 @@ export class BxAgent extends LitElement {
 
   async _submit() {
     const text = this._draft.trim();
-    if (this._creating) return;
+    if (this._creating || this.restarting) return; // restarting: the frame brings the new session
     if (!this.session) {
       if (!(await this._create())) return;
       if (!text) return; // started; the settings pickers show now, the first prompt can wait
@@ -299,7 +301,8 @@ export class BxAgent extends LitElement {
       if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
       this.session = info.id;
       this.setAttribute('session', info.id);
-      this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: info.id, kind: 'agent', provider: info.provider, name: info.name }, bubbles: true }));
+      this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: info.id, kind: 'agent', provider: info.provider, name: info.name,
+        net: info.net, scopes: info.scopes, label: info.label, gpu: info.gpu, api: info.api }, bubbles: true }));
       this._lastSeq = 0; this._events = [];
       this._load(0);
       return true;
@@ -566,7 +569,8 @@ export class BxAgent extends LitElement {
     return html`
       <div class="scroll" @scroll=${this._onScroll}>
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
-        ${!this.session && !this.provider && !this.history && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
+        ${this.restarting ? html`<div class="hint">Restarting the agent in a new sandbox — the conversation resumes where the agent can reopen it…</div>` : nothing}
+        ${!this.session && !this.provider && !this.history && !this.restarting && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
         ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
         ${repeat(blocks, (b, i) => b.pid || b.eid || b.id || i, (b) => this._block(b))}
         ${this._activity(status, blocks)}
@@ -589,7 +593,7 @@ export class BxAgent extends LitElement {
           <span class="msg">Not signed in to ${lg.provider}.</span>
           <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
         </div>` : nothing}
-        ${!this.session ? (this.provider ? nothing : this._chooser()) : this._settings()}
+        ${!this.session ? (this.provider || this.restarting ? nothing : this._chooser()) : this._settings()}
         ${this._slashMenu()}
         <div class="compose">
           <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
@@ -597,7 +601,7 @@ export class BxAgent extends LitElement {
             @keydown=${this._key}></textarea>
           ${busy
             ? html`<button class="cancel" @click=${this._cancel} title="interrupt the running turn">Stop</button>`
-            : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
+            : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended || this.restarting} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
         </div>
       </div>`;
   }

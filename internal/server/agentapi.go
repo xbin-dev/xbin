@@ -26,6 +26,7 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("DELETE /term/sessions/{id}", s.apiAgentDelete)
 	s.RegisterAPI("POST /term/sessions/{id}/prompt", s.apiAgentPrompt)
 	s.RegisterAPI("POST /term/sessions/{id}/cancel", s.apiAgentCancel)
+	s.RegisterAPI("POST /term/sessions/{id}/restart", s.apiAgentRestart)
 	s.RegisterAPI("POST /term/sessions/{id}/permissions/{pid}", s.apiAgentPermit)
 	s.RegisterAPI("POST /term/sessions/{id}/elicitations/{eid}", s.apiAgentElicit)
 	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
@@ -52,20 +53,23 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, name?, resume?} → SessionInfo (status starting). resume names a
-// past session of the caller's on this tile (GET /agent/history) to reopen
-// (session/load); 409 when that agent cannot.
+// mode?, net?, api?, gpu?, name?, resume?} → SessionInfo (status starting).
+// net/api/gpu are the sandbox pickers a shell's socket takes (api false = a
+// code-only sandbox, no terminal token). resume names a past session of the
+// caller's on this tile (GET /agent/history) to reopen (session/load); 409
+// when that agent cannot.
 func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if s.Term == nil {
 		apiErr(w, http.StatusNotImplemented, "terminals are not enabled")
 		return
 	}
 	var body struct {
-		Cwd, Kind, Provider, Mode, Net, Name, Model, Resume string
-		Options                                             map[string]string
+		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
+		API                                                      *bool
+		Options                                                  map[string]string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, name?, resume?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, name?, resume?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -81,12 +85,40 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Name) > 64 {
 		body.Name = body.Name[:64]
 	}
-	info, code, err := s.Term.OpenAgent(auth.PrincipalOf(r), body.Cwd, body.Net, body.Provider, body.Mode, body.Name, body.Resume, body.Options)
+	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
+		NoAPI: body.API != nil && !*body.API, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options})
 	if err != nil {
 		apiErr(w, code, err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, info)
+}
+
+// apiAgentRestart restarts an agent session with other sandbox pickers
+// {net?, api?, gpu?} (fixed when a sandbox starts): the session ends and a
+// new one opens on the same tile with the same provider, mode, settings and
+// name — resuming the conversation where the agent can reopen its own
+// session. Creator only (the new session is the caller's). → {session,
+// resumed}.
+func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.drive(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Net, GPU string
+		API      *bool
+	}
+	if r.ContentLength != 0 && json.NewDecoder(r.Body).Decode(&body) != nil {
+		apiErr(w, http.StatusBadRequest, "need {net?, api?, gpu?}")
+		return
+	}
+	info, resumed, code, err := s.Term.RestartAgent(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API)
+	if err != nil {
+		apiErr(w, code, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"session": info, "resumed": resumed})
 }
 
 // drive gates the per-session routes: the session's creator (still

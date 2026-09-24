@@ -15,7 +15,9 @@
 // (i) "/" in the composer offers the agent's slash commands, Tab completes;
 // (j) a question (AskUserQuestion → elicitation) is a form: radios, checkboxes,
 // an "Other" box; Submit sends the values and the card settles as answered;
-// (k) an agent tab has the layout switcher: the code panel beside the agent.
+// (k) an agent tab has the same bar as a shell: the layout switcher (the code
+// panel beside the agent) and the net/API pickers; (l) switching the network
+// restarts the agent in a new sandbox and resumes its conversation.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -208,8 +210,8 @@ async function agentTab(browser) {
   // ---- an agent tab has the layout switcher (code / logs / PRs beside it) ----
   const bar = A.page.locator(`bx-frame[src="${TILE}"] .titlebar`);
   const host = A.page.locator(`bx-frame[src="${TILE}"] .term-host`);
-  check(await bar.locator('.lyt button').count() === 5 && await bar.locator('select.scope').count() === 0,
-    'the agent tab has the layout switcher — and no net/API/GPU pickers (its sandbox is fixed)');
+  check(await bar.locator('.lyt button').count() === 5 && await bar.locator('select.scope').count() >= 2,
+    "the agent tab has the shell's bar: the layout switcher and the net/API pickers");
   await bar.locator('.lyt button[title="code browser + review"]').click();
   await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code`, { timeout: 10000 });
   check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await host.evaluate((el) => el.style.display) === 'none', 'the code layout shows the code panel instead of the agent');
@@ -290,6 +292,20 @@ async function agentTab(browser) {
   const resumedBlocks = await fr(A.page, TILE, (f, t, i) => f.agent(i).blocks, resumedIdx);
   check(resumedBlocks.some((b) => b.kind === 'msg' && b.role === 'user' && /resumed fake-1/.test(b.text)), `resume replayed the earlier turns into the live session (${resumedBlocks.length} blocks)`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-resumed');
+
+  // ---- (l) a picker change restarts the agent and resumes the conversation ----
+  await fr(A.page, TILE, (f, t, i) => f.setActiveTab(i), resumedIdx);
+  const netSel = A.page.locator(`bx-frame[src="${TILE}"] .titlebar select.scope`).first();
+  check((await netSel.locator('option').allTextContents()).some((o) => /offline/.test(o)), 'the agent tab offers the network scopes');
+  await netSel.selectOption('none');
+  await A.page.locator('bx-dialog button', { hasText: 'Restart' }).click();
+  await waitFor(A.page, (t, old) => { const ag = t.frameFor('apps/crawler')?.testApi().agent(); return !!ag && !!ag.sessionId && ag.sessionId !== old && ag.status === 'idle'; }, resumedId,
+    { timeout: 20000, label: 'the agent restarted in a new sandbox' });
+  const restarted = await fr(A.page, TILE, (f) => ({ tab: f.tabs[f.activeTab], blocks: f.agent().blocks }));
+  check(restarted.tab.net === 'none' && restarted.tab.kind === 'agent' && !restarted.tab.ended, `the restarted tab runs offline (${JSON.stringify(restarted.tab)})`);
+  check(restarted.blocks.some((b) => b.kind === 'msg' && b.role === 'user' && /resumed/.test(b.text || '')), 'the conversation resumed in the new session (the agent replayed it)');
+  check((await fr(A.page, TILE, (f) => f.tabs)).filter((tb) => tb.kind === 'agent' && tb.ended && tb.id === resumedId).length === 0, 'no ghost tab for the old session');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-restarted');
 
   await settle(A.page);
   done();

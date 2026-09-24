@@ -12,15 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
-- **Terminal window: the base update from the session chooser, and code /
-  logs / PRs beside an agent.** When a tile's terminal layer was built on an
-  older base image, the "Start a session in …" chooser now says so and offers
-  **⬆ base update** (and the title bar shows it with no session open — before,
-  only an open Bash tab did). An Agent tab now has the same layout switcher as
-  a Bash tab — code browser, code + agent side by side, backend logs, change
-  proposals — and the layer's base update / reset buttons (its network and
-  API settings stay fixed). New `GET /ws/term/env?cwd=<tile>` →
-  `{exists, baseOutdated}` (docs/protocol.md; same gate as the reset).
+- **Terminal window: one title bar for Bash and Agent tabs; the base update
+  from the session chooser.** An Agent tab now has the Bash tab's whole bar —
+  the layout switcher (code browser, code + agent side by side, backend logs,
+  change proposals), the network scope / tile-API / GPU pickers and the
+  layer's base update / reset. Changing a picker restarts the agent in a new
+  sandbox and **resumes its conversation** where the agent can reopen its own
+  session (Claude Code, OpenCode); otherwise it starts fresh and the old one
+  stays under Recent sessions. When a tile's terminal layer was built on an
+  older base image, the "Start a session in …" chooser says so and offers
+  **⬆ base update** (the title bar shows it with no session open — before,
+  only an open Bash tab did). API: `POST /term/sessions` takes `api` and
+  `gpu` like a shell's socket; new `POST /term/sessions/<id>/restart`
+  `{net?, api?, gpu?}` → `{session, resumed}` (creator only) and `GET
+  /ws/term/env?cwd=<tile>` → `{exists, baseOutdated}` (docs/protocol.md).
+  Also fixed: an agent session killed while it was still starting (or whose
+  sandbox failed to spawn) never ended — it stayed listed with its layer
+  held.
 
 - **BREAKING (security) — nothing runs as xbind on your tile anymore.** Tools
   xbind runs on workspace data — git for the Code panel, repo init, fork,

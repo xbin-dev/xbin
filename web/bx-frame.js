@@ -42,7 +42,7 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory, restartAgent } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
@@ -784,6 +784,7 @@ export class BxFrame extends LitElement {
   // its scrollback with it. Resolves false when declined (the picker snaps
   // back; bx-terminal reconnects on the attribute change otherwise).
   async _respawn(i, patch, what) {
+    if (this._sessions[i]?.kind === 'agent') return restartAgent(this, i, patch, what); // keeps the conversation
     const cur = this._sessions[i];
     if (!cur) return false;
     const live = cur.id && !cur.ended;
@@ -877,7 +878,7 @@ export class BxFrame extends LitElement {
             ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
               ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
-                  component=${this.src} session=${s.id ?? nothing} provider=${s.history ? nothing : (s.provider || nothing)} ?ended=${!!s.ended}
+                  component=${this.src} session=${s.id ?? nothing} provider=${s.history || s.restarting ? nothing : (s.provider || nothing)} ?ended=${!!s.ended} ?restarting=${!!s.restarting}
                   history=${s.history || nothing} resume=${s.resume || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
                   @bx-resume=${(ev) => resumeHistory(this, ev.detail, s.key)} @bx-new-agent=${(ev) => this._startKind('agent', ev.detail.provider)}

@@ -68,6 +68,45 @@ export function resumeHistory(f, row, replaceKey) {
   f._setActive(i >= 0 ? i : f._sessions.length - 1);
 }
 
+// restartAgent: an agent tab's network / tile-API / GPU changed. They are
+// fixed when its sandbox starts, so — like a shell — it restarts; unlike a
+// shell it keeps its conversation: the server ends the session and opens a
+// new one that resumes it where the agent can (POST …/restart). The tab
+// turns PENDING (new key, no id) at once, so a listing arriving meanwhile
+// absorbs the new row into it (term-sessions.js) instead of a ghost tab;
+// its <bx-agent> shows "restarting" and creates nothing (bx-frame withholds
+// the provider). Resolves false when declined (the picker snaps back).
+export async function restartAgent(f, i, patch, what) {
+  const cur = f._sessions[i];
+  if (!cur?.id || cur.ended) return false;
+  const ok = await f._confirm(`Restart this agent ${what}?`,
+    'Its sandbox restarts with the new setting. The conversation continues where the agent can reopen its own session (Claude Code, OpenCode); otherwise it starts fresh, and this conversation stays under Recent sessions.',
+    'Restart');
+  if (!ok) return false;
+  const key = uid();
+  f._sessions = f._sessions.map((t, j) => (j === i ? { ...t, ...patch, key, id: null, restarting: true } : t));
+  f._setActive(i);
+  const want = { ...cur, ...patch };
+  try {
+    const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(cur.id)}/restart`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ net: want.net || undefined, api: want.api !== false, gpu: want.gpu || 'none' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `restart failed (${r.status})`);
+    const s = j.session;
+    f._sessions = f._sessions
+      .filter((t) => t.id !== s.id || t.key === key) // a listing may already have shown the new row
+      .map((t) => (t.key === key ? { ...t, id: s.id, restarting: false, net: t.net ?? s.net ?? null, scopes: s.scopes ?? t.scopes, label: s.label || '' } : t));
+    f._reindex();
+  } catch (e) {
+    // ended, with its (now gone) id: a pending-looking tab would absorb an unrelated row
+    f._sessions = f._sessions.map((t) => (t.key === key ? { ...t, id: cur.id, restarting: false, ended: true } : t));
+    f._confirm('The agent could not restart', String(e.message || e), 'OK');
+  }
+  return true;
+}
+
 // the launcher menu items (used by the + button and the empty-state cards):
 // last choice on top, then Bash and one entry per agent provider, then the
 // recent sessions as a submenu.
