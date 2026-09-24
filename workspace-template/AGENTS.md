@@ -684,7 +684,10 @@ ports) — read **docs/ingress.md** before using it. Declaring is inert; only
 the owner can publish (`bx expose <tile> <slot>=<source> --host …`). Public
 callers arrive as the anonymous `ingress` principal (`xbin.Caller(r).Ingress()`,
 no role) confined to your declared paths — your app owns any further auth
-on those routes, so treat every public path as hostile input.
+on those routes, so treat every public path as hostile input. One endpoint
+serves any number of sites: the owner adds hostnames (or host ports) as more
+routes (`bx expose … --add`), and your backend tells them apart by the
+`X-XBin-Ingress-Host` header — don't declare `web2`, `web3`, … for that.
 
 **Before you build:** look for an existing interface/service contract to reuse
 (check `bx iface` / the admin Interfaces tab); reuse a standard `service` name

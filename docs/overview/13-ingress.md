@@ -52,6 +52,10 @@ Two properties carry the whole security story:
   the plain strings they always were, so every pre-ingress workspace manifest
   parses unchanged). Publishing and routing are therefore a single atomic,
   owner-approved act — there is no separate route table an agent could edit.
+  An exposed slot takes **many** such entries (D79) — several hostnames,
+  through one terminator or several, or several host ports — each validated
+  on its own; exclusivity stays per hostname, zone and host port, never per
+  slot.
 
 Everything downstream — route resolution, host listeners, split-horizon DNS —
 is **derived from registry state on demand**. There is no cached routing state
@@ -64,8 +68,9 @@ and the hairpin answer all cease to exist at the next evaluation.
 
 An exposed `http` endpoint is already served on the tile's gateway socket;
 publishing it means an **HTTP terminator** routes external requests to it by
-hostname. The route table maps `host → exactly one (tile, expose slot)` and is
-computed from bindings plus zone registrations. Two terminators satisfy one
+hostname. The route table maps `host → exactly one (tile, expose slot)` (a
+slot may own many hosts; a host never belongs to two slots) and is computed
+from bindings plus zone registrations. Two terminators satisfy one
 contract — deliberately mirroring egress's `internet` builtin vs. provider
 tiles:
 
@@ -227,8 +232,9 @@ Consequences that fall out of that choice:
 - **Unbinding severs, not drains.** Removing the binding closes the host
   listener *and* cuts every live flow — unpublishing means traffic stops now.
 - TCP is spliced; UDP is a sessioned packet relay with conntrack-style idle
-  expiry (30 s) and a per-listener session cap. One binding per host
-  port/proto, enforced at bind time; listener failures (port taken,
+  expiry (30 s) and a per-listener session cap. A slot may take several host
+  ports (a listener each, all to its one declared port); each host
+  port/proto belongs to one slot, enforced at bind time; listener failures (port taken,
   privileged port) surface in `bx ingress` and the admin panel rather than
   silently.
 - **Non-isolated tiers degrade honestly.** Without `--isolate` (tier 1/2,
@@ -300,9 +306,9 @@ has no DNS and no hairpin, so "no network" keeps meaning no network.
 - **Low ports**: binding a host port below 1024 (the Traefik tile's :80/:443)
   needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` on the xbind unit — that
   grant covers host binding only; in-netns low ports need nothing.
-- **Surfaces**: `bx expose / unexpose / ingress [routes]`; the admin tile's
-  interfaces → ingress panel (publish/unpublish with route editors, live
-  routes, listener and forward-door health); `GET /api/xbin/ingress` (admin
+- **Surfaces**: `bx expose [--add] / unexpose [route] / ingress [routes]`;
+  the admin tile's ingress group (services / expose: publish, add and remove
+  routes; endpoints: live routes, listener and forward-door health); `GET /api/xbin/ingress` (admin
   overview) and `GET /api/xbin/ingress-routes` (terminator-scoped); unbound
   expose slots appear as pending binds so publishing rides the same
   bind-on-install flow as every other capability.

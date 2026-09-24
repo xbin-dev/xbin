@@ -946,8 +946,19 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                     pending: [{component, slot, kind, service,
                                               expose?, default?, approvable,
                                               options: [{id, label, blocked?}]}],
+                                    exposes: [{component, slot, kind, paths?,
+                                              proto?, port?, approvable,
+                                              routes: [{source, host?, zone?,
+                                                        listen?}],
+                                              options: [{id, label}]}],
                                     inert: {comp: {slot: reason}},
                                     approvable: {comp: true}}.
+                                   `exposes` is every exposed endpoint in
+                                   view, bound or not, with ALL its routes —
+                                   an endpoint takes many (D79) — and the
+                                   sources it can bind: the "add a hostname /
+                                   port" data (pending lists a slot only while
+                                   it has no route).
                                    `pending` is the unbound slots + candidate
                                    providers — the bind-on-install prompt;
                                    expose:true rows are unpublished exposed
@@ -1014,13 +1025,24 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    the body also carries the route config:
                                    {host} or {zone} (http; source "runtime" or a
                                    terminator tile), {listen} (stream; source
-                                   "runtime"); binding = publishing. A stream
-                                   INTERFACE slot binds "provider#expose-slot".
+                                   "runtime"); binding = publishing. An exposed
+                                   endpoint takes MANY routes (D79): add:true
+                                   appends this one (another hostname, zone or
+                                   host port — each still exclusive across the
+                                   workspace, none twice on the slot) instead
+                                   of replacing the slot's routes; an org
+                                   admin's rights are judged on the route
+                                   added. A stream INTERFACE slot binds
+                                   "provider#expose-slot".
 DELETE /bindings                   admin / owning-org admin (always) /
                                    provider-org admin (withdrawing
                                    service). body {component, slot} — clear a binding
                                    (for an exposed slot: unpublish — the host
-                                   404s, a stream port closes + live flows end)
+                                   404s, a stream port closes + live flows end).
+                                   With provider and/or host|zone|listen:
+                                   remove only the matching route(s) — 404 if
+                                   none; the provider-side right is judged on
+                                   what is removed
 PUT    /iface-instances            self or admin. body {component?, instances:
                                    {"<id>": "/provider-relative/prefix"}} — a
                                    provider with provides {instances:true}
@@ -1053,7 +1075,10 @@ GET    /ingress-routes             terminator tiles + admin. {routes: [{host,
                                    input); admins see all; others 403.
 GET    /ingress                    admin. The whole ingress picture: {exposes:
                                    [{component, slot, kind, paths|proto+port,
-                                   source, host|zone|listen, blocked?}],
+                                   source, host|zone|listen, routes:[{source,
+                                   host?, zone?, listen?}], blocked?}] (routes =
+                                   every route of the slot, D79; the scalars
+                                   repeat the first),
                                    routes, ingressHosts, terminators, streams:
                                    [{…, error?, active}], forwards, httpListener:
                                    {listen, tls}} — every exposes slot with its

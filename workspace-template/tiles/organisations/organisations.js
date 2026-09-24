@@ -460,12 +460,16 @@ export class BxOrganisations extends LitElement {
   // ---- wiring & ingress (D26/D41): the org admin's bindings surface ----
   // Pending slots for org tiles get the picker — and, for EXPOSED endpoints,
   // the route editor the bind call requires (http: host or zone; stream: an
-  // optional listen). Existing bindings unbind here too (always allowed for
-  // org admins; the slot then reappears above to re-route).
+  // optional listen). A published endpoint takes more routes (D79: another
+  // hostname or host port — an "add" row). Existing bindings unbind here too,
+  // one route at a time (always allowed for org admins).
   _wiringView() {
     // Only slots this org admin may wire (their orgs' tiles — the server's
     // approvable flag); a personal tile in their view is not theirs to bind.
-    const bindPending = (this._binds?.pending ?? []).filter((p) => p.approvable !== false);
+    // (/bindings.exposes is absent on an older xbind: no add rows then.)
+    const addRows = (this._binds?.exposes ?? []).filter((x) => x.approvable !== false && (x.routes ?? []).length)
+      .map((x) => ({ ...x, expose: true, add: true }));
+    const bindPending = [...(this._binds?.pending ?? []).filter((p) => p.approvable !== false), ...addRows];
     const orgTiles = new Set((this._orgs ?? []).flatMap((o) => o.ownedTiles ?? []));
     const bound = [];
     for (const [comp, slots] of Object.entries(this._binds?.bindings ?? {})) {
@@ -474,7 +478,7 @@ export class BxOrganisations extends LitElement {
         for (const ref of [].concat(refs ?? [])) {
           const o = (ref && typeof ref === 'object') ? ref : { ref };
           const route = o.host ?? o.zone ?? o.listen ?? '';
-          bound.push({ comp, slot, ref: o.ref ?? '', route });
+          bound.push({ comp, slot, ref: o.ref ?? '', route, o });
         }
       }
     }
@@ -492,7 +496,7 @@ export class BxOrganisations extends LitElement {
       ${bindPending.length ? html`<div class="card">
         ${bindPending.map((p) => html`<div class="row" style="margin:3px 0; flex-wrap:wrap">
           <span class="mono">${p.component}</span> · <span class="pill">${p.slot}</span>
-          <span class="muted">${p.expose ? `publish ${p.kind}` : p.service ? `${p.kind}:${p.service}` : p.kind}</span>
+          <span class="muted">${p.add ? `another ${p.kind === 'http' ? 'hostname' : 'host port'}` : p.expose ? `publish ${p.kind}` : p.service ? `${p.kind}:${p.service}` : p.kind}</span>
           ${(p.options ?? []).length ? html`
             <select id="bp-${p.component}-${p.slot}" @change=${(e) => {
               if (e.target.value === '__custom') this._netCustom = ck(p);
@@ -514,7 +518,7 @@ export class BxOrganisations extends LitElement {
             <button class="go" @click=${() => {
               const get = (f) => this.renderRoot.getElementById(routeId(p, f))?.value?.trim() ?? '';
               const sel = this.renderRoot.getElementById(`bp-${p.component}-${p.slot}`);
-              const body = { component: p.component, slot: p.slot, provider: sel.value };
+              const body = { component: p.component, slot: p.slot, provider: sel.value, add: !!p.add };
               if (sel.value === '__custom') {
                 body.provider = get('custom');
                 if (!body.provider) { this._err = 'type a lan:<cidr> or internet:<host|cidr>[:port] ref'; return; }
@@ -526,8 +530,8 @@ export class BxOrganisations extends LitElement {
               } else if (p.expose && get('listen')) {
                 body.listen = get('listen');
               }
-              this._do(() => api('/bindings', jbody(body, 'POST')), p.expose ? 'published' : 'bound');
-            }}>${p.expose ? 'publish' : 'bind'}</button>` : html`<span class="muted">no provider available</span>`}
+              this._do(() => api('/bindings', jbody(body, 'POST')), p.add ? 'route added' : p.expose ? 'published' : 'bound');
+            }}>${p.add ? 'add' : p.expose ? 'publish' : 'bind'}</button>` : html`<span class="muted">no provider available</span>`}
         </div>`)}
       </div>` : nothing}
       ${bound.length ? html`<div class="card">
@@ -540,8 +544,10 @@ export class BxOrganisations extends LitElement {
             : String(b.ref).startsWith('set:') ? `${scopeIcon(b.ref)} ${scopeLabel(b.ref)} (bound by a workspace admin)` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
           ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
           <span style="flex:1"></span>
-          <button class="rm" title="unbind — the slot reappears above to re-route" @click=${() => this._do(() =>
-            api('/bindings', jbody({ component: b.comp, slot: b.slot }, 'DELETE')), 'unbound')}>unbind</button>
+          <button class="rm" title=${b.route ? 'remove this route — the endpoint\'s others stay' : 'unbind'} @click=${() => this._do(() =>
+            api('/bindings', jbody({ component: b.comp, slot: b.slot, provider: b.ref,
+              ...(b.o.host ? { host: b.o.host } : {}), ...(b.o.zone ? { zone: b.o.zone } : {}), ...(b.o.listen ? { listen: b.o.listen } : {}) }, 'DELETE')),
+            b.route ? 'route removed' : 'unbound')}>${b.route ? 'remove' : 'unbind'}</button>
         </div>`)}
       </div>` : nothing}
       <p class="muted" style="font-size:11px; margin:2px 0 0">
@@ -628,7 +634,8 @@ export class BxOrganisations extends LitElement {
       for (const [slot, b] of Object.entries(slots ?? {})) {
         for (const ref of [].concat(b ?? [])) {
           const prov = refName(ref);
-          if (myTiles.has(prov)) boundIn.push({ comp, slot, prov });
+          const route = typeof ref === 'object' ? (ref?.host ?? ref?.zone ?? ref?.listen ?? '') : '';
+          if (myTiles.has(prov)) boundIn.push({ comp, slot, prov, route });
         }
       }
     }
@@ -651,7 +658,7 @@ export class BxOrganisations extends LitElement {
       ${boundIn.length ? html`<div class="card">
         ${boundIn.map((b) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
-          <span class="muted" style="font-size:11px">bound to your <span class="mono">${b.prov}</span></span>
+          <span class="muted" style="font-size:11px">bound to your <span class="mono">${b.prov}</span>${b.route ? html` for <span class="mono">${b.route}</span>` : nothing}</span>
         </div>`)}
       </div>` : nothing}`;
   }

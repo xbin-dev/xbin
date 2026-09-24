@@ -9,7 +9,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
-	"github.com/xbin-dev/xbin/internal/ingress"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -504,11 +503,36 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Every exposed endpoint in scope, bound or not, with all its routes and
+	// the sources it can take: the "add a hostname / port" data (D79) —
+	// pending lists a slot only while it has no route at all.
+	var exposes []exposeSlot
+	for _, c := range b.Reg.Components() {
+		if len(c.Manifest.Exposes) == 0 || (scoped && !inScope(c.Path)) {
+			continue
+		}
+		for slot, def := range c.Manifest.Exposes {
+			es := exposeSlot{Component: c.Path, Slot: slot, Kind: def.Kind, Paths: def.Paths,
+				Routes: routeInfos(b.Reg.Workspace().Bindings[c.Path][slot]), Options: b.exposeBindOptions(c.Path, def),
+				Approvable: !scoped || orgScope[c.Path]}
+			if def.Kind == "stream" {
+				es.Proto, es.Port = def.StreamProto(), def.Port
+			}
+			exposes = append(exposes, es)
+		}
+	}
+	sort.Slice(exposes, func(i, j int) bool {
+		if exposes[i].Component != exposes[j].Component {
+			return exposes[i].Component < exposes[j].Component
+		}
+		return exposes[i].Slot < exposes[j].Slot
+	})
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"bindings":   bindings,
 		"instances":  b.Reg.Workspace().IfaceInstances,
 		"components": comps,
 		"pending":    pending,
+		"exposes":    exposes,
 		"inert":      inert,
 		"approvable": approvable,
 		"netOptions": netOpts,
@@ -591,23 +615,6 @@ func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 	return out
 }
 
-// exposeBindOptions lists the ingress sources an exposed endpoint can bind
-// to: the runtime builtin, plus (for http) every terminator tile.
-func (b *Broker) exposeBindOptions(comp string, def registry.ExposeDef) []bindOption {
-	switch def.Kind {
-	case "http":
-		opts := []bindOption{{ID: IngressSourceRuntime, Label: "runtime — xbind's built-in ingress listener (BYO/no TLS)"}}
-		for _, p := range b.Reg.Components() {
-			if p.Path != comp && providesIngress(p) {
-				opts = append(opts, bindOption{ID: p.Path, Label: p.Path + " — ingress terminator tile (public TLS)"})
-			}
-		}
-		return opts
-	default:
-		return []bindOption{{ID: IngressSourceRuntime, Label: "runtime — a host port relayed into the tile"}}
-	}
-}
-
 // bindOptions returns the providers that can satisfy a requested interface: the
 // builtins for its kind plus every tile that `provides` a matching interface
 // (excluding the requester itself — a component can't be its own provider).
@@ -685,6 +692,10 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		Host      string   `json:"host"`      // exposes http: exact public hostname
 		Zone      string   `json:"zone"`      // exposes http: delegated wildcard zone
 		Listen    string   `json:"listen"`    // exposes stream: host listen address
+		// Add appends this one binding to the slot instead of replacing it —
+		// an exposed endpoint takes many routes (D79). A DELETE naming a
+		// provider and/or host|zone|listen removes just the matching ones.
+		Add bool `json:"add"`
 	}
 	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" || body.Slot == "" {
 		server.WriteError(w, http.StatusBadRequest, "need {component, slot, provider|providers}")
@@ -694,12 +705,42 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if len(refs) == 0 && body.Provider != "" {
 		refs = []string{body.Provider}
 	}
+	route := registry.BindRef{Host: strings.ToLower(strings.TrimSpace(body.Host)),
+		Zone: strings.ToLower(strings.TrimSpace(body.Zone)), Listen: strings.TrimSpace(body.Listen)}
+	named := body.Provider != "" || route.Host != "" || route.Zone != "" || route.Listen != ""
 	del := r.Method == http.MethodDelete || len(refs) == 0
 	binding := registry.BindTo(refs...)
 	if len(binding) == 1 {
-		binding[0].Host = strings.ToLower(strings.TrimSpace(body.Host))
-		binding[0].Zone = strings.ToLower(strings.TrimSpace(body.Zone))
-		binding[0].Listen = strings.TrimSpace(body.Listen)
+		binding[0].Host, binding[0].Zone, binding[0].Listen = route.Host, route.Zone, route.Listen
+	}
+	// next: the slot's binding after this request (empty = the slot goes);
+	// delta: what changes — the part the org-admin gate judges (D26/D41), so
+	// an org admin can add or drop its own route beside routes it didn't wire
+	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]
+	next, delta := binding, binding
+	switch {
+	case r.Method == http.MethodDelete && named: // one route (or every route through one provider)
+		next, delta = nil, nil
+		for _, e := range cur {
+			if (body.Provider == "" || e.Ref == body.Provider) && (route.Host == "" || e.Host == route.Host) &&
+				(route.Zone == "" || e.Zone == route.Zone) && (route.Listen == "" || e.Listen == route.Listen) {
+				delta = append(delta, e)
+			} else {
+				next = append(next, e)
+			}
+		}
+		if len(delta) == 0 {
+			server.WriteError(w, http.StatusNotFound, "no such binding on "+body.Component+"."+body.Slot)
+			return
+		}
+	case del:
+		next, delta = nil, nil
+	case body.Add:
+		if len(binding) != 1 {
+			server.WriteError(w, http.StatusBadRequest, "add takes one provider (with its host|zone|listen)")
+			return
+		}
+		next = append(append(registry.Binding{}, cur...), binding[0])
 	}
 	if !b.IsAdmin(p) {
 		for _, ref := range refs { // a named set is a workspace-admin act (D65)
@@ -711,13 +752,13 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		// D26: an org admin may wire bindings for tiles their org OWNS when
 		// every normalized target is intra-org or allowance-covered (unbind
 		// always). Everyone else: workspace admin only.
-		if !b.orgAdminMayBind(p, body.Component, body.Slot, binding, del) {
+		if !b.orgAdminMayBind(p, body.Component, body.Slot, delta, del) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — bindings are wired by a workspace admin, or an org admin within their org's allowance (D26)", "docs": "/docs/auth.md"})
 			return
 		}
 	}
 	if !del {
-		if err := b.validateBinding(body.Component, body.Slot, binding); err != nil {
+		if err := b.validateBinding(body.Component, body.Slot, next); err != nil {
 			server.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -728,14 +769,14 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		if ws.Bindings == nil {
 			ws.Bindings = map[string]map[string]registry.Binding{}
 		}
-		if del {
+		if len(next) == 0 {
 			delete(ws.Bindings[body.Component], body.Slot)
 			return
 		}
 		if ws.Bindings[body.Component] == nil {
 			ws.Bindings[body.Component] = map[string]registry.Binding{}
 		}
-		ws.Bindings[body.Component][body.Slot] = binding
+		ws.Bindings[body.Component][body.Slot] = next
 	}); err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -744,14 +785,23 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(body.Component)
 		notify := []string{oldProvider}
-		for _, ref := range refs {
-			prov, _ := splitRef(ref)
-			notify = append(notify, prov)
-		}
-		for _, p := range notify {
-			if _, ok := b.Reg.Component(p); ok {
-				b.OnGrantChange(p)
+		if !del {
+			for _, e := range delta {
+				prov, _ := splitRef(e.Ref)
+				notify = append(notify, prov)
 			}
+		}
+		_, expose := b.exposeDef(body.Component, body.Slot)
+		done := map[string]bool{body.Component: true}
+		for _, p := range notify {
+			pc, ok := b.Reg.Component(p)
+			// a terminator re-reads its routes (GET /ingress-routes) on its own:
+			// adding a hostname must not restart every site it serves
+			if !ok || done[p] || (expose && providesIngress(pc)) {
+				continue
+			}
+			done[p] = true
+			b.OnGrantChange(p)
 		}
 	}
 	if b.OnIngressChange != nil {
@@ -768,16 +818,10 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 // config and the ingress policy ceiling.
 func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) error {
 	refs := binding.Refs()
-	if len(refs) > 1 {
-		seen := map[string]bool{}
-		for _, ref := range refs {
-			if seen[ref] {
-				return fmt.Errorf("duplicate binding %q", ref)
-			}
-			seen[ref] = true
-		}
+	routeCfg := false
+	for _, br := range binding {
+		routeCfg = routeCfg || br.Host != "" || br.Zone != "" || br.Listen != ""
 	}
-	routeCfg := binding.FirstRef().Host != "" || binding.FirstRef().Zone != "" || binding.FirstRef().Listen != ""
 	if strings.HasPrefix(slot, "@") { // pseudo-slots are single-valued
 		if len(refs) > 1 {
 			return fmt.Errorf("%s takes a single provider", slot)
@@ -792,7 +836,16 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 		return fmt.Errorf("no such component: %s", comp)
 	}
 	if exDef, isExpose := c.Manifest.Exposes[slot]; isExpose {
-		return b.validateExposeBinding(c, slot, exDef, binding)
+		return b.validateExposeBinding(c, slot, exDef, binding) // many routes, one source each (D79)
+	}
+	if len(refs) > 1 {
+		seen := map[string]bool{}
+		for _, ref := range refs {
+			if seen[ref] {
+				return fmt.Errorf("duplicate binding %q", ref)
+			}
+			seen[ref] = true
+		}
 	}
 	def, ok := c.Manifest.Interfaces[slot]
 	if !ok {
@@ -928,130 +981,6 @@ func ownerLabel(ref string) string {
 		return "workspace-owned"
 	}
 	return "owned by " + ref
-}
-
-// validateExposeBinding is the publish gate (plans/ingress.md): source shape,
-// hostname authority (exactly one of host/zone for http), listen address for
-// stream, route conflicts, and the ingress policy ceiling.
-func (b *Broker) validateExposeBinding(c *registry.Component, slot string, def registry.ExposeDef, binding registry.Binding) error {
-	if err := registry.ValidateExposes(c.Manifest); err != nil {
-		return fmt.Errorf("fix the manifest first: %w", err)
-	}
-	if len(binding) != 1 {
-		return fmt.Errorf("an exposed endpoint binds to a single ingress source")
-	}
-	br := binding[0]
-	if !c.HasBackend() {
-		return fmt.Errorf("%s has no backend — only backend-serving tiles can be exposed", c.Path)
-	}
-	if b.Users != nil {
-		if row, ok := b.Users.Ceiling(c.Path).DenyRow(users.PolicyDenyIngress); ok {
-			return fmt.Errorf("a policy row for tiles matching %q denies ingress for %s (workspace/org policy — see /docs/auth.md)", row.Tiles, c.Path)
-		}
-	}
-	switch def.Kind {
-	case "http":
-		if br.Listen != "" {
-			return fmt.Errorf("listen is for stream exposes")
-		}
-		if br.Ref != IngressSourceRuntime {
-			p, ok := b.Reg.Component(br.Ref)
-			if !ok || !providesIngress(p) {
-				return fmt.Errorf("%s is not an ingress terminator (needs provides {kind:\"ingress\"}) — bind \"runtime\" or a terminator tile", br.Ref)
-			}
-			if br.Ref == c.Path {
-				return fmt.Errorf("a component can't be its own ingress source")
-			}
-		}
-		switch {
-		case br.Host != "" && br.Zone != "":
-			return fmt.Errorf("give either an exact --host or a delegated --zone, not both")
-		case br.Host != "":
-			if !ingress.ValidHost(br.Host) {
-				return fmt.Errorf("bad hostname %q", br.Host)
-			}
-		case br.Zone != "":
-			if !ingress.ValidZone(br.Zone) {
-				return fmt.Errorf("bad zone %q (form: *.sites.example.com)", br.Zone)
-			}
-		default:
-			return fmt.Errorf("an http expose binding needs a hostname authority: --host <exact> or --zone '*.<suffix>'")
-		}
-		return b.exposeRouteConflict(c.Path, slot, br)
-	case "stream":
-		if br.Host != "" || br.Zone != "" {
-			return fmt.Errorf("host/zone are for http exposes")
-		}
-		if br.Ref != IngressSourceRuntime {
-			return fmt.Errorf("stream exposes bind to \"runtime\" (a host port); reaching one from a sibling tile is that tile's stream interface, and VPN-side ingress is a lan-ingress binding")
-		}
-		listen := br.Listen
-		if listen == "" {
-			listen = fmt.Sprintf(":%d", def.Port)
-		}
-		p := listenPort(listen)
-		if p < 1 || p > 65535 {
-			return fmt.Errorf("bad listen address %q (want \":port\" or \"host:port\")", br.Listen)
-		}
-		// One host port per binding — collide loudly now, not at reconcile.
-		for _, other := range b.Reg.Components() {
-			for oslot, obr := range b.exposeBindingsOf(other) {
-				if other.Path == c.Path && oslot == slot {
-					continue
-				}
-				odef := other.Manifest.Exposes[oslot]
-				if odef.Kind != "stream" || obr.Ref != IngressSourceRuntime {
-					continue
-				}
-				ol := obr.Listen
-				if ol == "" {
-					ol = fmt.Sprintf(":%d", odef.Port)
-				}
-				if listenPort(ol) == p && odef.StreamProto() == def.StreamProto() {
-					return fmt.Errorf("host port %d/%s is already taken by %s.%s", p, def.StreamProto(), other.Path, oslot)
-				}
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("exposes.%s: unknown kind %q", slot, def.Kind)
-	}
-}
-
-// exposeRouteConflict rejects an http binding whose hostname authority
-// collides with an existing one: a duplicate exact host, a duplicate zone,
-// or an exact host another tile has registered inside its zone.
-func (b *Broker) exposeRouteConflict(comp, slot string, br registry.BindRef) error {
-	ws := b.Reg.Workspace()
-	for _, other := range b.Reg.Components() {
-		for oslot, obr := range b.exposeBindingsOf(other) {
-			if other.Path == comp && oslot == slot {
-				continue
-			}
-			if other.Manifest.Exposes[oslot].Kind != "http" {
-				continue
-			}
-			if br.Host != "" && obr.Host == br.Host {
-				return fmt.Errorf("%s is already bound to %s.%s", br.Host, other.Path, oslot)
-			}
-			if br.Zone != "" && obr.Zone == br.Zone {
-				return fmt.Errorf("zone %s is already delegated to %s.%s", br.Zone, other.Path, oslot)
-			}
-		}
-	}
-	if br.Host != "" {
-		for other, hosts := range ws.IngressHosts {
-			if other == comp {
-				continue
-			}
-			for _, h := range hosts {
-				if h == br.Host {
-					return fmt.Errorf("%s is registered by %s inside its delegated zone", br.Host, other)
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // apiIfaceInstancesSet — PUT /iface-instances {component?, instances:{id:path}}.

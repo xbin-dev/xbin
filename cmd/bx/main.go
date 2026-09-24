@@ -153,9 +153,9 @@ func usage() {
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                         add/remove on a multi slot (# = instance)
   bx bind --unset <component> <slot>
-  bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P]
-                                        publish an exposed endpoint (docs/ingress.md)
-  bx unexpose <tile> <slot>             unpublish
+  bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
+                                        publish an exposed endpoint (--add: one more route)
+  bx unexpose <tile> <slot> [--host H|--zone '*.Z'|--listen :P]  a route, or all
   bx ingress [routes]                   published endpoints + live routing
   bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
   bx hide|unhide <component>            hidden = disabled + out of sidebars (D42)

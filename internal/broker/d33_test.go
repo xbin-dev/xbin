@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -180,6 +181,9 @@ func TestCreateAsOrg(t *testing.T) {
 	}
 	if got := st.Owner("apps/bobtool"); got != "org:sales" {
 		t.Fatalf("owner = %q, want org:sales", got)
+	}
+	if !isRepo(filepath.Join(b.Reg.Root, "apps/bobtool")) {
+		t.Fatal("a created tile gets its own git repo at once")
 	}
 	// Personal creation without a pattern still refuses.
 	w = call(t, b.apiCreate, bob, "POST", "/create", `{"path":"apps/bobpersonal"}`, nil)

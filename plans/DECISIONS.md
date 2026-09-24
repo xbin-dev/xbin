@@ -2014,3 +2014,36 @@ Deviations and refinements made while implementing; all deliberate:
   process exists for most tiles, and a terminal's sandbox is the user's,
   not xbind's); refusing the features without isolation (they'd lose the
   Code panel in dev/no-isolate installs for no boundary gained).
+
+- **D79 — An exposed endpoint takes many routes: exclusivity is per
+  hostname, zone and host port, never per slot (2026-09-25).** A webhost tile
+  behind the traefik tile could serve one hostname (or one wildcard zone)
+  per `exposes` slot; several unrelated domains meant declaring `web`,
+  `web2`, … in the manifest. Nothing in ING-1..6 asked for that: the storage
+  was already a list (`Binding []BindRef`), traefik already renders a router
+  per host, the listeners are keyed per listen address — the limit was one
+  `len(binding) != 1` check plus consumers reading `FirstRef()`. The real
+  exclusivity rules sit on the other side and stay: a hostname maps to
+  exactly one (tile, slot) (ING-5 — an anonymous request reaches exactly one
+  attributable tile), a zone is delegated once, a host port/proto relays to
+  one slot. So each binding entry is a route validated on its own (source,
+  exactly one of host/zone, listen), none repeated within the slot, each
+  conflict-checked against every other slot; sources may mix (one host
+  direct via `runtime`, others via a terminator). A registered host inside
+  overlapping zones belongs to the most specific one, and lookup and the
+  route list agree on it. API, additive: `POST /bindings {add:true}`
+  appends one route (plain POST still replaces); `DELETE /bindings` naming a
+  provider/host/zone/listen removes just that route; `GET /ingress` rows gain
+  `routes` (scalars keep the first — old admin tiles read them) and `GET
+  /bindings` gains `exposes` (every endpoint with all routes + its source
+  options — `pending` still lists only unbound slots, so old prompts don't
+  resurface bound ones). The org-admin gate (D26/D41) judges the DELTA — the
+  route added or removed — so an org admin manages its own terminator's
+  hostnames on a slot that also carries a workspace-admin `runtime` route.
+  A route change no longer restarts the terminator (it re-reads
+  `/ingress-routes` on its own; a restart would drop every site it serves).
+  Not chosen: a `multi` flag on `exposes` (the manifest would have to change
+  for what is an owner's routing choice); a separate route table (the
+  binding carrying the route is the ING-1 property that keeps publishing a
+  single owner-approved act). lan-ingress and stream interfaces stay 1:1 —
+  they are consumer slots, not endpoints.

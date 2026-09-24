@@ -21,8 +21,8 @@ socket behind xbind's authenticated proxy.
 | `provides`   | other tiles    | intra-workspace |
 | `exposes`    | the outside    | **ingress** |
 
-Publishing is the owner's action (admin tile → interfaces → **ingress**, or
-`bx expose`); a tile can never publish itself.
+Publishing is the owner's action (admin tile → **ingress → services /
+expose**, or `bx expose`); a tile can never publish itself.
 
 ## HTTP endpoints (`kind: "http"`)
 
@@ -55,6 +55,22 @@ bx expose apps/cms  web=apps/traefik --zone '*.sites.example.com'
 bx unexpose apps/blog web
 ```
 
+**One endpoint, many routes.** A slot takes as many bindings as you give it
+— `--add` puts another beside the ones it has instead of replacing them:
+
+```
+bx expose apps/web web=apps/traefik --host shop.example.com
+bx expose apps/web web=apps/traefik --host www.example.net --add   # a second site, own certificate
+bx expose apps/web web=runtime --host internal.example.com --add   # a third, direct
+bx unexpose apps/web web --host www.example.net                    # drop just that one
+```
+
+Each route has its own source and hostname (or zone); they may mix
+terminators. What stays exclusive is the hostname itself — one hostname, one
+zone, one host port belongs to exactly one endpoint in the workspace (the
+anonymous visitor reaches exactly one attributable tile). The backend tells
+the sites apart by `X-XBin-Ingress-Host`.
+
 - **`runtime`** — xbind's own second listener (`xbind --ingress-listen
   :8080`, off by default; `--ingress-cert/--ingress-key` for bring-your-own
   TLS, reloaded on renewal). Right when TLS is handled in front of xbind
@@ -69,7 +85,8 @@ bx unexpose apps/blog web
   ACME email on its page — then point tiles at it. Certificates live in the
   tile's own resource, never in the daemon.
 
-**Exact host** (`--host`): the owner names the one public hostname — done.
+**Exact host** (`--host`): the owner names the public hostname — done (more
+of them: more routes, `--add`).
 
 **Delegated zone** (`--zone '*.sites.example.com'`): for multi-site tiles
 (a CMS spawning sites at runtime). The owner draws the authority boundary
@@ -95,14 +112,17 @@ and declares it. (Inside your own sandbox, *any* port works, including 80.)
 
 ```
 bx expose apps/game game=runtime --listen :2456
+bx expose apps/game game=runtime --listen :27015 --add   # a second host port, same listener
 ```
 
 binds a **host port**: xbind accepts host connections and relays them into
 the sandbox (TCP splice; UDP as idle-expiring sessions). `--listen` defaults
 to `:<port>`; host ports below 1024 need xbind itself to hold
 `CAP_NET_BIND_SERVICE` (systemd: `AmbientCapabilities=CAP_NET_BIND_SERVICE`).
-Unbinding closes the port and severs live flows. One binding per host
-port/proto; failures (port taken) surface in `bx ingress` and the admin UI.
+Unbinding closes the port and severs live flows. An endpoint may take
+several host ports (`--add`), all relayed to its one declared port; each host
+port/proto belongs to one endpoint; failures (port taken) surface in `bx
+ingress` and the admin UI.
 
 ### Reaching an exposed service from a sibling tile
 
@@ -148,8 +168,8 @@ hairpin (or DNS) at all.
 
 - Exposing is a manifest declaration (agent-writable, inert); **binding is
   admin/owner-only** and carries the route config. Everything shows in the
-  admin tile (interfaces → ingress: publish/unpublish, live routes, listener
-  health) and `bx ingress`.
+  admin tile (ingress → services / expose: publish, add and remove routes;
+  ingress → endpoints: live routes, listener health) and `bx ingress`.
 - A workspace/org **policy row can deny `ingress`** (docs/auth.md): matching
   tiles can't be bound, and any existing binding goes inert — the ceiling
   holds even against a hand-edited `xbin.json`.

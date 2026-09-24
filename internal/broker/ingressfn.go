@@ -57,16 +57,34 @@ func (b *Broker) ingressDenied(comp string) bool {
 	return b.Users != nil && b.Users.Ceiling(comp).Denies(users.PolicyDenyIngress)
 }
 
-// exposeBindingsOf yields a component's BOUND expose slots (ceiling-applied).
-func (b *Broker) exposeBindingsOf(c *registry.Component) map[string]registry.BindRef {
+// exposeRoute is one route of a bound exposed endpoint: a slot takes any
+// number (D79) — each its own source plus host|zone (http) or listen
+// (stream). Exclusivity stays where ING-5 puts it: per hostname, zone and
+// host port, never per slot.
+type exposeRoute struct {
+	Slot string
+	Def  registry.ExposeDef
+	registry.BindRef
+}
+
+// exposeRoutesOf yields every route of a component's bound expose slots
+// (ceiling-applied), in slot then binding order.
+func (b *Broker) exposeRoutesOf(c *registry.Component) []exposeRoute {
 	if len(c.Manifest.Exposes) == 0 || b.ingressDenied(c.Path) {
 		return nil
 	}
 	ws := b.Reg.Workspace()
-	out := map[string]registry.BindRef{}
+	slots := make([]string, 0, len(c.Manifest.Exposes))
 	for slot := range c.Manifest.Exposes {
-		if br := ws.Bindings[c.Path][slot].FirstRef(); br.Ref != "" {
-			out[slot] = br
+		slots = append(slots, slot)
+	}
+	sort.Strings(slots)
+	var out []exposeRoute
+	for _, slot := range slots {
+		for _, br := range ws.Bindings[c.Path][slot] {
+			if br.Ref != "" {
+				out = append(out, exposeRoute{Slot: slot, Def: c.Manifest.Exposes[slot], BindRef: br})
+			}
 		}
 	}
 	return out
@@ -80,7 +98,9 @@ func (b *Broker) liveForIngress(c *registry.Component) bool {
 // IngressLookup resolves (source, host) to the one tile route it publishes —
 // the function both HTTP terminators consult per request. Exact hosts win
 // over zone registrations; a route resolves only for the source its binding
-// names (a terminator can't serve hosts bound through another).
+// names (a terminator can't serve hosts bound through another). A registered
+// host belongs to the most specific of its tile's zones covering it (zoneFor)
+// and resolves only through that zone's source.
 func (b *Broker) IngressLookup(source, host string) (ingress.Route, bool) {
 	if host == "" {
 		return ingress.Route{}, false
@@ -92,28 +112,29 @@ func (b *Broker) IngressLookup(source, host string) (ingress.Route, bool) {
 		if !b.liveForIngress(c) {
 			continue
 		}
-		for slot, br := range b.exposeBindingsOf(c) {
-			def := c.Manifest.Exposes[slot]
-			if def.Kind != "http" {
+		for _, er := range b.exposeRoutesOf(c) {
+			if er.Def.Kind != "http" {
 				continue
 			}
 			rt := ingress.Route{
-				Component: c.Path, Slot: slot, Paths: def.Paths,
-				Source: br.Ref, Host: host,
+				Component: c.Path, Slot: er.Slot, Paths: er.Def.Paths,
+				Source: er.Ref, Host: host,
 			}
-			if br.Host == host {
-				if br.Ref == source {
+			if er.Host == host {
+				if er.Ref == source {
 					return rt, true // exact host — strongest claim
 				}
 				continue
 			}
-			if br.Zone != "" && !haveZone && ingress.HostInZone(host, br.Zone) {
-				for _, reg := range ws.IngressHosts[c.Path] {
-					if reg == host {
-						rt.Zone = br.Zone
-						zoneHit, haveZone = rt, true
-						break
-					}
+			if er.Zone == "" || !ingress.HostInZone(host, er.Zone) ||
+				(haveZone && len(er.Zone) <= len(zoneHit.Zone)) {
+				continue
+			}
+			for _, reg := range ws.IngressHosts[c.Path] {
+				if reg == host {
+					rt.Zone = er.Zone
+					zoneHit, haveZone = rt, true
+					break
 				}
 			}
 		}
@@ -122,6 +143,27 @@ func (b *Broker) IngressLookup(source, host string) (ingress.Route, bool) {
 		return zoneHit, true
 	}
 	return ingress.Route{}, false
+}
+
+// zoneFor is the zone a host registered by c belongs to: the most specific
+// of c's http zone routes covering it ("" = none) — the one route both the
+// lookup and the route list attribute it to.
+func (b *Broker) zoneFor(c *registry.Component, host string) string {
+	best := ""
+	for _, er := range b.exposeRoutesOf(c) {
+		if er.Def.Kind == "http" && er.Zone != "" && ingress.HostInZone(host, er.Zone) && len(er.Zone) > len(best) {
+			best = er.Zone
+		}
+	}
+	return best
+}
+
+// streamListen is a stream route's host listen address (default ":<port>").
+func streamListen(br registry.BindRef, def registry.ExposeDef) string {
+	if br.Listen != "" {
+		return br.Listen
+	}
+	return fmt.Sprintf(":%d", def.Port)
 }
 
 // IngressRoutes lists every resolvable route (concrete hosts only), for the
@@ -143,24 +185,23 @@ func (b *Broker) IngressRoutes() []ingress.Route {
 			if !b.liveForIngress(c) {
 				continue
 			}
-			for slot, br := range b.exposeBindingsOf(c) {
-				def := c.Manifest.Exposes[slot]
-				if def.Kind != "http" {
+			for _, er := range b.exposeRoutesOf(c) {
+				if er.Def.Kind != "http" {
 					continue
 				}
-				rt := ingress.Route{Component: c.Path, Slot: slot, Paths: def.Paths, Source: br.Ref}
+				rt := ingress.Route{Component: c.Path, Slot: er.Slot, Paths: er.Def.Paths, Source: er.Ref}
 				switch pass {
 				case 0:
-					rt.Host = br.Host
+					rt.Host = er.Host
 					add(rt)
 				case 1:
-					if br.Zone == "" {
+					if er.Zone == "" {
 						continue
 					}
 					for _, reg := range ws.IngressHosts[c.Path] {
-						if ingress.HostInZone(reg, br.Zone) {
+						if ingress.HostInZone(reg, er.Zone) && b.zoneFor(c, reg) == er.Zone {
 							r2 := rt
-							r2.Host, r2.Zone = reg, br.Zone
+							r2.Host, r2.Zone = reg, er.Zone
 							add(r2)
 						}
 					}
@@ -184,11 +225,11 @@ func (b *Broker) PublishedHost(host string) bool {
 		if !b.liveForIngress(c) {
 			continue
 		}
-		for slot, br := range b.exposeBindingsOf(c) {
-			if c.Manifest.Exposes[slot].Kind != "http" {
+		for _, er := range b.exposeRoutesOf(c) {
+			if er.Def.Kind != "http" {
 				continue
 			}
-			if br.Host == host || (br.Zone != "" && ingress.HostInZone(host, br.Zone)) {
+			if er.Host == host || (er.Zone != "" && ingress.HostInZone(host, er.Zone)) {
 				return true
 			}
 		}
@@ -204,18 +245,13 @@ func (b *Broker) IngressStreamSpecs() []ingress.StreamSpec {
 		if !b.liveForIngress(c) || !c.HasBackend() {
 			continue
 		}
-		for slot, br := range b.exposeBindingsOf(c) {
-			def := c.Manifest.Exposes[slot]
-			if def.Kind != "stream" || br.Ref != IngressSourceRuntime {
+		for _, er := range b.exposeRoutesOf(c) { // a listener per route: many host ports, one tile port
+			if er.Def.Kind != "stream" || er.Ref != IngressSourceRuntime {
 				continue
 			}
-			listen := br.Listen
-			if listen == "" {
-				listen = fmt.Sprintf(":%d", def.Port)
-			}
 			out = append(out, ingress.StreamSpec{
-				Component: c.Path, Slot: slot,
-				Proto: def.StreamProto(), Listen: listen, Port: def.Port,
+				Component: c.Path, Slot: er.Slot,
+				Proto: er.Def.StreamProto(), Listen: streamListen(er.BindRef, er.Def), Port: er.Def.Port,
 			})
 		}
 	}
@@ -295,8 +331,8 @@ func (b *Broker) IngressFwdFor(c *registry.Component) map[int]string {
 // in), a bound stream interface, or it's dialed by a sibling's stream
 // interface. Installed as runner.IngressNet.
 func (b *Broker) IngressNetFor(c *registry.Component) bool {
-	for slot, br := range b.exposeBindingsOf(c) {
-		if c.Manifest.Exposes[slot].Kind == "stream" && br.Ref == IngressSourceRuntime {
+	for _, er := range b.exposeRoutesOf(c) {
+		if er.Def.Kind == "stream" && er.Ref == IngressSourceRuntime {
 			return true
 		}
 	}
@@ -487,9 +523,9 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 	// The authority boundary: every host must fall inside a zone the OWNER
 	// delegated to this tile.
 	var zones []string
-	for slot, br := range b.exposeBindingsOf(c) {
-		if c.Manifest.Exposes[slot].Kind == "http" && br.Zone != "" {
-			zones = append(zones, br.Zone)
+	for _, er := range b.exposeRoutesOf(c) {
+		if er.Def.Kind == "http" && er.Zone != "" {
+			zones = append(zones, er.Zone)
 		}
 	}
 	if len(zones) == 0 && len(body.Hosts) > 0 {
@@ -551,9 +587,8 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) ingressHostConflict(comp, host string) error {
 	ws := b.Reg.Workspace()
 	for _, c := range b.Reg.Components() {
-		for slot, br := range b.exposeBindingsOf(c) {
-			_ = slot
-			if br.Host == host {
+		for _, er := range b.exposeRoutesOf(c) {
+			if er.Host == host {
 				return fmt.Errorf("%s is already bound exactly to %s", host, c.Path)
 			}
 		}
@@ -618,7 +653,10 @@ func (b *Broker) IngressOverview() map[string]any {
 		Host      string   `json:"host,omitempty"`
 		Zone      string   `json:"zone,omitempty"`
 		Listen    string   `json:"listen,omitempty"`
-		Blocked   string   `json:"blocked,omitempty"` // policy ceiling denial
+		// Routes is every route of the slot (D79); the scalars above repeat
+		// the first, as they always said, for older readers.
+		Routes  []routeInfo `json:"routes"`
+		Blocked string      `json:"blocked,omitempty"` // policy ceiling denial
 	}
 	var slots []slotInfo
 	for _, c := range b.Reg.Components() {
@@ -637,6 +675,7 @@ func (b *Broker) IngressOverview() map[string]any {
 			if br := ws.Bindings[c.Path][slot].FirstRef(); br.Ref != "" {
 				si.Source, si.Host, si.Zone, si.Listen = br.Ref, br.Host, br.Zone, br.Listen
 			}
+			si.Routes = routeInfos(ws.Bindings[c.Path][slot])
 			if denied {
 				if row, ok := b.Users.Ceiling(c.Path).DenyRow(users.PolicyDenyIngress); ok {
 					si.Blocked = fmt.Sprintf("policy row for tiles matching %q denies ingress", row.Tiles)

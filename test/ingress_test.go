@@ -35,6 +35,7 @@ func TestIngress(t *testing.T) {
 	consoleAddr := freePort()
 	ingressAddr := freePort()
 	echoAddr := freePort()
+	echoAddr2 := freePort() // a second host port for the same stream endpoint (D79)
 
 	// The site tile: one http expose (root + a public API subtree; /secret
 	// stays private) and one stream expose (an echo listener on :7777).
@@ -204,6 +205,62 @@ func main() {
 	if c, b := do("GET", "/api/xbin/ingress", ""); c != 200 ||
 		!strings.Contains(b, `"site.test"`) || !strings.Contains(b, `"echo"`) {
 		t.Fatalf("ingress overview: %d %s", c, b)
+	}
+
+	// Many routes on one endpoint (D79): a second hostname and a second host
+	// port, added beside the first; each serves; removing one leaves the rest.
+	if c, b := do("POST", "/api/xbin/bindings",
+		`{"component":"apps/site","slot":"web","provider":"runtime","host":"shop.test","add":true}`); c != 200 {
+		t.Fatalf("add a hostname: %d %s", c, b)
+	}
+	if c, b := do("POST", "/api/xbin/bindings",
+		fmt.Sprintf(`{"component":"apps/site","slot":"echo","provider":"runtime","listen":%q,"add":true}`, echoAddr2)); c != 200 {
+		t.Fatalf("add a host port: %d %s", c, b)
+	}
+	for _, host := range []string{"site.test", "shop.test"} {
+		if c, b := pub(host, "/"); c != 200 || !strings.Contains(b, "host="+host) {
+			t.Fatalf("%s through the same endpoint: %d %s", host, c, b)
+		}
+	}
+	echoVia := func(addr string) error {
+		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		if _, err := conn.Write([]byte("ping-thru")); err != nil {
+			return err
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		buf := make([]byte, 9)
+		if _, err := io.ReadFull(conn, buf); err != nil || string(buf) != "ping-thru" {
+			return fmt.Errorf("echo %q %v", buf, err)
+		}
+		return nil
+	}
+	if !waitFor(func() bool { return echoVia(echoAddr2) == nil }, 10*time.Second) {
+		t.Fatalf("the second host port never relayed: %v", echoVia(echoAddr2))
+	}
+	if err := echoVia(echoAddr); err != nil {
+		t.Fatalf("the first host port stopped: %v", err)
+	}
+	if c, b := do("GET", "/api/xbin/ingress", ""); c != 200 || !strings.Contains(b, `"shop.test"`) || !strings.Contains(b, `"routes":[`) {
+		t.Fatalf("overview with two routes: %d %s", c, b)
+	}
+	if c, b := do("DELETE", "/api/xbin/bindings", `{"component":"apps/site","slot":"web","host":"shop.test"}`); c != 200 {
+		t.Fatalf("remove one hostname: %d %s", c, b)
+	}
+	if c, b := do("DELETE", "/api/xbin/bindings", fmt.Sprintf(`{"component":"apps/site","slot":"echo","listen":%q}`, echoAddr2)); c != 200 {
+		t.Fatalf("remove one host port: %d %s", c, b)
+	}
+	if !waitFor(func() bool { c, _ := pub("shop.test", "/"); return c == 404 }, 10*time.Second) {
+		t.Fatal("the removed hostname is still routed")
+	}
+	if c, _ := pub("site.test", "/"); c != 200 {
+		t.Fatalf("the remaining hostname stopped: %d", c)
+	}
+	if err := echoVia(echoAddr); err != nil {
+		t.Fatalf("the remaining host port stopped: %v", err)
 	}
 
 	// Unpublish both: the host 404s and the port closes.

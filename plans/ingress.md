@@ -42,7 +42,10 @@ exactly that — deliberately, per exposed endpoint, owner-bound.
   Workspace storage widens `bindings[c][slot]` from a ref to
   `{ref, host?, zone?, path?, listen?}` (custom unmarshal; every existing
   binding parses unchanged — bare refs stay bare on disk, exactly like the
-  string→array widening did for `multi`).
+  string→array widening did for `multi`). An exposed slot takes **any number
+  of such entries** (D79): several hostnames/zones (mixing sources), several
+  host ports — exclusivity lives per hostname, zone and host port, not per
+  slot.
 - **source** = a builtin (`runtime`) or a **tile** (`apps/traefik`, a VPN
   tile) — symmetric with egress's `internet` builtin vs a provider tile.
 - **default-deny preserved**: an unexposed endpoint, or an exposed-but-unbound
@@ -186,7 +189,8 @@ bx expose apps/cms  web=traefik --zone '*.sites.example.com' # delegated zone
 bx expose apps/blog web=runtime                              # builtin terminator (BYO/none TLS)
 bx expose apps/game net=runtime --tcp :2456                  # L4 host port
 bx expose apps/db   net=apps/vpn                             # reachable only via the VPN tile
-bx unexpose apps/blog web
+bx expose apps/blog web=traefik --host shop.example.com --add # one more route (D79)
+bx unexpose apps/blog web [--host shop.example.com]          # one route, or all
 bx ingress ls | routes | flows                               # published endpoints, live routing
 ```
 
@@ -234,6 +238,8 @@ public path is anonymous by construction.
 - **ING-6** — net-tile ingress = a **`lan-ingress` provide** + service-tile
   bind (reuse per-client TUN/splice + the provider's `ip_forward`); hairpin
   solved by **split-horizon resolution**, not real out-and-back.
+- **D79** (plans/DECISIONS.md) — an exposed slot takes **many routes**; each
+  hostname / zone / host port still belongs to exactly one slot.
 
 ## Touchpoints
 

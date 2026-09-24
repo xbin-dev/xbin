@@ -3,6 +3,7 @@ package broker
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -60,6 +61,12 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.assignOwner(o.Path, owner)
+	// its own git repo from the start, like an imported or instantiated tile
+	// (the Code panel's history, an agent's changed-files snapshots) — until
+	// now a created tile got one only at the next daemon start
+	if err := gitInitComponent(filepath.Join(b.Reg.Root, filepath.FromSlash(o.Path))); err != nil {
+		slog.Warn("git init new component", "path", o.Path, "err", err)
+	}
 	_ = b.Reg.Rescan() // visible immediately; the watcher event follows anyway
 	out := map[string]any{"path": o.Path, "files": files}
 	if owner != "" {

@@ -51,6 +51,8 @@ mk apps/crawler org:devs node
 mk apps/pinned  org:devs
 mk apps/offline org:devs
 mk apps/racks   org:infra node
+# an http endpoint to publish — the ingressMulti pass: one endpoint, many hostnames (D79)
+printf '{\n  "runtime": "node",\n  "interfaces": { "net": { "kind": "net" } },\n  "exposes": { "web": { "kind": "http", "paths": ["/"] } }\n}\n' > "$WS/apps/racks/xbin.json"
 mk apps/leads   org:sales
 mk apps/dev1-notes user:dev1
 # a tile whose document grabs focus on every load — the "reload hoists the

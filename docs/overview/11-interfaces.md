@@ -165,7 +165,9 @@ with the ingress plane: [13-ingress.md](13-ingress.md).
 **Storage.** Bindings live in the workspace `xbin.json` (machine-managed, owner-plane):
 `bindings[component][slot] = ref | [refs…]`. A ref is `"provider[#instance]"`. Since the
 ingress work, a ref may carry route config — `{ref, host|zone, listen}` — for exposed
-endpoints; a config-free ref still marshals as the plain string, so every pre-existing
+endpoints, and an exposed slot takes any number of them (one per hostname, zone or host
+port — D79; `POST /bindings {add:true}` appends one, a `DELETE` naming a route removes
+it); a config-free ref still marshals as the plain string, so every pre-existing
 manifest parses and round-trips unchanged.
 
 **Who binds.** Owner/admin only — the API (`POST /api/xbin/bindings`) is admin-gated,

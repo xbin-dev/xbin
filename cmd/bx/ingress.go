@@ -8,16 +8,18 @@ import (
 
 // Ingress commands (plans/ingress.md): publishing tiles.
 //
-//	bx expose <tile> <slot>=<source> [--host H | --zone '*.Z'] [--listen :P]
-//	bx unexpose <tile> <slot>
+//	bx expose <tile> <slot>=<source> [--host H | --zone '*.Z'] [--listen :P] [--add]
+//	bx unexpose <tile> <slot> [--host H | --zone '*.Z' | --listen :P]
 //	bx ingress            published endpoints, routes, listener status
 //	bx ingress routes     just the host → tile routes
 
 func cmdExpose(args []string) error {
 	var pos []string
-	body := map[string]string{}
+	body := map[string]any{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--add": // one more route on the endpoint, beside the ones it has (D79)
+			body["add"] = true
 		case "--host", "--zone", "--listen", "--tcp", "--udp":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", args[i])
@@ -33,10 +35,13 @@ func cmdExpose(args []string) error {
 		}
 	}
 	if len(pos) != 2 || !strings.Contains(pos[1], "=") {
-		return fmt.Errorf(`usage: bx expose <tile> <slot>=<source> [--host <name> | --zone '*.<suffix>'] [--listen :<port>]
+		return fmt.Errorf(`usage: bx expose <tile> <slot>=<source> [--host <name> | --zone '*.<suffix>'] [--listen :<port>] [--add]
   sources: "runtime" (xbind's listener / a host port) or an ingress terminator tile
+  --add adds a route beside the endpoint's others (more hostnames, more host
+  ports); without it the endpoint's routes are replaced by this one
   examples:
     bx expose apps/blog web=apps/traefik --host blog.example.com
+    bx expose apps/blog web=apps/traefik --host shop.example.com --add
     bx expose apps/cms  web=apps/traefik --zone '*.sites.example.com'
     bx expose apps/blog web=runtime --host blog.example.com
     bx expose apps/game game=runtime --listen :2456`)
@@ -51,30 +56,56 @@ func cmdExpose(args []string) error {
 }
 
 func cmdUnexpose(args []string) error {
-	if len(args) != 2 {
-		return fmt.Errorf("usage: bx unexpose <tile> <slot>")
+	var pos []string
+	body := map[string]string{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--host", "--zone", "--listen":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs a value", args[i])
+			}
+			body[strings.TrimPrefix(args[i], "--")] = args[i+1]
+			i++
+		default:
+			pos = append(pos, args[i])
+		}
 	}
-	body := map[string]string{"component": args[0], "slot": args[1]}
+	if len(pos) != 2 {
+		return fmt.Errorf("usage: bx unexpose <tile> <slot> [--host <name> | --zone '*.<suffix>' | --listen :<port>]\n  with a route: remove just that one; without: every route of the endpoint")
+	}
+	body["component"], body["slot"] = pos[0], pos[1]
 	if err := apiJSON("DELETE", "/api/xbin/bindings", body, nil); err != nil {
 		return err
 	}
-	fmt.Println("unpublished")
+	if len(body) > 2 {
+		fmt.Println("route removed")
+	} else {
+		fmt.Println("unpublished")
+	}
 	return nil
+}
+
+type exposeRouteOut struct {
+	Source string `json:"source"`
+	Host   string `json:"host"`
+	Zone   string `json:"zone"`
+	Listen string `json:"listen"`
 }
 
 type ingressOut struct {
 	Exposes []struct {
-		Component string   `json:"component"`
-		Slot      string   `json:"slot"`
-		Kind      string   `json:"kind"`
-		Paths     []string `json:"paths"`
-		Proto     string   `json:"proto"`
-		Port      int      `json:"port"`
-		Source    string   `json:"source"`
-		Host      string   `json:"host"`
-		Zone      string   `json:"zone"`
-		Listen    string   `json:"listen"`
-		Blocked   string   `json:"blocked"`
+		Component string           `json:"component"`
+		Slot      string           `json:"slot"`
+		Kind      string           `json:"kind"`
+		Paths     []string         `json:"paths"`
+		Proto     string           `json:"proto"`
+		Port      int              `json:"port"`
+		Source    string           `json:"source"`
+		Host      string           `json:"host"`
+		Zone      string           `json:"zone"`
+		Listen    string           `json:"listen"`
+		Blocked   string           `json:"blocked"`
+		Routes    []exposeRouteOut `json:"routes"` // every route (an older xbind: absent — the scalars hold its one)
 	} `json:"exposes"`
 	Routes []struct {
 		Host      string `json:"host"`
@@ -116,28 +147,40 @@ func cmdIngress(args []string) error {
 			fmt.Println("  (none — tiles declare \"exposes\" in xbin.json; see /docs/ingress.md)")
 		}
 		for _, e := range out.Exposes {
-			state := "(unbound — not reachable)"
-			switch {
-			case e.Blocked != "":
-				state = "BLOCKED: " + e.Blocked
-			case e.Source != "" && e.Kind == "http":
-				where := e.Host
-				if e.Zone != "" {
-					where = e.Zone + " (delegated zone)"
+			routes := e.Routes
+			if len(routes) == 0 && e.Source != "" {
+				routes = []exposeRouteOut{{e.Source, e.Host, e.Zone, e.Listen}}
+			}
+			var states []string // one per route: an endpoint takes many (D79)
+			for _, r := range routes {
+				if e.Kind == "http" {
+					where := r.Host
+					if r.Zone != "" {
+						where = r.Zone + " (delegated zone)"
+					}
+					states = append(states, fmt.Sprintf("→ %s  %s", r.Source, where))
+					continue
 				}
-				state = fmt.Sprintf("→ %s  %s", e.Source, where)
-			case e.Source != "":
-				listen := e.Listen
+				listen := r.Listen
 				if listen == "" {
 					listen = fmt.Sprintf(":%d", e.Port)
 				}
-				state = fmt.Sprintf("→ host %s/%s → :%d", listen, e.Proto, e.Port)
+				states = append(states, fmt.Sprintf("→ host %s/%s → :%d", listen, e.Proto, e.Port))
+			}
+			switch {
+			case e.Blocked != "":
+				states = []string{"BLOCKED: " + e.Blocked}
+			case len(states) == 0:
+				states = []string{"(unbound — not reachable)"}
 			}
 			detail := ""
 			if e.Kind == "http" && len(e.Paths) > 0 {
 				detail = "  public: " + strings.Join(e.Paths, " ")
 			}
-			fmt.Printf("  %-24s %-10s %-6s %s%s\n", e.Component, e.Slot, e.Kind, state, detail)
+			fmt.Printf("  %-24s %-10s %-6s %s%s\n", e.Component, e.Slot, e.Kind, states[0], detail)
+			for _, s := range states[1:] {
+				fmt.Printf("  %-24s %-10s %-6s %s\n", "", "", "", s)
+			}
 		}
 	}
 

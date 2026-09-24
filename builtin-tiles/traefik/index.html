@@ -33,7 +33,8 @@
 <body>
   <h1>Public HTTPS — Traefik ingress terminator</h1>
   <div class="muted">Publish a tile: <code>bx expose apps/blog web=<span id="self"></span> --host blog.example.com</code>
-    (or the admin tile → interfaces → ingress). Point the domain's DNS at this server.</div>
+    — more hostnames for the same tile: add <code>--add</code> (each gets its own certificate) —
+    or the admin tile → ingress → services / expose. Point each domain's DNS at this server.</div>
 
   <h2>Status</h2>
   <div id="status" class="muted">loading…</div>

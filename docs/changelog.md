@@ -10,6 +10,33 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-25
+
+- **Ingress: one exposed endpoint, many routes.** A tile's `exposes` slot now
+  takes any number of bindings — several hostnames (a webhost served through
+  the Traefik tile for `shop.example.com` and `www.example.net`, each with its
+  own certificate; routes may mix `runtime` and terminators), several zones,
+  or several host ports relayed to the one declared stream port. Each
+  hostname, zone and host port still belongs to exactly one endpoint in the
+  workspace. `bx expose … --add` adds a route (without it the routes are
+  replaced, as before); `bx unexpose <tile> <slot> --host …` removes one;
+  `bx ingress` lists them all. The admin tile's **ingress → services /
+  expose** lists every route with its own remove button and an add row; the
+  Organisations tile adds hostnames/ports to its org's published endpoints
+  and removes routes one at a time; the shell's binding list shows routes
+  (it printed "[object Object]" for them before). API (additive):
+  `POST /bindings {add:true}`, `DELETE /bindings` with
+  `provider`/`host`/`zone`/`listen` removes just that route, `GET /ingress`
+  rows gain `routes`, `GET /bindings` gains `exposes`. An org admin's rights
+  are judged on the route added or removed, so it can manage its own
+  terminator's hostnames beside a workspace admin's route. Adding a route no
+  longer restarts the terminator tile. **Traefik tile v4**: text only — it
+  already served a router per hostname.
+- **A tile created from the UI (or `POST /create`) gets its git repo at
+  once.** It used to get one only at the next daemon start — until then the
+  Code panel showed no history and an agent's "changed files" had nothing to
+  diff against.
+
 ## 2026-09-24
 
 - **Terminal window: one title bar for Bash and Agent tabs; the base update

@@ -66,4 +66,13 @@ func TestDynamicConfig(t *testing.T) {
 	if empty := dynamicConfig(nil, settings{}, "http://x"); strings.Contains(empty, "to-https") {
 		t.Errorf("no routes ⇒ no redirect middleware:\n%s", empty)
 	}
+	// one tile under several hostnames (xbind D79): a router — and so a
+	// certificate — per host, all to the same xbind door
+	multi := dynamicConfig([]route{{Host: "shop.example.com", Component: "apps/web", Slot: "web"},
+		{Host: "www.example.net", Component: "apps/web", Slot: "web"}}, settings{}, "http://x")
+	for _, want := range []string{"Host(`shop.example.com`)", "Host(`www.example.net`)", "[http.routers.r1.tls]"} {
+		if !strings.Contains(multi, want) {
+			t.Errorf("two hostnames of one tile: missing %q in\n%s", want, multi)
+		}
+	}
 }

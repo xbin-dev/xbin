@@ -2,7 +2,9 @@
   // Traefik ingress terminator — the batteries-included PUBLIC HTTPS door
   // (docs/ingress.md). Other tiles publish by binding their
   // http exposes to this tile (`bx expose apps/blog web=<this tile> --host
-  // blog.example.com`); it terminates TLS with automatic Let's Encrypt (ACME)
+  // blog.example.com`; one tile may be published under many hostnames — each
+  // `--add`ed host is a route of its own); it terminates TLS with automatic
+  // Let's Encrypt (ACME)
   // certificates and reverse-proxies each admitted request back into xbind's
   // ingress-forward door, where the route table + public-path allowlist decide
   // what reaches which tile. ACME/cert lifecycle lives HERE, in a sandboxed
