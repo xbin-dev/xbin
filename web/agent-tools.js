@@ -29,7 +29,7 @@ export function foldTool(t, d) {
   if (d.name) t.name = d.name;
   if (d.label) t.label = d.label;
   if (d.parent) t.parent = d.parent;
-  if (d.subagent) t.subagent = true;
+  if (d.subagent) { t.subagent = true; if (!t.children) t.children = []; }
   if (d.planReview) t.planReview = true;
   if (typeof d.outputDelta === 'string') t.output += d.outputDelta;
   if (typeof d.output === 'string') t.output = d.output;

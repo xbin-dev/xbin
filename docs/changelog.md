@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Agent tab: subagents nest.** A Claude Code subagent (Task) is one card
+  with its own thinking, tool calls and text beneath it — they used to be
+  hidden (text) or mixed into the main thread (calls). The daemon now asks
+  the adapter for the subagent transcript; events carry `parent` (the
+  subagent's call id) — see `tool.call` / `message.delta` in
+  docs/protocol.md.
 - **Agent tab: real diffs for shell writes.** When an agent's shell command
   changes files (`sed -i`, a python heredoc, a generator), its card now lists
   the files with the actual patch, and every turn ends with *This turn

@@ -18,9 +18,11 @@ import (
 // clientMeta is clientCapabilities._meta: the adapter extensions this client
 // renders, so the adapters send them — a shell call's output as the call's
 // own _meta (claude: once, when it completes; codex streams deltas) instead
-// of a bare "[terminal id]" we could never resolve (we host no ACP terminals).
+// of a bare "[terminal id]" we could never resolve (we host no ACP terminals);
+// a subagent's own text and thinking, tagged with the call it runs under
+// (claude keeps them internal otherwise — the Task card would be a black box).
 func clientMeta() map[string]any {
-	return map[string]any{"terminal_output": true, "terminal_output_delta": true}
+	return map[string]any{"terminal_output": true, "terminal_output_delta": true, "subagent-transcript": true}
 }
 
 // toolMeta is the part of a tool call's _meta we read.

@@ -400,23 +400,36 @@ export class BxAgent extends LitElement {
       // a thought ends when anything else arrives: that is its duration
       if (cur && cur.kind === 'thought' && e.type !== 'thought.delta' && e.type !== 'status' && e.type !== 'files.changed') { cur.t1 = e.ts || cur.t1; cur.done = true; }
       switch (e.type) {
-        case 'message.delta': {
-          const role = d.role || 'agent';
-          if (cur && cur.kind === 'msg' && cur.role === role && cur.mid === (d.messageId || '')) cur.text += d.text || '';
-          else { cur = { kind: 'msg', role, mid: d.messageId || '', text: d.text || '' }; blocks.push(cur); }
+        case 'message.delta': case 'thought.delta': {
+          // a subagent's text goes into its call's card (Part of D77: nesting)
+          const box = d.parent ? byId.get(d.parent) : null;
+          const into = box && box.children ? box : null;
+          const list = into ? into.children : blocks;
+          let c = into ? into.cur : cur;
+          if (c && c.kind === 'thought' && e.type !== 'thought.delta') { c.t1 = e.ts || c.t1; c.done = true; }
+          if (e.type === 'thought.delta') {
+            if (c && c.kind === 'thought') { c.text += d.text || ''; c.t1 = e.ts || c.t1; }
+            else { c = { kind: 'thought', text: d.text || '', t0: e.ts || 0, t1: e.ts || 0, done: false }; list.push(c); }
+          } else {
+            const role = d.role || 'agent';
+            if (c && c.kind === 'msg' && c.role === role && c.mid === (d.messageId || '')) c.text += d.text || '';
+            else { c = { kind: 'msg', role, mid: d.messageId || '', text: d.text || '' }; list.push(c); }
+          }
+          if (into) into.cur = c; else cur = c;
           break;
         }
-        case 'thought.delta':
-          if (cur && cur.kind === 'thought') { cur.text += d.text || ''; cur.t1 = e.ts || cur.t1; }
-          else { cur = { kind: 'thought', text: d.text || '', t0: e.ts || 0, t1: e.ts || 0, done: false }; blocks.push(cur); }
-          break;
         case 'tool.call': case 'tool.update': {
-          cur = null;
           const tkey = turn + '/' + d.id; // scope ids to the turn: an agent may reuse them
           let t = tools.get(tkey);
-          if (!t) { t = newTool(d.id); t.t0 = e.ts || 0; tools.set(tkey, t); blocks.push(t); }
+          const box = d.parent ? byId.get(d.parent) : null;
+          const into = box && box.children && box !== t ? box : null;
+          if (into) { if (into.cur && into.cur.kind === 'thought') into.cur.done = true; into.cur = null; } else cur = null;
+          if (!t) { t = newTool(d.id); t.t0 = e.ts || 0; tools.set(tkey, t); (into ? into.children : blocks).push(t); }
           foldTool(t, d);
           byId.set(d.id, t);
+          if (t.children && t.status !== 'pending' && t.status !== 'in_progress') {
+            for (const ch of t.children) if (ch.kind === 'thought') ch.done = true; // a finished subagent thinks no more
+          }
           break;
         }
         case 'files.changed': { // a snapshot diff: of one call, or of a whole turn
@@ -636,7 +649,8 @@ export class BxAgent extends LitElement {
       get provider() { return a._provider; },
       get blocks() {
         return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, optionId: b.optionId, stopReason: b.stopReason,
-          ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null } : {}),
+          ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null,
+            children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
           ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
           ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
           ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));

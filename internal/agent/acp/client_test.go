@@ -598,7 +598,7 @@ func TestClientAndSessionMeta(t *testing.T) {
 	f.mu.Lock()
 	caps, meta := string(f.caps), string(f.meta)
 	f.mu.Unlock()
-	if !strings.Contains(caps, `"terminal_output":true`) || !strings.Contains(caps, `"terminal_output_delta":true`) {
+	if !strings.Contains(caps, `"terminal_output":true`) || !strings.Contains(caps, `"terminal_output_delta":true`) || !strings.Contains(caps, `"subagent-transcript":true`) {
 		t.Fatalf("clientCapabilities._meta: %s", caps)
 	}
 	if meta != `{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}` {

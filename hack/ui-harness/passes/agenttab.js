@@ -10,7 +10,8 @@
 // "keep planning" with feedback sends the feedback as the next message;
 // (f) a streaming thought is open ("Thinking…"), then folds to "Thought for Ns";
 // (g) a shell write reads as "Write <file>", shows its output, and the
-// snapshot diff (files.changed) names the file on the card and for the turn.
+// snapshot diff (files.changed) names the file on the card and for the turn;
+// (h) a subagent's thought, calls and text nest under its Task card.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -146,6 +147,21 @@ async function agentTab(browser) {
   await wroteCard.locator('details.files > summary').click();
   check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the patch (+ lines)');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-shell-write');
+
+  // ---- a subagent: what it does nests under its Task card ----
+  await fr(A.page, TILE, (f) => f.agent().send('subagent please'));
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /the subagent found it/.test(b.text || '')), null, { timeout: 15000, label: 'the subagent turn answered' });
+  const top = await blocks(A.page);
+  const task = top.filter((b) => b.kind === 'tool' && b.id === 'task1').pop();
+  const kids = (task && task.children) || [];
+  check(kids.some((c) => c.kind === 'thought' && c.done) && kids.some((c) => c.kind === 'tool' && c.id === 'read1') && kids.some((c) => c.kind === 'msg' && /main starts/.test(c.text || '')),
+    `the subagent's thought, call and text are its children (${JSON.stringify(kids)})`);
+  check(!top.some((b) => b.kind === 'tool' && b.id === 'read1') && !top.some((b) => b.kind === 'msg' && /main starts/.test(b.text || '')), 'nothing of the subagent leaks to the top level');
+  const subCard = A.page.locator(`${agentSel} details.tool.sub`).last();
+  check(!(await subCard.evaluate((el) => el.open)), 'the finished subagent folds');
+  await subCard.locator(':scope > summary').click();
+  check(await subCard.locator('.children details.tool').count() === 1 && /main\.go/.test(await subCard.locator('.answer').innerText()), 'opened: the nested call and the answer show');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-subagent');
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

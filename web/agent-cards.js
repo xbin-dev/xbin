@@ -105,12 +105,34 @@ export function toolCard(a, t) {
     : plan
       ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${md(planText(t))}></div>` : nothing]
       : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t.output) : nothing, t.files ? filesBlock(t.files) : nothing, rawInputBlock(t)];
+  if (t.children) return subagentCard(a, t);
   return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${t.status === 'failed'}>
     <summary><span class="ic">${KIND_ICON[t.tk] || KIND_ICON.other}</span>
       <span class="title" title=${exec ? commandOf(t) : t.title || ''}>${title}</span>
       ${t.exitCode != null && t.exitCode !== 0 ? html`<span class="chip failed">exit ${t.exitCode}</span>` : nothing}
       <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}${diffStat(t)}</span></summary>
     ${body.some((x) => x !== nothing) ? html`<div class="body">${body}</div>` : nothing}
+  </details>`;
+}
+
+// a subagent (Claude's Task/Agent call): its description, its prompt
+// collapsed, and everything it did nested beneath — open while it works,
+// folded to its answer when done
+function subagentCard(a, t) {
+  const live = running(t);
+  const prompt = t.rawInput && typeof t.rawInput.prompt === 'string' ? t.rawInput.prompt : '';
+  const kind = t.rawInput && typeof t.rawInput.subagent_type === 'string' ? t.rawInput.subagent_type : '';
+  const steps = t.children.filter((c) => c.kind === 'tool').length;
+  return html`<details class="tool sub" ?open=${live || t.status === 'failed'}>
+    <summary><span class="ic">⧉</span>
+      <span class="title" title=${prompt}>${kind ? html`<span class="muted">${kind}</span> ` : nothing}${headline(t)}</span>
+      ${steps ? html`<span class="chip">${steps} step${steps === 1 ? '' : 's'}</span>` : nothing}
+      <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}</span></summary>
+    <div class="body">
+      ${prompt ? html`<details class="raw"><summary>prompt</summary><div class="md" .innerHTML=${md(prompt)}></div></details>` : nothing}
+      <div class="children">${t.children.map((c) => a._block(c))}</div>
+      ${!live && hasContent(t) ? html`<div class="answer">${contentItems(t)}</div>` : nothing}
+    </div>
   </details>`;
 }
 
@@ -227,6 +249,11 @@ export const cardsCss = css`
   .fs.added { color: var(--bx-green, #4caf50); } .fs.deleted { color: var(--bx-red, #ef5350); } .fs.modified, .fs.renamed { color: var(--bx-amber, #f2a71b); }
   .files pre.diff { max-height: 420px; overflow: auto; margin-top: 4px; }
   .turn-changes { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 5px 9px; margin: 0 0 8px; }
+  .tool.sub { border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 45%, var(--bx-border, #363c45)); }
+  .tool.sub .children { border-left: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent); padding-left: 8px; }
+  .tool.sub .children:empty { display: none; }
+  .tool.sub .children .row { margin-bottom: 6px; }
+  .tool.sub .answer { border-top: 1px dashed var(--bx-border, #363c45); padding-top: 6px; }
   .perm { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
     background: color-mix(in srgb, var(--bx-amber, #f2a71b) 8%, var(--bx-panel, #23272e)); display: flex; flex-direction: column; gap: 6px; }
   .perm .desc { color: var(--bx-muted, #868f9a); font-size: 12px; margin-top: 2px; }

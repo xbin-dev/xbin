@@ -11,6 +11,10 @@
 //	            a request_permission with its mode options (two allow_always)
 //	            and _meta.permission.title "Ready to code?"; approve →
 //	            "plan approved: <option>", reject → the turn ends cancelled
+//	subagent…   (a prefix) Claude's Task call: a tool_call (name Task, kind
+//	            think, _meta.claudeCode.subagent) and, tagged with its id as
+//	            _meta.claudeCode.parentToolUseId, the subagent's thought, a Read
+//	            call and its text; then the Task completes with its answer
 //	think…      (a prefix) six agent_thought_chunks 300 ms apart, then a chunk
 //	            "thought it through"
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
@@ -220,6 +224,23 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 			f.say(fmt.Sprintf("tick %d ", i))
 			time.Sleep(200 * time.Millisecond)
 		}
+	case strings.HasPrefix(text, "subagent"):
+		sub := map[string]any{"claudeCode": map[string]any{"parentToolUseId": "task1"}}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "task1", "title": "Explore the repo", "kind": "think", "status": "in_progress",
+			"rawInput": map[string]string{"description": "Explore the repo", "prompt": "Find where **main** starts.", "subagent_type": "Explore"},
+			"content":  []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "Find where **main** starts."}}},
+			"_meta":    map[string]any{"claudeCode": map[string]any{"toolName": "Task", "subagent": true}}})
+		time.Sleep(200 * time.Millisecond)
+		f.update(map[string]any{"sessionUpdate": acp.UpThoughtChunk, "content": acp.ContentBlock{Type: "text", Text: "Looking for the entry point."}, "_meta": sub})
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "read1", "title": "Read main.go", "kind": "read", "status": "in_progress",
+			"_meta": map[string]any{"claudeCode": map[string]any{"toolName": "Read", "parentToolUseId": "task1"}}})
+		time.Sleep(200 * time.Millisecond)
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "read1", "status": "completed", "_meta": sub})
+		f.update(map[string]any{"sessionUpdate": acp.UpAgentChunk, "content": acp.ContentBlock{Type: "text", Text: "main starts in main.go"}, "messageId": "sub-m", "_meta": sub})
+		time.Sleep(200 * time.Millisecond)
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "task1", "status": "completed",
+			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "`main` is in **main.go**."}}}})
+		f.say("the subagent found it")
 	case strings.HasPrefix(text, "think"):
 		for i := 0; i < 6; i++ {
 			if cancelled(cancel) {

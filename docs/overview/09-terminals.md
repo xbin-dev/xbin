@@ -449,7 +449,9 @@ a shell call finishes, its card lists the files it changed with the real
 patch (a `sed -i` or a python script editing `main.go` shows as that diff),
 and each turn ends with *This turn changed N files*. The snapshots live in a
 private git directory next to the tile (on tiles that are git repos) — your
-repo, index and history are never touched. The
+repo, index and history are never touched. A **subagent** (Claude's Task)
+is one card with everything it did nested beneath — its thinking, its tool
+calls, its text — open while it works and folded to its answer when done. The
 agent's reasoning streams into an open *Thinking…* block (Claude Code's is
 requested summarized — recent models send none otherwise) that folds to
 *Thought for Ns* once the agent moves on, and a line under the transcript
