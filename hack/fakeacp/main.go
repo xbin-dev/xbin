@@ -11,6 +11,8 @@
 //	            a request_permission with its mode options (two allow_always)
 //	            and _meta.permission.title "Ready to code?"; approve →
 //	            "plan approved: <option>", reject → the turn ends cancelled
+//	think…      (a prefix) six agent_thought_chunks 300 ms apart, then a chunk
+//	            "thought it through"
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
 //	run: <cmd>  terminal/create `sh -c '<cmd>'` the same way → "run: <output>"
@@ -215,6 +217,15 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 			f.say(fmt.Sprintf("tick %d ", i))
 			time.Sleep(200 * time.Millisecond)
 		}
+	case strings.HasPrefix(text, "think"):
+		for i := 0; i < 6; i++ {
+			if cancelled(cancel) {
+				return
+			}
+			f.update(map[string]any{"sessionUpdate": acp.UpThoughtChunk, "content": acp.ContentBlock{Type: "text", Text: fmt.Sprintf("**step %d** — weighing it. ", i)}})
+			time.Sleep(300 * time.Millisecond)
+		}
+		f.say("thought it through")
 	case strings.HasPrefix(text, "plan"):
 		if !f.plan() {
 			return

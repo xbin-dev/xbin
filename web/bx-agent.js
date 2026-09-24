@@ -62,8 +62,14 @@ export class BxAgent extends LitElement {
     .bubble a { color: var(--bx-accent, #f5a623); }
     .md-img { color: var(--bx-muted, #868f9a); font-style: italic; }
     .thought { color: var(--bx-muted, #868f9a); border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; }
-    .thought > summary { list-style: none; cursor: pointer; font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .04em; }
+    .thought > summary { list-style: none; cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); }
     .thought > summary::-webkit-details-marker { display: none; }
+    .thought > summary::before { content: '▸ '; } .thought[open] > summary::before { content: '▾ '; }
+    .activity { font: 11px var(--bx-mono, ui-monospace, monospace); margin: 2px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shimmer { color: var(--bx-muted, #868f9a); background: linear-gradient(90deg, var(--bx-muted, #868f9a) 30%, var(--bx-text, #d4d9e0) 50%, var(--bx-muted, #868f9a) 70%);
+      background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 1.8s linear infinite; }
+    @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+    @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; -webkit-text-fill-color: currentColor; background: none; } }
     .thought .md { font-style: italic; font-size: 12px; }
     .thought .md > :first-child { margin-top: 4px; } .thought .md > :last-child { margin-bottom: 0; }
     .plan { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; }
@@ -390,6 +396,8 @@ export class BxAgent extends LitElement {
     let plan = null, cur = null, turn = 0;
     for (const e of this._events) {
       const d = e.data || {};
+      // a thought ends when anything else arrives: that is its duration
+      if (cur && cur.kind === 'thought' && e.type !== 'thought.delta' && e.type !== 'status') { cur.t1 = e.ts || cur.t1; cur.done = true; }
       switch (e.type) {
         case 'message.delta': {
           const role = d.role || 'agent';
@@ -398,8 +406,8 @@ export class BxAgent extends LitElement {
           break;
         }
         case 'thought.delta':
-          if (cur && cur.kind === 'thought') cur.text += d.text || '';
-          else { cur = { kind: 'thought', text: d.text || '' }; blocks.push(cur); }
+          if (cur && cur.kind === 'thought') { cur.text += d.text || ''; cur.t1 = e.ts || cur.t1; }
+          else { cur = { kind: 'thought', text: d.text || '', t0: e.ts || 0, t1: e.ts || 0, done: false }; blocks.push(cur); }
           break;
         case 'tool.call': case 'tool.update': {
           cur = null;
@@ -426,6 +434,7 @@ export class BxAgent extends LitElement {
           break;
         }
         case 'turn.end':
+          if (cur && cur.kind === 'thought') cur.done = true;
           cur = null;
           plan = null; // a new turn starts a fresh plan
           turn = (d.turn || turn) + 0.5; // tool ids in the next turn don't collide with this one's
@@ -464,12 +473,14 @@ export class BxAgent extends LitElement {
     const status = this.ended ? 'exited' : this._status();
     const busy = !this.ended && (status === 'running' || status === 'waiting_permission' || status === 'cancelling');
     const lg = this._login();
+    const blocks = this._blocks();
     return html`
       <div class="scroll" @scroll=${this._onScroll}>
         ${this._truncated ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
         ${!this.session && !this.provider && !this.history && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
         ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
-        ${repeat(this._blocks(), (b, i) => b.pid || b.id || i, (b) => this._block(b))}
+        ${repeat(blocks, (b, i) => b.pid || b.id || i, (b) => this._block(b))}
+        ${this._activity(status, blocks)}
       </div>
       <div class="foot">
         ${this.ended ? html`<div class="status ended"><span class="dot exited"></span>
@@ -499,6 +510,17 @@ export class BxAgent extends LitElement {
             : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
         </div>
       </div>`;
+  }
+
+  // what the running turn is doing right now, under the transcript: the
+  // in-flight tool, else "Working…" (an open thought already says it)
+  _activity(status, blocks) {
+    if (this.ended || status !== 'running') return nothing;
+    const last = blocks[blocks.length - 1];
+    if (last && last.kind === 'thought' && !last.done) return nothing;
+    let tool = null;
+    for (let i = blocks.length - 1; i >= 0 && !tool; i--) if (blocks[i].kind === 'tool' && blocks[i].status === 'in_progress') tool = blocks[i];
+    return html`<div class="activity"><span class="shimmer">${tool ? `Running ${headline(tool)}…` : 'Working…'}</span></div>`;
   }
 
   _chooser() {
@@ -557,8 +579,15 @@ export class BxAgent extends LitElement {
         return b.role === 'user'
           ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}</div></div>`
           : html`<div class="row agent"><div class="who">agent</div><div class="bubble" .innerHTML=${md(b.text)}></div></div>`;
-      case 'thought':
-        return html`<div class="row"><details class="thought"><summary>thinking</summary><div class="md" .innerHTML=${md(b.text)}></div></details></div>`;
+      case 'thought': {
+        // open while it streams (the last block of a running turn), then
+        // folded to its duration — the Zed/Claude Code pattern
+        const live = !b.done && !this.ended && this._status() === 'running';
+        const secs = Math.max(1, Math.round(((b.t1 || 0) - (b.t0 || 0)) / 1000));
+        return html`<div class="row"><details class="thought" ?open=${live}>
+          <summary>${live ? html`<span class="shimmer">Thinking…</span>` : `Thought for ${secs}s`}</summary>
+          <div class="md" .innerHTML=${md(b.text)}></div></details></div>`;
+      }
       case 'tool':
         return toolCard(this, b);
       case 'plan':
@@ -596,7 +625,8 @@ export class BxAgent extends LitElement {
       get blocks() {
         return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, optionId: b.optionId, stopReason: b.stopReason,
           ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode } : {}),
-          ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}) }));
+          ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
+          ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));
       },
       get pending() {
         return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => ({ pid: b.pid, cmd: rawText(b.tool?.rawInput), options: (b.options || []).map((o) => o.optionId),

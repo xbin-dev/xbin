@@ -443,8 +443,11 @@ main.go*; `sed -i`, `cat >`, `tee`, `>` name the file they write). The
 command sits collapsed beneath it (first lines, *show all*, copy) with its
 output streamed in as it runs (Codex live, Claude when it finishes) and a red
 `exit N` chip on a failure. Text results render as markdown, file edits as
-diffs; a tool's raw JSON input is one click away, never the headline. A plan
-approval is a **plan card**: the plan as markdown, the agent's choices in its
+diffs; a tool's raw JSON input is one click away, never the headline. The
+agent's reasoning streams into an open *Thinking…* block (Claude Code's is
+requested summarized — recent models send none otherwise) that folds to
+*Thought for Ns* once the agent moves on, and a line under the transcript
+says what a running turn is doing. A plan approval is a **plan card**: the plan as markdown, the agent's choices in its
 own words (the first one highlighted), and beside *keep planning* a box whose
 text goes in as your next message once the agent stops.
 

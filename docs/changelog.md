@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Agent tab: you see the agent think.** Claude Code sessions now ask for
+  summarized thinking (recent models otherwise send it empty), so the
+  reasoning streams in: an open *Thinking…* block while it arrives, folded to
+  *Thought for Ns* once the agent moves on. While a turn runs, a line under
+  the transcript says what it is doing (*Running the unit tests…* /
+  *Working…*).
 - **Agent tab: plan approvals are a plan card, never a session rule.**
   Claude's "Ready to code?" (and Codex's "Implement this plan?") used to show
   as a generic permission with the plan as raw JSON — and answering one with

@@ -24,9 +24,11 @@ type fakeAgent struct {
 	authed bool
 	script func(f *fakeAgent, text string) // what a prompt does
 	sid    string
-	model  string   // the one config option
-	sets   []string // set_config_option calls seen ("id=value")
-	noLoad bool     // don't advertise loadSession (resume unsupported)
+	model  string          // the one config option
+	sets   []string        // set_config_option calls seen ("id=value")
+	noLoad bool            // don't advertise loadSession (resume unsupported)
+	caps   json.RawMessage // initialize's clientCapabilities
+	meta   json.RawMessage // session/new's _meta
 }
 
 // opts is the fake's config options: one select, "model".
@@ -58,6 +60,13 @@ func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, agent.Spawner)
 func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 	switch m.Method {
 	case MInitialize:
+		var p struct {
+			Caps json.RawMessage `json:"clientCapabilities"`
+		}
+		_ = json.Unmarshal(m.Params, &p)
+		f.mu.Lock()
+		f.caps = p.Caps
+		f.mu.Unlock()
 		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}},
 			AgentCapabilities: &AgentCapabilities{LoadSession: !f.noLoad}}, nil
 	case MAuthenticate:
@@ -66,6 +75,13 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		f.mu.Unlock()
 		return map[string]any{}, nil
 	case MSessionNew:
+		var p struct {
+			Meta json.RawMessage `json:"_meta"`
+		}
+		_ = json.Unmarshal(m.Params, &p)
+		f.mu.Lock()
+		f.meta = p.Meta
+		f.mu.Unlock()
 		f.sid = "s-1"
 		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
 			ConfigOptions: f.opts()}, nil
@@ -562,6 +578,31 @@ func TestPermissionRuleScope(t *testing.T) {
 	}
 	if _, auto := perms.Request(agent.ToolCallRef{ID: "t3", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil); auto != nil {
 		t.Fatal("a fallback to allow_once recorded a rule")
+	}
+}
+
+// The client asks for the adapter extensions it renders (terminal output in
+// the tool call's _meta), and a provider's SessionMeta rides session/new —
+// Claude's summarized thinking display, without which no thought streams.
+func TestClientAndSessionMeta(t *testing.T) {
+	f, spawn := newFake(standard)
+	claude, _ := agent.Lookup("claude")
+	c := New()
+	cfg := agent.Config{Provider: agent.Provider{ID: "fake", SessionMeta: claude.SessionMeta}, Cwd: "/w/apps/x", Spawn: spawn,
+		Perms: agent.NewPermissions(), Version: "test", Log: func(string) {}}
+	if err := c.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	f.mu.Lock()
+	caps, meta := string(f.caps), string(f.meta)
+	f.mu.Unlock()
+	if !strings.Contains(caps, `"terminal_output":true`) || !strings.Contains(caps, `"terminal_output_delta":true`) {
+		t.Fatalf("clientCapabilities._meta: %s", caps)
+	}
+	if meta != `{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}` {
+		t.Fatalf("session/new _meta: %s", meta)
 	}
 }
 

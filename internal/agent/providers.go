@@ -42,7 +42,11 @@ var providers = []Provider{
 	{ID: "claude", Name: "Claude Code", Driver: "acp", Argv: []string{"claude-agent-acp"}, Login: "claude /login",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "acceptEdits", Name: "Accept edits"}, {ID: "plan", Name: "Plan"},
 			{ID: "auto", Name: "Auto"}, {ID: "bypassPermissions", Name: "Bypass permissions", Explicit: true}},
-		DefaultMode: "default", Env: map[string]string{"CLAUDE_CODE_REMOTE": "1"}},
+		DefaultMode: "default", Env: map[string]string{"CLAUDE_CODE_REMOTE": "1"},
+		// recent models default thinking.display to "omitted" (signature-only
+		// blocks, no text → no thought chunks); summarized makes it stream
+		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
+			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}}},
 	{ID: "codex", Name: "Codex", Driver: "acp", Argv: []string{"codex-acp"}, Login: "codex login",
 		Modes: []Mode{{ID: "read-only", Name: "Ask for approval"}, {ID: "agent", Name: "Approve for me"},
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},

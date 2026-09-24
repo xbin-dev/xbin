@@ -7,7 +7,8 @@
 // sends, Stop cancels a turn; (d) a reload replays the log from the cursor;
 // (e) a plan approval (Claude's ExitPlanMode) renders as a plan card — the
 // plan as markdown, the agent's mode options, no JSON, no session rule — and
-// "keep planning" with feedback sends the feedback as the next message.
+// "keep planning" with feedback sends the feedback as the next message;
+// (f) a streaming thought is open ("Thinking…"), then folds to "Thought for Ns".
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -116,6 +117,20 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && b.role !== 'user' && /echo: make it shorter/.test(b.text || '')), null, { timeout: 20000, label: 'the plan feedback was sent as the next message' });
   const kept = A.page.locator(`${agentSel} .plan-card.settled-card`).last();
   check(/Kept planning/.test(await kept.innerText()), 'the rejected plan settles as "Kept planning"');
+
+  // ---- thinking: open while it streams, then folded to its duration ----
+  await fr(A.page, TILE, (f) => f.agent().send('think it over'));
+  const openThought = A.page.locator(`${agentSel} details.thought[open]`);
+  await openThought.first().waitFor({ timeout: 15000 });
+  check(/Thinking…/.test(await openThought.first().locator('summary').innerText()), 'a streaming thought is open, marked "Thinking…"');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-thinking');
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /thought it through/.test(b.text || '')), null, { timeout: 15000, label: 'the thinking turn answered' });
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after thinking' });
+  const th = (await blocks(A.page)).filter((b) => b.kind === 'thought').pop();
+  const lastThought = A.page.locator(`${agentSel} details.thought`).last();
+  const summary = await lastThought.locator('summary').innerText();
+  check(th && th.done && th.ms >= 1000 && !(await lastThought.evaluate((el) => el.open)) && /Thought for \d+s/.test(summary),
+    `the finished thought folds to its duration (${summary}, ${th && th.ms} ms)`);
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;
