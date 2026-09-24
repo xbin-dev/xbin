@@ -84,9 +84,10 @@ type agentState struct {
 	status   string
 	turn     uint64
 	text     []byte
-	acpID    string // the agent's own session id (after the handshake)
-	loadable bool   // the agent can reopen acpID later (session/load) — resume
-	resumed  string // the history entry this session reopened (superseded when this one is saved)
+	acpID    string   // the agent's own session id (after the handshake)
+	loadable bool     // the agent can reopen acpID later (session/load) — resume
+	resumed  string   // the history entry this session reopened (superseded when this one is saved)
+	snap     *snapper // files.changed snapshots of the tile (agentdiff.go); nil = off
 }
 
 func (st *agentState) logf(line string) {
@@ -237,6 +238,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		baseOld: m.layerOutdated(envKey), gpu: "none", api: o.api,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
+	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -346,6 +348,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			}
 			flush()
 			s.logEvent(m, e)
+			st.snap.observe(e)
 		case <-timer:
 			flush()
 		}
@@ -362,6 +365,7 @@ ended:
 	if s.cleanup != nil {
 		s.cleanup()
 	}
+	st.snap.close()
 	close(st.done)
 	m.saveHistory(s) // the transcript outlives the session (history.go: read back, resume)
 	onExit()
@@ -460,6 +464,12 @@ func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, err
 	st.mu.Unlock()
 	if startErr != nil {
 		return 0, fmt.Errorf("the agent did not start: %w", startErr)
+	}
+	st.mu.Lock()
+	busy := st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
+	st.mu.Unlock()
+	if !busy { // (a refused prompt must not move a running turn's base)
+		st.snap.turnStart(2 * time.Second) // the turn's base: edits made between turns are not the agent's
 	}
 	if err := st.drv.Send(ctx, text); err != nil {
 		return 0, err

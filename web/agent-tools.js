@@ -138,6 +138,14 @@ export function planText(t) {
   return contentText(t) || (t && t.rawInput && typeof t.rawInput.plan === 'string' ? t.rawInput.plan : '');
 }
 
+// filesStat totals a files.changed record ({changes:[{add, del}]}).
+export function filesStat(f) {
+  const cs = (f && Array.isArray(f.changes)) ? f.changes : [];
+  let add = 0, del = 0;
+  for (const c of cs) { add += c.add || 0; del += c.del || 0; }
+  return { n: cs.length, add, del };
+}
+
 // stripAnsi drops terminal escapes (colour, cursor) from command output.
 // eslint-disable-next-line no-control-regex
 export const stripAnsi = (s) => String(s ?? '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g, '');

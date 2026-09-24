@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Agent tab: real diffs for shell writes.** When an agent's shell command
+  changes files (`sed -i`, a python heredoc, a generator), its card now lists
+  the files with the actual patch, and every turn ends with *This turn
+  changed N files* — taken from snapshots of the tile, not from the agent's
+  description. Your repo, index and history are never touched (the snapshots
+  are private to the session). New event `files.changed` (docs/protocol.md
+  §Agent session events); `bx agent` prints one line per change set.
 - **Agent tab: you see the agent think.** Claude Code sessions now ask for
   summarized thinking (recent models otherwise send it empty), so the
   reasoning streams in: an open *Thinking…* block while it arrives, folded to

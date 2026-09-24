@@ -12,7 +12,7 @@
 import { html, css, nothing } from 'lit';
 import { md } from '/vendor/bx-md.js';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
-import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff } from '/vendor/agent-tools.js';
+import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat } from '/vendor/agent-tools.js';
 
 export const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', switch_mode: '⇄', other: '•' };
 
@@ -27,13 +27,35 @@ function textBlock(s) {
   return looksMarkdown(t) ? html`<div class="md" .innerHTML=${md(t)}></div>` : html`<pre>${t}</pre>`;
 }
 
-// +added/-removed across a tool's diff content
+// +added/-removed across a tool's diff content and its snapshot diff
 export function diffStat(t) {
   let add = 0, del = 0;
   for (const it of Array.isArray(t.content) ? t.content : []) {
     if (it.type === 'diff') { const st = diffStats(unifiedDiff(it.path, it.oldText, it.newText)); add += st.add; del += st.del; }
   }
+  if (t.files) { const st = filesStat(t.files); add += st.add; del += st.del; }
   return add || del ? html` +${add}/-${del}` : nothing;
+}
+
+const FSTATUS = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', typechange: 'T' };
+
+// a snapshot diff (files.changed: what a call or a turn changed on disk,
+// from git trees — so a shell write shows as the real change): the files,
+// then git's own patch
+export function filesBlock(f, label) {
+  const st = filesStat(f);
+  return html`<details class="files">
+    <summary>${label || 'Changed'} ${st.n} file${st.n === 1 ? '' : 's'} <span class="fadd">+${st.add}</span> <span class="fdel">−${st.del}</span></summary>
+    <ul class="flist">${(f.changes || []).map((c) => html`<li><span class="fs ${c.status}" title=${c.status}>${FSTATUS[c.status] || '?'}</span>
+      <span class="fp">${c.oldPath ? `${c.oldPath} → ` : ''}${c.path}</span>${c.binary ? html` <span class="muted">binary</span>` : html` <span class="fadd">+${c.add}</span> <span class="fdel">−${c.del}</span>`}</li>`)}</ul>
+    ${f.patch && f.patch.text ? html`<pre class="diff" .innerHTML=${diffHTML(f.patch.text)}></pre>` : nothing}
+    ${f.patch && f.patch.truncated ? html`<div class="muted">… the rest of the patch is too large to show</div>` : nothing}
+  </details>`;
+}
+
+// what a whole turn changed, after its last card
+export function changesCard(b) {
+  return html`<div class="turn-changes">${filesBlock(b, 'This turn changed')}</div>`;
 }
 
 const hasContent = (t) => Array.isArray(t.content) && t.content.length > 0;
@@ -79,10 +101,10 @@ export function toolCard(a, t) {
   const plan = isPlanApproval(t);
   const title = plan ? (t.title || 'Plan') : headline(t);
   const body = exec
-    ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t.output) : hasContent(t) ? contentItems(t, t.label) : nothing]
+    ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t.output) : hasContent(t) ? contentItems(t, t.label) : nothing, t.files ? filesBlock(t.files) : nothing]
     : plan
       ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${md(planText(t))}></div>` : nothing]
-      : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t.output) : nothing, rawInputBlock(t)];
+      : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t.output) : nothing, t.files ? filesBlock(t.files) : nothing, rawInputBlock(t)];
   return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${t.status === 'failed'}>
     <summary><span class="ic">${KIND_ICON[t.tk] || KIND_ICON.other}</span>
       <span class="title" title=${exec ? commandOf(t) : t.title || ''}>${title}</span>
@@ -196,6 +218,15 @@ export const cardsCss = css`
   .diff .d { color: var(--bx-green, #4caf50); display: block; background: color-mix(in srgb, var(--bx-green, #4caf50) 12%, transparent); }
   .diff .a { color: var(--bx-red, #ef5350); display: block; background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
   .diff .ctx { display: block; color: var(--bx-text, #d4d9e0); }
+  .files > summary { cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); }
+  .fadd { color: var(--bx-green, #4caf50); } .fdel { color: var(--bx-red, #ef5350); }
+  .flist { list-style: none; margin: 4px 0; padding: 0; font: 11px var(--bx-mono, ui-monospace, monospace); }
+  .flist li { display: flex; gap: 6px; align-items: baseline; }
+  .flist .fp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fs { width: 1.2em; text-align: center; border-radius: 3px; font-weight: 700; color: var(--bx-muted, #868f9a); }
+  .fs.added { color: var(--bx-green, #4caf50); } .fs.deleted { color: var(--bx-red, #ef5350); } .fs.modified, .fs.renamed { color: var(--bx-amber, #f2a71b); }
+  .files pre.diff { max-height: 420px; overflow: auto; margin-top: 4px; }
+  .turn-changes { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 5px 9px; margin: 0 0 8px; }
   .perm { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
     background: color-mix(in srgb, var(--bx-amber, #f2a71b) 8%, var(--bx-panel, #23272e)); display: flex; flex-direction: column; gap: 6px; }
   .perm .desc { color: var(--bx-muted, #868f9a); font-size: 12px; margin-top: 2px; }

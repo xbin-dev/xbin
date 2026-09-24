@@ -110,6 +110,11 @@ func TestAgentRendererPlan(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
 	}
+	r.render(ev("files.changed", map[string]any{"toolCallId": "t1", "changes": []map[string]any{{"path": "made.txt", "status": "added", "add": 1, "del": 0},
+		{"path": "b.go", "oldPath": "a.go", "status": "renamed", "add": 0, "del": 0}}}), true)
+	if !strings.Contains(out.String(), "  t1 changed made.txt (added) +1/-0, a.go → b.go +0/-0\n") {
+		t.Fatalf("files.changed line:\n%s", out.String())
+	}
 	if !r.plan["p1"] {
 		t.Fatal("the plan pid is not marked (the 's' key must not answer it)")
 	}

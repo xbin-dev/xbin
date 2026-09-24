@@ -533,6 +533,13 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		if st := str("status"); st != "" {
 			fmt.Fprintf(r.w, "  %s %s%s\n", str("id"), st, diffStats(d["content"]))
 		}
+	case "files.changed":
+		r.br()
+		who := "turn " + num(d["turn"])
+		if id := str("toolCallId"); id != "" {
+			who = id
+		}
+		fmt.Fprintf(r.w, "  %s changed %s\n", who, filesLine(d["changes"]))
 	case "plan":
 		r.br()
 		if entries, ok := d["entries"].([]any); ok {
@@ -626,6 +633,32 @@ func (r *agentRenderer) render(e agentEvent, untilTurnEnd bool) (code int, done 
 		}
 	}
 	return 0, false
+}
+
+// filesLine lists a files.changed event's files: "a.go +3/-1, new.txt (added +2)".
+func filesLine(changes any) string {
+	cs, _ := changes.([]any)
+	var parts []string
+	for _, c := range cs {
+		m, _ := c.(map[string]any)
+		p, _ := m["path"].(string)
+		switch st, _ := m["status"].(string); st {
+		case "added", "deleted":
+			p += " (" + st + ")"
+		case "renamed":
+			old, _ := m["oldPath"].(string)
+			p = old + " → " + p
+		}
+		if b, _ := m["binary"].(bool); !b {
+			p += " +" + num(m["add"]) + "/-" + num(m["del"])
+		}
+		parts = append(parts, p)
+		if len(parts) == 8 && len(cs) > 8 {
+			parts = append(parts, fmt.Sprintf("… %d more", len(cs)-8))
+			break
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // toolHeadline is what a tool call is called: the harness's description

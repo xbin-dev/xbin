@@ -1951,6 +1951,18 @@ Deviations and refinements made while implementing; all deliberate:
   option, Claude's "clear context and use auto mode". The plan card shows the
   plan as markdown and every option in the agent's words; "keep planning"
   takes feedback that is sent as the next prompt once the rejected turn
-  settles (what Claude's TUI does). Not chosen: an LLM to rephrase commands or
-  produce diffs — nobody does the latter (diffs come from snapshots), and a
-  model-written label is a guess where the harness usually already wrote one.
+  settles (what Claude's TUI does). **What changed on disk** comes from git
+  snapshots of the tile (`internal/term/agentdiff.go`): `add -A` +
+  `write-tree` at each turn's start and each tool call's end, diffed
+  consecutively (`files.changed` per call and per turn) — the approach of
+  Cline, opencode, OpenHands and Codex's ghost commits, and the only one that
+  sees a shell write. The tile's own repository is **never used**: the
+  sandboxed agent can write its `.git/config`, and a git run by xbind that
+  reads it runs whatever `core.fsmonitor` or filter it names (verified). So
+  the snapshots live in a private per-session git dir (index, objects,
+  config), with no system/global config and fsmonitor/hooks forced off; the
+  tile is only the work tree. Not chosen: an LLM to rephrase commands or
+  produce diffs — nobody does the latter, and a model-written label is a
+  guess where the harness usually already wrote one; Claude's own per-turn
+  file-change reports (checkpointing) — they miss shell writes and exist for
+  one agent only.

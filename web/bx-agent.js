@@ -22,7 +22,7 @@ import { repeat } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
 import { md } from '/vendor/bx-md.js';
 import { newTool, foldTool, headline, isPlanApproval, rawText } from '/vendor/agent-tools.js';
-import { toolCard, permCard, cardsCss } from '/vendor/agent-cards.js';
+import { toolCard, permCard, changesCard, cardsCss } from '/vendor/agent-cards.js';
 
 export class BxAgent extends LitElement {
   static properties = {
@@ -392,12 +392,13 @@ export class BxAgent extends LitElement {
   _blocks() {
     const blocks = [];
     const tools = new Map();
+    const byId = new Map(); // a call's latest record: files.changed may land after its turn ended
     const perms = new Map();
     let plan = null, cur = null, turn = 0;
     for (const e of this._events) {
       const d = e.data || {};
       // a thought ends when anything else arrives: that is its duration
-      if (cur && cur.kind === 'thought' && e.type !== 'thought.delta' && e.type !== 'status') { cur.t1 = e.ts || cur.t1; cur.done = true; }
+      if (cur && cur.kind === 'thought' && e.type !== 'thought.delta' && e.type !== 'status' && e.type !== 'files.changed') { cur.t1 = e.ts || cur.t1; cur.done = true; }
       switch (e.type) {
         case 'message.delta': {
           const role = d.role || 'agent';
@@ -415,6 +416,15 @@ export class BxAgent extends LitElement {
           let t = tools.get(tkey);
           if (!t) { t = newTool(d.id); t.t0 = e.ts || 0; tools.set(tkey, t); blocks.push(t); }
           foldTool(t, d);
+          byId.set(d.id, t);
+          break;
+        }
+        case 'files.changed': { // a snapshot diff: of one call, or of a whole turn
+          const f = { changes: d.changes || [], patch: d.patch || null };
+          if (d.toolCallId) { const t = tools.get(turn + '/' + d.toolCallId) || byId.get(d.toolCallId); if (t) t.files = f; break; }
+          const blk = { kind: 'changes', turn: d.turn, ...f };
+          const at = blocks.findLastIndex((b) => b.kind === 'turn' && b.turn === d.turn); // before its turn's end marker
+          if (at >= 0) blocks.splice(at, 0, blk); else blocks.push(blk);
           break;
         }
         case 'plan':
@@ -596,6 +606,8 @@ export class BxAgent extends LitElement {
         </ul></div>`;
       case 'perm':
         return permCard(this, b);
+      case 'changes':
+        return changesCard(b);
       case 'turn':
         return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}${b.error ? html` — <span class="err">${b.error}</span>` : nothing}</div>`;
       case 'gap':
@@ -624,7 +636,8 @@ export class BxAgent extends LitElement {
       get provider() { return a._provider; },
       get blocks() {
         return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, optionId: b.optionId, stopReason: b.stopReason,
-          ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode } : {}),
+          ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null } : {}),
+          ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
           ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
           ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));
       },

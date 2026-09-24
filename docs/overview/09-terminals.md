@@ -443,7 +443,13 @@ main.go*; `sed -i`, `cat >`, `tee`, `>` name the file they write). The
 command sits collapsed beneath it (first lines, *show all*, copy) with its
 output streamed in as it runs (Codex live, Claude when it finishes) and a red
 `exit N` chip on a failure. Text results render as markdown, file edits as
-diffs; a tool's raw JSON input is one click away, never the headline. The
+diffs; a tool's raw JSON input is one click away, never the headline. **What
+changed on disk** is shown from snapshots, not from what the agent says: when
+a shell call finishes, its card lists the files it changed with the real
+patch (a `sed -i` or a python script editing `main.go` shows as that diff),
+and each turn ends with *This turn changed N files*. The snapshots live in a
+private git directory next to the tile (on tiles that are git repos) — your
+repo, index and history are never touched. The
 agent's reasoning streams into an open *Thinking…* block (Claude Code's is
 requested summarized — recent models send none otherwise) that folds to
 *Thought for Ns* once the agent moves on, and a line under the transcript

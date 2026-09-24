@@ -8,7 +8,9 @@
 // (e) a plan approval (Claude's ExitPlanMode) renders as a plan card — the
 // plan as markdown, the agent's mode options, no JSON, no session rule — and
 // "keep planning" with feedback sends the feedback as the next message;
-// (f) a streaming thought is open ("Thinking…"), then folds to "Thought for Ns".
+// (f) a streaming thought is open ("Thinking…"), then folds to "Thought for Ns";
+// (g) a shell write reads as "Write <file>", shows its output, and the
+// snapshot diff (files.changed) names the file on the card and for the turn.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -131,6 +133,19 @@ async function agentTab(browser) {
   const summary = await lastThought.locator('summary').innerText();
   check(th && th.done && th.ms >= 1000 && !(await lastThought.evaluate((el) => el.open)) && /Thought for \d+s/.test(summary),
     `the finished thought folds to its duration (${summary}, ${th && th.ms} ms)`);
+
+  // ---- a shell write: a readable headline, the output, the real diff ----
+  await fr(A.page, TILE, (f, t, stamp) => f.agent().send(`run: echo hello-${stamp} | tee made-by-agent.txt`), Date.now());
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'changes' && b.files.includes('made-by-agent.txt')), null, { timeout: 20000, label: "the turn's changed files" });
+  const wrote = (await blocks(A.page)).filter((b) => b.kind === 'tool' && b.tk === 'execute').pop();
+  check(wrote.headline === 'Write made-by-agent.txt' && /hello-/.test(wrote.output) && wrote.exitCode === 0,
+    `the shell call reads as what it does, with its output (${JSON.stringify({ h: wrote.headline, out: wrote.output, exit: wrote.exitCode })})`);
+  check((wrote.files || []).includes('made-by-agent.txt'), `the call's snapshot diff names the file (${JSON.stringify(wrote.files)})`);
+  const wroteCard = A.page.locator(`${agentSel} details.tool.exec`).last();
+  await wroteCard.locator(':scope > summary').click();
+  await wroteCard.locator('details.files > summary').click();
+  check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the patch (+ lines)');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-shell-write');
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

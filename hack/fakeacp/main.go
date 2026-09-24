@@ -15,7 +15,10 @@
 //	            "thought it through"
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
-//	run: <cmd>  terminal/create `sh -c '<cmd>'` the same way → "run: <output>"
+//	run: <cmd>  terminal/create `sh -c '<cmd>'` the same way → "run: <output>",
+//	            wrapped like a real adapter's shell call: an execute tool_call
+//	            (rawInput.command) completed with _meta.terminal_output +
+//	            terminal_exit (failed on a non-zero exit)
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json via fs/read_text_file>"
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
@@ -258,6 +261,10 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 		if strings.HasPrefix(text, "run:") {
 			label, script = "run", strings.TrimSpace(strings.TrimPrefix(text, "run:"))
 		}
+		if label == "run" {
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "run1", "title": script, "kind": "execute",
+				"status": "in_progress", "rawInput": map[string]string{"command": script}})
+		}
 		var cr acp.TermCreateResult
 		if err := f.conn.Call(acp.MTermCreate, acp.TermCreateParams{SessionID: "fake-1", Command: "sh",
 			Args: []string{"-c", script + " 2>&1"}}, &cr); err != nil {
@@ -269,6 +276,15 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 		var out acp.TermOutputResult
 		_ = f.conn.Call(acp.MTermOutput, acp.TermIDParams{SessionID: "fake-1", TerminalID: cr.TerminalID}, &out)
 		_ = f.conn.Call(acp.MTermRelease, acp.TermIDParams{SessionID: "fake-1", TerminalID: cr.TerminalID}, nil)
+		if label == "run" {
+			code, status := 0, "completed"
+			if st.ExitCode != nil && *st.ExitCode != 0 {
+				code, status = *st.ExitCode, "failed"
+			}
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "run1", "status": status,
+				"content": []map[string]any{{"type": "terminal", "terminalId": "run1"}},
+				"_meta":   map[string]any{"terminal_output": map[string]any{"terminal_id": "run1", "data": out.Output}, "terminal_exit": map[string]any{"terminal_id": "run1", "exit_code": code}}})
+		}
 		f.say(label + ": " + strings.Join(strings.Fields(out.Output), " "))
 	case strings.Contains(text, "env"):
 		key := "no"
