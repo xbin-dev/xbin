@@ -11,7 +11,8 @@
 // (f) a streaming thought is open ("Thinking…"), then folds to "Thought for Ns";
 // (g) a shell write reads as "Write <file>", shows its output, and the
 // snapshot diff (files.changed) names the file on the card and for the turn;
-// (h) a subagent's thought, calls and text nest under its Task card.
+// (h) a subagent's thought, calls and text nest under its Task card;
+// (i) "/" in the composer offers the agent's slash commands, Tab completes.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -162,6 +163,23 @@ async function agentTab(browser) {
   await subCard.locator(':scope > summary').click();
   check(await subCard.locator('.children details.tool').count() === 1 && /main\.go/.test(await subCard.locator('.answer').innerText()), 'opened: the nested call and the answer show');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-subagent');
+
+  // ---- slash commands: "/" offers the agent's commands; Tab completes ----
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.commands || []).includes('review'), null, { timeout: 10000, label: "the agent's slash commands" });
+  const ta = A.page.locator(`${agentSel} .compose textarea`);
+  await ta.click();
+  await A.page.keyboard.type('/re');
+  const menu = await fr(A.page, TILE, (f) => f.agent().slashMenu);
+  check(menu[0] === 'review' && await A.page.locator(`${agentSel} .slash .sc`).count() === menu.length, `"/re" offers /review first (${JSON.stringify(menu)})`);
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-slash');
+  await A.page.keyboard.press('Tab');
+  const drafted = await fr(A.page, TILE, (f) => f.agent().draft);
+  check(drafted === '/review ' && /what to focus on/.test(await A.page.locator(`${agentSel} .slash-hint`).innerText()), `Tab completes "/review " and shows its hint (${JSON.stringify(drafted)})`);
+  await A.page.keyboard.type('tests');
+  await A.page.keyboard.press('Enter');
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /echo: \/review tests/.test(b.text || '')), null, { timeout: 15000, label: 'the slash command went in as the prompt' });
+  check(true, 'the completed command is sent as the prompt text');
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the slash command' });
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

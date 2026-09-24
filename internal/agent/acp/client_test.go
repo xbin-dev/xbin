@@ -581,6 +581,41 @@ func TestPermissionRuleScope(t *testing.T) {
 	}
 }
 
+// Slash commands ride a status event when the agent advertises them, and
+// every idle after — normalized to {name, description, hint}.
+func TestSlashCommands(t *testing.T) {
+	c, _, _, _ := rig(t, func(f *fakeAgent, text string) {
+		f.update(map[string]any{"sessionUpdate": UpAvailableCmds, "availableCommands": []map[string]any{
+			{"name": "review", "description": "Review changes", "input": map[string]string{"hint": "what to focus on"}},
+			{"name": "compact", "description": "Compact the conversation"}, {"name": ""}}})
+		f.end("end_turn")
+	}, "")
+	defer c.Close()
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	if err := c.Send(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"name":"review","description":"Review changes","hint":"what to focus on"},{"name":"compact","description":"Compact the conversation"}]`
+	var seen, idle bool
+	collect(t, c, func(e agent.Event) bool {
+		if e.Type != agent.EvStatus {
+			return false
+		}
+		var d struct {
+			Status   string
+			Commands json.RawMessage
+		}
+		_ = json.Unmarshal(e.Data, &d)
+		if string(d.Commands) == want {
+			if seen && d.Status == agent.StatusIdle {
+				idle = true
+			}
+			seen = true
+		}
+		return idle
+	})
+}
+
 // The client asks for the adapter extensions it renders (terminal output in
 // the tool call's _meta), and a provider's SessionMeta rides session/new —
 // Claude's summarized thinking display, without which no thought streams.

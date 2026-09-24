@@ -23,6 +23,7 @@ import { onEvent } from '/vendor/events-socket.js';
 import { md } from '/vendor/bx-md.js';
 import { newTool, foldTool, headline, isPlanApproval, rawText } from '/vendor/agent-tools.js';
 import { toolCard, permCard, changesCard, cardsCss } from '/vendor/agent-cards.js';
+import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
 
 export class BxAgent extends LitElement {
   static properties = {
@@ -43,6 +44,8 @@ export class BxAgent extends LitElement {
     _error: { state: true },
     _authErr: { state: true }, // the last create/turn failed auth (show the sign-in banner)
     _followUp: { state: true }, // {text, after}: plan feedback to send once the rejected turn settles
+    _slashSel: { state: true }, // the highlighted slash command
+    _slashOff: { state: true }, // Escape closed the menu (until the draft changes)
   };
 
   static styles = [cardsCss, css`
@@ -88,6 +91,14 @@ export class BxAgent extends LitElement {
     .status .dot.error, .status .dot.exited { background: var(--bx-red, #ef5350); }
     .status .err { color: var(--bx-red, #ef5350); }
     .compose { display: flex; gap: 6px; align-items: flex-end; }
+    .slash { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
+      margin-bottom: 5px; max-height: 220px; overflow-y: auto; font-size: 12px; }
+    .slash .sc { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; cursor: pointer; }
+    .slash .sc.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 18%, transparent); }
+    .slash .sc b { font: 600 12px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); white-space: nowrap; }
+    .slash .sc .d { color: var(--bx-muted, #868f9a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .slash .sc .h { color: var(--bx-muted, #868f9a); font: 10.5px var(--bx-mono, ui-monospace, monospace); white-space: nowrap; }
+    .slash-hint { font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
     .compose textarea { flex: 1; resize: none; background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
       border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 8px;
       font: 13px var(--bx-sans, system-ui); max-height: 40vh; }
@@ -121,6 +132,8 @@ export class BxAgent extends LitElement {
     this._error = '';
     this._authErr = false;
     this._followUp = null;
+    this._slashSel = 0;
+    this._slashOff = false;
     this._planFeedback = {}; // pid → the feedback typed beside "keep planning"
     this._started = false; // guard: create the eager session at most once
     this._lastSeq = 0;
@@ -337,6 +350,27 @@ export class BxAgent extends LitElement {
 
   // the agent's session settings (model, effort, …): the last status event's
   // options list, as the agent reported it
+  // the agent's slash commands: the last status that carried them
+  _commands() {
+    let cmds = [];
+    for (const e of this._events) if (e.type === 'status' && Array.isArray(e.data?.commands)) cmds = e.data.commands;
+    return cmds;
+  }
+
+  // the slash menu's items for the current draft ([] = closed)
+  _slashItems() {
+    if (this._slashOff || this.ended) return [];
+    const q = slashQuery(this._draft);
+    return q == null ? [] : matchCommands(this._commands(), q);
+  }
+
+  _pickSlash(c) {
+    this._draft = '/' + c.name + ' ';
+    this._slashSel = 0;
+    const ta = this.renderRoot?.querySelector('.compose textarea');
+    if (ta) { ta.value = this._draft; ta.focus(); }
+  }
+
   _options() {
     let opts = [];
     for (const e of this._events) if (e.type === 'status' && Array.isArray(e.data?.options)) opts = e.data.options;
@@ -382,6 +416,13 @@ export class BxAgent extends LitElement {
   }
 
   _key(ev) {
+    const items = this._slashItems();
+    if (items.length && !ev.isComposing) {
+      const n = items.length, sel = Math.min(this._slashSel, n - 1);
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); this._slashSel = (sel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n; return; }
+      if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); this._pickSlash(items[sel]); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); this._slashOff = true; return; }
+    }
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this._submit(); } // isComposing: don't send on an IME confirm
   }
 
@@ -524,9 +565,10 @@ export class BxAgent extends LitElement {
           <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
         </div>` : nothing}
         ${!this.session ? (this.provider ? nothing : this._chooser()) : this._settings()}
+        ${this._slashMenu()}
         <div class="compose">
           <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
-            .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._autosize(e.target); }}
+            .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._slashOff = false; this._slashSel = 0; this._autosize(e.target); }}
             @keydown=${this._key}></textarea>
           ${busy
             ? html`<button class="cancel" @click=${this._cancel} title="interrupt the running turn">Stop</button>`
@@ -544,6 +586,19 @@ export class BxAgent extends LitElement {
     let tool = null;
     for (let i = blocks.length - 1; i >= 0 && !tool; i--) if (blocks[i].kind === 'tool' && blocks[i].status === 'in_progress') tool = blocks[i];
     return html`<div class="activity"><span class="shimmer">${tool ? `Running ${headline(tool)}…` : 'Working…'}</span></div>`;
+  }
+
+  // the slash-command menu over the composer, or the input hint of the
+  // command just completed
+  _slashMenu() {
+    const items = this._slashItems();
+    if (items.length) {
+      const sel = Math.min(this._slashSel, items.length - 1);
+      return html`<div class="slash" role="listbox">${items.map((c, i) => html`<div class="sc ${i === sel ? 'on' : ''}" role="option" aria-selected=${i === sel}
+        @mousedown=${(e) => { e.preventDefault(); this._pickSlash(c); }}><b>/${c.name}</b><span class="d">${c.description || ''}</span>${c.hint ? html`<span class="h">${c.hint}</span>` : nothing}</div>`)}</div>`;
+    }
+    const h = commandHint(this._commands(), this._draft);
+    return h ? html`<div class="slash-hint">/${h.name} — ${h.hint}</div>` : nothing;
   }
 
   _chooser() {
@@ -660,6 +715,9 @@ export class BxAgent extends LitElement {
           scoped: b.rule ? b.rule.scoped : true, plan: isPlanApproval(b.tool) }));
       },
       get followUp() { return a._followUp ? a._followUp.text : null; },
+      get commands() { return a._commands().map((c) => c.name); },
+      get slashMenu() { return a._slashItems().map((c) => c.name); },
+      get draft() { return a._draft; },
       setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
       get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
       get modes() { return a._modes().map((m) => ({ id: m.id, name: m.name })); },

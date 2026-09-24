@@ -33,6 +33,7 @@ type Client struct {
 	sessionID  string
 	modes      *SessionModes
 	options    []ConfigOption // the agent's session settings (model, effort, …)
+	commands   []Command      // its slash commands (commands.go)
 	agentInfo  *Info          // what initialize said the agent is
 	authNeeded bool           // the agent reported it is not signed in (login required)
 	loadable   bool           // the agent advertised loadSession: its session id can be reopened later
@@ -609,7 +610,8 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 		if json.Unmarshal(raw, &u) == nil && u.Title != "" {
 			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "title": u.Title}))
 		}
-	case UpAvailableCmds: // slash commands: not surfaced yet (D74 stage 2)
+	case UpAvailableCmds:
+		c.onCommands(raw)
 	default:
 		c.logf("ignoring session update %s", env.SessionUpdate)
 	}
@@ -739,6 +741,9 @@ func (c *Client) setStatus(status, detail string) {
 	}
 	if status == agent.StatusIdle && c.agentInfo != nil {
 		d["agent"] = c.agentInfo
+	}
+	if status == agent.StatusIdle {
+		c.withCommands(d)
 	}
 	c.mu.Lock()
 	need := c.authNeeded

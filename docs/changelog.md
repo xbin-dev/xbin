@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-24
 
+- **Agent tab: slash commands.** Typing `/` in the message box lists the
+  commands the agent advertises (`/review`, `/compact`, `/init`, …) with
+  their descriptions; arrows pick, Tab or Enter completes, and the input hint
+  shows until you type it. The list rides `status` events as `commands`
+  (docs/protocol.md); a command is sent as ordinary prompt text.
 - **Agent tab: subagents nest.** A Claude Code subagent (Task) is one card
   with its own thinking, tool calls and text beneath it — they used to be
   hidden (text) or mixed into the main thread (calls). The daemon now asks

@@ -31,7 +31,8 @@
 //	            with -32000 (auth required) — a signed-out agent, as Claude does
 //	crash       exits 3 mid-turn
 //
-// Mode "yolo" skips the permission request. session/cancel ends the turn
+// After session/new it advertises three slash commands (review, compact,
+// init). Mode "yolo" skips the permission request. session/cancel ends the turn
 // with stopReason cancelled. The session advertises one config option,
 // `model` (fake-default | fake-fast), settable with
 // session/set_config_option (the response carries the refreshed list, and
@@ -86,6 +87,13 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		f.mu.Lock()
 		f.cwd = p.Cwd
 		f.mu.Unlock()
+		go func() { // the adapters advertise their slash commands just after session/new
+			time.Sleep(50 * time.Millisecond)
+			f.update(map[string]any{"sessionUpdate": acp.UpAvailableCmds, "availableCommands": []map[string]any{
+				{"name": "review", "description": "Review the pending changes", "input": map[string]string{"hint": "what to focus on"}},
+				{"name": "compact", "description": "Summarize the conversation to free context"},
+				{"name": "init", "description": "Write a CLAUDE.md for this project"}}})
+		}()
 		return acp.SessionNewResult{SessionID: "fake-1", Modes: &acp.SessionModes{CurrentModeID: "ask",
 			AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
 			ConfigOptions: f.configOptions()}, nil
