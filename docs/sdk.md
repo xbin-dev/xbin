@@ -82,10 +82,15 @@ active streams are not idle-reaped.
 kv := xbin.KV(xbin.Resource("events"))      // resources.md for the full KV API
 path := xbin.Resource("db")                  // sqlite file path (same-scope)
 secret, err := xbin.Secret("imap-pass")      // own vault
+err = xbin.SetSecret("imap-pass", v)          // write / rotate it (DeleteSecret removes)
 err = xbin.Publish(xbin.Resource("bus"), "events/created", ev)
 ```
 
 `xbin.Resource(name)` reads `XBIN_RES_<NAME>`; empty string = not granted.
+A tile's frontend can't reach the vault API (D30), so a settings page that
+takes a token posts it to the tile's own backend, which stores it with
+`SetSecret` — gate that route on `xbin.Caller(r).UserCanWrite()`, since
+anyone who can open the page reaches the backend at full role.
 
 ## node backend (no SDK needed)
 

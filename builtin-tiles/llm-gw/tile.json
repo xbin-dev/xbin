@@ -1,7 +1,7 @@
 {
   "name": "llm-gw",
-  "version": 4,
-  "changelog": "v4: token stats and cost count the Responses API (/v1/responses: input_tokens/output_tokens) as well as Chat Completions — the agent template talks to GPT-5/o-series models over it to show their reasoning\nv3: response helpers come from the SDK (xbin.WriteJSON/WriteError)\nv2: net:internet egress grant so upstream calls work under isolation",
+  "version": 5,
+  "changelog": "v5: saving an API token from the tile's own settings page works — the page hands it to the backend, which writes its vault (a tile frontend can't reach the vault API, D30; it used to fail with 403); changing tokens needs write access to the tile\nv4: token stats and cost count the Responses API (/v1/responses: input_tokens/output_tokens) as well as Chat Completions — the agent template talks to GPT-5/o-series models over it to show their reasoning\nv3: response helpers come from the SDK (xbin.WriteJSON/WriteError)\nv2: net:internet egress grant so upstream calls work under isolation",
   "title": "LLM Gateway",
   "description": "OpenAI-compatible LLM proxy. Configure a provider base URL, upstream token, and model aliases once; other tiles get a grant to call /v1/* (chat, embeddings, …) exactly like the OpenAI API. Works with OpenAI, OpenRouter, Ollama, vLLM, etc.",
   "defaultPath": "apps/llm-gw",

@@ -259,6 +259,7 @@ func main() {
 	mux.Handle("PUT /config", xbin.RoleFunc("admin", handlePutConfig))
 	mux.Handle("PUT /config/backend", xbin.RoleFunc("admin", handlePutBackend))
 	mux.Handle("DELETE /config/backend/{name}", xbin.RoleFunc("admin", handleDelBackend))
+	mux.Handle("PUT /config/backend/{name}/token", xbin.RoleFunc("admin", handlePutToken))
 	mux.Handle("PUT /config/preferred", xbin.RoleFunc("admin", handlePutPreferred))
 	mux.Handle("GET /stats", xbin.RoleFunc("admin", handleStats))
 
@@ -364,13 +365,15 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 var backendNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// handlePutBackend adds or updates one named backend {name, baseURL}. The
-// token is set by the frontend directly into this tile's vault
-// ("api-token-<name>") — it never passes through kv.
+// handlePutBackend adds or updates one named backend {name, baseURL, token?}.
+// A token goes straight into this tile's vault ("api-token-<name>") — never
+// through kv. The page can't write the vault itself (frames can't reach the
+// vault API, D30), so it hands the token to this backend.
 func handlePutBackend(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name    string `json:"name"`
 		BaseURL string `json:"baseURL"`
+		Token   string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {name, baseURL}")
@@ -386,6 +389,10 @@ func handlePutBackend(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadRequest, "baseURL required")
 		return
 	}
+	tok := strings.TrimSpace(body.Token)
+	if tok != "" && !mayWriteSecrets(w, r) {
+		return
+	}
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
 	c := loadConfig()
@@ -394,7 +401,51 @@ func handlePutBackend(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if tok != "" {
+		if err := xbin.SetSecret("api-token-"+name, tok); err != nil {
+			xbin.WriteError(w, http.StatusBadGateway, "saving the token: "+err.Error())
+			return
+		}
+	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handlePutToken sets (or, with an empty token, deletes) one backend's API
+// token in this tile's vault.
+func handlePutToken(w http.ResponseWriter, r *http.Request) {
+	if !mayWriteSecrets(w, r) {
+		return
+	}
+	name := r.PathValue("name")
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !backendNameRe.MatchString(name) {
+		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {token}")
+		return
+	}
+	var err error
+	if tok := strings.TrimSpace(body.Token); tok != "" {
+		err = xbin.SetSecret("api-token-"+name, tok)
+	} else {
+		err = xbin.DeleteSecret("api-token-" + name)
+	}
+	if err != nil {
+		xbin.WriteError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// mayWriteSecrets: only a user with write access to this tile may change its
+// tokens — anyone who can merely open the page reaches this backend at full
+// role (the page is the tile acting as itself).
+func mayWriteSecrets(w http.ResponseWriter, r *http.Request) bool {
+	if xbin.Caller(r).UserCanWrite() {
+		return true
+	}
+	xbin.WriteError(w, http.StatusForbidden, "changing API tokens needs write access to this tile")
+	return false
 }
 
 func handleDelBackend(w http.ResponseWriter, r *http.Request) {
@@ -410,6 +461,9 @@ func handleDelBackend(w http.ResponseWriter, r *http.Request) {
 	if err := saveConfig(c); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if xbin.Caller(r).UserCanWrite() {
+		_ = xbin.DeleteSecret("api-token-" + name)
 	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

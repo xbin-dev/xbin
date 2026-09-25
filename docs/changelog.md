@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-26
+
+- **SDK: `xbin.SetSecret(name, value)` / `xbin.DeleteSecret(name)`** write a
+  component's own vault from its backend (additive). A tile's frontend can't
+  reach the vault API (D30), so a settings page hands a token to its backend,
+  which stores it — gate that route on `xbin.Caller(r).UserCanWrite()`
+  ([sdk.md](sdk.md)).
+- **llm-gw tile v5: saving an API token from its settings page works.** The
+  page used to write the vault itself and got 403 (frames can't reach the
+  vault API); it now sends the token to the tile's backend
+  (`PUT /config/backend {…, token}`, `PUT /config/backend/{name}/token`),
+  which needs write access to the tile. Tokens already set (from a terminal
+  or the admin vault tab) keep working.
+
 ## 2026-09-25
 
 - **BREAKING (auth) — tile creation follows ownership, not path patterns**

@@ -2,17 +2,14 @@
  * <bx-llm-gw> — settings + model browser for the llm-gw tile. Manages MULTIPLE
  * named upstream backends (each a base URL + a vault token "api-token-<name>")
  * with live per-backend usage (requests, tokens in/out, active) from /stats.
- * Talks to its own backend (/config, /stats, /v1/models) via xbin.fetch and to
- * its own vault keys directly — an element always reaches its own vault
- * (docs/auth.md). Model ids are namespaced "<backend>/<model>" when more than
+ * Talks to its own backend (/config, /stats, /v1/models) via xbin.fetch; tokens
+ * go through the backend into its vault — a tile's frontend can't reach the
+ * vault API (D30). Model ids are namespaced "<backend>/<model>" when more than
  * one backend is configured.
  */
 import { LitElement, html, css, nothing } from 'lit';
 
-import { selfApi as api, xbinApi } from '/vendor/bx-kit.js';
-
-// This tile's own vault (write-only for humans; the backend reads it).
-const vault = (key, opts) => xbinApi(`/vault/${xbin.self}/${encodeURIComponent(key)}`, opts);
+import { selfApi as api } from '/vendor/bx-kit.js';
 
 const AUTO_REFRESH_MS = 60_000;
 
@@ -142,17 +139,13 @@ export class BxLlmGw extends LitElement {
     this._modelsLoading = false;
   }
 
-  // Add or update a backend: name+URL via /config/backend, token straight
-  // into this tile's own vault (never through kv).
+  // Add or update a backend. The backend stores the token in this tile's
+  // vault (never kv); the page can't reach the vault API itself (D30).
   async _saveBackend(name, baseURL, token) {
     this._busy = true;
     try {
       await api('/config/backend', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, baseURL }) });
-      if (token) {
-        await vault(`api-token-${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: token }) });
-      }
+        body: JSON.stringify({ name, baseURL, token: token || '' }) });
       await this._refresh();
     } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;
@@ -163,7 +156,6 @@ export class BxLlmGw extends LitElement {
     this._busy = true;
     try {
       await api(`/config/backend/${encodeURIComponent(name)}`, { method: 'DELETE' });
-      await vault(`api-token-${name}`, { method: 'DELETE' }).catch(() => {});
       await this._refresh();
     } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;
@@ -174,8 +166,8 @@ export class BxLlmGw extends LitElement {
     if (!v?.trim()) return;
     this._busy = true;
     try {
-      await vault(`api-token-${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: v.trim() }) });
+      await api(`/config/backend/${encodeURIComponent(name)}/token`, { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: v.trim() }) });
       await this._refresh();
     } catch (e) { this._err = String(e.message ?? e); }
     this._busy = false;

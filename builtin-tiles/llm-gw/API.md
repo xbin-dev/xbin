@@ -100,9 +100,13 @@ resp, _ := xbin.Client().Post("http://xbin/api/apps/llm-gw/v1/chat/completions",
 
 ## What's not proxied
 
-`/config` (`GET`/`PUT`, plus `/config/backend` add/remove and
-`/config/preferred`) and `/stats` (per-backend usage + cost) are the tile's own
-settings endpoints — gated to `admin`, i.e. only the tile's own frontend (self
-is always admin of itself) or the workspace owner. They are not part of the
+`/config` (`GET`/`PUT`, plus `/config/backend` add/remove, its
+`/config/backend/{name}/token` and `/config/preferred`) and `/stats`
+(per-backend usage + cost) are the tile's own settings endpoints — gated to
+`admin`, i.e. only the tile's own frontend (self is always admin of itself) or
+the workspace owner. Tokens (`PUT /config/backend {name, baseURL, token?}`,
+`PUT /config/backend/{name}/token {token}` — empty deletes) are written by the
+backend into its own vault, and only by a user with write access to the tile:
+a tile's frontend can't reach the vault API itself (D30). They are not part of the
 reader/writer surface and granting `writer` does not expose them. (`GET
 /preferred` and `GET /metrics` above are the reader-visible slices.)

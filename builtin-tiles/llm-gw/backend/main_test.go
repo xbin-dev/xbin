@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +62,26 @@ func TestUsageOf(t *testing.T) {
 	for i, c := range cases {
 		if in, out := usageOf([]byte(c.body)); in != c.in || out != c.out {
 			t.Errorf("case %d: got %d/%d, want %d/%d", i, in, out, c.in, c.out)
+		}
+	}
+}
+
+// Changing a token needs write access to the tile: anyone who can merely open
+// the settings page reaches this backend at full role (the page is the tile
+// itself), so the user level decides — before anything touches the vault.
+func TestTokenWritesNeedWrite(t *testing.T) {
+	for _, tc := range []struct {
+		level string
+		want  int
+	}{{"read", 403}, {"write", 400}, {"terminal", 400}} {
+		r := httptest.NewRequest("PUT", "/config/backend/x/token", strings.NewReader(`nope`))
+		r.SetPathValue("name", "x")
+		r.Header.Set("X-XBin-User", "bob")
+		r.Header.Set("X-XBin-User-Level", tc.level)
+		w := httptest.NewRecorder()
+		handlePutToken(w, r)
+		if w.Code != tc.want { // past the gate a bad body is a 400, not a vault call
+			t.Errorf("level %s: got %d want %d", tc.level, w.Code, tc.want)
 		}
 	}
 }

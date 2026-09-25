@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -272,6 +273,42 @@ func Secret(name string) (string, error) {
 		return "", err
 	}
 	return v.Value, nil
+}
+
+// SetSecret writes a key into this component's private vault. A tile's
+// frontend can't reach the vault API (D30), so a settings page hands a token
+// to its own backend, which stores it here.
+func SetSecret(name, value string) error {
+	body, err := json.Marshal(map[string]string{"value": value})
+	if err != nil {
+		return err
+	}
+	return vaultCall(http.MethodPut, name, body)
+}
+
+// DeleteSecret removes a key from this component's private vault.
+func DeleteSecret(name string) error {
+	return vaultCall(http.MethodDelete, name, nil)
+}
+
+func vaultCall(method, name string, body []byte) error {
+	req, err := http.NewRequest(method, "http://xbin/api/xbin/vault/"+Self()+"/"+url.PathEscape(name), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("vault: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
 }
 
 // Publish sends a message to a granted bus resource
