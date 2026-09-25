@@ -81,7 +81,8 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 // admin/automation callers. "org:<id>" needs the human to hold the org's
 // Create knob (or be an org/workspace admin); "user:<other>" is admin-only.
 //
-// Under the org-only tile-creation policy (D52) a non-admin human may not
+// Under the org-only tile-creation policy (D52), or when their account's
+// personal tiles are off (noPersonalTiles, D88), a non-admin human may not
 // own tiles personally: "user:<self>" is refused and "" resolves to the ONE
 // org where they hold Create (several → they must name it; none → refused).
 // Shared by all five creation entry points, so the policy holds for clone,
@@ -95,7 +96,10 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 		return "", err.Error()
 	}
 	human := p.UserID // session user, or the user id attributed on a frame principal
-	orgOnly := human != "" && !b.IsAdmin(p) && b.Users.TileCreation() == users.TileCreationOrgOnly
+	why := ""         // why this human may not own tiles personally ("" = they may)
+	if human != "" && !b.IsAdmin(p) {
+		why = b.personalRefusal(human)
+	}
 	if requested == "" {
 		if human == "" {
 			return "", "" // automation/root: workspace-owned
@@ -104,8 +108,8 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 		if !ok || u.IsAdmin() {
 			return "", "" // admins default to workspace-owned
 		}
-		if orgOnly {
-			return b.defaultOrgOwner(u.ID)
+		if why != "" {
+			return b.defaultOrgOwner(u.ID, why)
 		}
 		return users.OwnerKindUser + ":" + u.ID, ""
 	}
@@ -123,8 +127,8 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 		}
 		return requested, ""
 	case users.OwnerKindUser:
-		if orgOnly {
-			return "", "workspace policy: tiles must be owned by an organisation — create it with owner org:<id> where you hold Create"
+		if why != "" {
+			return "", why + " — create it with owner org:<id> where you hold Create"
 		}
 		if id == human || b.IsAdmin(p) {
 			return requested, ""
@@ -134,9 +138,30 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 	return requested, ""
 }
 
-// defaultOrgOwner picks the owner for an org-only creation with no explicit
-// owner: the single org where the user holds Create (or org admin).
-func (b *Broker) defaultOrgOwner(userID string) (ref, msg string) {
+// personalRefusal says why a non-admin human may not own a tile personally
+// ("" = they may): the workspace org-only policy (D52) or their account's
+// noPersonalTiles switch (D88). Admins are never refused. Creation and
+// transfer-in ask it alike — receiving a tile is creating one (D39).
+func (b *Broker) personalRefusal(uid string) string {
+	if b.Users == nil || uid == "" {
+		return ""
+	}
+	u, ok := b.Users.Get(uid)
+	switch {
+	case ok && u.IsAdmin():
+		return ""
+	case b.Users.TileCreation() == users.TileCreationOrgOnly:
+		return "workspace policy: tiles must be owned by an organisation"
+	case ok && u.NoPersonalTiles:
+		return "personal tiles are turned off for your account (ask a workspace admin)"
+	}
+	return ""
+}
+
+// defaultOrgOwner picks the owner for a creation with no explicit owner by a
+// human who may not own personally (why): the single org where they hold
+// Create (or org admin).
+func (b *Broker) defaultOrgOwner(userID, why string) (ref, msg string) {
 	var can []string
 	for _, m := range b.Users.UserOrgs(userID) {
 		if !m.Suspended && (m.Create || m.Admin) {
@@ -145,11 +170,11 @@ func (b *Broker) defaultOrgOwner(userID string) (ref, msg string) {
 	}
 	switch len(can) {
 	case 0:
-		return "", "workspace policy allows only organisation-owned tiles and you hold Create in no organisation — ask an org admin to add you"
+		return "", why + ", and you hold Create in no organisation — ask an org admin to add you"
 	case 1:
 		return users.OwnerKindOrg + ":" + can[0], ""
 	}
-	return "", "workspace policy allows only organisation-owned tiles — choose one with owner: org:<id> (you hold Create in " + strings.Join(can, ", ") + ")"
+	return "", why + " — choose one with owner: org:<id> (you hold Create in " + strings.Join(can, ", ") + ")"
 }
 
 // assignOwner records ownership after a successful creation (all five entry

@@ -70,6 +70,35 @@ func TestTransferReceiveMatrix(t *testing.T) {
 		!strings.Contains(msg, "user-owner") {
 		t.Errorf("GIVE must gate first: %q", msg)
 	}
+
+	// D88: receiving a tile personally is creating one — an org admin can't
+	// take an org tile as their own under org-only (the old bypass), nor
+	// with their account's personal tiles off.
+	if err := st.SetOwner("apps/email", "org:sales"); err != nil {
+		t.Fatal(err)
+	}
+	take := func() string { return b.transferAllowed(principalFor(t, st, "carol"), st, "apps/email", "user:carol") }
+	if msg := take(); msg != "" {
+		t.Fatalf("baseline: carol takes an org tile: %q", msg)
+	}
+	if err := st.SetTileCreation(users.TileCreationOrgOnly); err != nil {
+		t.Fatal(err)
+	}
+	if msg := take(); !strings.Contains(msg, "workspace policy") {
+		t.Errorf("org-only must refuse receiving personally: %q", msg)
+	}
+	if err := st.SetTileCreation(users.TileCreationAny); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetUserPersonal("carol", users.PersonalPatch{NoPersonalTiles: boolp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if msg := take(); !strings.Contains(msg, "turned off for your account") {
+		t.Errorf("noPersonalTiles must refuse receiving personally: %q", msg)
+	}
+	if msg := b.transferAllowed(principalFor(t, st, "carol"), st, "apps/email", "org:sales"); msg != "" {
+		t.Errorf("…but org targets still work: %q", msg)
+	}
 }
 
 // transferFixture: apps/email owned by bob with a net binding + an iface

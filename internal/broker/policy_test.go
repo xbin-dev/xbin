@@ -284,7 +284,28 @@ func TestResolveCreateOwner(t *testing.T) {
 	if ref, msg := b.resolveCreateOwner(auth.Principal{UserID: "bob"}, ""); ref != "user:bob" || msg != "" {
 		t.Fatalf("policy reset: ref=%q msg=%q", ref, msg)
 	}
+
+	// The per-account switch (D88): org-only for one user, the same shape —
+	// driven directly or through an element (the manager tile).
+	if _, err := st.SetUserPersonal("bob", users.PersonalPatch{NoPersonalTiles: boolp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	run([]struct {
+		name      string
+		p         auth.Principal
+		requested string
+		wantRef   string
+		refuse    string
+	}{
+		{"noPersonalTiles: personal refused", auth.Principal{UserID: "bob"}, "user:bob", "", "turned off for your account"},
+		{"noPersonalTiles: via an element too", auth.Principal{Component: "apps/email", UserID: "bob"}, "user:bob", "", "turned off for your account"},
+		{"noPersonalTiles: default → must choose an org", auth.Principal{UserID: "bob"}, "", "", "choose one"},
+		{"noPersonalTiles: explicit org fine", auth.Principal{UserID: "bob"}, "org:ops", "org:ops", ""},
+		{"others unaffected", auth.Principal{UserID: "alice"}, "", "user:alice", ""},
+	})
 }
+
+func boolp(b bool) *bool { return &b }
 
 // The grants API must refuse approving a grant the ceiling nullifies.
 func TestGrantApprovalCeilingReject(t *testing.T) {

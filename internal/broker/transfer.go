@@ -53,6 +53,9 @@ func (b *Broker) transferAllowed(p auth.Principal, st *users.Store, tile, to str
 		if toID != uid {
 			return "transferring a tile to another user is a workspace-admin act"
 		}
+		if why := b.personalRefusal(uid); why != "" { // D88: receiving is creating (D39)
+			return why + " — you can't receive a tile personally"
+		}
 	default: // "" — workspace-owned
 		return "transferring a tile to workspace-owned is a workspace-admin act"
 	}
