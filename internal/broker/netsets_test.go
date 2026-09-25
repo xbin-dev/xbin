@@ -586,3 +586,47 @@ func TestNetSetBinding(t *testing.T) {
 		t.Fatalf("vanished set: %q %q", nb, b.InertNetBindings()["apps/mine"])
 	}
 }
+
+// A slot nobody provides (an agent's mcp slot in a workspace with no MCP
+// server) is pending with "options": [] — never null: the shell's binding
+// panel read .length of it, threw, and hid EVERY pending slot.
+func TestPendingOptionsNeverNull(t *testing.T) {
+	root := t.TempDir()
+	for rel, content := range map[string]string{
+		"xbin.json":            `{"schema":1}`,
+		"apps/agent/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`,
+	} {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(reg, events.NewHub(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testUsers(t, b)
+	w := call(t, b.apiBindingsList, auth.Principal{Owner: true}, "GET", "/bindings", "", nil)
+	var d struct {
+		Pending []map[string]json.RawMessage `json:"pending"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range d.Pending {
+		if string(p["component"]) == `"apps/agent"` && string(p["slot"]) == `"mcp"` {
+			if got := string(p["options"]); got != "[]" {
+				t.Fatalf(`options = %s, want []`, got)
+			}
+			return
+		}
+	}
+	t.Fatalf("apps/agent mcp not pending: %s", w.Body.String())
+}

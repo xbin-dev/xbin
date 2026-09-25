@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-25
 
+- **Shell: the interface-binding panel no longer goes blank** when a tile
+  asks for an interface nothing in the workspace provides — an agent or
+  chat tile's `mcp` slot with no MCP server installed. It hid every other
+  unbound slot too. `GET /bindings` now sends `options: []` for such a slot
+  (it sent `null`), and the panel tolerates both.
 - **Shell: a tile opened from a right-click menu lands where you clicked.**
   **Open tile** and **Create a new tile** on the canvas menu, and **Open on
   this screen** (or a panel square) on a closed tile's menu, put the tile's

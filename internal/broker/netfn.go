@@ -575,6 +575,16 @@ type pendingBind struct {
 	Approvable bool `json:"approvable"`
 }
 
+// orEmpty keeps a slot nobody provides as "options": [] on the wire — a
+// null there broke the shell's binding panel for every slot (an agent's
+// unprovided mcp slot hid them all).
+func orEmpty(o []bindOption) []bindOption {
+	if o == nil {
+		return []bindOption{}
+	}
+	return o
+}
+
 // pendingBindings lists every requested interface slot with no binding yet.
 func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 	var out []pendingBind
@@ -589,7 +599,7 @@ func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 			pb := pendingBind{
 				Component: c.Path, Slot: slot, Kind: req.Kind, Service: req.Service,
 				Multi:   req.Multi,
-				Options: b.bindOptions(c.Path, req, wsAdmin),
+				Options: orEmpty(b.bindOptions(c.Path, req, wsAdmin)),
 			}
 			if req.Kind == "net" && b.orgNetDefault(c.Path) {
 				pb.Default = NetRefOrg
@@ -602,7 +612,7 @@ func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 			}
 			out = append(out, pendingBind{
 				Component: c.Path, Slot: slot, Kind: def.Kind, Expose: true,
-				Options: b.exposeBindOptions(c.Path, def),
+				Options: orEmpty(b.exposeBindOptions(c.Path, def)),
 			})
 		}
 	}
