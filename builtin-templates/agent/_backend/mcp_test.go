@@ -148,24 +148,15 @@ func TestWebLaneDoesNotWakeMCPServers(t *testing.T) {
 	}
 }
 
-// A run shows as running the moment a drive has it. Tool discovery is network
-// work, and doing it first left the run showing its previous status — idle,
-// or "queued" once there is a concurrency ceiling — for as long as that took.
-func TestAdmittedRunShowsRunningDuringDiscovery(t *testing.T) {
+// A run shows as running the moment its turn starts. Tool discovery is
+// network work, and doing it first left the run showing its previous status
+// for as long as that took.
+func TestRunShowsRunningDuringDiscovery(t *testing.T) {
 	shorten(t, &mcpDiscoverTimeout, time.Second)
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
 	slow := newFakeMCP(t, "a", true)
-	cfgJSON, _ := json.Marshal(Config{MaxIters: 1, MCP: []MCPServer{{Name: "slow", URL: slow.URL}}})
-	id, _ := db.createRun("ask", string(cfgJSON), 0)
-	_, _ = db.addMessage(&Message{RunID: id, Role: "user", Content: "hi"})
-	ag.parkQueued(id)
-
-	done := make(chan struct{})
-	go func() { ag.drive(context.Background(), id); close(done) }()
-	// Wait until the hanging server has the request: discovery is then in
-	// flight, and stays so for the whole timeout. The run must already show
-	// running at that point.
+	id := newRun(t, ag, Config{MCP: []MCPServer{{Name: "slow", URL: slow.URL}}}, "hi")
 	deadline := time.Now().Add(700 * time.Millisecond)
 	for slow.requests.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -176,9 +167,5 @@ func TestAdmittedRunShowsRunningDuringDiscovery(t *testing.T) {
 	if r, _ := db.getRun(id); r.Status != statusRunning {
 		t.Fatalf("while discovery was waiting, the run showed %q", r.Status)
 	}
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the drive never finished")
-	}
+	waitStatus(t, db, id, statusIdle)
 }

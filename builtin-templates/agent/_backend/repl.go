@@ -117,6 +117,7 @@ type replSession struct {
 	loaded  map[string]bool
 	stmt    int // statements executed in this session's lifetime
 	lastUse time.Time
+	idle    *time.Timer // drops the session after replIdleTTL unused
 
 	db         *DB
 	timeout    time.Duration
@@ -139,6 +140,7 @@ func (r *replRegistry) get(runID int64, db *DB, cfg Config) *replSession {
 		s.lastUse = time.Now()
 		s.timeout = cfg.replTimeout()
 		s.memCap = uint64(cfg.replMemMB()) << 20
+		r.armIdle(runID, s)
 		return s
 	}
 	if len(r.byID) >= maxReplSessions {
@@ -157,6 +159,7 @@ func (r *replRegistry) get(runID int64, db *DB, cfg Config) *replSession {
 		timeout: cfg.replTimeout(), memCap: uint64(cfg.replMemMB()) << 20,
 	}
 	r.byID[runID] = s
+	r.armIdle(runID, s)
 	return s
 }
 
@@ -645,11 +648,19 @@ func oneLine(s string) string {
 	return clip(s, 160)
 }
 
-// --- janitor ------------------------------------------------------------
+// --- idle sessions ---------------------------------------------------------
 
-func (ag *Agent) replJanitor() {
-	for {
-		time.Sleep(time.Minute)
-		ag.repl.sweep()
+// A session idle for replIdleTTL is dropped by its own timer, re-armed on
+// every use — no sweeper on a clock.
+func (r *replRegistry) armIdle(runID int64, s *replSession) {
+	if s.idle != nil {
+		s.idle.Stop()
 	}
+	s.idle = time.AfterFunc(replIdleTTL, func() {
+		r.mu.Lock()
+		if cur := r.byID[runID]; cur == s && time.Since(cur.lastUse) >= replIdleTTL {
+			delete(r.byID, runID)
+		}
+		r.mu.Unlock()
+	})
 }

@@ -560,7 +560,28 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, resp)
 }
 
-var usageRe = regexp.MustCompile(`"prompt_tokens"\s*:\s*(\d+)[\s\S]*?"completion_tokens"\s*:\s*(\d+)`)
+// Usage is read from the tail of the response body. Chat Completions reports
+// prompt_tokens/completion_tokens; the Responses API (/v1/responses) reports
+// input_tokens/output_tokens. The LAST match wins: a Responses stream carries
+// a usage block only on its final event, and earlier events may mention usage
+// as null.
+var (
+	usageRe     = regexp.MustCompile(`"prompt_tokens"\s*:\s*(\d+)[\s\S]*?"completion_tokens"\s*:\s*(\d+)`)
+	usageRespRe = regexp.MustCompile(`"input_tokens"\s*:\s*(\d+)[\s\S]*?"output_tokens"\s*:\s*(\d+)`)
+)
+
+// usageOf extracts (tokens in, tokens out) from a response tail.
+func usageOf(tail []byte) (in, out int64) {
+	for _, re := range []*regexp.Regexp{usageRe, usageRespRe} {
+		if all := re.FindAllSubmatch(tail, -1); len(all) > 0 {
+			m := all[len(all)-1]
+			fmt.Sscan(string(m[1]), &in)
+			fmt.Sscan(string(m[2]), &out)
+			return in, out
+		}
+	}
+	return 0, 0
+}
 
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
@@ -697,10 +718,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	var tokIn, tokOut int64
-	if m := usageRe.FindSubmatch(tail); m != nil {
-		fmt.Sscan(string(m[1]), &tokIn)
-		fmt.Sscan(string(m[2]), &tokOut)
-	}
+	tokIn, tokOut := usageOf(tail)
 	bumpStats(beName, tokIn, tokOut, costOf(c, reqModel, tokIn, tokOut))
 }

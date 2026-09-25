@@ -141,7 +141,7 @@ func (ag *Agent) acceptUpload(ctx context.Context, runID int64, name, declared s
 		if err != nil {
 			return nil, err
 		}
-		_, _ = ag.db.sql.Exec(`UPDATE repl_files SET mime=? WHERE run_id=? AND path=?`, m, runID, f.Path)
+		_, _ = ag.db.q.Exec(`UPDATE repl_files SET mime=? WHERE run_id=? AND path=?`, m, runID, f.Path)
 		f.Mime = m
 		return f, nil
 	}
@@ -166,13 +166,20 @@ var errTooLarge = fmt.Errorf("file too large (max %s)", humanBytes(maxBinaryFile
 // checkAttachments validates paths before a message is written, so a bad
 // request fails without leaving a half-written turn behind.
 func (ag *Agent) checkAttachments(runID int64, paths []string) ([]*ReplFile, error) {
+	return ag.checkAttachmentsTx(ag.db, runID, paths)
+}
+
+// checkAttachmentsTx is checkAttachments inside a transaction (the engine
+// re-checks when it delivers a queued message: a file may have been deleted
+// since it was queued).
+func (ag *Agent) checkAttachmentsTx(d *DB, runID int64, paths []string) ([]*ReplFile, error) {
 	var files []*ReplFile
 	for _, p := range paths {
 		np, err := normReplPath(p)
 		if err != nil {
 			return nil, err
 		}
-		f, err := ag.db.replFile(runID, np)
+		f, err := d.replFile(runID, np)
 		if err != nil {
 			return nil, fmt.Errorf("attachment %q is not in this run's files", p)
 		}
@@ -183,8 +190,12 @@ func (ag *Agent) checkAttachments(runID int64, paths []string) ([]*ReplFile, err
 
 // linkMessageFiles records which (already checked) files a message carried.
 func (ag *Agent) linkMessageFiles(runID, msgID int64, files []*ReplFile) error {
+	return ag.linkMessageFilesTx(ag.db, runID, msgID, files)
+}
+
+func (ag *Agent) linkMessageFilesTx(d *DB, runID, msgID int64, files []*ReplFile) error {
 	for _, f := range files {
-		if _, err := ag.db.sql.Exec(
+		if _, err := d.q.Exec(
 			`INSERT OR IGNORE INTO message_files (msg_id, run_id, path) VALUES (?, ?, ?)`,
 			msgID, runID, f.Path); err != nil {
 			return err
@@ -213,7 +224,7 @@ func attachmentNote(files []*ReplFile) string {
 // messageFiles maps each message in a run to the files it carried.
 func (d *DB) messageFiles(runID int64) map[int64][]string {
 	out := map[int64][]string{}
-	rows, err := d.sql.Query(`SELECT msg_id, path FROM message_files WHERE run_id=? ORDER BY path`, runID)
+	rows, err := d.q.Query(`SELECT msg_id, path FROM message_files WHERE run_id=? ORDER BY path`, runID)
 	if err != nil {
 		return out
 	}

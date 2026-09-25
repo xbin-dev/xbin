@@ -17,13 +17,6 @@ import (
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
-// watcherRound tracks one firing of a watcher schedule: the message seq before
-// the round (for rollback) and whether the model reported a change.
-type watcherRound struct {
-	mark    int
-	changed bool
-}
-
 type Schedule struct {
 	ID      int64  `json:"id"`
 	Name    string `json:"name"`
@@ -41,7 +34,7 @@ type Schedule struct {
 // --- storage -------------------------------------------------------------
 
 func (d *DB) createSchedule(s *Schedule) (int64, error) {
-	res, err := d.sql.Exec(
+	res, err := d.q.Exec(
 		`INSERT INTO schedules (name, cron, goal, system, watcher, toolset, enabled, created)
 		 VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
 		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), s.Toolset, now())
@@ -64,11 +57,11 @@ func scanSchedule(scan func(dest ...any) error) (*Schedule, error) {
 const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created`
 
 func (d *DB) getSchedule(id int64) (*Schedule, error) {
-	return scanSchedule(d.sql.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id).Scan)
+	return scanSchedule(d.q.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id).Scan)
 }
 
 func (d *DB) listSchedules() ([]*Schedule, error) {
-	rows, err := d.sql.Query(`SELECT ` + scheduleCols + ` FROM schedules ORDER BY id`)
+	rows, err := d.q.Query(`SELECT ` + scheduleCols + ` FROM schedules ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -85,22 +78,22 @@ func (d *DB) listSchedules() ([]*Schedule, error) {
 }
 
 func (d *DB) updateSchedule(s *Schedule) error {
-	_, err := d.sql.Exec(
+	_, err := d.q.Exec(
 		`UPDATE schedules SET name=?, cron=?, goal=?, system=?, watcher=?, enabled=? WHERE id=?`,
 		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), b2i(s.Enabled), s.ID)
 	return err
 }
 
 func (d *DB) setScheduleRun(id, runID int64) {
-	_, _ = d.sql.Exec(`UPDATE schedules SET run_id=? WHERE id=?`, runID, id)
+	_, _ = d.q.Exec(`UPDATE schedules SET run_id=? WHERE id=?`, runID, id)
 }
 
 func (d *DB) touchScheduleRun(id int64) {
-	_, _ = d.sql.Exec(`UPDATE schedules SET last_run=? WHERE id=?`, now(), id)
+	_, _ = d.q.Exec(`UPDATE schedules SET last_run=? WHERE id=?`, now(), id)
 }
 
 func (d *DB) deleteSchedule(id int64) error {
-	_, err := d.sql.Exec(`DELETE FROM schedules WHERE id=?`, id)
+	_, err := d.q.Exec(`DELETE FROM schedules WHERE id=?`, id)
 	return err
 }
 
@@ -119,7 +112,9 @@ func (ag *Agent) registerScheduleCron(s *Schedule) error {
 		"role":     "admin",
 	}
 	body, _ := json.Marshal(job)
-	req, _ := http.NewRequest(http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, "http://xbin/api/xbin/cron/jobs", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := xbin.Client().Do(req)
 	if err != nil {
@@ -134,10 +129,7 @@ func (ag *Agent) registerScheduleCron(s *Schedule) error {
 }
 
 func (ag *Agent) unregisterScheduleCron(id int64) {
-	req, _ := http.NewRequest(http.MethodDelete, "http://xbin/api/xbin/cron/jobs/"+scheduleCronName(id), nil)
-	if resp, err := xbin.Client().Do(req); err == nil {
-		resp.Body.Close()
-	}
+	ag.cronDelete(scheduleCronName(id))
 }
 
 // reRegisterSchedules re-asserts every enabled schedule's cron job at startup
@@ -156,9 +148,13 @@ func (ag *Agent) reRegisterSchedules() {
 	}
 }
 
-// fireSchedule runs a schedule once: a watcher re-drives its persistent run
-// (with a fresh "check now" nudge), a normal schedule starts a new run.
+// fireSchedule runs a schedule once: a watcher gets a "check now" in its
+// persistent run, a normal schedule starts a new run. Nothing fires while the
+// owner's halt is on.
 func (ag *Agent) fireSchedule(s *Schedule) {
+	if ag.db.getSetting("halt") == "1" {
+		return
+	}
 	ag.db.touchScheduleRun(s.ID)
 	if s.Watcher {
 		ag.fireWatcher(s)
@@ -169,19 +165,11 @@ func (ag *Agent) fireSchedule(s *Schedule) {
 	if s.System != "" {
 		cfg.System = s.System
 	}
-	cfgJSON, _ := json.Marshal(cfg)
 	title := s.Name
 	if title == "" {
 		title = clip(s.Goal, 60)
 	}
-	id, err := ag.db.createRun("⏱ "+title, string(cfgJSON), 0)
-	if err != nil {
-		return
-	}
-	_, _ = ag.db.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System})
-	_, _ = ag.db.addMessage(&Message{RunID: id, Role: "user", Content: s.Goal})
-	ag.db.journal(id, "note", map[string]string{"text": fmt.Sprintf("started by schedule #%d (%s)", s.ID, s.Name)})
-	ag.driveAsync(id)
+	_, _ = ag.startRun("⏱ "+title, "", cfg, s.Goal, false, fmt.Sprintf("started by schedule #%d (%s)", s.ID, s.Name))
 }
 
 // --- watcher mode --------------------------------------------------------
@@ -193,76 +181,41 @@ func watcherSystem(goal string) string {
 		"'no change' and stop. Do not call finish — you run repeatedly on a schedule."
 }
 
-// fireWatcher re-drives a watcher schedule's ONE persistent run with a fresh
-// "check now" nudge. If the round reports no change (no state_changed call), its
-// messages are rolled back so history keeps only the rounds that mattered.
+const watcherCheck = "Check now. If anything changed since your last check, call state_changed with a short summary; otherwise reply 'no change'."
+
+// fireWatcher queues a "check now" round in the watcher's ONE persistent
+// run. The round is durable (an inbox row that records its transcript mark
+// and whether state_changed was called), so a restart mid-round still rolls a
+// no-change round back. A round still open (or queued) makes this firing a
+// no-op rather than stacking checks.
 func (ag *Agent) fireWatcher(s *Schedule) {
 	runID := s.RunID
-	if runID == 0 {
+	if _, err := ag.db.getRun(runID); runID == 0 || err != nil {
 		cfg := parseConfig(ag.db.getSetting("config"))
-		cfg.Toolset = s.Toolset // the persistent watcher run inherits the lane
+		cfg.Toolset = s.Toolset
 		sys := watcherSystem(s.Goal)
 		if s.System != "" {
 			sys = s.System + "\n\n" + sys
 		}
 		cfg.System = sys
-		cfgJSON, _ := json.Marshal(cfg)
 		title := s.Name
 		if title == "" {
 			title = clip(s.Goal, 60)
 		}
-		var err error
-		runID, err = ag.db.createRun("👁 "+title, string(cfgJSON), 0)
+		run, err := ag.startRun("👁 "+title, "", cfg, "", true, "")
 		if err != nil {
 			return
 		}
-		_, _ = ag.db.addMessage(&Message{RunID: runID, Role: "system", Content: cfg.System})
+		runID = run.ID
 		ag.db.setScheduleRun(s.ID, runID)
 	}
-
-	mark := ag.db.maxMessageSeq(runID)
-	ag.mu.Lock()
-	if ag.watcherRounds == nil {
-		ag.watcherRounds = map[int64]*watcherRound{}
-	}
-	ag.watcherRounds[runID] = &watcherRound{mark: mark}
-	ag.mu.Unlock()
-
-	_, _ = ag.db.addMessage(&Message{RunID: runID, Role: "user",
-		Content: "Check now. If anything changed since your last check, call state_changed with a short summary; otherwise reply 'no change'."})
-	_ = ag.db.setStatus(runID, statusIdle, 0, "", "")
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		ag.drive(ctx, runID)
-		ag.finishWatcherRound(runID)
-		ag.reconcileBeat()
-	}()
-}
-
-// finishWatcherRound discards a round that reported no change (keeping the
-// transcript compact); a changed round stays.
-func (ag *Agent) finishWatcherRound(runID int64) {
-	ag.mu.Lock()
-	wr := ag.watcherRounds[runID]
-	delete(ag.watcherRounds, runID)
-	ag.mu.Unlock()
-	if wr == nil || wr.changed {
+	var open int
+	_ = ag.db.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind='watch'
+		AND (delivered_at=0 OR json_extract(body,'$.open')=1)`, runID).Scan(&open)
+	if open > 0 {
 		return
 	}
-	ag.db.deleteMessagesAfter(runID, wr.mark)
-	ag.db.journal(runID, "note", map[string]string{"text": "watcher: no change — round discarded"})
-	_ = ag.db.setStatus(runID, statusIdle, 0, "", "")
-}
-
-// markWatcherChanged is called by the state_changed tool to keep the round.
-func (ag *Agent) markWatcherChanged(runID int64) {
-	ag.mu.Lock()
-	if wr := ag.watcherRounds[runID]; wr != nil {
-		wr.changed = true
-	}
-	ag.mu.Unlock()
+	_, _, _ = ag.queue(runID, inboxWatch, inboxBody{Text: watcherCheck, Source: "watch"}, "")
 }
 
 // --- handlers ------------------------------------------------------------

@@ -32,7 +32,7 @@ func TestToolsetFirewall(t *testing.T) {
 		t.Fatal("web toolset must not expose internal reach")
 	}
 	// Control/local tools present in both lanes.
-	for _, n := range []string{"finish", "ask_user", "yield", "memory_set", "spawn_subagent"} {
+	for _, n := range []string{"finish", "ask_user", "yield", "memory_set", "subagent_spawn"} {
 		if !priv[n] || !web[n] {
 			t.Fatalf("control tool %s missing from a lane", n)
 		}

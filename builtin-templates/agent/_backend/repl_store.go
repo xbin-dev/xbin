@@ -37,30 +37,32 @@ type ReplEntry struct {
 // both now and on every replay, and second granularity would let Date.now()
 // come back different after a rebuild.
 func (d *DB) replAppend(runID int64, kind, code string) (seq int, created int64, err error) {
-	seq = d.nextSeq("repl_log", "seq", runID)
 	created = time.Now().UnixMilli()
-	_, err = d.sql.Exec(
-		`INSERT INTO repl_log (run_id, seq, kind, code, state, ms, created) VALUES (?, ?, ?, ?, ?, 0, ?)`,
-		runID, seq, kind, code, replRunning, created)
+	// seq allocated inside the INSERT: parallel tool calls on one run must
+	// never draw the same one.
+	err = d.q.QueryRow(
+		`INSERT INTO repl_log (run_id, seq, kind, code, state, ms, created)
+		 SELECT ?1, COALESCE(MAX(seq), -1) + 1, ?2, ?3, ?4, 0, ?5 FROM repl_log WHERE run_id=?1 RETURNING seq`,
+		runID, kind, code, replRunning, created).Scan(&seq)
 	return seq, created, err
 }
 
 func (d *DB) replFinish(runID int64, seq int, state string, ms int) {
-	_, _ = d.sql.Exec(`UPDATE repl_log SET state=?, ms=? WHERE run_id=? AND seq=?`, state, ms, runID, seq)
+	_, _ = d.q.Exec(`UPDATE repl_log SET state=?, ms=? WHERE run_id=? AND seq=?`, state, ms, runID, seq)
 }
 
 // replDrop removes a statement from the log entirely — used when a statement
 // was interrupted (timeout / memory / cancel), since its partial effects are
 // not reproducible and replaying it would only burn the budget again.
 func (d *DB) replDrop(runID int64, seq int) {
-	_, _ = d.sql.Exec(`DELETE FROM repl_log WHERE run_id=? AND seq=?`, runID, seq)
+	_, _ = d.q.Exec(`DELETE FROM repl_log WHERE run_id=? AND seq=?`, runID, seq)
 }
 
 // replMarkKilled converts every still-`running` row into `killed`. Called once
 // per session build: those rows can only be statements that took the process
 // down with them. Returns how many it found.
 func (d *DB) replMarkKilled(runID int64) int {
-	res, err := d.sql.Exec(`UPDATE repl_log SET state=? WHERE run_id=? AND state=?`, replKilled, runID, replRunning)
+	res, err := d.q.Exec(`UPDATE repl_log SET state=? WHERE run_id=? AND state=?`, replKilled, runID, replRunning)
 	if err != nil {
 		return 0
 	}
@@ -70,7 +72,7 @@ func (d *DB) replMarkKilled(runID int64) int {
 
 func (d *DB) replKilledCount(runID int64) int {
 	var n int
-	_ = d.sql.QueryRow(`SELECT count(*) FROM repl_log WHERE run_id=? AND state=?`, runID, replKilled).Scan(&n)
+	_ = d.q.QueryRow(`SELECT count(*) FROM repl_log WHERE run_id=? AND state=?`, runID, replKilled).Scan(&n)
 	return n
 }
 
@@ -79,7 +81,7 @@ func (d *DB) replKilledCount(runID int64) int {
 // reproduces the same partial mutation, so the rebuilt scope matches what the
 // model last saw.
 func (d *DB) replayable(runID int64) ([]*ReplEntry, error) {
-	rows, err := d.sql.Query(
+	rows, err := d.q.Query(
 		`SELECT seq, kind, code, state, ms, created FROM repl_log
 		 WHERE run_id=? AND state IN (?, ?) ORDER BY seq`, runID, replOK, replThrew)
 	if err != nil {
@@ -102,7 +104,7 @@ func (d *DB) replayable(runID int64) ([]*ReplEntry, error) {
 // the stable substrate — so pruning costs ad-hoc scratch work, never the
 // definitions the model deliberately wrote to a file. Returns rows dropped.
 func (d *DB) replPrune(runID int64, maxEntries, maxBytes int) int {
-	rows, err := d.sql.Query(
+	rows, err := d.q.Query(
 		`SELECT seq, length(code) FROM repl_log WHERE run_id=? AND kind='eval' AND state IN (?, ?) ORDER BY seq DESC`,
 		runID, replOK, replThrew)
 	if err != nil {
@@ -130,7 +132,7 @@ func (d *DB) replPrune(runID int64, maxEntries, maxBytes int) int {
 	}
 	dropped := 0
 	for _, r := range all[keep:] {
-		if _, err := d.sql.Exec(`DELETE FROM repl_log WHERE run_id=? AND seq=?`, runID, r.seq); err == nil {
+		if _, err := d.q.Exec(`DELETE FROM repl_log WHERE run_id=? AND seq=?`, runID, r.seq); err == nil {
 			dropped++
 		}
 	}
@@ -138,6 +140,6 @@ func (d *DB) replPrune(runID int64, maxEntries, maxBytes int) int {
 }
 
 func (d *DB) replClearLog(runID int64) error {
-	_, err := d.sql.Exec(`DELETE FROM repl_log WHERE run_id=?`, runID)
+	_, err := d.q.Exec(`DELETE FROM repl_log WHERE run_id=?`, runID)
 	return err
 }

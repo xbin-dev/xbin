@@ -61,56 +61,25 @@ func within(t *testing.T, what string, limit time.Duration, f func()) {
 	}
 }
 
-// TestGatewayCallsGiveUp — the model lookup runs after a run is marked running
-// and before any chat request, and the heartbeat calls hold reconcileBeat's
-// single-flight slot. Either one hanging reads as "thinking forever".
+// TestGatewayCallsGiveUp — the model lookup runs before a turn's first call,
+// and the cron calls run from shutdown (which has a hard deadline). Either one
+// hanging on a wedged gateway would read as "thinking forever" or lose the
+// handoff.
 func TestGatewayCallsGiveUp(t *testing.T) {
 	silentGateway(t)
-	shorten(t, &beatCallTimeout, 150*time.Millisecond)
+	shorten(t, &cronCallTimeout, 150*time.Millisecond)
 	shorten(t, &modelLookupTimeout, 150*time.Millisecond)
 	ag := newTestAgent(t, newTestDB(t))
 
-	within(t, "stopBeat", 2*time.Second, func() {
-		if ag.stopBeat() {
-			t.Error("stopBeat reported success from a gateway that never answered")
+	within(t, "cronPut", 2*time.Second, func() {
+		if ag.cronPut(map[string]any{"name": "x"}) {
+			t.Error("cronPut reported success from a gateway that never answered")
 		}
 	})
-	within(t, "putBeat", 2*time.Second, func() {
-		if ag.putBeat([]byte(`{}`)) {
-			t.Error("putBeat reported success from a gateway that never answered")
-		}
-	})
+	within(t, "cronDelete", 2*time.Second, func() { ag.cronDelete("x") })
 	within(t, "preferredModel", 2*time.Second, func() {
 		if m := preferredModel(context.Background(), "agent-test-silent"); m != "" {
 			t.Errorf("preferredModel = %q from a silent gateway", m)
 		}
 	})
-}
-
-// TestReconcileBeatIsSingleFlight — reconcileBeat is reached from every
-// completing drive; while one registration is retrying, the others must not
-// queue up behind it making their own round-trips.
-func TestReconcileBeatIsSingleFlight(t *testing.T) {
-	silentGateway(t)
-	shorten(t, &beatCallTimeout, 150*time.Millisecond)
-	db := newTestDB(t)
-	ag := newTestAgent(t, db)
-	id, _ := db.createRun("sleeper", "", 0)
-	_ = db.setStatus(id, statusSleep, now()+60, "", "") // something needs the beat
-
-	first := make(chan struct{})
-	go func() { ag.reconcileBeat(); close(first) }()
-	time.Sleep(50 * time.Millisecond) // let it take the slot
-	within(t, "a second reconcileBeat", 100*time.Millisecond, ag.reconcileBeat)
-	select {
-	case <-first:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the first reconcile never finished")
-	}
-	ag.mu.Lock()
-	on := ag.beatOn
-	ag.mu.Unlock()
-	if on {
-		t.Fatal("beatOn set although no registration succeeded — the keeper would never retry")
-	}
 }

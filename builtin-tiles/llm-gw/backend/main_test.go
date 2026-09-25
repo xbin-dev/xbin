@@ -41,3 +41,25 @@ func TestSleepBackoff(t *testing.T) {
 		t.Fatal("zero-delay backoff should complete")
 	}
 }
+
+func TestUsageOf(t *testing.T) {
+	cases := []struct {
+		body    string
+		in, out int64
+	}{
+		{`{"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":34,"total_tokens":46}}`, 12, 34},
+		// a chat stream: usage rides the last chunk
+		{"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":6}}\n\ndata: [DONE]\n\n", 5, 6},
+		// the Responses API, streamed: usage only on response.completed
+		{"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[],\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":40,\"output_tokens_details\":{\"reasoning_tokens\":30},\"total_tokens\":140}}}\n\n", 100, 40},
+		// the Responses API, not streamed
+		{`{"status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":8,"total_tokens":15}}`, 7, 8},
+		{`{"data":[{"id":"gpt-5"}]}`, 0, 0},
+	}
+	for i, c := range cases {
+		if in, out := usageOf([]byte(c.body)); in != c.in || out != c.out {
+			t.Errorf("case %d: got %d/%d, want %d/%d", i, in, out, c.in, c.out)
+		}
+	}
+}

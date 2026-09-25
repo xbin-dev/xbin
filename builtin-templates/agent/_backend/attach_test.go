@@ -90,6 +90,13 @@ func attachTo(t *testing.T, ag *Agent, runID int64, text string, paths ...string
 	return id
 }
 
+func addToolResult(t *testing.T, db *DB, runID int64, c toolCall, content string) {
+	t.Helper()
+	if _, err := db.addMessage(&Message{RunID: runID, Role: "tool", Name: c.Function.Name, ToolCallID: c.ID, Content: content}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // useGlobalAgent points the handlers' package-level agent at ag for one test.
 func useGlobalAgent(t *testing.T, ag *Agent) {
 	prev := agent
@@ -330,13 +337,6 @@ func TestMessageAttachments(t *testing.T) {
 	ag := newTestAgent(t, db)
 	useGlobalAgent(t, ag)
 	id, _ := db.createRun("t", "", 0)
-	// Occupy the only slot, so the message queues the run instead of driving
-	// it against an LLM that isn't there.
-	ag.setLimit(1)
-	if !ag.tryAcquire() {
-		t.Fatal("slot")
-	}
-	defer ag.releaseSlot()
 
 	w := serve(handleMessage, "POST", "/runs/x/message", id, []byte(`{"text":"hi","files":["nope.png"]}`), "application/json")
 	if w.Code != 400 {
@@ -351,9 +351,13 @@ func TestMessageAttachments(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("message = %d %s", w.Code, w.Body)
 	}
+	// The engine delivers it at the next step boundary (and the fake model
+	// answers "ok").
+	waitStatus(t, db, id, statusIdle)
+	waitFor(t, "the message to be delivered", func() bool { m, _ := db.messages(id, true); return len(m) >= 1 })
 	msgs, _ := db.messages(id, true)
-	if len(msgs) != 1 {
-		t.Fatalf("messages = %d", len(msgs))
+	if msgs[0].Role != "user" {
+		t.Fatalf("first message = %s", msgs[0].Role)
 	}
 	if !strings.HasPrefix(msgs[0].Content, "(see attached)") || !strings.Contains(msgs[0].Content, "[attached: a.png (image/png, ") {
 		t.Fatalf("stored text = %q", msgs[0].Content)
@@ -529,9 +533,9 @@ func TestFileViewImageFollowsTheToolBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ag.addToolResult(id, view, ok)
-	ag.addToolResult(id, bad, "error: no such file")
-	ag.addToolResult(id, note, "noted")
+	addToolResult(t, db, id, view, ok)
+	addToolResult(t, db, id, bad, "error: no such file")
+	addToolResult(t, db, id, note, "noted")
 
 	out, _ := ag.assembleContext(context.Background(), run, Config{})
 	assertWireValid(t, out)

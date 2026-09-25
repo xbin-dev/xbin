@@ -5,9 +5,10 @@ package main
 
 import (
 	"encoding/json"
-	xbin "github.com/xbin-dev/xbin/sdk"
 	"net/http"
 	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 func handleAsk(w http.ResponseWriter, r *http.Request) {
@@ -27,24 +28,16 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.Toolset = normalizeToolset(body.Toolset)
-	cfgJSON, _ := json.Marshal(cfg)
-	id, err := agent.db.createRun(clip(body.Text, 60), string(cfgJSON), 0)
+	note := "quick ask"
+	if body.Hold {
+		note = "quick ask (waiting for attachments)"
+	} else {
+		agent.resumeIfHalted(0)
+	}
+	run, err := agent.startRun(clip(body.Text, 60), "quick", cfg, body.Text, body.Hold, note)
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	agent.db.setRunKind(id, "quick")
-	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System})
-	if body.Hold {
-		agent.db.journal(id, "note", map[string]string{"text": "quick ask (waiting for attachments)"})
-		run, _ := agent.db.getRun(id)
-		xbin.WriteJSON(w, 200, run)
-		return
-	}
-	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: body.Text})
-	agent.db.journal(id, "note", map[string]string{"text": "quick ask"})
-	agent.resumeIfHalted(id)
-	agent.driveAsync(id)
-	run, _ := agent.db.getRun(id)
 	xbin.WriteJSON(w, 200, run)
 }

@@ -154,7 +154,7 @@ func (ag *Agent) replExecLogged(ctx context.Context, s *replSession, run *Run,
 		r2 := s.exec(ctx, name, wrapped, s.timeout)
 		if r2.err == nil {
 			ag.db.replFinish(run.ID, seq, replOK, r2.ms)
-			_, _ = ag.db.sql.Exec(`UPDATE repl_log SET code=? WHERE run_id=? AND seq=?`, wrapped, run.ID, seq)
+			_, _ = ag.db.q.Exec(`UPDATE repl_log SET code=? WHERE run_id=? AND seq=?`, wrapped, run.ID, seq)
 			out := ag.replFormat(s, r2, banner)
 			return out + "\n(note: wrapped in an async IIFE because top-level await is not available here — " +
 				"var/function declarations inside it did NOT reach global scope; assign to globalThis to persist.)", nil

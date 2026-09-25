@@ -1,16 +1,11 @@
-// llm.go — the LLM connection. Like the chat tile, the agent talks to the
-// llm-gw component's OpenAI-compatible surface (uses: apps/llm-gw:writer); the
-// upstream API key stays in llm-gw's vault. Non-streaming: we journal the whole
-// response as one durable step, and the tile watches the journal for progress.
+// llm.go — the LLM connection: config, model tiers, and the LLM interface the
+// engine calls. Like the chat tile, the agent talks to the llm-gw component
+// (uses: apps/llm-gw:writer); the upstream API key stays in llm-gw's vault.
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -55,7 +50,7 @@ type Config struct {
 	Models      ModelTiers `json:"models"`      // per-tier models
 	System      string     `json:"system"`      // base system prompt
 	TokenBudget int        `json:"tokenBudget"` // context assembly budget
-	MaxIters    int        `json:"maxIters"`    // steps per drive before yielding
+	MaxIters    int        `json:"maxIters"`    // legacy: sizes the default turn step cap (8×)
 	ToolTimeout int        `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
 	// REPL sandbox limits (0 ⇒ defaults). The time budget is per statement and
 	// far below ToolTimeout on purpose: a runaway loop should come back as a
@@ -67,12 +62,22 @@ type Config struct {
 	// budget it started with. MaxActiveRuns bounds the PROCESS, so it is read
 	// live from the global config — a per-run snapshot of it would be
 	// meaningless.
-	MaxDepth      int  `json:"maxDepth,omitempty"`        // delegation depth, root = 0
-	MaxSpawn      int  `json:"maxSpawn,omitempty"`        // lifetime runs per tree
-	MaxSpawnTurn  int  `json:"maxSpawnPerTurn,omitempty"` // spawns in a single turn
-	MaxActiveRuns int  `json:"maxActiveRuns,omitempty"`   // concurrent drives, process-wide
-	Subagents     bool `json:"subagents"`                 // expose spawn_subagent
-	Approve       bool `json:"approve"`                   // require approval before side-effecting tools
+	MaxDepth      int `json:"maxDepth,omitempty"`        // delegation depth, root = 0
+	MaxSpawn      int `json:"maxSpawn,omitempty"`        // lifetime runs per tree
+	MaxSpawnTurn  int `json:"maxSpawnPerTurn,omitempty"` // spawns in a single turn
+	MaxActiveRuns int `json:"maxActiveRuns,omitempty"`   // concurrent MODEL CALLS, process-wide
+	// MaxTurnSteps bounds one turn (model calls between a human message and the
+	// agent's answer); 0 ⇒ 8×MaxIters. SubagentTimeout is the default seconds a
+	// foreground subagent is waited for before it moves to the background.
+	MaxTurnSteps    int `json:"maxTurnSteps,omitempty"`
+	SubagentTimeout int `json:"subagentTimeout,omitempty"`
+	// Wire picks the model API: "auto" (Responses for gpt-5*/o-series, else
+	// Chat Completions), "chat" or "responses". ReasoningEffort is passed to
+	// reasoning models ("" = the provider's default).
+	Wire            string `json:"wire,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	Subagents       bool   `json:"subagents"` // expose spawn_subagent
+	Approve         bool   `json:"approve"`   // require approval before side-effecting tools
 	// Toolset is the run's IMMUTABLE capability lane — the exfiltration
 	// firewall: "private" (default; internal reach via xbin_call + mcp:*
 	// tools, NO web) or "web" (web_search/web_fetch only, NO internal reach).
@@ -139,6 +144,13 @@ func (c Config) maxDepth() int      { return clampCfg(c.MaxDepth, defaultMaxDept
 func (c Config) maxSpawn() int      { return clampCfg(c.MaxSpawn, defaultMaxSpawn, 500) }
 func (c Config) maxSpawnTurn() int  { return clampCfg(c.MaxSpawnTurn, defaultMaxSpawnTurn, 32) }
 func (c Config) maxActiveRuns() int { return clampCfg(c.MaxActiveRuns, defaultMaxActiveRuns, 32) }
+func (c Config) maxTurnSteps() int {
+	if c.MaxTurnSteps > 0 {
+		return clampCfg(c.MaxTurnSteps, 96, 500)
+	}
+	return clampCfg(8*c.MaxIters, 96, 500)
+}
+func (c Config) subagentTimeout() int { return clampCfg(c.SubagentTimeout, 900, 3600) }
 
 func (c Config) replMemMB() int {
 	if c.ReplMemMB <= 0 {
@@ -198,6 +210,10 @@ type wireMsg struct {
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	// Replay is an assistant message's stored meta (reasoning it produced).
+	// Never marshalled as-is: each wire decides whether to send it back — only
+	// to the same wire and model that produced it.
+	Replay *msgMeta `json:"-"`
 }
 
 // contentValue returns the wire value for stored USER message content: plain
@@ -278,37 +294,13 @@ type funcDef struct {
 	Parameters  map[string]any `json:"parameters"` // JSON Schema
 }
 
-type chatReq struct {
-	Model    string     `json:"model"`
-	Messages []wireMsg  `json:"messages"`
-	Tools    []toolSpec `json:"tools,omitempty"`
-}
-
 type usageBlock struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
-}
-
-type chatResp struct {
-	Choices []struct {
-		Message      wireMsg `json:"message"`
-		FinishReason string  `json:"finish_reason"`
-	} `json:"choices"`
-	Usage usageBlock      `json:"usage"`
-	Error json.RawMessage `json:"error"`
-}
-
-type streamOpts struct {
-	IncludeUsage bool `json:"include_usage"`
-}
-
-type streamReq struct {
-	Model         string      `json:"model"`
-	Messages      []wireMsg   `json:"messages"`
-	Tools         []toolSpec  `json:"tools,omitempty"`
-	Stream        bool        `json:"stream"`
-	StreamOptions *streamOpts `json:"stream_options,omitempty"`
+	// ReasoningTokens is the part of CompletionTokens spent thinking, when the
+	// provider reports it (0 otherwise).
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // modelLookupTimeout bounds model resolution. It runs after the run is already
@@ -400,6 +392,72 @@ func modelFor(ctx context.Context, cfg Config, tier string) string {
 }
 
 // --- the LLM call -------------------------------------------------------
+//
+// The engine talks to a model through the LLM interface below; gatewayLLM
+// (llm_gateway.go) implements it over llm-gw with two wires — Chat Completions
+// (llm_chat.go) and OpenAI's Responses API (llm_responses.go), the only way to
+// get GPT-5/o-series reasoning summaries. Tests swap in a scripted fake.
+
+// LLM is one model call. onEvent (may be nil) receives live progress; the
+// returned reply is the whole message. Implementations retry transient
+// failures only before anything was streamed, and honour ctx at every read.
+type LLM interface {
+	Chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error)
+}
+
+// LLMRequest is what the engine asks for. Wire is "auto" | "chat" |
+// "responses"; Replay lets a wire re-send the opaque reasoning it produced on
+// earlier turns (kept per assistant message in messages.meta).
+type LLMRequest struct {
+	// Run and Purpose ("turn" | "compact") identify the caller; the wires
+	// ignore them (logs and tests use them).
+	Run             int64
+	Purpose         string
+	Model           string
+	Msgs            []wireMsg
+	Tools           []toolSpec
+	Stream          bool
+	Wire            string
+	ReasoningEffort string // "" = provider default; minimal|low|medium|high
+}
+
+// LLMEvent is live progress from a streaming call. Text-like events carry the
+// ACCUMULATED text, so a consumer that drops one loses nothing.
+type LLMEvent struct {
+	Kind  string // "text" | "thinking" | "tool"
+	Text  string // text/thinking: accumulated so far
+	Index int    // tool: position in the tool_calls list
+	ID    string // tool: call id, once known
+	Name  string // tool: function name, once known
+	Args  string // tool: accumulated (partial) JSON arguments
+}
+
+// LLMReply is a finished call. Reasoning is the human-readable thinking (a
+// summary on the Responses wire); ReasoningRaw is whatever the wire needs to
+// replay it next turn (chat: reasoning_details; responses: reasoning items with
+// encrypted_content), tagged with the wire and model that produced it.
+type LLMReply struct {
+	Msg          wireMsg
+	Reasoning    string
+	ReasoningRaw json.RawMessage
+	ReasoningMs  int64
+	Usage        usageBlock
+	Finish       string
+	Wire         string // the wire actually used
+	Model        string
+}
+
+// msgMeta is the additive messages.meta column: per assistant message, what the
+// transcript's flat OpenAI shape has no field for.
+type msgMeta struct {
+	Reasoning    string          `json:"reasoning,omitempty"`
+	ReasoningRaw json.RawMessage `json:"reasoningRaw,omitempty"`
+	ReasoningMs  int64           `json:"reasoningMs,omitempty"`
+	Wire         string          `json:"wire,omitempty"`
+	Model        string          `json:"model,omitempty"`
+	Usage        *usageBlock     `json:"usage,omitempty"`
+	Finish       string          `json:"finish,omitempty"`
+}
 
 const llmRetries = 3
 
@@ -427,187 +485,6 @@ func llmBackoff(ctx context.Context, attempt int) bool {
 	case <-t.C:
 		return true
 	}
-}
-
-// callLLM runs one chat completion through llm-gw, retrying transient failures
-// (transport errors — e.g. llm-gw reloading after an idle unload — and 429/5xx)
-// with backoff. Fatal statuses (400/401/404) return immediately. Returns the
-// assistant message and the usage block.
-func callLLM(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec) (wireMsg, chatResp, error) {
-	body, err := json.Marshal(chatReq{Model: model, Messages: msgs, Tools: tools})
-	if err != nil {
-		return wireMsg{}, chatResp{}, err
-	}
-	endpoint := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
-	var lastErr error
-	for attempt := 0; attempt <= llmRetries; attempt++ {
-		if attempt > 0 && !llmBackoff(ctx, attempt) {
-			break // ctx canceled during backoff
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return wireMsg{}, chatResp{}, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := xbin.Client().Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("llm-gw call: %w", err)
-			continue // transport error ⇒ retry
-		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("llm-gw %s: %s", resp.Status, strings.TrimSpace(string(raw)))
-			if retryableLLM(resp.StatusCode) {
-				continue
-			}
-			return wireMsg{}, chatResp{}, lastErr // fatal
-		}
-		var cr chatResp
-		if err := json.Unmarshal(raw, &cr); err != nil {
-			return wireMsg{}, chatResp{}, fmt.Errorf("llm-gw bad response: %w", err)
-		}
-		if len(cr.Error) > 0 && string(cr.Error) != "null" {
-			return wireMsg{}, cr, fmt.Errorf("llm-gw upstream error: %s", string(cr.Error))
-		}
-		if len(cr.Choices) == 0 {
-			return wireMsg{}, cr, fmt.Errorf("llm-gw returned no choices")
-		}
-		return cr.Choices[0].Message, cr, nil
-	}
-	if lastErr == nil {
-		lastErr = ctx.Err()
-	}
-	return wireMsg{}, chatResp{}, lastErr
-}
-
-// callLLMStream is callLLM over SSE (stream:true + usage): it calls onDelta with
-// the accumulated assistant text as tokens arrive (for a live tile draft), and
-// returns the same final message + usage. Retries only before any token flows.
-func callLLMStream(ctx context.Context, model string, msgs []wireMsg, tools []toolSpec, onDelta func(string)) (wireMsg, chatResp, error) {
-	body, err := json.Marshal(streamReq{Model: model, Messages: msgs, Tools: tools, Stream: true, StreamOptions: &streamOpts{IncludeUsage: true}})
-	if err != nil {
-		return wireMsg{}, chatResp{}, err
-	}
-	endpoint := "http://xbin/api/apps/" + gwPath() + "/v1/chat/completions"
-	var lastErr error
-	for attempt := 0; attempt <= llmRetries; attempt++ {
-		if attempt > 0 && !llmBackoff(ctx, attempt) {
-			break
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return wireMsg{}, chatResp{}, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "text/event-stream")
-		resp, err := xbin.Client().Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("llm-gw call: %w", err)
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-			resp.Body.Close()
-			lastErr = fmt.Errorf("llm-gw %s: %s", resp.Status, strings.TrimSpace(string(raw)))
-			if retryableLLM(resp.StatusCode) {
-				continue
-			}
-			return wireMsg{}, chatResp{}, lastErr
-		}
-		msg, usage, perr := parseSSE(resp.Body, onDelta)
-		resp.Body.Close()
-		if perr != nil {
-			// Nothing produced yet ⇒ safe to retry; otherwise surface the partial.
-			if asString(msg.Content) == "" && len(msg.ToolCalls) == 0 && attempt < llmRetries {
-				lastErr = perr
-				continue
-			}
-			return msg, chatResp{Usage: usage}, perr
-		}
-		return msg, chatResp{Usage: usage}, nil
-	}
-	if lastErr == nil {
-		lastErr = ctx.Err()
-	}
-	return wireMsg{}, chatResp{}, lastErr
-}
-
-// parseSSE consumes an OpenAI streaming response, assembling the assistant
-// message (content + tool_calls by index) and the usage block.
-func parseSSE(r io.Reader, onDelta func(string)) (wireMsg, usageBlock, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	var content strings.Builder
-	tcs := map[int]*toolCall{}
-	var order []int
-	var usage usageBlock
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		data, ok := strings.CutPrefix(line, "data:")
-		if !ok {
-			continue
-		}
-		data = strings.TrimSpace(data)
-		if data == "[DONE]" {
-			break
-		}
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						Index    int    `json:"index"`
-						ID       string `json:"id"`
-						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-			} `json:"choices"`
-			Usage *usageBlock `json:"usage"`
-		}
-		if json.Unmarshal([]byte(data), &chunk) != nil {
-			continue
-		}
-		if chunk.Usage != nil {
-			usage = *chunk.Usage
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		d := chunk.Choices[0].Delta
-		if d.Content != "" {
-			content.WriteString(d.Content)
-			if onDelta != nil {
-				onDelta(content.String())
-			}
-		}
-		for _, t := range d.ToolCalls {
-			tc := tcs[t.Index]
-			if tc == nil {
-				tc = &toolCall{Type: "function"}
-				tcs[t.Index] = tc
-				order = append(order, t.Index)
-			}
-			if t.ID != "" {
-				tc.ID = t.ID
-			}
-			if t.Function.Name != "" {
-				tc.Function.Name = t.Function.Name
-			}
-			tc.Function.Arguments += t.Function.Arguments
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return wireMsg{}, usage, err
-	}
-	msg := wireMsg{Role: "assistant", Content: content.String()}
-	for _, idx := range order {
-		msg.ToolCalls = append(msg.ToolCalls, *tcs[idx])
-	}
-	return msg, usage, nil
 }
 
 // gwPath is the llm-gw component path relative to apps/. The agent is authored

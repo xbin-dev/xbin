@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -52,6 +51,21 @@ func assertTranscriptValid(t *testing.T, db *DB, runID int64) {
 			t.Fatalf("orphaned tool result for %q (no assistant call declares it)", id)
 		}
 	}
+	// And the wire shape: results directly follow their call.
+	var wire []wireMsg
+	for _, m := range msgs {
+		if m.Role == "system" {
+			continue
+		}
+		wm := wireMsg{Role: m.Role, ToolCallID: m.ToolCallID}
+		if m.ToolCalls != "" {
+			_ = json.Unmarshal([]byte(m.ToolCalls), &wm.ToolCalls)
+		}
+		wire = append(wire, wm)
+	}
+	if err := validateWire(wire); err != nil {
+		t.Fatalf("transcript is not wire-valid: %v", err)
+	}
 	// Seq must be strictly increasing, or the repair's splice corrupted order.
 	for i := 1; i < len(msgs); i++ {
 		if msgs[i].Seq <= msgs[i-1].Seq {
@@ -75,37 +89,46 @@ func addAssistantCalls(t *testing.T, db *DB, runID int64, calls ...toolCall) {
 	}
 }
 
-// TestRepairHealsCrashedBatch is the core of phase 1. The loop persists the
-// assistant tool_calls message before running the tools, so a save/swap between
-// those two writes leaves an unanswered block in the LIVE database — which a
-// write-ordering fix alone can never clean up.
+func placeholders(t *testing.T, db *DB, runID int64, calls []toolCall) {
+	t.Helper()
+	for _, c := range calls {
+		if _, err := db.addMessage(&Message{RunID: runID, Role: "tool", Name: c.Function.Name, ToolCallID: c.ID, Content: toolRunning}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func settle(t *testing.T, db *DB, runID int64, c toolCall, content string) {
+	t.Helper()
+	if ok, err := db.casToolResult(runID, c.ID, content); err != nil || !ok {
+		t.Fatalf("settling %s: ok=%v err=%v", c.ID, ok, err)
+	}
+}
+
+// TestRepairHealsCrashedBatch: a block with no results (a process that died
+// between the call and its results) is answered, once.
 func TestRepairHealsCrashedBatch(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
 	id, _ := db.createRun("t", "", 0)
 
 	addAssistantCalls(t, db, id, call("a", "web_search"), call("b", "web_fetch"))
-	// ...process dies here: no results were ever written.
-
-	if n := ag.repairTranscript(id); n != 2 {
+	if n := ag.eng.repairTranscript(id); n != 2 {
 		t.Fatalf("expected 2 repairs, got %d", n)
 	}
 	assertTranscriptValid(t, db, id)
-
 	msgs, _ := db.messages(id, true)
 	if !strings.Contains(msgs[len(msgs)-1].Content, "restarted") {
 		t.Fatalf("repair should say why the result is missing, got %q", msgs[len(msgs)-1].Content)
 	}
-	// Idempotent: a second pass must not add duplicates.
-	if n := ag.repairTranscript(id); n != 0 {
+	if n := ag.eng.repairTranscript(id); n != 0 {
 		t.Fatalf("repair is not idempotent: second pass fixed %d", n)
 	}
 	assertTranscriptValid(t, db, id)
 }
 
-// TestRepairSettlesStalePlaceholders covers the other half: the process died
-// AFTER the placeholders were written but before the tools finished. Leaving
-// "(running…)" in context would tell the model a tool is still executing.
+// TestRepairSettlesStalePlaceholders: a placeholder a dead process left
+// "running" must not tell the model a tool is still executing.
 func TestRepairSettlesStalePlaceholders(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
@@ -113,14 +136,13 @@ func TestRepairSettlesStalePlaceholders(t *testing.T) {
 
 	calls := []toolCall{call("a", "web_search"), call("b", "web_fetch")}
 	addAssistantCalls(t, db, id, calls...)
-	ag.placeholderResults(id, calls)
-	ag.settleToolResult(id, calls[0], "finished fine") // only the first completed
+	placeholders(t, db, id, calls)
+	settle(t, db, id, calls[0], "finished fine")
 
-	if n := ag.repairTranscript(id); n != 1 {
+	if n := ag.eng.repairTranscript(id); n != 1 {
 		t.Fatalf("expected 1 stale placeholder settled, got %d", n)
 	}
 	assertTranscriptValid(t, db, id)
-
 	msgs, _ := db.messages(id, true)
 	for _, m := range msgs {
 		if m.Content == toolRunning {
@@ -132,8 +154,8 @@ func TestRepairSettlesStalePlaceholders(t *testing.T) {
 	}
 }
 
-// TestRepairSplicesInOrder — appending repairs at the end would leave them
-// behind whatever the run did next, which is its own protocol violation.
+// TestRepairSplicesInOrder: a missing result goes right after its call, not
+// behind whatever the run did next.
 func TestRepairSplicesInOrder(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
@@ -141,94 +163,94 @@ func TestRepairSplicesInOrder(t *testing.T) {
 
 	calls := []toolCall{call("a", "t1"), call("b", "t2")}
 	addAssistantCalls(t, db, id, calls...)
-	ag.addToolResult(id, calls[0], "first result") // only "a" answered
-	// The run carried on regardless — now "b" is missing in the MIDDLE.
+	_, _ = db.addMessage(&Message{RunID: id, Role: "tool", Name: "t1", ToolCallID: "a", Content: "first result"})
 	if _, err := db.addMessage(&Message{RunID: id, Role: "user", Content: "carry on"}); err != nil {
 		t.Fatal(err)
 	}
-
-	if n := ag.repairTranscript(id); n != 1 {
-		t.Fatalf("expected 1 repair, got %d", n)
+	if n := ag.eng.repairTranscript(id); n == 0 {
+		t.Fatal("expected a repair")
 	}
 	assertTranscriptValid(t, db, id)
-
 	msgs, _ := db.messages(id, true)
 	roles := make([]string, len(msgs))
 	for i, m := range msgs {
 		roles[i] = m.Role
 	}
-	want := "assistant,tool,tool,user"
-	if got := strings.Join(roles, ","); got != want {
-		t.Fatalf("repair spliced in the wrong place: %s (want %s)", got, want)
+	if got := strings.Join(roles, ","); got != "assistant,tool,tool,user" {
+		t.Fatalf("repair spliced in the wrong place: %s", got)
 	}
 }
 
-// TestSettleToolResultKeepsCallOrder — tools finish out of order; the
+// TestRepairMovesAWedgedUserMessage is the corruption the old engine could
+// write (a message landing between a call and its result) — which made every
+// later request fail until the transcript was edited by hand.
+func TestRepairMovesAWedgedUserMessage(t *testing.T) {
+	db := newTestDB(t)
+	ag := newTestAgent(t, db)
+	id, _ := db.createRun("t", "", 0)
+
+	calls := []toolCall{call("a", "t1"), call("b", "t2")}
+	addAssistantCalls(t, db, id, calls...)
+	_, _ = db.addMessage(&Message{RunID: id, Role: "user", Content: "are you there?"})
+	_, _ = db.addMessage(&Message{RunID: id, Role: "tool", Name: "t1", ToolCallID: "a", Content: "A"})
+	_, _ = db.addMessage(&Message{RunID: id, Role: "tool", Name: "t2", ToolCallID: "b", Content: "B"})
+	_, _ = db.addMessage(&Message{RunID: id, Role: "tool", Name: "t2", ToolCallID: "b", Content: "(no result: the backend restarted while this tool was running)"})
+
+	ag.eng.repairTranscript(id)
+	assertTranscriptValid(t, db, id)
+	if got := transcript(db, id); !strings.HasPrefix(got, "A:[t1][t2] | T:A | T:B | U:are you there?") {
+		t.Fatalf("canonical order = %s", got)
+	}
+	if n := ag.eng.repairTranscript(id); n != 0 {
+		t.Fatalf("second repair fixed %d", n)
+	}
+}
+
+// TestSettleToolResultKeepsCallOrder: tools finish out of order; the
 // transcript must not.
 func TestSettleToolResultKeepsCallOrder(t *testing.T) {
 	db := newTestDB(t)
-	ag := newTestAgent(t, db)
 	id, _ := db.createRun("t", "", 0)
-
 	calls := []toolCall{call("a", "slow"), call("b", "fast"), call("c", "mid")}
 	addAssistantCalls(t, db, id, calls...)
-	ag.placeholderResults(id, calls)
-	ag.settleToolResult(id, calls[1], "B")
-	ag.settleToolResult(id, calls[2], "C")
-	ag.settleToolResult(id, calls[0], "A")
-
+	placeholders(t, db, id, calls)
+	settle(t, db, id, calls[1], "B")
+	settle(t, db, id, calls[2], "C")
+	settle(t, db, id, calls[0], "A")
 	msgs, _ := db.messages(id, true)
-	got := []string{msgs[1].Content, msgs[2].Content, msgs[3].Content}
-	if strings.Join(got, "") != "ABC" {
-		t.Fatalf("results are in completion order, not call order: %v", got)
+	if got := msgs[1].Content + msgs[2].Content + msgs[3].Content; got != "ABC" {
+		t.Fatalf("results are in completion order, not call order: %s", got)
 	}
 	assertTranscriptValid(t, db, id)
 }
 
-// TestUpdateToolResultRefreshesSearch — recall searches messages_fts, so a
-// placeholder left in the index would be findable while the real result is not.
+// TestSettledResultIsNeverOverwritten: a late writer (a tool from an
+// interrupted step, a subagent result after its wait moved on) cannot replace
+// what the model already saw.
+func TestSettledResultIsNeverOverwritten(t *testing.T) {
+	db := newTestDB(t)
+	id, _ := db.createRun("t", "", 0)
+	c := call("a", "slow")
+	addAssistantCalls(t, db, id, c)
+	placeholders(t, db, id, []toolCall{c})
+	settle(t, db, id, c, "(interrupted by the owner)")
+	if ok, _ := db.casToolResult(id, "a", "late result"); ok {
+		t.Fatal("a settled result was overwritten")
+	}
+}
+
+// TestUpdateToolResultRefreshesSearch: recall must find the real result, not
+// the placeholder.
 func TestUpdateToolResultRefreshesSearch(t *testing.T) {
 	db := newTestDB(t)
-	ag := newTestAgent(t, db)
 	id, _ := db.createRun("t", "", 0)
 	c := call("a", "web_search")
 	addAssistantCalls(t, db, id, c)
-	ag.placeholderResults(id, []toolCall{c})
-	ag.settleToolResult(id, c, "pangolins are nocturnal")
-
+	placeholders(t, db, id, []toolCall{c})
+	settle(t, db, id, c, "pangolins are nocturnal")
 	hits, err := db.searchMessages(id, "pangolins", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hits) == 0 {
-		t.Fatal("the settled result is not searchable — the FTS row still holds the placeholder")
-	}
-}
-
-// TestDenyPendingKeepsTranscriptValid — handleMessage clears `pending`, so a
-// user who replies instead of approving would otherwise orphan the parked calls.
-func TestDenyPendingKeepsTranscriptValid(t *testing.T) {
-	db := newTestDB(t)
-	ag := newTestAgent(t, db)
-	id, _ := db.createRun("t", "", 0)
-
-	calls := []toolCall{call("a", "xbin_call")}
-	addAssistantCalls(t, db, id, calls...)
-	pend, _ := json.Marshal(pending{Kind: "approval", ToolCalls: calls})
-	if err := db.setStatus(id, statusWaiting, 0, "approve?", string(pend)); err != nil {
-		t.Fatal(err)
-	}
-
-	ag.denyPending(id)                          // the user typed a reply
-	_ = db.setStatus(id, statusIdle, 0, "", "") // …and handleMessage clears pending
-	assertTranscriptValid(t, db, id)
-
-	// And it is a no-op when nothing is parked.
-	before, _ := db.messages(id, true)
-	ag.denyPending(id)
-	after, _ := db.messages(id, true)
-	if len(before) != len(after) {
-		t.Fatalf("denyPending should be a no-op with no pending: %d → %d", len(before), len(after))
+	if err != nil || len(hits) == 0 {
+		t.Fatalf("the settled result is not searchable (err=%v)", err)
 	}
 }
 
@@ -335,101 +357,60 @@ func TestDeleteCascadeIsWhatTheOwnerAsksFor(t *testing.T) {
 	}
 }
 
-// --- approval gate ------------------------------------------------------
-//
-// The approval gate parks a turn before running anything. Before this was
-// fixed it parked WITHOUT answering the calls, so: the transcript was invalid
-// for as long as the run waited, and on approve, drive's repairTranscript ran
-// before the resume path, filled every parked call with "backend restarted",
-// and then the resume path added its own placeholders on top — every approved
-// call ended up answered twice, which the provider rejects.
+// --- approval gate (through the engine) -----------------------------------------
 
-// parkForApproval sets up a turn the gate parks: a harmless call plus one that
-// reaches outside the agent (xbin_call), which is what triggers the gate.
-func parkForApproval(t *testing.T, ag *Agent, db *DB) (int64, []toolCall) {
+// approvalRun starts a run whose first step calls a harmless tool and one that
+// reaches outside the agent (xbin_call) with approval on: it parks.
+func approvalRun(t *testing.T, ag *Agent) int64 {
 	t.Helper()
-	id, _ := db.createRun("needs approval", "", 0)
-	note := call("n1", "note")
-	note.Function.Arguments = `{"text":"about to call out"}`
-	out := call("x1", "xbin_call")
-	out.Function.Arguments = `{"method":"GET","path":"/api/apps/nowhere/x"}`
-	calls := []toolCall{note, out}
-	addAssistantCalls(t, db, id, calls...)
-	run, _ := db.getRun(id)
-	parked, _ := ag.executeToolCalls(context.Background(), run, Config{Approve: true}, calls, false)
-	if !parked {
-		t.Fatal("setup: a side-effecting call with approval on should park the turn")
-	}
-	return id, calls
+	note := tc("n1", "note", `{"text":"about to call out"}`)
+	out := tc("x1", "xbin_call", `{"method":"GET","path":"/api/apps/nowhere/x"}`)
+	f := fakeOf(ag)
+	f.on(lastUser("reach out"), callTools(note, out)).once()
+	f.on(lastIs("tool", ""), say("done"))
+	id := newRun(t, ag, Config{Approve: true}, "reach out")
+	waitStatus(t, ag.db, id, statusWaiting)
+	return id
 }
 
 func TestParkedApprovalKeepsTheTranscriptValid(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
-	id, _ := parkForApproval(t, ag, db)
-	// Anything that assembles context while the run waits — an interjection, a
-	// /resume, a restart — would otherwise ship an unanswered block.
+	id := approvalRun(t, ag)
 	assertTranscriptValid(t, db, id)
+	if n := ag.eng.repairTranscript(id); n != 0 {
+		t.Fatalf("repair rewrote %d call(s) parked for approval", n)
+	}
 }
 
-func TestApproveThenResumeAnswersEachCallOnce(t *testing.T) {
+func TestApproveRunsEachCallOnce(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
-	id, _ := parkForApproval(t, ag, db)
-	run, _ := db.getRun(id)
-
-	// What handleApprove does, then what drive does before its resume path.
-	if err := db.setStatus(id, statusRunning, 0, "", run.Pending); err != nil {
-		t.Fatal(err)
+	useGlobalAgent(t, ag)
+	id := approvalRun(t, ag)
+	if w := serve(handleApprove, "POST", "/runs/x/approve", id, []byte(`{"approve":true}`), "application/json"); w.Code != 200 {
+		t.Fatalf("approve = %d", w.Code)
 	}
-	ag.repairTranscript(id)
-	var pend pending
-	if err := json.Unmarshal([]byte(run.Pending), &pend); err != nil {
-		t.Fatal(err)
-	}
-	run, _ = db.getRun(id)
-	ag.executeToolCalls(context.Background(), run, Config{Approve: true}, pend.ToolCalls, true)
-
+	waitStatus(t, db, id, statusIdle)
 	assertTranscriptValid(t, db, id)
 	msgs, _ := db.messages(id, true)
 	for _, m := range msgs {
-		if m.Role == "tool" && (m.Content == toolAwaitingApproval || m.Content == toolLostToRestart) {
-			t.Fatalf("an approved call was left with %q instead of its result", m.Content)
+		if m.Role == "tool" && (isPlaceholder(m.Content) || m.Content == toolLostToRestart) {
+			t.Fatalf("an approved call was left with %q", m.Content)
 		}
 	}
 }
 
-func TestResumeWhileParkedThenApprove(t *testing.T) {
+func TestDenyAnswersEachCallOnce(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
-	id, _ := parkForApproval(t, ag, db)
-	// A /resume on a run parked for approval drives it: drive repairs first,
-	// then returns on the waiting status. That repair must not touch the
-	// parked calls, or approving afterwards doubles them up.
-	if n := ag.repairTranscript(id); n != 0 {
-		t.Fatalf("repair rewrote %d parked call(s) that were waiting for approval, not lost", n)
-	}
-	run, _ := db.getRun(id)
-	var pend pending
-	_ = json.Unmarshal([]byte(run.Pending), &pend)
-	_ = db.setStatus(id, statusRunning, 0, "", run.Pending)
-	run, _ = db.getRun(id)
-	ag.executeToolCalls(context.Background(), run, Config{Approve: true}, pend.ToolCalls, true)
-	assertTranscriptValid(t, db, id)
-}
-
-func TestDenyApprovalAnswersEachCallOnce(t *testing.T) {
-	db := newTestDB(t)
-	ag := newTestAgent(t, db)
-	id, _ := parkForApproval(t, ag, db)
-	run, _ := db.getRun(id)
-	var pend pending
-	_ = json.Unmarshal([]byte(run.Pending), &pend)
-
-	ag.denyApproval(id, pend)
+	useGlobalAgent(t, ag)
+	id := approvalRun(t, ag)
+	serve(handleApprove, "POST", "/runs/x/approve", id, []byte(`{"approve":false}`), "application/json")
+	waitStatus(t, db, id, statusIdle)
 	assertTranscriptValid(t, db, id)
 	msgs, _ := db.messages(id, true)
-	var denied int
+	denied := 0
 	for _, m := range msgs {
 		if m.Role == "tool" && strings.Contains(m.Content, "denied") {
 			denied++
@@ -440,11 +421,17 @@ func TestDenyApprovalAnswersEachCallOnce(t *testing.T) {
 	}
 }
 
-func TestInterjectingWhileParkedAnswersEachCallOnce(t *testing.T) {
+// Replying instead of approving denies the parked calls, then the reply is
+// answered — each call answered exactly once.
+func TestReplyingWhileParkedDeniesThenAnswers(t *testing.T) {
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)
-	id, _ := parkForApproval(t, ag, db)
-	ag.denyPending(id) // the user typed a reply instead of approving
-	_ = db.setStatus(id, statusIdle, 0, "", "")
+	id := approvalRun(t, ag)
+	fakeOf(ag).on(lastUser("never mind"), say("fine"))
+	send(t, ag, id, "never mind")
+	waitFor(t, "the reply to be answered", func() bool { return strings.Contains(transcript(db, id), "A:fine") })
 	assertTranscriptValid(t, db, id)
+	if got := transcript(db, id); !strings.Contains(got, "replied instead of") {
+		t.Fatalf("parked calls were not denied: %s", got)
+	}
 }

@@ -1,7 +1,8 @@
 // tools.go — the tool set the agent can call. Opinionated builtins plus a seam
-// for MCP-sourced tools. Control-flow tools (finish/ask_user/yield/
-// spawn_subagent) are advertised here but handled by the loop (loop.go), since
-// they change run status; the rest execute here. These builtins are the parts
+// for MCP-sourced tools. Control-flow tools (finish/ask_user/yield) and the
+// subagent tools are advertised here but handled by the engine
+// (actor_tools.go, subagent_tools.go), since they change run state; the rest
+// execute here. These builtins are the parts
 // you extend per instance — especially xbin_call, the point of the agent:
 // moving data between xbin components (bounded by grants a human approved).
 package main
@@ -153,16 +154,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			}),
 		}})
 	}
-	specs = append(specs, workflowToolSpecs(cfg, depth)...)
-	if cfg.Subagents && depth < cfg.maxDepth() {
-		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
-			Name: "spawn_subagent", Description: "Delegate a focused task to a fresh subagent (its own context). Returns the subagent's final result. Emit several in one turn to run them in parallel.",
-			Parameters: obj([]string{"task"}, map[string]any{
-				"task":   strProp("the task for the subagent"),
-				"system": strProp("optional system prompt override for the subagent"),
-			}),
-		}})
-	}
+	specs = append(specs, subagentToolSpecs(cfg, depth)...)
 	return append(specs, mcp...)
 }
 
@@ -218,7 +210,7 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	case "state_changed":
 		summary, _ := args["summary"].(string)
-		ag.markWatcherChanged(run.ID)
+		ag.db.markWatchChanged(run.ID)
 		ag.db.journal(run.ID, "state_changed", map[string]string{"summary": summary})
 		return "change recorded", nil
 
@@ -301,9 +293,6 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.runSkillTool(name, args)
 	}
 
-	if workflowToolNames[name] {
-		return ag.runWorkflowTool(ctx, run, cfg, name, args)
-	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
 	}

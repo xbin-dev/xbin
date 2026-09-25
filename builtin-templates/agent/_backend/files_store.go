@@ -67,7 +67,7 @@ func normReplPath(p string) (string, error) {
 
 func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 	f := &ReplFile{Path: path}
-	err := d.sql.QueryRow(
+	err := d.q.QueryRow(
 		`SELECT content, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? AND path=?`,
 		runID, path).Scan(&f.Content, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob)
 	if err == sql.ErrNoRows {
@@ -80,7 +80,7 @@ func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 // replFiles lists a run's files without their contents — this feeds the tool
 // result footer and the tile's 1.5s poll, so it must stay cheap.
 func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
-	rows, err := d.sql.Query(
+	rows, err := d.q.Query(
 		`SELECT path, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? ORDER BY path`, runID)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 	}
 	if curErr != nil { // new file — check the per-run ceilings
 		var n, total int
-		_ = d.sql.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob='' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`, runID).Scan(&n, &total)
+		_ = d.q.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob='' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`, runID).Scan(&n, &total)
 		if n >= maxReplFiles {
 			return nil, fmt.Errorf("too many files: %d (max %d) — delete some first", n, maxReplFiles)
 		}
@@ -138,7 +138,7 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 	if curErr == nil {
 		ver, created = cur.Version+1, cur.Created
 	}
-	_, err = d.sql.Exec(
+	_, err = d.q.Exec(
 		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(run_id, path) DO UPDATE SET content=excluded.content, bytes=excluded.bytes,
@@ -162,7 +162,7 @@ func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string
 		return nil, fmt.Errorf("file too large: %s (max %s)", humanBytes(size), humanBytes(maxBinaryFileBytes))
 	}
 	var n, total int
-	_ = d.sql.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob<>'' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`,
+	_ = d.q.QueryRow(`SELECT count(*), coalesce(sum(CASE WHEN blob<>'' THEN bytes ELSE 0 END),0) FROM repl_files WHERE run_id=?`,
 		runID).Scan(&n, &total)
 	if n >= maxReplFiles {
 		return nil, fmt.Errorf("too many files: %d (max %d) — delete some first", n, maxReplFiles)
@@ -172,7 +172,7 @@ func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string
 			humanBytes(total), humanBytes(size), humanBytes(maxBinaryRunBytes))
 	}
 	ts := now()
-	if _, err := d.sql.Exec(
+	if _, err := d.q.Exec(
 		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, mime, blob)
 		 VALUES (?, ?, '', ?, 1, ?, ?, ?, ?)`, runID, path, size, ts, ts, mime, blob); err != nil {
 		return nil, err
@@ -185,15 +185,15 @@ func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string
 // file) so the caller can drop the object after the row is gone.
 func (d *DB) replDeleteFile(runID int64, path string) (string, error) {
 	var blob string
-	_ = d.sql.QueryRow(`SELECT blob FROM repl_files WHERE run_id=? AND path=?`, runID, path).Scan(&blob)
-	res, err := d.sql.Exec(`DELETE FROM repl_files WHERE run_id=? AND path=?`, runID, path)
+	_ = d.q.QueryRow(`SELECT blob FROM repl_files WHERE run_id=? AND path=?`, runID, path).Scan(&blob)
+	res, err := d.q.Exec(`DELETE FROM repl_files WHERE run_id=? AND path=?`, runID, path)
 	if err != nil {
 		return "", err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return "", fmt.Errorf("no such file %q", path)
 	}
-	_, _ = d.sql.Exec(`DELETE FROM message_files WHERE run_id=? AND path=?`, runID, path)
+	_, _ = d.q.Exec(`DELETE FROM message_files WHERE run_id=? AND path=?`, runID, path)
 	return blob, nil
 }
 
@@ -202,7 +202,7 @@ func (d *DB) replDeleteFile(runID int64, path string) (string, error) {
 func (d *DB) runBlobs(ids []int64) []string {
 	var out []string
 	for _, id := range ids {
-		rows, err := d.sql.Query(`SELECT blob FROM repl_files WHERE run_id=? AND blob<>''`, id)
+		rows, err := d.q.Query(`SELECT blob FROM repl_files WHERE run_id=? AND blob<>''`, id)
 		if err != nil {
 			continue
 		}
@@ -253,9 +253,9 @@ func (d *DB) replFileIndex(runID int64) string {
 // drop.
 func (d *DB) replClearFiles(runID int64) ([]string, error) {
 	blobs := d.runBlobs([]int64{runID})
-	if _, err := d.sql.Exec(`DELETE FROM repl_files WHERE run_id=?`, runID); err != nil {
+	if _, err := d.q.Exec(`DELETE FROM repl_files WHERE run_id=?`, runID); err != nil {
 		return nil, err
 	}
-	_, _ = d.sql.Exec(`DELETE FROM message_files WHERE run_id=?`, runID)
+	_, _ = d.q.Exec(`DELETE FROM message_files WHERE run_id=?`, runID)
 	return blobs, nil
 }

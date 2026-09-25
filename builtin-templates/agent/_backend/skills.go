@@ -36,7 +36,7 @@ type Skill struct {
 
 func (d *DB) upsertSkill(s *Skill) error {
 	t := now()
-	_, err := d.sql.Exec(
+	_, err := d.q.Exec(
 		`INSERT INTO skills (name, description, content, created, updated) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET description=excluded.description, content=excluded.content, updated=excluded.updated`,
 		s.Name, s.Description, s.Content, t, t)
@@ -45,13 +45,13 @@ func (d *DB) upsertSkill(s *Skill) error {
 
 func (d *DB) getSkill(name string) (*Skill, error) {
 	s := &Skill{}
-	err := d.sql.QueryRow(`SELECT name, description, content, created, updated FROM skills WHERE name=?`, name).
+	err := d.q.QueryRow(`SELECT name, description, content, created, updated FROM skills WHERE name=?`, name).
 		Scan(&s.Name, &s.Description, &s.Content, &s.Created, &s.Updated)
 	return s, err
 }
 
 func (d *DB) listSkills() ([]*Skill, error) {
-	rows, err := d.sql.Query(`SELECT name, description, content, created, updated FROM skills ORDER BY name`)
+	rows, err := d.q.Query(`SELECT name, description, content, created, updated FROM skills ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (d *DB) listSkills() ([]*Skill, error) {
 }
 
 func (d *DB) deleteSkill(name string) error {
-	_, err := d.sql.Exec(`DELETE FROM skills WHERE name=?`, name)
+	_, err := d.q.Exec(`DELETE FROM skills WHERE name=?`, name)
 	return err
 }
 
@@ -162,20 +162,6 @@ func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
-}
-
-// handleLearn injects the "distill this run into a skill" prompt and resumes the
-// run — the /learn flow (the agent authors a SKILL from its own conversation).
-func handleLearn(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
-	if _, err := agent.db.getRun(id); err != nil {
-		xbin.WriteError(w, 404, "no such run")
-		return
-	}
-	_, _ = agent.db.addMessage(&Message{RunID: id, Role: "user", Content: learnPrompt})
-	_ = agent.db.setStatus(id, statusIdle, 0, "", "")
-	agent.driveAsync(id)
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
