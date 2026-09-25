@@ -107,6 +107,18 @@ test('a creation note precedes the first message; later steps follow the message
   assert.deepEqual(fold(v).map((x) => x.k + (x.kind ? ':' + x.kind : '')), ['step:note', 'user', 'assistant', 'step:finish']);
 });
 
+test('who sent a message rides on the block; an automation\'s prompt is a notice', () => {
+  const v = {
+    run: { id: 1 },
+    messages: [m(1, 'user', 'mine', { sender: 'alice' }), m(2, 'user', 'bob here', { sender: 'bob' }),
+      m(3, 'user', 'digest the inbox', { origin: 'schedule', label: 'Morning digest' })],
+  };
+  const b = fold(v);
+  assert.deepEqual(b.map((x) => x.k), ['user', 'user', 'notice']);
+  assert.equal(b[1].sender, 'bob');
+  assert.match(b[2].text, /^\[Scheduled · Morning digest\]\ndigest the inbox$/);
+});
+
 test('attachments come off the text as files', () => {
   const s = splitAttachments('look\n\n[attached: chart.png (image/png, 2.0 KB), notes.txt (text, 12 B)]');
   assert.equal(s.text, 'look');

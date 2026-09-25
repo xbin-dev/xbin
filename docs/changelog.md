@@ -18,6 +18,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: sharing a conversation.** The owner shares it with
+  the whole team (to read, or to read and write), with named people (by
+  user id), or with an invite link (`#join=<token>` on the tile's address;
+  expiring, revocable; only the token's hash is stored). New:
+  `GET/POST /runs/{id}/members`, `DELETE /runs/{id}/members/{user}` (also
+  leave), `POST /runs/{id}/links`, `DELETE /runs/{id}/links/{lid}`,
+  `POST /join`. The chat labels others' messages, and the model gets
+  `[user]` prefixes in shared chats. The top bar's tool-mode badge now
+  reads "internal" (not "private", which now means who can see a chat).
 - **Agent template: a conversation sidebar.** The left list is your
   conversations, like a chat app: Pinned, then Today / Yesterday / Previous 7
   days / Previous 30 days / Older by last activity, unread in bold, search,

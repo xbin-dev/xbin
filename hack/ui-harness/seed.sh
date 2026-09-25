@@ -113,6 +113,9 @@ api PUT /vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}'
 api POST /templates/new '{"source":"agent","path":"apps/agent"}' | head -c 300; echo
 api POST /grants '{"from":"apps/agent","target":"apps/llm-gw","role":"writer"}'
 api POST /grants '{"from":"apps/agent","target":"cap:open-links","role":"writer"}'
+# dev1 may open (and chat with) the agent — the agentConvs pass: per-user
+# conversations and sharing (D83)
+api PUT /access '{"tile":"apps/agent","kind":"user","id":"dev1","level":"read"}'
 # no web egress: keeps the root page's pending-bindings panel (which pushes
 # the canvas down for every pass) one row shorter — only its mcp slot shows
 api POST /bindings '{"component":"apps/agent","slot":"net","provider":"none"}'

@@ -48,6 +48,13 @@ func messageView(m *Message) map[string]any {
 			if meta.Usage != nil {
 				v["usage"] = meta.Usage
 			}
+			// who wrote a user message, and what delivered it (D83)
+			if meta.Sender != "" {
+				v["sender"] = meta.Sender
+			}
+			if meta.Origin != "" {
+				v["origin"], v["originId"], v["label"] = meta.Origin, meta.OriginID, meta.Label
+			}
 		}
 	}
 	return v

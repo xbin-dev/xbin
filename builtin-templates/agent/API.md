@@ -62,6 +62,24 @@ own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
 
+### Sharing
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `GET /runs/{id}/members` | — | `{owner, visibility, teamRole, members:[{user, role, addedBy, via, created}]}`; the owner also gets `links:[{id, role, created, expires, maxUses, uses}]` |
+| `POST /runs/{id}/members` | `{user, role}` | the owner shares it with a person, by user id (the login name), as `viewer` or `participant` |
+| `DELETE /runs/{id}/members/{user}` | — | the owner removes someone; a member removes themselves (leave) |
+| `POST /runs/{id}/links` | `{role, expiresIn?, maxUses?}` | the owner makes an invite link → `{id, token, hash:"#join=<token>"}`. The token is shown once and only its sha256 is stored |
+| `DELETE /runs/{id}/links/{lid}` | — | revoke it |
+| `POST /join` | `{token}` | a person redeems a link and becomes a member (never lowering a role they have); every failure answers 404 |
+
+The tile builds an invite as its own address without the query string plus
+`#join=<token>` — anyone who can open the tile and has it joins, whether they
+open it or paste it into the search box. A person who loses access to an open
+conversation is sent home. Others' messages are labelled with who wrote them;
+messages an automation delivered (a schedule firing into a chat, a watcher's
+check, "Learn a skill") show as notices, not as a person's message.
+
 When a second person speaks in a conversation, each person's message reaches
 the model prefixed `[<user id>]`, and the system prompt says the
 conversation is shared. **Stop** returns only your own queued messages.

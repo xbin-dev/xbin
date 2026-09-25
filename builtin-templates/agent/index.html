@@ -33,7 +33,9 @@
     .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; white-space: nowrap; }
     .runs { overflow: auto; flex: 1; padding: 2px 0 6px; }
     /* the conversation list (sidebar.js): date groups, one line per chat */
-    .side .sq { padding: 6px 8px; border-bottom: 1px solid var(--bx-border); }
+    .side .sq { padding: 6px 8px; border-bottom: 1px solid var(--bx-border); display: flex; flex-direction: column; gap: 6px; }
+    .side .newrow { display: flex; gap: 6px; }
+    .side .newrow #new { flex: 1; }
     .side .sq input { width: 100%; box-sizing: border-box; font-size: 12px; padding: 4px 7px; }
     .grp { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--bx-muted); padding: 9px 10px 3px; }
     .run { padding: 5px 6px 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border-radius: 5px; margin: 0 4px; }
@@ -213,6 +215,8 @@
     .msg.user { margin-left: auto; max-width: 88%; width: fit-content; padding: 6px 11px; border-radius: 10px;
                 background: color-mix(in srgb, var(--bx-accent) 11%, var(--bx-panel)); border: 1px solid color-mix(in srgb, var(--bx-accent) 30%, var(--bx-border)); }
     .msg.user .txt { white-space: pre-wrap; }
+    .msg.user.other { margin-left: 0; margin-right: auto; background: var(--bx-panel-2); border-color: var(--bx-border); }
+    .msg.user .who { font-size: 10.5px; color: var(--bx-muted); margin-bottom: 2px; }
     .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
     .md p, .md ul, .md ol, .md blockquote { margin: 5px 0; }
     .md ul, .md ol { padding-left: 22px; }
@@ -328,6 +332,12 @@
              border-radius: 8px; padding: 0; width: min(520px, 92vw); }
     dialog::backdrop { background: rgba(0,0,0,.5); }
     .dlg-hd { padding: 10px 14px; border-bottom: 1px solid var(--bx-border); font-weight: 600; }
+    .dlg-bd.share { min-width: min(460px, 86vw); }
+    .share .chk { display: block; margin: 3px 0; }
+    .share .prow { display: flex; gap: 6px; align-items: center; margin: 4px 0; font-size: 12.5px; }
+    .share .prow .mono { flex: 1; }
+    .share .prow.add input { flex: 1; }
+    .share .linkout { width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 11.5px; }
     .dlg-bd { padding: 12px 14px; display: grid; gap: 8px; max-height: 70vh; overflow: auto; }
     .dlg-ft { padding: 10px 14px; border-top: 1px solid var(--bx-border); display: flex; gap: 8px; justify-content: flex-end; }
     .field label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
@@ -361,14 +371,14 @@
   <div class="wrap">
     <div class="side">
       <div class="hd"><b class="brand" id="home" title="Home — what needs you">⌂ Home</b>
-        <button class="btn btnsm" id="new" title="New chat">New chat</button>
-        <button class="btn ghost btnsm" id="newopts" title="New chat with options: a title, instructions, the tool mode">⋯</button>
         <button class="btn ghost btnsm" id="gear" title="Settings">⚙</button>
         <!-- The brake lives here, not in .main: .settings overlays .main but
              never .side, so it stays one click away from every view state. -->
         <button class="btn rm btnsm" id="halt" title="Stop every running agent now" hidden>⏻</button>
       </div>
-      <div class="sq"><input id="csearch" type="search" placeholder="Search conversations…" autocomplete="off"></div>
+      <div class="sq"><div class="newrow"><button class="btn btnsm" id="new" title="New chat">New chat</button>
+        <button class="btn ghost btnsm" id="newopts" title="New chat with options: a title, instructions, the tool mode">⋯</button></div>
+        <input id="csearch" type="search" placeholder="Search conversations…" autocomplete="off"></div>
       <div class="runs" id="runs"></div>
       <div class="sfoot" id="sfoot"></div>
     </div>

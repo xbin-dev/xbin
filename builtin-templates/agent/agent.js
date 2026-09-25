@@ -21,6 +21,8 @@ import { queueTpl } from './chat-cards.js';
 import { ConvList } from './conv-list.js';
 import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
+import { schedulesTab } from './automations.js';
+import { openShare, joinFrom } from './share.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
 const base = `/api/${xbin.self}`;
@@ -69,7 +71,6 @@ let models = [];         // model ids from GET /models ({data:[{id}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
 let activeTab = 'config';
-let schedCache = [];     // schedules for the schedules tab (handler lookup by index)
 let skillsCache = [];    // skills for the skills tab
 let skillSel = null;     // name of the skill being edited (null = new)
 let filesCache = [];     // session files for the files tab (lookup by index)
@@ -87,6 +88,7 @@ const session = new Session(base, {
 });
 const convs = new ConvList({ change: () => paintSide(), epoch: () => me.epochMs || 0 });
 session.ui.act.select = (id) => selectRun(id);
+session.ui.me = () => me.user;
 session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
 
 const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'queued', 'blocked']);
@@ -99,7 +101,8 @@ const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'que
 
 const sideUI = makeSideUI({
   convs, api, selectRun: (id) => selectRun(id), goHome: () => goHome(), paint: () => paintSide(),
-  current: () => session.current(), search: () => $('csearch'),
+  current: () => session.current(), search: () => $('csearch'), me: () => me,
+  share: (r) => openShare(r, me, () => convs.load()),
 });
 
 function paintSide() {
@@ -113,6 +116,10 @@ function paintSide() {
 let needsDirty = null;
 function onEvent(ev) {
   convs.apply(ev);
+  if (ev.type === 'revoked' && ev.run === sideUI.sel) {
+    goHome();
+    xbin.notify?.('info', 'That conversation is no longer shared with you.');
+  }
   if (ev.type === 'run' && ev.run === ev.root) {
     const r = convs.find(ev.run);
     if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
@@ -175,7 +182,8 @@ async function selectRun(id) {
 function topTpl(v) {
   if (!v) return html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
   const r = v.run;
-  const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 private';
+  // the tool mode — not who may see it (that is Share)
+  const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 internal';
   const tree = r.parentId || (v.links || []).length;
   const talk = v.access !== 'viewer', own = !v.access || v.access === 'owner' || v.access === 'system';
   return html`<span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
@@ -188,6 +196,8 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${Object.keys(v.memory || {}).length})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${(v.files || []).length})</button>
     ${tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    <button class="btn ghost btnsm" @click=${() => openShare({ id: r.rootId || r.id, title: r.title }, me, () => convs.load())}
+      title=${own ? 'Who can see this conversation' : 'Who this is shared with'}>${own ? 'Share' : 'Shared'}</button>
     ${own ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
 }
 
@@ -764,8 +774,17 @@ $('n-create').onclick = async (e) => {
 let searchT = null;
 $('csearch').oninput = () => {
   clearTimeout(searchT);
-  searchT = setTimeout(() => convs.search($('csearch').value).catch(() => {}), 200);
+  const v = $('csearch').value;
+  if (v.includes('#join=')) { $('csearch').value = ''; join(v); return; } // a pasted invite link
+  searchT = setTimeout(() => convs.search(v).catch(() => {}), 200);
 };
+// join redeems an invite link (#join=… — on the tile's URL, or pasted).
+async function join(text) {
+  try {
+    const r = await joinFrom(text);
+    if (r) { await convs.load(); selectRun(r.runId); }
+  } catch (e) { alert(e.message); }
+}
 
 // --- settings panel + tabs ---------------------------------------------
 
@@ -1015,62 +1034,8 @@ async function tabFiles(bd) {
 
 // Schedules tab: cron-agents — list with enable/disable, run-now, delete, and a
 // create form. A bad cron expression comes back as a 400 error we surface.
-async function tabSchedules(bd) {
-  const list = await api('/schedules');
-  schedCache = list || [];
-  bd.innerHTML = `
-    <div class="sec"><h4>Cron-agents</h4>
-      ${schedCache.length ? schedCache.map((s, i) => `
-        <div class="card"><div class="ch">
-          <input type="checkbox" data-en="${i}" ${s.enabled ? 'checked' : ''} title="enable / disable">
-          <span class="nm">${esc(s.name || 'schedule ' + s.id)}</span>
-          <span class="badge" title="tool mode">${s.toolset === 'web' ? '🌐' : '🔒'}</span>
-          ${s.watcher ? '<span class="badge">watcher</span>' : ''}
-          <button class="btn ghost btnsm" data-fire="${i}">Run now</button>
-          <button class="btn rm btnsm" data-delsc="${i}">Del</button>
-        </div>
-        <div class="hint" style="margin-top:5px">
-          <span class="mono">${esc(s.cron)}</span> · ${esc(clip(s.goal, 140))}
-          ${s.lastRun ? ` · last ${new Date(s.lastRun * 1000).toLocaleString()}` : ''}
-          ${s.runId ? ` · run #${s.runId}` : ''}
-        </div></div>`).join('') : '<div class="hint">no cron-agents yet</div>'}
-    </div>
-    <div class="sec"><h4>New cron-agent</h4>
-      <div class="field"><label>Name</label><input id="sc-name"></div>
-      <div class="row2">
-        <div class="field"><label>Cron (5-field or @every 30m)</label><input id="sc-cron" placeholder="0 9 * * *"></div>
-        <div class="field"><label>Mode</label><label class="chk" style="padding-top:4px"><input type="checkbox" id="sc-watch"> Watcher (one persistent run)</label></div>
-      </div>
-      <div class="field"><label>Tool mode</label><select id="sc-toolset">
-        <option value="private">🔒 private data — internal systems, no web</option>
-        <option value="web">🌐 web — no internal systems</option>
-      </select></div>
-      <div class="field"><label>Goal</label><textarea id="sc-goal" rows="2"></textarea></div>
-      <div><button class="btn" id="sc-create">Create</button> <span class="err" id="sc-err"></span></div>
-    </div>`;
-  bd.querySelectorAll('[data-en]').forEach((b) => b.onchange = async () => {
-    const s = schedCache[+b.dataset.en];
-    try { await api(`/schedules/${s.id}`, jbody({ enabled: b.checked }, 'PUT')); } catch (e) { alert(e.message); }
-    tabSchedules(bd);
-  });
-  bd.querySelectorAll('[data-fire]').forEach((b) => b.onclick = async () => {
-    const s = schedCache[+b.dataset.fire];
-    try { await api(`/schedules/${s.id}/trigger`, { method: 'POST' }); } catch (e) { return alert(e.message); }
-  });
-  bd.querySelectorAll('[data-delsc]').forEach((b) => b.onclick = async () => {
-    const s = schedCache[+b.dataset.delsc];
-    if (!confirm(`Delete schedule "${s.name || s.id}"?`)) return;
-    try { await api(`/schedules/${s.id}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
-    tabSchedules(bd);
-  });
-  $('sc-create').onclick = async () => {
-    const name = $('sc-name').value.trim(), cron = $('sc-cron').value.trim(), goal = $('sc-goal').value.trim();
-    $('sc-err').textContent = '';
-    if (!cron || !goal) { $('sc-err').textContent = 'need a cron expression and a goal'; return; }
-    try { await api('/schedules', jbody({ name, cron, goal, watcher: $('sc-watch').checked, toolset: $('sc-toolset').value }, 'POST')); tabSchedules(bd); }
-    catch (e) { $('sc-err').textContent = e.message; }
-  };
-}
+// The schedules tab lives with the automations (automations.js).
+const tabSchedules = (bd) => schedulesTab(bd, { api, jbody, esc, clip });
 
 // Skills tab: the self-authored skill library — list, view/edit, save, delete.
 async function tabSkills(bd) {
@@ -1140,5 +1105,12 @@ session.start().catch(() => {});
 loadMe().then(() => convs.load()).catch(() => {});
 loadHalt();
 loadNeeds();
-// A link to a conversation (#c=<id>) opens it.
-{ const m = /(?:^#|&)c=(\d+)/.exec(location.hash); if (m) selectRun(+m[1]); }
+// A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it —
+// on load, and when the address changes while the tile is open.
+const followHash = () => {
+  const m = /(?:^#|&)c=(\d+)/.exec(location.hash);
+  if (m && +m[1] !== sel) selectRun(+m[1]);
+  else if (location.hash.includes('join=')) join(location.hash);
+};
+followHash();
+addEventListener('hashchange', followHash);

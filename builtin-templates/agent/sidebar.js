@@ -79,7 +79,7 @@ export function footTpl(list, ui) {
 
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename
 // and the row actions. d: {convs, api, selectRun, goHome, paint, current,
-// search() → the search input}.
+// search() → the search input, share(row), me() → GET /me}.
 export function makeSideUI(d) {
   let menu = null, renaming = null;
   const ui = {
@@ -104,7 +104,12 @@ export function makeSideUI(d) {
         if (action === 'rename') { renaming = r.id; d.paint(); document.querySelector('#runs .ren')?.focus(); return; }
         if (action === 'pin') await d.convs.patch(r.id, { pinned: !r.pinnedAt });
         if (action === 'archive') await d.convs.patch(r.id, { archived: !r.archivedAt });
-        if (action === 'share') await d.convs.patch(r.id, r.visibility === 'team' ? { visibility: 'private' } : { visibility: 'team', teamRole: 'viewer' });
+        if (action === 'share') d.share(r);
+        if (action === 'leave' && confirm(`Leave "${r.title}"?`)) {
+          await d.api(`/runs/${r.id}/members/${encodeURIComponent(d.me().user)}`, { method: 'DELETE' });
+          d.convs.remove(r.id);
+          if (ui.sel === r.id) d.goHome();
+        }
         if (action === 'delete' && confirm(`Delete "${r.title}" and its history?`)) {
           await d.api(`/runs/${r.id}`, { method: 'DELETE' });
           if (ui.sel === r.id) d.goHome();

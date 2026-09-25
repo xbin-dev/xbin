@@ -14,6 +14,8 @@ import { headline, family, isSpawn, parseArgs, resultState } from './tool-heads.
 
 // Engine-written user messages that are not the owner speaking.
 const NOTICE = /^\[(subagent results|results of the runs|message from your parent)/;
+// Prompts an automation delivered into a conversation (messages.meta origin).
+const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered' };
 // Journal steps worth a line in the chat (the rest is in the transcript).
 const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'state_changed', 'cancel', 'ask']);
 
@@ -100,7 +102,10 @@ export function fold(v, childView = () => null, depth = 0) {
       if (!skippedTask) { skippedTask = true; continue; }
       const { text, files } = splitAttachments(m.content);
       if (NOTICE.test(text)) out.push({ k: 'notice', id: 'm' + m.id, text });
-      else out.push({ k: 'user', id: 'm' + m.id, text, files, msgId: m.id });
+      else if (m.origin && ORIGIN_LABEL[m.origin]) {
+        // what an automation delivered, not a person typing (D83)
+        out.push({ k: 'notice', id: 'm' + m.id, text: `[${ORIGIN_LABEL[m.origin]}${m.label ? ' · ' + m.label : ''}]\n${text}` });
+      } else out.push({ k: 'user', id: 'm' + m.id, text, files, msgId: m.id, sender: m.sender || '' });
       continue;
     }
     // assistant

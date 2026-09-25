@@ -37,7 +37,10 @@ function blockTpl(b, ui, depth) {
 }
 
 function userTpl(b, ui) {
-  return html`<div class="msg user">
+  // someone else in a shared conversation: say who
+  const other = b.sender && ui.me && b.sender !== ui.me();
+  return html`<div class="msg user ${other ? 'other' : ''}">
+    ${other ? html`<div class="who">${b.sender}</div>` : nothing}
     ${b.text ? html`<div class="txt">${b.text}</div>` : nothing}
     ${b.files && b.files.length ? html`<div class="afiles">${b.files.map((f) => {
       const st = ui.file(b.msgId, f);

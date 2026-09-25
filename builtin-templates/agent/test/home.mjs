@@ -32,7 +32,7 @@ const ok = (name, cond, extra = '') => {
 
 const ORIGIN = 'http://tile.test';
 const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js',
-  'conv-groups.js', 'conv-list.js', 'sidebar.js', 'home.js'];
+  'conv-groups.js', 'conv-list.js', 'sidebar.js', 'home.js', 'share.js', 'automations.js'];
 const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();
