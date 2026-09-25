@@ -1,6 +1,9 @@
 package broker
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -221,5 +224,97 @@ func TestPersonalTerminalScopes(t *testing.T) {
 	carol := principalFor(t, st, "carol")
 	if g := b.TermNetFor(carol, "apps/mine"); !strings.Contains(g.OrgDesc, "user:bob") || g.OwnerScope != term.NetPersonal {
 		t.Fatalf("a guest terminal uses the owner's network: %+v", g)
+	}
+}
+
+// The users/defaults/whoami API carries the personal plane (D88): POST sets
+// it (unknown sets refused before any account exists; the seed's switches
+// can't be lifted by the request), PATCH overlays by presence and no other
+// PATCH clears it, GET /defaults round-trips personalDefaults, and whoami
+// folds the switch into personalTiles.
+func TestPersonalPlaneAPI(t *testing.T) {
+	b := testBroker(t)
+	st := b.Users
+	if err := st.UpsertNetSet("web", users.NetSet{Rules: []string{"internet"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertPermissionSet("gpu", users.PermissionSet{Allow: []string{"gpu:*"}}); err != nil {
+		t.Fatal(err)
+	}
+	// unknown set: 400, and no half-created account
+	code, out := adminJSON(t, b.apiUsersCreate, "POST", "/users", `{"id":"ann","password":"password1","netSets":["nope"]}`)
+	if code != 400 || !strings.Contains(out["error"].(string), "no such network set") {
+		t.Fatalf("unknown set: %d %v", code, out)
+	}
+	if _, exists := st.Get("ann"); exists {
+		t.Fatal("a refused create must not leave an account")
+	}
+	// the seed restricts; the request can add, never lift
+	if err := st.SetNewUserDefaults(users.NewUserDefaults{NoTerminal: true}); err != nil {
+		t.Fatal(err)
+	}
+	code, out = adminJSON(t, b.apiUsersCreate, "POST", "/users", `{"id":"ann","password":"password1","noTerminal":false,"noPersonalTiles":true,"netSets":["web"]}`)
+	if code != 200 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	u, _ := st.Get("ann")
+	if !u.NoTerminal || !u.NoPersonalTiles || strings.Join(u.NetSets, ",") != "web" {
+		t.Fatalf("created row: %+v", u)
+	}
+	// PATCH by presence; an unrelated PATCH (the admin UI's term-net toggle) keeps it
+	patch := func(body string) (int, map[string]any) {
+		t.Helper()
+		r := httptest.NewRequest("PATCH", "/users/ann", strings.NewReader(body))
+		r.SetPathValue("id", "ann")
+		r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true}))
+		w := httptest.NewRecorder()
+		b.apiUsersUpdate(nil, w, r)
+		var o map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &o)
+		return w.Code, o
+	}
+	if code, out := patch(`{"noTerminal":false,"sets":["gpu"]}`); code != 200 {
+		t.Fatalf("patch: %d %v", code, out)
+	}
+	if code, out := patch(`{"termNet":true}`); code != 200 {
+		t.Fatalf("unrelated patch: %d %v", code, out)
+	}
+	u, _ = st.Get("ann")
+	if u.NoTerminal || !u.NoPersonalTiles || strings.Join(u.Sets, ",") != "gpu" || strings.Join(u.NetSets, ",") != "web" || !u.TermNet {
+		t.Fatalf("after patches: %+v", u)
+	}
+	if code, _ := patch(`{"sets":["nope"]}`); code != 400 {
+		t.Fatalf("patch with an unknown set: %d", code)
+	}
+	// the users list carries the resolved plane
+	code, out = adminJSON(t, b.apiUsersList, "GET", "/users", "")
+	var ann map[string]any
+	for _, row := range out["users"].([]any) {
+		if m := row.(map[string]any); m["id"] == "ann" {
+			ann = m
+		}
+	}
+	if ann == nil || ann["personal"] == nil || !strings.Contains(fmt.Sprint(ann["personal"]), "gpu:*") {
+		t.Fatalf("users list personal: %v", ann)
+	}
+	// defaults: personalDefaults round-trips and replaces only itself
+	code, out = adminJSON(t, b.apiDefaultsPut, "PUT", "/defaults", `{"personalDefaults":{"netSets":["web"]}}`)
+	if code != 200 || !strings.Contains(fmt.Sprint(out["personalDefaults"]), "web") || !strings.Contains(fmt.Sprint(out["newUsers"]), "noTerminal:true") {
+		t.Fatalf("defaults put: %d %v", code, out)
+	}
+	if code, _ := adminJSON(t, b.apiDefaultsPut, "PUT", "/defaults", `{"personalDefaults":{"sets":["nope"]}}`); code != 400 {
+		t.Fatalf("unknown set in personal defaults: %d", code)
+	}
+	// whoami: personalTiles folds the switch; the personal block is there
+	a, _ := st.Access("ann")
+	u, _ = st.Get("ann")
+	r := httptest.NewRequest("GET", "/whoami", nil)
+	r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{UserID: "ann", User: u, Access: a}))
+	w := httptest.NewRecorder()
+	b.apiWhoami(w, r)
+	var who map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &who)
+	if who["personalTiles"] != false || who["personal"] == nil {
+		t.Fatalf("whoami: %v", who)
 	}
 }

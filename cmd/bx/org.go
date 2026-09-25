@@ -468,6 +468,7 @@ func cmdPermset(args []string) error {
 		var out struct {
 			Sets       map[string]users.PermissionSet `json:"sets"`
 			AttachedTo map[string][]string            `json:"attachedTo"`
+			HeldBy     map[string][]string            `json:"heldBy"` // users / personal defaults / the seed (D88)
 		}
 		if err := apiJSON("GET", "/api/xbin/permission-sets", nil, &out); err != nil {
 			return err
@@ -482,7 +483,7 @@ func cmdPermset(args []string) error {
 			}
 			fmt.Printf("%-16s allow:[%s]%s attached:[%s] policy-rows:%s\n",
 				name, strings.Join(ps.Allow, " "), flags,
-				strings.Join(out.AttachedTo[name], ","), strconv.Itoa(len(ps.Policy)))
+				strings.Join(append(out.AttachedTo[name], out.HeldBy[name]...), ","), strconv.Itoa(len(ps.Policy)))
 		}
 		return nil
 	case "set":

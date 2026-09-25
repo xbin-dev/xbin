@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -131,6 +132,29 @@ func cmdDoctor() error {
 				}
 				if o.NetHost {
 					warn("org %q gets HOST networking through its network sets — its tiles and terminals share the host stack (no relay, no filtering, no metering)", o.ID)
+				}
+			}
+			// Personal planes (D88): a user's network sets must exist, and a
+			// personal network with host is as loud as an org's.
+			var us struct {
+				Users []struct {
+					ID       string   `json:"id"`
+					NetSets  []string `json:"netSets"`
+					Personal *struct {
+						NetRules []string `json:"netRules"`
+					} `json:"personal"`
+				} `json:"users"`
+			}
+			if haveSets && apiJSON("GET", "/api/xbin/users", nil, &us) == nil {
+				for _, u := range us.Users {
+					for _, n := range u.NetSets {
+						if _, ok := ns.Sets[n]; !ok {
+							warn("user %q holds unknown network set %q (bx user set %s --net-sets -%s)", u.ID, n, u.ID, n)
+						}
+					}
+					if u.Personal != nil && slices.Contains(u.Personal.NetRules, "host") {
+						warn("user %q gets HOST networking on their personal tiles through their network sets", u.ID)
+					}
 				}
 			}
 			var binds struct {

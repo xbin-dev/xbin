@@ -19,6 +19,8 @@ import (
 //	                 [--org o[:level[:create[:admin]]]]…   join orgs at creation (D53)
 //	bx user set <id> [--admin|--user] [--tiles …] [--email a@b.c]
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
+//	  add|set also:  [--no-personal-tiles|--personal-tiles] [--no-terminal|--allow-terminal]
+//	                 [--sets +s,-s] [--net-sets +n,-n]   the personal plane (D88)
 //	bx user signout <id>   end every session + terminal token ("sign out everywhere")
 //	bx user rm  <id>
 //
@@ -28,6 +30,10 @@ import (
 // still accepted so scripts keep working. --term-api / --term-net grant a non-admin's
 // terminals the live tile-API token / internet egress (D17). New accounts
 // also receive the workspace's new-account defaults (`bx defaults`, D52).
+// The personal plane (D88): --no-personal-tiles keeps the account from owning
+// tiles personally, --no-terminal caps it at write everywhere (no shells,
+// agent sessions or logs); --sets / --net-sets attach permission / network
+// sets for the tiles the user owns (+name adds, -name removes).
 // createDeprecated is printed when a script still passes --create (D82).
 const createDeprecated = "note: --create is deprecated and ignored — users create tiles they own at any free path; to forbid personal tiles: bx defaults set --tile-creation org-only"
 
@@ -45,6 +51,9 @@ func cmdUser(args []string) error {
 				Tiles            map[string]string
 				CanCreate        []string
 				TermAPI, TermNet bool
+				NoPersonalTiles  bool
+				NoTerminal       bool
+				Sets, NetSets    []string
 				Disabled         bool
 				InvitePending    bool
 				LastLogin        int64
@@ -89,6 +98,18 @@ func cmdUser(args []string) error {
 				if u.TermNet {
 					parts = append(parts, "term-net")
 				}
+				if u.NoPersonalTiles {
+					parts = append(parts, "no-personal-tiles")
+				}
+				if u.NoTerminal {
+					parts = append(parts, "no-terminal")
+				}
+				if len(u.Sets) > 0 {
+					parts = append(parts, "sets:"+strings.Join(u.Sets, "+"))
+				}
+				if len(u.NetSets) > 0 {
+					parts = append(parts, "net:"+strings.Join(u.NetSets, "+"))
+				}
 				access = strings.Join(parts, ",")
 				if access == "" {
 					access = "-"
@@ -126,8 +147,24 @@ func cmdUser(args []string) error {
 		id := args[1]
 		body := map[string]any{"id": id}
 		wantPw := args[0] == "add"
+		var setMods, netMods []string
 		for i := 2; i < len(args); i++ {
 			switch args[i] {
+			case "--no-personal-tiles", "--personal-tiles":
+				body["noPersonalTiles"] = args[i] == "--no-personal-tiles"
+			case "--no-terminal", "--allow-terminal":
+				body["noTerminal"] = args[i] == "--no-terminal"
+			case "--sets", "--net-sets":
+				flag := args[i]
+				v, err := nextArg(args, &i)
+				if err != nil {
+					return err
+				}
+				if flag == "--sets" {
+					setMods = append(setMods, splitList(v)...)
+				} else {
+					netMods = append(netMods, splitList(v)...)
+				}
 			case "--admin":
 				body["role"] = "admin"
 			case "--user":
@@ -206,6 +243,31 @@ func cmdUser(args []string) error {
 				fmt.Fprintln(os.Stderr, createDeprecated)
 			default:
 				return fmt.Errorf("unknown flag %s", args[i])
+			}
+		}
+		if len(setMods) > 0 || len(netMods) > 0 {
+			var curSets, curNets []string
+			if args[0] == "set" { // +/- apply to the account's current sets
+				var cur struct {
+					Users []struct {
+						ID            string
+						Sets, NetSets []string
+					} `json:"users"`
+				}
+				if err := apiJSON("GET", "/api/xbin/users", nil, &cur); err != nil {
+					return err
+				}
+				for _, u := range cur.Users {
+					if u.ID == id {
+						curSets, curNets = u.Sets, u.NetSets
+					}
+				}
+			}
+			if len(setMods) > 0 {
+				body["sets"] = orEmptyList(applyMods(curSets, setMods))
+			}
+			if len(netMods) > 0 {
+				body["netSets"] = orEmptyList(applyMods(curNets, netMods))
 			}
 		}
 		if wantPw {
@@ -302,4 +364,13 @@ func printInvite(url string) {
 	}
 	base, _ := transport()
 	fmt.Printf("invite link (single-use, 72h — send it to them):\n  %s%s\n", base, url)
+}
+
+// orEmptyList keeps an emptied list as [] on the wire (null would read as
+// "absent" and leave the server's value alone).
+func orEmptyList(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
 }

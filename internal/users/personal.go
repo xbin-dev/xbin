@@ -111,6 +111,17 @@ func (s *Store) normSetNamesLocked(names []string, net bool) ([]string, error) {
 	return out, nil
 }
 
+// CheckSetNames reports the first unknown permission / network set name.
+func (s *Store) CheckSetNames(sets, netSets []string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, err := s.normSetNamesLocked(sets, false); err != nil {
+		return err
+	}
+	_, err := s.normSetNamesLocked(netSets, true)
+	return err
+}
+
 // PersonalDefaults returns a copy of the workspace personal defaults.
 func (s *Store) PersonalDefaults() PersonalDefaults {
 	s.mu.RLock()

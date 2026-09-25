@@ -9,9 +9,9 @@ import (
 )
 
 // cmdDefaults — the workspace's provisioning defaults (docs/auth.md, D27 +
-// D52): the visibility baseline every user gets, what a NEW account starts
-// with (SSO JIT provisioning lands with exactly this), and the tile-creation
-// policy.
+// D52 + D88): the visibility baseline every user gets, what a NEW account
+// starts with (SSO JIT provisioning lands with exactly this), the
+// tile-creation policy, and the live personal defaults.
 //
 //	bx defaults
 //	bx defaults set [--tile-creation any|org-only]
@@ -19,6 +19,10 @@ import (
 //	                [--tiles p=level,…]                   (new-account seed; replace)
 //	                [--org <org>[:level[:create]]]…       (new-account orgs; replace)
 //	                [--term-api[=false]] [--term-net[=false]]
+//	                [--no-personal-tiles[=false]] [--no-terminal[=false]]
+//	                [--sets s,…] [--net-sets n,…]         (new-account personal plane, D88)
+//	                [--personal-sets s,…] [--personal-net-sets n,…]
+//	                                                      (the LIVE personal defaults, D88)
 //
 // `set` overlays the given flags on the current values (unnamed settings are
 // left alone); list-valued flags replace their list. --create p,… (the
@@ -36,8 +40,16 @@ func cmdDefaults(args []string) error {
 				Level  string `json:"level"`
 				Create bool   `json:"create"`
 			} `json:"orgs"`
+			NoPersonalTiles bool     `json:"noPersonalTiles"`
+			NoTerminal      bool     `json:"noTerminal"`
+			Sets            []string `json:"sets"`
+			NetSets         []string `json:"netSets"`
 		} `json:"newUsers"`
-		TileCreation string `json:"tileCreation"`
+		TileCreation     string `json:"tileCreation"`
+		PersonalDefaults struct {
+			Sets    []string `json:"sets"`
+			NetSets []string `json:"netSets"`
+		} `json:"personalDefaults"`
 	}
 	if err := apiJSON("GET", "/api/xbin/defaults", nil, &cur); err != nil {
 		return err
@@ -54,18 +66,26 @@ func cmdDefaults(args []string) error {
 			}
 			orgs = append(orgs, tag)
 		}
-		fmt.Printf("new accounts:   tiles:%s orgs:%s term-api:%v term-net:%v\n",
-			fmtTiles(nu.Tiles), orEmpty(strings.Join(orgs, ",")), nu.TermAPI, nu.TermNet)
+		fmt.Printf("new accounts:   tiles:%s orgs:%s term-api:%v term-net:%v no-personal-tiles:%v no-terminal:%v sets:%s net-sets:%s\n",
+			fmtTiles(nu.Tiles), orEmpty(strings.Join(orgs, ",")), nu.TermAPI, nu.TermNet,
+			nu.NoPersonalTiles, nu.NoTerminal, orEmpty(strings.Join(nu.Sets, ",")), orEmpty(strings.Join(nu.NetSets, ",")))
+		pd := cur.PersonalDefaults
+		fmt.Printf("personal:       sets:%s net-sets:%s   (every user's tiles, live)\n",
+			orEmpty(strings.Join(pd.Sets, ",")), orEmpty(strings.Join(pd.NetSets, ",")))
 		return nil
 	}
 	if args[0] != "set" {
-		return fmt.Errorf("usage: bx defaults [set [--tile-creation any|org-only] [--default-tiles p=l,…] [--tiles p=l,…] [--org o[:level[:create]]]… [--term-api[=false]] [--term-net[=false]]]")
+		return fmt.Errorf("usage: bx defaults [set [--tile-creation any|org-only] [--default-tiles p=l,…] [--tiles p=l,…] [--org o[:level[:create]]]… [--term-api[=false]] [--term-net[=false]] [--no-personal-tiles[=false]] [--no-terminal[=false]] [--sets s,…] [--net-sets n,…] [--personal-sets s,…] [--personal-net-sets n,…]]")
 	}
 	body := map[string]any{}
 	nu := map[string]any{
 		"tiles": cur.NewUsers.Tiles, "canCreate": cur.NewUsers.CanCreate,
 		"termApi": cur.NewUsers.TermAPI, "termNet": cur.NewUsers.TermNet, "orgs": cur.NewUsers.Orgs,
+		"noPersonalTiles": cur.NewUsers.NoPersonalTiles, "noTerminal": cur.NewUsers.NoTerminal,
+		"sets": cur.NewUsers.Sets, "netSets": cur.NewUsers.NetSets,
 	}
+	personal := map[string]any{"sets": cur.PersonalDefaults.Sets, "netSets": cur.PersonalDefaults.NetSets}
+	personalTouched := false
 	touched := false
 	var orgs []map[string]any
 	for i := 1; i < len(args); i++ {
@@ -149,6 +169,29 @@ func cmdDefaults(args []string) error {
 			}
 			nu["termNet"] = v
 			touched = true
+		case "--no-personal-tiles", "--no-terminal":
+			v, err := boolVal()
+			if err != nil {
+				return err
+			}
+			nu[map[string]string{"--no-personal-tiles": "noPersonalTiles", "--no-terminal": "noTerminal"}[flag]] = v
+			touched = true
+		case "--sets", "--net-sets", "--personal-sets", "--personal-net-sets":
+			v, err := next()
+			if err != nil {
+				return err
+			}
+			list := orEmptyList(splitList(v))
+			switch flag {
+			case "--sets":
+				nu["sets"], touched = list, true
+			case "--net-sets":
+				nu["netSets"], touched = list, true
+			case "--personal-sets":
+				personal["sets"], personalTouched = list, true
+			default:
+				personal["netSets"], personalTouched = list, true
+			}
 		default:
 			return fmt.Errorf("unknown flag %s", flag)
 		}
@@ -158,6 +201,9 @@ func cmdDefaults(args []string) error {
 	}
 	if touched {
 		body["newUsers"] = nu
+	}
+	if personalTouched {
+		body["personalDefaults"] = personal
 	}
 	if len(body) == 0 {
 		return fmt.Errorf("nothing to set — see bx defaults --help")

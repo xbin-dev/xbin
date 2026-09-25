@@ -30,9 +30,16 @@ func cmdNetset(args []string) error {
 		var out struct {
 			Sets       map[string]netSet   `json:"sets"`
 			AttachedTo map[string][]string `json:"attachedTo"`
+			HeldBy     map[string][]string `json:"heldBy"` // users / personal defaults / the seed (D88)
 		}
 		if err := apiJSON("GET", "/api/xbin/net-sets", nil, &out); err != nil {
 			return nil, nil, err
+		}
+		if out.AttachedTo == nil {
+			out.AttachedTo = map[string][]string{}
+		}
+		for n, h := range out.HeldBy {
+			out.AttachedTo[n] = append(out.AttachedTo[n], h...)
 		}
 		return out.Sets, out.AttachedTo, nil
 	}

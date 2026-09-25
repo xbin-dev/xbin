@@ -17,7 +17,8 @@ import (
 // the restart fan-out after an edit, and the net labels the console and
 // `bx status` render. Gated like permission sets (admin or xbin:users).
 
-// GET /net-sets → {sets:{name:{rules,created}}, attachedTo:{name:[orgs]}}
+// GET /net-sets → {sets:{name:{rules,created}}, attachedTo:{name:[orgs]},
+// heldBy:{name:["user:<id>"|"personal-defaults"|"new-accounts"]} (D88)}
 func (b *Broker) apiNetSetsList(w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
@@ -29,7 +30,9 @@ func (b *Broker) apiNetSetsList(w http.ResponseWriter, r *http.Request) {
 	sets := st.NetSets()
 	attached := map[string][]string{}
 	bound := map[string][]string{} // tiles bound to set:<name> (D65) — delete is refused while any
+	held := map[string][]string{}  // users / personal defaults / the seed holding it (D88)
 	for name := range sets {
+		held[name] = append([]string{}, st.SetUsers(name, true)...)
 		attached[name] = st.NetSetAttachedTo(name)
 		if attached[name] == nil {
 			attached[name] = []string{}
@@ -39,7 +42,7 @@ func (b *Broker) apiNetSetsList(w http.ResponseWriter, r *http.Request) {
 			bound[name] = []string{}
 		}
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"sets": sets, "attachedTo": attached, "boundBy": bound})
+	server.WriteJSON(w, http.StatusOK, map[string]any{"sets": sets, "attachedTo": attached, "boundBy": bound, "heldBy": held})
 }
 
 // PUT /net-sets/{name} {rules:[…]} — create or replace; attached orgs' tiles
