@@ -137,7 +137,7 @@ Every run records who it belongs to and where it came from (D83): `owner`
 (the user id of whoever started it; `""` for runs from before, or from the
 owner token and scripts), `visibility` (`private` | `team`) with `teamRole`
 (`viewer` | `participant` — what team visibility grants), `origin` (`chat`,
-`api`, `schedule`, `watcher`; later `channel`, `trigger`), `originId` (the
+`api`, `schedule`, `watcher`, `channel`; later `trigger`), `originId` (the
 automation's id), `sessionKey`, `titleSrc` (`clip` | `auto` | `user` |
 `origin`) and `activityMs` (the last thing a person or the agent said, or a
 wait for someone — what the conversation list sorts by). `POST /ask` also
@@ -319,7 +319,7 @@ explicitly.
 
 ## Automations (D83)
 
-The non-UI agents — schedules and watchers now, channels and triggers as
+The non-UI agents — schedules, watchers and chat channels now, triggers as
 they land — are **automations**: each belongs to a person (who created it) and
 is private or team-visible like a conversation, and the runs it fires carry
 its `origin`/`originId` and its owner and visibility. They are not in the
@@ -342,8 +342,8 @@ off, "Start afresh" for a thread, delete. New schedules and watchers are made
 there (it replaces the old Schedules settings tab). `#auto` and
 `#auto=<kind>:<id>` link to it.
 
-A **session** is "a key names the current run" (`sched:<id>`, `watch:<id>`;
-later a channel's DM or thread). It never resets on its own by default;
+A **session** is "a key names the current run" (`sched:<id>`, `watch:<id>`,
+`chan:<id>:dm:<user>` and the like for a channel's DMs and threads). It never resets on its own by default;
 a reset policy (`idle:<seconds>`, `daily:<hour>`) is applied when the next
 input arrives — never by a timer.
 
@@ -378,6 +378,45 @@ a round where the model doesn't call `state_changed` is rolled back, so
 history keeps only the changes. `lastStatus` is how its last run's turn
 ended (`ok`, `done`, `error: …`, `incomplete`). Changing a schedule's
 visibility changes its runs' too.
+
+### Channels (D86)
+
+A chat platform reaches the agent through an **adapter tile** (the `slack`
+builtin, or your own) bound to this agent's `inbox` provide (service
+`agent-inbox`): the binding grants the adapter the `channel` role, which
+reaches only `/adapter/*`. The adapter reports messages and pulls replies;
+the agent decides everything else — which conversation a message joins (a
+session per DM, per thread), who may talk (pairing codes, allowlists,
+mentions), the lane (web by default: a reply is an egress) and the tools
+(`deny`). The adapter contract, the session keys, the chat commands (`/new`,
+`/status`, `/stop`, …) and the policy fields are in `/docs/agent-inbox.md`.
+
+A channel appears (kind `channel` in `GET /automations`, `access: "claim"`
+for managers) when its adapter first says hello, and does nothing until a
+manager claims it; its conversations belong to the claimer and follow its
+visibility. The owner's routes (`{id}` is the channel's):
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `POST /channels/{id}/claim` | `{name?, visibility?, policy?}` | a manager takes an announced channel: it becomes theirs and active |
+| `PUT /channels/{id}` | `{name?, visibility?, policy?, enabled?}` | its owner changes it; a manager may only switch it on or off. A visibility change carries to its conversations |
+| `DELETE /channels/{id}` | — | forget it (owner or manager): its conversations stay; a still-bound adapter announces it again, unclaimed |
+| `GET /channels/{id}/peers` | — | the people it knows: `pending` (a pairing code out), `allowed`, `blocked`; `trusted` |
+| `POST /channels/{id}/pair` | `{code}` | approve the stranger holding that pairing code |
+| `PUT /channels/{id}/peers/{peer}` | `{state?: allowed\|blocked, trusted?, name?}` | set someone's standing (trusted: the private lane when `privateLane` is on; `/approve`) |
+| `DELETE /channels/{id}/peers/{peer}` | — | forget them (a DM starts pairing again) |
+| `GET /channels/{id}/sessions` | — | `{sessions:[{key, runId, resets, reset, created, lastIn, address}]}` |
+| `POST /channels/{id}/sessions/reset` | `{key}` | start a session afresh, like `/new` |
+| `GET /channels/{id}/outbox?state=failed\|pending` | — | replies not delivered |
+| `POST /channels/{id}/outbox/{oid}/retry` | — | queue a failed reply again |
+
+Replies are written in the transaction that ends (or parks) the turn — an
+answer, an `ask_user` question, "waiting for approval" — and the adapter
+acks each after posting it, so a reply is neither lost nor sent twice by
+the agent. A message typed into a channel conversation from this page is
+answered here, not posted. The list stream sends `{type: "automation",
+data: {kind, id}}` when a channel changes (announced, a pairing request, a
+failed delivery).
 
 ## Skills
 

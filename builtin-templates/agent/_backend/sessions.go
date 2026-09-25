@@ -38,12 +38,28 @@ type inbound struct {
 // deliverInbound delivers in; it returns the run it went to and whether that
 // run was created for it.
 func (ag *Agent) deliverInbound(in inbound) (runID int64, created bool, err error) {
+	err = ag.db.Tx(func(t *DB) error {
+		runID, created, _, err = ag.deliverInboundTx(t, in)
+		return err
+	})
+	if err == nil && ag.eng != nil {
+		ag.eng.Poke(runID)
+	}
+	return runID, created, err
+}
+
+// deliverInboundTx is deliverInbound inside the caller's transaction (the
+// caller pokes the run after it commits); it also returns the inbox row.
+func (ag *Agent) deliverInboundTx(t *DB, in inbound) (runID int64, created bool, inboxID int64, err error) {
 	body := inboxBody{Text: in.Text, Files: in.Files, Source: in.Source, Sender: in.Sender, OriginID: in.Stamp.OriginID, Label: in.Label}
+	if in.Mode == "session" {
+		body.Addr = in.Addr
+	}
 	kind := inboxUser
 	if in.Watch {
 		kind = inboxWatch
 	}
-	err = ag.db.Tx(func(t *DB) error {
+	err = func() error {
 		switch in.Mode {
 		case "run":
 			runID = in.RunID
@@ -72,7 +88,8 @@ func (ag *Agent) deliverInbound(in inbound) (runID int64, created bool, err erro
 			_, _ = t.q.Exec(`UPDATE sessions SET last_in=?, address=CASE WHEN ?<>'' THEN ? ELSE address END WHERE key=?`,
 				now(), in.Addr, in.Addr, in.Key)
 		}
-		if _, _, err := t.enqueue(runID, kind, body, in.Client); err != nil {
+		var err error
+		if inboxID, _, err = t.enqueue(runID, kind, body, in.Client); err != nil {
 			return err
 		}
 		t.bumpActivity(runID)
@@ -82,11 +99,8 @@ func (ag *Agent) deliverInbound(in inbound) (runID int64, created bool, err erro
 			}
 		}
 		return nil
-	})
-	if err == nil && ag.eng != nil {
-		ag.eng.Poke(runID)
-	}
-	return runID, created, err
+	}()
+	return runID, created, inboxID, err
 }
 
 func withKey(st runStamp, key string) runStamp {

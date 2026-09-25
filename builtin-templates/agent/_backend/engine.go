@@ -138,6 +138,7 @@ func (e *Engine) takeOver() {
 		go e.ag.clearWakeJobs()
 	}
 	e.recover()
+	outboxKick() // replies the previous owner wrote after our streams connected
 	if e.onTakeup != nil {
 		e.onTakeup()
 	}

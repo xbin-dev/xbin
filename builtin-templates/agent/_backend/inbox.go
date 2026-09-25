@@ -40,8 +40,11 @@ type inboxBody struct {
 	Sender   string `json:"sender,omitempty"`
 	OriginID int64  `json:"originId,omitempty"`
 	Label    string `json:"label,omitempty"`
-	Approve  bool   `json:"approve,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	// Addr is where a reply to this message goes (source=channel: the
+	// adapter's channelAddr, JSON; D86).
+	Addr    string `json:"addr,omitempty"`
+	Approve bool   `json:"approve,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 	// Watcher rounds: the transcript mark before the round, whether it is the
 	// open round, and whether state_changed was called in it.
 	Mark    int  `json:"mark,omitempty"`

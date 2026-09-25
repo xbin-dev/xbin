@@ -27,6 +27,8 @@ overview is the map that puts them in context.
 - [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
+- [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
+  (Slack, …) and agents built from the agent template
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration

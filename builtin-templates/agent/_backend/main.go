@@ -76,6 +76,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	routes(mux)
+	adapterRoutes(mux) // chat adapters: the channel role (channels.go)
 
 	xbin.Serve(mux)
 	// Serve returns at SIGTERM without waiting for anything; the engine gets

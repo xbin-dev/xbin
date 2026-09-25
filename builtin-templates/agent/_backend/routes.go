@@ -95,6 +95,19 @@ func routeTable() []routeDef {
 		{"PUT /skills", needManager, handleSaveSkill},
 		{"DELETE /skills/{name}", needManager, handleDeleteSkill},
 		{"POST /runs/{id}/learn", needParticipant, handleLearn},
+		// Chat channels (D86): the owner's side. The adapters' own routes
+		// (/adapter/*) are mounted apart, for the channel role (channels.go).
+		{"POST /channels/{id}/claim", needManager, handleChannelClaim},
+		{"PUT /channels/{id}", needAutomation, handleChannelUpdate},
+		{"DELETE /channels/{id}", needAutomation, handleChannelDelete},
+		{"GET /channels/{id}/peers", needAutomation, handleChannelPeers},
+		{"POST /channels/{id}/pair", needAutomation, handleChannelPair},
+		{"PUT /channels/{id}/peers/{peer}", needAutomation, handleChannelPeerPut},
+		{"DELETE /channels/{id}/peers/{peer}", needAutomation, handleChannelPeerDelete},
+		{"GET /channels/{id}/sessions", needAutomation, handleChannelSessions},
+		{"POST /channels/{id}/sessions/reset", needAutomation, handleChannelSessionReset},
+		{"GET /channels/{id}/outbox", needAutomation, handleChannelOutbox},
+		{"POST /channels/{id}/outbox/{oid}/retry", needAutomation, handleChannelRetry},
 		{"POST /tick", needCron, handleTick},
 		{"GET /engine/hold", needSelf, handleHold},
 	}

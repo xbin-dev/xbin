@@ -159,7 +159,17 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 		}})
 	}
 	specs = append(specs, subagentToolSpecs(cfg, depth)...)
-	return append(specs, mcp...)
+	specs = append(specs, mcp...)
+	if len(cfg.Deny) == 0 {
+		return specs
+	}
+	kept := specs[:0:0]
+	for _, s := range specs {
+		if !cfg.denied(s.Function.Name) {
+			kept = append(kept, s)
+		}
+	}
+	return kept
 }
 
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
@@ -177,6 +187,9 @@ func sideEffect(name string) bool {
 
 // runTool executes a non-control tool and returns its textual result.
 func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
+	if cfg.denied(name) {
+		return "", fmt.Errorf("%s is not available in this conversation", name)
+	}
 	// Enforced here as well as by hiding the tools from deeper runs: a subagent
 	// creating a cron-agent is the unbounded-spend path — the job outlives the
 	// tree that made it — and a hallucinated call must not get through just

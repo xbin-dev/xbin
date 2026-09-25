@@ -47,5 +47,23 @@
     // egress and the tools report themselves unavailable; the owner may
     // `bx bind <this component> net=internet` (or the admin Interfaces tab).
     "net": { "kind": "net" }
+  },
+
+  // Who may call what. "admin" is the tile itself and its owner: the whole
+  // API, where people are told apart inside (API.md, D83). "channel" is what
+  // a bound chat adapter holds: the /adapter/* routes only
+  // (docs/agent-inbox.md).
+  "expose": {
+    "roles": {
+      "admin": "The tile and its owner: the whole API (API.md)",
+      "channel": "A chat adapter bound to this agent's inbox: /adapter/* only (docs/agent-inbox.md)"
+    }
+  },
+  // Chat channels (D86): an adapter tile (Slack, …) requests an http
+  // interface with service "agent-inbox" and the owner binds it to this
+  // agent; the binding grants it the channel role. A new channel then shows
+  // on the Automations page for a manager to claim.
+  "provides": {
+    "inbox": { "kind": "http", "service": "agent-inbox", "role": "channel" }
   }
 }

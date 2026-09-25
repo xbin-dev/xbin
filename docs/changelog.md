@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Agent template: chat channels.** An agent now `provides` an `inbox`
+  (service `agent-inbox`, role `channel`). A chat adapter tile bound to it
+  reports messages and pulls replies over the contract in
+  [agent-inbox.md](agent-inbox.md).
+  - The agent keeps sessions per DM or thread (OpenClaw-style keys, with
+    `/new`, `/status`, `/stop` and the other commands), pairs unknown DM
+    senders by code, keeps groups to an allowlist and mentions, and runs
+    channel conversations in the web lane without scheduling tools.
+  - A reply is written in the transaction that ends the turn and acked by
+    the adapter once posted.
+  - Channels are claimed and managed on the Automations page
+    (`/channels/{id}/…`, API.md §Channels).
+  - New run config field `deny` (tools a run never gets, inherited by
+    subagents).
+
+  Additive.
 - **Bus push subscriptions: backends can react to bus events.**
   `PUT /api/xbin/bus/subscriptions {name, resource, prefix?, path, role?}`
   (SDK `xbin.Subscribe`) makes xbind POST each matching event to your own

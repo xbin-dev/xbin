@@ -2282,3 +2282,62 @@ Deviations and refinements made while implementing; all deliberate:
     alwaysOn (D84) for every consumer.
   - Delivering through the hub's subscriber channel: a slow backend would
     be dropped from the hub.
+
+- **D86 — Chat channels: adapter tiles report facts, the agent owns
+  sessions, access, lanes and replies; replies are a durable outbox the
+  adapter pulls (2026-09-26).** Users want the agent reachable from Slack
+  and similar platforms, with OpenClaw/Hermes-like session semantics.
+
+  **The split:**
+  - An adapter tile (Slack first) knows the platform. It binds to the
+    agent's `inbox` provide (service `agent-inbox`), and the binding grants
+    the custom role `channel`, which reaches only `/adapter/*`.
+    `RoleSatisfies("admin","channel")` is false, so an adapter can't touch
+    the rest of the agent.
+  - The adapter never names a session or a lane. `sessionKey()` builds the
+    key from the reported facts, and ids are %-escaped, so a `:` in a
+    platform id can't forge a key.
+  - A hello creates an **unclaimed** channel. The binding authorizes the
+    calls; a manager's claim decides whose automation it is and its rules.
+
+  **Session semantics** follow OpenClaw:
+  - a session per DM peer, an optional shared `main`, and assistant
+    threads per thread;
+  - in groups, a mention starts a thread-scoped session and its thread is
+    followed without further mentions;
+  - no automatic reset by default; `idle:`/`daily:` policies are checked
+    lazily on the next message;
+  - `/new` rotates by hand, and old runs stay listed.
+
+  **Security:**
+  - DM pairing codes (8 characters, 1 h, at most 3 waiting, re-sent at
+    most every 10 min) and group allowlists by default, plus a per-peer
+    rate limit.
+  - Channel conversations run in the **web lane**, since a reply is an
+    egress. `privateLane` opens the private lane only to trusted peers and
+    `trustedGroups`, and never with open DMs. Revoking trust rotates the
+    session to a new web-lane run.
+  - A per-run `Config.Deny` (default: `schedule`, `unschedule`,
+    `skill_manage`) is enforced where specs are built, at dispatch and in
+    `runTool`, and inherited by subagents.
+  - The halt keeps messages and says "paused"; a channel message never
+    lifts it.
+
+  **Replies:**
+  - Rows are written in the transaction that ends or parks the turn
+    (`endTurnTx`, `ask_user`, the approval park). `NO_REPLY` and empty
+    answers write nothing; errors are posted generically.
+  - The adapter pulls over `GET /adapter/outbox` (SSE, no pings, `bye` at
+    handover, a kick after takeover) and acks with the platform's
+    message id: at-least-once, made effectively once by the adapter's
+    own record.
+  - A message typed into a channel run from the web UI is answered there,
+    not posted: the reply target is the last message the run took in.
+
+  **Not chosen:**
+  - The agent pushing to the adapter: that needs a second binding and
+    retry timers.
+  - Adapters owning sessions: every adapter would re-implement the
+    semantics and the access rules.
+  - A channel running in the private lane by default: any reply could
+    carry internal data out.

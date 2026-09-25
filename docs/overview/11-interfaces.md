@@ -102,7 +102,8 @@ Provider (the `llm-gw` builtin):
 ```
 
 - **Service contracts are conventions on the `service` string** — reuse standard names
-  (`openai`, `prometheus`, `mcp` for Model Context Protocol servers, …) so components
+  (`openai`, `prometheus`, `mcp` for Model Context Protocol servers, `agent-inbox` for
+  chat adapters feeding an agent — [agent-inbox.md](../agent-inbox.md), …) so components
   stay interchangeable; invent a new one only for a genuinely new API shape. A provider
   may offer several http provides; a binding selects the provide **matching the slot's
   service**, deterministically — so a multi-provide tile like `llm-gw` grants `writer`

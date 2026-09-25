@@ -589,6 +589,7 @@ func childConfig(parent Config, system string) Config {
 	if parent.MCP != nil {
 		c.MCP = append([]MCPServer(nil), parent.MCP...)
 	}
+	c.Deny = append([]string(nil), parent.Deny...)
 	return c
 }
 

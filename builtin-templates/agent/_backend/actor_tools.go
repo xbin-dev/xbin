@@ -113,6 +113,9 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 	for i := 0; i < len(calls); {
 		name := calls[i].Function.Name
 		switch {
+		case cfg.denied(name): // hidden from this run; refused if called anyway
+			e.settleResult(ts, calls[i], "error: "+name+" is not available in this conversation")
+			i++
 		case isControlTool(name):
 			e.controlTool(ctx, ts, calls[i], calls[i+1:])
 			return true
@@ -149,6 +152,8 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall) {
 			}
 		}
 		e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]any{"kind": "approval", "tools": toolNames(calls)}))
+		e.channelAsk(t, run, "approval", "This needs an operator's approval before I go on ("+strings.Join(toolNames(calls), ", ")+
+			"). A trusted person can reply /approve or /deny.")
 		t.bumpActivity(run.ID)
 		if err := t.setStatus(run.ID, statusWaiting, 0, "approve the pending tool call(s)", string(pend)); err != nil {
 			return err
@@ -310,6 +315,7 @@ func (e *Engine) controlTool(ctx context.Context, ts *turnState, tc toolCall, re
 			e.notExecuted(t, ts, rest, "run paused")
 			e.demoteStep(t, ts, "the run is waiting for the owner")
 			e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]string{"kind": "ask_user", "question": q}))
+			e.channelAsk(t, run, "question", q)
 			t.bumpActivity(run.ID)
 			if err := t.setStatus(run.ID, statusWaiting, 0, q, ""); err != nil {
 				return err

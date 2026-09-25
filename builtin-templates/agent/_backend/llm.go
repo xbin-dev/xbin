@@ -83,8 +83,12 @@ type Config struct {
 	// tools, NO web) or "web" (web_search/web_fetch only, NO internal reach).
 	// A run never holds both private data and an egress channel; subagents
 	// and agent-created schedules inherit it.
-	Toolset string      `json:"toolset,omitempty"`
-	MCP     []MCPServer `json:"mcp"` // legacy static MCP servers (now bound via the mcp interface)
+	Toolset string `json:"toolset,omitempty"`
+	// Deny names tools this run never gets ("mcp:*" style prefixes end in
+	// '*'): hidden from the model and refused if called anyway. Set per run
+	// (a channel session's profile, D86) and inherited by its subagents.
+	Deny []string    `json:"deny,omitempty"`
+	MCP  []MCPServer `json:"mcp"` // legacy static MCP servers (now bound via the mcp interface)
 	// Features toggles optional capabilities — a "Features" menu in the tile.
 	// Absent or true = on; set a key false to turn it off. Known keys are in
 	// featureKeys; unlisted keys default on so older configs get everything.
@@ -100,6 +104,20 @@ func (c Config) toolset() string {
 		return "web"
 	}
 	return "private"
+}
+
+// denied reports whether Deny covers the tool name. finish never is: a run
+// must always be able to end.
+func (c Config) denied(name string) bool {
+	if name == "finish" {
+		return false
+	}
+	for _, d := range c.Deny {
+		if d == name || (strings.HasSuffix(d, "*") && strings.HasPrefix(name, strings.TrimSuffix(d, "*"))) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeToolset validates a requested capability lane ("web" or private).
