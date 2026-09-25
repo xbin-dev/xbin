@@ -62,7 +62,7 @@ import { shellCss, statusCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
 import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus } from './shell-kit.js';
-import { overlaps } from './grid-layout.js';
+import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
 import { nextZ } from './zorder.js';
@@ -827,9 +827,12 @@ export class BxShell extends LitElement {
   _pressMove(e) { this._press.move(e); }
   _pressCancel() { this._press.cancel(); }
 
+  // Where a tile opened from this menu goes (D80): the click, in the canvas's
+  // logical px; null on phones (cards stack) and without a point.
+  _menuPoint(e) { return this._mobile || e?.clientX == null ? null : this._canvas?.gridPoint(e.clientX, e.clientY) ?? null; }
   _openCanvasMenu(e) {
     e?.preventDefault?.();
-    this._menu = { items: this._canvasMenuItems(), x: e?.clientX ?? 0, y: e?.clientY ?? 0, anchor: null,
+    this._menu = { items: this._canvasMenuItems(this._menuPoint(e)), x: e?.clientX ?? 0, y: e?.clientY ?? 0, anchor: null,
       sheet: this._mobile, title: this._screen?.name ?? '' };
   }
   _openTileMenu(e, path, anchorEl = null, opts = {}) {
@@ -839,7 +842,7 @@ export class BxShell extends LitElement {
     // contextmenu ~50 ms later — don't reopen the same menu.
     if (this._menu?.tile === path && Date.now() - (this._menuAt ?? 0) < 700) return;
     this._menuAt = Date.now();
-    const items = this._tileMenuItems(path);
+    const items = this._tileMenuItems(path, this._menuPoint(e));
     // Selected text inside the tile rode along with the right-click: lead
     // with Copy — the sandboxed frame has no clipboard of its own, the shell
     // writes it.
@@ -891,20 +894,20 @@ export class BxShell extends LitElement {
       canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
     };
   }
-  _menuActions() {
+  _menuActions(at = null) {
     return {
       enterEdit: (id) => this._enterEdit(id), saveOrgDraft: (id) => this._saveOrgDraft(id),
       discardDraft: (id) => this._discardDraft(id), copyOrgScreen: (id) => this._copyOrgScreen(id),
-      newTileDialog: (...x) => this._newTileDialog(...x), addScreen: () => this._addScreen(),
-      fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p),
-      toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l),
+      newTileDialog: (n, m, o, opts) => this._newTileDialog(n, m, o, { ...opts, at }), addScreen: () => this._addScreen(),
+      fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p, at),
+      toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l, at),
       openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
       openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
     };
   }
-  _canvasMenuItems() { return canvasMenuItems(this._menuState(), this._menuActions()); }
-  _tileMenuItems(path) { return tileMenuItems(path, this._menuState(), this._menuActions()); }
-  _openFromMenu(path) { if (!this._isOpen(path)) this._toggle(path); }
+  _canvasMenuItems(at) { return canvasMenuItems(this._menuState(), this._menuActions(at)); }
+  _tileMenuItems(path, at) { return tileMenuItems(path, this._menuState(), this._menuActions(at)); }
+  _openFromMenu(path, at = null) { if (!this._isOpen(path)) this._toggle(path, at); }
   _noteRecent(path) { this._recent = [path, ...(this._recent ?? []).filter((p) => p !== path)].slice(0, 20); }
 
   async _lifecycle(path, state) {
@@ -919,8 +922,8 @@ export class BxShell extends LitElement {
   // canvas runs the call once the card exists.
   get _canvas() { return this.renderRoot.querySelector('bx-canvas'); }
   _frameOf(path) { return this._canvas?.frameFor(path) ?? null; }
-  _frameOpen(path, layout) {
-    if (!this._canvas?.frameOpen(path, layout)) this._openFromMenu(path);
+  _frameOpen(path, layout, at = null) {
+    if (!this._canvas?.frameOpen(path, layout)) this._openFromMenu(path, at);
   }
 
   // New-tile dialog: names a static tile under apps/, creates it, opens it on
@@ -942,7 +945,7 @@ export class BxShell extends LitElement {
   }
   // fixed: the owner was chosen up front (the context menu's per-owner
   // entries) — no owner select, the choice is stated in the message.
-  _newTileDialog(name = '', message = '', owner = null, { fixed = false } = {}) {
+  _newTileDialog(name = '', message = '', owner = null, { fixed = false, at = null } = {}) {
     const opts = this._ownerOptions();
     const def = owner ?? (this._isAdmin ? '' : (this._myId ? 'user:' + this._myId : ''));
     const fields = [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }];
@@ -954,7 +957,7 @@ export class BxShell extends LitElement {
         + (opts.length > 1 && !fixed ? ' Personal tiles: capability requests (net, containers, ports) need a workspace admin. Org-owned: the org’s admins can approve within their allowance.' : ''))),
       fields,
       buttons: [{ label: 'Cancel', value: null }, { label: 'Create', value: 'create', primary: true }],
-      owner: fixed ? (owner ?? '') : undefined, fixed,
+      owner: fixed ? (owner ?? '') : undefined, fixed, at,
     };
   }
   async _onNewTile({ button, values }) {
@@ -963,9 +966,9 @@ export class BxShell extends LitElement {
     if (button !== 'create') return;
     const name = (values.name || '').trim();
     const owner = values.owner ?? spec?.owner ?? null;
-    const fixed = !!spec?.fixed;
+    const fixed = !!spec?.fixed, at = spec?.at ?? null;
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.', owner, { fixed }); return; }
+    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.', owner, { fixed, at }); return; }
     const path = 'apps/' + slug;
     try {
       // Chrome runs as the owner cookie — raw fetch (xbin.fetch would attach a
@@ -979,9 +982,9 @@ export class BxShell extends LitElement {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? r.status);
       await this._load();                    // pick up the new component
-      if (!this._isOpen(path)) this._toggle(path); // place it on this screen
+      if (!this._isOpen(path)) this._toggle(path, at); // place it on this screen
     } catch (e) {
-      this._newTileDialog(name, String(e.message ?? e), owner, { fixed });
+      this._newTileDialog(name, String(e.message ?? e), owner, { fixed, at });
     }
   }
 
@@ -1552,7 +1555,8 @@ export class BxShell extends LitElement {
     return { x: 0, y: snap(maxY) };
   }
 
-  _toggle(path) {
+  // `at` (a menu's click point, D80) places a new tile there; else _freeSpot.
+  _toggle(path, at = null) {
     const os = this._activeOrgScreen;
     if (os && !this._orgDrafts?.[os.id]) {
       // A shared screen in view mode: an editor's deliberate add opens a draft
@@ -1566,7 +1570,7 @@ export class BxShell extends LitElement {
       this._mutateTiles((tiles) => tiles.filter((o) => o.path !== path));
       return;
     }
-    const { x, y } = this._freeSpot();
+    const { x, y } = at ? spotNear(this._tiles, at) : this._freeSpot();
     this._noteRecent(path);
     this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer

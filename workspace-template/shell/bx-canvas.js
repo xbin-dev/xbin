@@ -228,6 +228,21 @@ export class BxCanvas extends LitElement {
     return { w: Math.max(vw, lg.w * k), h: Math.max(vh, lg.h * k) };
   }
 
+  // A viewport point in the layout's logical px, clamped into `view` — the
+  // part of the canvas visible in <main> — so a right-click over the
+  // sidebar or the org strip lands on the nearest visible canvas edge
+  // (spotNear places a tile opened from a menu there, D80).
+  gridPoint(clientX, clientY) {
+    const c = this.renderRoot.querySelector('.canvas'), main = this.closest('main');
+    if (!c || !main) return null;
+    const k = this._k, cr = c.getBoundingClientRect(), mr = main.getBoundingClientRect();
+    const x0 = Math.max(0, (mr.left - cr.left) / k), y0 = Math.max(0, (mr.top - cr.top) / k);
+    const view = { x: x0, y: y0,
+      w: Math.max(0, (mr.left + main.clientWidth - cr.left) / k - x0), h: Math.max(0, (mr.top + main.clientHeight - cr.top) / k - y0) };
+    const clamp = (v, lo, span) => Math.min(Math.max(v, lo), lo + span);
+    return { x: clamp((clientX - cr.left) / k, view.x, view.w), y: clamp((clientY - cr.top) / k, view.y, view.h), view };
+  }
+
   // Content bounds for the (absolute-positioned) canvas: the tiles, plus the
   // open terminal pop-ups of grid cards (D66) — they live inside the canvas,
   // so the scroll area grows to contain them and shrinks when they close.

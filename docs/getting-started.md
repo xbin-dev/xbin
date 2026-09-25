@@ -99,7 +99,7 @@ browser instead and the shell points you at it once. The `<bx-frame>` pins in
 an organisation shares with its members show up as extra tabs; those are
 read-only until you click *edit layout*, and nothing changes for anyone else
 until you *Save and update for everyone*. Right-click the canvas to reopen a
-recent tile or create one; right-click a card (or press its ⋯) for its
+recent tile or create one, and it opens where you clicked; right-click a card (or press its ⋯) for its
 terminal, logs, source, proposals and admin.
 
 ## First backend

@@ -47,7 +47,8 @@ export class BxMenu extends LitElement {
     _sub: { state: true },          // the item whose flyout is open (desktop)
     _subPos: { state: true },
     _stack: { state: true },        // sheet drill-in: [{items, label}]
-    _q: { state: true },            // the current level's filter query
+    _q: { state: true },            // the main panel's (or the sheet level's) filter query
+    _subQ: { state: true },         // the flyout's — each input filters its own level only
   };
 
   static styles = css`
@@ -161,6 +162,7 @@ export class BxMenu extends LitElement {
     this._subPos = null;
     this._stack = [];
     this._q = '';
+    this._subQ = '';
     this._hover = null;   // flyout intent timer
     this._type = '';      // type-ahead buffer
     this._typeT = null;
@@ -257,11 +259,11 @@ export class BxMenu extends LitElement {
   _openSub(item, el) {
     clearTimeout(this._hover);
     if (this._sub === item) return;
-    this._sub = item; this._subPos = null; this._q = '';
+    this._sub = item; this._subPos = null; this._subQ = '';
     this._placeSub();
     if (el) el.dataset.sub = '1';
   }
-  _closeSub() { clearTimeout(this._hover); this._sub = null; this._subPos = null; this._q = ''; }
+  _closeSub() { clearTimeout(this._hover); this._sub = null; this._subPos = null; this._subQ = ''; }
   // Hover intent on a ROOT row: open its flyout, or close the open one when
   // the pointer settles on a plain row. Rows inside the flyout only cancel a
   // pending close.
@@ -278,8 +280,10 @@ export class BxMenu extends LitElement {
     if (this.sheet && this._stack.length) return this._stack[this._stack.length - 1].items;
     return this.items ?? [];
   }
+  // A query filters only a level that holds the input: typing in the
+  // flyout's find box never thins out the menu it hangs off.
   _visible(items, q) {
-    const ql = q.trim().toLowerCase();
+    const ql = items.some((it) => it.kind === 'input') ? q.trim().toLowerCase() : '';
     return items.filter((it) => {
       if (!isItem(it)) return !(ql && it.kind === 'header');
       if (ql) return `${it.label ?? ''} ${it.keywords ?? ''}`.toLowerCase().includes(ql);
@@ -327,7 +331,7 @@ export class BxMenu extends LitElement {
         else if (this.sheet && this._stack.length) { stop(); this._back(); }
         return;
       case 'Enter':
-        if (inInput) { stop(); const f = this._firstChoice(items, this._q); if (f) this._choose(f, cur); }
+        if (inInput) { stop(); const f = this._firstChoice(items, panel.classList.contains('sub') ? this._subQ : this._q); if (f) this._choose(f, cur); }
         return; // buttons activate natively
       default:
         if (inInput || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
@@ -367,25 +371,25 @@ export class BxMenu extends LitElement {
         ${c.badge ? html`<span class="badge">${c.badge}</span>` : nothing}
       </button>`)}</div>`;
   }
-  // One level of the menu. Rows carry their (level, index) into the visible
-  // list so the keyboard handler can look the item up from a focused button.
-  _list(items, level) {
-    const vis = this._visible(items, this._q);
+  // One level of the menu, filtered by its own query `q`. Rows carry their
+  // (level, index) into the visible list so the keyboard handler can look
+  // the item up from a focused button.
+  _list(items, level, q) {
+    const vis = this._visible(items, q);
     this._lvl[level] = vis;
     const input = items.find((it) => it.kind === 'input');
     const anyItem = vis.some((it) => isItem(it));
-    const q = this._q.trim();
     return html`
       ${vis.map((it, idx) => {
         if (it.kind === 'sep') return html`<div class="sep"></div>`;
         if (it.kind === 'header') return html`<div class="hd">${it.label}</div>`;
         if (it.kind === 'grid') return this._grid(it);
         if (it.kind === 'input') return html`<input class="q" type="search" placeholder=${it.placeholder ?? 'filter…'}
-          .value=${this._q} autocomplete="off" spellcheck="false"
-          @input=${(e) => { this._q = e.target.value; }} @pointerenter=${() => this._hoverItem(null, null, level)}>`;
+          .value=${q} autocomplete="off" spellcheck="false"
+          @input=${(e) => { if (level) this._subQ = e.target.value; else this._q = e.target.value; }} @pointerenter=${() => this._hoverItem(null, null, level)}>`;
         return this._row(it, level, idx);
       })}
-      ${input && !anyItem ? html`<div class="empty">${q ? (input.empty ?? 'no matches') : (input.hint ?? '')}</div>` : nothing}`;
+      ${input && !anyItem ? html`<div class="empty">${q.trim() ? (input.empty ?? 'no matches') : (input.hint ?? '')}</div>` : nothing}`;
   }
 
   render() {
@@ -400,7 +404,7 @@ export class BxMenu extends LitElement {
               : html`<span class="t">${this.title || ''}</span>`}
             <button title="close" @click=${() => this._close()}>✕</button>
           </div>
-          <div class="sbody">${this._list(items, 0)}</div>
+          <div class="sbody">${this._list(items, 0, this._q)}</div>
         </div>`;
     }
     const items = this.items ?? [];
@@ -410,14 +414,14 @@ export class BxMenu extends LitElement {
            style=${this._pos ? `left:${this._pos.left}px; top:${this._pos.top}px` : nothing}
            @keydown=${(e) => this._onKey(e, e.currentTarget, items)}>
         ${this.title && this.hasAttribute('show-title') ? html`<div class="ttl">${this.title}</div>` : nothing}
-        ${this._list(items, 0)}
+        ${this._list(items, 0, this._q)}
       </div>
       ${this._sub ? html`
         <div class="panel sub ${this._subPos ? '' : 'hidden'}" role="menu" tabindex="-1"
              style=${this._subPos ? `left:${this._subPos.left}px; top:${this._subPos.top}px` : nothing}
              @pointerenter=${() => clearTimeout(this._hover)}
              @keydown=${(e) => this._onKey(e, e.currentTarget, this._sub.items)}>
-          ${this._list(this._sub.items ?? [], 1)}
+          ${this._list(this._sub.items ?? [], 1, this._subQ)}
         </div>` : nothing}`;
   }
 }

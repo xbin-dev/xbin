@@ -2047,3 +2047,20 @@ Deviations and refinements made while implementing; all deliberate:
   binding carrying the route is the ING-1 property that keeps publishing a
   single owner-approved act). lan-ingress and stream interfaces stay 1:1 —
   they are consumer slots, not endpoints.
+
+- **D80 — A tile opened from a right-click menu goes to the click, into the
+  nearest free cells, and never pushes (2026-09-25).** Every open used
+  `_freeSpot` (the first gap scanning the top row), so a tile picked from the
+  canvas menu could land a screen away from where the person right-clicked.
+  Now the menu remembers its click in the layout's logical px
+  (`bx-canvas.gridPoint`, clamped into the visible pane). `spotNear`
+  (grid-layout.js, node-tested) puts the tile's top-left cell under that
+  point, pulled in just enough to fit the pane when it can (the way a menu
+  flips at the screen edge). If that overlaps a grid card, the free spot
+  whose top-left is nearest wins; ties go up, then left, so the tile tends
+  to still cover the point. This applies to the canvas menu's Open tile /
+  Create and to the tile menu's open lines on a closed tile. A sidebar
+  row's menu point clamps to the canvas's left edge. Plain sidebar clicks
+  keep `_freeSpot`, since they carry no point on the canvas. Not chosen:
+  pushing neighbours aside, as a drop does (D66). Opening a tile should not
+  rearrange the layout; pushing stays a drag gesture the person is steering.

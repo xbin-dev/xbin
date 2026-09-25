@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-25
 
+- **Shell: a tile opened from a right-click menu lands where you clicked.**
+  **Open tile** and **Create a new tile** on the canvas menu, and **Open on
+  this screen** (or a panel square) on a closed tile's menu, put the tile's
+  top-left cell under the pointer. It is pulled in just enough to fit the
+  visible pane, like a menu at the screen edge. If that would overlap a
+  card, it takes the nearest free spot; nothing is pushed. A sidebar row's
+  menu opens the tile at the canvas's left edge, level with the row. A plain
+  click in the sidebar still fills the first free spot. Also fixed: typing
+  in the **Open tile ▸** find box filtered the canvas menu it hangs off as
+  well, hiding the "Open tile" row itself. Each find box now filters only
+  its own list.
 - **Ingress: one exposed endpoint, many routes.** A tile's `exposes` slot now
   takes any number of bindings — several hostnames (a webhost served through
   the Traefik tile for `shop.example.com` and `www.example.net`, each with its

@@ -2,10 +2,11 @@
 // (workspace-template/shell/grid-layout.js), run by `make js-test`: the
 // overlap test and the push a dragged/resized tile performs on its
 // neighbours (the canvas's "push ghost", D66) and the swap a covered
-// neighbour makes into the space the drag vacated (D69).
+// neighbour makes into the space the drag vacated (D69); where a tile opened
+// from a right-click menu lands (spotNear, D80).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GRID, GAP, DEF_W, DEF_H, snap, overlaps, pushLayout } from '../workspace-template/shell/grid-layout.js';
+import { GRID, GAP, DEF_W, DEF_H, snap, overlaps, pushLayout, spotNear } from '../workspace-template/shell/grid-layout.js';
 
 const T = (path, x, y, w = DEF_W, h = DEF_H, extra = {}) => ({ path, x, y, w, h, ...extra });
 const R = (x, y, w = DEF_W, h = DEF_H) => ({ x, y, w, h });
@@ -143,4 +144,42 @@ test('the same downwards: fully onto the tile below swaps them', () => {
   const res = pushLayout(tiles, 'a', R(0, 384), { dirs: new Map([['b', 'd']]) });
   assert.deepEqual(res.moves, [{ path: 'b', x: 0, y: 0, w: 576, h: 384 }]);
   assert.equal(at(pushLayout(tiles, 'a', R(0, 192), { dirs: new Map([['b', 'd']]) }), 'b').y, 576, 'half-way: pushed');
+});
+
+// spotNear: the tile's top-left cell is the one under the click; it must
+// overlap nothing, and it lands as close to that as the layout allows.
+const covers = (p, pt) => pt.x >= p.x && pt.x < p.x + DEF_W && pt.y >= p.y && pt.y < p.y + DEF_H;
+const clear = (p, tiles) => tiles.every((t) => t.float || !overlaps({ ...p, w: DEF_W, h: DEF_H }, t));
+
+test('spotNear: a free spot → the cell under the point (floored, not rounded)', () => {
+  assert.deepEqual(spotNear([], { x: 570, y: 330 }), { x: 528, y: 288 });
+  assert.deepEqual(spotNear([], { x: -50, y: -10 }), { x: 0, y: 0 }, 'never off the canvas');
+  assert.deepEqual(spotNear([T('f', 528, 288, 576, 384, { float: { x: 0, y: 0, w: 1, h: 1 } })], { x: 570, y: 330 }), { x: 528, y: 288 }, 'floats do not count');
+});
+
+test('spotNear: blocked on the right → shifted left, still under the point', () => {
+  const tiles = [T('a', 960, 0)], pt = { x: 500, y: 100 };
+  const p = spotNear(tiles, pt);
+  assert.deepEqual(p, { x: 384, y: 96 });
+  assert.ok(covers(p, pt) && clear(p, tiles));
+});
+
+test('spotNear: a gap too small → the nearest free spot, overlapping nothing', () => {
+  const tiles = [T('a', 0, 0), T('b', 864, 0)], pt = { x: 600, y: 100 };
+  const p = spotNear(tiles, pt);
+  assert.deepEqual(p, { x: 576, y: 384 }, 'just below the row beats right of b');
+  assert.ok(clear(p, tiles) && p.x % GRID === 0 && p.y % GRID === 0);
+});
+
+test('spotNear: kept inside the visible pane, like a menu at the screen edge', () => {
+  const pt = { x: 1100, y: 700, view: { x: 0, y: 0, w: 1200, h: 800 } };
+  const p = spotNear([], pt);
+  assert.deepEqual(p, { x: 624, y: 384 });
+  assert.ok(covers(p, pt));
+  assert.deepEqual(spotNear([], { x: 1000, y: 500, view: { x: 960, y: 480, w: 1200, h: 800 } }), { x: 960, y: 480 }, 'a scrolled pane');
+  assert.deepEqual(spotNear([], { x: 300, y: 200, view: { x: 0, y: 0, w: 400, h: 300 } }), { x: 288, y: 192 }, 'a pane smaller than the tile: no clamp');
+});
+
+test('spotNear: nothing free nearby → that column, below everything', () => {
+  assert.deepEqual(spotNear([T('big', 0, 0, 6000, 6000)], { x: 100, y: 100 }), { x: 96, y: 6000 });
 });

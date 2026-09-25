@@ -187,11 +187,18 @@ What the shell provides:
   **open tile** (the five most recently opened tiles not already on this
   screen, plus a find box over every readable tile), **create a new tile**
   as a specific owner (mine · each org you hold Create in · workspace), a
-  new screen, and the org-screen draft actions. Right-click a card head or
+  new screen, and the org-screen draft actions. The find box filters only
+  the list it sits in. Right-click a card head or
   a sidebar row (or press its ⋯) for the **tile menu**: four squares —
   terminal · logs · source · change proposals — then open/close, pin,
   full page, and for admins the lifecycle actions plus one line per admin
-  section that opens the ⚙ window there. Native menus stay where they
+  section that opens the ⚙ window there. A tile opened or created from
+  either menu lands **at the click** (D80): its top-left cell is the one
+  under the pointer, pulled in just enough to fit the visible pane; when
+  that overlaps a card it takes the nearest free spot. No card is moved
+  (a sidebar row's menu opens it at the canvas's left edge, level with the
+  row). Opening from the sidebar with a plain click still fills the first
+  free spot, top row first. Native menus stay where they
   belong: inputs, textareas, editable text and links, in the shell and inside
   tiles (that is where paste lives), and any right-click on selected shell
   text. Selected text *inside a tile* is relayed with the right-click and the

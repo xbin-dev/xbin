@@ -118,3 +118,31 @@ export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, ca
   const moves = [...pos.values()].filter((b) => { const o = orig.get(b.path); return o.x !== b.x || o.y !== b.y; }).sort(byPos);
   return { moves, dirs: new Map(moves.map((m) => [m.path, dir.get(m.path)])) };
 }
+
+/**
+ * spotNear(tiles, at, w, h) → {x, y}: where a new w×h tile opened at a point
+ * goes (a right-click menu's "Open tile" / "Create", D80). Its top-left cell
+ * is the cell under the point, pulled left/up just enough to keep the tile
+ * inside `at.view` (the visible pane, when given and the tile fits) — the
+ * way a menu flips at the screen edge. If that overlaps a grid tile, the
+ * free spot nearest to it wins (ties go up, then left, so the tile tends to
+ * still cover the point); none within 40 cells: that column, below
+ * everything. Never moves a tile; floats don't count. All logical px.
+ */
+export function spotNear(tiles, at, w = DEF_W, h = DEF_H) {
+  const placed = tiles.filter((t) => !t.float);
+  let cx = floorG(at.x), cy = floorG(at.y);
+  const v = at.view;
+  if (v && w <= v.w) cx = Math.max(floorG(v.x), Math.min(cx, floorG(v.x + v.w - w)));
+  if (v && h <= v.h) cy = Math.max(floorG(v.y), Math.min(cy, floorG(v.y + v.h - h)));
+  const free = (x, y) => !placed.some((t) => overlaps({ x, y, w, h }, t));
+  const R = 40;
+  let best = null, bd = Infinity;
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const x = cx + dx * GRID, y = cy + dy * GRID, d = dx * dx + dy * dy;
+      if (x >= 0 && y >= 0 && d < bd && free(x, y)) { best = { x, y }; bd = d; }
+    }
+  }
+  return best ?? { x: cx, y: ceilG(placed.reduce((m, t) => Math.max(m, t.y + t.h), 0)) };
+}
