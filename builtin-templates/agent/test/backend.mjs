@@ -98,6 +98,21 @@ export function STUB(seed) {
     }],
     ['POST', /\/runs\/(\d+)\/read$/, () => json({ readMs: Date.now() })],
     ['GET', /\/needs$/, () => json({ items: seed.needs || [] })],
+    // automations (D83)
+    ['GET', /\/automations\?summary=1$/, () => json({ count: (seed.automations || []).length,
+      unread: (seed.automations || []).reduce((n, a) => n + (a.access === 'oversee' ? 0 : a.unread || 0), 0), failing: 0 })],
+    ['GET', /\/automations$/, () => json({ items: seed.automations || [] })],
+    ['GET', /\/automations\/(\w+)\/(\d+)\/runs/, (m) => json({ items: (seed.autoRuns || {})[m[2]] || [], next: '' })],
+    ['POST', /\/automations\/(\w+)\/(\d+)\/(read|reset)$/, () => json({ ok: 'true' })],
+    ['POST', /\/schedules$/, (m, o) => {
+      const b = JSON.parse(o.body);
+      const it = { kind: b.watcher ? 'watcher' : 'schedule', id: 99, name: b.name, access: 'owner', enabled: true, mode: b.mode,
+        visibility: b.visibility, config: { cron: b.cron, goal: b.goal }, runs: 0, unread: 0 };
+      (seed.automations = seed.automations || []).push(it);
+      return json({ id: 99, watcher: !!b.watcher, ...b });
+    }],
+    ['PUT', /\/schedules\/(\d+)$/, (m) => json({ id: +m[1] })],
+    ['POST', /\/schedules\/(\d+)\/trigger$/, () => json({ ok: 'true' })],
     ['GET', /\/runs\/(\d+)\/view$/, (m) => json(view(+m[1]))],
     ['GET', /\/stream\b/, (m, o) => new Response(new ReadableStream({
       start(c) {

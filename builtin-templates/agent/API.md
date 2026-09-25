@@ -334,6 +334,14 @@ conversation list; the tile's Automations page lists them with their runs.
 | `POST /automations/{kind}/{id}/read` | — | mark all its runs read |
 | `POST /automations/{kind}/{id}/reset` | — | start a thread (a persistent schedule, a watcher) afresh: the next firing opens a new run; the old ones stay listed |
 
+The tile's **Automations** page (the sidebar entry above the conversations,
+with a count of what is new) lists them by kind: what each does, when, whose
+it is, how its last run went; open one for its runs (opening marks them read;
+a run opens with an "Automations ›" way back), its settings, "Run now", on /
+off, "Start afresh" for a thread, delete. New schedules and watchers are made
+there (it replaces the old Schedules settings tab). `#auto` and
+`#auto=<kind>:<id>` link to it.
+
 A **session** is "a key names the current run" (`sched:<id>`, `watch:<id>`;
 later a channel's DM or thread). It never resets on its own by default;
 a reset policy (`idle:<seconds>`, `daily:<hour>`) is applied when the next

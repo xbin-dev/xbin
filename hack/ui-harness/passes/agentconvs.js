@@ -95,6 +95,24 @@ async function agentConvs(browser) {
   check(true, 'once removed, dev1\'s view of it closes');
   check((await api(dev.page, `/runs/${id}/view`)).status === 404, '…and it is 404 again');
 
+  // an automation: created on the Automations page, run now; its run is listed
+  // there (with what is new), not among admin's conversations; dev1 sees none
+  // of it
+  await admin.page.click('#autos .autos-entry');
+  await admin.page.click('.autos-page button:has-text("New schedule")');
+  await admin.page.fill('.autos-page input[placeholder="Morning digest"]', 'harness digest');
+  await admin.page.fill('.autos-page textarea', 'a quick digest');
+  await admin.page.click('.autos-page button:has-text("Create")');
+  await admin.page.waitForSelector('.autos-page .agoal');
+  await admin.page.click('.autos-page button:has-text("Run now")');
+  await until(admin.page, () => document.querySelectorAll('.autos-page .run').length > 0, null, 30000);
+  check(true, 'an automation created on the page runs, and its run is listed under it');
+  check(!(await admin.page.$$eval('#runs .run .t', (els) => els.map((e) => e.textContent))).some((t) => t.includes('harness digest')),
+    'its run is not among admin\'s conversations');
+  const devAutos = await api(dev.page, '/automations');
+  check(!(devAutos.body.items || []).some((i) => i.name === 'harness digest'), 'dev1 does not see admin\'s automation');
+  await shot(admin.page, 'agent-convs-automation', { fullPage: false });
+
   check(admin.errors.length === 0 && dev.errors.length === 0, `no page errors (${[...admin.errors, ...dev.errors].join(' | ')})`);
   await admin.ctx.close();
   await dev.ctx.close();

@@ -7,7 +7,7 @@
   thinking and tools — the controls to steer it (a message while it works is
   queued for its next step; Stop; approve; compact; learn), a render pane for
   the HTML files the agent shows, the workflow tree, and a tabbed settings area
-  (config / features / memory / files / schedules / skills / MCP). Pure
+  (config / features / memory / files / skills / MCP), the Automations page. Pure
   frontend talking to this component's own backend via xbin.fetch over one
   live stream (no polling). No build step: plain ES modules and lit's render().
 -->
@@ -57,6 +57,26 @@
     .rowmenu .mi { padding: 5px 12px; cursor: pointer; }
     .rowmenu .mi:hover { background: var(--bx-panel-2); }
     .rowmenu .mi.rm { color: var(--bx-red); }
+    /* the Automations entry and page (automations.js) */
+    .autos-entry { display: flex; gap: 6px; align-items: center; margin: 6px 4px 0; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+    .autos-entry:hover, .autos-entry.on { background: var(--bx-panel); }
+    .autos-entry.on { box-shadow: inset 3px 0 0 var(--bx-accent); }
+    .badge.unread { color: var(--bx-accent); border-color: var(--bx-accent); }
+    .autos-page { max-width: 760px; margin: 0 auto; padding: 14px 16px; }
+    .autos-page .ahd { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .autos-page .ahd h3 { margin: 0; font-size: 15px; }
+    .autos-page h5 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .autos-page .empty-line { padding: 4px 2px; }
+    .autos-page .agoal { white-space: pre-wrap; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--bx-border); border-radius: 6px; background: var(--bx-panel-2); }
+    .autos-page .field { margin-bottom: 10px; }
+    .autos-page .field input, .autos-page .field textarea, .autos-page .field select { width: 100%; box-sizing: border-box; }
+    .acard2 { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; background: var(--bx-panel); }
+    .acard2:hover { border-color: var(--bx-accent); }
+    .acard2.off { opacity: .65; }
+    .acard2 .ah { display: flex; gap: 6px; align-items: center; }
+    .acard2 .nm { font-weight: 600; }
+    .acard2 .as { margin-top: 2px; }
+    .crumb { cursor: pointer; color: var(--bx-accent); font-size: 12px; }
     .sfoot { border-top: 1px solid var(--bx-border); padding: 6px 10px; font-size: 11px; color: var(--bx-muted); }
     .sfoot a { cursor: pointer; }
     .sfoot a.on { color: var(--bx-text); }
@@ -379,6 +399,7 @@
       <div class="sq"><div class="newrow"><button class="btn btnsm" id="new" title="New chat">New chat</button>
         <button class="btn ghost btnsm" id="newopts" title="New chat with options: a title, instructions, the tool mode">⋯</button></div>
         <input id="csearch" type="search" placeholder="Search conversations…" autocomplete="off"></div>
+      <div id="autos"></div>
       <div class="runs" id="runs"></div>
       <div class="sfoot" id="sfoot"></div>
     </div>
@@ -450,7 +471,6 @@
           <button class="tab" data-tab="features">Features</button>
           <button class="tab" data-tab="memory">Memory</button>
           <button class="tab" data-tab="files">Files</button>
-          <button class="tab" data-tab="schedules">Schedules</button>
           <button class="tab" data-tab="skills">Skills</button>
           <button class="tab" data-tab="mcp">MCP</button>
           <span style="flex:1"></span>

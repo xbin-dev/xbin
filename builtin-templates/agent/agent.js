@@ -2,8 +2,8 @@
 // — per person, D83; subagents live inside their parent's session), a home
 // view of what needs you, the chat of the selected conversation, the render
 // pane for render_html output (sandboxed, see frameDoc), the workflow tree,
-// and a tabbed settings area (config / features / memory / files / schedules
-// / skills / MCP).
+// the Automations page (automations.js: schedules, watchers), and a tabbed
+// settings area (config / features / memory / files / skills / MCP).
 //
 // Nothing polls. One live stream (stream.js) carries the run list and the
 // selected run's whole tree; chat-view.js keeps the views, chat-fold.js turns
@@ -21,7 +21,7 @@ import { queueTpl } from './chat-cards.js';
 import { ConvList } from './conv-list.js';
 import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
-import { schedulesTab } from './automations.js';
+import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
 import { openShare, joinFrom } from './share.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
@@ -87,6 +87,10 @@ const session = new Session(base, {
   reset: () => { convs.load().catch(() => {}); loadNeeds(); },
 });
 const convs = new ConvList({ change: () => paintSide(), epoch: () => me.epochMs || 0 });
+// The Automations page (automations.js); page is what the main pane shows
+// when no conversation is open: null (home) or 'automations'.
+let page = null;
+const autos = new AutoPage({ change: () => { paintSide(); if (page) paint(); }, select: (id) => selectRun(id), me: () => me });
 session.ui.act.select = (id) => selectRun(id);
 session.ui.me = () => me.user;
 session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
@@ -106,6 +110,7 @@ const sideUI = makeSideUI({
 });
 
 function paintSide() {
+  render(sideEntryTpl(autos, page === 'automations', () => openAutomations()), $('autos'));
   render(sidebarTpl(convs, sideUI), $('runs'));
   render(footTpl(convs, sideUI), $('sfoot'));
   syncHalt($('halt').dataset.on === '1');
@@ -113,7 +118,7 @@ function paintSide() {
 
 // onEvent sees every stream event: the list keeps itself current, and the
 // conversation you are looking at stays read.
-let needsDirty = null;
+let needsDirty = null, autosDirty = null;
 function onEvent(ev) {
   convs.apply(ev);
   if (ev.type === 'revoked' && ev.run === sideUI.sel) {
@@ -124,6 +129,10 @@ function onEvent(ev) {
     const r = convs.find(ev.run);
     if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
     if (sel == null) { clearTimeout(needsDirty); needsDirty = setTimeout(loadNeeds, 300); }
+    if (['schedule', 'watcher'].includes((ev.data || {}).origin)) {
+      clearTimeout(autosDirty);
+      autosDirty = setTimeout(() => (page ? autos.load() : autos.loadSummary()), 300);
+    }
   }
 }
 
@@ -135,7 +144,18 @@ async function loadNeeds() {
   if (sel == null) paint();
 }
 
+// openAutomations shows the Automations page (one automation's, with kind/id).
+async function openAutomations(kind, id) {
+  goHome();
+  page = 'automations';
+  setHash(kind ? `auto=${kind}:${id}` : 'auto');
+  await autos.load();
+  if (kind) await autos.show(kind, +id); else autos.show(null);
+  paintSide(); paint();
+}
+
 function goHome() {
+  page = null;
   sel = null;
   closePreview(); prevSeen = null; prevDismissed = 0;
   closeWorkflow();
@@ -165,6 +185,7 @@ function setHash(h) {
 async function selectRun(id) {
   if (id == null) return goHome();
   sel = +id;
+  page = null;
   closeWorkflow();
   if (preview && preview.runId !== sel) closePreview();
   prevSeen = null;
@@ -180,13 +201,16 @@ async function selectRun(id) {
 // --- painting -------------------------------------------------------------------
 
 function topTpl(v) {
-  if (!v) return html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
+  if (!v) return page === 'automations' ? html`<span class="title">Automations</span>`
+    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
   const r = v.run;
+  const auto = ['schedule', 'watcher'].includes(r.origin) && r.originId;
   // the tool mode — not who may see it (that is Share)
   const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 internal';
   const tree = r.parentId || (v.links || []).length;
   const talk = v.access !== 'viewer', own = !v.access || v.access === 'owner' || v.access === 'system';
-  return html`<span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
+  return html`${auto ? html`<a class="crumb" @click=${() => openAutomations(r.origin, r.originId)}>Automations ›</a>` : nothing}
+    <span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
     <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
     <span class="badge ${r.status}">${r.status}</span>
     ${talk ? nothing : html`<span class="badge" title="shared with you to read">view only</span>`}
@@ -208,7 +232,7 @@ function paint() {
   render(topTpl(v), $('top'));
   const tl = $('timeline');
   const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
-  render(v ? session.template() : homeView(), tl);
+  render(v ? session.template() : page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
   if (atBottom) tl.scrollTop = tl.scrollHeight;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
@@ -802,7 +826,7 @@ function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, memory: tabMemory, files: tabFiles, schedules: tabSchedules, skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, memory: tabMemory, files: tabFiles, skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }
@@ -1034,9 +1058,6 @@ async function tabFiles(bd) {
 
 // Schedules tab: cron-agents — list with enable/disable, run-now, delete, and a
 // create form. A bad cron expression comes back as a 400 error we surface.
-// The schedules tab lives with the automations (automations.js).
-const tabSchedules = (bd) => schedulesTab(bd, { api, jbody, esc, clip });
-
 // Skills tab: the self-authored skill library — list, view/edit, save, delete.
 async function tabSkills(bd) {
   const list = await api('/skills');
@@ -1105,12 +1126,15 @@ session.start().catch(() => {});
 loadMe().then(() => convs.load()).catch(() => {});
 loadHalt();
 loadNeeds();
+autos.loadSummary();
 // A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it —
 // on load, and when the address changes while the tile is open.
 const followHash = () => {
   const m = /(?:^#|&)c=(\d+)/.exec(location.hash);
+  const a = /(?:^#|&)auto(?:=(\w+):(\d+))?/.exec(location.hash);
   if (m && +m[1] !== sel) selectRun(+m[1]);
   else if (location.hash.includes('join=')) join(location.hash);
+  else if (a && page !== 'automations') openAutomations(a[1], a[2]);
 };
 followHash();
 addEventListener('hashchange', followHash);

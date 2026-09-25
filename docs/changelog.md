@@ -18,6 +18,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: an Automations page.** A sidebar entry (with what is
+  new) opens the tile's automations — schedules and watchers, grouped by
+  kind, with their runs (read on open), settings, Run now, on/off, "Start
+  afresh" for threads, and forms for new ones. It replaces the Schedules
+  settings tab. A run fired by an automation opens with a way back to it.
+  `#auto`/`#auto=<kind>:<id>` links.
 - **Agent template: automations and schedule modes.** Schedules and watchers
   belong to their creator and are listed by `GET /automations` (with runs,
   unread counts, last status; `?summary=1`; `…/runs`, `…/read`, `…/reset`).

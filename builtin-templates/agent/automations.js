@@ -1,64 +1,238 @@
-// automations.js — the non-UI agents: schedules and watchers now, channels
-// and triggers as they land (D83). For now the schedules list and form the
-// settings tab shows; the Automations page grows here.
+// automations.js — the Automations page (D83): the agents that work without
+// anyone typing — schedules and watchers now; channels and triggers register
+// here (registerKind) when they land. Each automation shows what it does, when,
+// whose it is and how its last run went; open it for its runs (unread first
+// to your eye), its settings, and — for a thread — "start afresh".
+import { html, nothing, repeat } from '/vendor/lit-all.min.js';
+import { selfApi as api, jbody } from '/vendor/bx-kit.js';
 
-// schedulesTab draws the cron-agents list and the new-schedule form into bd.
-// d: {api, jbody, esc, clip}
-export async function schedulesTab(bd, d) {
-  const { api, jbody, esc, clip } = d;
-  const $ = (id) => document.getElementById(id);
-  const list = await api('/schedules');
-  const schedCache = list || [];
-  bd.innerHTML = `
-    <div class="sec"><h4>Cron-agents</h4>
-      ${schedCache.length ? schedCache.map((s, i) => `
-        <div class="card"><div class="ch">
-          <input type="checkbox" data-en="${i}" ${s.enabled ? 'checked' : ''} title="enable / disable">
-          <span class="nm">${esc(s.name || 'schedule ' + s.id)}</span>
-          <span class="badge" title="tool mode">${s.toolset === 'web' ? '🌐' : '🔒'}</span>
-          ${s.watcher ? '<span class="badge">watcher</span>' : ''}
-          <button class="btn ghost btnsm" data-fire="${i}">Run now</button>
-          <button class="btn rm btnsm" data-delsc="${i}">Del</button>
-        </div>
-        <div class="hint" style="margin-top:5px">
-          <span class="mono">${esc(s.cron)}</span> · ${esc(clip(s.goal, 140))}
-          ${s.lastRun ? ` · last ${new Date(s.lastRun * 1000).toLocaleString()}` : ''}
-          ${s.runId ? ` · run #${s.runId}` : ''}
-        </div></div>`).join('') : '<div class="hint">no cron-agents yet</div>'}
+const KINDS = new Map();
+
+/**
+ * registerKind adds a kind of automation to the page.
+ * @param kind  the API's kind (GET /automations items[].kind)
+ * @param spec  {label, order, detail?(item, page) → template, create?: {label, form(page) → template}}
+ */
+export function registerKind(kind, spec) { KINDS.set(kind, spec); }
+
+const CADENCES = [
+  ['0 9 * * *', 'every day at 9:00'],
+  ['0 9 * * 1-5', 'every weekday at 9:00'],
+  ['0 9 * * 1', 'every Monday at 9:00'],
+  ['@every 1h', 'every hour'],
+  ['@every 15m', 'every 15 minutes'],
+];
+const MODES = { isolated: 'a new run each time', persistent: 'one ongoing thread', conversation: 'into a conversation' };
+
+export class AutoPage {
+  /** @param on {change(), select(runId), me() → GET /me} */
+  constructor(on) {
+    this.on = on;
+    this.items = [];
+    this.summary = { count: 0, unread: 0, failing: 0 };
+    this.open = null;   // {kind, id}
+    this.runs = [];
+    this.next = '';
+    this.form = null;   // the schedule being created or edited
+    this.err = '';
+  }
+
+  changed() { this.on.change?.(); }
+
+  async loadSummary() {
+    try { this.summary = await api('/automations?summary=1'); } catch { /* keep */ }
+    this.changed();
+  }
+
+  async load() {
+    try { this.items = (await api('/automations')).items || []; this.err = ''; } catch (e) { this.err = e.message; }
+    if (this.open) await this.loadRuns();
+    this.changed();
+  }
+
+  item() { return this.open && this.items.find((i) => i.kind === this.open.kind && i.id === this.open.id); }
+
+  async show(kind, id) {
+    this.open = kind ? { kind, id } : null;
+    this.form = null;
+    this.runs = [];
+    this.next = '';
+    if (this.open) {
+      await this.loadRuns();
+      api(`/automations/${kind}/${id}/read`, { method: 'POST' }).then(() => this.loadSummary()).catch(() => {});
+    }
+    this.changed();
+  }
+
+  async loadRuns(more = false) {
+    const { kind, id } = this.open;
+    const q = more && this.next ? `?cursor=${encodeURIComponent(this.next)}` : '';
+    try {
+      const p = await api(`/automations/${kind}/${id}/runs${q}`);
+      this.runs = more ? [...this.runs, ...(p.items || [])] : p.items || [];
+      this.next = p.next || '';
+    } catch (e) { this.err = e.message; }
+    this.changed();
+  }
+
+  newSchedule(watcher = false) {
+    this.open = null;
+    this.form = { name: '', cron: CADENCES[0][0], goal: '', mode: 'isolated', toolset: 'private', visibility: 'private', watcher };
+    this.changed();
+  }
+
+  editSchedule(it) {
+    const c = it.config || {};
+    this.form = { id: it.id, name: it.name, cron: c.cron, goal: c.goal, system: c.system || '', mode: it.mode || 'isolated',
+      toolset: c.toolset || 'private', visibility: it.visibility, watcher: it.kind === 'watcher', targetRun: it.targetRun };
+    this.changed();
+  }
+
+  async save() {
+    const f = this.form;
+    if (!f.cron.trim() || !f.goal.trim()) { this.err = 'a cadence and what to do are needed'; this.changed(); return; }
+    const body = { name: f.name.trim(), cron: f.cron.trim(), goal: f.goal.trim(), mode: f.watcher ? '' : f.mode,
+      visibility: f.visibility, watcher: f.watcher, toolset: f.toolset, targetRun: f.targetRun || 0 };
+    try {
+      const s = f.id ? await api(`/schedules/${f.id}`, jbody(body, 'PUT')) : await api('/schedules', jbody(body, 'POST'));
+      this.form = null;
+      this.err = '';
+      await this.load();
+      await this.show(s.watcher ? 'watcher' : 'schedule', s.id);
+    } catch (e) { this.err = e.message; this.changed(); }
+  }
+
+  async act(fn) {
+    this.err = '';
+    try { await fn(); await this.load(); } catch (e) { this.err = e.message; this.changed(); }
+  }
+  toggle(it) { return this.act(() => api(`/schedules/${it.id}`, jbody({ enabled: !it.enabled }, 'PUT'))); }
+  runNow(it) { return this.act(() => api(`/schedules/${it.id}/trigger`, { method: 'POST' })); }
+  reset(it) { return this.act(() => api(`/automations/${it.kind}/${it.id}/reset`, { method: 'POST' })); }
+  async del(it) {
+    if (!confirm(`Delete "${it.name}"? Its runs stay.`)) return;
+    await this.act(() => api(`/schedules/${it.id}`, { method: 'DELETE' }));
+    this.open = null;
+    this.changed();
+  }
+}
+
+registerKind('schedule', { label: 'Schedules', order: 1 });
+registerKind('watcher', { label: 'Watchers', order: 2 });
+
+const ago = (sec) => {
+  if (!sec) return '';
+  const s = Math.max(0, Date.now() / 1000 - sec);
+  return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
+};
+const cadence = (cron) => (CADENCES.find(([c]) => c === cron) || [cron, cron])[1];
+
+// autoPageTpl is the page (drawn into the timeline).
+export function autoPageTpl(p) {
+  if (p.form) return formTpl(p);
+  const it = p.item();
+  if (p.open && it) return detailTpl(p, it);
+  const groups = [...KINDS.entries()].sort((a, b) => a[1].order - b[1].order)
+    .map(([kind, spec]) => ({ kind, spec, items: p.items.filter((i) => i.kind === kind) }));
+  return html`<div class="autos-page">
+    <div class="ahd"><h3>Automations</h3><span class="muted small">agents that work without anyone typing</span>
+      <span style="flex:1"></span>
+      <button class="btn btnsm" @click=${() => p.newSchedule(false)}>New schedule</button>
+      <button class="btn ghost btnsm" @click=${() => p.newSchedule(true)}>New watcher</button></div>
+    ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
+    ${groups.map((g) => html`<h5>${g.spec.label}</h5>
+      ${g.items.length ? repeat(g.items, (i) => i.kind + i.id, (i) => cardTpl(p, i))
+        : html`<div class="muted small empty-line">none yet</div>`}`)}
+  </div>`;
+}
+
+function cardTpl(p, it) {
+  const mine = it.access === 'owner';
+  const failed = (it.lastStatus || '').startsWith('error');
+  return html`<div class="acard2 ${it.enabled ? '' : 'off'}" data-auto=${it.kind + ':' + it.id} @click=${() => p.show(it.kind, it.id)}>
+    <div class="ah"><span class="nm">${it.name}</span>
+      ${it.unread ? html`<span class="badge unread">${it.unread} new</span>` : nothing}
+      ${failed ? html`<span class="badge error" title=${it.lastStatus}>failed</span>` : nothing}
+      ${it.enabled ? nothing : html`<span class="badge">off</span>`}
+      <span style="flex:1"></span>
+      ${it.access === 'oversee' ? html`<span class="muted small">${it.owner}'s</span>` : !mine && it.owner ? html`<span class="muted small">by ${it.owner}</span>` : nothing}
+      ${mine ? html`<button class="btn ghost btnsm" @click=${(e) => { e.stopPropagation(); p.runNow(it); }}>Run now</button>` : nothing}
     </div>
-    <div class="sec"><h4>New cron-agent</h4>
-      <div class="field"><label>Name</label><input id="sc-name"></div>
-      <div class="row2">
-        <div class="field"><label>Cron (5-field or @every 30m)</label><input id="sc-cron" placeholder="0 9 * * *"></div>
-        <div class="field"><label>Mode</label><label class="chk" style="padding-top:4px"><input type="checkbox" id="sc-watch"> Watcher (one persistent run)</label></div>
-      </div>
-      <div class="field"><label>Tool mode</label><select id="sc-toolset">
-        <option value="private">🔒 private data — internal systems, no web</option>
-        <option value="web">🌐 web — no internal systems</option>
-      </select></div>
-      <div class="field"><label>Goal</label><textarea id="sc-goal" rows="2"></textarea></div>
-      <div><button class="btn" id="sc-create">Create</button> <span class="err" id="sc-err"></span></div>
-    </div>`;
-  bd.querySelectorAll('[data-en]').forEach((b) => b.onchange = async () => {
-    const s = schedCache[+b.dataset.en];
-    try { await api(`/schedules/${s.id}`, jbody({ enabled: b.checked }, 'PUT')); } catch (e) { alert(e.message); }
-    schedulesTab(bd, d);
-  });
-  bd.querySelectorAll('[data-fire]').forEach((b) => b.onclick = async () => {
-    const s = schedCache[+b.dataset.fire];
-    try { await api(`/schedules/${s.id}/trigger`, { method: 'POST' }); } catch (e) { return alert(e.message); }
-  });
-  bd.querySelectorAll('[data-delsc]').forEach((b) => b.onclick = async () => {
-    const s = schedCache[+b.dataset.delsc];
-    if (!confirm(`Delete schedule "${s.name || s.id}"?`)) return;
-    try { await api(`/schedules/${s.id}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
-    schedulesTab(bd, d);
-  });
-  $('sc-create').onclick = async () => {
-    const name = $('sc-name').value.trim(), cron = $('sc-cron').value.trim(), goal = $('sc-goal').value.trim();
-    $('sc-err').textContent = '';
-    if (!cron || !goal) { $('sc-err').textContent = 'need a cron expression and a goal'; return; }
-    try { await api('/schedules', jbody({ name, cron, goal, watcher: $('sc-watch').checked, toolset: $('sc-toolset').value }, 'POST')); schedulesTab(bd, d); }
-    catch (e) { $('sc-err').textContent = e.message; }
-  };
+    <div class="as muted small">${it.config ? cadence(it.config.cron) : it.summary}${it.config ? ' · ' + (it.config.goal || '').slice(0, 140) : ''}</div>
+    <div class="as muted small">${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}
+      ${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}</div>
+  </div>`;
+}
+
+function detailTpl(p, it) {
+  const mine = it.access === 'owner';
+  const spec = KINDS.get(it.kind) || {};
+  const thread = it.kind === 'watcher' || it.mode === 'persistent';
+  return html`<div class="autos-page">
+    <div class="ahd"><a class="crumb" @click=${() => p.show(null)}>Automations</a> › <b>${it.name}</b>
+      <span style="flex:1"></span>
+      ${mine ? html`<button class="btn ghost btnsm" @click=${() => p.runNow(it)}>Run now</button>` : nothing}
+      ${mine || it.access === 'oversee' ? html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => p.toggle(it)}> on</label>` : nothing}
+      ${mine && it.config ? html`<button class="btn ghost btnsm" @click=${() => p.editSchedule(it)}>Edit</button>` : nothing}
+      ${mine && thread ? html`<button class="btn ghost btnsm" title="its next run starts a new conversation; the old ones stay" @click=${() => p.reset(it)}>Start afresh</button>` : nothing}
+      ${mine || it.access === 'oversee' ? html`<button class="btn rm btnsm" @click=${() => p.del(it)}>Delete</button>` : nothing}
+    </div>
+    ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
+    <div class="muted small">${it.config ? html`${cadence(it.config.cron)} · ${it.kind === 'schedule' ? MODES[it.mode] : 'a watcher'}
+      ${it.mode === 'conversation' && it.targetRun ? html` · <a @click=${() => p.on.select(it.targetRun)}>reports to its conversation</a>` : nothing}`
+      : it.summary}${it.lastStatus ? ` · last run: ${it.lastStatus}` : ''}</div>
+    ${it.config && it.config.goal ? html`<div class="agoal">${it.config.goal}</div>` : nothing}
+    ${spec.detail ? spec.detail(it, p) : nothing}
+    <h5>Runs</h5>
+    ${p.runs.length ? repeat(p.runs, (r) => r.id, (r) => html`<div class="run ${r.unread ? 'unread' : ''}" data-id=${r.id} @click=${() => p.on.select(r.id)}>
+        <div class="t">${r.title || 'run ' + r.id}</div>
+        <span class="gl">${new Date(r.activityMs).toLocaleString()}</span>
+        ${r.status === 'error' ? html`<span class="gl err">!</span>` : r.status === 'running' ? html`<span class="spin"></span>` : nothing}
+      </div>`) : html`<div class="muted small empty-line">no runs yet</div>`}
+    ${p.next ? html`<button class="btn ghost btnsm" @click=${() => p.loadRuns(true)}>more</button>` : nothing}
+  </div>`;
+}
+
+function formTpl(p) {
+  const f = p.form;
+  const set = (k) => (e) => { f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; p.changed(); };
+  const preset = CADENCES.some(([c]) => c === f.cron);
+  return html`<div class="autos-page">
+    <div class="ahd"><a class="crumb" @click=${() => { p.form = null; p.changed(); }}>Automations</a> ›
+      <b>${f.id ? 'Edit ' + (f.watcher ? 'watcher' : 'schedule') : f.watcher ? 'New watcher' : 'New schedule'}</b></div>
+    ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
+    <div class="field"><label>Name</label><input .value=${f.name} @input=${set('name')} placeholder="Morning digest"></div>
+    <div class="field"><label>When</label>
+      <select @change=${(e) => { if (e.target.value) { f.cron = e.target.value; p.changed(); } }}>
+        ${CADENCES.map(([c, l]) => html`<option value=${c} ?selected=${f.cron === c}>${l}</option>`)}
+        <option value="" ?selected=${!preset}>custom…</option></select>
+      ${preset ? nothing : html`<input class="mono" .value=${f.cron} @input=${set('cron')} placeholder="0 9 * * * or @every 30m">`}</div>
+    <div class="field"><label>${f.watcher ? 'What to watch' : 'What to do'}</label>
+      <textarea rows="3" .value=${f.goal} @input=${set('goal')}></textarea></div>
+    ${f.watcher ? nothing : html`<div class="field"><label>Where each run goes</label>
+      <select @change=${set('mode')}>
+        <option value="isolated" ?selected=${f.mode === 'isolated'}>a new run each time (a report)</option>
+        <option value="persistent" ?selected=${f.mode === 'persistent'}>one ongoing thread that builds on the last</option>
+        ${f.mode === 'conversation' ? html`<option value="conversation" selected>into its conversation</option>` : nothing}
+      </select></div>`}
+    <div class="row2">
+      <div class="field"><label>Tool mode</label><select @change=${set('toolset')} ?disabled=${!!f.id}>
+        <option value="private" ?selected=${f.toolset !== 'web'}>internal systems, no web</option>
+        <option value="web" ?selected=${f.toolset === 'web'}>web, no internal systems</option></select></div>
+      <div class="field"><label>Who can see its runs</label><select @change=${set('visibility')}>
+        <option value="private" ?selected=${f.visibility !== 'team'}>only you</option>
+        <option value="team" ?selected=${f.visibility === 'team'}>everyone who can open this agent</option></select></div>
+    </div>
+    <div><button class="btn" @click=${() => p.save()}>${f.id ? 'Save' : 'Create'}</button></div>
+  </div>`;
+}
+
+// sideEntryTpl is the sidebar's entry: the page, with what is new there.
+export function sideEntryTpl(p, on, open) {
+  const n = p.summary.unread || 0;
+  return html`<div class="autos-entry ${on ? 'on' : ''}" @click=${open}>
+    <span>Automations</span>
+    ${n ? html`<span class="badge unread">${n}</span>` : nothing}
+    ${p.summary.failing ? html`<span class="badge error" title="an automation's last run failed">!</span>` : nothing}
+  </div>`;
 }
