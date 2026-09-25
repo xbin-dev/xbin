@@ -890,6 +890,7 @@ export class BxShell extends LitElement {
     const os = this._activeOrgScreen;
     return {
       orgScreen: os, draft: os ? (this._orgDrafts?.[os.id] ?? null) : null, owners: this._ownerOptions(),
+      ownerHint: this._who?.tileCreation === 'org-only' ? 'org-only policy — ask an org admin' : 'personal tiles are off for your account — ask an admin',
       components: this._components, tiles: this._tiles, recent: this._recent ?? [], showHidden: this._showHidden,
       canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
     };
@@ -938,9 +939,11 @@ export class BxShell extends LitElement {
       if (o.create || o.admin) opts.push({ value: 'org:' + o.id, label: 'org: ' + (o.name || o.id) });
     }
     if (this._isAdmin) opts.push({ value: '', label: '— workspace —' });
-    // Workspace policy (D52): under org-only, personal ownership is refused
-    // server-side — don't offer it (the manager tile applies the same rule).
-    if (!this._isAdmin && this._who?.tileCreation === 'org-only') return opts.filter((o) => !o.value.startsWith('user:'));
+    // Org-only (D52) or the account's personal tiles off (D88, folded into
+    // whoami's personalTiles): personal ownership is refused server-side —
+    // don't offer it (the manager tile applies the same rule).
+    const personal = this._who?.personalTiles ?? this._who?.tileCreation !== 'org-only';
+    if (!this._isAdmin && !personal) return opts.filter((o) => !o.value.startsWith('user:'));
     return opts;
   }
   // fixed: the owner was chosen up front (the context menu's per-owner

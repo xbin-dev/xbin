@@ -206,8 +206,8 @@ export class BxTileAdmin extends LitElement {
       <span class="k">memory</span><span class="mono">${rt.rssKb != null ? (rt.rssKb / 1024).toFixed(1) + ' MB' : '—'}</span>
       <span class="k">cpu</span><span class="mono">${rt.cpuSec != null ? rt.cpuSec.toFixed(1) + ' s' : '—'}</span>
       <span class="k">conns</span><span class="mono">${rt.activeConns ?? 0} active</span>
-      ${rt.netRef ? html`<span class="k">net</span><span class="mono" title=${(rt.netRules ?? []).join('\n')}>${rt.netRef === 'org'
-        ? `org → ${rt.netSource || 'org network'}` : rt.netRef}${rt.net ? ` · ${rt.net}` : ''}</span>` : nothing}
+      ${rt.netRef ? html`<span class="k">net</span><span class="mono" title=${(rt.netRules ?? []).join('\n')}>${rt.netRef === 'org' || rt.netRef === 'personal'
+        ? `${rt.netRef} → ${rt.netSource || rt.netRef + ' network'}` : rt.netRef}${rt.net ? ` · ${rt.net}` : ''}</span>` : nothing}
       ${rt.netNote ? html`<span class="k"></span><span class="err">${rt.netNote}</span>` : nothing}
       <span class="k">egress</span><span class="mono">${act.allowed ?? 0} allowed · ${act.denied ?? 0} denied</span>
     </div>`;
@@ -363,9 +363,10 @@ export class BxTileAdmin extends LitElement {
       }
       return out;
     };
-    // Who may wire this tile: the server says (ws admin, or an admin of the
-    // owning org — D26). An owner opening ⚙ on their personal tile sees the
-    // wiring read-only; a bind would be refused.
+    // Who may wire this tile: the server says (ws admin, an admin of the
+    // owning org — D26 — or a personal tile's owner within their allowance,
+    // D88; options outside it come back blocked). Anyone else sees it
+    // read-only; a bind would be refused.
     const mayBind = !!d.approvable?.[this.path];
     const boundOf = (slot) => [].concat(d.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
     // set() resolves after the reload; a <select> keeps a refused choice on
@@ -383,7 +384,7 @@ export class BxTileAdmin extends LitElement {
       const live = [].concat(this._binds?.bindings?.[this.path]?.[slot] ?? []).map((x) => (x && x.ref) ? x.ref : x);
       if (el?.isConnected) el.value = live[0] ?? '';
     };
-    const who = org ? `a workspace admin or an admin of org:${org.id}` : 'a workspace admin';
+    const who = org ? `a workspace admin or an admin of org:${org.id}` : 'a workspace admin, or its owner within their allowance';
     return html`<div class="sec">
       ${this._secErr('interfaces')}
       ${!mayBind && slots.length ? html`<div class="muted" style="margin-bottom:4px" data-readonly>

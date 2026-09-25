@@ -234,11 +234,13 @@
         if (me.admin) {
           opts.push({ value: '', label: '— workspace —' });
           selected = ''; // admins default to workspace-owned (D24)
-        } else if (who.tileCreation === 'org-only') {
-          // Workspace policy (D52): personal ownership is refused server-side.
+        } else if (who.tileCreation === 'org-only' || (me.personalTiles ?? who.personalTiles) === false) {
+          // Org-only (D52) or the account's personal tiles off (D88):
+          // personal ownership is refused server-side.
           if (me.id) opts.shift();
           selected = opts[0]?.value ?? '';
-          if (!opts.length) blocked = 'This workspace only allows organisation-owned tiles and you hold Create in no organisation — ask an org admin.';
+          if (!opts.length) blocked = (who.tileCreation === 'org-only' ? 'This workspace only allows organisation-owned tiles'
+            : 'Personal tiles are turned off for your account') + ' and you hold Create in no organisation — ask an org admin.';
         }
         return { opts, selected, show: opts.length > 1 || me.admin, blocked };
       });

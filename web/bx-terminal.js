@@ -3,7 +3,7 @@
  *
  * Attributes/properties:
  *   cwd      — component path to open the shell in (new session)
- *   net      — network scope for a new session: org | internet | host | none;
+ *   net      — network scope for a new session: org | personal | internet | host | none;
  *              omit it for the tile's default (the org network on org-owned
  *              tiles with network sets, else internet — D54). The server may
  *              clamp the request; the attribute then mirrors what it granted.
@@ -475,7 +475,7 @@ export class BxTerminal extends HTMLElement {
     if (name === 'net' && newV === this.#serverNet) return;
     const msg = name === 'gpu' ? `switching GPU → ${newV}…`
       : name === 'api' ? `${newV === '0' ? 'disabling' : 'enabling'} tile API…`
-        : `switching network → ${newV === 'org' ? 'org network' : newV}…`;
+        : `switching network → ${newV === 'org' || newV === 'personal' ? newV + ' network' : newV}…`;
     this.#restart(msg);
   }
 

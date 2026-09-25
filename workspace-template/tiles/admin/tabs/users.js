@@ -8,6 +8,7 @@
  * the API and the router reloads on bx-admin-refresh.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
+import '/vendor/bx-multiselect.js';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, usersCss } from '../admin-css.js';
 import { targetDatalist, WithDrafts, WithRouter, PRESETS, presetOf, ruleFor, agoCoarse } from '../shared.js';
@@ -23,6 +24,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     reqs: { attribute: false },         // pending human access requests (D36)
     authSettings: { attribute: false }, // sso enabled/ready for the add-user sign-in mode
     targets: { attribute: false },      // tile-target datalist options
+    permsets: { attribute: false },     // /permission-sets — the personal-plane picker (D88)
+    netsets: { attribute: false },      // /net-sets — likewise
     _invite: { state: true },     // last minted invite link {id, url} (D22)
     _viewAs: { state: true },     // last minted view-as link {id, url, opened} (D64)
     _pwEdit: { state: true },     // user id whose password is being reset inline
@@ -30,7 +33,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     _usersQ: { state: true },     // table text filter
     _usersChips: { state: true }, // table chips: Set of admins|disabled|invited|never|stale|noorg|org:<id>
     _bulkBusy: { state: true },   // bulk disable in flight
-    _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles})
+    _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles|personal})
     _err: { state: true },        // the last API refusal (also reported to the router's slot)
   };
   static styles = [base, usersCss];
@@ -70,6 +73,10 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     const signin = f.signin.value;
     const body = { id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value,
       email: f.email.value.trim(), termApi: f.termApi.checked, termNet: f.termNet.checked };
+    // the personal-plane switches (D88) — only ever sent as restrictions; the
+    // server ORs them with the new-account seed
+    if (f.noPersonalTiles.checked) body.noPersonalTiles = true;
+    if (f.noTerminal.checked) body.noTerminal = true;
     if (signin === 'sso') body.sso = true;
     else if (signin === 'password') body.password = f.password.value;
     const org = f.org?.value;
@@ -261,6 +268,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       { id: 'never', label: 'never signed in', test: (u) => u.lastLogin !== undefined && !u.lastLogin },
       { id: 'stale', label: 'stale 30d+', test: (u) => !!u.lastLogin && now - u.lastLogin > STALE_SEC },
       { id: 'noorg', label: 'no org', test: (u) => !(this.orgs ?? []).some((o) => (o.members ?? []).some((m) => m.id === u.id)) },
+      { id: 'restricted', label: 'restricted', test: (u) => !!(u.noPersonalTiles || u.noTerminal) },
     ];
     for (const o of (this.orgs ?? [])) {
       defs.push({ id: `org:${o.id}`, label: o.id, test: (u) => (o.members ?? []).some((m) => m.id === u.id) });
@@ -354,6 +362,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
           </select>` : nothing}
         <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
         <label class="muted" style="font-size:11px" title="internet in terminals on personal/workspace tiles (org tiles follow their org's network sets)"><input type="checkbox" name="termNet"> term-net</label>
+        <label class="muted" style="font-size:11px" title="may not own tiles personally — org-owned tiles only (D88)"><input type="checkbox" name="noPersonalTiles"> no personal tiles</label>
+        <label class="muted" style="font-size:11px" title="capped at write on every tile: no shells, agent sessions or backend logs (D88)"><input type="checkbox" name="noTerminal"> no terminal</label>
         <select name="signin" title="how this account signs in" @change=${(e) => { this._newSignin = e.target.value; }}>
           <option value="password" ?selected=${signin === 'password'}>sign-in: password</option>
           <option value="invite" ?selected=${signin === 'invite'}>sign-in: invite link</option>
@@ -373,12 +383,16 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         <b>write</b> = edit/drive it · <b>terminal</b> = a root shell in its directory. A non-admin's
         terminals get no live tile-API token without <b>term-api</b> and, on personal/workspace tiles,
         no internet egress without <b>term-net</b> — terminals on org-owned tiles follow the org's
-        <b>network sets</b> instead. Sign-in security and SSO live in the <b>sign-in</b> tab.</p>`;
+        <b>network sets</b> instead. A row's <b>personal…</b> holds what the user may do with the tiles
+        they own (D88): switch personal tiles or every terminal off, and attach permission / network
+        sets (on top of the workspace <b>personal defaults</b>, organisations tab) — the owner approves
+        grants and wiring on their tiles within them. Sign-in security and SSO live in the <b>sign-in</b> tab.</p>`;
   }
 
   _userRow(u) {
     const tilesKey = `user:${u.id}:tiles`;
     const orgsKey = `user:${u.id}:orgs`;
+    const personalKey = `user:${u.id}:personal`;
     const synced = u.roleVia === 'sso';
     return html`<tr style=${u.disabled ? 'opacity:.55' : ''}>
       <td class="user"><span class="mono">${u.id}</span>
@@ -391,14 +405,20 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
           ${u.termApi ? html`<span class="pill">term-api</span>` : nothing}
           ${u.termNet ? html`<span class="pill">term-net</span>` : nothing}
-          ${!Object.keys(u.tiles || {}).length
+          ${u.noPersonalTiles ? html`<span class="pill off" title="may not own tiles personally (D88)">no personal tiles</span>` : nothing}
+          ${u.noTerminal ? html`<span class="pill off" title="capped at write everywhere — no shells, agent sessions or logs (D88)">no terminal</span>` : nothing}
+          ${(u.sets ?? []).map((n) => html`<span class="pill" title="permission set for the tiles they own (D88)">set·${n}</span>`)}
+          ${(u.netSets ?? []).map((n) => html`<span class="pill" title="network set for the tiles they own (D88)">net·${n}</span>`)}
+          ${!Object.keys(u.tiles || {}).length && !u.noPersonalTiles && !u.noTerminal && !(u.sets ?? []).length && !(u.netSets ?? []).length
             ? html`<span class="muted">—</span>` : nothing}`}</td>
       <td style="white-space:nowrap">${this._lastLoginCell(u)}</td>
       <td style="text-align:right; white-space:nowrap">
         <button class="act" title="org memberships — join, leave, level, detach from IdP sync" @click=${() => this._toggleDraft(orgsKey, () => true)}>orgs…</button>
         ${u.role === 'admin' ? nothing : html`
           <button class="act" title="per-tile access outside orgs" @click=${() => this._toggleDraft(tilesKey,
-            () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>`}
+            () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
+          <button class="act" title="the tiles they own: switches, permission and network sets (D88)"
+            @click=${() => this._toggleDraft(personalKey, () => true)}>personal…</button>`}
         ${this._pwEdit === u.id ? html`
           <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
               const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>
@@ -412,7 +432,41 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     ${this._draft(orgsKey) ? html`<tr><td colspan="6">${this._userOrgsEditor(u, orgsKey)}</td></tr>` : nothing}
     ${this._draft(tilesKey) ? html`<tr><td colspan="6">
       ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { tiles }))}
-    </td></tr>` : nothing}`;
+    </td></tr>` : nothing}
+    ${this._draft(personalKey) ? html`<tr><td colspan="6">${this._personalEditor(u)}</td></tr>` : nothing}`;
+  }
+
+  // personal… expansion (D88): the two switches and the user's own sets,
+  // each change one PATCH; below, what the user ends up with — their sets ∪
+  // the workspace personal defaults — as the owner's allowance and network.
+  _personalEditor(u) {
+    const upath = `/users/${encodeURIComponent(u.id)}`;
+    const opts = (m) => Object.keys(m ?? {}).sort().map((n) => ({ value: n, label: n }));
+    const pl = u.personal ?? {};
+    return html`<div class="personal" style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px; font-size:12px">
+      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center">
+        <label><input type="checkbox" name="noPersonalTiles" .checked=${!!u.noPersonalTiles}
+          @change=${(e) => this._orgAPI('PATCH', upath, { noPersonalTiles: e.target.checked })}> no personal tiles</label>
+        <label title="capped at write on every tile; switching it on ends their open terminals and agent sessions"><input type="checkbox" name="noTerminal" .checked=${!!u.noTerminal}
+          @change=${(e) => this._orgAPI('PATCH', upath, { noTerminal: e.target.checked })}> no terminal</label>
+        <label>permission sets
+          <bx-multiselect class="psets" style="min-width:130px" .options=${opts(this.permsets?.sets)} .selected=${u.sets ?? []}
+            placeholder="— none —" @change=${(e) => this._orgAPI('PATCH', upath, { sets: e.detail.selected })}></bx-multiselect></label>
+        <label>network sets
+          <bx-multiselect class="nsets" style="min-width:130px" .options=${opts(this.netsets?.sets)} .selected=${u.netSets ?? []}
+            placeholder="— none —" @change=${(e) => this._orgAPI('PATCH', upath, { netSets: e.detail.selected })}></bx-multiselect></label>
+      </div>
+      <div style="margin-top:5px">
+        <span class="muted" style="font-size:10.5px">may approve on own tiles:</span>
+        ${(pl.allow ?? []).map((a) => html`<span class="pill mono">${a}</span>`)}
+        ${!(pl.allow ?? []).length ? html`<span class="muted">nothing — only narrowing (revoke, unbind, none)</span>` : nothing}
+      </div>
+      <div style="margin-top:3px">
+        <span class="muted" style="font-size:10.5px">personal network:</span>
+        ${(pl.netRules ?? []).map((r) => html`<span class="pill mono" title="default egress of their tiles and a terminal scope there">${r}</span>`)}
+        ${!(pl.netRules ?? []).length ? html`<span class="muted">none — their tiles' net slots stay unbound; terminals follow term-net</span>` : nothing}
+      </div>
+    </div>`;
   }
 
   // The rare actions, in a native <details> menu — every item closes it.
@@ -427,7 +481,11 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         ${u.role === 'admin' ? nothing : html`
           <button @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? 'revoke term-api' : 'allow term-api'}</button>
           <button title="internet in terminals on personal/workspace tiles — org tiles follow their org's network sets (D54)"
-            @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? 'revoke term-net' : 'allow term-net'}</button>`}
+            @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? 'revoke term-net' : 'allow term-net'}</button>
+          <button title="personal (user-owned) tiles for this account (D88)"
+            @click=${() => this._patchUser(u.id, { noPersonalTiles: !u.noPersonalTiles })}>${u.noPersonalTiles ? 'allow personal tiles' : 'turn personal tiles off'}</button>
+          <button title="every shell, agent session and backend log for this account (D88)"
+            @click=${() => this._patchUser(u.id, { noTerminal: !u.noTerminal })}>${u.noTerminal ? 'allow terminals' : 'turn terminals off'}</button>`}
         <hr>
         <button @click=${() => this._editEmail(u)}>set email…</button>
         <button @click=${() => this._mintInvite(u.id)}>mint invite link</button>

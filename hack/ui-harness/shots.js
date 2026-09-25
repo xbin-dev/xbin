@@ -26,6 +26,7 @@ const { agentTemplate } = require('./passes/agenttemplate');
 const { agentConvs } = require('./passes/agentconvs');
 const { channels } = require('./passes/channels');
 const { newTile } = require('./passes/newtile');
+const { personalPlane } = require('./passes/personalplane');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -738,27 +739,27 @@ async function netPickers(browser) {
     await closeCtx(ctx, page);
   }
 
-  // ---- org admin dev1: own personal tile is read-only; org tile offers the picker minus host ----
+  // ---- org admin dev1: own personal tile theirs to wire within their allowance (D88 — none here); org tile minus host ----
   {
     const { ctx, page } = await login(browser, 'dev1', 'devpass123');
     await openShell(page);
     await usePersonalScreen(page);
     let s = await openPop(page, 'apps/dev1-notes');
     await shot(page, 'net-picker-dev1-personal', { fullPage: false });
-    check(s.readonly && !s.hasSelect, `dev1: personal tile wiring is read-only (readonly=${s.readonly} select=${s.hasSelect})`);
+    check(!s.readonly && s.hasSelect && s.disabled.includes('host') && s.disabled.includes('internet'), `dev1: own personal tile — a picker, everything outside the (empty) allowance greyed (readonly=${s.readonly} disabled=${s.disabled.join(',')})`);
     await closePop(page);
     s = await openPop(page, 'apps/pinned');
     check(s.hasSelect && s.disabled.includes('host'), `dev1: org tile has a picker with host disabled (select=${s.hasSelect} disabled=${s.disabled.join(',')})`);
     await closePop(page);
-    // the root bind prompt: only slots dev1 may wire (never the personal tile's)
+    // the root bind prompt: only slots dev1 may wire (their own personal tile's too, D88)
     const prompt = await sh(page, (t) => t.query('bx-bindings')?.renderRoot?.textContent ?? '');
-    check(!prompt.includes('apps/dev1-notes'), 'dev1: root bind prompt does not offer the personal tile');
+    check(prompt.includes('apps/dev1-notes'), 'dev1: root bind prompt offers their own personal tile');
     // and the server view says the same
     const r = await ctx.request.get(`${URL}/api/xbin/bindings`);
     const d = await r.json();
-    check(d.approvable?.['apps/pinned'] === true && !d.approvable?.['apps/dev1-notes'], `dev1: approvable = ${JSON.stringify(d.approvable)}`);
+    check(d.approvable?.['apps/pinned'] === true && d.approvable?.['apps/dev1-notes'] === true, `dev1: approvable = ${JSON.stringify(d.approvable)}`);
     const pin = (d.pending ?? []).find((p) => p.component === 'apps/dev1-notes');
-    check(!pin || pin.approvable === false, 'dev1: pending row for the personal tile is not approvable');
+    check(!pin || pin.approvable === true, 'dev1: pending row for their personal tile is approvable (D88)');
     await closeCtx(ctx, page);
   }
   done();
@@ -837,7 +838,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, newTile, agentConvs, channels,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels,
 };
 
 (async () => {

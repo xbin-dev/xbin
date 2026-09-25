@@ -61,6 +61,9 @@ test('create-tile variants by owner count', () => {
   const dis = byLabel(none, 'Create a new tile…');
   assert.equal(dis.disabled, true);
   assert.match(dis.hint, /org-only policy/);
+  // the account's own switch (D88) says so instead
+  const off = byLabel(canvasMenuItems(state({ owners: [], ownerHint: 'personal tiles are off for your account — ask an admin' }), a), 'Create a new tile…');
+  assert.match(off.hint, /off for your account/);
 });
 
 test('canvas menu on an org screen: edit / draft lines', () => {

@@ -55,6 +55,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     _notice: { state: true },   // green success line (never the red .err slot)
     _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
+    _personalDefaults: { state: true }, // {sets, netSets} — the live personal plane (D88)
     _newUsers: { state: true }, // new-account defaults {tiles, termApi, termNet, orgs} (D52)
     _tileCreation: { state: true }, // 'any' | 'org-only' (D52)
     _drafts: { state: true },   // click-through editor drafts, keyed by context
@@ -203,6 +204,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
       this._wsPolicy = wsPolicy.policy ?? [];
       this._permsets = permsets; this._netsets = netsets; this._defaults = defaults.defaultTiles ?? {};
       this._newUsers = defaults.newUsers ?? {}; this._tileCreation = defaults.tileCreation ?? 'any';
+      this._personalDefaults = defaults.personalDefaults ?? {};
       this._reqs = reqs.requests ?? [];
       this._sessions = sessions.sessions ?? [];
       this._authSettings = authSettings; this._vaultStatus = vaultStatus;
@@ -239,12 +241,13 @@ export class BxAdmin extends WithDrafts(LitElement) {
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
         ${this._notice ? html`<div class="notice">${this._notice}</div>` : nothing}
         ${tab === 'users' ? html`<bx-admin-users .users=${this._users} .orgs=${this._orgs} .sessions=${this._sessions} .reqs=${this._reqs}
-              .authSettings=${this._authSettings} .targets=${this._targetOptions()}></bx-admin-users>`
+              .authSettings=${this._authSettings} .targets=${this._targetOptions()}
+              .permsets=${this._permsets} .netsets=${this._netsets}></bx-admin-users>`
           : tab === 'sign-in' ? html`<bx-admin-signin .authSettings=${this._authSettings} .users=${this._users} .orgs=${this._orgs}></bx-admin-signin>`
           : tab === 'sessions' ? html`<bx-admin-sessions .sessions=${this._sessions}></bx-admin-sessions>`
           : tab === 'orgs' ? html`<bx-admin-orgs .sub=${this._sub} .orgs=${this._orgs} .users=${this._users} .wsPolicy=${this._wsPolicy}
               .permsets=${this._permsets} .netsets=${this._netsets} .defaults=${this._defaults} .newUsers=${this._newUsers}
-              .tileCreation=${this._tileCreation} .authSettings=${this._authSettings}
+              .tileCreation=${this._tileCreation} .personalDefaults=${this._personalDefaults} .authSettings=${this._authSettings}
               .targets=${this._targetOptions()} .services=${serviceOptions(this._ifaces)}></bx-admin-orgs>`
           : tab === 'permsets' ? html`<bx-admin-permsets .permsets=${this._permsets} .orgs=${this._orgs}
               .targets=${this._targetOptions()} .services=${serviceOptions(this._ifaces)}></bx-admin-permsets>`

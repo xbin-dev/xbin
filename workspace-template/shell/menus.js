@@ -56,7 +56,7 @@ export function canvasMenuItems(s, a) {
     items.push({ icon: '✦', label: 'Create a new tile…', hint: tidy(owners[0].label),
       action: () => a.newTileDialog('', '', owners[0].value, { fixed: true }) });
   } else {
-    items.push({ icon: '✦', label: 'Create a new tile…', disabled: true, hint: 'org-only policy — ask an org admin' });
+    items.push({ icon: '✦', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
   items.push({ icon: '▦', label: 'New screen', action: () => a.addScreen() });
   items.push({ kind: 'sep' });

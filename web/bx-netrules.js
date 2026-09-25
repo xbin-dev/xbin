@@ -18,7 +18,7 @@ export const RULE_KINDS = [
     placeholder: 'apps/vpn · apps/*', help: 'a net-provider tile (path or glob) tiles may be bound through' },
 ];
 
-export const SCOPE_ICON = { org: '🏢', internet: '🌐', host: '🖧', none: '⛔' };
+export const SCOPE_ICON = { org: '🏢', personal: '👤', internet: '🌐', host: '🖧', none: '⛔' };
 /** A named network set (D65) as a terminal scope or a binding ref: 'set:<name>'. */
 export const SET_ICON = '🔗';
 /** scopeIcon('set:infra-net') → '🔗'; scopeIcon('org') → '🏢'; unknown → '·'. */
@@ -163,22 +163,34 @@ export function netOptions({ org, providers = [], pending, options } = {}) {
   // Coverage of the two builtins without a pending row (the slot is bound and
   // the picker offers a re-bind): the org card's live reach says so.
   const hasSets = !!(org && ((org.resolvedNet ?? []).length || org.netHost || (org.netSets ?? []).length));
+  // why a choice is refused ('' = it isn't): outside the org's sets, or —
+  // for a personal tile's owner — outside their own allowance (D88)
   const refused = (id) => {
     const o = byId.get(id);
-    if (o) return !!o.blocked || /not covered/.test(o.label ?? '');
-    if (!hasSets) return false;
-    if (id === 'host') return !org.netHost;
-    if (id === 'internet') return !(org.resolvedNet ?? []).includes('internet') && !org.netHost;
-    return false;
+    if (o) {
+      if (/outside your network allowance/.test(o.label ?? '')) return 'outside your allowance';
+      return o.blocked || /not covered/.test(o.label ?? '') ? 'not covered' : '';
+    }
+    if (!hasSets) return '';
+    if (id === 'host') return org.netHost ? '' : 'not covered';
+    if (id === 'internet') return !(org.resolvedNet ?? []).includes('internet') && !org.netHost ? 'not covered' : '';
+    return '';
   };
+  // A personal tile (D88): the server offers `personal` — the owner's
+  // personal network — labelled with its sets (or "none attached").
+  const personal = byId.get('personal');
+  const personalSets = !!personal && !/none attached/.test(personal.label ?? '');
   // Unbinding an org tile's net slot falls back to the org default (D54): the
   // server says so on a pending row; for a bound slot (no pending row) infer it
   // from the org's sets.
   const defaultOrg = pending ? pending.default === 'org' : !!(org && ((org.resolvedNet ?? []).length || org.netHost));
+  const defaultPersonal = pending ? pending.default === 'personal' : personalSets;
   const unbound = defaultOrg
     ? { id: '', label: `— default: ${orgNetLabel(org)} —`, title: (org?.resolvedNet ?? []).map(ruleLabel).join('\n') }
-    : { id: '', label: '— unbound (no egress) —', title: '' };
+    : defaultPersonal ? { id: '', label: '— default: personal network —', title: personal?.label ?? '' }
+      : { id: '', label: '— unbound (no egress) —', title: '' };
   out.push(unbound);
+  if (personal) out.push({ id: 'personal', label: `${SCOPE_ICON.personal} personal network`, title: personal.label, disabled: !personalSets });
   if (org) {
     out.push({ id: 'org', label: `${SCOPE_ICON.org} ${orgNetLabel(org)}`,
       title: serverLabel('org', (org.resolvedNet ?? []).map(ruleLabel).join('\n')) });
@@ -192,12 +204,13 @@ export function netOptions({ org, providers = [], pending, options } = {}) {
   out.push({ id: 'internet', label: `${SCOPE_ICON.internet} internet`, title: serverLabel('internet', 'public internet through the relay') });
   out.push({ id: 'host', label: `${SCOPE_ICON.host} host`, title: serverLabel('host', 'share the host network (powerful)') });
   for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
-  if (org) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
+  if (org || personalSets) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
   out.push({ id: '__custom', label: 'custom…', title: 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set — workspace admins)' });
   // Mark what the org's sets refuse (the server's label says so) and keep it
   // out of reach; the set rows already carry their own reason.
   for (const o of out) {
-    if (o.id && o.id !== '__custom' && !o.set && refused(o.id)) { o.label += ' — not covered'; o.disabled = true; }
+    const why = o.id && o.id !== '__custom' && !o.set ? refused(o.id) : '';
+    if (why) { o.label += ` — ${why}`; o.disabled = true; }
   }
   return out;
 }

@@ -32,6 +32,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     defaults: { attribute: false },     // defaultTiles map (D27)
     newUsers: { attribute: false },     // new-account defaults {tiles, termApi, termNet, orgs} (D52; canCreate is deprecated, D82)
     tileCreation: { attribute: false }, // 'any' | 'org-only' (D52)
+    personalDefaults: { attribute: false }, // {sets, netSets} — the live personal plane (D88)
     authSettings: { attribute: false }, // sso preset + groups seen, for the IdP-group rule editors
     targets: { attribute: false },      // tile-target datalist options
     services: { attribute: false },     // http services (shared.serviceOptions)
@@ -293,7 +294,9 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
           <option value="any" ?selected=${(this.tileCreation ?? 'any') === 'any'}>any — users create personal tiles, and org-owned ones where they hold Create</option>
           <option value="org-only" ?selected=${this.tileCreation === 'org-only'}>org-only — non-admins may only create organisation-owned tiles (needs Create in an org)</option>
         </select>
-        <div class="foot">workspace-owned tiles are always an admin act; this governs non-admins' personal tiles.</div>`)}
+        <div class="foot">workspace-owned tiles are always an admin act; this governs non-admins' personal tiles
+          (one account at a time: its row's <b>personal…</b> in the users tab).</div>`)}
+      ${this._panel('personal tiles', 'what every user may do with the tiles they own — live, on top of their own sets (D88)', this._personalDefaultsEditor())}
       ${this._panel('workspace policy', 'pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (D20)', html`
         ${this._policyEditor('', this.wsPolicy)}
         <div class="foot">org and permission-set rows add on top; any deny wins; deny beats every allowance.</div>`)}
@@ -459,9 +462,33 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     try {
       const d = await api('/defaults', jbody(patch, 'PUT'));
       this.defaults = d.defaultTiles ?? {}; this.newUsers = d.newUsers ?? {};
-      this.tileCreation = d.tileCreation ?? 'any'; this._ok();
+      this.tileCreation = d.tileCreation ?? 'any'; this.personalDefaults = d.personalDefaults ?? {}; this._ok();
     } catch (e) { this._fail(e); }
     this._emit('bx-admin-refresh');
+  }
+
+  _setOpts(m) { return Object.keys(m ?? {}).sort().map((n) => ({ value: n, label: n })); }
+
+  // The live personal defaults (D88): the permission and network sets every
+  // non-admin gets on top of their own, for the tiles they own. The network
+  // sets are those tiles' default egress and a terminal scope there, and
+  // their owner may bind within them; the permission sets' allow entries are
+  // what the owner approves themselves.
+  _personalDefaultsEditor() {
+    const pd = this.personalDefaults ?? {};
+    return html`
+      <div class="kv">
+        <label>permission sets
+          <bx-multiselect class="pd-sets" style="min-width:130px" .options=${this._setOpts(this.permsets?.sets)} .selected=${pd.sets ?? []}
+            placeholder="— none —" @change=${(e) => this._putDefaults({ personalDefaults: { ...pd, sets: e.detail.selected } })}></bx-multiselect></label>
+        <label>network sets
+          <bx-multiselect class="pd-nets" style="min-width:130px" .options=${this._setOpts(this.netsets?.sets)} .selected=${pd.netSets ?? []}
+            placeholder="— none —" @change=${(e) => this._putDefaults({ personalDefaults: { ...pd, netSets: e.detail.selected } })}></bx-multiselect></label>
+      </div>
+      <div class="foot">a personal tile's unbound <span class="mono">net</span> slot follows the network sets
+        (<span class="mono">personal</span>), terminals there may pick them (plain internet still needs term-net or an
+        internet rule), and owners approve grants and wiring on their own tiles within both. Not a ceiling: bindings an
+        admin made stay. Per user: the row's <b>personal…</b> in the users tab adds more.</div>`;
   }
 
   _newUsersEditor() {
@@ -485,6 +512,17 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
             @change=${(e) => this._putDefaults({ newUsers: { ...nu, termApi: e.target.checked } })}> term-api</label>
           <label class="muted"><input type="checkbox" .checked=${!!nu.termNet}
             @change=${(e) => this._putDefaults({ newUsers: { ...nu, termNet: e.target.checked } })}> term-net</label>`)}
+        ${row('restrict', html`
+          <label class="muted" title="fresh accounts may not own tiles personally until an admin lifts it (D88)"><input type="checkbox" name="nuNoPersonal" .checked=${!!nu.noPersonalTiles}
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, noPersonalTiles: e.target.checked } })}> no personal tiles</label>
+          <label class="muted" title="fresh accounts get no shells, agent sessions or logs until an admin lifts it (D88)"><input type="checkbox" name="nuNoTerminal" .checked=${!!nu.noTerminal}
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, noTerminal: e.target.checked } })}> no terminal</label>`)}
+        ${row('sets', html`
+          <bx-multiselect style="min-width:130px" .options=${this._setOpts(this.permsets?.sets)} .selected=${nu.sets ?? []} placeholder="— none —"
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, sets: e.detail.selected } })}></bx-multiselect>
+          <span class="muted">network</span>
+          <bx-multiselect style="min-width:130px" .options=${this._setOpts(this.netsets?.sets)} .selected=${nu.netSets ?? []} placeholder="— none —"
+            @change=${(e) => this._putDefaults({ newUsers: { ...nu, netSets: e.detail.selected } })}></bx-multiselect>`)}
         ${row('orgs', html`
           ${rows.map((r) => html`<span style="display:inline-flex; gap:4px; align-items:center; border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:2px 6px">
             <span class="mono">${r.org}</span>
