@@ -43,6 +43,7 @@ type Broker struct {
 	resUsageC sync.Map // resource id → *resUsageEntry (walk-heavy sizes, TTL-cached)
 	kv        *kvStore
 	cron      *cronRunner
+	bus       *busSubs              // bus push subscriptions (bussubs.go)
 	uids      *uidAllocator         // nil = tier 1
 	barrier   *vault.Barrier        // vault encryption-at-rest barrier
 	resenc    *resenc.Manager       // per-resource gocryptfs mounts (filesystem/sqlite)
@@ -154,6 +155,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 		}
 	}
 	b.cron = newCronRunner(b)
+	b.bus = newBusSubs(b)
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
 	go b.disk.run()
 	b.Provision()
@@ -256,6 +258,9 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("DELETE /vault/{rest...}", b.apiVaultDelete)
 	srv.RegisterAPI("GET /alerts", b.apiAlerts)
 	srv.RegisterAPI("POST /bus/publish", b.apiBusPublish)
+	srv.RegisterAPI("GET /bus/subscriptions", b.apiBusSubsList)
+	srv.RegisterAPI("PUT /bus/subscriptions", b.apiBusSubsPut)
+	srv.RegisterAPI("DELETE /bus/subscriptions/{name}", b.apiBusSubsDelete)
 	srv.RegisterAPI("POST /clone", b.apiClone)
 	srv.RegisterAPI("GET /kv/{rest...}", b.apiKVGet)
 	srv.RegisterAPI("PUT /kv/{rest...}", b.apiKVPut)
@@ -465,8 +470,8 @@ func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, b
 	if p.Component == target.Path {
 		return "admin", true // element is admin of itself
 	}
-	if p.Component == CronPrincipal {
-		return p.Role, true // role bound at job registration (cron.go)
+	if p.Component == CronPrincipal || p.Component == BusPrincipal {
+		return p.Role, true // role bound at registration, always self-targeted (cron.go, bussubs.go)
 	}
 	role, ok := b.grantedRole(p.Component, target.Path)
 	return role, ok

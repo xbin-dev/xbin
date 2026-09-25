@@ -79,6 +79,11 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 	if jobs := b.cronJobsFor(c.Path); len(jobs) > 0 {
 		m.CronJobs = jobs
 	}
+	for _, s := range b.bus.forComponent(c.Path) {
+		if raw, err := json.Marshal(s); err == nil {
+			m.BusSubs = append(m.BusSubs, raw)
+		}
+	}
 	m.Includes = includes
 	if err := bw.Manifest(m); err != nil {
 		return err
@@ -281,6 +286,19 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 				b.cron.persist()
 			}
 		}
+	}
+	// And its bus subscriptions (a subscription of another component is
+	// never restored from this backup). Each delivery re-checks the grant.
+	restored := false
+	for _, raw := range m.BusSubs {
+		var s busSub
+		if json.Unmarshal(raw, &s) == nil && s.Component == m.Component && busSubNameRe.MatchString(s.Name) &&
+			strings.HasPrefix(s.Path, "/") && b.bus.put(s) == nil {
+			restored = true
+		}
+	}
+	if restored {
+		b.bus.persist()
 	}
 	return m, nil
 }

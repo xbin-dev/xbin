@@ -485,6 +485,7 @@ func (st *State) stepProxy() error {
 		return acc.TileLevel(tile)
 	}
 	brk.SetDispatch(broker.DispatchViaProxy(px))
+	brk.SetBusDispatch(broker.DispatchBodyViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
 	// policy / resource env / GPU devices (all captured at spawn) take effect now.

@@ -100,6 +100,9 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 		ri.Detail = plural(b.cronCount(id), "job")
 	case "bus":
 		ri.Detail = "ephemeral"
+		if n := b.bus.countFor(id); n > 0 {
+			ri.Detail += " · " + plural(n, "push subscription")
+		}
 		ri.Events = b.busEventCount(id)
 	}
 	return ri

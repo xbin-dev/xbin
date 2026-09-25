@@ -22,7 +22,7 @@ same handler), which resolves the caller, strips any identity the caller
 *claimed*, and injects the identity it *verified*:
 
 ```
-X-XBin-From: owner | user:<id> | <component-path> | xbin/cron | ingress
+X-XBin-From: owner | user:<id> | <component-path> | xbin/cron | xbin/bus | ingress
 X-XBin-Role: <role granted on the callee>
 X-XBin-Ingress-Host: <public hostname>     (ingress traffic only)
 ```
@@ -42,6 +42,7 @@ grants, policy ceilings — consumes the same two verified facts.
 | **Element frontend** | **HMAC frame token** (standalone; tile frames are sandboxed, no cookie) | `apps/email` | 15 min, auto-refreshed |
 | **Terminal shell** | per-session tile-scoped token (`$XBIN_TOKEN`) | `apps/email` — the tile, never the human | dies with the session |
 | **Scheduler** | internal | `xbin/cron` | per tick |
+| **Bus push delivery** | internal | `xbin/bus` | per event |
 | **Public visitor** | none — structural (published endpoints only) | `ingress` | per request |
 
 Three of these are *element* principals (backend, frontend, terminal): three
@@ -177,6 +178,11 @@ cron can never be aimed at a third element. A tick arrives as
 `writer`), bounded by being self-inflicted: the element decides how much
 of its own authority its schedule wields.
 
+Bus push subscriptions (D85) follow the same rule: an element subscribes
+only itself, and each event arrives as `From: xbin/bus` with the role it
+chose. The one addition is that the subscriber must hold `reader` on the
+bus — checked at registration and again at every delivery.
+
 ## The public: the ingress principal
 
 Anonymous traffic through a **published endpoint**
@@ -206,7 +212,7 @@ The mechanics that make the header contract trustworthy:
   side channel with weaker rules.
 - **Reserved names.** From-identities that aren't component paths can't be
   spoofed by *creating* a component with that name: `xbin` is a reserved
-  top-level (so `xbin/cron` is unclaimable), and `ingress` and `runtime`
+  top-level (so `xbin/cron` and `xbin/bus` are unclaimable), and `ingress` and `runtime`
   were reserved with the ingress work. `owner` is additionally reserved as
   a **user id** (it is the bootstrap principal's home under `homes/`).
 - **Bearer resolution order** is fixed: owner token → instance token →

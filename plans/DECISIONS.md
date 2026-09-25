@@ -2238,3 +2238,47 @@ Deviations and refinements made while implementing; all deliberate:
   **Not chosen:** a `cap:always-on` grant. A tile can already keep itself
   alive by holding a request to itself (D81), so the flag adds only
   boot-start and restart, and the owner stops it by disabling the tile.
+
+- **D85 — Bus push subscriptions: xbind POSTs bus events to a backend's own
+  endpoint as `xbin/bus`; at-most-once, like the bus (2026-09-26).** A
+  backend could only consume the bus by holding `/ws/events`, which idle
+  reaping severs; the docs said "use a cron sweep", which is a ticker. The
+  agent's event triggers need a backend-side consumer.
+
+  **The shape follows cron** (`internal/broker/bussubs.go`):
+  - A component subscribes only itself (admins may name one) and picks the
+    role deliveries carry. There is no escalation surface: the target is
+    always the subscriber.
+  - Delivery goes through the proxy as principal `xbin/bus`, so an idle
+    backend starts lazily and Policy treats it like `xbin/cron`.
+  - Stored in `data/bus-subscriptions.json`; a component backup carries
+    its own.
+
+  **What differs from cron:**
+  - The subscriber must hold `reader` on the bus. It is checked at
+    registration against the SUBSCRIBER's grants, even when an admin
+    registers it, and again at every delivery, so a revoke stops delivery
+    at once.
+  - Fed directly from publish, never through the hub's 64-slot
+    per-subscriber buffer.
+  - A queue per subscription (256; the newest dropped when full), one POST
+    in flight, a 2 min timeout, no retries.
+  - A 100/s loop guard, for a handler that publishes to the bus it
+    consumes.
+  - A disabled subscriber's events are dropped; a subscriber that no
+    longer exists loses the subscription.
+
+  **Leftovers (the D82 follow-up):** creating a tile drops the path's cron
+  jobs and bus subscriptions (in `assignOwner`, the hook all five creation
+  paths share). D82 declined to scrub leftovers because grants and bindings
+  are admin decisions. These are the removed tile's own delivery
+  registrations: the new tile re-registers what it needs, and inheriting
+  them would hand it calls it never asked for.
+
+  **Not chosen:**
+  - Retries or durable delivery: the bus is "go look", and truth lives in
+    kv/sqlite. A durable queue is a different resource.
+  - Holding the WebSocket from a backend: it needs a keep-alive, and
+    alwaysOn (D84) for every consumer.
+  - Delivering through the hub's subscriber channel: a slow backend would
+    be dropped from the hub.

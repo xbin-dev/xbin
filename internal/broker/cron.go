@@ -143,6 +143,26 @@ func (cr *cronRunner) remove(component, name string) bool {
 	return true
 }
 
+// forget drops every job of path (or a path under it) and persists — the
+// leftovers a new tile at a removed tile's path must not inherit (D85).
+func (cr *cronRunner) forget(path string) int {
+	cr.mu.Lock()
+	n := 0
+	for key, j := range cr.jobs {
+		if j.Component == path || strings.HasPrefix(j.Component, path+"/") {
+			cr.sched.Remove(cr.entries[key])
+			delete(cr.entries, key)
+			delete(cr.jobs, key)
+			n++
+		}
+	}
+	cr.mu.Unlock()
+	if n > 0 {
+		cr.persist()
+	}
+	return n
+}
+
 func (cr *cronRunner) fire(j cronJob) {
 	// A disabled/offloaded component's jobs don't fire — its backend won't spawn
 	// anyway, and offload/disable should pause its schedule without unregistering

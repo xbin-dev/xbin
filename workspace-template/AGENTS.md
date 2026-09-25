@@ -752,7 +752,7 @@ Declare in `scope.json` (or workspace `xbin.json` `resources` for
 | `sqlite` | a `filesystem` resource pre-pointed at a `.sqlite` **file** | `XBIN_RES_<N>` is the file path (open with WAL). Same rw-dir mechanism as `filesystem` — use `filesystem` if you need a general directory rather than one db |
 | `kv` | namespaced kv (≤1 MiB values) | SDK `xbin.KV` or `/api/xbin/kv/res:…/<key>` |
 | `blob` | file store (≤256 MiB/write) | `/api/xbin/blob/res:…/<path>` |
-| `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `xbin.bus.on` (backends: use cron to sweep, not subscriptions) |
+| `bus` | at-most-once pub/sub | publish: SDK/HTTP; subscribe: frontend `xbin.bus.on`; backends: push subscription `xbin.Subscribe(name, res, prefix, "/path")` — xbind POSTs each event to your endpoint as `xbin/bus` (needs `reader`; wakes idle backends) |
 | `cron` | scheduled POSTs to your own endpoints | `PUT /api/xbin/cron/jobs {"name","resource","schedule","path","role"}`; wakes idle backends; make handlers idempotent |
 
 Bus is a change-notification, not a queue: truth lives in kv/sqlite,

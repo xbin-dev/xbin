@@ -155,7 +155,15 @@ func (b *Broker) defaultOrgOwner(userID string) (ref, msg string) {
 // assignOwner records ownership after a successful creation (all five entry
 // points; plans/ownership.md). Best-effort: a failed write logs, the tile
 // stays workspace-owned, and bx doctor lists it.
+//
+// It first drops the path's leftover cron jobs and bus subscriptions: a
+// removed tile's delivery registrations, not access decisions (grants and
+// bindings still refuse the path, D82), so the new tile starts with none and
+// registers its own (D85).
 func (b *Broker) assignOwner(path, ref string) {
+	if n := b.cron.forget(path) + b.bus.forget(path); n > 0 {
+		slog.Info("dropped a removed tile's cron jobs and bus subscriptions", "tile", path, "count", n)
+	}
 	if b.Users == nil || ref == "" {
 		return
 	}

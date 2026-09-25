@@ -43,7 +43,7 @@ Identity headers **injected by xbind** on proxied component requests
 (inbound values are stripped — receiving them means they're verified):
 
 ```
-X-XBin-From: owner | <component-path> | xbin/cron | ingress
+X-XBin-From: owner | <component-path> | xbin/cron | xbin/bus | ingress
 X-XBin-Role: <role granted on the callee>
 X-XBin-User: <user id>                   (the signed-in HUMAN driving the
                                           call, when there is one — direct,
@@ -1172,6 +1172,18 @@ DELETE /blob/res:<scope>/<name>/<path>   writer.
 
 POST   /bus/publish                      writer on the resource.
                                          body {resource, topic, data?}
+GET    /bus/subscriptions                own push subscriptions (admin: all),
+                                         with counters since the daemon started.
+                                         {subscriptions:[{name, resource, prefix,
+                                         component, path, role, delivered,
+                                         dropped, failed, lastError?, lastAt?}]}
+PUT    /bus/subscriptions                reader on the bus resource (the
+                                         SUBSCRIBER's grant, even when an admin
+                                         registers it). body {name, resource,
+                                         prefix?, path, role?, component?¹};
+                                         idempotent by name; ≤64 per component;
+                                         409 over the limit. Delivery: below.
+DELETE /bus/subscriptions/<name>[?component=]  element: own; admin: any.
 
 GET    /tile-report                      any signed-in user (read-filtered).
                                          {statuses:{<component>:{level,message,ts}}}
@@ -1195,7 +1207,30 @@ PUT    /cron/jobs                        writer on the cron resource.
 DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 ```
 
-¹ `component` is owner-only; elements always schedule themselves.
+¹ `component` is owner-only; elements always schedule (and subscribe)
+themselves.
+
+**Bus push delivery (D85).** Each event published on a subscribed bus whose
+topic starts with the subscription's `prefix` is POSTed to the subscriber's
+`path` through the proxy, as `X-XBin-From: xbin/bus` with the subscription's
+`role` (default `writer`) — starting an idle backend like a cron tick. The
+JSON body:
+
+```
+{"id":"<event id>","subscription":"<name>","resource":"res:<scope>/<name>",
+ "topic":"<topic under the resource>","data":…,"ts":<unix ms>}
+```
+
+`id` is the event's, the same for every subscription it reaches. Delivery
+is at-most-once: one FIFO per subscription (256 events; the newest is
+dropped when full), one POST in flight, 2 min timeout, no retries; more
+than 100 events in one second are dropped (a loop guard). `reader` is
+re-checked at each delivery (a revoked grant counts as `failed`); a
+disabled or offloaded subscriber's events are dropped; a subscriber that
+no longer exists loses the subscription. Answer 2xx; ≥400 counts as
+`failed`. Stored in `data/bus-subscriptions.json`, carried in the
+component's backup; a new tile created at a removed tile's path starts
+without that path's cron jobs and subscriptions.
 
 ## WebSockets
 
@@ -1435,7 +1470,8 @@ windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
     token, secret     owner token, frame-token HMAC key
     run/              unix sockets (short tmp dir + symlink for deep paths)
     log/  build/  cache/  uids.json
-  data/               resource state: resources/, vault/, kv.db, cron-jobs.json
+  data/               resource state: resources/, vault/, kv.db, cron-jobs.json,
+                      bus-subscriptions.json
                       (backup unit; gitignored)
   homes/<user>/       terminal $HOME per user (dotfiles, persists across
                       upgrades; the root token uses homes/owner)

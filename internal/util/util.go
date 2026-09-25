@@ -62,8 +62,8 @@ var ErrUnsafePath = errors.New("path escapes workspace")
 // proxy inject `X-XBin-From: owner`, so callees' SDK would see it as the human
 // owner (Caller().Owner) — an impersonation across the identity spine. Same
 // for "ingress" (the anonymous public-caller identity, plans/ingress.md) and
-// "runtime" (the builtin ingress source). "xbin/cron" can't collide (xbin is
-// reserved, so the "/" form is unreachable).
+// "runtime" (the builtin ingress source). "xbin/cron" and "xbin/bus" can't
+// collide (xbin is reserved, so the "/" form is unreachable).
 var ReservedTop = map[string]bool{
 	".xbin": true, "vendor": true, "data": true, "home": true, "homes": true, "xbin": true,
 	"ingress": true, "runtime": true, "owner": true,

@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Bus push subscriptions: backends can react to bus events.**
+  `PUT /api/xbin/bus/subscriptions {name, resource, prefix?, path, role?}`
+  (SDK `xbin.Subscribe`) makes xbind POST each matching event to your own
+  endpoint as `X-XBin-From: xbin/bus`, starting an idle backend like a cron
+  tick. Needs `reader` on the bus (checked at every delivery). At-most-once:
+  a bounded queue per subscription, no retries, a 100/s loop guard.
+  Subscriptions persist and ride along in backups. A new tile created at a
+  removed tile's path no longer inherits that path's cron jobs or
+  subscriptions. Additive ([resources.md](resources.md) §bus,
+  [protocol.md](protocol.md)).
 - **Manifest: `"alwaysOn": true` keeps a backend running.** Started at boot
   and whenever it becomes runnable (enabled, vault unsealed, the flag added),
   never idle-reaped, restarted after an exit (1 s backoff doubling to 5 min;

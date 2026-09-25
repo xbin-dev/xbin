@@ -115,10 +115,39 @@ calendar changes):
 xbin.bus.on('res:apps/thing/bus/events/', (topic, data) => refresh());
 ```
 
-Backends don't hold subscriptions (they'd die at idle-reap anyway): if a
-backend must *react* to bus traffic, schedule a cron sweep or let the
-frontend drive. Publishing over HTTP:
+Publishing over HTTP:
 `POST /api/xbin/bus/publish {"resource":"res:…","topic":"…","data":…}`.
+
+A backend that must *react* to bus traffic registers a **push
+subscription** (D85) instead of holding a socket (idle reaping would sever
+it): xbind POSTs each matching event to one of its own endpoints, starting
+an idle backend the way a cron tick does.
+
+```
+PUT /api/xbin/bus/subscriptions
+{"name":"deploys","resource":"res:apps/ci/bus","prefix":"deploy/",
+ "path":"/on-deploy","role":"writer"}
+```
+
+- The subscriber needs `reader` on the bus (declare it in `uses`); it is
+  checked at registration and again at every delivery. Like cron, a
+  component subscribes only itself (the owner may name one with
+  `component`); `role` (default `writer`) is what the delivery carries.
+- Each delivery is `POST <path>` with `X-XBin-From: xbin/bus` and
+  `{"id","subscription","resource","topic","data","ts"}`; `id` is the
+  event's, shared by every subscription it reaches.
+- **At-most-once**, like the bus: one queue per subscription (256; the
+  newest dropped when full), one POST in flight, 2 min timeout, no retries,
+  and at most 100 events a second (a loop guard for a handler that
+  publishes to the bus it consumes). Treat it as "go look", keep truth in
+  kv/sqlite.
+- Idempotent by name (subscribe at every start); ≤64 per component.
+  `GET /api/xbin/bus/subscriptions` lists yours with
+  delivered/dropped/failed counters and the last error;
+  `DELETE /api/xbin/bus/subscriptions/<name>` removes one. SDK:
+  `xbin.Subscribe` / `xbin.Unsubscribe` / `xbin.BusEvent`.
+- They persist, ride along in the component's backup, and pause while the
+  component is disabled; a subscriber that no longer exists loses them.
 
 Document your topics in your `API.md` — they're part of your contract.
 

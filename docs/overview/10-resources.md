@@ -137,11 +137,17 @@ traffic as "something changed, go look".
 Delivery is authorized per subscriber on the `/ws/events` stream: admins see
 all bus events; an element principal (a tile frame or backend connection)
 receives a bus event only if it holds `reader` on that bus resource
-(`busFilter`); other principals get none. In practice backends don't hold
-subscriptions (idle-reap would sever them) — the pattern is a frontend
-`xbin.bus.on('res:apps/thing/bus/events/', …)` driving refreshes, with cron
-sweeps for backend-side reactions. Bus topics are part of your contract:
-document them in `API.md`.
+(`busFilter`); other principals get none. Backends don't hold that socket
+(idle-reap would sever it); they register a **push subscription** instead
+(D85): `PUT /api/xbin/bus/subscriptions {name, resource, prefix?, path,
+role?}`, and xbind POSTs each matching event to that path as
+`From: xbin/bus`, lazily starting the backend like a cron tick. The
+subscriber needs `reader` on the bus — at registration and again at every
+delivery. Delivery stays at-most-once: a bounded queue per subscription,
+one POST in flight, no retries, and a 100/s loop guard. A frontend
+`xbin.bus.on('res:apps/thing/bus/events/', …)` still drives live UI
+refreshes. Bus topics are part of your contract: document them in
+`API.md`.
 
 ## cron — scheduled self-calls
 

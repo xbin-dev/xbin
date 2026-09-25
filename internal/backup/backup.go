@@ -52,6 +52,7 @@ type Manifest struct {
 	Created     string            `json:"created"` // RFC3339
 	Includes    []string          `json:"includes"`
 	CronJobs    []json.RawMessage `json:"cronJobs,omitempty"`
+	BusSubs     []json.RawMessage `json:"busSubscriptions,omitempty"`
 	WithVault   bool              `json:"withVault,omitempty"`
 }
 

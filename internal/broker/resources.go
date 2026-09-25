@@ -432,6 +432,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		Data:  msg.Data,
 	})
 	b.countBusEvent(rt.String())
+	b.bus.publish(rt.String(), msg.Topic, msg.Data)
 	server.WriteOK(w)
 }
 

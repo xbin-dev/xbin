@@ -20,6 +20,7 @@ xbin has two planes with different rules:
 | Element frontend | **frame token alone** (`xbin.fetch`/`xbin.ws` attach it; tile frames are sandboxed — no cookie reaches them) | `apps/email` |
 | Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
 | Scheduler | internal | `xbin/cron` |
+| Bus push delivery | internal | `xbin/bus` (docs/resources.md §bus) |
 | Public visitor | none — anonymous traffic through a **published endpoint** (docs/ingress.md) | `ingress` |
 
 Callees never verify any of this themselves: xbind strips inbound

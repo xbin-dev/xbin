@@ -83,7 +83,7 @@ func Self() string { return os.Getenv("XBIN_COMPONENT") }
 
 // CallerInfo is the verified identity xbind attached to an inbound request.
 type CallerInfo struct {
-	From  string // "owner", a component path, or "xbin/cron"
+	From  string // "owner", a component path, "xbin/cron" or "xbin/bus"
 	Role  string // role the caller was granted on this component
 	Owner bool
 	// User is the signed-in HUMAN driving the call, when there is one —
@@ -331,6 +331,54 @@ func Publish(resource, topic string, data any) error {
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("bus publish: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// BusEvent is what a bus push subscription POSTs to your endpoint, with
+// From: xbin/bus (docs/resources.md). ID is the event's own id — the same for
+// every subscription it reaches — so a handler can dedupe.
+type BusEvent struct {
+	ID           string          `json:"id"`
+	Subscription string          `json:"subscription"`
+	Resource     string          `json:"resource"`
+	Topic        string          `json:"topic"` // under the resource
+	Data         json.RawMessage `json:"data,omitempty"`
+	TS           int64           `json:"ts"` // unix ms, when it was published
+}
+
+// Subscribe asks xbind to POST the events of a bus resource whose topic
+// starts with prefix ("" = all) to path on this backend, as a BusEvent. The
+// component needs `reader` on the bus (declare it in "uses"). Subscriptions
+// persist and are idempotent by name — calling it at every start is fine. An
+// idle backend is started for a delivery; delivery is at-most-once.
+func Subscribe(name, resource, prefix, path string) error {
+	body, err := json.Marshal(map[string]string{"name": name, "resource": resource, "prefix": prefix, "path": path})
+	if err != nil {
+		return err
+	}
+	return busSubCall("PUT", "http://xbin/api/xbin/bus/subscriptions", body)
+}
+
+// Unsubscribe removes this component's subscription name.
+func Unsubscribe(name string) error {
+	return busSubCall("DELETE", "http://xbin/api/xbin/bus/subscriptions/"+url.PathEscape(name), nil)
+}
+
+func busSubCall(method, u string, body []byte) error {
+	req, err := http.NewRequest(method, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("bus subscription: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	return nil
 }
