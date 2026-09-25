@@ -84,10 +84,11 @@ func (b *Broker) EgressFor(c *registry.Component) sandbox.EgressPolicy {
 	return pol
 }
 
-// Builtin net refs beyond internet/host/lan:<cidr> (D54).
+// Builtin net refs beyond internet/host/lan:<cidr> (D54, D88).
 const (
-	NetRefOrg  = "org"  // the owning org's network sets, live — org-owned tiles only
-	NetRefNone = "none" // explicitly no egress (deny-all), anywhere
+	NetRefOrg      = "org"      // the owning org's network sets, live — org-owned tiles only
+	NetRefPersonal = "personal" // the owner's personal network sets, live — user-owned tiles only
+	NetRefNone     = "none"     // explicitly no egress (deny-all), anywhere
 )
 
 // netRuleTargets maps network-set rules to sandbox grant targets. Provider

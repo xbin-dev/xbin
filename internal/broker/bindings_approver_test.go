@@ -16,10 +16,11 @@ import (
 //
 //   - org admin on an org tile: inside the set (internet, org, none) ok;
 //     host / an uncovered LAN 403 (D26 caller side: no allowance covers it);
-//   - org admin on a PERSONAL tile (anyone's, including their own): 403 —
-//     personal tiles are wired by workspace admins only (D54 keeps pre-D54
-//     rules there; the org's sets do not govern them);
-//   - the tile's owner / a member: 403 (agents and owners never self-bind);
+//   - org admin on someone else's PERSONAL tile: 403 — the org's sets do
+//     not govern personal tiles (D54);
+//   - the tile's OWNER wires it within their personal allowance (D88):
+//     with none, only narrowing (none) passes; with an internet-only
+//     personal set, internet too — host never;
 //   - workspace admin on the org tile: host 400 "not covered" (D54 —
 //     ws-admins widen the set instead), internet ok; on a personal tile host
 //     ok (documented behaviour, no org ceiling applies).
@@ -67,12 +68,12 @@ func TestBindingApproverMatrix(t *testing.T) {
 		"internet": 200, NetRefOrg: 200, NetRefNone: 200,
 		"host": 403, "lan:10.0.0.0/8": 403, "apps/vpn": 200, // same-org provider needs no rule
 	})
-	// Org admin, personal tiles (a member's, and her own): never.
-	for _, tile := range []string{"apps/mine", "apps/othervpn"} {
-		expect("carol", carol, tile, map[string]int{"internet": 403, "host": 403, NetRefNone: 403})
-	}
-	// The owner himself: never (owners don't self-wire).
-	expect("bob", bob, "apps/mine", map[string]int{"internet": 403, "host": 403})
+	// Org admin, a member's personal tile: never.
+	expect("carol", carol, "apps/mine", map[string]int{"internet": 403, "host": 403, NetRefNone: 403})
+	// Owners, no personal allowance: only narrowing (D88). (carol's own
+	// apps/othervpn provides net but has no net slot — nothing to wire.)
+	expect("carol", carol, "apps/othervpn", map[string]int{"internet": 403, NetRefNone: 403})
+	expect("bob", bob, "apps/mine", map[string]int{"internet": 403, "host": 403, NetRefNone: 200})
 	// Workspace admin: the org's set still caps org tiles; personal tiles
 	// keep the pre-D54 rules.
 	code, body := bind(admin, "apps/bot", "host")
@@ -122,8 +123,8 @@ func TestBindingApproverMatrix(t *testing.T) {
 	if !cv.Approvable["apps/bot"] || !cv.Approvable["apps/vpn"] {
 		t.Fatalf("org admin must be approvable on her org's tiles: %v", cv.Approvable)
 	}
-	if cv.Approvable["apps/othervpn"] || cv.Approvable["apps/mine"] {
-		t.Fatalf("org admin must not be approvable on personal tiles: %v", cv.Approvable)
+	if cv.Approvable["apps/mine"] || !cv.Approvable["apps/othervpn"] {
+		t.Fatalf("org admin: not on a member's personal tile, yes on her own (D88): %v", cv.Approvable)
 	}
 	bot := row(cv, "apps/bot")
 	if bot == nil || !bot.Approvable || bot.Default != NetRefOrg {
@@ -141,19 +142,39 @@ func TestBindingApproverMatrix(t *testing.T) {
 	if o := option(bot, "apps/vpn"); o.Blocked {
 		t.Fatalf("same-org provider is covered: %+v", o)
 	}
-	// Her own personal tile is in her view (she can write it) but not hers to wire.
-	if own := row(cv, "apps/othervpn"); own != nil && own.Approvable {
-		t.Fatalf("personal tile must not be approvable by its owner: %+v", own)
+	bv := list(bob)
+	if len(bv.Approvable) != 1 || !bv.Approvable["apps/mine"] {
+		t.Fatalf("a member approves exactly his own personal tile: %v", bv.Approvable)
+	}
+	mine := row(bv, "apps/mine")
+	if mine == nil || !mine.Approvable {
+		t.Fatalf("owner's slot is his to wire: %+v", mine)
+	}
+	for _, id := range []string{"host", "internet"} {
+		if o := option(mine, id); !o.Blocked || !strings.Contains(o.Label, "outside your network allowance") {
+			t.Fatalf("no personal allowance → %s greyed out for the owner: %+v", id, o)
+		}
+	}
+	if o := option(mine, NetRefNone); o.Blocked {
+		t.Fatalf("none always narrows: %+v", o)
 	}
 
-	bv := list(bob)
-	if len(bv.Approvable) != 0 {
-		t.Fatalf("a member approves nothing: %v", bv.Approvable)
+	// An internet-only personal default (D88): every owner may now bind
+	// internet on their tiles themselves — never host, never someone else's.
+	if err := st.SetPersonalDefaults(users.PersonalDefaults{NetSets: []string{"inet"}}); err != nil {
+		t.Fatal(err)
 	}
-	if mine := row(bv, "apps/mine"); mine == nil || mine.Approvable {
-		t.Fatalf("owner sees his slot listed, not approvable: %+v", mine)
-	} else if o := option(mine, "host"); o.Blocked {
-		t.Fatalf("no org sets on a personal tile — nothing is blocked: %+v", o)
+	expect("bob", bob, "apps/mine", map[string]int{"internet": 200, "internet:api.github.com": 200, "host": 403, "lan:10.0.0.0/8": 403})
+	expect("carol", carol, "apps/mine", map[string]int{"internet": 403})
+	mine = row(list(bob), "apps/mine")
+	if o := option(mine, "internet"); o.Blocked {
+		t.Fatalf("internet is inside the owner's allowance now: %+v", o)
+	}
+	if o := option(mine, "host"); !o.Blocked {
+		t.Fatalf("host stays outside it: %+v", o)
+	}
+	if err := st.SetPersonalDefaults(users.PersonalDefaults{}); err != nil {
+		t.Fatal(err)
 	}
 
 	av := list(admin)

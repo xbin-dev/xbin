@@ -665,7 +665,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 		// target is intra-org or allowance-covered (revokes always) — the
 		// ceiling check below still applies to every approver.
 		if !b.orgAdminMayGrant(p, g, r.Method == http.MethodDelete) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — grants are approved by a workspace admin, or an org admin within their org's allowance (D26)", "docs": "/docs/auth.md"})
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — grants are approved by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "docs": "/docs/auth.md"})
 			return registry.Grant{}, false
 		}
 	}

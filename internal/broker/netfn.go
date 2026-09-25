@@ -395,6 +395,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	scoped := false                // non-ws-admin session view (D26/D33)
 	orgScope := map[string]bool{}  // consumer side: tiles their orgs own
+	selfScope := map[string]bool{} // owner side: tiles they own personally (D88)
 	mineScope := map[string]bool{} // requester side: tiles they can write
 	provOrgs := map[string]bool{}  // provider side: orgs whose providers they admin
 	if !b.IsAdmin(p) {
@@ -406,6 +407,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 					orgScope[t] = true
 				}
 			}
+			selfScope = b.selfApprovable(p)
 			for _, c := range b.Reg.Components() {
 				if !orgScope[c.Path] && p.CanWriteTile(c.Path) {
 					mineScope[c.Path] = true
@@ -450,18 +452,21 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	pending := b.pendingBindings(!scoped)
 	// approvable: the components whose bindings THIS caller may wire as the
 	// consumer-side approver — every one for a workspace admin, the tiles of
-	// orgs they administer for an org admin (D26), nothing on a tile they
-	// merely own or write (bindings there are a workspace-admin act). UIs
-	// render other tiles' wiring read-only instead of offering a pick that
-	// POST /bindings would refuse.
+	// orgs they administer for an org admin (D26), the tiles they own
+	// personally, within their allowance (D88); nothing on a tile they merely
+	// write. UIs render other tiles' wiring read-only instead of offering a
+	// pick that POST /bindings would refuse.
 	approvable := map[string]bool{}
 	for _, c := range comps {
-		if !scoped || orgScope[c.Component] {
+		if !scoped || orgScope[c.Component] || selfScope[c.Component] {
 			approvable[c.Component] = true
 		}
 	}
 	for i := range pending {
-		pending[i].Approvable = !scoped || orgScope[pending[i].Component]
+		pending[i].Approvable = !scoped || orgScope[pending[i].Component] || selfScope[pending[i].Component]
+		if selfScope[pending[i].Component] && pending[i].Kind == "net" {
+			pending[i].Options = b.markSelfBlocked(p.User.ID, pending[i].Options)
+		}
 	}
 	if scoped { // scope every table to the viewer's tiles (+ their providers' consumers)
 		fb := map[string]map[string]registry.Binding{}
@@ -500,6 +505,9 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		for _, req := range c.Interface {
 			if req.Kind == "net" && !req.Multi {
 				netOpts[c.Component] = b.bindOptions(c.Component, req, !scoped)
+				if selfScope[c.Component] {
+					netOpts[c.Component] = b.markSelfBlocked(p.User.ID, netOpts[c.Component])
+				}
 			}
 		}
 	}
@@ -514,7 +522,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		for slot, def := range c.Manifest.Exposes {
 			es := exposeSlot{Component: c.Path, Slot: slot, Kind: def.Kind, Paths: def.Paths,
 				Routes: routeInfos(b.Reg.Workspace().Bindings[c.Path][slot]), Options: b.exposeBindOptions(c.Path, def),
-				Approvable: !scoped || orgScope[c.Path]}
+				Approvable: !scoped || orgScope[c.Path] || selfScope[c.Path]}
 			if def.Kind == "stream" {
 				es.Proto, es.Port = def.StreamProto(), def.Port
 			}
@@ -763,7 +771,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		// every normalized target is intra-org or allowance-covered (unbind
 		// always). Everyone else: workspace admin only.
 		if !b.orgAdminMayBind(p, body.Component, body.Slot, delta, del) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — bindings are wired by a workspace admin, or an org admin within their org's allowance (D26)", "docs": "/docs/auth.md"})
+			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — bindings are wired by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "docs": "/docs/auth.md"})
 			return
 		}
 	}

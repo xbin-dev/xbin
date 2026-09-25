@@ -95,8 +95,9 @@ func (b *Broker) providerOrg(p auth.Principal, target string) string {
 	return org
 }
 
-// orgAdminMayGrant is the D26/D33 gate for POST/DELETE /grants when the
-// caller is not a workspace admin. Two independent rights:
+// orgAdminMayGrant is the D26/D33/D88 gate for POST/DELETE /grants when the
+// caller is not a workspace admin. The personal tile's owner first
+// (selfMayGrant, personal.go), then two independent org rights:
 //
 //   - CALLER side (D26): an admin of the org owning the requesting tile —
 //     revoke always (narrowing is safe); approve when the target is
@@ -104,6 +105,9 @@ func (b *Broker) providerOrg(p auth.Principal, target string) string {
 //   - PROVIDER side (D33): an admin of the org owning the TARGET — they may
 //     approve (consent to sharing their property) and revoke (withdraw it).
 func (b *Broker) orgAdminMayGrant(p auth.Principal, g registry.Grant, revoke bool) bool {
+	if b.selfMayGrant(p, g, revoke) {
+		return true
+	}
 	if org := b.approverOrg(p, g.From); org != "" {
 		if revoke || b.intraOrgTarget(org, g.Target) {
 			return true
@@ -165,9 +169,9 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 	for _, ref := range binding {
 		v := ref.Ref
 		switch {
-		case iface.Kind == "net" && (v == NetRefOrg || v == NetRefNone):
-			// D54 builtins: org can't exceed the org's own ceiling, none only
-			// narrows — neither needs an allowance (orgAdminMayBind skips them).
+		case iface.Kind == "net" && (v == NetRefOrg || v == NetRefPersonal || v == NetRefNone):
+			// D54/D88 builtins: org/personal are the owner's own reach, none
+			// only narrows — no allowance needed (the gates skip them).
 			out = append(out, pairedTarget{"net:" + v, ""})
 		case iface.Kind == "net" && (v == "internet" || v == "host"):
 			out = append(out, pairedTarget{"net:" + v, ""})
@@ -257,8 +261,9 @@ func (b *Broker) providerRefOrg(ref string) string {
 	return ""
 }
 
-// orgAdminMayBind is the D26/D33 gate for POST/DELETE /bindings when the
-// caller is not a workspace admin. Two independent rights:
+// orgAdminMayBind is the D26/D33/D88 gate for POST/DELETE /bindings when the
+// caller is not a workspace admin. The personal tile's owner first
+// (selfMayBind, personal.go), then two independent org rights:
 //
 //   - CALLER side (D26): the component is org-owned by an org p administers;
 //     unbinding is always fine; binding requires every normalized target to
@@ -270,6 +275,9 @@ func (b *Broker) providerRefOrg(ref string) string {
 func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding registry.Binding, unbind bool) bool {
 	if b.Users == nil || p.Component != "" || p.User == nil {
 		return false
+	}
+	if b.selfMayBind(p, comp, slot, binding, unbind) {
+		return true
 	}
 	// adminOwnsRef: the ref is a tile owned by an org p administers — the
 	// basis for provider consent (D33) and terminator-domain consent (D41).
@@ -343,7 +351,7 @@ func (b *Broker) orgAdminMayBind(p auth.Principal, comp, slot string, binding re
 	}
 	for _, ref := range refs {
 		if ref.Ref == "" || ref.Ref == "runtime" || ref.Ref == "internet" || ref.Ref == "host" ||
-			ref.Ref == NetRefOrg || ref.Ref == NetRefNone ||
+			ref.Ref == NetRefOrg || ref.Ref == NetRefPersonal || ref.Ref == NetRefNone ||
 			strings.HasPrefix(ref.Ref, "lan:") || strings.HasPrefix(ref.Ref, "internet:") {
 			return false
 		}
@@ -453,14 +461,18 @@ func (b *Broker) approverHint(g registry.Grant) []string {
 		if torg := b.targetOwnerOrg(g.Target); torg != "" {
 			add("org:" + torg)
 		}
-		// A USER-owned requesting tile is otherwise ws-admin-only — but when
-		// the owner belongs to an org whose allowance would cover the target,
-		// the self-serve escape is transferring the tile there. Hint it so
-		// the requester learns the detour at the moment of frustration.
+		// A USER-owned requesting tile: its owner approves what their own
+		// allowance covers (D88). Otherwise, when the owner could move it to
+		// an org (Create, not suspended) whose allowance covers the target,
+		// the self-serve detour is transferring it there — hinted at the
+		// moment of frustration.
 		if owner := b.Users.Owner(g.From); strings.HasPrefix(owner, "user:") {
 			uid := strings.TrimPrefix(owner, "user:")
+			if b.intraUserTarget(uid, g.Target) || b.Users.PersonalAllowanceCovers(uid, g.Target, g.Role) {
+				add("owner")
+			}
 			for _, m := range b.Users.UserOrgs(uid) {
-				if b.Users.AllowanceCovers(m.ID, g.Target, g.Role) {
+				if !m.Suspended && (m.Create || m.Admin) && b.Users.AllowanceCovers(m.ID, g.Target, g.Role) {
 					add("transfer:org:" + m.ID)
 				}
 			}
