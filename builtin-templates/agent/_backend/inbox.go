@@ -31,12 +31,17 @@ const (
 )
 
 type inboxBody struct {
-	Text    string   `json:"text,omitempty"`
-	Files   []string `json:"files,omitempty"`
-	Source  string   `json:"source,omitempty"` // human | parent | learn | schedule | watch
-	From    int64    `json:"from,omitempty"`   // the parent run, for source=parent
-	Approve bool     `json:"approve,omitempty"`
-	Reason  string   `json:"reason,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	Files  []string `json:"files,omitempty"`
+	Source string   `json:"source,omitempty"` // human | parent | learn | schedule | watch
+	From   int64    `json:"from,omitempty"`   // the parent run, for source=parent
+	// Sender is the person who wrote it (source=human, D83); OriginID and
+	// Label name the automation that delivered it (source=schedule/…).
+	Sender   string `json:"sender,omitempty"`
+	OriginID int64  `json:"originId,omitempty"`
+	Label    string `json:"label,omitempty"`
+	Approve  bool   `json:"approve,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 	// Watcher rounds: the transcript mark before the round, whether it is the
 	// open round, and whether state_changed was called in it.
 	Mark    int  `json:"mark,omitempty"`
@@ -222,7 +227,11 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent.resumeIfHalted(id)
-	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human"}, body.ClientID)
+	sender := principal(r).user
+	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}, body.ClientID)
+	if err == nil {
+		agent.db.bumpActivity(id)
+	}
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

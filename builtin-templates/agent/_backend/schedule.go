@@ -29,15 +29,39 @@ type Schedule struct {
 	RunID   int64  `json:"runId"` // watcher's persistent run (0 = none yet)
 	LastRun int64  `json:"lastRun"`
 	Created int64  `json:"created"`
+	// Whose automation this is, and where its firings go (D83). Owner "" and
+	// visibility "team" is a schedule from before: everyone sees its runs.
+	Owner        string `json:"owner"`
+	Visibility   string `json:"visibility"`
+	Mode         string `json:"mode"`         // "" = isolated (a new run per fire) | persistent | conversation
+	TargetRun    int64  `json:"targetRun"`    // mode conversation: the chat it reports to
+	CreatedByRun int64  `json:"createdByRun"` // the run whose agent created it (0 = a person)
+	LastRunID    int64  `json:"lastRunId"`    // the latest run it fired
+	LastStatus   string `json:"lastStatus"`   // how that run's last turn ended
+}
+
+// stamp is who a run this schedule fires belongs to.
+func (s *Schedule) stamp() runStamp {
+	st := runStamp{Owner: s.Owner, Visibility: s.Visibility, TeamRole: roleViewer, Origin: "schedule",
+		OriginID: s.ID, SessionKey: "sched:" + strconv.FormatInt(s.ID, 10), TitleSrc: "origin"}
+	if s.Watcher {
+		st.Origin, st.SessionKey = "watcher", "watch:"+strconv.FormatInt(s.ID, 10)
+	}
+	if st.Owner == "" { // legacy: shared with everyone, as it always was
+		st.Visibility, st.TeamRole = visTeam, roleParticipant
+	}
+	return st
 }
 
 // --- storage -------------------------------------------------------------
 
 func (d *DB) createSchedule(s *Schedule) (int64, error) {
 	res, err := d.q.Exec(
-		`INSERT INTO schedules (name, cron, goal, system, watcher, toolset, enabled, created)
-		 VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), s.Toolset, now())
+		`INSERT INTO schedules (name, cron, goal, system, watcher, toolset, enabled, created,
+		   owner, visibility, mode, target_run, created_by_run)
+		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), s.Toolset, now(),
+		s.Owner, orStr(s.Visibility, visTeam), s.Mode, s.TargetRun, s.CreatedByRun)
 	if err != nil {
 		return 0, err
 	}
@@ -47,14 +71,15 @@ func (d *DB) createSchedule(s *Schedule) (int64, error) {
 func scanSchedule(scan func(dest ...any) error) (*Schedule, error) {
 	s := &Schedule{}
 	var watcher, enabled int
-	if err := scan(&s.ID, &s.Name, &s.Cron, &s.Goal, &s.System, &watcher, &s.Toolset, &enabled, &s.RunID, &s.LastRun, &s.Created); err != nil {
+	if err := scan(&s.ID, &s.Name, &s.Cron, &s.Goal, &s.System, &watcher, &s.Toolset, &enabled, &s.RunID, &s.LastRun, &s.Created,
+		&s.Owner, &s.Visibility, &s.Mode, &s.TargetRun, &s.CreatedByRun, &s.LastRunID, &s.LastStatus); err != nil {
 		return nil, err
 	}
 	s.Watcher, s.Enabled = watcher != 0, enabled != 0
 	return s, nil
 }
 
-const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created`
+const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created, owner, visibility, mode, target_run, created_by_run, last_run_id, last_status`
 
 func (d *DB) getSchedule(id int64) (*Schedule, error) {
 	return scanSchedule(d.q.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id).Scan)
@@ -169,7 +194,12 @@ func (ag *Agent) fireSchedule(s *Schedule) {
 	if title == "" {
 		title = clip(s.Goal, 60)
 	}
-	_, _ = ag.startRun("⏱ "+title, "", cfg, s.Goal, false, fmt.Sprintf("started by schedule #%d (%s)", s.ID, s.Name))
+	run, err := ag.startRunOpts(runOpts{Title: "⏱ " + title, Cfg: cfg, Text: s.Goal,
+		Note: fmt.Sprintf("started by schedule #%d (%s)", s.ID, s.Name), Stamp: s.stamp(),
+		Meta: msgMeta{Origin: "schedule", OriginID: s.ID, Label: title}})
+	if err == nil {
+		_, _ = ag.db.q.Exec(`UPDATE schedules SET last_run_id=? WHERE id=?`, run.ID, s.ID)
+	}
 }
 
 // --- watcher mode --------------------------------------------------------
@@ -202,7 +232,7 @@ func (ag *Agent) fireWatcher(s *Schedule) {
 		if title == "" {
 			title = clip(s.Goal, 60)
 		}
-		run, err := ag.startRun("👁 "+title, "", cfg, "", true, "")
+		run, err := ag.startRunOpts(runOpts{Title: "👁 " + title, Cfg: cfg, Hold: true, Stamp: s.stamp()})
 		if err != nil {
 			return
 		}
@@ -244,6 +274,13 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Toolset = normalizeToolset(s.Toolset) // human-created: either lane, validated
+	// Whose it is comes from the caller, never the body.
+	w0 := principal(r)
+	st := w0.stamp("schedule")
+	s.Owner, s.CreatedByRun, s.LastRunID, s.LastStatus, s.Mode, s.TargetRun = st.Owner, 0, 0, "", "", 0
+	if s.Visibility != visTeam {
+		s.Visibility = st.Visibility
+	}
 	if s.Watcher && !parseConfig(agent.db.getSetting("config")).feature("watcher") {
 		xbin.WriteError(w, 400, "watcher mode is disabled in the agent's Features")
 		return
@@ -270,12 +307,15 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such schedule")
 		return
 	}
-	// Decode onto the current record so omitted fields keep their value.
+	// Decode onto the current record so omitted fields keep their value —
+	// except the ones no request may set (who owns it, what it fired).
+	keep := *cur
 	if err := json.NewDecoder(r.Body).Decode(cur); err != nil {
 		xbin.WriteError(w, 400, "bad body")
 		return
 	}
-	cur.ID = id
+	cur.ID, cur.Owner, cur.CreatedByRun, cur.LastRunID, cur.LastStatus, cur.RunID, cur.Created, cur.LastRun =
+		id, keep.Owner, keep.CreatedByRun, keep.LastRunID, keep.LastStatus, keep.RunID, keep.Created, keep.LastRun
 	if err := agent.db.updateSchedule(cur); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

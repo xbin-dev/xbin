@@ -87,6 +87,17 @@ type Run struct {
 	TurnStarted int64 `json:"turnStarted"`
 	Created     int64 `json:"created"`
 	Updated     int64 `json:"updated"`
+	// Who may see it and where it came from (D83, migrate_conv.go). Set on the
+	// root; a subagent carries a copy for display — access is always decided
+	// on the root.
+	Owner      string `json:"owner"`      // user id | "el:<path>" | "" (legacy/system)
+	Visibility string `json:"visibility"` // private | team
+	TeamRole   string `json:"teamRole"`   // what team visibility grants: viewer | participant
+	Origin     string `json:"origin"`     // chat | api | schedule | watcher | channel | trigger ("" legacy)
+	OriginID   int64  `json:"originId"`   // the automation's row id
+	SessionKey string `json:"sessionKey"` // "sched:3", "watch:1", "chan:…" — "" for plain chats
+	TitleSrc   string `json:"titleSrc"`   // clip | auto | user | origin ("" legacy: never auto-titled)
+	ActivityMs int64  `json:"activityMs"` // last meaningful activity (unix ms), roots only
 }
 
 type Message struct {
@@ -203,6 +214,19 @@ func (d *DB) createRun(title, config string, parentID int64) (int64, error) {
 }
 
 func (d *DB) createRunStatus(title, config string, parentID int64, status string) (int64, error) {
+	return d.createRunStamped(title, config, parentID, status, runStamp{})
+}
+
+// runStamp is who a new top-level run belongs to and where it came from. The
+// zero value is a legacy/system run: no owner, visible to the whole team.
+type runStamp struct {
+	Owner, Visibility, TeamRole string
+	Origin                      string
+	OriginID                    int64
+	SessionKey, TitleSrc        string
+}
+
+func (d *DB) createRunStamped(title, config string, parentID int64, status string, st runStamp) (int64, error) {
 	t := now()
 	rootID, depth := int64(0), 0
 	if parentID != 0 {
@@ -211,13 +235,29 @@ func (d *DB) createRunStatus(title, config string, parentID int64, status string
 			if rootID == 0 {
 				rootID = p.ID
 			}
+			// A subagent carries its root's stamp (for display; access is
+			// decided on the root).
+			st = runStamp{Owner: p.Owner, Visibility: p.Visibility, TeamRole: p.TeamRole,
+				Origin: p.Origin, OriginID: p.OriginID, TitleSrc: "origin"}
 		}
+	}
+	if st.Visibility == "" {
+		st.Visibility = visTeam
+	}
+	if st.TeamRole == "" {
+		st.TeamRole = roleParticipant
+	}
+	activity := int64(0)
+	if parentID == 0 {
+		activity = time.Now().UnixMilli()
 	}
 	var id int64
 	err := d.q.QueryRow(
-		`INSERT INTO runs (title, status, config, parent_id, root_id, depth, detached, created, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-		title, status, config, parentID, rootID, depth, b2i(parentID != 0), t, t).Scan(&id)
+		`INSERT INTO runs (title, status, config, parent_id, root_id, depth, detached, created, updated,
+		   owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		title, status, config, parentID, rootID, depth, b2i(parentID != 0), t, t,
+		st.Owner, st.Visibility, st.TeamRole, st.Origin, st.OriginID, st.SessionKey, st.TitleSrc, activity).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -229,14 +269,15 @@ func (d *DB) createRunStatus(title, config string, parentID int64, status string
 	return id, nil
 }
 
-const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started`
+const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started, owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms`
 
 func scanRun(scan func(dest ...any) error) (*Run, error) {
 	r := &Run{}
 	var detached int
 	if err := scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending,
 		&r.LastPromptTokens, &r.Created, &r.Updated, &r.RootID, &r.Depth, &detached, &r.Outcome, &r.SettledAt,
-		&r.CancelReq, &r.LLMCalls, &r.PromptTokens, &r.CompletionTokens, &r.TurnSteps, &r.TurnStarted); err != nil {
+		&r.CancelReq, &r.LLMCalls, &r.PromptTokens, &r.CompletionTokens, &r.TurnSteps, &r.TurnStarted,
+		&r.Owner, &r.Visibility, &r.TeamRole, &r.Origin, &r.OriginID, &r.SessionKey, &r.TitleSrc, &r.ActivityMs); err != nil {
 		return nil, err
 	}
 	r.Detached = detached != 0

@@ -619,7 +619,9 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 	}
 	// Interrupts that arrived for a turn that has now ended are moot.
 	_, _ = t.q.Exec(`UPDATE inbox SET delivered_at=? WHERE run_id=? AND kind='interrupt' AND delivered_at=0`, now(), run.ID)
-	e.finishWatchRound(t, run)
+	if !e.finishWatchRound(t, run) && run.ParentID == 0 {
+		t.bumpActivity(run.ID) // a discarded watcher round is not news
+	}
 	if run.ParentID != 0 {
 		res := result
 		if why == endAnswered && strings.TrimSpace(res) == "" {
@@ -674,6 +676,13 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 				text = fmt.Sprintf("[message from your parent run #%d]\n%s", r.Body.From, text)
 			}
 			m := &Message{RunID: run.ID, Role: "user", Content: text + attachmentNote(files)}
+			if b := r.Body; b.Sender != "" || (b.Source != "" && b.Source != "human" && b.Source != "parent") {
+				meta := msgMeta{Sender: b.Sender, OriginID: b.OriginID, Label: b.Label}
+				if b.Source != "human" {
+					meta.Origin = b.Source
+				}
+				m.Meta, _ = json.Marshal(meta)
+			}
 			if _, err := t.addMessage(m); err != nil {
 				return err
 			}
@@ -714,25 +723,27 @@ func (e *Engine) compactNow(run *Run, _ []*InboxRow) {
 
 // finishWatchRound closes an open watcher round when a turn ends: a round that
 // reported no change (no state_changed) is rolled back, so history keeps only
-// the rounds that mattered — unless a human spoke during it.
-func (e *Engine) finishWatchRound(t *DB, run *Run) {
+// the rounds that mattered — unless a human spoke during it. True when the
+// round was discarded.
+func (e *Engine) finishWatchRound(t *DB, run *Run) bool {
 	rows := t.inboxRows(`WHERE run_id=? AND kind='watch' AND delivered_at<>0 ORDER BY id DESC LIMIT 1`, run.ID)
 	if len(rows) == 0 || !rows[0].Body.Open {
-		return
+		return false
 	}
 	w := rows[0]
 	w.Body.Open = false
 	t.setInboxBody(w.ID, w.Body)
 	if w.Body.Changed {
-		return
+		return false
 	}
 	var human int
 	_ = t.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind='user' AND delivered_at<>0 AND id>?`, run.ID, w.ID).Scan(&human)
 	if human > 0 {
-		return
+		return false
 	}
 	t.deleteMessagesAfter(run.ID, w.Body.Mark)
 	e.emitStep(t, rootOf(run), t.journal(run.ID, "note", map[string]string{"text": "watcher: no change — round discarded"}))
+	return true
 }
 
 // markWatchChanged is state_changed: keep the open round.

@@ -301,6 +301,8 @@ func runSummary(r *Run) map[string]any {
 		"pending": r.Pending != "", "llmCalls": r.LLMCalls, "promptTokens": r.PromptTokens,
 		"completionTokens": r.CompletionTokens, "turnSteps": r.TurnSteps, "turnStarted": r.TurnStarted,
 		"created": r.Created, "updated": r.Updated, "pendingState": parsePending(r.Pending),
+		"owner": r.Owner, "visibility": r.Visibility, "teamRole": r.TeamRole, "origin": r.Origin,
+		"originId": r.OriginID, "sessionKey": r.SessionKey, "titleSrc": r.TitleSrc, "activityMs": r.ActivityMs,
 	}
 }
 

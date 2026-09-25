@@ -65,3 +65,11 @@ func clip(s string, n int) string {
 	}
 	return strings.ToValidUTF8(s[:n], "") + "…"
 }
+
+// orStr is s, or def when s is empty.
+func orStr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}

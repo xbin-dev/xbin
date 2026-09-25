@@ -44,6 +44,17 @@ and the owner. There is no public surface. Paths below are relative to
 Content and metadata are separate routes on purpose: a run's detail and view
 must never carry file bodies.
 
+Every run records who it belongs to and where it came from (D83): `owner`
+(the user id of whoever started it; `""` for runs from before, or from the
+owner token and scripts), `visibility` (`private` | `team`) with `teamRole`
+(`viewer` | `participant` — what team visibility grants), `origin` (`chat`,
+`api`, `schedule`, `watcher`; later `channel`, `trigger`), `originId` (the
+automation's id), `sessionKey`, `titleSrc` (`clip` | `auto` | `user` |
+`origin`) and `activityMs` (the last thing a person or the agent said, or a
+wait for someone — what the conversation list sorts by). `POST /ask` also
+takes `title` and `system`. Runs from before keep `owner ""` and `team`
+visibility, so nothing disappears.
+
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
 an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
 The tile opens on a home view built on this: the composer asks (in the lane

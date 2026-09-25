@@ -149,6 +149,7 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall) {
 			}
 		}
 		e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]any{"kind": "approval", "tools": toolNames(calls)}))
+		t.bumpActivity(run.ID)
 		if err := t.setStatus(run.ID, statusWaiting, 0, "approve the pending tool call(s)", string(pend)); err != nil {
 			return err
 		}
@@ -309,6 +310,7 @@ func (e *Engine) controlTool(ctx context.Context, ts *turnState, tc toolCall, re
 			e.notExecuted(t, ts, rest, "run paused")
 			e.demoteStep(t, ts, "the run is waiting for the owner")
 			e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]string{"kind": "ask_user", "question": q}))
+			t.bumpActivity(run.ID)
 			if err := t.setStatus(run.ID, statusWaiting, 0, q, ""); err != nil {
 				return err
 			}

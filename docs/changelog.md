@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Agent template: runs record who they belong to and where they came
+  from** — `owner`, `visibility`/`teamRole`, `origin` (chat, api, schedule,
+  watcher), `sessionKey`, `activityMs` — groundwork for per-user
+  conversations and an Automations page (D83, landing in the next changes).
+  Existing runs are classified in place and stay visible to everyone;
+  `POST /ask` also takes `title` and `system`. Additive.
 - **SDK: `xbin.SetSecret(name, value)` / `xbin.DeleteSecret(name)`** write a
   component's own vault from its backend (additive). A tile's frontend can't
   reach the vault API (D30), so a settings page hands a token to its backend,

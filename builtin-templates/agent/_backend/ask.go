@@ -19,6 +19,8 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// POST /runs/{id}/message — a quick ask has no run to attach to until
 		// this call makes one.
 		Hold bool
+		// Title and System come from the "New chat with options" dialog.
+		Title, System string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
@@ -28,13 +30,23 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.Toolset = normalizeToolset(body.Toolset)
+	if body.System != "" {
+		cfg.System = body.System
+	}
 	note := "quick ask"
 	if body.Hold {
 		note = "quick ask (waiting for attachments)"
 	} else {
 		agent.resumeIfHalted(0)
 	}
-	run, err := agent.startRun(clip(body.Text, 60), "quick", cfg, body.Text, body.Hold, note)
+	w0 := principal(r)
+	st := w0.stamp("chat")
+	title := strings.TrimSpace(body.Title)
+	if st.TitleSrc = "user"; title == "" {
+		title, st.TitleSrc = clip(body.Text, 60), "clip"
+	}
+	run, err := agent.startRunOpts(runOpts{Title: title, Kind: "quick", Cfg: cfg, Text: body.Text, Hold: body.Hold,
+		Note: note, Stamp: st, Sender: w0.user})
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

@@ -457,6 +457,13 @@ type msgMeta struct {
 	Model        string          `json:"model,omitempty"`
 	Usage        *usageBlock     `json:"usage,omitempty"`
 	Finish       string          `json:"finish,omitempty"`
+	// On user messages (D83): who sent it, and what delivered it when it
+	// wasn't a person typing (a schedule, a channel, a trigger). The model
+	// never sees these fields; the transcript text carries what it needs.
+	Sender   string `json:"sender,omitempty"`
+	Origin   string `json:"origin,omitempty"`
+	OriginID int64  `json:"originId,omitempty"`
+	Label    string `json:"label,omitempty"`
 }
 
 const llmRetries = 3

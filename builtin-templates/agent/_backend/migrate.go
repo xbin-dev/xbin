@@ -47,6 +47,9 @@ func (d *DB) migrate() error {
 	} {
 		_, _ = d.q.Exec(q)
 	}
+	if err := d.addConvSchema(); err != nil {
+		return err
+	}
 	for _, q := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, wake_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_id)`,
@@ -77,7 +80,7 @@ func (d *DB) migrate() error {
 			return err
 		}
 	}
-	return nil
+	return d.migrateConv()
 }
 
 const schemaSQL = `

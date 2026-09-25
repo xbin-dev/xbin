@@ -223,6 +223,11 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 			// a private run must not be able to smuggle data into a future
 			// web run's goal text (the firewall would leak through time).
 			Toolset: cfg.toolset(),
+			// It belongs to whoever owns this conversation (D83).
+			CreatedByRun: run.ID,
+		}
+		if root, err := ag.db.getRun(rootOf(run)); err == nil {
+			s.Owner, s.Visibility = root.Owner, root.Visibility
 		}
 		if s.Name == "<nil>" {
 			s.Name = ""

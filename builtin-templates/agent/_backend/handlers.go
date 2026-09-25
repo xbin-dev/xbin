@@ -58,8 +58,28 @@ func handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 // startRun creates a top-level run with its first message and starts it: the
 // message is written directly (no run to queue it for yet) and the run poked.
+// startRun starts a top-level run the legacy way: no owner, visible to the
+// whole team. Kept for forks that call it; new code states who it is for
+// with startRunOpts.
 func (ag *Agent) startRun(title, kind string, cfg Config, text string, hold bool, note string) (*Run, error) {
-	cfgJSON, _ := json.Marshal(cfg)
+	return ag.startRunOpts(runOpts{Title: title, Kind: kind, Cfg: cfg, Text: text, Hold: hold, Note: note})
+}
+
+// runOpts is a new top-level run: its first message, and who it is for.
+type runOpts struct {
+	Title, Kind string
+	Cfg         Config
+	Text        string
+	Hold        bool // create it idle, with no message (attachments come first)
+	Note        string
+	Stamp       runStamp
+	Sender      string  // who sent the first message
+	Meta        msgMeta // on the first message: origin/label for automation prompts
+}
+
+func (ag *Agent) startRunOpts(o runOpts) (*Run, error) {
+	cfgJSON, _ := json.Marshal(o.Cfg)
+	title, kind, cfg, text, hold, note := o.Title, o.Kind, o.Cfg, o.Text, o.Hold, o.Note
 	var id int64
 	err := ag.db.Tx(func(t *DB) error {
 		status := statusRunning
@@ -67,7 +87,7 @@ func (ag *Agent) startRun(title, kind string, cfg Config, text string, hold bool
 			status = statusIdle
 		}
 		var err error
-		if id, err = t.createRunStatus(title, string(cfgJSON), 0, status); err != nil {
+		if id, err = t.createRunStamped(title, string(cfgJSON), 0, status, o.Stamp); err != nil {
 			return err
 		}
 		if kind != "" {
@@ -77,7 +97,13 @@ func (ag *Agent) startRun(title, kind string, cfg Config, text string, hold bool
 			return err
 		}
 		if !hold {
-			if _, err := t.addMessage(&Message{RunID: id, Role: "user", Content: text}); err != nil {
+			m := &Message{RunID: id, Role: "user", Content: text}
+			meta := o.Meta
+			meta.Sender = o.Sender
+			if meta.Sender != "" || meta.Origin != "" {
+				m.Meta, _ = json.Marshal(meta)
+			}
+			if _, err := t.addMessage(m); err != nil {
 				return err
 			}
 			_, _ = t.q.Exec(`UPDATE runs SET turn_started=? WHERE id=?`, now(), id)
@@ -113,12 +139,16 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	if body.System != "" {
 		cfg.System = body.System
 	}
+	w0 := principal(r)
+	st := w0.stamp("chat")
+	st.TitleSrc = "user"
 	title := body.Title
 	if title == "" {
-		title = clip(body.Goal, 60)
+		title, st.TitleSrc = clip(body.Goal, 60), "clip"
 	}
 	agent.resumeIfHalted(0)
-	run, err := agent.startRun(title, "", cfg, body.Goal, false, "run created")
+	run, err := agent.startRunOpts(runOpts{Title: title, Cfg: cfg, Text: body.Goal, Note: "run created",
+		Stamp: st, Sender: w0.user})
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
