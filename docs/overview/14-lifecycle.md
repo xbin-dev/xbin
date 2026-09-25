@@ -43,6 +43,8 @@ friendly one:
   authoritative gate: the watcher's rebuild-on-save, a grant-change respawn,
   an inbound ingress connection — no path can resurrect a disabled backend,
   because they all go through `Ensure`.
+- **Enabling starts an `alwaysOn` backend now**; others start on their first
+  request.
 - **Disabling stops a running backend now** (not at next idle-reap) — the
   point of disabling is to free compute immediately.
 - **Ingress drops non-enabled tiles**: published HTTP routes stop resolving

@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Manifest: `"alwaysOn": true` keeps a backend running.** Started at boot
+  and whenever it becomes runnable (enabled, vault unsealed, the flag added),
+  never idle-reaped, restarted after an exit (1 s backoff doubling to 5 min;
+  the crash-loop breaker still stops it). For tiles that hold an outbound
+  connection — a chat adapter's socket — and so never get the request that
+  would start them. Disable the tile to stop it. Additive
+  ([elements.md](elements.md), [03-components.md](overview/03-components.md)).
 - **Agent template: runs record who they belong to and where they came
   from** — `owner`, `visibility`/`teamRole`, `origin` (chat, api, schedule,
   watcher), `sessionKey`, `activityMs` — groundwork for per-user

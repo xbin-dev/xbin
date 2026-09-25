@@ -69,6 +69,12 @@ type Manifest struct {
 	// rootfs (e.g. install Ruby). Built in a sandbox with net:internet, cached,
 	// rebuilt only when this changes. See plans/component-env.md.
 	Setup string `json:"setup,omitempty"`
+	// AlwaysOn keeps the backend running: started at boot (and on enable,
+	// vault unseal, or when the flag appears), never idle-reaped, and
+	// restarted after an exit with a backoff (the crash-loop breaker still
+	// stops it). For tiles that hold a connection open — a chat adapter —
+	// where no inbound request would ever start them. Disable the tile to stop it.
+	AlwaysOn bool `json:"alwaysOn,omitempty"`
 
 	// Interfaces are typed capability slots this component REQUESTS; the owner
 	// binds each to a provider (plans/interfaces.md). Provides are slots it offers

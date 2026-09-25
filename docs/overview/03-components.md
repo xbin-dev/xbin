@@ -188,6 +188,14 @@ a backend quietly serving a stream is never reaped mid-connection. Periodic
 work belongs in a `cron` resource ([10-resources.md](10-resources.md)), not
 a sleeping goroutine that reaping would kill.
 
+A manifest with `"alwaysOn": true` is the exception, for tiles whose work
+arrives over a connection *they* open (a chat adapter's socket) — no inbound
+request would ever start them. The runner starts such a backend at boot and
+whenever it becomes runnable (enabled, vault unsealed, the flag appearing on a
+rescan), never reaps it, and restarts it after an exit with a one-shot backoff
+(1 s doubling to 5 min, reset after 10 healthy minutes). The crash-loop
+breaker still wins, and disabling the tile stops it.
+
 ## The change pipeline: save → live
 
 ```

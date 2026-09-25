@@ -45,6 +45,14 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // and pin/verify what you install (see AGENTS.md). E.g. give the backend Ruby:
   "setup": "apt-get update && apt-get install -y --no-install-recommends ruby && gem install --no-document sinatra",
 
+  // Keep the backend running (optional, default false): started at boot and
+  // whenever it becomes runnable, never idle-reaped, restarted after an exit
+  // (1 s backoff doubling to 5 min; the crash-loop breaker still stops it).
+  // For a tile that holds a connection open — a chat adapter's socket — and
+  // so never gets the inbound request that would start it. Disable the tile
+  // to stop it.
+  "alwaysOn": false,
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
@@ -358,7 +366,9 @@ Lifecycle facts that matter when writing backends:
   generation are killed at the 30 s drain deadline; reconnect.
 - **Idle reaping**: ~30 min without requests → the process is stopped; the
   next request restarts it (~100–300 ms). Need periodic work? Use a `cron`
-  resource, not a sleeping goroutine.
+  resource, not a sleeping goroutine. A backend that must hold an outbound
+  connection (a chat adapter) sets `"alwaysOn": true` instead: it starts at
+  boot, is never reaped, and is restarted after an exit.
 - **Crash loops**: 3 quick exits → marked failed (overlay + `bx status`)
   until you save a change. Logs: `bx logs -f <component>`,
   or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log`.

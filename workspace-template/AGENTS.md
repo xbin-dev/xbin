@@ -409,7 +409,9 @@ Lifecycle facts you must design around:
 
 - **A save = a new process.** Keep state in resources (kv/sqlite), not RAM.
 - Lazy start; idle-reaped after ~30 min (next request revives, ~200 ms).
-  Periodic work ⇒ `cron` resource, never a sleeping loop.
+  Periodic work ⇒ `cron` resource, never a sleeping loop. A backend that
+  must hold an outbound connection (a chat bot's socket) sets `"alwaysOn":
+  true` in xbin.json: started at boot, never reaped, restarted after exits.
 - Blue/green swap: in-flight requests finish; long-lived WS/SSE die at the
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.

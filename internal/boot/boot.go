@@ -103,6 +103,7 @@ var Steps = []Step{
 	{"isolation", (*State).stepIsolation},
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
+	{"always-on", (*State).stepAlwaysOn},
 }
 
 // Run boots the workspace described by cfg and serves it until ctx is done
@@ -493,6 +494,7 @@ func (st *State) stepProxy() error {
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
 	run.ShouldRun = func(comp string) bool {
@@ -673,5 +675,12 @@ func (st *State) stepWatch() error {
 	}
 	st.watcher = w
 	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.reconcileIngress)
+	return nil
+}
+
+// stepAlwaysOn starts the backends marked "alwaysOn" (runner/alwayson.go):
+// nothing else would — they may never receive a request.
+func (st *State) stepAlwaysOn() error {
+	go st.Run.WakeAlwaysOn()
 	return nil
 }

@@ -178,6 +178,7 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 			hub.Publish(events.Event{Type: "reload", Component: c.Path})
 			run.Changed(c)
 		}
+		run.WakeAlwaysOn() // a new tile, or the flag added
 	}
 }
 

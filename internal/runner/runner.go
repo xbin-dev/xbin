@@ -152,6 +152,7 @@ type Runner struct {
 
 	mu     sync.Mutex
 	states map[string]*state
+	ao     alwaysOn // alwayson.go
 	netmux *netMux
 	stats  statsState // live per-tile resource stats (stats.go)
 }
@@ -335,6 +336,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 			r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: s.lastErr.Error()})
 		} else {
 			s.dirty = true // transparent restart on next request
+			go r.afterExit(c)
 		}
 	}()
 
@@ -829,7 +831,7 @@ func (r *Runner) reaper() {
 		r.mu.Unlock()
 		for _, s := range states {
 			s.mu.Lock()
-			if s.cur != nil && s.active == 0 && time.Since(s.lastReq) > idleReap {
+			if s.cur != nil && s.active == 0 && time.Since(s.lastReq) > idleReap && !r.isAlwaysOn(s.comp) {
 				inst := s.cur
 				s.cur = nil
 				s.dirty = true // next request restarts lazily

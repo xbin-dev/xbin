@@ -100,6 +100,8 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	// the next request re-spawn it (Ensure is gated on the new state).
 	if body.State != registry.StateEnabled {
 		b.StopBackendSafe(body.Component)
+	} else {
+		b.wakeBackends() // an always-on tile starts now; others on first request
 	}
 	// Only offload/restore moved files — rescan/provision + reconcile then.
 	if filesChanged {

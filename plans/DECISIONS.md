@@ -2212,3 +2212,29 @@ Deviations and refinements made while implementing; all deliberate:
     they can change or read the backend.
 
   The migration note says plainly who can still read everything.
+
+- **D84 — `"alwaysOn": true`: the runner starts a backend at boot and
+  restarts it after exits; there is no watchdog (2026-09-26).** A chat
+  adapter holds an outbound connection (Slack Socket Mode), so no inbound
+  request ever starts it or keeps it alive.
+
+  **Why not self-hold plus a resume cron (D81's pattern)?**
+  - The resume job is left only on a graceful SIGTERM; a crash, `kill -9`,
+    OOM or host reboot leaves nothing to restart the tile.
+  - A permanent watchdog cron is a ticker.
+
+  **The flag, in `runner/alwayson.go`** (kept out of runner.go, which is at
+  its budget):
+  - Start triggers, all event-driven: boot (a step after watch), vault
+    unseal, lifecycle enable, and each rescan (the flag appearing).
+  - The reaper skips these tiles.
+  - The crash watch schedules a one-shot restart after a backoff (1 s
+    doubling to 5 min, reset after 10 healthy minutes).
+  - The existing crash-loop breaker (3 exits in 30 s) still stops it until
+    a save.
+  - At most 2 builds at once, so a boot with many such tiles doesn't
+    storm.
+
+  **Not chosen:** a `cap:always-on` grant. A tile can already keep itself
+  alive by holding a request to itself (D81), so the flag adds only
+  boot-start and restart, and the owner stops it by disabling the tile.

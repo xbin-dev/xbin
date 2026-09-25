@@ -80,6 +80,9 @@ type Broker struct {
 	// when the owner disables/offloads it; plans/lifecycle.md). Wired to
 	// runner.Stop by main.
 	StopBackend func(component string)
+	// WakeBackends, if set, starts the always-on backends that can run now
+	// (after an unseal or an enable; runner.WakeAlwaysOn).
+	WakeBackends func()
 
 	// ProxyHandler is the element proxy, used to call an archiver tile's API
 	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by
@@ -200,6 +203,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 			return err
 		}
 		b.MountEncrypted()
+		b.wakeBackends()
 		return nil
 	}
 	if err := b.barrier.Init(passphrase); err != nil {
@@ -207,7 +211,14 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 	}
 	b.migrateVaults()
 	b.MountEncrypted() // default-on: encrypt file-backed resources from now on
+	b.wakeBackends()
 	return nil
+}
+
+func (b *Broker) wakeBackends() {
+	if b.WakeBackends != nil {
+		go b.WakeBackends()
+	}
 }
 
 // Barrier exposes the vault barrier (status/seal for the API layer).
