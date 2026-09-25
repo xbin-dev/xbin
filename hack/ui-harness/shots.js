@@ -22,6 +22,7 @@ const { agentTab } = require('./passes/agenttab');
 const { ingressMulti } = require('./passes/ingressmulti');
 const { menuOpen } = require('./passes/menuopen');
 const { branding } = require('./passes/branding');
+const { agentTemplate } = require('./passes/agenttemplate');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -184,7 +185,8 @@ async function screens(browser) {
 // opening a panel, and the admin window at "interfaces" with an open
 // multiselect list that must escape the window's edge.
 async function menus(browser) {
-  const { ctx, page } = await login(browser, 'admin', 'admin');
+  // tall: the seeded grants/bindings panels push the canvas down (as in menuOpen)
+  const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 1300 } });
   await openShell(page);
   await usePersonalScreen(page);
   await sh(page, (t) => {
@@ -195,7 +197,13 @@ async function menus(browser) {
     for (const p of ['apps/leads', 'apps/pinned', 'apps/racks']) { t.toggleTile(p); t.toggleTile(p); }
   });
   await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
-  await page.mouse.click(1300, 860, { button: 'right' }); // empty canvas (below the cards)
+  const below = await sh(page, (t) => { // empty canvas: below every card, at the right
+    const r = t.query('.canvas').getBoundingClientRect();
+    const bottom = Math.max(0, ...t.openTiles.filter((o) => !o.float).map((o) => o.y + o.h));
+    // the canvas is a scroll space wider than the window: clamp into view
+    return { x: Math.min(r.right, innerWidth) - 100, y: Math.min(r.top + bottom + 60, innerHeight - 40) };
+  });
+  await page.mouse.click(below.x, below.y, { button: 'right' });
   await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-canvas', { fullPage: false });
   await page.locator('bx-menu .it', { hasText: 'Open tile' }).hover();
@@ -215,7 +223,9 @@ async function menus(browser) {
   await page.keyboard.press('Escape');
   await waitFor(page, (t) => !t.menuOpen, null, { label: 'menu closed' });
   // right-click INSIDE the tile's iframe: the tile page relays it to the shell
-  const cb = await page.locator('.card[data-path="apps/crawler"] .cbody').boundingBox();
+  const body = page.locator('.card[data-path="apps/crawler"] .cbody');
+  await body.scrollIntoViewIfNeeded(); // earlier passes may leave it low on the canvas
+  const cb = await body.boundingBox();
   await page.mouse.click(cb.x + 120, cb.y + 90, { button: 'right' });
   await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-tile-body', { fullPage: false });
@@ -824,7 +834,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate,
 };
 
 (async () => {

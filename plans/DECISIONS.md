@@ -2064,3 +2064,69 @@ Deviations and refinements made while implementing; all deliberate:
   keep `_freeSpot`, since they carry no point on the canvas. Not chosen:
   pushing neighbours aside, as a drop does (D66). Opening a tile should not
   rearrange the layout; pushing stays a drag gesture the person is steering.
+
+- **D81 — The agent template drives runs with per-run actors on a durable
+  inbox, owned by one process through a file lock; nothing polls
+  (2026-09-25).** The old loop was one scheduling predicate (`readyRuns`)
+  reached from boot, an in-process kick and a 1-minute heartbeat cron, with
+  30 s per-run leases and 4 drive slots held for whole drives. That caused
+  the reported stalls. A run with `settled_at`/`cancel_req` set was
+  invisible to the predicate forever, so a chat that ever finished parked
+  `blocked` on its next spawn. `depth DESC` slot order put new chats behind
+  subagents. Every save orphaned leases that only the cron recovered (30–90
+  s). A message sent mid-drive was overwritten. A join waited on every
+  pending edge with no timeout.
+
+  Now:
+  - **Actors and inbox.** Every input is an `inbox` row, consumed exactly
+    once in a transaction that also checks the engine epoch. A commit pokes
+    the run's actor (at most one per run; a two-phase exit with a dirty
+    flag, so a poke during exit is never lost). Timers exist only for a
+    known instant (a yield, a subagent deadline) and are one-shot; a test
+    forbids tickers in the package.
+  - **Ownership.** One process owns the engine by holding `flock` on
+    `<db>.engine`. Blue/green starts the successor first: it serves HTTP
+    at once (handlers only write rows) and blocks on the lock. The
+    predecessor cancels its calls on SIGTERM and exits, and the kernel
+    hands the lock over, so a save re-issues the cut-off call in
+    milliseconds. `settings.engine_epoch`, bumped at takeover and checked
+    by every write, fences a stale process.
+  - **Keep-alive.** The engine holds a request to itself open while work
+    exists (the reaper counts only inbound requests). A process that exits
+    with work pending leaves one `resume` cron job; there is no beat.
+  - **LLM gate.** It is taken per model call, not per drive. Top-level
+    calls go first, and children are capped at limit−1, so an interactive
+    chat waits for at most one release.
+  - **Steer at the step boundary.** Queued user rows are appended after
+    the step's tool results and before the next call, which keeps every
+    request valid. A plain answer with a message pending loops again.
+  - **Links.** `links` rows replace `run_deps` edges for parent→child. The
+    child writes only its outcome and the parent only delivery and
+    demotion, so settle-vs-deadline races resolve either way. A parent
+    waits only on its own step's calls. A deadline or a human message
+    demotes the wait to background, and background answers arrive as one
+    batched notice. A child's turn end cancels its descendants.
+  - **Top-level runs are never terminal**: done, error and canceled resume
+    on a message.
+  - **The UI** is one SSE stream (view snapshot + cursor, per-root ring,
+    coalesced drafts, `reset`/`bye`). The chat is template-owned lit
+    modules: subagents render inline and the sidebar asks for roots only.
+  - **Thinking** comes from a second wire, the Responses API
+    (auto-selected for gpt-5/o-series, falling back to chat), plus the
+    chat wire's reasoning deltas.
+  - **Tool summaries**: every tool gets an injected required `summary`,
+    stripped before dispatch.
+
+  Not chosen:
+  - Keeping leases with a faster recovery ticker: that still stalls by the
+    tick and polls forever.
+  - WAL: the db sits on gocryptfs, unprobed.
+  - Making `xbin.Serve` wait for shutdown: that is an SDK change for every
+    tile, left for later. The engine bounds its own unwind at 2 s.
+  - A shared chat UI module in `/vendor`: the template is forked and
+    merged by git (D50/D72), so its UI must be its own.
+
+  Migration is additive and idempotent. The one-time cost: runs mid-drive
+  in the old binary finish their legacy lease (up to 30 s) before
+  adoption; an `engine:<gen>` lease mark keeps an old binary off new runs
+  during the overlap.

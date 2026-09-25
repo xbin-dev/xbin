@@ -6,7 +6,7 @@
   // The "template" block is stripped from each instance.
   "template": {
     "title": "AI Agent",
-    "description": "A durable, debuggable agentic loop — sqlite-persisted, LLM via llm-gw, tools + subagents + MCP, compaction, self-scheduling. Clone it and build up.",
+    "description": "A durable, debuggable agentic loop — sqlite-persisted, event-driven, LLM via llm-gw with streamed thinking, tools + subagents (shown inline) + MCP, steering mid-turn, compaction, self-scheduling. Clone it and build up.",
     "defaultName": "agent"
   },
 

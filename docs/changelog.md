@@ -12,6 +12,57 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-25
 
+- **Agent template: a new run engine, subagents inside the chat, thinking and
+  tool summaries** (D81). New chats no longer sit 30 s+ behind subagents, a
+  message sent mid-turn is no longer lost, and subagents always report back.
+  - **Engine.** Each run with work has one in-process actor, fed by a durable
+    inbox and woken by events. The heartbeat cron, the per-run leases and the
+    UI polling are gone.
+    - A save hands over at once: the old process lets go of an exclusive lock
+      on exit, and the new one re-issues any cut-off model call within
+      milliseconds.
+    - `maxActiveRuns` now bounds concurrent **model calls**. A top-level chat
+      always gets one first, however many subagents are working.
+    - `maxTurnSteps` (default 96) bounds one turn; `maxIters` only sizes its
+      default.
+  - **Steering.** A message sent while the agent works shows as a queued chip
+    you can take back. It is delivered at the agent's next step, after that
+    step's tool results. **Stop** hands queued text back to the composer.
+    `done`, `error` and `canceled` chats resume on the next message.
+  - **Subagents.** They render inside the parent's chat, live, with their own
+    thinking and tool calls, and an approval can be given there. They never
+    appear in the sidebar; `GET /runs?roots=1` lists top-level runs only.
+    - A foreground subagent that runs past its timeout (`subagentTimeout`,
+      default 900 s) moves to the background, and its answer arrives later.
+    - Background answers arrive batched in one notice.
+    - A message from you ends a wait for subagents.
+    - A parent waits only on the calls it just made.
+    - New tools: `subagent_spawn`, `_wait`, `_status`, `_result`, `_message`
+      and `_cancel`. `after:[ids]` and the workflow tree are kept. The old
+      names (`spawn_subagent`, `workflow_*`) still run as aliases.
+  - **Thinking** streams from OpenAI-compatible reasoning deltas and from the
+    **Responses API**. `wire: "auto"` sends `gpt-5*` and o-series models to
+    `/v1/responses`, falling back to Chat Completions when the upstream lacks
+    it. `reasoningEffort` is passed through.
+  - **Tool summaries.** Every tool gets a required `summary` argument, which
+    heads the call's card and is stripped before the tool runs.
+  - **Chat UI.** Markdown, collapsible tool cards, an activity line, and a
+    multi-line composer (Shift+Enter for a newline).
+  - **API (additive):**
+    - `GET /runs/{id}/view`, the SSE `GET /stream?run=&since=` and
+      `GET /runs/{id}/stream`.
+    - `DELETE /runs/{id}/inbox/{iid}` takes back a queued message.
+    - `POST /runs/{id}/message` accepts `clientId` and returns
+      `{inboxId, queued}`.
+    - `POST /runs/{id}/interrupt` returns `{returned}`.
+    - A new run status, `awaiting`.
+  - **Instances:** existing databases migrate in place, idempotently. An
+    instance that edited `_backend/loop.go` or `workflow*.go` gets merge
+    conflicts when it pulls this: those files are gone (`actor*.go`,
+    `links.go`, `subagent_tools.go`).
+  - **First upgrade:** runs that were mid-answer in the old binary can pause
+    once, for up to 30 s, until their old lease runs out.
+  - **llm-gw tile v4** counts token usage on `/v1/responses` too.
 - **Shell: the interface-binding panel no longer goes blank** when a tile
   asks for an interface nothing in the workspace provides — an agent or
   chat tile's `mcp` slot with no MCP server installed. It hid every other

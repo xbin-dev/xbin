@@ -103,6 +103,29 @@ say "narrow sales → apps/leads goes inert"
 api PATCH /orgs/sales '{"netSets":["sales-net"]}' >/dev/null
 sleep 1
 
+say "agent template → llm-gw → fakeopenai (the agentTemplate pass)"
+# llm-gw (host egress: fakeopenai listens on loopback) with one backend
+# "fake"; an agent instance whose model is fake/fake-chat (Chat Completions;
+# the pass switches to fake/gpt-5-fake for the Responses wire).
+api POST /builtins/import '{"name":"llm-gw"}' | head -c 300; echo
+api POST /bindings '{"component":"apps/llm-gw","slot":"net","provider":"host"}'
+api PUT /vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}'
+api POST /templates/new '{"source":"agent","path":"apps/agent"}' | head -c 300; echo
+api POST /grants '{"from":"apps/agent","target":"apps/llm-gw","role":"writer"}'
+api POST /grants '{"from":"apps/agent","target":"cap:open-links","role":"writer"}'
+# no web egress: keeps the root page's pending-bindings panel (which pushes
+# the canvas down for every pass) one row shorter — only its mcp slot shows
+api POST /bindings '{"component":"apps/agent","slot":"net","provider":"none"}'
+gw() { curl -s -X "$1" -H "$A" -H "$J" ${3:+-d "$3"} "$URL/api/apps/$2"; echo; }
+for _ in $(seq 1 120); do gw GET llm-gw/config | grep -q backends && break; sleep 1; done
+gw PUT llm-gw/config/backend "{\"name\":\"fake\",\"baseURL\":\"http://${FAKEOPENAI_ADDR:-127.0.0.1:18977}\"}"
+for _ in $(seq 1 180); do gw GET agent/config | grep -q '"system"' && break; sleep 1; done
+gw GET agent/config | python3 -c 'import json,sys
+c=json.load(sys.stdin); c.update(model="fake/fake-chat", subagents=True, maxActiveRuns=4)
+print(json.dumps(c))' > "$WS/.agent-config.json"
+gw PUT agent/config "$(cat "$WS/.agent-config.json")" | head -c 200; echo
+rm -f "$WS/.agent-config.json"
+
 say "state"
 api GET /orgs | python3 -c 'import json,sys
 for o in json.load(sys.stdin)["orgs"]: print(o["id"], o.get("netSets"), o.get("resolvedNet"), "host" if o.get("netHost") else "")'
