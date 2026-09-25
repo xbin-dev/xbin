@@ -101,7 +101,10 @@ Denial **clamps rather than 403s**: an ungranted user still gets a working,
 airgapped, code-only shell. Terminals on **org-owned** tiles are governed by
 the org's *network sets* instead (D54, [12-egress.md](12-egress.md)): the
 `org` scope carries the sets' reach without `termNet`. `net=host` stays
-admin-only unless a set grants `host`.
+admin-only unless a set grants `host`. A **personal** tile's owner can carry
+network and permission sets too — the personal plane, with two account
+switches (`noPersonalTiles`, `noTerminal`) and workspace personal defaults
+(D88, [docs/auth.md](../auth.md) §Personal tiles).
 Teams confer both flags by union (below), but only a workspace admin may set
 them — on users or on teams (D21). Non-admin terminals additionally run in
 the restricted sandbox tier (D18 kernel lockdown, cgroup limits —

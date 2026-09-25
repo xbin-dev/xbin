@@ -198,13 +198,16 @@ tier — while still running `apt`:
   list applies, enforced at the mount level.
 - **Code-only and airgapped by default.** Without the user's `termApi` grant
   the session is minted with **no** tile-API token (the `?api=1` toggle is
-  clamped); on a personal or workspace tile, without `termNet` there is no
-  internet egress (`?net=` is clamped to `none`) — the exfiltration path
-  that makes source masking matter. On an **org-owned tile** the org's
-  network sets are the grant instead (the `org` scope, D54). `host`
-  networking needs the admin plane, or a set that says `host`. The session
-  still opens either way — an ungranted user gets a working, airgapped,
-  code-only shell, and the banner says why.
+  clamped); on a workspace tile, or a personal one whose owner has no
+  personal network, without `termNet` there is no internet egress (`?net=`
+  is clamped to `none`) — the exfiltration path that makes source masking
+  matter. On an **org-owned tile** the org's network sets are the grant
+  instead (the `org` scope, D54); on a **personal tile** whose owner has
+  network sets, their personal network is added (the `personal` scope,
+  D88). `host` networking needs the admin plane, or a set that says
+  `host`. The session still opens either way — an ungranted user gets a
+  working, airgapped, code-only shell, and the banner says why. An account
+  with `noTerminal` gets no session at all (D88).
 - **Resource limits.** Where xbind's cgroup is delegated (see *Resource
   limits* below), each restricted session lives in its own cgroup leaf with
   the same memory/pids/CPU caps as a tile backend — a runaway build or fork
@@ -281,9 +284,15 @@ it lists only the scopes the server will honour for you on that tile):
   **network sets** (LAN ranges, named internet destinations, all internet —
   whatever a workspace admin attached); when a set says `host` this scope
   *is* host networking. Members need no `termNet` for it.
+- **personal** *(default on personal tiles whose owner has network sets,
+  D88)* — the same, under the tile owner's **personal network** (their
+  network sets ∪ the workspace personal defaults). It is *added* to the
+  other scopes, not a replacement: `internet` stays available with
+  `termNet`, or when the personal network holds full internet.
 - **set:\<name\>** — one named network set, the relay under exactly its
-  rules (host networking when it says `host`): each set attached to the
-  tile's org, or — for a workspace admin — any set on any tile (D65). Never
+  rules (host networking when it says `host`): each set of the tile
+  owner's network (the org's attached sets, or a personal tile owner's
+  sets), or — for a workspace admin — any set on any tile (D65). Never
   the default.
 - **internet** *(default elsewhere)* — its own network namespace with an egress
   relay that permits the **public internet only**; host interfaces and the LAN
@@ -295,10 +304,12 @@ it lists only the scopes the server will honour for you on that tile):
   xbind itself is unreachable).
 
 Note the contrast: a **terminal** on a personal tile defaults to public-
-internet egress (you usually want to `git clone`, `go get`, `npm i`), on an
-org tile to the org network, whereas a **backend** defaults to *no* egress
-until its `net` interface is bound — or, on an org-owned tile with network
-sets, to that org network (`org`).
+internet egress (you usually want to `git clone`, `go get`, `npm i`) — or
+to the owner's personal network where they have one — on an org tile to
+the org network, whereas a **backend** defaults to *no* egress until its
+`net` interface is bound — or, on an org-owned tile with network sets, to
+that org network (`org`), and on a personal tile whose owner has network
+sets, to that personal network (`personal`, D88).
 
 ## Network egress
 

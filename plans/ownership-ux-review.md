@@ -175,6 +175,10 @@ Max-bottleneck or Rio-reads-my-bot-tokens, and no UI surfaces either half.
 picker + a transfer confirm noting secret access); consider whether a
 user's *own* org allowance should cover their personal tiles (decision
 needed — it widens D26).
+**Resolved by D88 (2026-09-26):** not the org's allowance — a user carries
+their own permission / network sets (plus live workspace personal defaults),
+and the owner approves grants and wiring on their personal tiles within
+them; revoke/unbind always.
 
 ### 9. Owner-picker semantics: "me" isn't me
 The manager's default option `— me (personal) —` has value `""`, which

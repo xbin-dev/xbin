@@ -195,12 +195,15 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
 GET    /term-net?tile=<p>          terminal access on the tile. the network
                                    scopes a terminal there may take for the
                                    caller (D54): {tile, scopes:[{id,label,
-                                   desc}], default, label, org} — `org` where
-                                   the owning org has network sets,
-                                   `set:<name>` for each set the caller may
-                                   pick (the org's attached sets; every set
-                                   for a workspace admin, D65), internet/
-                                   host where allowed, offline always. The
+                                   desc}], default, label, org, personal} —
+                                   `org` where the owning org has network
+                                   sets, `personal` where a personal tile's
+                                   owner has network sets (D88 — added to
+                                   internet, not replacing it), `set:<name>`
+                                   for each set the caller may pick (the
+                                   owner's sets; every set for a workspace
+                                   admin, D65), internet/host where
+                                   allowed, offline always. The
                                    picker offers exactly this list; default
                                    is never a set
 GET    /logs?component=<p>         admin, the tile itself, or a user with
@@ -243,7 +246,14 @@ GET    /whoami                    any. caller identity + permissions; for
                                    (the self-service membership view), and
                                    tileCreation: any|org-only — the
                                    workspace's tile-creation policy (D52)
-                                   owner pickers adapt to. An admin's
+                                   — and personalTiles: may THIS caller
+                                   (the human behind a tile call too) own
+                                   tiles personally, the policy and their
+                                   account's noPersonalTiles folded in
+                                   (D88; owner pickers adapt to it). A
+                                   signed-in non-admin also gets personal:
+                                   {sets, netSets, netRules, allow} — their
+                                   resolved personal plane. An admin's
                                    view-as session adds impersonatedBy
                                    (owner | admin id) and readOnly:true
                                    (D64; the shell's banner). On
@@ -386,6 +396,10 @@ DELETE /prefs/<key>               remove it
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, termApi, termNet,
                                    canCreate (deprecated, ignored — D82),
+                                   noPersonalTiles?, noTerminal?, sets?,
+                                   netSets?, personal? (the resolved plane
+                                   for non-admins: {sets, netSets,
+                                   netRules, allow} — D88),
                                    disabled?, invitePending?,
                                    email?, roleVia?, lastLogin?,
                                    lastLoginVia?, ssoGroups?,
@@ -400,7 +414,12 @@ GET    /users                     admin or xbin:users. [{id,name,role,
 POST   /users                     admin/xbin:users. create a user: {id,
                                    name?, role?, email?, tiles?,
                                    termApi?, termNet?, password? | sso?,
-                                   orgs?: [{org, level, create, admin}]}.
+                                   orgs?: [{org, level, create, admin}],
+                                   noPersonalTiles?, noTerminal?, sets?,
+                                   netSets?}. The personal plane (D88):
+                                   unknown sets refuse before anything is
+                                   created; the switches are OR'd with the
+                                   seed's (a request can't lift them).
                                    canCreate? is still accepted (and
                                    PATCH-able) but deprecated and ignored
                                    (D82). orgs joins the account at creation
@@ -474,7 +493,12 @@ PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    invite redemption refuse while set;
                                    rows/memberships/ownership stay.
                                    Guarded: not yourself, not the last
-                                   enabled admin
+                                   enabled admin. The personal plane
+                                   overlays by presence (D88):
+                                   noPersonalTiles, noTerminal (switching
+                                   it on ends the user's live terminal and
+                                   agent sessions), sets, netSets (a change
+                                   restarts their net tiles)
 DELETE /users/<id>                admin/xbin:users. remove (revokes
                                    sessions) → {ok, orphanedTiles: […]} —
                                    tiles that fell to workspace-owned, so
@@ -596,16 +620,22 @@ DELETE /orgs/<org>                admin/xbin:users; refused while the org
                                    still OWNS tiles (transfer first)
 GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,
                                    policy,termApi,termNet}}, attachedTo:
-                                   {name:[orgIds]}} (D28)
+                                   {name:[orgIds]}, heldBy:{name:
+                                   ["user:<id>"|"personal-defaults"|
+                                   "new-accounts"]}} (D28, D88)
 PUT    /permission-sets/<name>    admin/xbin:users. replace one set (same
                                    allow grammar/floor as org allow)
 DELETE /permission-sets/<name>    admin/xbin:users; refused while attached
-                                   to any org
+                                   to any org or held by a user, the
+                                   personal defaults or the seed (D88)
 GET    /net-sets                  admin/xbin:users. organisation network
                                    sets (D54): {sets:{name:{rules,
                                    created}}, attachedTo:{name:[orgIds]},
                                    boundBy:{name:[tiles bound to
-                                   set:<name>, D65]}}.
+                                   set:<name>, D65]}, heldBy:{name:
+                                   [user:<id> | personal-defaults |
+                                   new-accounts]} (D88: users' personal
+                                   networks)}.
                                    Rules are the net: allowance grammar
                                    without the prefix — internet |
                                    internet:<host|host-glob|ip|cidr>[:port]
@@ -616,7 +646,12 @@ GET    /net-sets                  admin/xbin:users. organisation network
                                    may bind without an allowance, the
                                    default binding (`org`) of its tiles
                                    that declare net, and the egress of
-                                   terminals opened on them
+                                   terminals opened on them. Held by a
+                                   user (or the personal defaults) it is
+                                   part of their personal network: the
+                                   default (`personal`) of the tiles they
+                                   own, a terminal scope there, what they
+                                   may bind — no ceiling (D88)
 PUT    /net-sets/<name>           admin/xbin:users. {rules:[…]} — create/
                                    replace (400 on grammar; one destination
                                    per rule; globs only in internet: host
@@ -625,7 +660,9 @@ PUT    /net-sets/<name>           admin/xbin:users. {rules:[…]} — create/
                                    bound to set:<name> restart →
                                    {name, rules, created, attachedTo}
 DELETE /net-sets/<name>           admin/xbin:users; 409 while attached to
-                                   an org or bound by a tile (D65)
+                                   an org, bound by a tile (D65), or held
+                                   by a user, the personal defaults or the
+                                   seed (D88)
 GET    /owner?tile=<path>         any principal that can READ the tile.
                                    {tile, owner: "user:<id>"|"org:<id>"|""}
 GET    /owner/preview             ?tile=&to= — transfer impact report
@@ -724,9 +761,15 @@ PUT    /branding                  admin. {title?, icon?}: each present key
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}, newUsers: {tiles,
                                    termApi, termNet, orgs: [{org, level,
-                                   create}], canCreate (deprecated,
+                                   create}], noPersonalTiles, noTerminal,
+                                   sets, netSets, canCreate (deprecated,
                                    ignored — D82)}, tileCreation:
-                                   any|org-only}. defaultTiles = the live
+                                   any|org-only, personalDefaults: {sets,
+                                   netSets}}. personalDefaults = the live
+                                   personal plane every non-admin gets on
+                                   top of their own sets, for the tiles
+                                   they own (D88; a network change
+                                   restarts every personal net tile). defaultTiles = the live
                                    visibility baseline every user gets
                                    (D27). newUsers = what every NEW account
                                    starts with, copied onto the row at
@@ -766,7 +809,8 @@ POST   /create                     owner/admin, a user creating a tile
                                    the human creator becomes
                                    user-owner, admin/automation →
                                    workspace-owned. Under the org-only
-                                   tile-creation policy (/defaults, D52) a
+                                   tile-creation policy (/defaults, D52) —
+                                   or the account's noPersonalTiles (D88) — a
                                    non-admin's "user:" owner is refused and
                                    an empty one resolves to their single
                                    Create org. Same scaffolder as `bx
@@ -928,14 +972,19 @@ GET    /grants                     admin — full table {grants, pending}.
                                    "workspace-admin"], plus
                                    "transfer:org:<id>" when transferring a
                                    USER-owned requesting tile to that org
-                                   would put it under its allowance). Elements: admin only
+                                   would put it under its allowance, and
+                                   "owner" when a personal tile's owner may
+                                   approve it themselves, D88). Elements: admin only
 POST   /grants                     admin — any. An org admin may approve on
                                    TWO edges (D26/D33): their org owns the
                                    REQUESTING tile and the target is
                                    intra-org or allowance-covered at the
                                    requested role; or their org owns the
                                    TARGET property (provider consent — no
-                                   allowance needed). Ceilings still apply;
+                                   allowance needed). A PERSONAL tile's
+                                   owner approves on it (D88): targets they
+                                   own themselves or their personal
+                                   allowance covers. Ceilings still apply;
                                    xbin/xbin:* never delegable. body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
@@ -944,7 +993,8 @@ POST   /grants                     admin — any. An org admin may approve on
                                    at spawn) so it takes effect at once.
 DELETE /grants                     admin; also both D26/D33 edges (an org
                                    admin may always revoke their org's or
-                                   their property's rows — narrowing is
+                                   their property's rows, a personal
+                                   tile's owner that tile's — narrowing is
                                    safe). body {from,target,role}
 
 GET    /bindings                   admin; signed-in users get a scoped view
@@ -982,21 +1032,30 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    pending row) names the components whose
                                    wiring THIS caller may change: every one
                                    for a workspace admin, the tiles of orgs
-                                   they administer for an org admin (D26);
-                                   a tile you merely own or write is listed
-                                   but not approvable — UIs show its wiring
+                                   they administer for an org admin (D26),
+                                   the tiles you own personally (D88 —
+                                   within your allowance); a tile you
+                                   merely write is listed but not
+                                   approvable — UIs show its wiring
                                    read-only. An option `blocked:true` is one
-                                   POST /bindings refuses for everyone (a net
-                                   ref outside the owning org's network
-                                   sets); pickers grey it out.
+                                   POST /bindings refuses (a net ref outside
+                                   the owning org's network sets — for
+                                   everyone; outside a personal tile
+                                   owner's allowance — for them, labelled
+                                   "outside your network allowance");
+                                   pickers grey it out.
                                    default:"org" marks an unbound net slot on
                                    an org-owned tile with network sets — it
                                    is already satisfied (D54); binding only
-                                   narrows or overrides. `inert` lists net
+                                   narrows or overrides. default:"personal"
+                                   is the same on a personal tile whose
+                                   owner has network sets (D88). `inert` lists net
                                    bindings that are stored but resolve to
                                    no egress (a set narrowed, a transfer),
                                    with the reason. Net options carry `org`
                                    (org-owned tiles; label = the live reach),
+                                   `personal` (personal tiles; label = the
+                                   owner's personal network, D88),
                                    `none` and one `set:<name>` row per
                                    network set (D65) — blocked for anyone
                                    but a workspace admin, for a provider-
@@ -1014,7 +1073,10 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    provider THEIR org owns — provider
                                    consent), or D41 (expose host/zone
                                    routed through a terminator tile their
-                                   org owns; listen/runtime never). body {component, slot, provider} or
+                                   org owns; listen/runtime never); a
+                                   personal tile's owner within D88 (unbind,
+                                   none/personal, their own provider tiles,
+                                   or allowance-covered targets). body {component, slot, provider} or
                                    {component, slot, providers:[…]} (the full
                                    set for a multi:true http slot). Refs are
                                    provider[#instance]; an instances-provide
@@ -1023,6 +1085,8 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    id like internet/host/lan:<cidr>/
                                    internet:<spec>, `org` — the owning org's
                                    network sets, live; org-owned tiles only —
+                                   `personal` — the owner's personal network
+                                   sets, live; user-owned tiles only (D88) —
                                    `none` — explicitly no egress — or
                                    `set:<name>` — one named network set, a
                                    WORKSPACE-ADMIN act: 403 for org admins,

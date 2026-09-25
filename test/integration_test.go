@@ -835,6 +835,42 @@ func TestMultiUser(t *testing.T) {
 	if c, b := danaDo("POST", "/api/xbin/create", `{"path":"apps/gone"}`); c != 403 || !strings.Contains(b, "grant apps/gone") {
 		t.Errorf("leftover create: %d %s", c, b)
 	}
+
+	// The personal plane (D88). An internet-only network set as the live
+	// personal default lets an owner wire their own tile's net slot to
+	// internet (never host); the account switches then refuse a personal
+	// create and every terminal — the owner's own tile included.
+	if err := os.WriteFile(filepath.Join(muWS, "apps", "danatool", "xbin.json"), []byte(`{"interfaces":{"net":{"kind":"net"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, b := rootDo("PUT", "/api/xbin/net-sets/web", `{"rules":["internet"]}`); c != 200 {
+		t.Fatalf("net set: %d %s", c, b)
+	}
+	if c, b := rootDo("PUT", "/api/xbin/defaults", `{"personalDefaults":{"netSets":["web"]}}`); c != 200 {
+		t.Fatalf("personal defaults: %d %s", c, b)
+	}
+	bindNet := func(provider string) (int, string) {
+		return danaDo("POST", "/api/xbin/bindings", `{"component":"apps/danatool","slot":"net","provider":"`+provider+`"}`)
+	}
+	if !waitFor(func() bool { c, _ := bindNet("internet"); return c == 200 }, 10*time.Second) { // the watcher picks the new slot up
+		c, b := bindNet("internet")
+		t.Errorf("owner self-binds internet within the personal default: %d %s", c, b)
+	}
+	if c, b := bindNet("host"); c != 403 {
+		t.Errorf("owner binds host: %d %s, want 403", c, b)
+	}
+	if code := as(danaC, "/ws/term?cwd=apps/danatool"); code == 403 {
+		t.Errorf("before the switch: dana's terminal on her own tile is refused (%d)", code)
+	}
+	if c := root("PATCH", "/api/xbin/users/dana", `{"noPersonalTiles":true,"noTerminal":true}`); c != 200 {
+		t.Fatalf("switches: %d", c)
+	}
+	if c, b := danaDo("POST", "/api/xbin/create", `{"path":"apps/dana2","owner":"user:dana"}`); c != 403 || !strings.Contains(b, "turned off for your account") {
+		t.Errorf("personal create with noPersonalTiles: %d %s", c, b)
+	}
+	if code := as(danaC, "/ws/term?cwd=apps/danatool"); code != 403 {
+		t.Errorf("noTerminal: dana's terminal on her own tile: %d, want 403", code)
+	}
 }
 
 func mustReadFile(t *testing.T, p string) string {

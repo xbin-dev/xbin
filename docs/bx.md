@@ -38,13 +38,21 @@ bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> | 
                                        whole account (D34). ls shows last sign-in,
                                        a * on admins/memberships that come from
                                        IdP-group rules. --create (path patterns)
-                                       is deprecated and ignored (D82)
+                                       is deprecated and ignored (D82). The
+                                       personal plane (D88): --no-personal-tiles
+                                       / --personal-tiles, --no-terminal /
+                                       --allow-terminal, --sets / --net-sets
+                                       s,+s,-s (sets for the tiles they own)
 bx defaults [set …]                    provisioning defaults (admin): what every
                                        NEW account starts with — --tiles p=level,
                                        --org o[:level[:create]]
                                        (repeatable), --term-api/--term-net —
                                        plus --default-tiles (the D27 baseline)
-                                       and --tile-creation any|org-only (D52)
+                                       and --tile-creation any|org-only (D52);
+                                       seed --no-personal-tiles/--no-terminal
+                                       /--sets/--net-sets, and the LIVE personal
+                                       defaults --personal-sets /
+                                       --personal-net-sets (D88)
 bx org ls|add|set|rm <id> [flags]      organizations (docs/auth.md, D24-D28)
 bx org member <org> [<user> --level L [--create] [--admin]
                      [--suspend|--unsuspend] [--detach] | rm <user>]

@@ -470,7 +470,8 @@ admin act. The old per-user `canCreate` patterns (D16) are **deprecated and
 ignored**: still accepted by the API and `bx`, kept in `users.json`, but
 they neither grant nor restrict anything
 ([migration note](changes/2026-09-25-ownership-based-creation.md)). To keep
-non-admins from creating personal tiles, use the tile-creation policy:
+non-admins from creating personal tiles, use the tile-creation policy below
+(everyone), or one account's `noPersonalTiles` switch (§Personal tiles):
 
 **Tile-creation policy (D52).** By default (`any`) a non-admin's new tile is
 *theirs* (`user:<id>`-owned) unless they create it as an org where they hold
@@ -481,7 +482,10 @@ creation paths refuses a `user:` owner, and an unspecified owner resolves to
 the **single** org where the user holds Create (several → they must name one
 via `owner`; none → refused with "ask an org admin"). Workspace admins are
 unaffected — workspace-owned creation was always an admin act. `GET /whoami`
-reports the policy so owner pickers adapt (the manager tile drops "me").
+reports the policy, and `personalTiles` — may *this* caller own tiles
+personally, the policy and their account's switch folded in — so owner
+pickers adapt (the shell and the manager tile drop "me"). Receiving a tile
+into `user:<self>` by transfer is refused the same way (D39's bound).
 
 **The confused-deputy clamp.** An element holding the workspace-management
 grant (`xbin:writer` — the manager tile ships with it) may create tiles, but
@@ -493,12 +497,15 @@ capability semantics.
 
 **Terminal-plane grants.** A non-admin's terminals run restricted
 (docs/isolation.md): beyond the kernel lockdown, they get **no live tile-API
-token** unless the user has `termApi`, and — on personal and workspace
-tiles — **no internet egress** unless `termNet`. Terminals opened on an
-**org-owned** tile take that org's *network sets* instead (§Network sets,
-D54): members get the org network without `termNet`, and a set may even
-grant host networking; otherwise host networking stays admin-only. Grant
-`terminal` levels only if you mean root in that directory.
+token** unless the user has `termApi`, and — on workspace tiles and
+personal ones whose owner has no personal network — **no internet egress**
+unless `termNet`. Terminals opened on an **org-owned** tile take that org's
+*network sets* instead (§Network sets, D54): members get the org network
+without `termNet`, and a set may even grant host networking; otherwise host
+networking stays admin-only. On a **personal** tile whose owner has network
+sets, the owner's *personal network* is added (§Personal tiles, D88). An
+account with `noTerminal` gets no terminal anywhere. Grant `terminal` levels
+only if you mean root in that directory.
 
 **User management API** — gated by `xbin:users` (distinct from
 `xbin:admin`, so a dedicated user-admin tile can hold just this; admin
@@ -508,20 +515,24 @@ implies it):
 GET    /api/xbin/whoami            caller identity + permissions (any principal)
 GET    /api/xbin/users             list (no hashes)
 POST   /api/xbin/users             create {id,name,role,email?,tiles:{path:level},
-                                   termApi?,termNet?,password?|sso}
+                                   termApi?,termNet?,password?|sso,
+                                   noPersonalTiles?,noTerminal?,sets?,netSets?}
                                    (canCreate? still accepted — deprecated, ignored)
-PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset)
+PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset;
+                                   the personal plane by presence, D88)
 DELETE /api/xbin/users/<id>        remove (revokes their sessions)
 DELETE /api/xbin/users/<id>/sessions  sign out everywhere (D53)
 GET    /api/xbin/defaults          provisioning defaults: defaultTiles,
-PUT    /api/xbin/defaults          newUsers (the new-account seed), tileCreation
+PUT    /api/xbin/defaults          newUsers (the new-account seed), tileCreation,
+                                   personalDefaults (the live personal plane, D88)
 GET    /api/xbin/auth-settings     sign-in policy: token login, SSO config +
 PATCH  /api/xbin/auth-settings     group sync, SSO-only mode
 POST   /api/xbin/auth-settings/sso/test   probe the provider (D53)
-GET    /api/xbin/net-sets          organisation network sets (D54): {sets, attachedTo}
+GET    /api/xbin/net-sets          network sets (D54): {sets, attachedTo, heldBy}
 PUT    /api/xbin/net-sets/<name>   {rules} — create/replace; restarts attached
-                                   orgs' net-declaring tiles
-DELETE /api/xbin/net-sets/<name>   refused (409) while an org holds it
+                                   orgs' and holding users' net-declaring tiles
+DELETE /api/xbin/net-sets/<name>   refused (409) while an org, a user, the
+                                   personal defaults or the seed holds it
 ```
 
 (The pre-tiers body — `tiles` as an array + a global `terminal` bool — is
@@ -588,8 +599,12 @@ outside address without opening its whole domain.
 **New-account defaults (D52).** Admin console → orgs → *new accounts* (`bx
 defaults`, `PUT /defaults {newUsers}`) is the seed **every** new account
 receives at creation — admin-added, invited, or JIT-provisioned: tiles
-(pattern → level), `termApi`/`termNet`, and **org memberships** (org +
-level + Create knob). (Its `canCreate` list is deprecated and inert, D82.) It is copied onto the row as a
+(pattern → level), `termApi`/`termNet`, **org memberships** (org +
+level + Create knob), and the personal plane (D88): the `noPersonalTiles` /
+`noTerminal` switches — OR'd in, so a seed can only *restrict* a fresh
+account ("new SSO users get no terminal until someone vouches for them") —
+and permission / network sets, unioned. (Its `canCreate` list is deprecated
+and inert, D82.) It is copied onto the row as a
 *union* with whatever the creator specified (the request wins per tile
 path), after which the row is edited like any other; changing the defaults
 later never touches existing accounts. It never grants `admin` — workspace
@@ -900,7 +915,7 @@ sets); for an org's **own tiles** the union of its attached sets is, at once:
    sets (`GET /bindings` lists the slot as pending with `default: "org"`,
    i.e. satisfied). `org` may also be bound explicitly; **`none`** pins a
    tile offline on any owner. `org` on a personal/workspace tile is refused
-   (bind a concrete provider). A **workspace admin** may also bind any
+   (bind a concrete provider — or `personal` on a personal tile, D88). A **workspace admin** may also bind any
    tile's slot to one named set — `set:<name>` (D65): on an org-owned tile
    with sets it must still sit inside the union (attach the set to the org
    first; the 400 names the rule), provider-only sets are refused, and org
@@ -909,8 +924,9 @@ sets); for an org's **own tiles** the union of its attached sets is, at once:
    gets the scope `org` by default with exactly the sets' reach — members
    need no `termNet`. Admins may still pick `internet`/`host`; a non-admin
    asking for a scope the sets don't cover is clamped to `org` (the session
-   frame says why). Personal and workspace tiles are unchanged: `termNet`
-   and the D17 clamps govern them alone. The scope menu also lists the org's
+   frame says why). Workspace tiles are unchanged: `termNet` and the D17
+   clamps govern them alone; personal tiles get their owner's *personal*
+   network, added to `termNet` rather than replacing it (§Personal tiles). The scope menu also lists the org's
    attached sets by name — 🔗 `set:<name>` (D65) — for whoever may open a
    terminal there, each a narrowing of `org`; a workspace admin sees every
    workspace set on every tile (they may already pick `host` anywhere).
@@ -949,9 +965,10 @@ card's **network** block (attach sets, see the reach); the binding tab and
 the tile popover offer `org`/`none`/`custom…`, grey out refused options
 ("not covered" — a pick never reaches the server) and snap the picker back
 with the reason inside the section when a typed `custom…` ref is refused;
-a tile whose wiring you may not change (your own personal tile, say — only
-a workspace admin binds there, and the org's sets do not govern personal
-tiles) shows its wiring read-only; the organisations tile shows org admins
+a tile whose wiring you may not change (someone else's personal tile, say —
+the org's sets do not govern personal tiles) shows its wiring read-only;
+your own personal tile is yours to wire within your allowance (§Personal
+tiles); the organisations tile shows org admins
 their reach and wiring picker with the default preselected; the pickers list a 🔗 `set:<name>` row per set (greyed for
 org admins, for provider-only sets, and where the org's sets don't cover
 it — `GET /bindings` `netOptions`); the terminal's scope menu lists
@@ -962,6 +979,66 @@ set (every set, for workspace admins). `bx netset ls|set|rm`, `bx org set --net`
 Protocol: `/net-sets`, `PATCH /orgs {netSets}`, `orgs[].resolvedNet/netHost`,
 `/bindings` `pending[].default` + `inert`, `/term-net`, the terminal session
 frame's `scopes`/`netNote`.
+
+## Personal tiles (D88)
+
+Everything above governs **org-owned** tiles. A tile a user owns
+personally (`user:<id>`, D24/D82) has its own, smaller plane — configured
+by a workspace admin per account and for everyone at once:
+
+- **Two switches per account**, both off by default (admin console → users
+  → a row's *personal…*, `bx user set <id> --no-personal-tiles
+  --no-terminal`, `PATCH /users/<id>`):
+  - `noPersonalTiles` — the account may not own tiles personally: it is
+    `tileCreation: org-only` for this one user (every creation path, and a
+    transfer into `user:<self>`). They still create org-owned tiles where
+    they hold Create.
+  - `noTerminal` — the account is capped at **write** on every tile,
+    whatever gave it terminal (ownership, org admin, org level, a share, an
+    exact entry, a default): no shells, no agent sessions, no backend logs
+    (logs follow terminal level). Switching it on ends their open sessions.
+- **Permission and network sets on a user** (`sets`, `netSets` — the same
+  sets orgs attach, D28/D54), for the tiles that user owns. The workspace
+  **personal defaults** (admin console → organisations → *personal tiles*,
+  `bx defaults set --personal-sets/--personal-net-sets`, `PUT /defaults
+  {personalDefaults}`) are a *live* layer every non-admin gets on top of
+  their own — a union, never a narrowing. Together they are the user's
+  **personal plane** (`GET /users` `personal`, `GET /whoami` `personal`):
+  - a permission set's **allow** entries are what the owner may approve on
+    their own tiles themselves; its **policy** rows cap those tiles (the
+    ceiling, as for an org's tiles); its `termApi`/`termNet` reach the user;
+  - the network sets' union is the **personal network**: the default egress
+    of the owner's tiles — an unbound `net` slot resolves to the builtin
+    **`personal`** (relay under the rules, host netns for a `host` rule) —
+    and `net:<rule>` allowance entries. Unlike an org's sets it is **not a
+    ceiling**: a binding a workspace admin made on a personal tile stays
+    when a narrower personal default is switched on (cap personal tiles
+    with a `deny net` policy row, e.g. in a personal-default permission
+    set). `personal` binds only on user-owned tiles and goes inert, never
+    wider, when the owner has no network sets.
+- **The owner approves** grants and bindings on their personal tiles (the
+  D26 edge, for the owner — ownership-ux-review #8): anything their
+  allowance covers, and wiring to tiles or scopes they own themselves.
+  Revoke, unbind, `none` and `personal` always pass. Never: `xbin:*`, and a
+  named `set:` binding (a workspace-admin act). `GET /grants` marks their
+  pending rows approvable (`approvers` hints `owner`), `GET /bindings`
+  marks their tiles approvable and greys out net options outside their
+  allowance (*outside your network allowance*).
+- **Terminals on a personal tile** whose owner has network sets get the
+  scope 👤 `personal` (the default) with the personal network's reach, each
+  of the owner's sets as a 🔗 `set:<name>` scope to narrow to, plain
+  `internet` when the user has `termNet` or the sets hold full internet,
+  and offline — a *union*, unlike an org tile, so a person can always pick
+  just internet or nothing. The network is the tile's (D54): someone else's
+  terminal on your personal tile rides your personal network.
+
+Edits apply at once: a user's network sets, the personal defaults, or an
+edit to a set they hold restart the affected personal tiles' backends;
+terminals pick the change up when reopened. A set held by a user, the
+personal defaults or the new-account seed can't be deleted
+(`GET /net-sets`/`/permission-sets` `heldBy`). With no personal defaults and
+no user sets — every workspace until an admin sets one — personal tiles
+behave exactly as before.
 
 ## Owner login mechanics
 

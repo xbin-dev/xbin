@@ -12,6 +12,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **auth: per-account controls and an allowance for personal tiles** (D88,
+  docs/auth.md §Personal tiles). Additive — nothing changes until an admin
+  sets something.
+  - **Two switches per account** (users → *personal…*, `bx user set
+    --no-personal-tiles --no-terminal`, `PATCH /users/<id>`):
+    `noPersonalTiles` is org-only for one user; `noTerminal` caps them at
+    write on every tile — no shells, agent sessions or backend logs (open
+    sessions end). The new-account seed can carry both, so fresh SSO users
+    can start restricted.
+  - **Sets on users** (`sets`, `netSets`), plus the workspace **personal
+    defaults** (organisations → *personal tiles*, `PUT /defaults
+    {personalDefaults}`, live, unioned). For the tiles a user owns:
+    permission sets are the owner's allowance and ceiling rows; network sets
+    are the **personal network** — the default egress of an unbound `net`
+    slot (the new `personal` ref) and a terminal scope there.
+  - **Owners approve on their own personal tiles** within that allowance —
+    grants, bindings, wiring to their own tiles; revoke/unbind/`none`
+    always. `GET /bindings` and `/grants` mark them approvable; pickers grey
+    out what's outside the allowance.
+  - **Terminals on a personal tile** get `personal` as the default scope, the
+    owner's sets as narrowing scopes, and plain `internet` stays (with
+    `termNet`, or when the sets hold it). `GET /term-net` adds `personal`.
+  - **API:** `GET /whoami` adds `personalTiles` (effective for the caller)
+    and `personal`; `GET /users` adds the fields and each user's resolved
+    plane; `/net-sets` and `/permission-sets` add `heldBy`, and a held set
+    can't be deleted.
+  - **Tighter:** receiving a tile into `user:<self>` by transfer is now
+    refused under org-only (it used to slip past).
+
 - **New builtin tile `webhooks` (v1): public webhook URLs for agents.**
   - Each hook (`/hook/<id>`, published with `bx expose`, only `/hook/*`
     public) is checked by a token or a GitHub-style HMAC signature.
