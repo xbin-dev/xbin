@@ -409,7 +409,7 @@ keys, _ := kv.List("item/")</pre>
           read-write and backed up. Write only inside it; anywhere else is a
           throwaway overlay.</p>
           <pre>dir := xbin.Resource("store")
-db, _ := sql.Open("sqlite", dir+"/app.db?_journal_mode=WAL")</pre>
+db, _ := sql.Open("sqlite", dir+"/app.db?_pragma=journal_mode(WAL)")</pre>
           <p>(<code>type:"sqlite"</code> is a convenience — the same rw dir with
           <code>XBIN_RES_&lt;N&gt;</code> pre-pointed at a <code>.sqlite</code>
           file.) Same-scope only, deliberately: direct file access across trust

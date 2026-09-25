@@ -162,7 +162,7 @@ throwaway overlay (lost on restart, not backed up).
 ```go
 dir := xbin.Resource("store")             // == $XBIN_RES_STORE, a directory
 os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
-db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_journal_mode=WAL")
+db, _ := sql.Open("sqlite", filepath.Join(dir, "app.db")+"?_pragma=journal_mode(WAL)")
 ```
 
 ### Container stores (cap:containers scopes)
@@ -214,8 +214,12 @@ same-scope components share it. Prefer `filesystem` when you need a general
 directory rather than a single db.
 
 ```go
-db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_journal_mode=WAL&_busy_timeout=5000")
+db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 ```
+
+`modernc.org/sqlite` reads only `_pragma=name(value)` (repeatable) and
+`_txlock=` from the DSN; mattn-style keys like `_busy_timeout=5000` are
+silently ignored, so a "busy" write fails at once instead of waiting.
 
 **Cross-scope direct filesystem/sqlite is deliberately not a thing.** The path is
 only handed to same-scope components; other apps go through your service API.

@@ -389,7 +389,7 @@ c.UserCanWrite()                 // gate mutating endpoints on the DRIVING user:
                                  //   workspaces
 resp, _ := xbin.Client().Get("http://xbin/api/apps/calendar/events") // outbound
 kv := xbin.KV(xbin.Resource("kvx"))   // Get/GetJSON/Put/PutJSON/Delete/List
-db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_journal_mode=WAL") // sqlite: a
+db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_pragma=journal_mode(WAL)") // sqlite: a
     // FILE PATH from XBIN_RES_DB. Just open it — xbind binds the resource dir
     // rw, so a fresh db (and its -wal/-shm) persists. Never invent a path.
 secret, _ := xbin.Secret("api-key")    // own vault only

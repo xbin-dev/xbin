@@ -17,6 +17,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   chat tile's `mcp` slot with no MCP server installed. It hid every other
   unbound slot too. `GET /bindings` now sends `options: []` for such a slot
   (it sent `null`), and the panel tolerates both.
+- **Docs: the sqlite connection-string examples were wrong.**
+  `modernc.org/sqlite` silently ignores `?_journal_mode=WAL` and
+  `_busy_timeout=5000`; it reads `?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)`
+  ([resources.md](resources.md)). Fixed there, in the workspace `AGENTS.md`
+  and in the welcome tile. A tile that copied the old form runs without WAL
+  and with no busy timeout — switch its DSN.
 - **Shell: a tile opened from a right-click menu lands where you clicked.**
   **Open tile** and **Create a new tile** on the canvas menu, and **Open on
   this screen** (or a panel square) on a closed tile's menu, put the tile's
