@@ -49,7 +49,11 @@ type Engine struct {
 
 	gate *llmGate
 	hub  *eventHub
-	gen  string // this process: event cursors, the row marker old binaries respect
+
+	// titling: conversations being named right now (title.go)
+	titleMu sync.Mutex
+	titling map[int64]bool
+	gen     string // this process: event cursors, the row marker old binaries respect
 
 	lockPath string
 	lockFile *os.File
@@ -84,7 +88,8 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		base: base, cancelBase: cancel, closingCh: make(chan struct{}),
 		actors: map[int64]*actor{}, timers: map[int64]*time.Timer{},
 		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{},
-		now: time.Now,
+		titling: map[int64]bool{},
+		now:     time.Now,
 	}
 	e.gate = newLLMGate(parseConfig(db.getSetting("config")).maxActiveRuns())
 	e.hub = newEventHub(e.gen)

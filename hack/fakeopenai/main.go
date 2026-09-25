@@ -20,6 +20,9 @@
 //	             a note "Survive a restart" → "Noted it."
 //	(else)       "ok: <text>"
 //
+// The agent naming a conversation (its title prompt) gets "Titled <the first
+// three words of the first message>".
+//
 // A subagent's task (its first user message) drives it the same way:
 // "count…" → thinking + "one, two, three"; "slow job…" → 6 s, then "slow job done".
 //
@@ -124,6 +127,18 @@ type turn struct {
 }
 
 func script(conv []turn, system string) plan {
+	// the agent naming a conversation (title.go): "Titled <first words>"
+	if strings.Contains(system, "Name this conversation") {
+		first := conv[len(conv)-1].Text
+		if _, rest, ok := strings.Cut(first, "First message:\n"); ok {
+			first = strings.SplitN(rest, "\n", 2)[0]
+		}
+		words := strings.Fields(first)
+		if len(words) > 3 {
+			words = words[:3]
+		}
+		return plan{Text: "Titled " + strings.Join(words, " ")}
+	}
 	sub := strings.Contains(system, "You are a subagent")
 	last := conv[len(conv)-1]
 	lastUser := ""

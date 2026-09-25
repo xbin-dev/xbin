@@ -78,6 +78,9 @@ async function agentTemplate(browser) {
   check(think.some((t) => /^▸ Thought/.test(t)), `thinking folded to "Thought…" once the answer came (${JSON.stringify(think)})`);
   await page.click('.think .th');
   check((await page.textContent('.think .tb')).includes('Considering the greeting'), 'the folded thinking opens to its text');
+  const named = await until(page, () => document.getElementById('runs').textContent.includes('Titled hello there'), null, 15000)
+    .then(() => true, () => false);
+  check(named, 'after its first answer the chat is named by the model (the sidebar shows it)');
 
   // 2. a tool call is a card headed by its summary
   await say(page, 'now use a tool');

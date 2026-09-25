@@ -636,6 +636,9 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		e.ag.cancelBelow(t, run.ID, "its parent's turn ended")
 	}
 	e.emitRun(t, run.ID)
+	if run.ParentID == 0 && run.TitleSrc == "clip" && (why == endAnswered || why == endFinished) {
+		t.AfterCommit(func() { e.maybeTitle(run.ID) })
+	}
 	switch why {
 	case endFinished:
 		t.AfterCommit(func() { publishEvent(run.ID, "done") })

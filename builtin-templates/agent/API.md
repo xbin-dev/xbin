@@ -62,6 +62,16 @@ own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
 
+### Titles
+
+A new conversation is titled with the start of its first message
+(`titleSrc: clip`). After its first answer the `memory`-tier model names it
+in 3–7 words (`titleSrc: auto`) — once, in the background, only when a model
+slot is free and nobody waits for one, and never over a name someone gave it
+(a rename or a title from "New chat with options" is `titleSrc: user`).
+Automation runs keep their automation's name (`origin`). Feature key
+`titles` (on by default).
+
 ### Sharing
 
 | Method & path | Body | Purpose |
@@ -244,7 +254,7 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
-                "files": true, "repl": true, "workflow": true },
+                "files": true, "repl": true, "workflow": true, "titles": true },
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,

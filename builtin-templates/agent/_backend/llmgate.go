@@ -133,3 +133,16 @@ func (g *llmGate) stats() (active, limit, waiting int) {
 	defer g.mu.Unlock()
 	return g.active, g.limit, g.top.Len() + g.child.Len()
 }
+
+// tryBackground takes a slot for background work (a conversation's title)
+// only when nobody waits and a slot stays free for a person; it never
+// queues. nil when it can't — the work is simply tried again later.
+func (g *llmGate) tryBackground() func() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.top.Len() > 0 || g.child.Len() > 0 || g.active >= max(g.limit-1, 1) {
+		return nil
+	}
+	g.take(false)
+	return g.releaser(false)
+}

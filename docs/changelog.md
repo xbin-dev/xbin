@@ -18,6 +18,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: conversations name themselves.** After the first
+  answer, the memory-tier model titles a chat in a few words — in the
+  background, only with a model slot to spare, never over a name you gave
+  it. Feature key `titles`.
 - **Agent template: sharing a conversation.** The owner shares it with
   the whole team (to read, or to read and write), with named people (by
   user id), or with an invite link (`#join=<token>` on the tile's address;
