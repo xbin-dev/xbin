@@ -381,9 +381,20 @@ visibility changes its runs' too.
 
 ## Skills
 
-`GET /skills` · `PUT /skills` `{name, description?, content}` · `DELETE
-/skills/{name}` — a self-authored, reusable procedure library (also managed by
-the agent with the `skills_*` tools; injected as a name+description list).
+`GET /skills` · `PUT /skills` `{name, description?, content, owner?, lane?}` ·
+`DELETE /skills/{name}` — a self-authored, reusable procedure library (also
+managed by the agent with the `skills_*` tools; injected as a
+name+description list). Saving and deleting through the API is the managers'.
+
+Skills have an owner and a lane (D83). A skill the agent writes belongs to
+its conversation's owner and its tool mode: a run sees the **shared** skills
+(no owner — every skill from before, and what managers save) plus its
+owner's, and only those of its own lane (a skill learned in the web mode
+never reaches a run with internal reach, nor the other way round). The agent
+can't overwrite a shared skill or someone else's — the model is told to pick
+another name. `GET /skills` shows a manager every skill and anyone else the
+shared ones and their own; a manager editing a skill keeps whose it is unless
+they set `owner` (`""` publishes it to everyone).
 
 ## The engine (who drives runs)
 

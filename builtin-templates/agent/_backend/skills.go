@@ -32,39 +32,80 @@ type Skill struct {
 	Content     string `json:"content"`
 	Created     int64  `json:"created"`
 	Updated     int64  `json:"updated"`
+	// Whose it is and which tool mode it came from (D83). Owner "" is a
+	// shared skill (every skill from before, and what managers save); a
+	// skill the agent writes belongs to its conversation's owner. Lane "" is
+	// any mode; one learned in the web mode is never shown to a run with
+	// internal reach, nor the other way round.
+	Owner string `json:"owner"`
+	Lane  string `json:"lane"`
+}
+
+// skillScope is which skills a run sees: the shared ones and its owner's,
+// in its own lane.
+type skillScope struct{ owner, lane string }
+
+func (sc skillScope) sees(s *Skill) bool {
+	return (s.Owner == "" || s.Owner == sc.owner) && (s.Lane == "" || s.Lane == sc.lane)
+}
+
+// scopeOf is a run's skill scope.
+func (ag *Agent) scopeOf(run *Run, cfg Config) skillScope {
+	sc := skillScope{lane: cfg.toolset()}
+	if root, err := ag.db.getRun(rootOf(run)); err == nil {
+		sc.owner = root.Owner
+	}
+	return sc
 }
 
 func (d *DB) upsertSkill(s *Skill) error {
 	t := now()
 	_, err := d.q.Exec(
-		`INSERT INTO skills (name, description, content, created, updated) VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(name) DO UPDATE SET description=excluded.description, content=excluded.content, updated=excluded.updated`,
-		s.Name, s.Description, s.Content, t, t)
+		`INSERT INTO skills (name, description, content, created, updated, owner, lane) VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET description=excluded.description, content=excluded.content, updated=excluded.updated,
+		   owner=excluded.owner, lane=excluded.lane`,
+		s.Name, s.Description, s.Content, t, t, s.Owner, s.Lane)
 	return err
 }
 
-func (d *DB) getSkill(name string) (*Skill, error) {
+const skillCols = `name, description, content, created, updated, owner, lane`
+
+func scanSkill(scan func(dest ...any) error) (*Skill, error) {
 	s := &Skill{}
-	err := d.q.QueryRow(`SELECT name, description, content, created, updated FROM skills WHERE name=?`, name).
-		Scan(&s.Name, &s.Description, &s.Content, &s.Created, &s.Updated)
-	return s, err
+	return s, scan(&s.Name, &s.Description, &s.Content, &s.Created, &s.Updated, &s.Owner, &s.Lane)
+}
+
+func (d *DB) getSkill(name string) (*Skill, error) {
+	return scanSkill(d.q.QueryRow(`SELECT `+skillCols+` FROM skills WHERE name=?`, name).Scan)
 }
 
 func (d *DB) listSkills() ([]*Skill, error) {
-	rows, err := d.q.Query(`SELECT name, description, content, created, updated FROM skills ORDER BY name`)
+	rows, err := d.q.Query(`SELECT ` + skillCols + ` FROM skills ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []*Skill
 	for rows.Next() {
-		s := &Skill{}
-		if err := rows.Scan(&s.Name, &s.Description, &s.Content, &s.Created, &s.Updated); err != nil {
+		s, err := scanSkill(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// visibleSkills is the skill list a scope sees.
+func (d *DB) visibleSkills(sc skillScope) []*Skill {
+	all, _ := d.listSkills()
+	var out []*Skill
+	for _, s := range all {
+		if sc.sees(s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (d *DB) deleteSkill(name string) error {
@@ -75,14 +116,13 @@ func (d *DB) deleteSkill(name string) error {
 // --- tool implementation -------------------------------------------------
 
 // runSkillTool handles the skill_* tools. cfg.feature("skills") gates whether
-// they're advertised; this still executes if called.
-func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) {
+// they're advertised; this still executes if called. A run sees and writes
+// only its scope's skills: the shared ones (read only) and its owner's.
+func (ag *Agent) runSkillTool(run *Run, cfg Config, name string, args map[string]any) (string, error) {
+	sc := ag.scopeOf(run, cfg)
 	switch name {
 	case "skills_list":
-		skills, err := ag.db.listSkills()
-		if err != nil {
-			return "", err
-		}
+		skills := ag.db.visibleSkills(sc)
 		if len(skills) == 0 {
 			return "(no skills yet)", nil
 		}
@@ -94,7 +134,7 @@ func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) 
 
 	case "skill_view":
 		s, err := ag.db.getSkill(strings.TrimSpace(fmtStr(args["name"])))
-		if err != nil {
+		if err != nil || !sc.sees(s) {
 			return "(no such skill)", nil
 		}
 		return s.Content, nil
@@ -105,6 +145,14 @@ func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) 
 		if sname == "" {
 			return "", fmt.Errorf("skill_manage needs a name")
 		}
+		// A run changes only its own scope's skills: never a shared one (it
+		// would reach everyone's runs) or someone else's.
+		if cur, err := ag.db.getSkill(sname); err == nil && (cur.Owner != sc.owner || !sc.sees(cur)) {
+			if cur.Owner == "" && sc.owner != "" {
+				return "", fmt.Errorf("%q is a shared skill — save yours under another name", sname)
+			}
+			return "", fmt.Errorf("a skill named %q already exists — pick another name", sname)
+		}
 		switch action {
 		case "remove", "delete":
 			if err := ag.db.deleteSkill(sname); err != nil {
@@ -112,7 +160,8 @@ func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) 
 			}
 			return "removed skill " + sname, nil
 		default: // save / add / replace
-			s := &Skill{Name: sname, Description: strings.TrimSpace(fmtStr(args["description"])), Content: fmtStr(args["content"])}
+			s := &Skill{Name: sname, Description: strings.TrimSpace(fmtStr(args["description"])), Content: fmtStr(args["content"]),
+				Owner: sc.owner, Lane: sc.lane}
 			if s.Content == "" {
 				return "", fmt.Errorf("skill_manage save needs content")
 			}
@@ -127,27 +176,52 @@ func (ag *Agent) runSkillTool(name string, args map[string]any) (string, error) 
 
 // --- HTTP (for the tile) -------------------------------------------------
 
+// handleListSkills: managers see every skill; others the shared ones and
+// their own.
 func handleListSkills(w http.ResponseWriter, r *http.Request) {
 	skills, err := agent.db.listSkills()
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	if skills == nil {
-		skills = []*Skill{}
+	c := callerOf(r)
+	out := []*Skill{}
+	for _, s := range skills {
+		if c.manager() || s.Owner == "" || s.Owner == c.user {
+			out = append(out, s)
+		}
 	}
-	xbin.WriteJSON(w, 200, skills)
+	xbin.WriteJSON(w, 200, out)
 }
 
+// handleSaveSkill is a manager saving a skill. A new one is shared; editing
+// one keeps whose it is and its lane unless the body sets them — owner ""
+// publishes a personal skill to everyone.
 func handleSaveSkill(w http.ResponseWriter, r *http.Request) {
-	var s Skill
-	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-		xbin.WriteError(w, 400, "need JSON body: {name, description?, content}")
+	var body struct {
+		Name, Description, Content string
+		Owner, Lane                *string
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		xbin.WriteError(w, 400, "need JSON body: {name, description?, content, owner?, lane?}")
 		return
 	}
-	s.Name = strings.TrimSpace(s.Name)
+	s := Skill{Name: strings.TrimSpace(body.Name), Description: body.Description, Content: body.Content}
 	if s.Name == "" || s.Content == "" {
 		xbin.WriteError(w, 400, "need {name, content}")
+		return
+	}
+	if cur, err := agent.db.getSkill(s.Name); err == nil {
+		s.Owner, s.Lane = cur.Owner, cur.Lane
+	}
+	if body.Owner != nil {
+		s.Owner = *body.Owner
+	}
+	if body.Lane != nil {
+		s.Lane = *body.Lane
+	}
+	if s.Lane != "" && s.Lane != "private" && s.Lane != "web" {
+		xbin.WriteError(w, 400, "lane is private, web or empty")
 		return
 	}
 	if err := agent.db.upsertSkill(&s); err != nil {

@@ -18,6 +18,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: skills have an owner and a lane.** A skill the agent
+  learns belongs to its conversation's owner and tool mode; runs see the
+  shared skills plus their owner's, in their own mode, and can't overwrite a
+  shared or someone else's skill. Existing skills stay shared everywhere.
+  Saving skills through the API is the managers'.
 - **Agent template: an Automations page.** A sidebar entry (with what is
   new) opens the tile's automations — schedules and watchers, grouped by
   kind, with their runs (read on open), settings, Run now, on/off, "Start

@@ -1068,7 +1068,7 @@ async function tabSkills(bd) {
       <table class="tbl"><tr><th>name</th><th>description</th><th>updated</th><th></th></tr>
       ${skillsCache.length ? skillsCache.map((s, i) => `<tr>
         <td class="mono">${esc(s.name)}</td>
-        <td class="muted">${esc(clip(s.description, 80))}</td>
+        <td class="muted">${esc(clip(s.description, 80))}${s.owner ? ` <span class="badge" title="learned in their conversation — only their runs see it">${esc(s.owner)}'s</span>` : ''}${s.lane ? ` <span class="badge" title="only runs in this tool mode see it">${s.lane === 'web' ? 'web' : 'internal'}</span>` : ''}</td>
         <td class="muted">${s.updated ? new Date(s.updated * 1000).toLocaleDateString() : ''}</td>
         <td style="text-align:right; white-space:nowrap">
           <button class="btn ghost btnsm" data-sk="${i}">Edit</button>

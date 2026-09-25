@@ -320,7 +320,7 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return toolWebFetch(ctx, fmt.Sprint(args["url"]))
 
 	case "skills_list", "skill_view", "skill_manage":
-		return ag.runSkillTool(name, args)
+		return ag.runSkillTool(run, cfg, name, args)
 	}
 
 	if fileToolNames[name] {

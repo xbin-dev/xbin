@@ -33,7 +33,7 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		}
 	}
 	if cfg.feature("skills") {
-		if skills, _ := ag.db.listSkills(); len(skills) > 0 {
+		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {
 			sys.WriteString("\n\n# Skills (call skill_view to load one's full steps)\n")
 			for _, s := range skills {
 				fmt.Fprintf(&sys, "- %s: %s\n", s.Name, s.Description)

@@ -66,6 +66,8 @@ func (d *DB) addConvSchema() error {
 		`ALTER TABLE schedules ADD COLUMN created_by_run INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE schedules ADD COLUMN last_run_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE schedules ADD COLUMN last_status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE skills ADD COLUMN owner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE skills ADD COLUMN lane TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.q.Exec(q)
 	}
