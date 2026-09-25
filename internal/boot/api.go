@@ -127,7 +127,8 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 		g := brk.TermNetFor(p, tile)
 		scopes, def := term.ScopesFor(p, g)
 		server.WriteJSON(w, http.StatusOK, map[string]any{
-			"tile": tile, "scopes": scopes, "default": def, "label": g.OrgLabel, "org": g.OrgOK,
+			"tile": tile, "scopes": scopes, "default": def, "label": g.OrgLabel,
+			"org": g.OrgOK && g.OwnerScope != term.NetPersonal, "personal": g.OrgOK && g.OwnerScope == term.NetPersonal, // D88
 		})
 	})
 }

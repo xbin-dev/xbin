@@ -108,7 +108,12 @@ func (b *Broker) apiNetSetDelete(w http.ResponseWriter, r *http.Request) {
 // provider tiles those tiles are STORED as bound to (their client roster may
 // change — the transfer.go trick: resolution may already say "" after the
 // change). Terminals apply at their next spawn.
-func (b *Broker) netSetsChanged(set string, orgs []string) {
+//
+// Personal networks (D88) fan out the same way: a set edit reaches the
+// personal tiles of every user holding it (all of them when the personal
+// defaults do), and holders names more directly — "user:<id>" or
+// "personal-defaults" — after an attachment change.
+func (b *Broker) netSetsChanged(set string, orgs []string, holders ...string) {
 	if b.Users == nil {
 		return
 	}
@@ -140,6 +145,23 @@ func (b *Broker) netSetsChanged(set string, orgs []string) {
 	for _, org := range orgs {
 		for _, tile := range b.Users.OwnedBy(users.OwnerKindOrg + ":" + org) {
 			note(tile)
+		}
+	}
+	if set != "" {
+		holders = append(holders, b.Users.SetUsers(set, true)...)
+	}
+	for _, h := range holders {
+		switch {
+		case h == "personal-defaults":
+			for tile, owner := range b.Users.Owners() {
+				if strings.HasPrefix(owner, users.OwnerKindUser+":") {
+					note(tile)
+				}
+			}
+		case strings.HasPrefix(h, users.OwnerKindUser+":"):
+			for _, tile := range b.Users.OwnedBy(h) {
+				note(tile)
+			}
 		}
 	}
 	all := make([]string, 0, len(tiles)+len(providers))
@@ -220,6 +242,9 @@ func (b *Broker) NetLabel(comp string) NetLabel {
 	if nb == NetRefOrg && b.Users != nil {
 		ceil := b.Users.Ceiling(comp)
 		out.Source = "org:" + ceil.OwnerOrg() + " (" + strings.Join(ceil.NetSets(), ", ") + ")"
+	}
+	if uid, sets, _ := b.personalNet(comp); nb == NetRefPersonal && uid != "" {
+		out.Source = "user:" + uid + "'s personal network (" + strings.Join(sets, ", ") + ")"
 	}
 	if name, isSet := netSetName(nb); isSet {
 		out.Source = "network set " + name

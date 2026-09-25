@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -41,7 +42,8 @@ func providesNet(p *registry.Component) bool {
 // (D54) act here too: an org-owned tile with sets attached defaults to "org"
 // when unbound, and an explicit ref the sets don't cover (a set narrowed, a
 // transfer) is inert — validateBinding refuses that up front; this is the
-// backstop.
+// backstop. A personal tile whose owner has network sets defaults to
+// "personal" (D88) — its reach, but not a ceiling on explicit refs.
 func (b *Broker) netBinding(comp string) string {
 	var ceil users.Ceiling
 	if b.Users != nil {
@@ -61,10 +63,25 @@ func (b *Broker) netBinding(comp string) string {
 		binding := b.Reg.Workspace().Bindings[comp][slot]
 		ref := binding.First()
 		hasSets := b.Users != nil && ceil.OwnerOrg() != "" && ceil.HasNetSets()
+		personal := false
+		if !hasSets && (ref == "" || ref == NetRefPersonal) {
+			uid, _, _ := b.personalNet(comp)
+			personal = uid != ""
+		}
 		switch {
 		case ref == "" && hasSets:
 			b.clearInertNet(comp)
 			return NetRefOrg
+		case ref == "" && personal:
+			b.clearInertNet(comp)
+			return NetRefPersonal
+		case ref == NetRefPersonal:
+			if !personal {
+				b.noteInertNet(comp, "bound to the personal network but its owner has none (no personal network sets) — no egress until a workspace admin attaches one")
+				return ""
+			}
+			b.clearInertNet(comp)
+			return NetRefPersonal
 		case ref == "", ref == NetRefNone:
 			b.clearInertNet(comp)
 			return ""
@@ -182,6 +199,9 @@ func (b *Broker) NetHostShare(c *registry.Component) bool {
 		return true
 	case nb == NetRefOrg:
 		return b.Users.Ceiling(c.Path).NetHost()
+	case nb == NetRefPersonal: // the owner's personal network says host (D88)
+		_, _, rules := b.personalNet(c.Path)
+		return slices.Contains(rules, "host")
 	case strings.HasPrefix(nb, NetRefSet): // a named set whose rules say host (D65)
 		_, host, _ := b.netSetRuleTargets(nb)
 		return host
@@ -611,6 +631,8 @@ func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 			}
 			if req.Kind == "net" && b.orgNetDefault(c.Path) {
 				pb.Default = NetRefOrg
+			} else if req.Kind == "net" && b.personalNetDefault(c.Path) {
+				pb.Default = NetRefPersonal
 			}
 			out = append(out, pb)
 		}
@@ -901,6 +923,12 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 				}
 				if _, isOrg := b.Users.OwnerOrg(comp); !isOrg {
 					return fmt.Errorf("org egress is for org-owned tiles; %s is %s — bind a concrete provider", comp, ownerLabel(b.Users.Owner(comp)))
+				}
+				continue
+			}
+			if prov == NetRefPersonal { // the owner's personal network sets (D88)
+				if b.Users == nil || !strings.HasPrefix(b.Users.Owner(comp), users.OwnerKindUser+":") {
+					return fmt.Errorf("personal egress is for personal (user-owned) tiles; %s is %s", comp, ownerLabel(b.Users.Owner(comp)))
 				}
 				continue
 			}

@@ -118,7 +118,11 @@ func (b *Broker) transferPreview(p auth.Principal, st *users.Store, tile, to str
 			if len(binding) == 0 {
 				continue
 			}
-			if reason := b.deadSlotReason(c, slot, binding, newCeiling); reason != "" {
+			reason := b.personalDeadReason(c, slot, binding, to)
+			if reason == "" {
+				reason = b.deadSlotReason(c, slot, binding, newCeiling)
+			}
+			if reason != "" {
 				rep.DeadBind = append(rep.DeadBind, deadItem{Slot: slot, Reason: reason})
 			}
 		}

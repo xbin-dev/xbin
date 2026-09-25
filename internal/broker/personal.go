@@ -127,3 +127,42 @@ func (b *Broker) markSelfBlocked(uid string, opts []bindOption) []bindOption {
 	}
 	return opts
 }
+
+// personalNet is the owner's personal network for a user-owned tile (D88):
+// the owner's id, the network sets that make it up and their rules. uid is
+// "" when comp isn't personal or its owner has no network sets — then an
+// unbound net slot keeps today's behaviour (no egress).
+func (b *Broker) personalNet(comp string) (uid string, sets, rules []string) {
+	if b.Users == nil {
+		return "", nil, nil
+	}
+	id, ok := strings.CutPrefix(b.Users.Owner(comp), users.OwnerKindUser+":")
+	if !ok {
+		return "", nil, nil
+	}
+	if sets, rules = b.Users.PersonalNet(id); len(sets) == 0 {
+		return "", nil, nil
+	}
+	return id, sets, rules
+}
+
+// personalNetDefault reports whether a personal tile's unbound net slot
+// resolves to "personal" (the owner has network sets, net not denied).
+func (b *Broker) personalNetDefault(comp string) bool {
+	uid, _, _ := b.personalNet(comp)
+	return uid != "" && !b.Users.Ceiling(comp).Denies(users.PolicyDenyNet)
+}
+
+// personalDeadReason: a `personal` net binding means nothing once the tile
+// moves to an owner without a personal network (transfer preview, D39).
+func (b *Broker) personalDeadReason(c *registry.Component, slot string, binding registry.Binding, to string) string {
+	if iface, ok := c.Manifest.Interfaces[slot]; !ok || iface.Kind != "net" || binding.First() != NetRefPersonal {
+		return ""
+	}
+	if id, isUser := strings.CutPrefix(to, users.OwnerKindUser+":"); isUser {
+		if sets, _ := b.Users.PersonalNet(id); len(sets) > 0 {
+			return ""
+		}
+	}
+	return "personal egress has no meaning under the new owner (no personal network) — rebind after the transfer"
+}

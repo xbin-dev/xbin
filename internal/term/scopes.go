@@ -15,6 +15,7 @@ const (
 	NetHost     = "host"     // share the host network (LAN + host services visible)
 	NetNone     = "none"     // isolated netns, no egress (airgapped; xbind unreachable)
 	NetOrg      = "org"      // the tile's owning org's network sets as the egress policy (D54)
+	NetPersonal = "personal" // the personal tile's owner's network sets, the same way (D88)
 
 	// ScopeSetPrefix + a set name is the scope of ONE named network set
 	// (D65): "set:infra-net" — the relay under that set's rules (or host
@@ -33,7 +34,7 @@ var setNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 // question (an unknown set lands on the default, with a note).
 func normalizeNet(s string) string {
 	switch s {
-	case NetHost, NetNone, NetInternet, NetOrg:
+	case NetHost, NetNone, NetInternet, NetOrg, NetPersonal:
 		return s
 	}
 	if n, ok := strings.CutPrefix(s, ScopeSetPrefix); ok && setNameRe.MatchString(n) {
@@ -46,14 +47,19 @@ func normalizeNet(s string) string {
 // ONE tile (D54): the org network's relay rules, which scopes the principal
 // may pick, and the named sets they may pick (D65). Manager.TermNet supplies
 // it; nil keeps the pre-D54 rules (termNet → internet, host admin-only).
+//
+// The Org* fields describe the tile OWNER's network scope: the owning org's
+// on an org tile (scope "org"), or the owner's personal network on a
+// personal tile (scope "personal", D88) — OwnerScope says which.
 type TermNet struct {
-	Rules      []string // sandbox grant targets (net:…) for the org scope
-	HostOK     bool     // net=host permitted (admin, or the org's sets carry `host`)
-	InternetOK bool     // net=internet permitted (admin, or no org sets + termNet)
-	OrgOK      bool     // the org scope exists (org-owned tile with sets that reach something)
-	OrgHost    bool     // the org scope is host networking
+	Rules      []string // sandbox grant targets (net:…) for the owner scope
+	HostOK     bool     // net=host permitted (admin, or the owner's sets carry `host`)
+	InternetOK bool     // net=internet permitted (admin, termNet off org sets, or a personal set with internet)
+	OrgOK      bool     // the owner scope exists (sets that reach something)
+	OrgHost    bool     // the owner scope is host networking
 	OrgLabel   string   // "org network (devs-net + infra-net)"
 	OrgDesc    string   // the rules, one per line — the picker's tooltip
+	OwnerScope string   // NetOrg ("" = NetOrg) or NetPersonal: the owner scope's id
 	// Sets are the named network sets pickable here (D65): every workspace
 	// set for a workspace admin on any tile; for everyone else the sets
 	// attached to the owning org, when they would get the org scope at all.
@@ -68,6 +74,14 @@ type NetSetScope struct {
 	Host  bool     // the set carries `host`: host networking, no relay
 	Label string   // "net set: infra-net"
 	Desc  string   // the rules, one per line — the picker's tooltip
+}
+
+// ownerScope is the owner network scope's id on this tile.
+func (g TermNet) ownerScope() string {
+	if g.OwnerScope != "" {
+		return g.OwnerScope
+	}
+	return NetOrg
 }
 
 func (g TermNet) findSet(name string) *NetSetScope {
@@ -98,14 +112,14 @@ func (m *Manager) termNetFor(p auth.Principal, rel string) TermNet {
 	return m.TermNet(p, rel)
 }
 
-// defaultScope is the tile's default for this principal: org where it
-// exists, else internet where allowed, else offline. Never a named set —
+// defaultScope is the tile's default for this principal: the owner scope (org
+// or personal) where it exists, else internet where allowed, else offline. Never a named set —
 // D65 adds pickable scopes, it moves nobody's default (the client keeps
 // its own last pick per tile).
 func defaultScope(p auth.Principal, g TermNet) string {
 	switch {
 	case g.OrgOK:
-		return NetOrg
+		return g.ownerScope()
 	case g.InternetOK || p.IsAdmin():
 		return NetInternet
 	}
@@ -119,9 +133,9 @@ func ScopesFor(p auth.Principal, g TermNet) (scopes []Scope, def string) {
 	if g.OrgOK {
 		label := g.OrgLabel
 		if label == "" {
-			label = "org network"
+			label = g.ownerScope() + " network"
 		}
-		scopes = append(scopes, Scope{ID: NetOrg, Label: label, Desc: g.OrgDesc})
+		scopes = append(scopes, Scope{ID: g.ownerScope(), Label: label, Desc: g.OrgDesc})
 	}
 	for _, s := range g.Sets {
 		scopes = append(scopes, Scope{ID: ScopeSetPrefix + s.Name, Label: s.Label, Desc: s.Desc})
@@ -162,7 +176,7 @@ func clampTermScopes(p auth.Principal, api bool, net string, g TermNet) (bool, s
 		// never silently upgraded to plain internet (D17's clamp, kept).
 		if !hostOK {
 			if g.OrgOK {
-				net = NetOrg
+				net = g.ownerScope()
 			} else {
 				net = NetNone
 			}
@@ -171,8 +185,8 @@ func clampTermScopes(p auth.Principal, api bool, net string, g TermNet) (bool, s
 		if !internetOK {
 			net = defaultScope(p, g)
 		}
-	case NetOrg:
-		if !g.OrgOK {
+	case NetOrg, NetPersonal:
+		if !g.OrgOK || net != g.ownerScope() {
 			if internetOK {
 				net = NetInternet
 			} else {
@@ -195,15 +209,17 @@ func clampNote(asked, got string, g TermNet) string {
 	case NetHost:
 		why = "host networking is admin-only here"
 		if g.OrgOK {
-			why += " (the org's network sets don't grant host)"
+			why += " (the owner's network sets don't grant host)"
 		}
 	case NetInternet:
 		why = "internet egress needs term-net here"
-		if g.OrgOK {
+		if g.OrgOK && g.ownerScope() == NetOrg {
 			why = "on an org-owned tile the org's network sets replace plain internet"
 		}
 	case NetOrg:
 		why = "this tile's owner has no org network"
+	case NetPersonal:
+		why = "this tile's owner has no personal network"
 	default:
 		if n, ok := strings.CutPrefix(asked, ScopeSetPrefix); ok { // charset-checked by normalizeNet
 			why = "network set " + n + " isn't available on this tile"
@@ -221,10 +237,10 @@ func resolveNet(net string, g TermNet) (host bool, rules []string, label string)
 		return true, nil, "host net"
 	case NetNone:
 		return false, nil, "offline"
-	case NetOrg:
+	case NetOrg, NetPersonal:
 		label = g.OrgLabel
 		if label == "" {
-			label = "org network"
+			label = net + " network"
 		}
 		return g.OrgHost, g.Rules, label
 	}

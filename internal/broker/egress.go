@@ -74,6 +74,12 @@ func (b *Broker) EgressFor(c *registry.Component) sandbox.EgressPolicy {
 		if !host {
 			targets = t
 		}
+	case nb == NetRefPersonal:
+		// The owner's personal network (D88), the same way.
+		_, _, rules := b.personalNet(c.Path)
+		if t, host := netRuleTargets(rules); !host {
+			targets = t
+		}
 	case strings.HasPrefix(nb, NetRefSet):
 		// One named set (D65), the same way.
 		if t, host, ok := b.netSetRuleTargets(nb); ok && !host {

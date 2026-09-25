@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -10,10 +11,15 @@ import (
 )
 
 // TermNetFor answers the terminal manager's question for one principal on
-// one tile (D54): does the tile's owning org have network sets — and so an
-// `org` scope — what relay rules that scope carries, and which of
-// internet/host the principal may pick. Personal and workspace tiles keep
-// the pre-D54 rules: termNet → internet, host admin-only.
+// one tile (D54/D88): does the tile's OWNER have network sets — and so an
+// owner scope ("org" on an org tile, "personal" on a personal tile) — what
+// relay rules that scope carries, and which of internet/host the principal
+// may pick. On an org tile with sets the org network replaces plain
+// internet; on a personal tile the owner's personal network is ADDED to it
+// (D88: termNet internet stays, and a personal set holding full internet
+// offers it too — narrowing the personal network is always safe). Tiles
+// whose owner has no sets keep the pre-D54 rules: termNet → internet, host
+// admin-only.
 func (b *Broker) TermNetFor(p auth.Principal, comp string) term.TermNet {
 	admin := p.IsAdmin()
 	out := term.TermNet{HostOK: admin, InternetOK: admin || p.CanTermNet()}
@@ -21,41 +27,53 @@ func (b *Broker) TermNetFor(p auth.Principal, comp string) term.TermNet {
 		return out
 	}
 	ceil := b.Users.Ceiling(comp)
-	org := ceil.OwnerOrg()
-	if org == "" || !ceil.HasNetSets() || ceil.Denies(users.PolicyDenyNet) {
-		out.Sets = b.termNetSets(p, ceil) // a workspace admin's sets, on any tile
+	if ceil.Denies(users.PolicyDenyNet) {
+		out.Sets = b.termNetSets(p, nil, "")
 		return out
 	}
-	targets, host := netRuleTargets(ceil.NetRules())
+	var owner, desc, note string
+	var sets, rules []string
+	switch uid, psets, prules := b.personalNet(comp); {
+	case ceil.OwnerOrg() != "" && ceil.HasNetSets():
+		owner, sets, rules = "org:"+ceil.OwnerOrg(), ceil.NetSets(), ceil.NetRules()
+		out.OrgLabel, desc, note = "org network", owner+"'s network sets:", "attached to "+owner
+		out.InternetOK = admin // the org network replaces plain internet for members
+	case uid != "":
+		owner, sets, rules = "user:"+uid, psets, prules
+		out.OwnerScope = term.NetPersonal
+		out.OrgLabel, desc, note = "personal network", owner+"'s personal network sets:", owner+"'s personal network"
+		out.InternetOK = out.InternetOK || slices.Contains(rules, "internet") // a union, not a replacement
+	default:
+		out.Sets = b.termNetSets(p, nil, "") // a workspace admin's sets, on any tile
+		return out
+	}
+	targets, host := netRuleTargets(rules)
 	out.Rules = targets
 	out.OrgHost = host
 	out.OrgOK = host || len(targets) > 0
 	out.HostOK = admin || host
-	// On an org tile with sets the org network replaces plain internet for
-	// members; admins keep every scope.
-	out.InternetOK = admin
-	out.OrgLabel = "org network (" + strings.Join(ceil.NetSets(), " + ") + ")"
+	out.OrgLabel += " (" + strings.Join(sets, " + ") + ")"
 	if host {
 		out.OrgLabel += " — host networking"
 	}
-	lines := make([]string, 0, len(ceil.NetRules())+1)
-	lines = append(lines, "org:"+org+"'s network sets:")
-	for _, r := range ceil.NetRules() {
+	lines := make([]string, 0, len(rules)+1)
+	lines = append(lines, desc)
+	for _, r := range rules {
 		lines = append(lines, netRuleText(r))
 	}
 	out.OrgDesc = strings.Join(lines, "\n")
-	out.Sets = b.termNetSets(p, ceil)
+	out.Sets = b.termNetSets(p, sets, note)
 	return out
 }
 
 // termNetSets lists the named sets this principal may pick on this tile
 // (D65). A workspace admin: every workspace set, anywhere — strictly less
 // than the host scope they already hold on every tile. Everyone else: the
-// sets attached to the OWNING org, and only when they would get the org
-// scope at all (an org tile with sets, no deny-net row) — each a narrowing
-// of the union they can already pick. Provider-only sets reach nothing for
-// a terminal and are skipped, as the org scope skips them.
-func (b *Broker) termNetSets(p auth.Principal, ceil users.Ceiling) []term.NetSetScope {
+// sets making up the tile OWNER's network (ownerSets — the owning org's, or
+// the personal tile's owner's, D88), each a narrowing of the owner scope
+// they can already pick. Provider-only sets reach nothing for a terminal
+// and are skipped, as the owner scope skips them.
+func (b *Broker) termNetSets(p auth.Principal, ownerSets []string, note string) []term.NetSetScope {
 	var names []string
 	switch {
 	case p.IsAdmin():
@@ -63,13 +81,13 @@ func (b *Broker) termNetSets(p auth.Principal, ceil users.Ceiling) []term.NetSet
 			names = append(names, n)
 		}
 		sort.Strings(names)
-	case ceil.OwnerOrg() != "" && ceil.HasNetSets() && !ceil.Denies(users.PolicyDenyNet):
-		names = ceil.NetSets()
+	case len(ownerSets) > 0:
+		names = ownerSets
 	default:
 		return nil
 	}
 	attached := map[string]bool{}
-	for _, n := range ceil.NetSets() {
+	for _, n := range ownerSets {
 		attached[n] = true
 	}
 	var out []term.NetSetScope
@@ -84,7 +102,7 @@ func (b *Broker) termNetSets(p auth.Principal, ceil users.Ceiling) []term.NetSet
 		}
 		head := "network set " + n + ":"
 		if attached[n] {
-			head = "network set " + n + " (attached to org:" + ceil.OwnerOrg() + "):"
+			head = "network set " + n + " (" + note + "):"
 		}
 		lines := []string{head}
 		for _, r := range ns.Rules {

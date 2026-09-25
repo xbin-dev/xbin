@@ -110,6 +110,16 @@ func (b *Broker) netBuiltinOptions(comp string, wsAdmin bool) []bindOption {
 		}
 		out = append(out, bindOption{ID: NetRefOrg, Label: label})
 	}
+	if b.Users != nil && strings.HasPrefix(b.Users.Owner(comp), users.OwnerKindUser+":") { // D88
+		owner := b.Users.Owner(comp)
+		label := "personal — " + owner + "'s personal network"
+		if _, sets, rules := b.personalNet(comp); len(sets) == 0 {
+			label += " (none attached: no egress until a workspace admin attaches a network set)"
+		} else {
+			label += " (" + strings.Join(sets, ", ") + "): " + strings.Join(rules, ", ")
+		}
+		out = append(out, bindOption{ID: NetRefPersonal, Label: label})
+	}
 	uncovered := func(target string) bool { return ceil.HasNetSets() && !ceil.NetCovers(target) }
 	builtin := func(id, label, target string) bindOption {
 		o := bindOption{ID: id, Label: label}
