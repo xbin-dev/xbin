@@ -6,9 +6,54 @@ actor per run with work, fed by a durable inbox, woken by events — never by a
 timer that polls (see **The engine**). Design records `agent`, `agent-v2` and
 D81 live in the xbin repo.
 
-All endpoints are **admin-only** — the tile is self (always admin of itself)
-and the owner. There is no public surface. Paths below are relative to
-`/api/<this-component>`.
+All endpoints are **admin-only** at the platform level — the tile is self
+(always admin of itself) and the owner. There is no public surface. Paths
+below are relative to `/api/<this-component>`.
+
+## Who sees what (D83)
+
+Conversations are **per user**. The backend reads the human behind each
+request from `X-XBin-User` (the tile's own frame and terminals carry it) and
+a run belongs to whoever started it. Access is decided on a run's **root**, so
+a subagent is exactly as visible as the conversation it works for.
+
+| Access | May |
+|---|---|
+| owner | everything, including rename, share and delete |
+| participant | read, send messages, steer, approve, stop, upload |
+| viewer | read |
+
+- **Private** (the default for a new chat): only its owner and the people it
+  was shared with (members, as viewer or participant).
+- **Team**: everyone who can open the tile, as `teamRole` (`viewer` or
+  `participant`).
+- **Unowned** runs (from before D83, the owner token, or a script) are
+  team-visible, and the tile's **managers** own them.
+- **Managers** are people with write (or terminal) access to the tile. They
+  change the tile-wide settings (`/config`, `/models`, shared skills, `PUT
+  /halt`) and oversee every automation. They do **not** see other people's
+  private conversations.
+- **View-as** (an admin viewing the workspace as a user, D64) sees only
+  team-visible runs, never the user's private ones.
+- **The owner token and the tile itself** see everything. Another component
+  calling the API sees only the runs it started.
+- A run you may not see answers **404**. One you see but may not change
+  answers **403**. While the agent is halted, a non-manager's request for
+  work answers **423**; only a manager's lifts the brake.
+- `GET /me` → `{kind, user, level, manager, viewedBy, halted, epochMs}` tells
+  the tile who it is talking for. `GET /runs` and the stream list only what
+  the caller may see. Run rows on the stream carry `access` and `mine`.
+  `GET /runs/{id}/view` carries `access` and `acl {owner, visibility,
+  teamRole, members}`.
+
+When a second person speaks in a conversation, each person's message reaches
+the model prefixed `[<user id>]`, and the system prompt says the
+conversation is shared. **Stop** returns only your own queued messages.
+
+This is privacy **between people who use the agent**, enforced by the tile's
+own code. Anyone who can change or read the tile itself can read every
+conversation: write or terminal access, the owner token, the LLM provider and
+llm-gw's logs. Give team members `read` on the tile.
 
 ## Runs
 

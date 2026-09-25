@@ -18,6 +18,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: conversations are per user — BREAKING**
+  ([migration note](changes/2026-09-26-agent-conversations-per-user.md),
+  D83). A new chat belongs to whoever started it and is private until
+  shared with the team or with named people. Other people's private runs
+  answer 404 and are absent from `GET /runs` and the stream — admins
+  included. The tile-wide settings, shared skills and the halt need write
+  access to the tile, and only a manager's message lifts a halt (others get
+  423). Schedules belong to their creator: managers can switch off or delete
+  anyone's, but can't read a private one. Runs from before stay visible to
+  everyone. New: `GET /me`; `access`/`mine` on stream run rows;
+  `access`/`acl` on `/view`. In shared conversations each person's message
+  reaches the model prefixed with their id.
 - **Backends can tell when an admin is viewing as a user.** Under view-as
   (D64) proxied calls carry `X-XBin-Viewed-By: <admin>` next to
   `X-XBin-User` (SDK `xbin.Caller(r).ViewedBy`), so a tile with per-user

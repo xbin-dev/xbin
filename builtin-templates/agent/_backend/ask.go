@@ -36,10 +36,10 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	note := "quick ask"
 	if body.Hold {
 		note = "quick ask (waiting for attachments)"
-	} else {
-		agent.resumeIfHalted(0)
+	} else if haltBlocks(w, r, 0) {
+		return
 	}
-	w0 := principal(r)
+	w0 := callerOf(r)
 	st := w0.stamp("chat")
 	title := strings.TrimSpace(body.Title)
 	if st.TitleSrc = "user"; title == "" {

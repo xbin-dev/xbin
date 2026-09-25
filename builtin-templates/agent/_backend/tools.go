@@ -251,6 +251,19 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	case "unschedule":
 		id := int64(toInt(args["id"]))
+		// Only this conversation's own automations (D83): one it created, or
+		// one belonging to the person whose conversation this is.
+		sch, err := ag.db.getSchedule(id)
+		if err != nil {
+			return "", fmt.Errorf("no such schedule #%d", id)
+		}
+		owner := ""
+		if root, err := ag.db.getRun(rootOf(run)); err == nil {
+			owner = root.Owner
+		}
+		if sch.CreatedByRun != run.ID && sch.Owner != owner {
+			return "", fmt.Errorf("schedule #%d belongs to someone else", id)
+		}
 		ag.unregisterScheduleCron(id)
 		if err := ag.db.deleteSchedule(id); err != nil {
 			return "", err

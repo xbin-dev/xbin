@@ -119,16 +119,16 @@ func TestChildEventsReachTheRootStream(t *testing.T) {
 
 func TestForeignOrStaleCursorResets(t *testing.T) {
 	h := newEventHub("genA")
-	if _, _, ok := h.subscribe(1, h.parseCursor("genB.5")); ok {
+	if _, _, ok := h.subscribe(1, h.parseCursor("genB.5"), who{kind: whoSystem}); ok {
 		t.Fatal("another process's cursor must reset")
 	}
 	for i := 0; i < ringSize+10; i++ {
 		h.publish(&Event{Type: evStep, Run: 1, Root: 1})
 	}
-	if _, _, ok := h.subscribe(1, 3); ok {
+	if _, _, ok := h.subscribe(1, 3, who{kind: whoSystem}); ok {
 		t.Fatal("an evicted cursor must reset")
 	}
-	s, missed, ok := h.subscribe(1, h.now()-2)
+	s, missed, ok := h.subscribe(1, h.now()-2, who{kind: whoSystem})
 	if !ok || len(missed) != 2 {
 		t.Fatalf("a recent cursor: ok=%v missed=%d", ok, len(missed))
 	}
@@ -139,7 +139,7 @@ func TestForeignOrStaleCursorResets(t *testing.T) {
 // a backlog.
 func TestDraftsCoalesce(t *testing.T) {
 	h := newEventHub("g")
-	s, _, _ := h.subscribe(7, h.now())
+	s, _, _ := h.subscribe(7, h.now(), who{kind: whoSystem})
 	for i := 0; i < 100; i++ {
 		h.publish(&Event{Type: evText, Run: 7, Root: 7, key: "text:7", Data: map[string]any{"text": strings.Repeat("x", i)}})
 	}

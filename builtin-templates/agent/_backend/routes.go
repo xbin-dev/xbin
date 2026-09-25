@@ -4,6 +4,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -33,6 +35,7 @@ type routeDef struct {
 
 func routeTable() []routeDef {
 	return []routeDef{
+		{"GET /me", needAny, handleMe},
 		{"GET /runs", needAny, handleListRuns},
 		{"POST /runs", needStart, handleNewRun},
 		{"POST /ask", needStart, handleAsk},
@@ -91,8 +94,95 @@ func routes(mux *http.ServeMux) {
 	}
 }
 
-// guard is where a route's need is enforced (access.go).
+type ctxKey int
+
+const (
+	whoKey ctxKey = iota
+	levelKey
+)
+
+// guard enforces a route's need before its handler runs, and hands the
+// resolved caller (and, for a route on one run, their access to it) down in
+// the request context. A run the caller may not see is a 404 — its existence
+// is nobody else's business; one they see but may not change is a 403.
 func guard(n need, h http.HandlerFunc) http.HandlerFunc {
-	_ = n
-	return h
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := principal(r)
+		deny := func(msg string) { xbin.WriteError(w, http.StatusForbidden, msg) }
+		switch {
+		case c.kind == whoNone:
+			deny("no caller identity")
+			return
+		case n == needSelf:
+			if c.kind != whoSystem {
+				deny("only the tile itself")
+				return
+			}
+		case n == needCron:
+			if c.kind != whoCron && c.kind != whoSystem {
+				deny("only the scheduler")
+				return
+			}
+		case c.kind == whoCron:
+			deny("the scheduler may only fire schedules")
+			return
+		case n == needManager:
+			if !c.manager() {
+				deny("changing the agent's settings needs write access to this tile")
+				return
+			}
+		case n == needUser:
+			if c.kind != whoUser {
+				deny("only a person can join a conversation")
+				return
+			}
+		}
+		ctx := context.WithValue(r.Context(), whoKey, c)
+		if want := needLevel(n); want > lvNone {
+			_, lv, err := agent.runAccess(c, pathID(r))
+			if err != nil || lv == lvNone {
+				xbin.WriteError(w, http.StatusNotFound, "no such run")
+				return
+			}
+			if lv < want {
+				deny(fmt.Sprintf("you are a %s of this conversation; that needs %s", lv, want))
+				return
+			}
+			ctx = context.WithValue(ctx, levelKey, lv)
+		}
+		h(w, r.WithContext(ctx))
+	}
+}
+
+func needLevel(n need) level {
+	switch n {
+	case needViewer:
+		return lvViewer
+	case needParticipant:
+		return lvParticipant
+	case needOwner:
+		return lvOwner
+	}
+	return lvNone
+}
+
+// callerOf is the caller guard resolved. Handlers reached without the guard
+// exist only in tests, which call them directly: those act as the system.
+func callerOf(r *http.Request) who {
+	if c, ok := r.Context().Value(whoKey).(who); ok {
+		return c
+	}
+	if c := principal(r); c.kind != whoNone {
+		return c
+	}
+	return who{kind: whoSystem}
+}
+
+// levelOf is the caller's access to the route's run (guarded routes on one
+// run only; lvSystem outside them).
+func levelOf(r *http.Request) level {
+	if l, ok := r.Context().Value(levelKey).(level); ok {
+		return l
+	}
+	return lvSystem
 }

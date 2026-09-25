@@ -86,6 +86,7 @@ export function STUB(seed) {
     ['POST', /\/runs\/(\d+)\/approve$/, () => json({ ok: 'true' })],
     ['DELETE', /\/runs\/(\d+)\/inbox\/(\d+)$/, () => json({ ok: 'true' })],
     ['GET', /\/halt$/, () => json({ on: false })],
+    ['GET', /\/me$/, () => json(seed.me || { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false })],
     ['GET', /\/runs\/(\d+)\/tree$/, (m) => json({ root: +m[1], nodes: [], totals: {} })],
   ];
   window.xbin = {

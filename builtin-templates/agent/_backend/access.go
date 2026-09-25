@@ -10,6 +10,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -105,4 +106,46 @@ func (w who) stamp(origin string) runStamp {
 		origin = "api"
 	}
 	return runStamp{Visibility: visTeam, TeamRole: roleParticipant, Origin: origin}
+}
+
+// haltBlocks is the brake as a request meets it: a manager's request for work
+// lifts it (resumeIfHalted); anyone else's is refused with 423 while it is on
+// — pausing the agent is the managers' call (D83). True means the handler
+// must stop.
+func haltBlocks(w http.ResponseWriter, r *http.Request, runID int64) bool {
+	if agent.db.getSetting("halt") != "1" {
+		return false
+	}
+	if !callerOf(r).manager() {
+		xbin.WriteError(w, http.StatusLocked, "the agent is paused by a manager")
+		return true
+	}
+	agent.resumeIfHalted(runID)
+	return false
+}
+
+// forView is a run's config as its viewers may see it: without the static
+// MCP servers' headers, which can carry tokens.
+func (c Config) forView() Config {
+	if len(c.MCP) > 0 {
+		mcp := make([]MCPServer, len(c.MCP))
+		for i, m := range c.MCP {
+			m.Headers = nil
+			mcp[i] = m
+		}
+		c.MCP = mcp
+	}
+	return c
+}
+
+// handleMe tells the tile who it is talking for, so it can offer what that
+// person may do (settings, the brake, sharing).
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	kinds := map[whoKind]string{whoSystem: "system", whoUser: "user", whoElement: "element", whoCron: "cron"}
+	epoch, _ := strconv.ParseInt(agent.db.getSetting("conv_epoch_ms"), 10, 64)
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{
+		"kind": kinds[c.kind], "user": c.user, "level": c.level, "manager": c.manager(),
+		"viewedBy": c.viewedBy, "halted": agent.db.getSetting("halt") == "1", "epochMs": epoch,
+	})
 }

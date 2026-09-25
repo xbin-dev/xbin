@@ -38,6 +38,8 @@ type Agent struct {
 	blobCache *blobCache
 	// noGateway is set in tests: no cron, bus or hold calls.
 	noGateway bool
+	// acl caches who may see which conversation (acl.go).
+	acl aclCache
 }
 
 var agent *Agent

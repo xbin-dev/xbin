@@ -169,16 +169,18 @@ function topTpl(v) {
   const r = v.run;
   const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 private';
   const tree = r.parentId || (v.links || []).length;
+  const talk = v.access !== 'viewer', own = !v.access || v.access === 'owner' || v.access === 'system';
   return html`<span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
     <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
     <span class="badge ${r.status}">${r.status}</span>
-    ${r.status === 'error' || r.status === 'canceled' ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
-    <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>
+    ${talk ? nothing : html`<span class="badge" title="shared with you to read">view only</span>`}
+    ${talk && (r.status === 'error' || r.status === 'canceled') ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
+    ${talk ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
+    <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${Object.keys(v.memory || {}).length})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${(v.files || []).length})</button>
     ${tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
-    <button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>`;
+    ${own ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
 }
 
 // paint draws everything that depends on the session. lit patches only what
@@ -194,14 +196,15 @@ function paint() {
   $('queue').hidden = !(v && session.queued().length);
   const busy = session.busy();
   $('stop').hidden = !busy;
+  const viewOnly = !!(v && v.access === 'viewer');
+  $('msg').disabled = viewOnly;
   $('msg').placeholder = !v ? HOME.placeholder
+    : viewOnly ? 'view only — shared with you to read'
     : busy ? 'steer — delivered at the agent\'s next step…'
     : v.run.status === 'waiting_input' && (v.run.pendingState || {}).kind !== 'approval' ? 'answer the question…' : 'follow up…';
   if (v) syncPreview(v);
   if (wfOpen) treeDirty();
 }
-
-// --- workflow view ------------------------------------------------------
 
 // --- workflow view ------------------------------------------------------
 
@@ -337,6 +340,15 @@ function patchWorkflow(t) {
   }
 }
 
+// me is who the tile is talking for (GET /me, D83): settings, the brake and
+// oversight are the managers' — people with write access to the tile.
+let me = { manager: true };
+async function loadMe() {
+  try { me = await api('/me'); } catch { /* an older backend: everything, as before */ }
+  $('gear').hidden = !me.manager;
+  syncHalt($('halt').dataset.on === '1');
+}
+
 async function loadHalt() {
   try {
     const h = await api('/halt');
@@ -346,7 +358,7 @@ async function loadHalt() {
 
 function syncHalt(on) {
   const b = $('halt');
-  b.hidden = !on && !session.roots().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input');
+  b.hidden = !me.manager || (!on && !session.roots().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input'));
   b.textContent = on ? '⏻ HALTED' : '⏻';
   b.title = on ? 'Resume — the agent is halted' : 'Stop every running agent now';
   b.dataset.on = on ? '1' : '';
@@ -1107,4 +1119,5 @@ function tabMcp(bd) {
 
 paint();
 session.start().catch(() => {});
+loadMe();
 loadHalt();

@@ -40,15 +40,25 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 			}
 		}
 	}
+	live, err := ag.db.messages(run.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	// Who said what, once more than one person is in the conversation (D83):
+	// each person's message carries their id.
+	senders := senders(live)
+	shared := false
+	if run.ParentID == 0 && len(senders) > 0 {
+		shared = len(senders) > 1 || (run.Owner != "" && !senders[run.Owner])
+	}
+	if shared {
+		sys.WriteString("\n\nThis conversation is shared: each person's message starts with [their id].")
+	}
 	if run.Summary != "" {
 		sys.WriteString("\n\n# Summary of earlier conversation\n")
 		sys.WriteString(run.Summary)
 	}
 
-	live, err := ag.db.messages(run.ID, true)
-	if err != nil {
-		return nil, err
-	}
 	out := []wireMsg{{Role: "system", Content: sys.String()}}
 	pos := make([]int, len(live))
 	for i, m := range live {
@@ -60,6 +70,11 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		var content any = m.Content
 		if m.Role == "user" {
 			content = contentValue(m.Content)
+			if s, ok := content.(string); ok && shared {
+				if who := senderOf(m); who != "" {
+					content = "[" + who + "] " + s
+				}
+			}
 		}
 		wm := wireMsg{Role: m.Role, Content: content, Name: m.Name, ToolCallID: m.ToolCallID}
 		if m.ToolCalls != "" {
@@ -280,4 +295,24 @@ func (e *Engine) summarize(ctx context.Context, run *Run, cfg Config, prior, tra
 		return ""
 	}
 	return strings.TrimSpace(asString(reply.Msg.Content))
+}
+
+// senderOf is who wrote a user message ("" for the agent's own prompts).
+func senderOf(m *Message) string {
+	if m.Role != "user" || len(m.Meta) == 0 {
+		return ""
+	}
+	var meta msgMeta
+	_ = json.Unmarshal(m.Meta, &meta)
+	return meta.Sender
+}
+
+func senders(msgs []*Message) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range msgs {
+		if s := senderOf(m); s != "" {
+			out[s] = true
+		}
+	}
+	return out
 }

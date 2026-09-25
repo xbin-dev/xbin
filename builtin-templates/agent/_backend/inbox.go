@@ -134,7 +134,7 @@ func (d *DB) queuedView(runID int64) []map[string]any {
 	out := []map[string]any{}
 	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind='user' ORDER BY id`, runID) {
 		out = append(out, map[string]any{"id": r.ID, "text": r.Body.Text, "files": r.Body.Files,
-			"source": r.Body.Source, "created": r.Created})
+			"source": r.Body.Source, "sender": r.Body.Sender, "created": r.Created})
 	}
 	return out
 }
@@ -226,8 +226,10 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, err.Error())
 		return
 	}
-	agent.resumeIfHalted(id)
-	sender := principal(r).user
+	if haltBlocks(w, r, id) {
+		return
+	}
+	sender := callerOf(r).user
 	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}, body.ClientID)
 	if err == nil {
 		agent.db.bumpActivity(id)
@@ -272,9 +274,15 @@ func handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	var returned []map[string]any
 	stopped := 0
+	c, lv := callerOf(r), levelOf(r)
+	// Only your own queued messages come back to you; other people's stay
+	// queued and become the next turn (D83).
+	mine := func(b inboxBody) bool {
+		return c.kind != whoUser || b.Sender == c.user || (b.Sender == "" && lv >= lvOwner)
+	}
 	err = agent.db.Tx(func(t *DB) error {
 		for _, q := range t.undelivered(id) {
-			if q.Kind == inboxUser && q.Body.Source == "human" {
+			if q.Kind == inboxUser && q.Body.Source == "human" && mine(q.Body) {
 				if ok, _ := t.removeQueued(id, q.ID); ok {
 					returned = append(returned, map[string]any{"text": q.Body.Text, "files": q.Body.Files})
 				}
@@ -333,7 +341,9 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
-	agent.resumeIfHalted(id)
+	if haltBlocks(w, r, id) {
+		return
+	}
 	if _, _, err := agent.queue(id, inboxWake, inboxBody{}, ""); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -381,6 +391,14 @@ func handleRemoveQueued(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	iid, _ := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 	var removed, exists bool
+	if c, lv := callerOf(r), levelOf(r); lv < lvOwner {
+		// A participant takes back only what they sent.
+		rows := agent.db.inboxRows(`WHERE id=? AND run_id=?`, iid, id)
+		if len(rows) == 1 && rows[0].Body.Sender != c.user {
+			xbin.WriteError(w, 403, "only the conversation's owner can take back someone else's message")
+			return
+		}
+	}
 	_ = agent.db.Tx(func(t *DB) error {
 		removed, exists = t.removeQueued(id, iid)
 		if removed && agent.eng != nil {

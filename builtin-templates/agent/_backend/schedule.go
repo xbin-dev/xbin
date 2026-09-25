@@ -40,6 +40,38 @@ type Schedule struct {
 	LastStatus   string `json:"lastStatus"`   // how that run's last turn ended
 }
 
+// access is what a caller may do with this automation (D83): its owner runs
+// and edits it; a legacy one (no owner) belongs to the tile's managers; a
+// team one is visible to everyone. Managers also OVERSEE every automation —
+// see it listed, switch it off, delete it (managerOversees) — without
+// opening its private runs.
+func (s *Schedule) access(w who) level {
+	switch {
+	case w.kind == whoSystem || w.kind == whoCron:
+		return lvSystem
+	case w.kind == whoUser && w.viewedBy == "" && s.Owner != "" && s.Owner == w.user:
+		return lvOwner
+	case w.kind == whoElement && s.Owner == "el:"+w.el:
+		return lvOwner
+	case s.Owner == "" && w.manager() && w.viewedBy == "":
+		return lvOwner
+	case s.Visibility == visTeam:
+		return lvViewer
+	}
+	return lvNone
+}
+
+// scheduleFor resolves {id} and the caller's access; it writes the error.
+func scheduleFor(w http.ResponseWriter, r *http.Request) (*Schedule, who, level, bool) {
+	c := callerOf(r)
+	s, err := agent.db.getSchedule(pathID(r))
+	if err != nil || (s.access(c) == lvNone && !c.manager()) {
+		xbin.WriteError(w, 404, "no such schedule")
+		return nil, c, lvNone, false
+	}
+	return s, c, s.access(c), true
+}
+
 // stamp is who a run this schedule fires belongs to.
 func (s *Schedule) stamp() runStamp {
 	st := runStamp{Owner: s.Owner, Visibility: s.Visibility, TeamRole: roleViewer, Origin: "schedule",
@@ -256,10 +288,21 @@ func handleListSchedules(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	if list == nil {
-		list = []*Schedule{}
+	c := callerOf(r)
+	out := []*Schedule{}
+	for _, s := range list {
+		switch lv := s.access(c); {
+		case lv >= lvViewer:
+			out = append(out, s)
+		case c.manager() && c.viewedBy == "":
+			// Oversight: a manager sees it exists and can switch it off, but
+			// not what someone else's private automation is about.
+			cp := *s
+			cp.Goal, cp.System = "", ""
+			out = append(out, &cp)
+		}
 	}
-	xbin.WriteJSON(w, 200, list)
+	xbin.WriteJSON(w, 200, out)
 }
 
 func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +318,7 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Toolset = normalizeToolset(s.Toolset) // human-created: either lane, validated
 	// Whose it is comes from the caller, never the body.
-	w0 := principal(r)
+	w0 := callerOf(r)
 	st := w0.stamp("schedule")
 	s.Owner, s.CreatedByRun, s.LastRunID, s.LastStatus, s.Mode, s.TargetRun = st.Owner, 0, 0, "", "", 0
 	if s.Visibility != visTeam {
@@ -302,9 +345,12 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	cur, err := agent.db.getSchedule(id)
-	if err != nil {
-		xbin.WriteError(w, 404, "no such schedule")
+	cur, c, lv, ok := scheduleFor(w, r)
+	if !ok {
+		return
+	}
+	if lv < lvOwner && !c.manager() {
+		xbin.WriteError(w, 403, "only its owner can change this automation")
 		return
 	}
 	// Decode onto the current record so omitted fields keep their value —
@@ -316,6 +362,11 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	cur.ID, cur.Owner, cur.CreatedByRun, cur.LastRunID, cur.LastStatus, cur.RunID, cur.Created, cur.LastRun =
 		id, keep.Owner, keep.CreatedByRun, keep.LastRunID, keep.LastStatus, keep.RunID, keep.Created, keep.LastRun
+	if lv < lvOwner { // a manager overseeing someone else's: on/off only
+		enabled := cur.Enabled
+		*cur = keep
+		cur.Enabled = enabled
+	}
 	if err := agent.db.updateSchedule(cur); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -333,6 +384,12 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
+	if _, c, lv, ok := scheduleFor(w, r); !ok {
+		return
+	} else if lv < lvOwner && !c.manager() {
+		xbin.WriteError(w, 403, "only its owner can delete this automation")
+		return
+	}
 	agent.unregisterScheduleCron(id)
 	if err := agent.db.deleteSchedule(id); err != nil {
 		xbin.WriteError(w, 500, err.Error())
@@ -343,9 +400,12 @@ func handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 
 // handleFireSchedule is the cron target; handleTriggerSchedule is a manual run.
 func handleFireSchedule(w http.ResponseWriter, r *http.Request) {
-	s, err := agent.db.getSchedule(pathID(r))
-	if err != nil {
-		xbin.WriteError(w, 404, "no such schedule")
+	s, _, lv, ok := scheduleFor(w, r)
+	if !ok {
+		return
+	}
+	if lv < lvOwner { // "Run now" is its owner's; cron and the system pass as lvSystem
+		xbin.WriteError(w, 403, "only its owner can run this automation")
 		return
 	}
 	if s.Enabled {

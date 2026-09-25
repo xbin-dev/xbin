@@ -2174,3 +2174,41 @@ Deviations and refinements made while implementing; all deliberate:
     delete admin-set state.
   - Letting tiles nest under an owned tile: that means nested repos, and a
     parent's sandbox and dev layer holding the child.
+
+- **D83 — Agent conversations belong to the person who starts them;
+  chatting needs `read` on the tile, managing it needs `write`; privacy
+  holds between users, not against the tile's operators (2026-09-26).**
+  Every user who could open the template saw and could delete every run,
+  and anyone could halt the agent or rewrite a schedule.
+
+  **How ownership works:**
+  - A run records `owner`, `visibility` (`private` | `team`), `team_role`
+    and `origin`.
+  - Access is resolved on the root: owner, then members (`run_members`,
+    viewer | participant), then team visibility.
+  - Unowned runs (legacy, the owner token, scripts) stay team-visible and
+    belong to the tile's managers. The column defaults are exactly that
+    shape, so rows an old binary writes during a blue/green overlap never
+    disappear, and the backfill classifies them on the next boot.
+  - The caller comes from xbind's `X-XBin-User` (D29).
+  - View-as (D64) now reaches backends as `X-XBin-Viewed-By`, and the agent
+    shows it only team-visible runs.
+
+  **Enforcement:**
+  - A declared route table (`routes.go`) gives every route a need.
+  - `guard` answers 404 for runs the caller can't see (existence doesn't
+    leak) and 403 for runs they can see but not change.
+  - The list, the stream (per-subscriber filtering, with the ACL loaded
+    before the hub lock; `revoked` on loss) and schedules are filtered by
+    the same rule.
+  - Managers (write/terminal on the tile) own the tile-wide settings and
+    the halt, and oversee every automation without opening private runs.
+
+  **Not chosen:**
+  - Admins seeing everything: the user wanted admins excluded.
+  - Per-user tile grants: a platform change, and anyone with write already
+    controls the backend.
+  - Enforcing privacy against write/terminal holders: impossible, since
+    they can change or read the backend.
+
+  The migration note says plainly who can still read everything.

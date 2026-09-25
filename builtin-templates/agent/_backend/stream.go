@@ -120,7 +120,7 @@ func (e *Engine) runView(id int64) (map[string]any, error) {
 	v := map[string]any{
 		"cursor": cursor, "run": sum, "messages": mv, "steps": steps, "links": links,
 		"queued": e.db.queuedView(id), "drafts": e.draftsOf(rootOf(run)), "chain": chain,
-		"files": files, "messageFiles": e.db.messageFiles(id), "memory": mem, "config": cfg,
+		"files": files, "messageFiles": e.db.messageFiles(id), "memory": mem, "config": cfg.forView(),
 		"halted": e.halted(), "slots": map[string]int{"active": active, "limit": limit, "waiting": waiting},
 	}
 	if own != nil {
@@ -135,6 +135,17 @@ func handleView(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
+	// What the caller may do here, and who else is in it (D83).
+	v["access"] = levelOf(r).String()
+	if run, err := agent.db.getRun(pathID(r)); err == nil {
+		if acl, err := agent.aclOf(rootOf(run)); err == nil {
+			members := []map[string]string{}
+			for u, role := range acl.members {
+				members = append(members, map[string]string{"user": u, "role": role})
+			}
+			v["acl"] = map[string]any{"owner": acl.owner, "visibility": acl.visibility, "teamRole": acl.teamRole, "members": members}
+		}
+	}
 	xbin.WriteJSON(w, 200, v)
 }
 
@@ -142,14 +153,15 @@ func handleView(w http.ResponseWriter, r *http.Request) {
 // what keeps an idle-looking backend from being reaped while a tile is open).
 func handleStream(w http.ResponseWriter, r *http.Request) {
 	e := agent.eng
+	c := callerOf(r)
 	id := pathID(r)
 	if id == 0 {
 		id, _ = strconv.ParseInt(r.URL.Query().Get("run"), 10, 64)
 	}
 	var root int64
 	if id != 0 {
-		run, err := e.db.getRun(id)
-		if err != nil {
+		run, lv, err := agent.runAccess(c, id)
+		if err != nil || lv < lvViewer {
 			xbin.WriteError(w, 404, "no such run")
 			return
 		}
@@ -164,7 +176,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, "streaming unsupported")
 		return
 	}
-	sub, missed, fresh := e.hub.subscribe(root, since)
+	sub, missed, fresh := e.hub.subscribe(root, since, c)
 	defer e.hub.unsubscribe(sub)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -172,6 +184,18 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 	send := func(ev *Event) {
+		if ev.acl != nil { // a run-list row: say what this caller may do with it
+			if d, ok := ev.Data.(map[string]any); ok {
+				cp := make(map[string]any, len(d)+2)
+				for k, v := range d {
+					cp[k] = v
+				}
+				cp["access"], cp["mine"] = ev.acl.level(c).String(), ev.acl.mine(c)
+				dup := *ev
+				dup.Data = cp
+				ev = &dup
+			}
+		}
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", e.hub.cursor(ev.Seq), b)
 	}

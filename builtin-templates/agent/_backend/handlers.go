@@ -32,13 +32,17 @@ func publishEvent(runID int64, kind string) {
 	}()
 }
 
+// handleListRuns lists the runs the caller may see: the conversations they
+// own, joined, or that are shared with the team — and, without roots=1,
+// every subagent of those.
 func handleListRuns(w http.ResponseWriter, r *http.Request) {
+	where, args := aclWhere(callerOf(r))
 	var runs []*Run
 	var err error
 	if r.URL.Query().Get("roots") == "1" {
-		runs, err = agent.db.rootRuns()
+		runs, err = agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` ORDER BY r.id DESC`, args...)
 	} else {
-		runs, err = agent.db.listRuns()
+		runs, err = agent.db.queryRuns(`WHERE root_id IN (SELECT r.id FROM runs r WHERE r.parent_id=0 AND `+where+`) ORDER BY id DESC`, args...)
 	}
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
@@ -139,14 +143,16 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	if body.System != "" {
 		cfg.System = body.System
 	}
-	w0 := principal(r)
+	w0 := callerOf(r)
 	st := w0.stamp("chat")
 	st.TitleSrc = "user"
 	title := body.Title
 	if title == "" {
 		title, st.TitleSrc = clip(body.Goal, 60), "clip"
 	}
-	agent.resumeIfHalted(0)
+	if haltBlocks(w, r, 0) {
+		return
+	}
 	run, err := agent.startRunOpts(runOpts{Title: title, Cfg: cfg, Text: body.Goal, Note: "run created",
 		Stamp: st, Sender: w0.user})
 	if err != nil {
@@ -180,12 +186,18 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	active, limit, _ := agent.eng.gate.stats()
 	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
-		"config": cfg, "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
+		"config": cfg.forView(), "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
 		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}})
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
+	// Who could see it, for the list event: once it's gone there is no ACL
+	// left to load.
+	var acl *rootACL
+	if run, err := agent.db.getRun(id); err == nil && run.ParentID == 0 {
+		acl, _ = agent.db.loadACL(id)
+	}
 	// Stop the subtree before removing it: a live turn must not keep
 	// spending on rows that are gone.
 	_ = agent.db.Tx(func(t *DB) error {
@@ -196,8 +208,12 @@ func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
+	agent.acl.flush(id)
+	_, _ = agent.db.q.Exec(`DELETE FROM run_members WHERE run_id=?`, id)
+	_, _ = agent.db.q.Exec(`DELETE FROM share_links WHERE run_id=?`, id)
+	_, _ = agent.db.q.Exec(`DELETE FROM run_user_state WHERE run_id=?`, id)
 	if agent.eng != nil {
-		agent.eng.hub.publish(&Event{Type: evRun, Run: id, Root: id, Data: map[string]any{"id": id, "deleted": true}})
+		agent.eng.hub.publish(&Event{Type: evRun, Run: id, Root: id, Data: map[string]any{"id": id, "deleted": true}, acl: acl})
 	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }

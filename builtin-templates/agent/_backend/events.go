@@ -30,6 +30,10 @@ type Event struct {
 	Data any    `json:"data,omitempty"`
 	// key identifies a coalescable draft event ("" = never coalesced).
 	key string
+	// acl is who may see a run-list event (a root's summary): it reaches
+	// only subscribers with at least viewer access (D83). Loaded before the
+	// hub's lock is taken.
+	acl *rootACL
 }
 
 // Event types.
@@ -45,6 +49,8 @@ const (
 	evDraftEnd = "draft.end"
 	evReset    = "reset"
 	evBye      = "bye"
+	evRevoked  = "revoked" // {id}: you can no longer see this conversation
+	evUState   = "ustate"  // your own pin/archive/read state of a conversation
 )
 
 const ringSize = 4000
@@ -66,6 +72,7 @@ type ring struct {
 
 type subscriber struct {
 	root int64 // the tree it follows (0 = run list only)
+	w    who   // who is watching (D83)
 	mu   sync.Mutex
 	q    []*Event
 	pos  map[string]int // draft key → index in q
@@ -123,7 +130,7 @@ func (h *eventHub) publish(ev *Event) {
 	}
 	var targets []*subscriber
 	for s := range h.subs {
-		if s.root == ev.Root || (ev.Type == evRun && ev.Run == ev.Root) {
+		if s.root == ev.Root || (ev.Type == evRun && ev.Run == ev.Root && ev.visibleTo(s.w)) {
 			targets = append(targets, s)
 		}
 	}
@@ -131,6 +138,61 @@ func (h *eventHub) publish(ev *Event) {
 	h.mu.Unlock()
 	for _, s := range targets {
 		s.push(ev)
+	}
+}
+
+// visibleTo: a run-list event reaches only those who may see the run.
+func (ev *Event) visibleTo(w who) bool {
+	if ev.acl == nil {
+		return w.kind == whoSystem
+	}
+	return ev.acl.level(w) >= lvViewer
+}
+
+// publishTo sends an event that is nobody else's business (and not replayed)
+// to the subscribers match picks.
+func (h *eventHub) publishTo(match func(*subscriber) bool, ev *Event) {
+	h.mu.Lock()
+	h.seq++
+	ev.Seq = h.seq
+	ev.TS = time.Now().UnixMilli()
+	var targets []*subscriber
+	for s := range h.subs {
+		if match(s) {
+			targets = append(targets, s)
+		}
+	}
+	h.mu.Unlock()
+	for _, s := range targets {
+		s.push(ev)
+	}
+}
+
+// revalidate applies a conversation's new ACL to the live streams: a follower
+// who lost access is told and cut off; a list subscriber who lost it is told
+// to drop the row. Those who gained it get the run through emitRun.
+func (h *eventHub) revalidate(root int64, acl *rootACL) {
+	h.mu.Lock()
+	var cut, drop []*subscriber
+	for s := range h.subs {
+		if acl.level(s.w) >= lvViewer {
+			continue
+		}
+		if s.root == root {
+			cut = append(cut, s)
+		} else {
+			drop = append(drop, s)
+		}
+	}
+	h.mu.Unlock()
+	ev := &Event{Type: evRevoked, Run: root, Root: root, TS: time.Now().UnixMilli(), Data: map[string]any{"id": root}}
+	for _, s := range drop {
+		s.push(ev)
+	}
+	for _, s := range cut {
+		s.push(ev)
+		s.push(&Event{Type: evBye})
+		s.close()
 	}
 }
 
@@ -151,8 +213,8 @@ func (h *eventHub) gcLocked() {
 // since `since` (-1: nothing to replay) — or ok=false when the ring no longer
 // holds it and the client must re-snapshot. The replay and the registration
 // happen under one lock, so no event falls between them.
-func (h *eventHub) subscribe(root, since int64) (s *subscriber, missed []*Event, ok bool) {
-	s = &subscriber{root: root, pos: map[string]int{}, wake: make(chan struct{}, 1)}
+func (h *eventHub) subscribe(root, since int64, w who) (s *subscriber, missed []*Event, ok bool) {
+	s = &subscriber{root: root, w: w, pos: map[string]int{}, wake: make(chan struct{}, 1)}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.subs[s] = true
@@ -244,15 +306,22 @@ func (s *subscriber) close() {
 
 // --- what the engine publishes ------------------------------------------------
 
-// emitRun publishes a run's summary after the enclosing commit.
+// emitRun publishes a run's summary after the enclosing commit — for a root,
+// with its ACL, so the run list reaches only those who may see it.
 func (e *Engine) emitRun(t *DB, runID int64) {
-	t.AfterCommit(func() {
-		r, err := e.db.getRun(runID)
-		if err != nil {
-			return
-		}
-		e.hub.publish(&Event{Type: evRun, Run: r.ID, Root: rootOf(r), Data: runSummary(r)})
-	})
+	t.AfterCommit(func() { e.publishRun(runID) })
+}
+
+func (e *Engine) publishRun(runID int64) {
+	r, err := e.db.getRun(runID)
+	if err != nil {
+		return
+	}
+	ev := &Event{Type: evRun, Run: r.ID, Root: rootOf(r), Data: runSummary(r)}
+	if r.ParentID == 0 && e.ag != nil {
+		ev.acl, _ = e.ag.aclOf(r.ID)
+	}
+	e.hub.publish(ev)
 }
 
 func (e *Engine) emitMessage(t *DB, root int64, m *Message) {
