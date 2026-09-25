@@ -636,6 +636,10 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		e.ag.cancelBelow(t, run.ID, "its parent's turn ended")
 	}
 	e.emitRun(t, run.ID)
+	if run.ParentID == 0 && run.OriginID != 0 && (run.Origin == "schedule" || run.Origin == "watcher") {
+		status := map[string]string{endAnswered: "ok", endFinished: "done", endError: "error: " + clip(result, 200), endCap: "incomplete"}[why]
+		_, _ = t.q.Exec(`UPDATE schedules SET last_status=? WHERE id=?`, status, run.OriginID)
+	}
 	if run.ParentID == 0 && run.TitleSrc == "clip" && (why == endAnswered || why == endFinished) {
 		t.AfterCommit(func() { e.maybeTitle(run.ID) })
 	}

@@ -317,22 +317,59 @@ Known limitation: whether a model can see is a name heuristic
 with no capability check. If images are ignored, set the `vlm` tier
 explicitly.
 
-## Schedules (cron-agents)
+## Automations (D83)
+
+The non-UI agents — schedules and watchers now, channels and triggers as
+they land — are **automations**: each belongs to a person (who created it) and
+is private or team-visible like a conversation, and the runs it fires carry
+its `origin`/`originId` and its owner and visibility. They are not in the
+conversation list; the tile's Automations page lists them with their runs.
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `GET /automations` | — | `{items:[{kind, id, name, owner, visibility, access, enabled, summary, mode, targetRun, currentRun, lastRunId, lastRunAt, lastStatus, runs, unread, config}]}`. `access` is `owner`, `viewer`, or `oversee` — a manager's view of someone else's private one (it exists, runs, whose; not what it does) |
+| `GET /automations?summary=1` | — | `{count, unread, failing}` for the sidebar badge |
+| `GET /automations/{kind}/{id}` | — | one of them |
+| `GET /automations/{kind}/{id}/runs?cursor=&limit=` | — | its runs, newest activity first, as conversation rows (unread per caller) |
+| `POST /automations/{kind}/{id}/read` | — | mark all its runs read |
+| `POST /automations/{kind}/{id}/reset` | — | start a thread (a persistent schedule, a watcher) afresh: the next firing opens a new run; the old ones stay listed |
+
+A **session** is "a key names the current run" (`sched:<id>`, `watch:<id>`;
+later a channel's DM or thread). It never resets on its own by default;
+a reset policy (`idle:<seconds>`, `daily:<hour>`) is applied when the next
+input arrives — never by a timer.
+
+### Schedules (cron-agents)
 
 Schedules are individual cron jobs; nothing else polls (see **The engine**).
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `GET /schedules` | — | list schedules |
-| `POST /schedules` | `{name?, cron, goal, watcher?, toolset?}` | create + register a cron-agent |
-| `PUT /schedules/{id}` | `{enabled?, cron?, goal?, …}` | edit / enable / disable |
-| `DELETE /schedules/{id}` | — | remove |
-| `POST /schedules/{id}/trigger` | — | run it now |
-| `POST /schedules/{id}/fire` | — | the cron target (same as trigger) |
+| `GET /schedules` | — | the schedules the caller may see (a manager also sees others' private ones, without their goal) |
+| `POST /schedules` | `{name?, cron, goal, watcher?, toolset?, visibility?, mode?, targetRun?}` | create + register a cron-agent; its owner is the caller |
+| `PUT /schedules/{id}` | `{enabled?, cron?, goal?, visibility?, mode?, targetRun?, …}` | edit (its owner) / enable or disable (also a manager) |
+| `DELETE /schedules/{id}` | — | remove (its owner or a manager) |
+| `POST /schedules/{id}/trigger` | — | run it now (its owner) |
+| `POST /schedules/{id}/fire` | — | the cron target |
 
-`cron` is a 5-field expression or `@every 30m`. A **watcher** schedule re-drives
-one persistent run with a "check now" nudge; a round where the model doesn't
-call `state_changed` is rolled back, so history keeps only the changes.
+`cron` is a 5-field expression or `@every 30m`. `mode` says where a firing
+goes:
+
+- `isolated` (the default for schedules made here): a new run each time,
+  listed under the automation.
+- `persistent`: one ongoing run (session `sched:<id>`) that builds on the
+  previous firings; reset starts it afresh.
+- `conversation`: into `targetRun`, as a message there ("⏱ Scheduled ·
+  name") that the agent answers in that chat. The agent's `schedule` tool
+  does this by default (`deliver: "here"`; `"new"` and `"thread"` pick the
+  other two). If that chat is gone, or its owner can no longer write there,
+  the schedule becomes `isolated` and says so in `lastStatus`.
+
+A **watcher** schedule re-drives one persistent run with a "check now" nudge;
+a round where the model doesn't call `state_changed` is rolled back, so
+history keeps only the changes. `lastStatus` is how its last run's turn
+ended (`ok`, `done`, `error: …`, `incomplete`). Changing a schedule's
+visibility changes its runs' too.
 
 ## Skills
 

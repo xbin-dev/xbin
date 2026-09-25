@@ -82,51 +82,58 @@ type runOpts struct {
 }
 
 func (ag *Agent) startRunOpts(o runOpts) (*Run, error) {
-	cfgJSON, _ := json.Marshal(o.Cfg)
-	title, kind, cfg, text, hold, note := o.Title, o.Kind, o.Cfg, o.Text, o.Hold, o.Note
 	var id int64
 	err := ag.db.Tx(func(t *DB) error {
-		status := statusRunning
-		if hold {
-			status = statusIdle
-		}
 		var err error
-		if id, err = t.createRunStamped(title, string(cfgJSON), 0, status, o.Stamp); err != nil {
-			return err
-		}
-		if kind != "" {
-			t.setRunKind(id, kind)
-		}
-		if _, err := t.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System}); err != nil {
-			return err
-		}
-		if !hold {
-			m := &Message{RunID: id, Role: "user", Content: text}
-			meta := o.Meta
-			meta.Sender = o.Sender
-			if meta.Sender != "" || meta.Origin != "" {
-				m.Meta, _ = json.Marshal(meta)
-			}
-			if _, err := t.addMessage(m); err != nil {
-				return err
-			}
-			_, _ = t.q.Exec(`UPDATE runs SET turn_started=? WHERE id=?`, now(), id)
-		}
-		if note != "" {
-			t.journal(id, "note", map[string]string{"text": note})
-		}
-		if ag.eng != nil {
-			ag.eng.emitRun(t, id)
-		}
-		return nil
+		id, err = ag.startRunTx(t, o)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	if !hold && ag.eng != nil {
+	if !o.Hold && ag.eng != nil {
 		ag.eng.Poke(id)
 	}
 	return ag.db.getRun(id)
+}
+
+// startRunTx creates the run inside the caller's transaction (the caller
+// pokes it after the commit when it isn't held).
+func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
+	cfgJSON, _ := json.Marshal(o.Cfg)
+	status := statusRunning
+	if o.Hold {
+		status = statusIdle
+	}
+	id, err := t.createRunStamped(o.Title, string(cfgJSON), 0, status, o.Stamp)
+	if err != nil {
+		return 0, err
+	}
+	if o.Kind != "" {
+		t.setRunKind(id, o.Kind)
+	}
+	if _, err := t.addMessage(&Message{RunID: id, Role: "system", Content: o.Cfg.System}); err != nil {
+		return 0, err
+	}
+	if !o.Hold {
+		m := &Message{RunID: id, Role: "user", Content: o.Text}
+		meta := o.Meta
+		meta.Sender = o.Sender
+		if meta.Sender != "" || meta.Origin != "" {
+			m.Meta, _ = json.Marshal(meta)
+		}
+		if _, err := t.addMessage(m); err != nil {
+			return 0, err
+		}
+		_, _ = t.q.Exec(`UPDATE runs SET turn_started=? WHERE id=?`, now(), id)
+	}
+	if o.Note != "" {
+		t.journal(id, "note", map[string]string{"text": o.Note})
+	}
+	if ag.eng != nil {
+		ag.eng.emitRun(t, id)
+	}
+	return id, nil
 }
 
 func handleNewRun(w http.ResponseWriter, r *http.Request) {

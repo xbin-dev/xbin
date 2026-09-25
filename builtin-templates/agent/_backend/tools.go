@@ -84,11 +84,15 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	if depth == 0 {
 		specs = append(specs,
 			toolSpec{Type: "function", Function: funcDef{
-				Name: "schedule", Description: "Schedule future work: create a cron-agent that starts a run on a cadence. cron is a 5-field expression or '@every 30m'. Set watcher:true for a run that re-checks something and keeps only rounds where it reports a change.",
+				Name: "schedule", Description: "Schedule future work: create a cron-agent that runs goal on a cadence. cron is a 5-field expression or '@every 30m'. " +
+					"deliver says where each firing goes: \"here\" (default) — into this conversation, as a message you answer here (reminders, recurring checks the person wants to see); " +
+					"\"new\" — a fresh run each time, listed under Automations (reports); \"thread\" — one ongoing run that builds on the previous firings. " +
+					"Set watcher:true for a run that re-checks something and keeps only rounds where it reports a change.",
 				Parameters: obj([]string{"cron", "goal"}, map[string]any{
 					"cron":    strProp("5-field cron or @every <dur>"),
 					"goal":    strProp("what each run should do"),
 					"name":    strProp("optional label"),
+					"deliver": map[string]any{"type": "string", "enum": []string{"here", "new", "thread"}, "description": "where each firing goes (default here)"},
 					"watcher": map[string]any{"type": "boolean", "description": "watcher mode (discard no-change rounds)"},
 				}),
 			}},
@@ -223,8 +227,17 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 			// a private run must not be able to smuggle data into a future
 			// web run's goal text (the firewall would leak through time).
 			Toolset: cfg.toolset(),
-			// It belongs to whoever owns this conversation (D83).
+			// It belongs to whoever owns this conversation (D83), and by
+			// default reports back into it.
 			CreatedByRun: run.ID,
+			Mode:         modeConversation,
+			TargetRun:    rootOf(run),
+		}
+		switch args["deliver"] {
+		case "new":
+			s.Mode, s.TargetRun = modeIsolated, 0
+		case "thread":
+			s.Mode, s.TargetRun = modePersistent, 0
 		}
 		if root, err := ag.db.getRun(rootOf(run)); err == nil {
 			s.Owner, s.Visibility = root.Owner, root.Visibility

@@ -40,6 +40,13 @@ type Schedule struct {
 	LastStatus   string `json:"lastStatus"`   // how that run's last turn ended
 }
 
+// Schedule modes: where a firing goes (D83).
+const (
+	modeIsolated     = "isolated"     // a new run each time ("" is the same)
+	modePersistent   = "persistent"   // one ongoing thread (session sched:<id>)
+	modeConversation = "conversation" // into target_run, as a message there
+)
+
 // access is what a caller may do with this automation (D83): its owner runs
 // and edits it; a legacy one (no owner) belongs to the tile's managers; a
 // team one is visible to everyone. Managers also OVERSEE every automation —
@@ -136,8 +143,8 @@ func (d *DB) listSchedules() ([]*Schedule, error) {
 
 func (d *DB) updateSchedule(s *Schedule) error {
 	_, err := d.q.Exec(
-		`UPDATE schedules SET name=?, cron=?, goal=?, system=?, watcher=?, enabled=? WHERE id=?`,
-		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), b2i(s.Enabled), s.ID)
+		`UPDATE schedules SET name=?, cron=?, goal=?, system=?, watcher=?, enabled=?, visibility=?, mode=?, target_run=? WHERE id=?`,
+		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), b2i(s.Enabled), orStr(s.Visibility, visTeam), s.Mode, s.TargetRun, s.ID)
 	return err
 }
 
@@ -161,6 +168,9 @@ func scheduleCronName(id int64) string { return "sched-" + strconv.FormatInt(id,
 // registerScheduleCron creates/updates the cron job that fires a schedule.
 // Returns the gateway's error text (e.g. a bad cron expression) if any.
 func (ag *Agent) registerScheduleCron(s *Schedule) error {
+	if ag.noGateway {
+		return nil
+	}
 	job := map[string]any{
 		"name":     scheduleCronName(s.ID),
 		"resource": "res:" + xbin.Self() + "/beat",
@@ -226,12 +236,48 @@ func (ag *Agent) fireSchedule(s *Schedule) {
 	if title == "" {
 		title = clip(s.Goal, 60)
 	}
+	switch s.Mode {
+	case modeConversation:
+		// into the conversation it reports to — if it still exists and its
+		// owner may still talk there; otherwise it becomes a report of its own
+		if ok := ag.scheduleTargetOK(s); ok {
+			if id, _, err := ag.deliverInbound(inbound{Mode: "run", RunID: s.TargetRun, Stamp: s.stamp(), Source: "schedule",
+				Label: title, Text: s.Goal}); err == nil {
+				_, _ = ag.db.q.Exec(`UPDATE schedules SET last_run_id=? WHERE id=?`, id, s.ID)
+			}
+			return
+		}
+		_, _ = ag.db.q.Exec(`UPDATE schedules SET mode=?, target_run=0, last_status='its conversation is gone: now a new run per firing' WHERE id=?`, modeIsolated, s.ID)
+	case modePersistent:
+		if id, _, err := ag.deliverInbound(inbound{Mode: "session", Key: "sched:" + strconv.FormatInt(s.ID, 10), Stamp: s.stamp(),
+			Title: "⏱ " + title, Cfg: cfg, Source: "schedule", Label: title, Text: s.Goal}); err == nil {
+			_, _ = ag.db.q.Exec(`UPDATE schedules SET last_run_id=? WHERE id=?`, id, s.ID)
+		}
+		return
+	}
 	run, err := ag.startRunOpts(runOpts{Title: "⏱ " + title, Cfg: cfg, Text: s.Goal,
 		Note: fmt.Sprintf("started by schedule #%d (%s)", s.ID, s.Name), Stamp: s.stamp(),
 		Meta: msgMeta{Origin: "schedule", OriginID: s.ID, Label: title}})
 	if err == nil {
 		_, _ = ag.db.q.Exec(`UPDATE schedules SET last_run_id=? WHERE id=?`, run.ID, s.ID)
 	}
+}
+
+// scheduleTargetOK: the conversation a schedule reports to still exists and
+// its owner may still write there.
+func (ag *Agent) scheduleTargetOK(s *Schedule) bool {
+	if s.TargetRun == 0 {
+		return false
+	}
+	run, err := ag.db.getRun(s.TargetRun)
+	if err != nil {
+		return false
+	}
+	if s.Owner == "" {
+		return true
+	}
+	a, err := ag.aclOf(rootOf(run))
+	return err == nil && a.level(who{kind: whoUser, user: s.Owner, level: "read"}) >= lvParticipant
 }
 
 // --- watcher mode --------------------------------------------------------
@@ -270,6 +316,9 @@ func (ag *Agent) fireWatcher(s *Schedule) {
 		}
 		runID = run.ID
 		ag.db.setScheduleRun(s.ID, runID)
+		// the watcher's session follows schedules.run_id (the copy an older
+		// binary also writes)
+		_ = ag.db.putSession("watch:"+strconv.FormatInt(s.ID, 10), s.stamp(), runID, "", false)
 	}
 	var open int
 	_ = ag.db.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind='watch'
@@ -320,7 +369,20 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 	// Whose it is comes from the caller, never the body.
 	w0 := callerOf(r)
 	st := w0.stamp("schedule")
-	s.Owner, s.CreatedByRun, s.LastRunID, s.LastStatus, s.Mode, s.TargetRun = st.Owner, 0, 0, "", "", 0
+	s.Owner, s.CreatedByRun, s.LastRunID, s.LastStatus = st.Owner, 0, 0, ""
+	switch s.Mode {
+	case "", modeIsolated, modePersistent:
+		s.TargetRun = 0
+	case modeConversation:
+		// reporting into a conversation needs the right to talk there
+		if _, lv, err := agent.runAccess(w0, s.TargetRun); err != nil || lv < lvParticipant {
+			xbin.WriteError(w, 400, "targetRun: a conversation you can write to")
+			return
+		}
+	default:
+		xbin.WriteError(w, 400, "mode is isolated, persistent or conversation")
+		return
+	}
 	if s.Visibility != visTeam {
 		s.Visibility = st.Visibility
 	}
@@ -366,6 +428,27 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		enabled := cur.Enabled
 		*cur = keep
 		cur.Enabled = enabled
+	}
+	switch {
+	case cur.Mode == keep.Mode && cur.TargetRun == keep.TargetRun:
+	case cur.Mode == "" || cur.Mode == modeIsolated || cur.Mode == modePersistent:
+		cur.TargetRun = 0
+	case cur.Mode == modeConversation:
+		if _, tl, err := agent.runAccess(c, cur.TargetRun); err != nil || tl < lvParticipant {
+			xbin.WriteError(w, 400, "targetRun: a conversation you can write to")
+			return
+		}
+	default:
+		xbin.WriteError(w, 400, "mode is isolated, persistent or conversation")
+		return
+	}
+	if cur.Visibility != visTeam {
+		cur.Visibility = visPrivate
+	}
+	if cur.Visibility != keep.Visibility && cur.Owner != "" {
+		// its runs follow: sharing an automation shares what it did
+		_, _ = agent.db.q.Exec(`UPDATE runs SET visibility=? WHERE origin IN ('schedule','watcher') AND origin_id=?`, cur.Visibility, id)
+		agent.acl.flush(0)
 	}
 	if err := agent.db.updateSchedule(cur); err != nil {
 		xbin.WriteError(w, 500, err.Error())

@@ -18,6 +18,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: automations and schedule modes.** Schedules and watchers
+  belong to their creator and are listed by `GET /automations` (with runs,
+  unread counts, last status; `?summary=1`; `…/runs`, `…/read`, `…/reset`).
+  A schedule's `mode` says where a firing goes: a new run each time
+  (`isolated`, the default here), one ongoing thread (`persistent`), or into
+  a conversation (`conversation` + `targetRun`) — which is now what the
+  agent's own `schedule` tool does by default ("remind me…" answers in the
+  same chat; `deliver: "new"|"thread"` for the others). Automation runs are
+  no longer in the conversation list.
 - **Agent template: conversations name themselves.** After the first
   answer, the memory-tier model titles a chat in a few words — in the
   background, only with a model slot to spare, never over a name you gave
