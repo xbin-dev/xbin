@@ -12,7 +12,8 @@ const cid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 export class Session {
   /**
    * @param {string} base  this backend's prefix (/api/<self>)
-   * @param {object} on    {change(), runs(), gone(id)} — the page repaints on change
+   * @param {object} on    {change(), runs(), gone(id), event(ev), reset()} — the page
+   *                       repaints on change; the conversation list takes every event
    */
   constructor(base, on) {
     this.on = on;
@@ -43,19 +44,9 @@ export class Session {
 
   // --- loading ------------------------------------------------------------
 
+  // start opens the stream; the conversation list (conv-list.js) loads itself.
   async start() {
-    await this.loadRoots();
     this.live.follow(null, '');
-  }
-
-  async loadRoots() {
-    const list = await api('/runs?roots=1');
-    for (const r of list || []) this.runs.set(r.id, r);
-    this.on.runs?.();
-  }
-
-  roots() {
-    return [...this.runs.values()].filter((r) => !r.parentId).sort((a, b) => b.id - a.id);
   }
 
   async select(id) {
@@ -92,7 +83,7 @@ export class Session {
 
   // reload re-reads every view shown (the stream said it cannot replay).
   reload() {
-    this.loadRoots().catch(() => {});
+    this.on.reset?.();
     for (const id of [...this.views.keys()]) this.fetchView(id).then(() => this.changed()).catch(() => {});
   }
 
@@ -101,6 +92,7 @@ export class Session {
   apply(ev) {
     const d = ev.data || {};
     const v = this.views.get(ev.run);
+    this.on.event?.(ev);
     switch (ev.type) {
       case 'run':
         if (d.deleted) {

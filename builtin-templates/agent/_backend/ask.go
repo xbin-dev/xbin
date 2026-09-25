@@ -33,10 +33,9 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	if body.System != "" {
 		cfg.System = body.System
 	}
-	note := "quick ask"
-	if body.Hold {
-		note = "quick ask (waiting for attachments)"
-	} else if haltBlocks(w, r, 0) {
+	// No journal note: a new conversation needs no caption (D83).
+	note := ""
+	if !body.Hold && haltBlocks(w, r, 0) {
 		return
 	}
 	w0 := callerOf(r)

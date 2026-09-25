@@ -153,7 +153,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	if haltBlocks(w, r, 0) {
 		return
 	}
-	run, err := agent.startRunOpts(runOpts{Title: title, Cfg: cfg, Text: body.Goal, Note: "run created",
+	run, err := agent.startRunOpts(runOpts{Title: title, Cfg: cfg, Text: body.Goal,
 		Stamp: st, Sender: w0.user})
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())

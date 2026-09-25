@@ -1,4 +1,4 @@
-// home.mjs — the home view: quick asks in, answers on cards, a lane toggle
+// home.mjs — the home view: what needs you, a quick ask in, a lane toggle
 // that sticks.
 //
 // Tile frames are sandboxed opaque origins with NO localStorage — touching it
@@ -31,7 +31,8 @@ const ok = (name, cond, extra = '') => {
 };
 
 const ORIGIN = 'http://tile.test';
-const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js'];
+const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js',
+  'conv-groups.js', 'conv-list.js', 'sidebar.js', 'home.js'];
 const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();
@@ -84,6 +85,12 @@ await ctx.addInitScript(() => {
         return v === undefined ? json({}, 404) : json(v);
       }
       if (url.endsWith('/runs') || url.endsWith('/runs?roots=1')) return json(runs);
+      if (url.includes('/conversations')) {
+        const items = runs.map((r) => ({ access: 'owner', mine: true, origin: 'chat', activityMs: r.updated * 1000, ...r }))
+          .sort((a, b) => b.activityMs - a.activityMs);
+        return json({ pinned: [], items, next: '' });
+      }
+      if (url.endsWith('/needs')) return json({ items: [{ run: runs.find((r) => r.id === 2), reason: 'question', subRun: 0 }] });
       if (url.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
       if (url.endsWith('/ask')) {
         const b = JSON.parse(opt.body);
@@ -114,10 +121,10 @@ await page.waitForSelector('.home .qa', { timeout: 5000 }).catch(() => {});
 
 ok('the tile boots with localStorage denied', errors.length === 0, errors.join(' | '));
 const card = await page.$eval('.home .qa', (e) => e.textContent).catch(() => '');
-ok('a quick ask shows on home as a card', card.includes('what is the weather'), card);
-ok('…with its last answer when result is empty', card.includes('Sunny, 21°C.'), card);
+ok('what needs you shows on home', card.includes('plan the offsite') && card.includes('has a question'), card);
+await page.waitForSelector('#runs .run');
 const side = await page.$$eval('#runs .run .t', (els) => els.map((e) => e.textContent));
-ok('the sidebar lists tasks, not quick asks', side.includes('plan the offsite') && !side.includes('what is the weather'), side.join(' | '));
+ok('the sidebar lists every conversation, quick asks included', side.includes('plan the offsite') && side.includes('what is the weather'), side.join(' | '));
 ok('the composer is enabled on home', !(await page.$eval('#msg', (e) => e.disabled)));
 
 // The lane toggle persists through prefs, and a reload picks it up.

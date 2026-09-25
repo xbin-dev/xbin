@@ -116,12 +116,20 @@ wait for someone — what the conversation list sorts by). `POST /ask` also
 takes `title` and `system`. Runs from before keep `owner ""` and `team`
 visibility, so nothing disappears.
 
-Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask. A quick ask is
-an ordinary run in every other way — follow-ups go to `POST /runs/{id}/message`.
-The tile opens on a home view built on this: the composer asks (in the lane
-chosen with its 🔒/🌐 toggle, remembered per user through `/api/xbin/prefs` —
-tile frames have no `localStorage`), recent quick asks show as cards, and the
-sidebar lists tasks.
+Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask — kept for
+compatibility; both are conversations. The tile opens on a home view: the
+composer starts a new conversation (in the lane chosen with its 🔒/🌐 toggle,
+remembered per user through `/api/xbin/prefs` — tile frames have no
+`localStorage`), and **Needs you** lists what waits for you (`GET /needs`).
+The sidebar is your conversation list (`GET /conversations`): Pinned, then
+Today / Yesterday / Previous 7 days / Previous 30 days / Older by last
+activity, unread in bold, a search box, and a row menu (right-click or ⋯) to
+rename, pin, share with the team, archive or delete; the footer switches to
+conversations shared with the team and to your archive. **New chat** goes
+home; **⋯** opens "New chat with options" (a title, instructions that
+replace the system prompt, the tool mode). A link to a conversation is the
+tile's URL with `#c=<id>`. Automation runs (schedules, watchers) are not in
+this list.
 
 ### The live view
 

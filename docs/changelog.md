@@ -18,6 +18,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: a conversation sidebar.** The left list is your
+  conversations, like a chat app: Pinned, then Today / Yesterday / Previous 7
+  days / Previous 30 days / Older by last activity, unread in bold, search,
+  and a row menu to rename, pin, share with the team, archive or delete.
+  Quick asks are ordinary conversations now (the home view's quick-ask
+  cards became **Needs you**: questions, approvals and failed automations
+  waiting for you). **+ Task** became **New chat** (goes home) and **⋯**
+  ("New chat with options": title, instructions, tool mode). `#c=<id>`
+  links to a conversation.
 - **Agent template: a conversation list API** — `GET /conversations`
   (newest activity first, cursor paging, your pins first, archived on
   request, search over titles and content), `PATCH /runs/{id}` (rename,

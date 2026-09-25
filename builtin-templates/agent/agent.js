@@ -1,8 +1,9 @@
-// agent.js — the control tile. A run list (top-level runs only — subagents
-// live inside their parent's session), a home view of quick asks, the chat of
-// the selected run, the render pane for render_html output (sandboxed, see
-// frameDoc), the workflow tree, and a tabbed settings area (config / features
-// / memory / files / schedules / skills / MCP).
+// agent.js — the control tile. Your conversations (conv-list.js / sidebar.js
+// — per person, D83; subagents live inside their parent's session), a home
+// view of what needs you, the chat of the selected conversation, the render
+// pane for render_html output (sandboxed, see frameDoc), the workflow tree,
+// and a tabbed settings area (config / features / memory / files / schedules
+// / skills / MCP).
 //
 // Nothing polls. One live stream (stream.js) carries the run list and the
 // selected run's whole tree; chat-view.js keeps the views, chat-fold.js turns
@@ -17,6 +18,9 @@ const $ = (id) => document.getElementById(id);
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 import { Session } from './chat-view.js';
 import { queueTpl } from './chat-cards.js';
+import { ConvList } from './conv-list.js';
+import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
+import { homeTpl } from './home.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
 const base = `/api/${xbin.self}`;
@@ -51,9 +55,9 @@ function syncToolsetBtn() {
 // a domain) changes these and nothing else.
 const HOME = {
   title: 'Agent',
-  tagline: 'quick asks · tasks · cron-agents',
+  tagline: 'conversations · cron-agents',
   hi: 'What do you need?',
-  sub: 'Ask below — a quick question gets its own run and its answer shows up here; bigger jobs go in a + Task; recurring ones become cron-agents.',
+  sub: 'Ask below — every question starts a conversation of its own (yours, until you share it); recurring work becomes a cron-agent.',
   examples: [
     'What can you do in this workspace?',
     'Every morning at 8, check…',
@@ -78,74 +82,75 @@ const session = new Session(base, {
   change: () => paint(),
   runs: () => { paintSide(); if (sel == null) paint(); },
   gone: () => goHome(),
+  event: (ev) => onEvent(ev),
+  reset: () => { convs.load().catch(() => {}); loadNeeds(); },
 });
+const convs = new ConvList({ change: () => paintSide(), epoch: () => me.epochMs || 0 });
 session.ui.act.select = (id) => selectRun(id);
 session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
 
 const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'queued', 'blocked']);
 
-// --- runs list ----------------------------------------------------------
+// --- the conversation list -------------------------------------------------
 //
-// Top-level runs only, straight from GET /runs?roots=1 and the stream's run
-// events — a subagent never appears here (it lives inside its parent's
-// session, and in the workflow tree). Quick asks live on the home view,
-// except the one you have open.
+// Your conversations (GET /conversations — the server lists only what you may
+// see), kept current by the stream. A subagent is never a row: it lives inside
+// its parent's chat and the workflow tree.
+
+const sideUI = makeSideUI({
+  convs, api, selectRun: (id) => selectRun(id), goHome: () => goHome(), paint: () => paintSide(),
+  current: () => session.current(), search: () => $('csearch'),
+});
 
 function paintSide() {
-  const cur = session.current();
-  const root = cur ? (cur.run.rootId || cur.run.id) : null;
-  const rows = session.roots().filter((r) => r.kind !== 'quick' || r.id === root);
-  render(rows.length ? rows.map((r) => html`
-    <div class="run ${r.id === root ? 'on' : ''}" @click=${() => selectRun(r.id)}>
-      <div class="t">${r.kind === 'quick' ? '⚡ ' : ''}${r.title || 'run ' + r.id}</div>
-      <div class="m"><span class="badge ${r.status}">${r.status}</span>
-        ${ACTIVE.has(r.status) && r.status !== 'waiting_input' ? html`<span class="spin"></span>` : nothing}</div>
-    </div>`) : html`<div class="empty">no tasks yet</div>`, $('runs'));
+  render(sidebarTpl(convs, sideUI), $('runs'));
+  render(footTpl(convs, sideUI), $('sfoot'));
   syncHalt($('halt').dataset.on === '1');
 }
 
-// --- home (no run selected) ----------------------------------------------
+// onEvent sees every stream event: the list keeps itself current, and the
+// conversation you are looking at stays read.
+let needsDirty = null;
+function onEvent(ev) {
+  convs.apply(ev);
+  if (ev.type === 'run' && ev.run === ev.root) {
+    const r = convs.find(ev.run);
+    if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
+    if (sel == null) { clearTimeout(needsDirty); needsDirty = setTimeout(loadNeeds, 300); }
+  }
+}
+
+// --- home (no conversation open) -------------------------------------------
+
+let needs = [];
+async function loadNeeds() {
+  try { needs = (await api('/needs')).items || []; } catch { needs = []; }
+  if (sel == null) paint();
+}
 
 function goHome() {
   sel = null;
   closePreview(); prevSeen = null; prevDismissed = 0;
   closeWorkflow();
   session.select(null);
+  setHash('');
+  loadNeeds();
   paintSide(); paint();
 }
 
-const ago = (t) => {
-  const s = Math.max(0, Date.now() / 1000 - t);
-  if (s < 90) return 'now';
-  if (s < 5400) return `${Math.round(s / 60)}m`;
-  if (s < 129600) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
-};
-
-// A plain reply leaves result empty, so the card falls back to the run's
-// last assistant message (GET /runs decorates quick asks with it).
-function answerOf(r) {
-  if (r.status === 'done') return r.result || r.last || '';
-  if (r.status === 'waiting_input') return '❓ ' + (r.result || 'asking you something — open to answer');
-  if (ACTIVE.has(r.status)) return '…working';
-  if (r.status === 'error') return '⚠ ' + (r.result || 'error');
-  return r.result || r.last || '';
+function homeView() {
+  const mcp = xbin.iface && xbin.iface('mcp');
+  return homeTpl(HOME, needs, {
+    mcpBound: !!(mcp && (mcp.endpoints || []).length),
+    pick: (e) => { $('msg').value = e; autosize(); $('msg').focus(); },
+    select: (id) => selectRun(id),
+  });
 }
 
-function homeTpl() {
-  const quick = session.roots().filter((r) => r.kind === 'quick').slice(0, 12);
-  const mcp = xbin.iface && xbin.iface('mcp');
-  const pick = (e) => { $('msg').value = e; autosize(); $('msg').focus(); };
-  return html`<div class="home">
-    <div class="hi">${HOME.hi}</div>
-    <div class="sub">${HOME.sub}${(mcp && (mcp.endpoints || []).length) ? '' : ' No MCP servers are bound yet — see ⚙ → MCP.'}</div>
-    <div class="exs">${HOME.examples.map((e) => html`<span class="ex" @click=${() => pick(e)}>${e}</span>`)}</div>
-    ${quick.length ? html`<h5>Recent quick asks</h5>${quick.map((r) => html`
-      <div class="qa" data-r=${r.id} @click=${() => selectRun(r.id)}>
-        <div class="q">⚡ ${r.title}<span class="badge ${r.status}">${r.status}</span><span class="when">${ago(r.updated)}</span></div>
-        ${answerOf(r) ? html`<div class="a">${clip(answerOf(r), 400)}</div>` : nothing}
-      </div>`)}` : html`<div class="hint">no quick asks yet — type one below</div>`}
-  </div>`;
+// setHash keeps a link to what you look at (#c=<id>); a sandboxed frame may
+// refuse history changes, which then just don't happen.
+function setHash(h) {
+  try { history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch { /* sandboxed */ }
 }
 
 // --- selecting a run --------------------------------------------------------
@@ -157,6 +162,9 @@ async function selectRun(id) {
   if (preview && preview.runId !== sel) closePreview();
   prevSeen = null;
   try { await session.select(sel); } catch (e) { alert(e.message); return goHome(); }
+  setHash('c=' + sel);
+  const root = sideUI.sel;
+  if (root != null) convs.read(root);
   paintSide(); paint();
   const tl = $('timeline');
   tl.scrollTop = tl.scrollHeight;
@@ -190,7 +198,7 @@ function paint() {
   render(topTpl(v), $('top'));
   const tl = $('timeline');
   const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
-  render(v ? session.template() : homeTpl(), tl);
+  render(v ? session.template() : homeView(), tl);
   if (atBottom) tl.scrollTop = tl.scrollHeight;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
@@ -358,7 +366,7 @@ async function loadHalt() {
 
 function syncHalt(on) {
   const b = $('halt');
-  b.hidden = !me.manager || (!on && !session.roots().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input'));
+  b.hidden = !me.manager || (!on && !convs.all().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input'));
   b.textContent = on ? '⏻ HALTED' : '⏻';
   b.title = on ? 'Resume — the agent is halted' : 'Stop every running agent now';
   b.dataset.on = on ? '1' : '';
@@ -735,17 +743,28 @@ $('tset').onclick = () => {
 syncToolsetBtn();
 loadToolsetPref();
 
-// --- new run ------------------------------------------------------------
+// --- new chat ------------------------------------------------------------
 
-$('new').onclick = () => { $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = ''; $('newdlg').showModal(); };
+$('new').onclick = () => { goHome(); $('msg').focus(); };
+// "New chat with options": a title, a system prompt, a lane — the first
+// message is the dialog's text.
+$('newopts').onclick = () => {
+  $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = ''; $('n-toolset').value = toolset;
+  $('newdlg').showModal();
+};
 $('n-create').onclick = async (e) => {
-  const goal = $('n-goal').value.trim();
-  if (!goal) { e.preventDefault(); return; }
+  const text = $('n-goal').value.trim();
+  if (!text) { e.preventDefault(); return; }
   try {
-    const run = await api('/runs', jbody({ goal, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value }, 'POST'));
+    const run = await api('/ask', jbody({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value }, 'POST'));
     session.runs.set(run.id, run);
     await selectRun(run.id);
   } catch (err) { alert(err.message); }
+};
+let searchT = null;
+$('csearch').oninput = () => {
+  clearTimeout(searchT);
+  searchT = setTimeout(() => convs.search($('csearch').value).catch(() => {}), 200);
 };
 
 // --- settings panel + tabs ---------------------------------------------
@@ -1037,7 +1056,6 @@ async function tabSchedules(bd) {
   bd.querySelectorAll('[data-fire]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.fire];
     try { await api(`/schedules/${s.id}/trigger`, { method: 'POST' }); } catch (e) { return alert(e.message); }
-    session.loadRoots().catch(() => {});
   });
   bd.querySelectorAll('[data-delsc]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.delsc];
@@ -1119,5 +1137,8 @@ function tabMcp(bd) {
 
 paint();
 session.start().catch(() => {});
-loadMe();
+loadMe().then(() => convs.load()).catch(() => {});
 loadHalt();
+loadNeeds();
+// A link to a conversation (#c=<id>) opens it.
+{ const m = /(?:^#|&)c=(\d+)/.exec(location.hash); if (m) selectRun(+m[1]); }

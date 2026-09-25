@@ -30,13 +30,35 @@
     .wrap { display: grid; grid-template-columns: 220px 1fr; height: 100vh; min-height: min(640px, 100vh); }
     .side { border-right: 1px solid var(--bx-border); display: flex; flex-direction: column; min-height: 0; background: var(--bx-panel-2); }
     .side .hd { padding: 8px 10px; display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--bx-border); }
-    .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; }
-    .runs { overflow: auto; flex: 1; }
-    .run { padding: 7px 10px; border-bottom: 1px solid var(--bx-border); cursor: pointer; }
+    .side .hd b { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); flex: 1; white-space: nowrap; }
+    .runs { overflow: auto; flex: 1; padding: 2px 0 6px; }
+    /* the conversation list (sidebar.js): date groups, one line per chat */
+    .side .sq { padding: 6px 8px; border-bottom: 1px solid var(--bx-border); }
+    .side .sq input { width: 100%; box-sizing: border-box; font-size: 12px; padding: 4px 7px; }
+    .grp { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--bx-muted); padding: 9px 10px 3px; }
+    .run { padding: 5px 6px 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border-radius: 5px; margin: 0 4px; }
     .run:hover { background: var(--bx-panel); }
     .run.on { background: var(--bx-panel); box-shadow: inset 3px 0 0 var(--bx-accent); }
-    .run .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .run .m { font-size: 10.5px; color: var(--bx-muted); margin-top: 1px; display: flex; gap: 5px; align-items: center; }
+    .run .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+    .run.unread .t { font-weight: 650; }
+    .run .gl { font-size: 10.5px; color: var(--bx-muted); flex: none; }
+    .run .gl.err { color: var(--bx-red); }
+    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; }
+    .run .rmenu { visibility: hidden; flex: none; border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font-size: 13px; line-height: 1; }
+    .run:hover .rmenu, .run.on .rmenu { visibility: visible; }
+    .run .snip { flex-basis: 100%; font-size: 11px; color: var(--bx-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .run .ren { width: 100%; font-size: 12px; padding: 2px 4px; }
+    .runs .more { display: block; margin: 6px auto; }
+    .mback { position: fixed; inset: 0; z-index: 30; }
+    .rowmenu { position: fixed; z-index: 31; min-width: 130px; background: var(--bx-panel); border: 1px solid var(--bx-border);
+               border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.35); padding: 4px 0; font-size: 12px; }
+    .rowmenu .mi { padding: 5px 12px; cursor: pointer; }
+    .rowmenu .mi:hover { background: var(--bx-panel-2); }
+    .rowmenu .mi.rm { color: var(--bx-red); }
+    .sfoot { border-top: 1px solid var(--bx-border); padding: 6px 10px; font-size: 11px; color: var(--bx-muted); }
+    .sfoot a { cursor: pointer; }
+    .sfoot a.on { color: var(--bx-text); }
+    .sfoot a:hover { color: var(--bx-accent); }
     .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
     /* Top bar and composer never shrink: when .main runs out of height the
        squeeze has to land on the timeline, never on the controls. The
@@ -149,13 +171,6 @@
     .wfn .sub.blk { color: var(--bx-yellow, #d9a441); }
     .wfn .sub.bad { color: var(--bx-red); }
     .badge.wfchip { cursor: pointer; }
-    .run .roll { font-size: 10px; color: var(--bx-muted); white-space: nowrap; margin-left: auto; }
-    .run .m { display: flex; }
-    /* The twisty is a click target inside a clickable row, so it needs enough
-       area to hit without selecting the run by accident. */
-    .run .tw { display: inline-block; width: 13px; color: var(--bx-muted); user-select: none; }
-    .run .tw[data-tw] { cursor: pointer; }
-    .run .tw[data-tw]:hover { color: var(--bx-text); }
 
     /* Render pane — an in-flow split of .main, above the composer. The basis
        is clamp(px, vh, px) and never a %: .wrap is height:100vh with a
@@ -345,14 +360,17 @@
 <body class="bx">
   <div class="wrap">
     <div class="side">
-      <div class="hd"><b class="brand" id="home" title="Home — quick asks">⌂ Home</b>
-        <button class="btn btnsm" id="new" title="New task run">+ Task</button>
+      <div class="hd"><b class="brand" id="home" title="Home — what needs you">⌂ Home</b>
+        <button class="btn btnsm" id="new" title="New chat">New chat</button>
+        <button class="btn ghost btnsm" id="newopts" title="New chat with options: a title, instructions, the tool mode">⋯</button>
         <button class="btn ghost btnsm" id="gear" title="Settings">⚙</button>
         <!-- The brake lives here, not in .main: .settings overlays .main but
              never .side, so it stays one click away from every view state. -->
         <button class="btn rm btnsm" id="halt" title="Stop every running agent now" hidden>⏻</button>
       </div>
+      <div class="sq"><input id="csearch" type="search" placeholder="Search conversations…" autocomplete="off"></div>
       <div class="runs" id="runs"></div>
+      <div class="sfoot" id="sfoot"></div>
     </div>
     <div class="main" id="main">
       <div class="top" id="top"></div>
@@ -435,17 +453,17 @@
 
   <dialog id="newdlg">
     <form method="dialog">
-      <div class="dlg-hd">New run</div>
+      <div class="dlg-hd">New chat</div>
       <div class="dlg-bd">
-        <div class="field"><label>Goal</label><textarea id="n-goal" rows="3" placeholder="what should the agent do?"></textarea></div>
+        <div class="field"><label>First message</label><textarea id="n-goal" rows="3" placeholder="what should the agent do?"></textarea></div>
         <div class="field"><label>Tool mode</label><select id="n-toolset">
           <option value="private">🔒 private data — internal systems, no web</option>
           <option value="web">🌐 web — no internal systems</option>
         </select></div>
         <div class="field"><label>Title (optional)</label><input id="n-title"></div>
-        <div class="field"><label>System prompt override (optional)</label><textarea id="n-system" rows="3"></textarea></div>
+        <div class="field"><label>Instructions — replaces the system prompt (optional)</label><textarea id="n-system" rows="3"></textarea></div>
       </div>
-      <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="n-create" value="ok">Create</button></div>
+      <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="n-create" value="ok">Start</button></div>
     </form>
   </dialog>
 

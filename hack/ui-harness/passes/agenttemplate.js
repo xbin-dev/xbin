@@ -34,9 +34,9 @@ async function ask(page, q) {
   await page.press('#msg', 'Enter');
   await until(page, (q) => document.querySelector('#top .title')?.textContent.includes(q), q);
 }
-// newRun: a full (sidebar) run through the ✚ dialog.
+// newRun: a conversation through "New chat with options" (a title).
 async function newRun(page, title, goal) {
-  await page.click('#new');
+  await page.click('#newopts');
   await page.fill('#n-title', title);
   await page.fill('#n-goal', goal);
   await page.click('#n-create');

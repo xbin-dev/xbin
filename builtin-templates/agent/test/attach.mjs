@@ -32,7 +32,8 @@ const ok = (name, cond, extra = '') => {
 };
 
 const ORIGIN = 'http://tile.test';
-const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js'];
+const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js',
+  'conv-groups.js', 'conv-list.js', 'sidebar.js', 'home.js'];
 const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();
@@ -76,6 +77,7 @@ await page.addInitScript(() => {
       window.__calls.push(rec);
       if (url.includes('/prefs/')) return res(404, {});
       if (path === '/runs' || path === '/runs?roots=1') return res(200, runs);
+      if (path.startsWith('/conversations')) return res(200, { pinned: [], items: runs.map((r) => ({ access: 'owner', mine: true, origin: 'chat', ...r })), next: '' });
       if (path.startsWith('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
       if (path === '/halt') return res(200, { on: false });
       if (path === '/ask' && method === 'POST') return res(200, { id: 42, title: rec.body.text, status: 'idle', kind: 'quick', parentId: 0 });

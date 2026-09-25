@@ -73,6 +73,31 @@ export function STUB(seed) {
     ['GET', /\/api\/xbin\/prefs\/(.+)$/, (m) => (m[1] in window.__prefs ? json(window.__prefs[m[1]]) : json({}, 404))],
     ['PUT', /\/api\/xbin\/prefs\/(.+)$/, (m, o) => { window.__prefs[m[1]] = JSON.parse(o.body); return json({}); }],
     ['GET', /\/runs\?roots=1$/, () => json(window.__runs.filter((r) => !r.parentId))],
+    // the conversation list (D83): roots, newest activity first; pins apart
+    ['GET', /\/conversations\?(.*)$/, (m) => {
+      const q = new URLSearchParams(m[1]);
+      const conv = (r) => ({ access: 'owner', mine: true, visibility: 'private', origin: 'chat', activityMs: r.id * 1000, ...r });
+      let rows = window.__runs.filter((r) => !r.parentId).map(conv).filter((r) => ['', 'chat', 'api'].includes(r.origin));
+      if (q.get('q')) {
+        const t = q.get('q').toLowerCase();
+        return json({ pinned: [], items: rows.filter((r) => (r.title || '').toLowerCase().includes(t)), next: '' });
+      }
+      rows = rows.filter((r) => !!r.archivedAt === (q.get('archived') === '1'));
+      if (q.get('scope') === 'team') rows = rows.filter((r) => !r.mine && r.visibility === 'team');
+      rows.sort((a, b) => b.activityMs - a.activityMs || b.id - a.id);
+      return json({ pinned: rows.filter((r) => r.pinnedAt), items: rows.filter((r) => !r.pinnedAt), next: '' });
+    }],
+    ['PATCH', /\/runs\/(\d+)$/, (m, o) => {
+      const r = window.__runs.find((x) => x.id === +m[1]) || {};
+      const b = JSON.parse(o.body);
+      if ('pinned' in b) r.pinnedAt = b.pinned ? Date.now() : 0;
+      if ('archived' in b) r.archivedAt = b.archived ? Date.now() : 0;
+      if (b.title) r.title = b.title;
+      if (b.visibility) r.visibility = b.visibility;
+      return json({ access: 'owner', mine: true, origin: 'chat', activityMs: r.id * 1000, ...r });
+    }],
+    ['POST', /\/runs\/(\d+)\/read$/, () => json({ readMs: Date.now() })],
+    ['GET', /\/needs$/, () => json({ items: seed.needs || [] })],
     ['GET', /\/runs\/(\d+)\/view$/, (m) => json(view(+m[1]))],
     ['GET', /\/stream\b/, (m, o) => new Response(new ReadableStream({
       start(c) {
