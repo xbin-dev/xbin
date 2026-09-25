@@ -46,6 +46,22 @@ a subagent is exactly as visible as the conversation it works for.
   `GET /runs/{id}/view` carries `access` and `acl {owner, visibility,
   teamRole, members}`.
 
+### The conversation list
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `GET /conversations?limit=&cursor=&archived=&scope=` | — | your conversations, newest activity first → `{pinned, items, next}`. `pinned` (your pins) comes on the first page only; `next` is the cursor for the page after. `scope=mine` (default: yours, ones you joined, and unowned ones) or `team` (others' team-shared ones). `archived=1` lists what you archived |
+| `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
+| `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it |
+| `POST /runs/{id}/read` | — | mark it read up to now |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval, and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|failed, subRun}]}` |
+
+Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
+`archivedAt`, `readMs` and `unread` (activity after you last looked). Your
+own message marks the conversation read for you. The stream sends `ustate`
+(`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
+`revoked` (`{id}`) when you can no longer see a conversation.
+
 When a second person speaks in a conversation, each person's message reaches
 the model prefixed `[<user id>]`, and the system prompt says the
 conversation is shared. **Stop** returns only your own queued messages.

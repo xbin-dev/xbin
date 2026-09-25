@@ -233,6 +233,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}, body.ClientID)
 	if err == nil {
 		agent.db.bumpActivity(id)
+		if run, err := agent.db.getRun(id); err == nil {
+			agent.markRead(rootOf(run), sender) // you have seen what you just wrote
+		}
 	}
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())

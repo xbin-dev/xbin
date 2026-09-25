@@ -18,6 +18,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Agent template: a conversation list API** — `GET /conversations`
+  (newest activity first, cursor paging, your pins first, archived on
+  request, search over titles and content), `PATCH /runs/{id}` (rename,
+  pin, archive, share with the team), `POST /runs/{id}/read`, `GET /needs`
+  (what waits for you). Additive.
 - **Agent template: conversations are per user — BREAKING**
   ([migration note](changes/2026-09-26-agent-conversations-per-user.md),
   D83). A new chat belongs to whoever started it and is private until

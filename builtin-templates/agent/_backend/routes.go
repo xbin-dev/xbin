@@ -37,6 +37,10 @@ func routeTable() []routeDef {
 	return []routeDef{
 		{"GET /me", needAny, handleMe},
 		{"GET /runs", needAny, handleListRuns},
+		{"GET /conversations", needAny, handleConversations},
+		{"GET /needs", needAny, handleNeeds},
+		{"PATCH /runs/{id}", needViewer, handlePatchRun},
+		{"POST /runs/{id}/read", needViewer, handleRead},
 		{"POST /runs", needStart, handleNewRun},
 		{"POST /ask", needStart, handleAsk},
 		{"GET /runs/{id}", needViewer, handleGetRun},
