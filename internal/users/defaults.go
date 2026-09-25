@@ -28,6 +28,18 @@ type NewUserDefaults struct {
 	TermAPI   bool              `json:"termApi,omitempty"`
 	TermNet   bool              `json:"termNet,omitempty"`
 	Orgs      []OrgDefault      `json:"orgs,omitempty"` // memberships to join
+	// The personal plane (D88): the two switches are OR'd in — a seed can
+	// only RESTRICT a fresh account (an admin lifts it per user) — and the
+	// sets are unioned with the request's.
+	NoPersonalTiles bool     `json:"noPersonalTiles,omitempty"`
+	NoTerminal      bool     `json:"noTerminal,omitempty"`
+	Sets            []string `json:"sets,omitempty"`
+	NetSets         []string `json:"netSets,omitempty"`
+}
+
+func (d NewUserDefaults) isZero() bool {
+	return len(d.Tiles) == 0 && len(d.CanCreate) == 0 && len(d.Orgs) == 0 && !d.TermAPI && !d.TermNet &&
+		!d.NoPersonalTiles && !d.NoTerminal && len(d.Sets) == 0 && len(d.NetSets) == 0
 }
 
 // OrgDefault is one default membership. Org admin is deliberately NOT a
@@ -73,7 +85,14 @@ func (s *Store) SetNewUserDefaults(d NewUserDefaults) error {
 }
 
 func (s *Store) normDefaultsLocked(d NewUserDefaults) (NewUserDefaults, error) {
-	out := NewUserDefaults{TermAPI: d.TermAPI, TermNet: d.TermNet}
+	out := NewUserDefaults{TermAPI: d.TermAPI, TermNet: d.TermNet, NoPersonalTiles: d.NoPersonalTiles, NoTerminal: d.NoTerminal}
+	var err error
+	if out.Sets, err = s.normSetNamesLocked(d.Sets, false); err != nil {
+		return out, fmt.Errorf("newUsers.sets: %w", err)
+	}
+	if out.NetSets, err = s.normSetNamesLocked(d.NetSets, true); err != nil {
+		return out, fmt.Errorf("newUsers.netSets: %w", err)
+	}
 	for pat, l := range d.Tiles {
 		pat = strings.TrimSpace(pat)
 		if pat == "" {
@@ -119,7 +138,8 @@ func (s *Store) normDefaultsLocked(d NewUserDefaults) (NewUserDefaults, error) {
 }
 
 func copyDefaults(d NewUserDefaults) NewUserDefaults {
-	out := NewUserDefaults{TermAPI: d.TermAPI, TermNet: d.TermNet}
+	out := NewUserDefaults{TermAPI: d.TermAPI, TermNet: d.TermNet, NoPersonalTiles: d.NoPersonalTiles, NoTerminal: d.NoTerminal,
+		Sets: append([]string(nil), d.Sets...), NetSets: append([]string(nil), d.NetSets...)}
 	if len(d.Tiles) > 0 {
 		out.Tiles = make(map[string]string, len(d.Tiles))
 		for k, v := range d.Tiles {
@@ -153,6 +173,22 @@ func (s *Store) seedNewUserLocked(u *User) {
 	}
 	u.TermAPI = u.TermAPI || d.TermAPI
 	u.TermNet = u.TermNet || d.TermNet
+	u.NoPersonalTiles = u.NoPersonalTiles || d.NoPersonalTiles
+	u.NoTerminal = u.NoTerminal || d.NoTerminal
+	// a seeded set deleted since is skipped, like a stale default org
+	var live []string
+	for _, n := range d.Sets {
+		if s.sets[n] != nil {
+			live = append(live, n)
+		}
+	}
+	var liveNet []string
+	for _, n := range d.NetSets {
+		if s.netSets[n] != nil {
+			liveNet = append(liveNet, n)
+		}
+	}
+	u.Sets, u.NetSets = union(u.Sets, live), union(u.NetSets, liveNet)
 }
 
 // joinDefaultOrgsLocked adds the default memberships for a user that now

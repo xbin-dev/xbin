@@ -2426,3 +2426,57 @@ Deviations and refinements made while implementing; all deliberate:
   secret. One tile then serves several agents (a multi `agents` slot),
   and the agent's inbox stays the one contract for everything that comes
   from outside.
+
+- **D88 — The personal plane: per-user switches, workspace personal
+  defaults, and self-approval on tiles you own (2026-09-26).** D82 let every
+  non-admin own tiles, and admins had no per-user say in what that meant.
+  Everything orgs had for their tiles (permission sets, network sets,
+  allowance, ceiling rows; D26/D28/D54) stopped at the `org:` prefix. A
+  personal tile had no default egress, and only a workspace admin could
+  approve or wire anything on it — its owner couldn't even revoke. Nothing
+  in the new-account seed could hold a freshly joined SSO user back.
+  - **Two switches per account**, both off by default:
+    - `noPersonalTiles` is `org-only` for one user. It is checked where the
+      workspace policy is: every creation path, and transfers into
+      `user:<self>` (which bypassed `org-only` until now).
+    - `noTerminal` caps the account at `write` on every tile, whatever the
+      source (owner, org admin, org level, exact entry, share, default). So
+      no shells, no agent sessions, and — since logs follow terminal level —
+      no backend logs. Switching it on kills their live sessions.
+  - **Sets on users.** `sets` and `netSets` attach permission and network
+    sets to a user, for the tiles they own. The workspace
+    `personalDefaults {sets, netSets}` is a live layer unioned with every
+    user's own (D54's union rule), empty by default.
+  - **What the plane does:**
+    - permission sets: `Policy` rows cap the owner's tiles; `Allow` entries
+      are the owner's allowance; `termApi`/`termNet` reach the user, as an
+      org's sets reach its members;
+    - network sets: their union is the **personal network**. It is the
+      default egress of the owner's tiles (the `personal` net ref), a
+      terminal scope there, and `net:<rule>` allowance entries.
+  - **Personal network sets are not a ceiling**, unlike an org's. A live
+    default must never strand wiring a workspace admin already made on a
+    personal tile; a `deny net` policy row still caps one.
+  - **Self-approval.** A tile's user-owner approves grants and bindings on
+    it within their allowance (the D26 edge, for the owner). Always:
+    revoke, unbind, `net:none`, `net:personal`, and wiring to another tile
+    they own. Never: `xbin:*` and `set:` refs. This resolves
+    ownership-ux-review #8 and retires "owners don't self-wire".
+  - **Terminals on a personal tile** get a union, not a replacement (the
+    user's call, unlike D54 on org tiles): the owner's `personal` network
+    (the default), plain `internet` when the user has `termNet` or the sets
+    hold full internet, each of the owner's sets as a `set:<name>` scope to
+    narrow further, and `none`. Revisits D54's "termNet governs personal
+    tiles" and D65's rejected per-user sets: the network is still the
+    tile's (a terminal on someone else's personal tile uses its owner's).
+  - **The seed** (`newUsers`) carries both switches, OR'd in, and sets,
+    unioned — it can only restrict a fresh account; an admin lifts a
+    switch per user.
+
+  **Not chosen:**
+  - Seed-only defaults: existing users would never see them.
+  - Personal network sets as a ceiling: see above.
+  - A per-user "no terminal on personal tiles only": the user wanted every
+    shell.
+  - Group-sync rules setting the switches: seeding covers new SSO users;
+    left for later.

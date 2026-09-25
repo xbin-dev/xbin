@@ -510,6 +510,9 @@ func (s *Store) DeletePermissionSet(name string) error {
 			return fmt.Errorf("permission set %q is attached to org %q — detach it first", name, o.ID)
 		}
 	}
+	if h := s.setHolderLocked(name, false); h != "" {
+		return fmt.Errorf("permission set %q is attached to %s — detach it first", name, h)
+	}
 	delete(s.sets, name)
 	return s.persistLocked()
 }
@@ -682,30 +685,10 @@ func (s *Store) ResolvedAllow(orgID string) []string {
 	if org == nil {
 		return nil
 	}
-	seen := map[string]bool{}
-	var out []string
-	add := func(es []string) {
-		for _, e := range es {
-			if !seen[e] {
-				seen[e] = true
-				out = append(out, e)
-			}
-		}
-	}
-	for _, n := range org.Sets {
-		if ps := s.sets[n]; ps != nil {
-			add(ps.Allow)
-		}
-	}
-	add(org.Allow)
 	// Network sets (D54) are an implicit allowance: org admins may bind
 	// anything inside them. (They are also the ceiling — an org.Allow entry
 	// wider than the sets passes here and is refused at validation.)
-	for _, r := range s.orgNetRulesLocked(org) {
-		add([]string{"net:" + r})
-	}
-	sort.Strings(out)
-	return out
+	return s.allowUnionLocked(org.Sets, org.Allow, s.orgNetRulesLocked(org))
 }
 
 // AllowanceCovers reports whether an org's resolved allowance covers a
@@ -713,19 +696,7 @@ func (s *Store) ResolvedAllow(orgID string) []string {
 // binding plane). The xbin floor is enforced here too (defense-in-depth:
 // even a hand-edited entry can't delegate it).
 func (s *Store) AllowanceCovers(orgID, target, role string) bool {
-	if target == "xbin" || strings.HasPrefix(target, "xbin:") {
-		return false
-	}
-	for _, e := range s.ResolvedAllow(orgID) {
-		pe, err := parseAllowEntry(e)
-		if err != nil {
-			continue // hand-edited junk never matches
-		}
-		if allowMatch(pe, target, role) {
-			return true
-		}
-	}
-	return false
+	return allowCovers(s.ResolvedAllow(orgID), target, role)
 }
 
 // allowMatch matches one parsed allowance entry against a normalized target
@@ -1002,6 +973,7 @@ func (s *Store) Access(id string) (*Access, bool) {
 		}
 	}
 	sort.Slice(a.orgs, func(i, j int) bool { return a.orgs[i].id < a.orgs[j].id })
+	a.setAPI, a.setNet = s.personalTermFlagsLocked(&uc, a.setAPI, a.setNet) // D88
 	return a, true
 }
 
@@ -1030,8 +1002,8 @@ func (a *Access) WithOwner(path, ref string) *Access {
 	return &c
 }
 
-// TileLevel is the effective access level on one path (D24/D25/D27/D31).
-// Resolution, in order:
+// tileLevel is the access level on one path before the account's NoTerminal
+// cap (TileLevel, personal.go — D24/D25/D27/D31/D88). Resolution, in order:
 //
 //  1. workspace admin / the tile's user-owner / an org admin of the owning
 //     org ⇒ terminal;
@@ -1044,7 +1016,7 @@ func (a *Access) WithOwner(path, ref string) *Access {
 //     NOT the workspace plane: personal pattern entries and workspace
 //     defaults do not reach org tiles (D31 — "your perms on an org tile are
 //     your perms in the org").
-func (a *Access) TileLevel(path string) string {
+func (a *Access) tileLevel(path string) string {
 	if a == nil {
 		return ""
 	}
@@ -1135,7 +1107,7 @@ func (a *Access) CanCreateAs(org string) bool {
 // terminal-level source qualifies — own entries, an owned tile, org level,
 // org-adminship, or a terminal-level share.
 func (a *Access) CanTerminal() bool {
-	if a == nil {
+	if a == nil || a.NoTerminal() {
 		return false
 	}
 	if a.user.CanTerminal() {
@@ -1269,6 +1241,9 @@ func (s *Store) ceilingLocked(path, ownerRef string) Ceiling {
 		}
 	}
 	add(s.policy)
+	if uid, ok := strings.CutPrefix(ownerRef, OwnerKindUser+":"); ok {
+		add(s.personalPolicyLocked(uid)) // the owner's personal sets (D88)
+	}
 	c := Ceiling{}
 	if org, ok := strings.CutPrefix(ownerRef, OwnerKindOrg+":"); ok {
 		if o := s.orgs[org]; o != nil {
@@ -1504,11 +1479,11 @@ type Contribution struct {
 	Source string `json:"source"`
 }
 
-// Explain lists the contributions that actually apply to the user's level on
-// path under the D31 resolution, highest first. The effective level is the
+// explain lists the contributions that actually apply to the user's level on
+// path under the D31 resolution, highest first (Explain caps them, D88). The effective level is the
 // first entry's — with `none` meaning no access (TileLevel agrees by
 // construction; TestExplainMatchesTileLevel pins that).
-func (a *Access) Explain(path string) []Contribution {
+func (a *Access) explain(path string) []Contribution {
 	if a == nil {
 		return nil
 	}

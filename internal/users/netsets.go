@@ -184,6 +184,9 @@ func (s *Store) DeleteNetSet(name string) error {
 			return fmt.Errorf("network set %q is attached to org %q — detach it first", name, o.ID)
 		}
 	}
+	if h := s.setHolderLocked(name, true); h != "" {
+		return fmt.Errorf("network set %q is attached to %s — detach it first", name, h)
+	}
 	delete(s.netSets, name)
 	return s.persistLocked()
 }
@@ -240,22 +243,7 @@ func (s *Store) OrgNetRules(orgID string) (rules []string, host bool) {
 }
 
 func (s *Store) orgNetRulesLocked(org *Org) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, n := range org.NetSets {
-		ns := s.netSets[n]
-		if ns == nil {
-			continue
-		}
-		for _, r := range ns.Rules {
-			if !seen[r] {
-				seen[r] = true
-				out = append(out, r)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
+	return s.netRulesLocked(org.NetSets)
 }
 
 // NetSetAttachedTo lists the orgs referencing a set (API attachedTo; restart

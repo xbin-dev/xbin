@@ -8,7 +8,6 @@
 package users
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -82,6 +81,16 @@ type User struct {
 	// implicitly.
 	TermAPI bool `json:"termApi,omitempty"`
 	TermNet bool `json:"termNet,omitempty"`
+	// The personal plane (D88, personal.go). NoPersonalTiles: this user may
+	// not own tiles personally (org-only, for them alone). NoTerminal: capped
+	// at write on every tile — no shells, agent sessions or backend logs.
+	// Sets / NetSets: permission and network sets for the tiles they own,
+	// unioned with the workspace personal defaults. Store-owned: written via
+	// SetUserPersonal, kept by Upsert. (Not "terminal": that key is legacy.)
+	NoPersonalTiles bool     `json:"noPersonalTiles,omitempty"`
+	NoTerminal      bool     `json:"noTerminal,omitempty"`
+	Sets            []string `json:"sets,omitempty"`
+	NetSets         []string `json:"netSets,omitempty"`
 	// Disabled suspends the whole account (D34, ws-admin): login, sessions,
 	// frame/terminal tokens and invite redemption all refuse while set — but
 	// unlike delete, every ACL row, membership and owned tile stays, so
@@ -112,93 +121,6 @@ type User struct {
 	// memberships are never changed on failure.
 	SSOGroups    []string `json:"ssoGroups,omitempty"`
 	SSOSyncError string   `json:"ssoSyncError,omitempty"`
-}
-
-// UnmarshalJSON accepts both the current shape (tiles as a path→level map) and
-// the legacy one (tiles as a []string allow-list + a global "terminal" bool):
-// legacy entries load as `write`, or `terminal` when the flag was set — the
-// exact power they had under the old model. Rewritten to the new shape on the
-// next save (D15-style).
-func (u *User) UnmarshalJSON(b []byte) error {
-	var raw struct {
-		ID            string          `json:"id"`
-		Name          string          `json:"name"`
-		Email         string          `json:"email"`
-		Role          string          `json:"role"`
-		Tiles         json.RawMessage `json:"tiles"`
-		Terminal      bool            `json:"terminal"` // legacy global flag
-		CanCreate     []string        `json:"canCreate"`
-		TermAPI       bool            `json:"termApi"`
-		TermNet       bool            `json:"termNet"`
-		Disabled      bool            `json:"disabled"`
-		PassHash      string          `json:"passHash"`
-		InviteHash    string          `json:"inviteHash"`
-		InviteExpires int64           `json:"inviteExpires"`
-		Created       int64           `json:"created"`
-		RoleVia       string          `json:"roleVia"`
-		LastLogin     int64           `json:"lastLogin"`
-		LastLoginVia  string          `json:"lastLoginVia"`
-		SSOGroups     []string        `json:"ssoGroups"`
-		SSOSyncError  string          `json:"ssoSyncError"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	tiles, err := ParseTiles(raw.Tiles, raw.Terminal)
-	if err != nil {
-		return fmt.Errorf("user %q: %w", raw.ID, err)
-	}
-	// Every persisted field must be listed here — a field missing from this
-	// literal is silently dropped on reload (the 2026-09-05 email incident).
-	*u = User{
-		ID: raw.ID, Name: raw.Name, Email: raw.Email, Role: raw.Role, Tiles: tiles,
-		CanCreate: raw.CanCreate, TermAPI: raw.TermAPI, TermNet: raw.TermNet,
-		Disabled: raw.Disabled, PassHash: raw.PassHash, InviteHash: raw.InviteHash,
-		InviteExpires: raw.InviteExpires, Created: raw.Created,
-		RoleVia: raw.RoleVia, LastLogin: raw.LastLogin, LastLoginVia: raw.LastLoginVia,
-		SSOGroups: raw.SSOGroups, SSOSyncError: raw.SSOSyncError,
-	}
-	return nil
-}
-
-// ParseTiles decodes a tiles field that may be either shape (see
-// User.UnmarshalJSON); the API uses it too, so old clients that still POST
-// {tiles: [...], terminal: bool} keep working. nil/absent ⇒ empty map.
-func ParseTiles(raw json.RawMessage, legacyTerminal bool) (map[string]string, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return map[string]string{}, nil
-	}
-	if raw[0] == '[' { // legacy allow-list
-		var list []string
-		if err := json.Unmarshal(raw, &list); err != nil {
-			return nil, fmt.Errorf("tiles: %w", err)
-		}
-		level := LevelWrite
-		if legacyTerminal {
-			level = LevelTerminal
-		}
-		tiles := make(map[string]string, len(list))
-		for _, t := range list {
-			if t = strings.TrimSpace(t); t != "" {
-				tiles[t] = level
-			}
-		}
-		return tiles, nil
-	}
-	var tiles map[string]string
-	if err := json.Unmarshal(raw, &tiles); err != nil {
-		return nil, fmt.Errorf("tiles: %w", err)
-	}
-	for k, v := range tiles {
-		if levelRank(v) == 0 && v != LevelNone {
-			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal, or none to exclude)", k, v)
-		}
-	}
-	if tiles == nil {
-		tiles = map[string]string{}
-	}
-	return tiles, nil
 }
 
 // IsAdmin reports the admin role.
@@ -234,7 +156,7 @@ func (u *User) TileLevel(path string) string {
 		if l == LevelNone {
 			return ""
 		}
-		return l
+		return capLevel(u.NoTerminal, l)
 	}
 	best := ""
 	for t, l := range u.Tiles {
@@ -242,7 +164,7 @@ func (u *User) TileLevel(path string) string {
 			best = l
 		}
 	}
-	return best
+	return capLevel(u.NoTerminal, best)
 }
 
 // CanReadTile / CanWriteTile / CanTerminalTile are the monotone level gates
@@ -262,6 +184,9 @@ func (u *User) CanTerminalTile(path string) bool {
 func (u *User) CanTerminal() bool {
 	if u.IsAdmin() {
 		return true
+	}
+	if u.NoTerminal {
+		return false
 	}
 	for _, l := range u.Tiles {
 		if levelRank(l) >= levelRank(LevelTerminal) {
@@ -305,7 +230,8 @@ type Store struct {
 	// Provisioning policy (defaults.go, D52): the seed copied onto every
 	// new account, and whether non-admins may create tiles outside an org.
 	newUsers     NewUserDefaults
-	tileCreation string // "" (any) | "org-only"
+	tileCreation string           // "" (any) | "org-only"
+	personal     PersonalDefaults // live personal-plane defaults (D88, personal.go)
 
 	// tokenLoginDisabled turns off the bootstrap owner-token *browser* login
 	// (the /login?token= URL and the owner-token cookie) once real accounts
@@ -359,6 +285,7 @@ func Open(dataDir string) (*Store, error) {
 		SSO                *SSOConfig                `json:"sso"`
 		NewUsers           NewUserDefaults           `json:"newUsers"`
 		TileCreation       string                    `json:"tileCreation"`
+		PersonalDefaults   PersonalDefaults          `json:"personalDefaults"`
 		PasswordLoginOff   bool                      `json:"passwordLoginDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -380,6 +307,7 @@ func Open(dataDir string) (*Store, error) {
 	s.tokenLoginDisabled = doc.TokenLoginDisabled
 	s.sso = doc.SSO
 	s.newUsers = doc.NewUsers
+	s.personal = doc.PersonalDefaults
 	if doc.TileCreation == TileCreationOrgOnly {
 		s.tileCreation = doc.TileCreation
 	}
@@ -598,7 +526,17 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		if u.Role == existing.Role {
 			u.RoleVia = existing.RoleVia
 		}
+		// The personal plane is store-owned too (SetUserPersonal, D88).
+		u.NoPersonalTiles, u.NoTerminal = existing.NoPersonalTiles, existing.NoTerminal
+		u.Sets, u.NetSets = existing.Sets, existing.NetSets
 	} else {
+		var err error
+		if u.Sets, err = s.normSetNamesLocked(u.Sets, false); err != nil {
+			return nil, err
+		}
+		if u.NetSets, err = s.normSetNamesLocked(u.NetSets, true); err != nil {
+			return nil, err
+		}
 		u.Created = time.Now().Unix()
 		s.seedNewUserLocked(&u) // new-account defaults (D52) — union with the request
 	}
@@ -702,8 +640,11 @@ func (s *Store) persistLocked() error {
 	if s.sso != nil {
 		doc["sso"] = s.sso
 	}
-	if d := s.newUsers; len(d.Tiles) > 0 || len(d.CanCreate) > 0 || len(d.Orgs) > 0 || d.TermAPI || d.TermNet {
-		doc["newUsers"] = d
+	if !s.newUsers.isZero() {
+		doc["newUsers"] = s.newUsers
+	}
+	if len(s.personal.Sets) > 0 || len(s.personal.NetSets) > 0 {
+		doc["personalDefaults"] = s.personal
 	}
 	if s.tileCreation != "" {
 		doc["tileCreation"] = s.tileCreation
