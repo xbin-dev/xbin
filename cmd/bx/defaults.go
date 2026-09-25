@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,12 +16,13 @@ import (
 //	bx defaults
 //	bx defaults set [--tile-creation any|org-only]
 //	                [--default-tiles p=level,…]          (replaces the baseline)
-//	                [--tiles p=level,…] [--create p,…]   (new-account seed; replace)
+//	                [--tiles p=level,…]                   (new-account seed; replace)
 //	                [--org <org>[:level[:create]]]…       (new-account orgs; replace)
 //	                [--term-api[=false]] [--term-net[=false]]
 //
 // `set` overlays the given flags on the current values (unnamed settings are
-// left alone); list-valued flags replace their list.
+// left alone); list-valued flags replace their list. --create p,… (the
+// new-account create patterns) is deprecated and ignored (D82) but accepted.
 func cmdDefaults(args []string) error {
 	var cur struct {
 		DefaultTiles map[string]string `json:"defaultTiles"`
@@ -52,12 +54,12 @@ func cmdDefaults(args []string) error {
 			}
 			orgs = append(orgs, tag)
 		}
-		fmt.Printf("new accounts:   tiles:%s create:%s orgs:%s term-api:%v term-net:%v\n",
-			fmtTiles(nu.Tiles), orEmpty(strings.Join(nu.CanCreate, ",")), orEmpty(strings.Join(orgs, ",")), nu.TermAPI, nu.TermNet)
+		fmt.Printf("new accounts:   tiles:%s orgs:%s term-api:%v term-net:%v\n",
+			fmtTiles(nu.Tiles), orEmpty(strings.Join(orgs, ",")), nu.TermAPI, nu.TermNet)
 		return nil
 	}
 	if args[0] != "set" {
-		return fmt.Errorf("usage: bx defaults [set [--tile-creation any|org-only] [--default-tiles p=l,…] [--tiles p=l,…] [--create p,…] [--org o[:level[:create]]]… [--term-api[=false]] [--term-net[=false]]]")
+		return fmt.Errorf("usage: bx defaults [set [--tile-creation any|org-only] [--default-tiles p=l,…] [--tiles p=l,…] [--org o[:level[:create]]]… [--term-api[=false]] [--term-net[=false]]]")
 	}
 	body := map[string]any{}
 	nu := map[string]any{
@@ -117,6 +119,7 @@ func cmdDefaults(args []string) error {
 			}
 			nu["canCreate"] = pats
 			touched = true
+			fmt.Fprintln(os.Stderr, createDeprecated)
 		case "--org":
 			v, err := next()
 			if err != nil {

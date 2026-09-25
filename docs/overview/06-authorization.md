@@ -175,24 +175,26 @@ deputy. Two clamps close it, applied uniformly across all five ways a
 component can come to exist (create, clone, git import, builtin tile
 import, template instantiate):
 
-- **`canCreateAt`** — creating at a path requires: admin; or a human whose
-  own (org/team-unioned) create patterns cover it; or an element holding
+- **`canCreateAt`** — creating at a path requires: admin; or a human
+  creating a tile they will own (personally, or as an org where they hold
+  Create) at a path the ownership rule accepts (D82: not reserved, not
+  inside someone else's scope, no leftovers of a removed tile —
+  [docs/auth.md](../auth.md) §Creating tiles); or an element holding
   `xbin:writer` — **and**, when a signed-in human is attributed on the
-  element call (frame or terminal principal), *that human's own create
-  rights must cover the path too*. Granting a user the manager tile never
-  extends what they may create. Unattributed automation (instance tokens,
-  the bootstrap owner) keeps plain capability semantics.
+  element call (frame or terminal principal), *the same path rule applies
+  to that human*. Granting a user the manager tile never extends what they
+  may create. Unattributed automation (instance tokens, the bootstrap
+  owner) keeps plain capability semantics.
 - **`attributedCanRead`** — copy-shaped creation (clone, template
   instantiate) additionally requires the attributed human to be able to
   *read the source*: copying is reading, and without this a manager-style
   tile would be a source-exfiltration route into the caller's own
   namespace.
 
-Adjacent guards at the same choke points: reserved path segments (`o`/`u`
-must bind to a real org — [07-users-orgs.md](07-users-orgs.md)), and no
-nesting either way (a new component can't sit inside an existing one, nor
-swallow one as a subtree). Creation also auto-grants the non-admin creator
-`terminal` on the result (D16 — create ≈ own a namespace).
+Adjacent guard at the same choke points: no nesting either way (a new
+component can't sit inside an existing one, nor swallow one as a
+subtree). The creator becomes the tile's owner (D24), which carries
+`terminal` on it.
 
 ## The audit trail
 

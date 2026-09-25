@@ -55,7 +55,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     _notice: { state: true },   // green success line (never the red .err slot)
     _reqs: { state: true },     // pending human access requests (D36)
     _defaults: { state: true }, // defaultTiles map (D27)
-    _newUsers: { state: true }, // new-account defaults {tiles, canCreate, termApi, termNet, orgs} (D52)
+    _newUsers: { state: true }, // new-account defaults {tiles, termApi, termNet, orgs} (D52)
     _tileCreation: { state: true }, // 'any' | 'org-only' (D52)
     _drafts: { state: true },   // click-through editor drafts, keyed by context
     _showHidden: { state: true }, // reveal hidden (state=hidden) tiles in lists (D42)

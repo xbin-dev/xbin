@@ -380,8 +380,9 @@ DELETE /prefs/<key>               remove it
                                   (each principal reads/writes only its own
                                    bucket; the shell stores layout here)
 GET    /users                     admin or xbin:users. [{id,name,role,
-                                   tiles:{path:level}, canCreate, termApi,
-                                   termNet, disabled?, invitePending?,
+                                   tiles:{path:level}, termApi, termNet,
+                                   canCreate (deprecated, ignored — D82),
+                                   disabled?, invitePending?,
                                    email?, roleVia?, lastLogin?,
                                    lastLoginVia?, ssoGroups?,
                                    ssoSyncError?}] — levels
@@ -393,10 +394,12 @@ GET    /users                     admin or xbin:users. [{id,name,role,
                                    last group-fetch failure; roleVia "sso"
                                    = admin by group rule
 POST   /users                     admin/xbin:users. create a user: {id,
-                                   name?, role?, email?, tiles?, canCreate?,
+                                   name?, role?, email?, tiles?,
                                    termApi?, termNet?, password? | sso?,
                                    orgs?: [{org, level, create, admin}]}.
-                                   orgs joins the account at creation
+                                   canCreate? is still accepted (and
+                                   PATCH-able) but deprecated and ignored
+                                   (D82). orgs joins the account at creation
                                    (validated first — a bad org creates
                                    nothing; D53) → response adds orgs.
                                    Under SSO-only mode a non-admin needs
@@ -716,8 +719,9 @@ PUT    /branding                  admin. {title?, icon?}: each present key
                                    shows it
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}, newUsers: {tiles,
-                                   canCreate, termApi, termNet, orgs:
-                                   [{org, level, create}]}, tileCreation:
+                                   termApi, termNet, orgs: [{org, level,
+                                   create}], canCreate (deprecated,
+                                   ignored — D82)}, tileCreation:
                                    any|org-only}. defaultTiles = the live
                                    visibility baseline every user gets
                                    (D27). newUsers = what every NEW account
@@ -726,7 +730,8 @@ GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    auto-provisioned — as a UNION with the
                                    request (never admin; D52). tileCreation
                                    = whether non-admins may own tiles
-                                   personally (org-only: they may only
+                                   personally — the knob that restricts
+                                   personal creation (org-only: they may only
                                    create org-owned tiles — an unspecified
                                    owner resolves to their single Create
                                    org, several → they must name one, none
@@ -736,19 +741,25 @@ PUT    /defaults                  admin/xbin:users. each present key
                                    = untouched); default orgs must exist.
                                    → the resulting defaults
 
-POST   /create                     owner/admin, a user whose canCreate
-                                   covers the path, or an element granted
+POST   /create                     owner/admin, a user creating a tile
+                                   they will own, or an element granted
                                    target "xbin" at role writer (workspace
                                    management). body {path, runtime?,
                                    title?, expose?, owner?} → {path, files,
                                    owner?}. owner: "org:<id>" creates the
                                    tile OWNED by that org — gated by the
-                                   org's Create knob / org admin INSTEAD of
-                                   personal canCreate patterns (D25: the
-                                   path doesn't encode the org, so the org
-                                   knob is the authority; elements still
-                                   need the xbin:writer capability).
-                                   Default: the human creator becomes
+                                   org's Create knob / org admin (elements
+                                   still need the xbin:writer capability).
+                                   Non-admin humans (directly, or driving
+                                   an element) get 403 when the path is
+                                   reserved (tiles/…, root, shell, a ':'
+                                   in any segment), inside a scope the new
+                                   owner doesn't own, or still carries
+                                   leftovers of a removed tile (grant
+                                   rows, bindings, vault, others' access
+                                   entries — listed in the error); D82,
+                                   docs/auth.md §Creating tiles. Default:
+                                   the human creator becomes
                                    user-owner, admin/automation →
                                    workspace-owned. Under the org-only
                                    tile-creation policy (/defaults, D52) a
@@ -758,8 +769,8 @@ POST   /create                     owner/admin, a user whose canCreate
                                    new`; never overwrites. Clone/imports
                                    take the same owner? and assign the
                                    same default ownership.
-POST   /clone                      same authority as /create (create
-                                   patterns work; the deputy clamp applies)
+POST   /clone                      same authority as /create (the
+                                   ownership path rule; the deputy clamp applies)
                                    + the human must have READ on `from`
                                    (copying is reading). body {from, to,
                                    owner?}

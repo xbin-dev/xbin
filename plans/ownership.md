@@ -172,6 +172,9 @@ level(path) = max(
 `CanCreateTile(path)`: personal creation via `user.canCreate` patterns
 (unchanged); creating **as an org** is gated by `member.create` instead (the
 path no longer encodes the org, so the create *request* names the owner).
+*Superseded by D82:* patterns are ignored; any non-admin creates a tile they
+own at a free path that passes `newTilePathOK` (reserved names, scope
+ownership, leftovers).
 Term flags: user flag ∨ any attached permission set's flag for orgs the user
 belongs to (D28) — the group mechanism teams used to provide.
 

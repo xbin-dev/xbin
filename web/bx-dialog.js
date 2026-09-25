@@ -8,6 +8,8 @@
  *
  *   spec = {
  *     title?, message?,                                  // plain text
+ *     error?,              // plain text, shown as an alert box (e.g. why a
+ *                          // submit failed — re-open the dialog with it set)
  *     fields?: [{ name, label?, type?, value?, placeholder?, options? }],
  *              // type: text|password|number|textarea|select|checkbox (default text)
  *     buttons?: [{ label, value, primary?, danger? }],   // default Cancel/OK
@@ -45,6 +47,9 @@ export class BxDialog extends LitElement {
       letter-spacing: .04em; margin: 0 0 6px; }
     h3 { margin: 0 0 8px; font-size: 14px; }
     .msg { white-space: pre-wrap; margin: 0 0 6px; font-size: 12.5px; color: var(--bx-text, #d4d9e0); }
+    .err { white-space: pre-wrap; margin: 6px 0; padding: 7px 10px; font-size: 12.5px; border-radius: 6px;
+      color: var(--bx-red, #ef5350); border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 55%, transparent);
+      background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
     label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
       text-transform: uppercase; color: var(--bx-muted, #868f9a); margin: 10px 0 2px; }
     input, textarea, select {
@@ -128,6 +133,7 @@ export class BxDialog extends LitElement {
         ${this.from ? html`<div class="attrib">▟ ${this.from}</div>` : nothing}
         ${s.title ? html`<h3>${s.title}</h3>` : nothing}
         ${s.message ? html`<p class="msg">${s.message}</p>` : nothing}
+        ${s.error ? html`<p class="err" role="alert">${s.error}</p>` : nothing}
         <form @submit=${submit}>
           ${(s.fields ?? []).map((f) => this.#field(f))}
           <div class="btns">

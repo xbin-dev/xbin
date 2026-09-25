@@ -265,8 +265,8 @@ func TestSessionPrincipalOrgAccess(t *testing.T) {
 		!p.CanTerminalTile("apps/crm") || !p.CanTerminal() {
 		t.Fatal("org member level must flow through the principal gates")
 	}
-	if p.CanReadTile("apps/chat") || p.CanCreateTile("apps/new") {
-		t.Fatal("org level must stay on org-owned tiles; no personal create patterns")
+	if p.CanReadTile("apps/chat") {
+		t.Fatal("org level must stay on org-owned tiles")
 	}
 	if !p.CanTermNet() || p.CanTermAPI() {
 		t.Fatal("term flags must union from attached permission sets")

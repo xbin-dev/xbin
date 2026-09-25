@@ -152,20 +152,6 @@ func (p Principal) tileLevel(path, want string) bool {
 	return false
 }
 
-// CanCreateTile reports whether this principal may create a component at
-// `path` (D16): admins anywhere; users within their (org/team-unioned)
-// CanCreate patterns. Element principals are handled by the xbin:writer
-// grant at the call site.
-func (p Principal) CanCreateTile(path string) bool {
-	if p.IsAdmin() {
-		return true
-	}
-	if p.Access != nil {
-		return p.Access.CanCreateTile(path)
-	}
-	return p.User != nil && p.User.CanCreateTile(path)
-}
-
 // CanTerminal is the coarse "may open any terminal at all" pre-gate on
 // /ws/term; the per-tile CanTerminalTile decides which tile.
 func (p Principal) CanTerminal() bool {

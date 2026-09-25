@@ -75,28 +75,6 @@ export const WithDrafts = (Base) => class extends Base {
       </div>`;
   }
 
-  // _patternsEditor: same, for plain pattern lists (canCreate).
-  _patternsEditor(ctx, onSave) {
-    const d = this._draft(ctx) ?? [];
-    const upd = (i, v) => this._setDraft(ctx, d.map((r, j) => (j === i ? v : r)));
-    return html`
-      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
-        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
-          <input list="tile-targets" size="26" placeholder="prefix/* (create namespace)" .value=${r}
-            @input=${(e) => upd(i, e.target.value)}>
-          <button class="act rm" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
-        </div>`)}
-        <div style="display:flex; gap:5px; align-items:center">
-          <button class="act" @click=${() => this._setDraft(ctx, [...d, ''])}>+ pattern</button>
-          <button class="act go" @click=${async () => {
-            await onSave(d.map((s) => s.trim()).filter(Boolean));
-            if (!this._err) this._dropDraft(ctx);
-          }}>save</button>
-          <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
-          <span class="muted" style="font-size:10.5px">creating a tile auto-grants the creator terminal on it</span>
-        </div>
-      </div>`;
-  }
   // the harness surface: read/write drafts by key
   draftApi() { const a = this; return { draft: (k) => a._draft(k), setDraft: (k, v) => a._setDraft(k, v), dropDraft: (k) => a._dropDraft(k) }; }
 };

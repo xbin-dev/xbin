@@ -262,14 +262,17 @@ manifest, an `index.html`, the runtime's backend skeleton, and (with
 Creation is an editing-plane action with real authorization
 ([06-authorization.md](06-authorization.md), [07-users-orgs.md](07-users-orgs.md)):
 
-- **Who may create**: admins anywhere; users wherever their (org/team-
-  unioned) create patterns reach; elements holding the workspace-management
-  capability (`xbin:writer` — the shipped Tile Manager has it). When a human
-  drives such an element, the *human's own* create rights must cover the
-  path too — the confused-deputy clamp.
-- **Where**: reserved segments are validated (`o/` must name an existing
-  org, `u/` is reserved), and nesting is refused both ways — not inside an
-  existing component, not above one.
+- **Who may create**: admins anywhere; users creating a tile they will own
+  (personally, or as an org where they hold Create); elements holding the
+  workspace-management capability (`xbin:writer` — the shipped Tile Manager
+  has it). When a human drives such an element, the human's own rule
+  applies — the confused-deputy clamp.
+- **Where**: for non-admins, any free path except the reserved ones
+  (`tiles/…`, `root`, `shell`, a `:` in any segment), paths inside a scope
+  the new owner doesn't own, and paths still carrying leftovers of a
+  removed tile (D82, [docs/auth.md](../auth.md) §Creating tiles). Nesting is
+  refused both ways for everyone — not inside an existing component, not
+  above one.
 - **Aftercare**: a non-admin creator is auto-granted terminal on their new
   tile ("create ≈ own a namespace", D16). With `team: "<org>/<team>"`, the
   path must sit in that org, the attributed human must be a member (or org

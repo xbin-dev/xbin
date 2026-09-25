@@ -807,6 +807,34 @@ func TestMultiUser(t *testing.T) {
 	if c, b := rootDo("POST", "/api/xbin/grants", `{"from":"apps/acmedash","target":"apps/welcome","role":"reader"}`); c != 400 || !strings.Contains(b, "allow-lists call targets") {
 		t.Errorf("ceiling grant reject: %d %s", c, b)
 	}
+
+	// Creation follows ownership (D82): dana holds no create pattern, yet
+	// creates a personal tile at a free path; the reserved built-in
+	// namespace and a path with a leftover grant row refuse, naming why.
+	danaDo := func(method, path, body string) (int, string) {
+		rq, _ := http.NewRequest(method, base+path, strings.NewReader(body))
+		rq.AddCookie(danaC)
+		rq.Header.Set("Content-Type", "application/json")
+		r, err := http.DefaultClient.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r.StatusCode, string(b)
+	}
+	if c, b := danaDo("POST", "/api/xbin/create", `{"path":"apps/danatool","title":"Dana tool"}`); c != 200 || !strings.Contains(b, `"owner":"user:dana"`) {
+		t.Errorf("personal create without a pattern: %d %s", c, b)
+	}
+	if c, b := danaDo("POST", "/api/xbin/create", `{"path":"tiles/danatool"}`); c != 403 || !strings.Contains(b, "reserved") {
+		t.Errorf("reserved create: %d %s", c, b)
+	}
+	if c, b := rootDo("POST", "/api/xbin/grants", `{"from":"apps/gone","target":"apps/welcome","role":"reader"}`); c != 200 {
+		t.Fatalf("seed leftover grant: %d %s", c, b)
+	}
+	if c, b := danaDo("POST", "/api/xbin/create", `{"path":"apps/gone"}`); c != 403 || !strings.Contains(b, "grant apps/gone") {
+		t.Errorf("leftover create: %d %s", c, b)
+	}
 }
 
 func mustReadFile(t *testing.T, p string) string {

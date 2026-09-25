@@ -929,8 +929,8 @@ export class BxShell extends LitElement {
   // New-tile dialog: names a static tile under apps/, creates it, opens it on
   // the current screen. Owner picker (D24/D39): me / orgs where the caller
   // holds Create or admin / workspace (ws-admin only, their default) — same
-  // semantics as the manager tile's picker. Re-opens with an inline error on
-  // failure, preserving the picked owner.
+  // semantics as the manager tile's picker. Re-opens with the server's refusal
+  // in the dialog's alert box on failure, preserving the picked owner.
   _ownerOptions() {
     const opts = [];
     if (this._myId) opts.push({ value: 'user:' + this._myId, label: '— me (personal) —' });
@@ -945,7 +945,7 @@ export class BxShell extends LitElement {
   }
   // fixed: the owner was chosen up front (the context menu's per-owner
   // entries) — no owner select, the choice is stated in the message.
-  _newTileDialog(name = '', message = '', owner = null, { fixed = false, at = null } = {}) {
+  _newTileDialog(name = '', error = '', owner = null, { fixed = false, at = null } = {}) {
     const opts = this._ownerOptions();
     const def = owner ?? (this._isAdmin ? '' : (this._myId ? 'user:' + this._myId : ''));
     const fields = [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }];
@@ -953,8 +953,9 @@ export class BxShell extends LitElement {
     const ownerLabel = fixed ? (opts.find((o) => o.value === (owner ?? ''))?.label ?? owner ?? 'workspace').replace(/^— | —$/g, '') : '';
     this._create = {
       title: 'Create a new tile',
-      message: (fixed ? `Owner: ${ownerLabel}. ` : '') + (message || ('Creates a static tile under apps/ and opens it here.'
-        + (opts.length > 1 && !fixed ? ' Personal tiles: capability requests (net, containers, ports) need a workspace admin. Org-owned: the org’s admins can approve within their allowance.' : ''))),
+      message: (fixed ? `Owner: ${ownerLabel}. ` : '') + 'Creates a static tile under apps/ and opens it here.'
+        + (opts.length > 1 && !fixed ? ' Personal tiles: capability requests (net, containers, ports) need a workspace admin. Org-owned: the org’s admins can approve within their allowance.' : ''),
+      error,
       fields,
       buttons: [{ label: 'Cancel', value: null }, { label: 'Create', value: 'create', primary: true }],
       owner: fixed ? (owner ?? '') : undefined, fixed, at,

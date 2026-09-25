@@ -19,7 +19,7 @@
 //   canAdminTile(path)  ws-admin, org admin of the owner org, or user-owner (D24)
 // actions (all fire AFTER bx-menu has closed):
 //   enterEdit(id) saveOrgDraft(id) discardDraft(id) copyOrgScreen(id)
-//   newTileDialog(name, message, owner, {fixed}) addScreen() fitWindows(persist)
+//   newTileDialog(name, error, owner, {fixed}) addScreen() fitWindows(persist)
 //   openTile(path) toggle(path) togglePin(path) frameOpen(path, layout)
 //   openFullPage(path) lifecycle(path, state) openAdminWin(path, section)
 //   confirm(message) → boolean

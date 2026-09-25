@@ -398,7 +398,8 @@ xbin can have **human users** on top of the root token (D16–D17).
 - **Admin user** — logs in with username+password; full access (all tiles,
   terminals, user management).
 - **Regular user** — logs in; access is scoped per tile by an access level
-  (below); no admin, and no terminal/create beyond what's granted.
+  (below); no admin, and no terminal beyond what's granted. Creates tiles
+  they own (§Creating tiles).
 
 No users configured ⇒ single-user mode (the root token is the only
 principal), exactly as before. The first user is created by an admin.
@@ -432,13 +433,39 @@ admin: opening the admin tile only grants admin because the tile itself holds
 `xbin:admin` — so **don't add admin/privileged tiles to a non-admin user's
 allow-list**.
 
-**Create permission.** `canCreate` lists path patterns (`sales/*`) under
-which the user may scaffold new tiles. It governs **every way a tile can
-appear**: `POST /api/xbin/create`, clone, git import, builtin tile import,
-and template instantiate (`bx new`, the manager tile). Creating one
-auto-grants the creator `terminal` on it — create ≈ own a namespace.
-Copy-shaped creation (clone, workspace-template instantiate) additionally
-requires **read on the source** — copying is reading.
+**Creating tiles (D82).** Creation follows **ownership**, not path
+patterns. A non-admin may create a tile they will own — personally
+(`user:<self>`), or as an org where they hold Create — at **any free path**,
+through every way a tile can appear: `POST /api/xbin/create`, clone, git
+import, builtin tile import, and template instantiate (`bx new`, the manager
+tile, the shell's *New tile*). The owner holds `terminal` on it. Copy-shaped
+creation (clone, workspace-template instantiate) additionally requires
+**read on the source** — copying is reading. A path is refused when it is:
+
+- **reserved** — under `tiles/` (the built-in tiles: the shell, the default
+  screen and boot backfill point at fixed paths there), the chrome names
+  `root` / `shell`, or any segment containing `:` (the grant-target and
+  identity separator: `code`, `cap:x`, `user:bob`);
+- **inside someone else's scope** — a new tile under a scope root
+  (`scope.json`) joins that scope and its auto-approved same-scope grants,
+  so the scope must belong to the new tile's owner: the scope root's owner
+  entry (an admin sets one with `POST /owner`), or — with none — every tile
+  already in it. Not inside any scope = "top level", always fine;
+- **carrying leftovers** from a removed tile — a path is a durable key, and
+  nothing prunes these when a tile's directory disappears: workspace grant
+  rows naming the path on either side, interface bindings / instances /
+  ingress hosts, its vault, another owner's entry, other users' exact
+  per-tile entries, org shares, or an exact `defaultTiles` entry. The
+  refusal lists them; pick another path or have an admin clear them.
+  Re-creating a path you already own is fine.
+
+Nesting is refused for everyone (not inside an existing tile, not above
+one). Workspace admins bypass the rule — workspace-owned creation is an
+admin act. The old per-user `canCreate` patterns (D16) are **deprecated and
+ignored**: still accepted by the API and `bx`, kept in `users.json`, but
+they neither grant nor restrict anything
+([migration note](changes/2026-09-25-ownership-based-creation.md)). To keep
+non-admins from creating personal tiles, use the tile-creation policy:
 
 **Tile-creation policy (D52).** By default (`any`) a non-admin's new tile is
 *theirs* (`user:<id>`-owned) unless they create it as an org where they hold
@@ -454,7 +481,7 @@ reports the policy so owner pickers adapt (the manager tile drops "me").
 **The confused-deputy clamp.** An element holding the workspace-management
 grant (`xbin:writer` — the manager tile ships with it) may create tiles, but
 when a signed-in human is attributed on the call (frame/terminal
-principals), the human's **own** create permission must cover the path too.
+principals), the path rule above applies to that human too.
 Granting a user the manager tile never extends what they may create;
 unattributed automation (instance tokens, the bootstrap owner) keeps plain
 capability semantics.
@@ -476,7 +503,8 @@ implies it):
 GET    /api/xbin/whoami            caller identity + permissions (any principal)
 GET    /api/xbin/users             list (no hashes)
 POST   /api/xbin/users             create {id,name,role,email?,tiles:{path:level},
-                                   canCreate?,termApi?,termNet?,password?|sso}
+                                   termApi?,termNet?,password?|sso}
+                                   (canCreate? still accepted — deprecated, ignored)
 PATCH  /api/xbin/users/<id>        update (fields overlay; +password reset)
 DELETE /api/xbin/users/<id>        remove (revokes their sessions)
 DELETE /api/xbin/users/<id>/sessions  sign out everywhere (D53)
@@ -555,8 +583,8 @@ outside address without opening its whole domain.
 **New-account defaults (D52).** Admin console → orgs → *new accounts* (`bx
 defaults`, `PUT /defaults {newUsers}`) is the seed **every** new account
 receives at creation — admin-added, invited, or JIT-provisioned: tiles
-(pattern → level), create patterns, `termApi`/`termNet`, and **org
-memberships** (org + level + Create knob). It is copied onto the row as a
+(pattern → level), `termApi`/`termNet`, and **org memberships** (org +
+level + Create knob). (Its `canCreate` list is deprecated and inert, D82.) It is copied onto the row as a
 *union* with whatever the creator specified (the request wins per tile
 path), after which the row is edited like any other; changing the defaults
 later never touches existing accounts. It never grants `admin` — workspace

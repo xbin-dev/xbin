@@ -30,7 +30,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     permsets: { attribute: false },     // {sets, attachedTo} (D28) — the delegation picker
     netsets: { attribute: false },      // {sets, attachedTo} (D54) — the network picker
     defaults: { attribute: false },     // defaultTiles map (D27)
-    newUsers: { attribute: false },     // new-account defaults {tiles, canCreate, termApi, termNet, orgs} (D52)
+    newUsers: { attribute: false },     // new-account defaults {tiles, termApi, termNet, orgs} (D52; canCreate is deprecated, D82)
     tileCreation: { attribute: false }, // 'any' | 'org-only' (D52)
     authSettings: { attribute: false }, // sso preset + groups seen, for the IdP-group rule editors
     targets: { attribute: false },      // tile-target datalist options
@@ -467,7 +467,6 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
   _newUsersEditor() {
     const nu = this.newUsers ?? {};
     const tilesKey = 'ws:newusers:tiles';
-    const createKey = 'ws:newusers:create';
     const rows = nu.orgs ?? [];
     const unused = (this.orgs ?? []).filter((o) => !rows.some((r) => r.org === o.id));
     const saveOrgs = (orgs) => this._putDefaults({ newUsers: { ...nu, orgs } });
@@ -481,11 +480,6 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
           <button class="act" @click=${() => this._toggleDraft(tilesKey,
             () => Object.entries(nu.tiles ?? {}).map(([target, level]) => ({ target, level })))}>edit</button>`)}
         ${this._draft(tilesKey) ? this._tilesEditor(tilesKey, (tiles) => this._putDefaults({ newUsers: { ...nu, tiles } })) : nothing}
-        ${row('create', html`
-          ${(nu.canCreate ?? []).map((c) => html`<span class="pill">create·${c}</span>`)}
-          ${!(nu.canCreate ?? []).length ? html`<span class="muted">none</span>` : nothing}
-          <button class="act" @click=${() => this._toggleDraft(createKey, () => [...(nu.canCreate ?? [])])}>edit</button>`)}
-        ${this._draft(createKey) ? this._patternsEditor(createKey, (canCreate) => this._putDefaults({ newUsers: { ...nu, canCreate } })) : nothing}
         ${row('terminals', html`
           <label class="muted"><input type="checkbox" .checked=${!!nu.termApi}
             @change=${(e) => this._putDefaults({ newUsers: { ...nu, termApi: e.target.checked } })}> term-api</label>

@@ -12,6 +12,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-25
 
+- **BREAKING (auth) — tile creation follows ownership, not path patterns**
+  (D82). A signed-in user may now create a tile they own at any free path,
+  with no admin-granted `canCreate` pattern. The same path rule also applies
+  to creating as an org:
+  - **Refused paths:**
+    - reserved names: `tiles/…`, `root`, `shell`, or a `:` in any segment;
+    - paths inside a scope the new owner doesn't own;
+    - paths still carrying leftovers of a removed tile: grant rows,
+      bindings, a vault, or other people's access entries.
+
+    The 403 lists why. Admins are unaffected.
+  - **`canCreate` is deprecated and ignored.** `users.json`, the API and
+    `bx user|defaults --create` still accept it, and `bx` prints a note. The
+    admin console no longer shows or edits it.
+  - **Restricting personal tiles:** use `tileCreation: org-only`.
+  - **Errors you can see:** the shell's *New tile* dialog shows a refusal in
+    a red alert box, and the manager tile boxes its error. `xbin.dialog(spec)`
+    takes a new optional `error` field, rendered the same way.
+
+  Migration:
+  [changes/2026-09-25-ownership-based-creation.md](/docs/changes/2026-09-25-ownership-based-creation.md).
+
 - **Agent template: a new run engine, subagents inside the chat, thinking and
   tool summaries** (D81). New chats no longer sit 30 s+ behind subagents, a
   message sent mid-turn is no longer lost, and subagents always report back.

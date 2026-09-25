@@ -12,6 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // testUsers returns the broker's user store (testBroker always attaches one,
@@ -332,14 +333,15 @@ func TestValidateNewTileOwner(t *testing.T) {
 }
 
 // canCreateAt: the confused-deputy clamp — an element's workspace-management
-// grant never extends the attributed human's own create rights; unattributed
-// automation keeps the old capability semantics.
+// grant never lets the attributed human create where they couldn't
+// themselves (D82: the ownership path rule applies to them); unattributed
+// automation keeps the old capability semantics. Owners are what
+// resolveCreateOwner hands a non-admin (user:<self> / an org).
 func TestCanCreateAtDeputyClamp(t *testing.T) {
 	b := testBroker(t)
 	st := testUsers(t, b)
 	for _, u := range []users.User{
 		{ID: "admin2", Role: users.RoleAdmin},
-		{ID: "maker", Role: users.RoleUser, CanCreate: []string{"apps/mk/*"}},
 		{ID: "plain", Role: users.RoleUser},
 	} {
 		if _, err := st.Upsert(u, "password"); err != nil {
@@ -360,19 +362,20 @@ func TestCanCreateAtDeputyClamp(t *testing.T) {
 		owner string
 		want  bool
 	}{
-		{"owner", auth.Principal{Owner: true}, "apps/x", "", true},
-		{"session maker in-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/mk/x", "", true},
-		{"session maker out-of-pattern", auth.Principal{UserID: "maker", Access: acc("maker")}, "apps/x", "", false},
-		{"unattributed element w/ grant", auth.Principal{Component: "apps/email"}, "apps/anything", "", true},
-		{"element w/ grant, plain human", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/anything", "", false},
-		{"element w/ grant, maker human in-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/mk/x", "", true},
-		{"element w/ grant, maker human out-of-pattern", auth.Principal{Component: "apps/email", UserID: "maker"}, "apps/x", "", false},
-		{"element w/ grant, admin human", auth.Principal{Component: "apps/email", UserID: "admin2"}, "apps/anything", "", true},
-		{"element w/o grant", auth.Principal{Component: "apps/calendar", UserID: "maker"}, "apps/mk/x", "", false},
-		{"session plain", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "", false},
+		{"owner", auth.Principal{Owner: true}, "tiles/x", "", true},
+		{"session plain, personal", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "user:plain", true},
+		{"session plain, reserved", auth.Principal{UserID: "plain", Access: acc("plain")}, "tiles/x", "user:plain", false},
+		{"session plain, no owner", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "", false},
+		{"unattributed element w/ grant", auth.Principal{Component: "apps/email"}, "tiles/anything", "", true},
+		{"element w/ grant, plain human", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/anything", "user:plain", true},
+		{"element w/ grant, plain human, reserved", auth.Principal{Component: "apps/email", UserID: "plain"}, "tiles/anything", "user:plain", false},
+		{"element w/ grant, plain human, foreign scope", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/calendar/x", "user:plain", false},
+		{"element w/ grant, admin human", auth.Principal{Component: "apps/email", UserID: "admin2"}, "tiles/anything", "", true},
+		{"element w/o grant", auth.Principal{Component: "apps/calendar", UserID: "plain"}, "apps/x", "user:plain", false},
 		// Creating AS an org: the org Create knob (checked upstream in
-		// resolveCreateOwner) is the authority — personal patterns don't gate.
+		// resolveCreateOwner) authorises the owner; the path rule still holds.
 		{"session plain, org-owned", auth.Principal{UserID: "plain", Access: acc("plain")}, "apps/x", "org:sales", true},
+		{"session plain, org-owned, reserved", auth.Principal{UserID: "plain", Access: acc("plain")}, "tiles/x", "org:sales", false},
 		{"element w/ grant, plain human, org-owned", auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/x", "org:sales", true},
 		{"element w/o grant, org-owned", auth.Principal{Component: "apps/calendar", UserID: "plain"}, "apps/x", "org:sales", false},
 	}
@@ -394,6 +397,123 @@ func TestCanCreateAtDeputyClamp(t *testing.T) {
 	}
 	if !b.attributedCanRead(auth.Principal{Component: "apps/email", UserID: "plain"}, "apps/calendar") {
 		t.Fatal("read grant should satisfy the source clamp")
+	}
+}
+
+// newTilePathOK (D82): a non-admin creates anywhere free that isn't
+// reserved, isn't inside someone else's scope, and carries no leftover
+// state from a removed tile.
+func TestNewTilePathRule(t *testing.T) {
+	b := testBroker(t)
+	st := testUsers(t, b)
+	for _, u := range []users.User{
+		{ID: "hubert", Role: users.RoleUser},
+		{ID: "carol", Role: users.RoleUser},
+		{ID: "boss", Role: users.RoleAdmin},
+	} {
+		if _, err := st.Upsert(u, "password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.UpsertOrg(users.Org{ID: "sales", Members: []users.Member{
+		{ID: "hubert", Level: users.LevelTerminal, Create: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, content string) {
+		p := filepath.Join(b.Reg.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Plain-directory scope roots: mine (every tile), carol's (every tile),
+	// an owner entry that outranks its tiles, an empty one, an org's.
+	for _, sc := range []string{"mine", "hers", "entry", "empty", "orgs"} {
+		write(sc+"/scope.json", `{}`)
+	}
+	for _, tile := range []string{"mine/ui", "hers/ui", "entry/ui", "orgs/ui"} {
+		write(tile+"/xbin.json", `{}`)
+	}
+	must(b.Reg.Rescan())
+	must(st.SetOwner("mine/ui", "user:hubert"))
+	must(st.SetOwner("hers/ui", "user:carol"))
+	must(st.SetOwner("entry/ui", "user:carol"))
+	must(st.SetOwner("entry", "user:hubert"))
+	must(st.SetOwner("orgs/ui", "org:sales"))
+
+	// Leftovers from removed tiles.
+	must(b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants,
+			registry.Grant{From: "apps/ghost", Target: "xbin", Role: "admin"},
+			registry.Grant{From: "apps/email", Target: "code:apps/ghost2", Role: "reader"},
+			registry.Grant{From: "apps/mine-again", Target: "xbin", Role: "writer"})
+		ws.Bindings = map[string]map[string]registry.Binding{
+			"apps/email": {"store": {{Ref: "apps/ghost3#main"}}},
+		}
+	}))
+	write("data/vault/"+util.CompKey("apps/ghost4")+".json", `{}`)
+	must(st.SetUserTile("carol", "apps/ghost5", users.LevelRead))
+	must(st.SetUserTile("carol", "apps/excluded", users.LevelNone))
+	must(st.SetOrgTile("sales", "apps/ghost6", users.LevelWrite))
+	must(st.SetOwner("apps/ghost7", "user:carol"))
+	must(st.SetOwner("apps/mine-again", "user:hubert"))
+	must(st.SetDefaultTiles(map[string]string{"apps/ghost8": users.LevelRead, "apps/*": users.LevelRead}))
+
+	hubert := func() auth.Principal { a, _ := st.Access("hubert"); return auth.Principal{UserID: "hubert", Access: a} }
+	boss := func() auth.Principal {
+		a, _ := st.Access("boss")
+		u, _ := st.Get("boss")
+		return auth.Principal{UserID: "boss", Access: a, User: u}
+	}
+	cases := []struct {
+		path, owner string
+		p           auth.Principal
+		want        bool
+		msg         string // substring of the refusal
+	}{
+		{"apps/x", "user:hubert", hubert(), true, ""},
+		{"brand-new/deep/x", "user:hubert", hubert(), true, ""},
+		{"tiles/x", "user:hubert", hubert(), false, "reserved for built-in tiles"},
+		{"root", "user:hubert", hubert(), false, "chrome"},
+		{"shell", "user:hubert", hubert(), false, "chrome"},
+		{"a:b/x", "user:hubert", hubert(), false, "':'"},
+		{"apps/user:bob", "user:hubert", hubert(), false, "':'"},
+		{"mine/api", "user:hubert", hubert(), true, ""},
+		{"hers/api", "user:hubert", hubert(), false, "inside scope hers"},
+		{"entry/api", "user:hubert", hubert(), true, ""},
+		{"empty/api", "user:hubert", hubert(), false, "inside scope empty"},
+		{"orgs/api", "org:sales", hubert(), true, ""},
+		{"orgs/api", "user:hubert", hubert(), false, "inside scope orgs"},
+		{"apps/calendar/x", "user:hubert", hubert(), false, "inside scope apps/calendar"},
+		{"apps/ghost", "user:hubert", hubert(), false, "grant apps/ghost → xbin:admin"},
+		{"apps/ghost2", "user:hubert", hubert(), false, "code:apps/ghost2"},
+		{"apps/ghost3", "user:hubert", hubert(), false, "binding apps/email store → apps/ghost3#main"},
+		{"apps/ghost4", "user:hubert", hubert(), false, "vault secrets"},
+		{"apps/ghost5", "user:hubert", hubert(), false, "user carol has read"},
+		{"apps/excluded", "user:hubert", hubert(), true, ""},
+		{"apps/ghost6", "user:hubert", hubert(), false, "shared to org sales"},
+		{"apps/ghost6", "org:sales", hubert(), true, ""}, // the owning org's own share
+		{"apps/ghost7", "user:hubert", hubert(), false, "owner entry user:carol"},
+		{"apps/mine-again", "user:hubert", hubert(), true, ""}, // re-creating your own
+		{"apps/ghost8", "user:hubert", hubert(), false, "visible to every user"},
+		{"tiles/x", "", boss(), true, ""},
+		{"apps/ghost", "", boss(), true, ""},
+		{"hers/api", "", boss(), true, ""},
+	}
+	for _, c := range cases {
+		got, msg := b.canCreateAt(c.p, c.path, c.owner)
+		if got != c.want || !strings.Contains(msg, c.msg) {
+			t.Errorf("%s as %s: canCreateAt=%v %q, want %v containing %q", c.path, c.owner, got, msg, c.want, c.msg)
+		}
 	}
 }
 

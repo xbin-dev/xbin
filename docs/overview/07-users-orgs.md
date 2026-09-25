@@ -47,10 +47,13 @@ everywhere. Everything below activates the moment the first account exists.
     "apps/crm": "terminal",
     "apps/reports/*": "read"
   },
-  "canCreate": ["apps/sandbox/*"],   // where they may create tiles
   "termApi": false, "termNet": false // D17 terminal-plane grants (below)
 }
 ```
+
+(A legacy `canCreate` pattern list may still appear on a row — deprecated and
+ignored since D82: users create tiles they own at any free path, see
+[docs/auth.md](../auth.md) §Creating tiles.)
 
 A user id is a **durable key** — it names the terminal home (`homes/<id>`),
 the per-user prefs bucket, and the `user:<id>` attribution in `X-XBin-From`

@@ -48,7 +48,9 @@
     .btn:disabled { opacity: .5; cursor: default; }
     .msg { font-size: 11.5px; }
     .msg.ok { color: var(--bx-green); }
-    .msg.err { color: var(--bx-red); }
+    .msg.err { color: var(--bx-red); display: inline-block; padding: 5px 9px; border-radius: 6px;
+               border: 1px solid color-mix(in srgb, var(--bx-red) 55%, transparent);
+               background: color-mix(in srgb, var(--bx-red) 12%, transparent); }
     .muted { color: var(--bx-muted); }
     /* import list */
     .tile { border: 1px solid var(--bx-border); border-radius: 6px; padding: 8px 10px;
@@ -103,7 +105,7 @@
       </div>
       <div class="actions">
         <button class="btn" id="create">Create</button>
-        <span class="msg" id="msg"></span>
+        <span class="msg" id="msg" aria-live="polite"></span>
       </div>
     </form>
   </div>
@@ -133,7 +135,7 @@
     </div>
     <div class="actions">
       <button class="btn" id="clone-btn">Clone</button>
-      <span class="msg" id="clone-msg"></span>
+      <span class="msg" id="clone-msg" aria-live="polite"></span>
     </div>
   </div>
 
@@ -347,7 +349,7 @@
             <div class="row" id="git-owner-row" hidden><span class="muted" style="font-size:11px;min-width:64px">owner</span>
               <select id="git-owner" class="owner"></select></div>
             <div class="actions"><button class="btn" id="git-import" type="button">Import</button>
-              <span class="msg" id="git-imsg"></span></div>
+              <span class="msg" id="git-imsg" aria-live="polite"></span></div>
           </div>`;
         attachOwner(document.getElementById('git-owner'), document.getElementById('git-owner-row'));
         document.getElementById('git-import').onclick = () => doGitImport(url);

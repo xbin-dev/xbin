@@ -269,7 +269,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body userBody
 	if err := server.DecodeJSON(r, &body); err != nil || strings.TrimSpace(body.ID) == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {id, name?, role?, tiles?, canCreate?, termApi?, termNet?, email?, password? | sso:true}")
+		server.WriteError(w, http.StatusBadRequest, "need {id, name?, role?, tiles?, termApi?, termNet?, email?, password? | sso:true}")
 		return
 	}
 	if body.SSO {

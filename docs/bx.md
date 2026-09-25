@@ -12,8 +12,10 @@ bx ls                                  list components (runtime, exposed roles, 
 bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
                                        --all = workspace-wide, else this terminal's tile
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|org:O]
-                                       scaffold a component (org-owned needs
-                                       the org's Create knob, D25)
+                                       scaffold a component you'll own, at any
+                                       free path outside tiles/ and others'
+                                       scopes (org-owned needs the org's
+                                       Create knob; D25, D82)
 bx tile ls | import <name> [as <path>] list/install builtin tiles
 bx template ls | new <source> [as <path>] | updates
                                        list/instantiate template components (blueprints)
@@ -35,10 +37,11 @@ bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> | 
                                        --disable/--enable pauses/restores the
                                        whole account (D34). ls shows last sign-in,
                                        a * on admins/memberships that come from
-                                       IdP-group rules
+                                       IdP-group rules. --create (path patterns)
+                                       is deprecated and ignored (D82)
 bx defaults [set …]                    provisioning defaults (admin): what every
                                        NEW account starts with — --tiles p=level,
-                                       --create p, --org o[:level[:create]]
+                                       --org o[:level[:create]]
                                        (repeatable), --term-api/--term-net —
                                        plus --default-tiles (the D27 baseline)
                                        and --tile-creation any|org-only (D52)

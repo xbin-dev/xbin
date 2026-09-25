@@ -77,7 +77,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	}
 	// Resolve the source and the effective target FIRST — instantiating
 	// creates a component there, so it takes the same authority as /create
-	// (create patterns work; the confused-deputy clamp applies), and copying
+	// (the ownership path rule; the confused-deputy clamp applies), and copying
 	// a WORKSPACE template additionally needs read on the source.
 	p := auth.PrincipalOf(r)
 	isBuiltin := b.templates != nil && templateExists(b.templates, body.Source)

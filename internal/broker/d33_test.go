@@ -167,8 +167,8 @@ func TestVaultBackendOnlyReads(t *testing.T) {
 }
 
 // Create-as-org (D25 unblocked): a member with the Create knob creates an
-// org-owned tile with NO personal canCreate pattern; personal creation still
-// requires one.
+// org-owned tile; personal creation follows ownership too (D82) — neither
+// needs a canCreate pattern.
 func TestCreateAsOrg(t *testing.T) {
 	b, st := orgFixture(t)
 	bob := principalFor(t, st, "bob")   // sales member, Create knob, no patterns
@@ -185,10 +185,19 @@ func TestCreateAsOrg(t *testing.T) {
 	if !isRepo(filepath.Join(b.Reg.Root, "apps/bobtool")) {
 		t.Fatal("a created tile gets its own git repo at once")
 	}
-	// Personal creation without a pattern still refuses.
+	// Personal creation needs no pattern either (D82): bob owns it.
 	w = call(t, b.apiCreate, bob, "POST", "/create", `{"path":"apps/bobpersonal"}`, nil)
-	if w.Code != 403 {
-		t.Fatalf("personal create without a pattern: %d %s", w.Code, w.Body.String())
+	if w.Code != 200 {
+		t.Fatalf("personal create: %d %s", w.Code, w.Body.String())
+	}
+	if got := st.Owner("apps/bobpersonal"); got != "user:bob" {
+		t.Fatalf("owner = %q, want user:bob", got)
+	}
+	// …but not in the reserved built-in namespace, as himself or the org.
+	for _, body := range []string{`{"path":"tiles/bob"}`, `{"path":"tiles/bob","owner":"org:sales"}`} {
+		if w = call(t, b.apiCreate, bob, "POST", "/create", body, nil); w.Code != 403 {
+			t.Fatalf("reserved create %s: %d %s", body, w.Code, w.Body.String())
+		}
 	}
 	// Non-members can't create as the org.
 	w = call(t, b.apiCreate, dave, "POST", "/create",

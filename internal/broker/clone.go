@@ -41,8 +41,8 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {from, to} with distinct paths")
 		return
 	}
-	// Cloning creates a tile at `to` — same authority as /create (a user's
-	// create patterns work; the confused-deputy clamp applies) — and copies
+	// Cloning creates a tile at `to` — same authority as /create (the
+	// ownership path rule; the confused-deputy clamp applies) — and copies
 	// the source, so a human must be able to READ `from` (otherwise a
 	// manager-style tile is a source-exfiltration route).
 	p := auth.PrincipalOf(r)

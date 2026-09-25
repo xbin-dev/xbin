@@ -70,9 +70,11 @@ type User struct {
 	// user's access level (read|write|terminal). Levels union: the highest
 	// matching entry wins, so patterns widen access and can't narrow it.
 	Tiles map[string]string `json:"tiles"`
-	// CanCreate lists path patterns (`sales/*`, `*`, or an exact path) under
-	// which the user may create tiles; creating one auto-grants them terminal
-	// on it ("create ≈ own a namespace", D16).
+	// CanCreate is DEPRECATED and ignored (D82). It was the D16 list of path
+	// patterns a user could create tiles under; creation now follows
+	// ownership (broker.newTilePathOK), and the restriction knob is the
+	// workspace tileCreation policy. Still loaded, accepted and saved
+	// verbatim, so older bx/scripts and a downgraded xbind keep working.
 	CanCreate []string `json:"canCreate,omitempty"`
 	// TermAPI / TermNet are the terminal-plane grants for non-admins (D17):
 	// without TermAPI their terminals get no live tile-API token (api=0 forced);
@@ -253,20 +255,6 @@ func (u *User) CanWriteTile(path string) bool {
 }
 func (u *User) CanTerminalTile(path string) bool {
 	return levelRank(u.TileLevel(path)) >= levelRank(LevelTerminal)
-}
-
-// CanCreateTile reports whether the user may create a component at `path`
-// (admins: anywhere; others: a CanCreate pattern must cover it).
-func (u *User) CanCreateTile(path string) bool {
-	if u.IsAdmin() {
-		return true
-	}
-	for _, t := range u.CanCreate {
-		if matchTile(t, path) {
-			return true
-		}
-	}
-	return false
 }
 
 // CanTerminal reports whether the user may open any terminal at all — the

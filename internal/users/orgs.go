@@ -1114,25 +1114,6 @@ func (a *Access) CanTerminalTile(path string) bool {
 	return levelRank(a.TileLevel(path)) >= levelRank(LevelTerminal)
 }
 
-// CanCreateTile gates PERSONAL (user-owned) creation: the user's own
-// CanCreate patterns (admins anywhere). Creating AS an org is CanCreateAs —
-// the path no longer encodes the org (D24), so the create request names the
-// owner instead.
-func (a *Access) CanCreateTile(path string) bool {
-	if a == nil {
-		return false
-	}
-	if a.user.IsAdmin() {
-		return true
-	}
-	for _, pat := range a.user.CanCreate {
-		if matchTile(pat, path) {
-			return true
-		}
-	}
-	return false
-}
-
 // CanCreateAs reports whether this user may create tiles OWNED BY org (D25:
 // the member's Create knob; org admins implicitly).
 func (a *Access) CanCreateAs(org string) bool {

@@ -108,14 +108,15 @@ func TestLegacyUserShape(t *testing.T) {
 	}
 }
 
-func TestCanCreateAndGrantTile(t *testing.T) {
+func TestGrantTile(t *testing.T) {
 	s, _ := Open(t.TempDir())
+	// canCreate is deprecated and ignored (D82) but must still round-trip.
 	if _, err := s.Upsert(User{ID: "dev", Role: RoleUser, CanCreate: []string{"sales/*"}}, "pw"); err != nil {
 		t.Fatal(err)
 	}
 	u, _ := s.Get("dev")
-	if !u.CanCreateTile("sales/leads") || u.CanCreateTile("apps/x") {
-		t.Fatal("CanCreate must be pattern-scoped")
+	if len(u.CanCreate) != 1 || u.CanCreate[0] != "sales/*" {
+		t.Fatalf("deprecated canCreate must be kept verbatim: %v", u.CanCreate)
 	}
 	// The create auto-grant: terminal on the new tile, raise-only.
 	if err := s.GrantTile("dev", "sales/leads", LevelTerminal); err != nil {

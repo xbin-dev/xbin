@@ -2130,3 +2130,47 @@ Deviations and refinements made while implementing; all deliberate:
   in the old binary finish their legacy lease (up to 30 s) before
   adoption; an `engine:<gen>` lease mark keeps an old binary off new runs
   during the overlap.
+
+- **D82 — Tile creation follows ownership, not path patterns; the path rule
+  guards reserved names, scopes and leftovers (2026-09-25).** A non-admin
+  with no `canCreate` pattern got 403 creating a personal tile. The D16
+  patterns came from path-keyed permissions, which D24 ownership replaced;
+  creating as an org already ignored them. Creation authority is now the
+  owner: `resolveCreateOwner` decides it (`user:<self>` or an org with
+  Create; `tileCreation: org-only` still forbids personal tiles), and the
+  one gate `canCreateAt` applies `newTilePathOK` to every non-admin human,
+  directly or attributed on an element call (the deputy clamp). Checked in
+  this order:
+  - **Reserved**: `tiles/` (the built-ins, at fixed paths the shell, the
+    defaults and boot backfill trust), `root`/`shell` (chrome), and any `:`
+    in a segment (grant-target/identity syntax).
+  - **Scope**: the nearest `scope.json` root at or above the path must be
+    absent or owned by the new owner. It is owned through its own owner
+    entry, or, with none, when the new owner owns every tile in it. A new
+    tile in a scope gets auto-approved same-scope grants, so this is a
+    trust boundary. Tiles still never nest.
+  - **Leftovers**: a path is a durable key and nothing prunes it when a
+    directory disappears. Refused over:
+    - grant rows naming it on either side;
+    - bindings, instances and ingress hosts;
+    - its vault;
+    - another owner's entry;
+    - other users' exact entries, org shares, an exact `defaultTiles` entry.
+
+    The error lists them. The path's current owner is exempt.
+
+  Org creation gains the rule too. It used to skip path checks, so a
+  vanished `tiles/admin`'s `xbin:admin` row was claimable by any org
+  member with Create. `canCreate` stays in `users.json` and the API, but is
+  ignored (never break users: scripts keep working, a downgrade keeps
+  them). The UI half: `bx-dialog` got an `error` alert, which the shell's
+  *New tile* dialog uses; before, the refusal replaced the intro text and
+  read as a hint.
+
+  Not chosen:
+  - Keeping `canCreate` as an override on top of the rule: another knob
+    with nothing left to decide.
+  - Scrubbing leftovers on create: that would let a non-admin request
+    delete admin-set state.
+  - Letting tiles nest under an owned tile: that means nested repos, and a
+    parent's sandbox and dev layer holding the child.

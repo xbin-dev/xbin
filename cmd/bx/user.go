@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -12,20 +13,24 @@ import (
 // always works from a shell.
 //
 //	bx user ls
-//	bx user add <id> [--admin] [--tiles a=terminal,b=read,lib/*] [--create sales/*]
+//	bx user add <id> [--admin] [--tiles a=terminal,b=read,lib/*]
 //	                 [--term-api] [--term-net] [--email a@b.c]  (prompts for password)
 //	                 [--invite | --sso]   invite link / SSO-only account (needs --email)
 //	                 [--org o[:level[:create[:admin]]]]…   join orgs at creation (D53)
-//	bx user set <id> [--admin|--user] [--tiles …] [--create …] [--email a@b.c]
+//	bx user set <id> [--admin|--user] [--tiles …] [--email a@b.c]
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
 //	bx user signout <id>   end every session + terminal token ("sign out everywhere")
 //	bx user rm  <id>
 //
 // --tiles maps paths (or prefix/* patterns) to access levels read|write|
-// terminal (D16); a bare path means write. --create lists path patterns the
-// user may create tiles under. --term-api / --term-net grant a non-admin's
+// terminal (D16); a bare path means write. --create (path patterns) is
+// deprecated and ignored (D82): users create tiles they own at any free path;
+// still accepted so scripts keep working. --term-api / --term-net grant a non-admin's
 // terminals the live tile-API token / internet egress (D17). New accounts
 // also receive the workspace's new-account defaults (`bx defaults`, D52).
+// createDeprecated is printed when a script still passes --create (D82).
+const createDeprecated = "note: --create is deprecated and ignored — users create tiles they own at any free path; to forbid personal tiles: bx defaults set --tile-creation org-only"
+
 func cmdUser(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] [--org o[:level]]… | set <id> [flags] | invite <id> | signout <id> | rm <id>")
@@ -77,9 +82,6 @@ func cmdUser(args []string) error {
 				sort.Strings(keys)
 				for _, k := range keys {
 					parts = append(parts, k+"="+u.Tiles[k])
-				}
-				for _, c := range u.CanCreate {
-					parts = append(parts, "create:"+c)
 				}
 				if u.TermAPI {
 					parts = append(parts, "term-api")
@@ -201,6 +203,7 @@ func cmdUser(args []string) error {
 					}
 				}
 				body["canCreate"] = create
+				fmt.Fprintln(os.Stderr, createDeprecated)
 			default:
 				return fmt.Errorf("unknown flag %s", args[i])
 			}

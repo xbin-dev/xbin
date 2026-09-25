@@ -188,10 +188,10 @@ func endpoints() []ep {
 
 		// --- users ---
 		{"GET", "/users", "Users", "List users", "xbin:users",
-			"Human users and their per-tile permissions, plus sign-in facts (lastLogin, lastLoginVia, ssoGroups seen at the last SSO sign-in, ssoSyncError) and roleVia (\"sso\" when the admin role came from a group rule). Admin or the xbin:users grant.", nil, nil, "{users:[{id,name,email,role,roleVia,tiles,canCreate,termApi,termNet,disabled,invitePending,lastLogin,lastLoginVia,ssoGroups,ssoSyncError}]}"},
+			"Human users and their per-tile permissions, plus sign-in facts (lastLogin, lastLoginVia, ssoGroups seen at the last SSO sign-in, ssoSyncError) and roleVia (\"sso\" when the admin role came from a group rule). canCreate is deprecated and ignored (D82) — creation follows ownership. Admin or the xbin:users grant.", nil, nil, "{users:[{id,name,email,role,roleVia,tiles,canCreate,termApi,termNet,disabled,invitePending,lastLogin,lastLoginVia,ssoGroups,ssoSyncError}]}"},
 		{"POST", "/users", "Users", "Create a user", "xbin:users",
 			"With password → ready to sign in; without → credential-less + a single-use invite link (D22); sso:true (needs email) → credential-less with NO invite: the bound email signs in through the IdP (pre-provisioning, D52). Every new account is seeded with the workspace's new-account defaults (GET /defaults newUsers) on top of the given fields; orgs joins the account to orgs at creation (validated first — no half-created account). Under SSO-only mode a non-admin needs sso:true or a password.", nil,
-			jsonBody("new user", oapi{"id": str(""), "name": str(""), "role": str("admin|user"), "email": str("SSO binding"), "tiles": oapi{"type": "object", "description": "path/pattern → read|write|terminal"}, "canCreate": arr(), "termApi": boolean(), "termNet": boolean(), "password": str(""), "sso": boolean(), "orgs": arr()}, "id"), "{user, orgs?, invite?, inviteUrl?, inviteLink?, inviteExpires?}"},
+			jsonBody("new user", oapi{"id": str(""), "name": str(""), "role": str("admin|user"), "email": str("SSO binding"), "tiles": oapi{"type": "object", "description": "path/pattern → read|write|terminal"}, "canCreate": deprecatedArr("deprecated, ignored (D82) — accepted for compatibility"), "termApi": boolean(), "termNet": boolean(), "password": str(""), "sso": boolean(), "orgs": arr()}, "id"), "{user, orgs?, invite?, inviteUrl?, inviteLink?, inviteExpires?}"},
 		{"PATCH", "/users/{id}", "Users", "Update a user", "xbin:users", "Update fields and/or reset the password. Disabling drops the user's sessions.", []oapi{pathParam("id", "user id")}, freeBody("fields to update"), "updated user"},
 		{"DELETE", "/users/{id}", "Users", "Delete a user", "xbin:users", "Removes the user and revokes their sessions.", []oapi{pathParam("id", "user id")}, nil, "ok"},
 		{"POST", "/users/{id}/invite", "Users", "(Re)mint an invite link", "xbin:users, or an org admin for a non-admin member of their org",
@@ -282,7 +282,7 @@ func endpoints() []ep {
 		{"PUT", "/orgs/{org}/policy", "Orgs", "Replace an org's policy rows", "xbin:users", "", []oapi{pathParam("org", "org id")},
 			jsonBody("rows", oapi{"policy": arr()}, "policy"), "ok"},
 		{"GET", "/defaults", "Orgs", "Workspace provisioning defaults", "xbin:users",
-			"defaultTiles: the visibility baseline every user gets (D27). newUsers: what every NEW account starts with — tiles, create patterns, terminal flags, org memberships — seeded at creation (admin-added, invited, SSO auto-provisioned; D52). tileCreation: any | org-only (non-admins may only create org-owned tiles).",
+			"defaultTiles: the visibility baseline every user gets (D27). newUsers: what every NEW account starts with — tiles, terminal flags, org memberships — seeded at creation (admin-added, invited, SSO auto-provisioned; D52; newUsers.canCreate is deprecated and ignored, D82). tileCreation: any | org-only (non-admins may only create org-owned tiles — the knob that restricts personal creation).",
 			nil, nil, "{defaultTiles:{pattern:level}, newUsers:{tiles,canCreate,termApi,termNet,orgs:[{org,level,create}]}, tileCreation}"},
 		{"PUT", "/defaults", "Orgs", "Replace provisioning defaults", "xbin:users",
 			"Each present key replaces that setting wholesale; absent keys are left alone. Default orgs must exist; newUsers never grants admin.", nil,
@@ -498,6 +498,11 @@ func str(desc string) oapi     { return oapi{"type": "string", "description": de
 func boolean() oapi            { return oapi{"type": "boolean"} }
 func arr() oapi                { return oapi{"type": "array", "items": oapi{"type": "string"}} }
 func freeSchema(d string) oapi { return oapi{"description": d} }
+
+// deprecatedArr is a string-array field kept only for compatibility.
+func deprecatedArr(desc string) oapi {
+	return oapi{"type": "array", "items": oapi{"type": "string"}, "deprecated": true, "description": desc}
+}
 
 func pathParam(name, desc string) oapi {
 	return oapi{"name": name, "in": "path", "required": true, "schema": oapi{"type": "string"}, "description": desc}

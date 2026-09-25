@@ -213,11 +213,11 @@ Two rules connect this system to the vault barrier
 
 Every road into the workspace converges on the same authority checks
 ([06-authorization.md](06-authorization.md)): the caller must be allowed to
-**create at the target path** (admin, a user whose create patterns cover it,
-or a tile holding `xbin:writer` — clamped to the attributed human's own
-rights), the path must survive the reserved-segment rules (org `o/`
-positions, reserved names), and the target must not nest with an existing
-component. Whatever a new tile's `uses` demands lands as **pending grants**
+**create at the target path** (admin, a user creating a tile they will
+own, or a tile holding `xbin:writer` — clamped to the attributed human's
+own rights), the path must survive the ownership path rule (reserved
+names, other owners' scopes, leftovers of a removed tile — D82), and the
+target must not nest with an existing component. Whatever a new tile's `uses` demands lands as **pending grants**
 for the owner to approve — imported code never arrives pre-authorized.
 
 | road | mechanics |

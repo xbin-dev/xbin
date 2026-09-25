@@ -14,8 +14,9 @@ import (
 
 // POST /api/xbin/create — the higher-level "create tile" API (same engine
 // as `bx new`). Creating components is an editing-plane action, so callers
-// are the owner/admins, a user whose create patterns cover the path (D16 —
-// "create ≈ own a namespace"), or elements holding the workspace-management
+// are the owner/admins, a user creating a tile they will own at a path the
+// ownership rule accepts (canCreateAt / newTilePathOK, D82), or elements
+// holding the workspace-management
 // capability: an explicit grant on the reserved target "xbin" at role writer
 // (the template ships tiles/manager with that grant; revoke it and the tile
 // request shows up in the grants panel like any other).

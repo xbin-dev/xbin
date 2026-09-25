@@ -745,8 +745,9 @@ func (b *Broker) apiPolicyPut(w http.ResponseWriter, r *http.Request) {
 
 // --- workspace defaults (D27 + D52, ws-admin) --------------------------------
 // defaultTiles: the live visibility baseline every user gets. newUsers: the
-// seed copied onto every new account (tiles, create patterns, terminal
-// flags, org memberships) — what SSO JIT provisioning lands with.
+// seed copied onto every new account (tiles, terminal flags, org
+// memberships; the deprecated canCreate patterns ride along inert, D82) —
+// what SSO JIT provisioning lands with.
 // tileCreation: any | org-only.
 
 func (b *Broker) defaultsView(st *users.Store) map[string]any {

@@ -1,8 +1,8 @@
 /**
  * <bx-admin-users> — the admin console's users tab: the accounts table
  * (filter + chips, org pills, per-tile access, last sign-in, the per-row
- * "more ▾" menu), the click-through editors for a user's orgs / tiles /
- * create patterns, pending access requests (D36), the add-user form with
+ * "more ▾" menu), the click-through editors for a user's orgs / tiles,
+ * pending access requests (D36), the add-user form with
  * its three sign-in modes (D22/D52) and the one-time invite box. Data
  * arrives as properties from the router's shared lists; writes go through
  * the API and the router reloads on bx-admin-refresh.
@@ -30,7 +30,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     _usersQ: { state: true },     // table text filter
     _usersChips: { state: true }, // table chips: Set of admins|disabled|invited|never|stale|noorg|org:<id>
     _bulkBusy: { state: true },   // bulk disable in flight
-    _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles|create})
+    _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles})
     _err: { state: true },        // the last API refusal (also reported to the router's slot)
   };
   static styles = [base, usersCss];
@@ -59,7 +59,9 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
   _menuDone(e) { e.target.closest('details')?.removeAttribute('open'); }
 
   // Tile access is per-path levels (read < write < terminal, D16), edited
-  // with the click-through row editors (_tilesEditor/_patternsEditor).
+  // with the click-through row editor (_tilesEditor). Creating tiles needs
+  // no per-user grant — it follows ownership (D82); the deprecated canCreate
+  // patterns are neither shown nor edited here.
   // Sign-in modes (D22/D52): password (set here), invite link (credential-
   // less + a single-use link), or SSO (credential-less, NO link — the bound
   // email signs in through the IdP). The server seeds the new-account
@@ -376,7 +378,6 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
 
   _userRow(u) {
     const tilesKey = `user:${u.id}:tiles`;
-    const createKey = `user:${u.id}:create`;
     const orgsKey = `user:${u.id}:orgs`;
     const synced = u.roleVia === 'sso';
     return html`<tr style=${u.disabled ? 'opacity:.55' : ''}>
@@ -388,10 +389,9 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       <td>${this._userOrgsCell(u)}</td>
       <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
         : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
-          ${(u.canCreate || []).map((c) => html`<span class="pill">create·${c}</span>`)}
           ${u.termApi ? html`<span class="pill">term-api</span>` : nothing}
           ${u.termNet ? html`<span class="pill">term-net</span>` : nothing}
-          ${!Object.keys(u.tiles || {}).length && !(u.canCreate || []).length
+          ${!Object.keys(u.tiles || {}).length
             ? html`<span class="muted">—</span>` : nothing}`}</td>
       <td style="white-space:nowrap">${this._lastLoginCell(u)}</td>
       <td style="text-align:right; white-space:nowrap">
@@ -406,20 +406,17 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             <button class="act" type="submit">set</button>
             <button class="act" type="button" @click=${() => { this._pwEdit = null; }}>✕</button>
           </form>` : nothing}
-        ${this._userMenu(u, createKey)}
+        ${this._userMenu(u)}
       </td>
     </tr>
     ${this._draft(orgsKey) ? html`<tr><td colspan="6">${this._userOrgsEditor(u, orgsKey)}</td></tr>` : nothing}
     ${this._draft(tilesKey) ? html`<tr><td colspan="6">
       ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { tiles }))}
-    </td></tr>` : nothing}
-    ${this._draft(createKey) ? html`<tr><td colspan="6">
-      ${this._patternsEditor(createKey, (canCreate) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { canCreate }))}
     </td></tr>` : nothing}`;
   }
 
   // The rare actions, in a native <details> menu — every item closes it.
-  _userMenu(u, createKey) {
+  _userMenu(u) {
     const synced = u.roleVia === 'sso';
     const live = (this.sessions ?? []).filter((s) => s.user === u.id).length;
     return html`<details class="menu">
@@ -428,7 +425,6 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         <button ?disabled=${synced} title=${synced ? 'role comes from an IdP group rule — change it in sign-in › group sync' : ''}
           @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote to user' : 'make admin'}</button>
         ${u.role === 'admin' ? nothing : html`
-          <button @click=${() => this._toggleDraft(createKey, () => [...(u.canCreate ?? [])])}>create patterns…</button>
           <button @click=${() => this._patchUser(u.id, { termApi: !u.termApi })}>${u.termApi ? 'revoke term-api' : 'allow term-api'}</button>
           <button title="internet in terminals on personal/workspace tiles — org tiles follow their org's network sets (D54)"
             @click=${() => this._patchUser(u.id, { termNet: !u.termNet })}>${u.termNet ? 'revoke term-net' : 'allow term-net'}</button>`}

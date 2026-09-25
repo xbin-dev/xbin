@@ -275,7 +275,9 @@ tile carries the text to the shell, whose tile menu leads with **Copy**;
 inputs and editable text keep the native menu.)
 
 - **`xbin.dialog(spec) → Promise<{button, values}>`** — a modal the shell
-  renders from a plain-data `spec` (`title`, `message`, `fields`, `buttons`).
+  renders from a plain-data `spec` (`title`, `message`, `error`, `fields`,
+  `buttons`; `error` shows as a red alert box — re-open the dialog with it
+  set to say why a submit failed).
   It is **data-only**: strings are shown as text, never HTML, so a tile can't
   inject markup or script into workspace chrome. Resolves with the clicked
   button's `value` (`null` when dismissed via Escape / backdrop / Cancel) and

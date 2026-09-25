@@ -113,10 +113,6 @@ func TestCreateAs(t *testing.T) {
 	if acc(t, s, "bob").CanCreateAs("other") {
 		t.Error("non-member must not create")
 	}
-	// Personal creation still runs on user patterns only.
-	if acc(t, s, "bob").CanCreateTile("apps/x") {
-		t.Error("no personal pattern → no personal create")
-	}
 }
 
 // --- ownership lifecycle ------------------------------------------------------

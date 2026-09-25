@@ -2,6 +2,9 @@ package broker
 
 import (
 	"fmt"
+	"os"
+	pathpkg "path"
+	"sort"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -84,41 +87,174 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 }
 
 // canCreateAt is the shared tile-creation authority for the same five entry
-// points: workspace admins; humans whose create rights cover the request; or
-// an element holding the workspace-management capability (xbin:writer).
+// points: workspace admins; humans creating a tile they will own (personally,
+// or as an org where they hold Create — resolveCreateOwner has already
+// decided and authorised the owner) at a path newTilePathOK accepts; or an
+// element holding the workspace-management capability (xbin:writer).
 //
-// Which create right applies depends on the requested OWNER (D24/D25): a
-// personal/workspace tile is gated by the user's own path patterns, but a
-// tile created AS AN ORG (`ownerRef == "org:<id>"`) is gated by the org's
-// Create knob — already verified by resolveCreateOwner, so the personal
-// pattern check is skipped for it (the path no longer encodes the org, so
-// path patterns are the wrong authority).
+// Creation follows OWNERSHIP, not path patterns (D82): a non-admin may take
+// any free path that isn't reserved, isn't inside someone else's scope, and
+// carries no leftover state from a removed tile. The deprecated per-user
+// canCreate patterns are not consulted.
 //
 // When a HUMAN is attributed on an element call (frame or terminal
-// principal), the human's own rights must cover the request too — the
-// confused-deputy clamp: a manager-style tile can never be driven to create
-// beyond what its driver may create themselves. Unattributed automation
-// (instance tokens, the bootstrap owner) is unaffected.
+// principal), the same path rule applies to them — the confused-deputy
+// clamp: a manager-style tile can never be driven to create where its
+// driver couldn't create themselves. Unattributed automation (instance
+// tokens, the bootstrap owner) keeps plain capability semantics.
 func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (bool, string) {
 	if b.IsAdmin(p) {
 		return true, ""
 	}
-	orgOwned := strings.HasPrefix(ownerRef, "org:")
-	if p.Component == "" {
-		if orgOwned || p.CanCreateTile(path) { // org: resolveCreateOwner checked CanCreateAs
-			return true, ""
+	if p.Component != "" {
+		// Element callers (frame/terminal/instance) need the
+		// workspace-management capability regardless of owner.
+		if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
+			return false, "creating components from a tile needs the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
 		}
-		return false, "creating components needs a create permission on this path (ask an admin for a create pattern, or create it owned by an org where you hold Create)"
+		if p.UserID == "" {
+			return true, "" // unattributed automation holding the capability
+		}
+		if b.Users != nil {
+			if u, ok := b.Users.Get(p.UserID); ok && u.IsAdmin() {
+				return true, "" // an admin driving the manager tile
+			}
+		}
 	}
-	// Element callers (frame/terminal/instance) need the workspace-management
-	// capability regardless of owner.
-	if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
-		return false, "creating components needs a create permission on this path (ask an admin), or the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
+	if ownerRef == "" {
+		// resolveCreateOwner gives every non-admin human a user:/org: owner;
+		// an empty one here means the account vanished mid-request.
+		return false, "creating workspace-owned tiles is a workspace-admin action"
 	}
-	if p.UserID != "" && !orgOwned && !b.attributedAccess(p.UserID).CanCreateTile(path) {
-		return false, "your account has no create permission on " + path + " — the tile's workspace-management grant doesn't extend your own rights (ask an admin for a create pattern, or create it owned by an org where you hold Create)"
+	return b.newTilePathOK(strings.Trim(path, "/"), ownerRef)
+}
+
+// reservedCreateTop are first path segments a non-admin may not create
+// under (D82): tiles/ is where the built-in tiles live — the shell, the
+// default screen and boot backfill point at fixed paths there — and root /
+// shell are the implicitly-trusted workspace chrome (isChrome).
+var reservedCreateTop = map[string]string{
+	"tiles": "tiles/ is reserved for built-in tiles",
+	"root":  "root is the workspace chrome",
+	"shell": "shell is the workspace chrome",
+}
+
+// newTilePathOK is the ownership-based path rule for a non-admin creating a
+// tile owned by ownerRef at path (D82). In order:
+//
+//  1. reserved: a first segment in reservedCreateTop, or any segment with
+//     ':' (the grant-target / identity separator — code, cap:x, user:bob);
+//  2. scope: the nearest scope root at or above path must be absent ("top
+//     level") or owned by ownerRef — its owner entry, or, with none, every
+//     tile already in it. A new tile in a scope joins it, and same-scope
+//     grants are auto-approved, so this is a trust boundary;
+//  3. leftovers: state keyed by the path that would otherwise pass silently
+//     to the new tile (pathLeftovers).
+//
+// Nesting and path syntax stay with guardNewComponentTree and
+// util.ComponentPathOK.
+func (b *Broker) newTilePathOK(path, ownerRef string) (bool, string) {
+	const hint = " — pick another path, or ask a workspace admin"
+	parts := strings.Split(path, "/")
+	if why, ok := reservedCreateTop[parts[0]]; ok {
+		return false, "can't create " + path + ": " + why + hint
+	}
+	for _, part := range parts {
+		if strings.Contains(part, ":") {
+			return false, "can't create " + path + ": ':' isn't allowed in tile names (it separates grant targets and identities)" + hint
+		}
+	}
+	if s := b.scopeAt(path); s != "" && !b.scopeOwnedBy(s, ownerRef) {
+		return false, "can't create " + path + ": it's inside scope " + s + ", which " + ownerRef + " doesn't own" + hint
+	}
+	if left := b.pathLeftovers(path, ownerRef); len(left) > 0 {
+		return false, "can't create " + path + ": the path still carries state from a removed tile (" + strings.Join(left, "; ") + ") — pick another path, or ask a workspace admin to clear it first"
 	}
 	return true, ""
+}
+
+// scopeAt returns the nearest scope root at or above path ("" = none).
+func (b *Broker) scopeAt(p string) string {
+	scopes := b.Reg.Scopes()
+	for p != "." && p != "" {
+		if _, ok := scopes[p]; ok {
+			return p
+		}
+		p = pathpkg.Dir(p)
+	}
+	return ""
+}
+
+// scopeOwnedBy: the scope root's own owner entry decides; without one, the
+// scope belongs to ownerRef only if it holds at least one tile and ownerRef
+// owns every tile in it.
+func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
+	if b.Users == nil {
+		return false
+	}
+	if o := b.Users.Owner(scope); o != "" {
+		return o == ownerRef
+	}
+	n := 0
+	for _, c := range b.Reg.Components() {
+		if c.Scope != scope {
+			continue
+		}
+		if b.Users.Owner(c.Path) != ownerRef {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// pathLeftovers names the state still keyed by path (or a path under it)
+// that a new tile there would inherit: workspace grant rows naming it on
+// either side, interface bindings / instances / ingress hosts, its vault,
+// and the identity store's entries (Store.PathLeftovers). Nothing prunes
+// these when a tile's directory disappears. A path whose owner entry is
+// already ownerRef is the owner re-creating their own tile — nothing to
+// take over.
+func (b *Broker) pathLeftovers(path, ownerRef string) []string {
+	if b.Users != nil && b.Users.Owner(path) == ownerRef {
+		return nil
+	}
+	under := func(p string) bool { return p == path || strings.HasPrefix(p, path+"/") }
+	var out []string
+	ws := b.Reg.Workspace()
+	for _, g := range ws.Grants {
+		if under(g.From) || under(strings.TrimPrefix(g.Target, "code:")) {
+			out = append(out, "grant "+g.From+" → "+g.Target+":"+g.Role)
+		}
+	}
+	for comp, slots := range ws.Bindings {
+		for slot, bind := range slots {
+			for _, r := range bind {
+				prov, _, _ := strings.Cut(r.Ref, "#")
+				if under(comp) || under(prov) {
+					out = append(out, "binding "+comp+" "+slot+" → "+r.Ref)
+				}
+			}
+		}
+	}
+	for comp := range ws.IfaceInstances {
+		if under(comp) {
+			out = append(out, "interface instances of "+comp)
+		}
+	}
+	for comp := range ws.IngressHosts {
+		if under(comp) {
+			out = append(out, "ingress hosts of "+comp)
+		}
+	}
+	if _, err := os.Stat(b.vaultPath(path)); err == nil {
+		out = append(out, "vault secrets")
+	}
+	if b.Users != nil {
+		out = append(out, b.Users.PathLeftovers(path, ownerRef)...)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // attributedCanRead is the matching source-side clamp for copy-shaped
