@@ -1,198 +1,67 @@
-// sidebar.mjs — the run list is a forest, not a flat list.
+// sidebar.mjs — the run list is top-level runs, and only them.
 //
-// A fan-out can add a dozen runs at once, so a workflow has to be ONE row until
-// you open it or the sidebar floods and the tile stops being navigable. This
-// drives the real agent.js against a stubbed transport, because the behaviour
-// that matters (folding, roll-ups, orphan handling, reveal-on-select) lives in
-// the module rather than the stylesheet.
+// Subagents live inside their parent's session (and the workflow tree), never
+// as rows here: a fan-out used to flood the list, and quick-ask subagents
+// showed up as "orphans" whenever their quick ask was not selected. This
+// drives the real tile against backend.mjs and throws everything at the list
+// the stream can carry — a subagent's run events, a new top-level run, a
+// status change, a deletion — and checks what the list shows.
 //
 //   node test/sidebar.mjs        (needs playwright + a chromium build)
-import { readFileSync } from 'node:fs';
-import { serveKit, tileHtml } from './kit.mjs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-
-let chromium;
-try {
-  ({ chromium } = await import('/usr/local/node/lib/node_modules/playwright/index.mjs'));
-} catch {
-  try { ({ chromium } = await import('playwright')); } catch {
-    console.log('SKIP: playwright not installed');
-    process.exit(0);
-  }
-}
-
-let failures = 0;
-const ok = (name, cond, extra = '') => {
-  if (!cond) { console.log(`FAIL  ${name}  ← ${extra}`); failures++; }
-  return cond;
+const { ok, done } = checker();
+const seed = {
+  runs: [
+    { id: 1, title: 'plan the quarter', status: 'awaiting', parentId: 0, rootId: 1, kind: '' },
+    { id: 5, title: 'unrelated task', status: 'idle', parentId: 0, rootId: 5, kind: '' },
+    { id: 6, title: 'a quick question', status: 'idle', parentId: 0, rootId: 6, kind: 'quick' },
+  ],
 };
 
-// A root with two children, one of which has its own child, plus a run whose
-// parent id points at a row that does not exist — the shape the pre-cascade
-// delete bug leaves behind.
-const RUNS = [
-  { id: 1, title: 'plan the quarter', status: 'blocked', parentId: 0, rootId: 1, depth: 0, created: 100, kind: '' },
-  { id: 2, title: 'research vat', status: 'running', parentId: 1, rootId: 1, depth: 1, created: 101, kind: '' },
-  { id: 3, title: 'vendor pricing', status: 'done', parentId: 1, rootId: 1, depth: 1, created: 102, kind: '' },
-  { id: 4, title: 'deep dive', status: 'error', parentId: 2, rootId: 1, depth: 2, created: 103, kind: '' },
-  { id: 5, title: 'unrelated task', status: 'idle', parentId: 0, rootId: 5, depth: 0, created: 104, kind: '' },
-  { id: 9, title: 'left behind', status: 'idle', parentId: 77, rootId: 77, depth: 1, created: 105, kind: '' },
-];
-
-// The page must be served from a real origin: agent.js is loaded with a
-// RELATIVE src, which cannot resolve against about:blank, and addInitScript
-// does not apply to a setContent document. Routing a fake host fixes both and
-// means this test exercises the actual module rather than the static markup.
-const ORIGIN = 'http://tile.test';
-const FILES = { '/': 'index.html', '/index.html': 'index.html', '/agent.js': 'agent.js' };
-
-const browser = await chromium.launch();
-const page = await browser.newPage();
-
-await page.route(`${ORIGIN}/**`, (route) => {
-  const path = new URL(route.request().url()).pathname;
-  const file = FILES[path];
-  if (!file) return route.fulfill({ status: 404, body: '' });
-  let body = readFileSync(join(here, '..', file), 'utf8');
-  if (file === 'index.html') {
-    body = tileHtml(body).replace(/<link rel="stylesheet" href="\/vendor\/theme.css">/,
-      '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2:#f4f4f4;--bx-text:#111;' +
-      '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>');
-  }
-  route.fulfill({ contentType: file.endsWith('.js') ? 'text/javascript' : 'text/html', body });
-});
-await serveKit(page);
-await page.route('**/vendor/marked.esm.js', (r) =>
-  r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
-
-// agent.js reads xbin.self at module scope, so the stub must exist before the
-// module evaluates.
-await page.addInitScript((runs) => {
-  window.__prefs = {};
-  window.__calls = [];
-  window.xbin = {
-    self: 'apps/agent',
-    fetch: async (url, opt = {}) => {
-      window.__calls.push((opt.method || 'GET') + ' ' + url);
-      const json = (v) => ({ ok: true, json: async () => v });
-      if (url.includes('/prefs/')) {
-        const key = url.split('/prefs/')[1];
-        if ((opt.method || 'GET') === 'PUT') { window.__prefs[key] = JSON.parse(opt.body); return json({}); }
-        return key in window.__prefs ? json(window.__prefs[key]) : { ok: false, json: async () => ({}) };
-      }
-      if (url.endsWith('/runs')) return json(window.__runs || runs);
-      if (url.endsWith('/halt')) return json({ on: false });
-      if (/\/runs\/\d+$/.test(url)) {
-        const id = +url.split('/').pop();
-        return json({ run: (window.__runs || runs).find((r) => r.id === id) || runs[0],
-                      messages: [], steps: [], memory: {}, config: {}, files: [], draft: '',
-                      slots: window.__slots || { active: 0, limit: 4 } });
-      }
-      return json({});
-    },
-    bus: { on: () => () => {} },
-    iface: () => null,
-  };
-}, RUNS);
-
-page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
-page.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE:', m.text()); });
-await page.setViewportSize({ width: 700, height: 900 });
+const browser = await launch();
+const ctx = await browser.newContext();
+await serveTile(ctx);
+await ctx.addInitScript(STUB, seed);
+const page = await ctx.newPage();
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`${ORIGIN}/`);
-await page.waitForFunction(() => document.querySelectorAll('#runs .run').length > 0, { timeout: 5000 });
+await page.waitForSelector('#runs .run');
+await page.waitForFunction(() => window.__streams() > 0);
+const rows = () => page.$$eval('#runs .run .t', (els) => els.map((e) => e.textContent.trim()));
+const push = (ev) => page.evaluate((e) => window.__push(e), ev);
 
-const titles = () => page.$$eval('#runs .run .t', (els) => els.map((e) => e.textContent.replace(/[▸▾·⚡]/g, '').trim()));
-const rowCount = () => page.$$eval('#runs .run', (els) => els.length);
+ok('top-level tasks are listed', JSON.stringify(await rows()) === JSON.stringify(['unrelated task', 'plan the quarter']), (await rows()).join(' | '));
+ok('the list asked for roots only', await page.evaluate(() => window.__calls.some((c) => c.url.endsWith('/runs?roots=1'))));
 
-// 1. Collapsed by default: a workflow is one row, its subagents are not listed.
-let t = await titles();
-ok('collapsed by default: subagents are not listed', !t.includes('research vat') && !t.includes('vendor pricing'), t.join(' | '));
-ok('the root IS listed', t.includes('plan the quarter'), t.join(' | '));
-ok('an unrelated top-level run is listed', t.includes('unrelated task'), t.join(' | '));
+// A subagent's events: never a row.
+for (const id of [2, 3, 4]) {
+  await push({ type: 'run', run: id, root: 1, data: { id, title: 'subagent ' + id, status: 'running', parentId: 1, rootId: 1 } });
+}
+await page.waitForTimeout(150);
+ok('a subagent never becomes a row', !(await rows()).some((r) => r.startsWith('subagent')), (await rows()).join(' | '));
 
-// 2. An orphan stays visible — burying it under a parent that no longer exists
-//    would make it permanently invisible AND undeletable.
-ok('an orphaned subagent is still reachable', t.includes('left behind'), t.join(' | '));
-const orphanMark = await page.$$eval('#runs .run', (els) =>
-  els.filter((e) => e.textContent.includes('orphan')).length);
-ok('the orphan is labelled as one', orphanMark === 1, `found ${orphanMark}`);
+// A new top-level run appears; a status change repaints its badge.
+await push({ type: 'run', run: 9, root: 9, data: { id: 9, title: 'new task', status: 'running', parentId: 0, rootId: 9 } });
+await page.waitForFunction(() => document.getElementById('runs').textContent.includes('new task'));
+ok('a new top-level run appears at the top', (await rows())[0] === 'new task');
+await push({ type: 'run', run: 5, root: 5, data: { id: 5, status: 'error', parentId: 0 } });
+await page.waitForFunction(() => [...document.querySelectorAll('#runs .run')]
+  .find((r) => r.textContent.includes('unrelated task'))?.querySelector('.badge')?.textContent === 'error');
+ok('a status change repaints the badge', true);
 
-// 3. Folding must not hide that work is running.
-const roll = await page.$eval('#runs .run .roll', (e) => e.textContent).catch(() => '');
-ok('a collapsed root rolls up its subtree', /⑂\s*3/.test(roll), roll);
-ok('…including what is still running', /1▶/.test(roll), roll);
-ok('…and what has failed', /1⚠/.test(roll), roll);
+// Quick asks stay on home, unless open.
+ok('a quick ask is not a row', !(await rows()).includes('⚡ a quick question'));
+await page.click('.home .qa');
+await page.waitForFunction(() => document.querySelector('#top .title')?.textContent === 'a quick question');
+ok('…except the one you have open', (await rows()).includes('⚡ a quick question'), (await rows()).join(' | '));
 
-// 4. The twisty expands, and expanding does not navigate.
-const before = await page.evaluate(() => window.__selected);
-await page.click('#runs .run .tw[data-tw]');
-await page.waitForFunction(() => document.querySelectorAll('#runs .run').length > 3, { timeout: 3000 });
-t = await titles();
-ok('expanding reveals the direct children', t.includes('research vat') && t.includes('vendor pricing'), t.join(' | '));
-ok('but not a grandchild whose own parent is still folded', !t.includes('deep dive'), t.join(' | '));
-const indents = await page.$$eval('#runs .run', (els) => els.map((e) => parseInt(e.style.paddingLeft, 10)));
-ok('children are indented under their parent', Math.max(...indents) > Math.min(...indents), indents.join(','));
+// Deletion removes the row.
+await push({ type: 'run', run: 9, root: 9, data: { id: 9, deleted: true } });
+await page.waitForFunction(() => !document.getElementById('runs').textContent.includes('new task'));
+ok('a deleted run leaves the list', true);
 
-// 5. Nested folding works the same way.
-const tws = await page.$$('#runs .run .tw[data-tw]');
-await tws[1].click(); // "research vat" now has its own twisty
-await page.waitForFunction(() => [...document.querySelectorAll('#runs .run .t')].some((e) => e.textContent.includes('deep dive')), { timeout: 3000 });
-ok('a nested subagent expands too', (await titles()).includes('deep dive'));
-
-// 6. Open state is persisted server-side (this frame has no localStorage).
-const prefs = await page.evaluate(() => window.__prefs.sideOpen);
-ok('expansion is persisted through the prefs API', Array.isArray(prefs) && prefs.includes(1), JSON.stringify(prefs));
-const usedLocalStorage = await page.evaluate(() => {
-  try { return window.__usedLS === true; } catch { return false; }
-});
-ok('and not through localStorage', !usedLocalStorage);
-
-// 7. Collapsing puts it back to one row.
-await page.click('#runs .run .tw[data-tw]');
-await page.waitForFunction(() => document.querySelectorAll('#runs .run').length <= 3, { timeout: 3000 });
-ok('collapsing folds the whole subtree away', (await rowCount()) <= 3, String(await rowCount()));
-
-// 8. The sidebar never widens the 220px column, whatever the model named a run.
-await page.evaluate(() => {
-  const long = { id: 20, title: 'a'.repeat(400), status: 'idle', parentId: 0, rootId: 20, depth: 0, created: 106, kind: '' };
-  const orig = window.xbin.fetch;
-  window.xbin.fetch = async (u, o) => (u.endsWith('/runs') ? { ok: true, json: async () => [long] } : orig(u, o));
-});
-await page.waitForTimeout(100);
-await page.evaluate(() => window.loadRuns && window.loadRuns());
-const overflow = await page.evaluate(() => {
-  const s = document.querySelector('.side');
-  return { pane: s.scrollWidth - s.clientWidth, doc: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth };
-});
-ok('a 400-char run title does not widen the sidebar', overflow.pane === 0, `by ${overflow.pane}px`);
-ok('…nor the document', overflow.doc === 0, `by ${overflow.doc}px`);
-
-// 9. A queued run says which wait it is. A full ceiling can last a whole drive
-//    of some other run; an admitted run starts within a moment. A bare
-//    "queued" badge made the two indistinguishable.
-await page.evaluate(() => {
-  window.__runs = [
-    { id: 30, title: 'waiting for a slot', status: 'queued', parentId: 0, rootId: 30, depth: 0, created: 300, kind: '' },
-    { id: 31, title: 'about to start', status: 'queued', parentId: 0, rootId: 31, depth: 0, created: 301, kind: '' },
-  ];
-  window.__slots = { active: 4, limit: 4 };
-  const orig = window.xbin.fetch;
-  window.xbin.fetch = async (u, o) => (u.endsWith('/runs') ? { ok: true, json: async () => window.__runs } : orig(u, o));
-});
-await page.waitForFunction(() => [...document.querySelectorAll('#runs .run .t')].some((e) => e.textContent.includes('waiting for a slot')), { timeout: 5000 });
-await page.click('#runs .run:has-text("waiting for a slot")');
-await page.waitForFunction(() => /drive slots are busy/.test(document.getElementById('timeline').textContent), { timeout: 3000 }).catch(() => {});
-ok('a run queued at the ceiling says the slots are busy',
-  /all 4 drive slots are busy/.test(await page.textContent('#timeline')), await page.textContent('#timeline'));
-await page.evaluate(() => { window.__slots = { active: 1, limit: 4 }; });
-await page.click('#runs .run:has-text("about to start")');
-await page.waitForFunction(() => /queued · starting/.test(document.getElementById('timeline').textContent), { timeout: 3000 }).catch(() => {});
-ok('a run queued with free slots says it is starting',
-  /queued · starting/.test(await page.textContent('#timeline')), await page.textContent('#timeline'));
-
+ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
-console.log(failures ? `\n${failures} FAILURE(S)` : 'all sidebar checks passed');
-process.exit(failures ? 1 : 0);
+done('sidebar');

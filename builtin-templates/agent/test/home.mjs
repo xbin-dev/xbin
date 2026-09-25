@@ -31,7 +31,8 @@ const ok = (name, cond, extra = '') => {
 };
 
 const ORIGIN = 'http://tile.test';
-const FILES = { '/': 'index.html', '/index.html': 'index.html', '/agent.js': 'agent.js' };
+const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js'];
+const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext();
@@ -47,6 +48,8 @@ await ctx.route(`${ORIGIN}/**`, (route) => {
   route.fulfill({ contentType: file.endsWith('.js') ? 'text/javascript' : 'text/html', body });
 });
 await serveKit(ctx);
+await ctx.route('**/vendor/lit-all.min.js', (r) => r.fulfill({ contentType: 'text/javascript',
+  body: readFileSync(process.env.BX_VENDOR ? join(process.env.BX_VENDOR, 'lit-all.min.js') : join(here, '..', '..', '..', 'web', 'vendor', 'lit-all.min.js'), 'utf8') }));
 await ctx.route('**/vendor/marked.esm.js', (r) =>
   r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
 
@@ -80,18 +83,20 @@ await ctx.addInitScript(() => {
         const v = await window.__prefGet(k);
         return v === undefined ? json({}, 404) : json(v);
       }
-      if (url.endsWith('/runs')) return json(runs);
+      if (url.endsWith('/runs') || url.endsWith('/runs?roots=1')) return json(runs);
+      if (url.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
       if (url.endsWith('/ask')) {
         const b = JSON.parse(opt.body);
         runs.unshift({ id: 9, title: b.text, kind: 'quick', status: 'running', updated: Date.now() / 1000 });
         return json(runs[0]);
       }
-      const m = url.match(/\/runs\/(\d+)$/);
+      const m = url.match(/\/runs\/(\d+)\/view$/);
       if (m) {
         const id = +m[1];
         if (id === 3) await new Promise((r) => setTimeout(r, 700)); // a slow response
         const run = runs.find((r) => r.id === id);
-        return json({ run, messages: [], steps: [], memory: {}, config: {}, draft: '' });
+        return json({ cursor: 'g.1', run: { pendingState: {}, ...run }, messages: [], steps: [], links: [], queued: [], drafts: [],
+          chain: [], memory: {}, config: {}, files: [], messageFiles: {} });
       }
       return json({});
     },

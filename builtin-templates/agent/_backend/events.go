@@ -300,7 +300,7 @@ func runSummary(r *Run) map[string]any {
 		"rootId": r.RootID, "depth": r.Depth, "wakeAt": r.WakeAt, "result": clip(r.Result, 400),
 		"pending": r.Pending != "", "llmCalls": r.LLMCalls, "promptTokens": r.PromptTokens,
 		"completionTokens": r.CompletionTokens, "turnSteps": r.TurnSteps, "turnStarted": r.TurnStarted,
-		"created": r.Created, "updated": r.Updated,
+		"created": r.Created, "updated": r.Updated, "pendingState": parsePending(r.Pending),
 	}
 }
 

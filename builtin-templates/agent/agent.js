@@ -1,56 +1,33 @@
-// agent.js — the control tile logic. Polls the backend and renders a run list
-// plus a live, interleaved timeline (transcript messages + the journal of LLM
-// calls / tool calls / compactions / yields), streams the in-flight assistant
-// draft while a run is running, and wires the steering controls, the render
-// pane for render_html output (sandboxed, see frameDoc), and a tabbed settings
-// area (config / features / memory / files / schedules / skills / MCP).
-// Vanilla ES module (no framework, no build step — like the rest of this tile);
-// xbin.fetch attributes calls to this element (self → admin of its own backend).
-import { marked } from '/vendor/marked.esm.js';
+// agent.js — the control tile. A run list (top-level runs only — subagents
+// live inside their parent's session), a home view of quick asks, the chat of
+// the selected run, the render pane for render_html output (sandboxed, see
+// frameDoc), the workflow tree, and a tabbed settings area (config / features
+// / memory / files / schedules / skills / MCP).
+//
+// Nothing polls. One live stream (stream.js) carries the run list and the
+// selected run's whole tree; chat-view.js keeps the views, chat-fold.js turns
+// them into blocks, chat-cards.js draws them. No framework beyond lit's
+// render(), no build step; xbin.fetch attributes calls to this element.
+import { html, render, nothing } from '/vendor/lit-all.min.js';
 
 const $ = (id) => document.getElementById(id);
 // esc() comes from the kit and escapes quotes as well as &<>: its output lands
-// in ATTRIBUTE position all over this file (title=, data-*, value=) with
-// model-controlled data — tool-call arguments in each call's title (JSON, so
-// always full of quotes), link titles from the markdown renderer, memory keys
-// the agent writes itself, skill names it authors.
+// in ATTRIBUTE position in the settings tabs (title=, data-*, value=) with
+// model-controlled data — memory keys the agent writes, skill names it authors.
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
+import { Session } from './chat-view.js';
+import { queueTpl } from './chat-cards.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
 const base = `/api/${xbin.self}`;
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
-
-// Assistant text renders as markdown, sanitized: raw HTML tokens are shown
-// escaped (model output is untrusted — an injected <script>/<img> must never
-// execute with this tile's frame token), links get safe schemes + a new tab,
-// and images render as their source text RATHER THAN LOADING. That last one is
-// load-bearing, not belt-and-braces: the platform CSP on /c/ documents is only
-// `sandbox allow-scripts allow-forms allow-modals allow-downloads` — there is
-// no img-src, no connect-src, nothing stopping a subresource fetch. A model
-// -authored <img src="https://…/?leak=…"> would be a live exfiltration beacon,
-// so the renderer never emits <img> at all. Everything else is HTML our
-// renderer produced from markdown structure. Streaming-tolerant: a parse error
-// falls back to escaped text.
-marked.use({
-  breaks: true,
-  renderer: {
-    html({ text }) { return esc(text); },
-    image({ text, href }) { return `<span class="muted">[image: ${esc(text || href || '')}]</span>`; },
-    link({ href, title, tokens }) {
-      const h = String(href || '').trim();
-      const inner = this.parser.parseInline(tokens);
-      if (/^(javascript|data|vbscript):/i.test(h)) return inner;
-      return `<a href="${esc(h)}" target="_blank" rel="noopener noreferrer"${title ? ` title="${esc(title)}"` : ''}>${inner}</a>`;
-    },
-  },
-});
-const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return esc(s); } };
 // Group digits for readability: 123123 → "123 123" (narrow no-break space).
-const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
 
 let sel = null;          // selected run id (null = home)
+
 // Capability lane for NEW asks (immutable per run once started): 'private'
 // = internal systems only, 'web' = web only — the exfiltration firewall.
 // Persisted via the per-user prefs API, NOT localStorage: tile frames are
@@ -84,10 +61,6 @@ const HOME = {
   ],
   placeholder: 'ask anything…',
 };
-let lastDetailKey = '';  // cheap change-detection for the timeline
-let lastHomeKey = '';    // change-detection for the home view
-let runsCache = [];      // last GET /runs
-let detail = null;       // last GET /runs/{id} payload
 let models = [];         // model ids from GET /models ({data:[{id}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -99,161 +72,136 @@ let filesCache = [];     // session files for the files tab (lookup by index)
 let filesSel = null;     // path of the file being edited (null = new)
 const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
+// --- the session ----------------------------------------------------------
+
+const session = new Session(base, {
+  change: () => paint(),
+  runs: () => { paintSide(); if (sel == null) paint(); },
+  gone: () => goHome(),
+});
+session.ui.act.select = (id) => selectRun(id);
+session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
+
+const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'queued', 'blocked']);
+
 // --- runs list ----------------------------------------------------------
+//
+// Top-level runs only, straight from GET /runs?roots=1 and the stream's run
+// events — a subagent never appears here (it lives inside its parent's
+// session, and in the workflow tree). Quick asks live on the home view,
+// except the one you have open.
 
-// sideOpen holds the roots whose subagents are expanded. A fan-out can add a
-// dozen runs at once, so a workflow is ONE row until you open it — otherwise
-// the run list floods and the tile stops being navigable. Server-side prefs,
-// not localStorage: this frame is a sandboxed opaque origin and has none.
-const sideOpen = new Set();
-let sideOpenLoaded = false;
-
-async function loadSideOpen() {
-  try {
-    const r = await xbin.fetch('/api/xbin/prefs/sideOpen');
-    if (r.ok) {
-      const v = await r.json();
-      if (Array.isArray(v)) v.forEach((id) => sideOpen.add(+id));
-    }
-  } catch { /* first run, or prefs unavailable */ }
-  sideOpenLoaded = true;
-  loadRuns();
-}
-
-function saveSideOpen() {
-  if (!sideOpenLoaded) return;
-  xbin.fetch('/api/xbin/prefs/sideOpen', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify([...sideOpen]),
-  }).catch(() => {});
-}
-
-// forest turns the flat run list into parent → children rows. A run whose
-// parent is MISSING is treated as a root rather than hidden: those are rows
-// orphaned by the pre-cascade delete bug, and burying them under a parent that
-// no longer exists would make them permanently invisible and undeletable.
-function forest(runs) {
-  const byId = new Map(runs.map((r) => [r.id, r]));
-  const kids = new Map();
-  for (const r of runs) {
-    if (r.parentId && byId.has(r.parentId)) {
-      if (!kids.has(r.parentId)) kids.set(r.parentId, []);
-      kids.get(r.parentId).push(r);
-    }
-  }
-  const rows = [];
-  const walk = (r, depth) => {
-    const mine = (kids.get(r.id) || []).sort((a, b) => a.created - b.created);
-    rows.push({ run: r, depth, kids: mine.length, orphan: !!r.parentId && !byId.has(r.parentId) });
-    if (sideOpen.has(r.id)) for (const c of mine) walk(c, depth + 1);
-  };
-  for (const r of runs) if (!r.parentId || !byId.has(r.parentId)) walk(r, 0);
-  return rows;
-}
-
-// subtreeOf counts a row's whole subtree, so a collapsed parent can show what
-// it is hiding — folding must never conceal that work is still running.
-function subtreeOf(id, runs) {
-  const kids = runs.filter((r) => r.parentId === id);
-  let nodes = kids.length, running = 0, error = 0;
-  for (const k of kids) {
-    if (k.status === 'running' || k.status === 'queued' || k.status === 'blocked') running++;
-    if (k.status === 'error') error++;
-    const sub = subtreeOf(k.id, runs);
-    nodes += sub.nodes; running += sub.running; error += sub.error;
-  }
-  return { nodes, running, error };
-}
-
-async function loadRuns() {
-  let runs;
-  try { runs = await api('/runs'); } catch { return; }
-  runsCache = runs || [];
-  // The sidebar lists TASKS (and their subagents): quick asks live on the
-  // home view — except the one you have open.
-  const tasks = runsCache.filter((r) => r.kind !== 'quick' || r.id === sel);
-  const host = $('runs');
-  host.innerHTML = '';
-  const rows = forest(tasks);
-  if (!rows.length) host.innerHTML = '<div class="empty">no tasks yet</div>';
-  for (const { run, depth, kids, orphan } of rows) {
-    const el = document.createElement('div');
-    el.className = 'run' + (run.id === sel ? ' on' : '');
-    // Indent capped at 3 levels: 220px minus the indent still has to fit a title.
-    el.style.paddingLeft = `${10 + Math.min(depth, 3) * 11}px`;
-    const open = sideOpen.has(run.id);
-    const tw = kids
-      ? `<span class="tw" data-tw="${num(run.id)}" title="${open ? 'collapse' : 'expand'} ${kids} subagent(s)">${open ? '▾' : '▸'}</span>`
-      : (depth ? '<span class="tw">·</span>' : (run.kind === 'quick' ? '⚡ ' : ''));
-    const sub = subtreeOf(run.id, tasks);
-    const roll = kids && !open && sub.nodes
-      ? `<span class="roll">⑂ ${sub.nodes}${sub.running ? ` · ${sub.running}▶` : ''}${sub.error ? ` · ${sub.error}⚠` : ''}</span>`
-      : '';
-    el.innerHTML = `<div class="t">${tw}${esc(run.title || 'run ' + run.id)}</div>
-      <div class="m">${orphan ? '<span title="its parent run was deleted">⚠ orphan · </span>' : ''}` +
-      `<span class="badge ${esc(run.status)}">${esc(run.status)}</span>${roll}</div>`;
-    el.onclick = () => { sel = run.id; lastDetailKey = ''; loadRuns(); loadDetail(); };
-    const twEl = el.querySelector('[data-tw]');
-    if (twEl) twEl.onclick = (e) => {
-      e.stopPropagation(); // twisting open must not also navigate
-      if (sideOpen.has(run.id)) sideOpen.delete(run.id); else sideOpen.add(run.id);
-      saveSideOpen();
-      loadRuns();
-    };
-    host.append(el);
-  }
+function paintSide() {
+  const cur = session.current();
+  const root = cur ? (cur.run.rootId || cur.run.id) : null;
+  const rows = session.roots().filter((r) => r.kind !== 'quick' || r.id === root);
+  render(rows.length ? rows.map((r) => html`
+    <div class="run ${r.id === root ? 'on' : ''}" @click=${() => selectRun(r.id)}>
+      <div class="t">${r.kind === 'quick' ? '⚡ ' : ''}${r.title || 'run ' + r.id}</div>
+      <div class="m"><span class="badge ${r.status}">${r.status}</span>
+        ${ACTIVE.has(r.status) && r.status !== 'waiting_input' ? html`<span class="spin"></span>` : nothing}</div>
+    </div>`) : html`<div class="empty">no tasks yet</div>`, $('runs'));
   syncHalt($('halt').dataset.on === '1');
-  if (sel == null) renderHome();
 }
 
 // --- home (no run selected) ----------------------------------------------
 
 function goHome() {
-  sel = null; detail = null; lastDetailKey = ''; lastHomeKey = '';
+  sel = null;
   closePreview(); prevSeen = null; prevDismissed = 0;
-  loadRuns(); renderHome();
+  closeWorkflow();
+  session.select(null);
+  paintSide(); paint();
 }
 
-function renderHome() {
-  const quick = runsCache.filter((r) => r.kind === 'quick' && !r.parentId).slice(0, 12);
-  const key = JSON.stringify(quick.map((r) => [r.id, r.status, r.updated]));
-  if (key === lastHomeKey) return;
-  lastHomeKey = key;
+const ago = (t) => {
+  const s = Math.max(0, Date.now() / 1000 - t);
+  if (s < 90) return 'now';
+  if (s < 5400) return `${Math.round(s / 60)}m`;
+  if (s < 129600) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+};
 
-  $('top').innerHTML = `<span class="title">${esc(HOME.title)}</span><span class="muted" style="font-size:11.5px">${esc(HOME.tagline)}</span>`;
-  const ago = (t) => {
-    const s = Math.max(0, Date.now() / 1000 - t);
-    if (s < 90) return 'now';
-    if (s < 5400) return `${Math.round(s / 60)}m`;
-    if (s < 129600) return `${Math.round(s / 3600)}h`;
-    return `${Math.round(s / 86400)}d`;
-  };
-  // A plain reply leaves result empty, so the card falls back to the run's
-  // last assistant message (GET /runs decorates quick asks with it).
-  const answerOf = (r) => {
-    if (r.status === 'done') return r.result || r.last || '';
-    if (r.status === 'waiting_input') return '❓ ' + (r.result || 'asking you something — open to answer');
-    if (r.status === 'running') return '…working';
-    if (r.status === 'error') return '⚠ ' + (r.result || 'error');
-    return r.result || r.last || '';
-  };
+// A plain reply leaves result empty, so the card falls back to the run's
+// last assistant message (GET /runs decorates quick asks with it).
+function answerOf(r) {
+  if (r.status === 'done') return r.result || r.last || '';
+  if (r.status === 'waiting_input') return '❓ ' + (r.result || 'asking you something — open to answer');
+  if (ACTIVE.has(r.status)) return '…working';
+  if (r.status === 'error') return '⚠ ' + (r.result || 'error');
+  return r.result || r.last || '';
+}
+
+function homeTpl() {
+  const quick = session.roots().filter((r) => r.kind === 'quick').slice(0, 12);
   const mcp = xbin.iface && xbin.iface('mcp');
-  $('timeline').innerHTML = `<div class="home">
-    <div class="hi">${esc(HOME.hi)}</div>
-    <div class="sub">${esc(HOME.sub)}${(mcp && (mcp.endpoints || []).length) ? '' : ' No MCP servers are bound yet — see ⚙ → MCP.'}</div>
-    <div class="exs">${HOME.examples.map((e) => `<span class="ex">${esc(e)}</span>`).join('')}</div>
-    ${quick.length ? `<h5>Recent quick asks</h5>` + quick.map((r) => `
-      <div class="qa" data-r="${num(r.id)}">
-        <div class="q">⚡ ${esc(r.title)}<span class="badge ${esc(r.status)}">${esc(r.status)}</span><span class="when">${ago(r.updated)}</span></div>
-        ${answerOf(r) ? `<div class="a">${esc(clip(answerOf(r), 400))}</div>` : ''}
-      </div>`).join('') : '<div class="hint">no quick asks yet — type one below</div>'}
+  const pick = (e) => { $('msg').value = e; autosize(); $('msg').focus(); };
+  return html`<div class="home">
+    <div class="hi">${HOME.hi}</div>
+    <div class="sub">${HOME.sub}${(mcp && (mcp.endpoints || []).length) ? '' : ' No MCP servers are bound yet — see ⚙ → MCP.'}</div>
+    <div class="exs">${HOME.examples.map((e) => html`<span class="ex" @click=${() => pick(e)}>${e}</span>`)}</div>
+    ${quick.length ? html`<h5>Recent quick asks</h5>${quick.map((r) => html`
+      <div class="qa" data-r=${r.id} @click=${() => selectRun(r.id)}>
+        <div class="q">⚡ ${r.title}<span class="badge ${r.status}">${r.status}</span><span class="when">${ago(r.updated)}</span></div>
+        ${answerOf(r) ? html`<div class="a">${clip(answerOf(r), 400)}</div>` : nothing}
+      </div>`)}` : html`<div class="hint">no quick asks yet — type one below</div>`}
   </div>`;
-  $('timeline').querySelectorAll('.ex').forEach((el) => el.onclick = () => { $('msg').value = el.textContent; $('msg').focus(); });
-  $('timeline').querySelectorAll('[data-r]').forEach((el) => el.onclick = () => {
-    sel = +el.dataset.r; lastDetailKey = ''; loadRuns(); loadDetail();
-  });
-  $('msg').placeholder = HOME.placeholder;
 }
+
+// --- selecting a run --------------------------------------------------------
+
+async function selectRun(id) {
+  if (id == null) return goHome();
+  sel = +id;
+  closeWorkflow();
+  if (preview && preview.runId !== sel) closePreview();
+  prevSeen = null;
+  try { await session.select(sel); } catch (e) { alert(e.message); return goHome(); }
+  paintSide(); paint();
+  const tl = $('timeline');
+  tl.scrollTop = tl.scrollHeight;
+}
+
+// --- painting -------------------------------------------------------------------
+
+function topTpl(v) {
+  if (!v) return html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
+  const r = v.run;
+  const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 private';
+  const tree = r.parentId || (v.links || []).length;
+  return html`<span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
+    <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
+    <span class="badge ${r.status}">${r.status}</span>
+    ${r.status === 'error' || r.status === 'canceled' ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
+    <button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
+    <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>
+    <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${Object.keys(v.memory || {}).length})</button>
+    <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${(v.files || []).length})</button>
+    ${tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    <button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>`;
+}
+
+// paint draws everything that depends on the session. lit patches only what
+// changed, so this is cheap enough to run on every streamed token.
+function paint() {
+  const v = session.current();
+  render(topTpl(v), $('top'));
+  const tl = $('timeline');
+  const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
+  render(v ? session.template() : homeTpl(), tl);
+  if (atBottom) tl.scrollTop = tl.scrollHeight;
+  render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
+  $('queue').hidden = !(v && session.queued().length);
+  const busy = session.busy();
+  $('stop').hidden = !busy;
+  $('msg').placeholder = !v ? HOME.placeholder
+    : busy ? 'steer — delivered at the agent\'s next step…'
+    : v.run.status === 'waiting_input' && (v.run.pendingState || {}).kind !== 'approval' ? 'answer the question…' : 'follow up…';
+  if (v) syncPreview(v);
+  if (wfOpen) treeDirty();
+}
+
+// --- workflow view ------------------------------------------------------
 
 // --- workflow view ------------------------------------------------------
 
@@ -284,10 +232,22 @@ async function loadTree() {
   renderWorkflow(t);
 }
 
-// The timeline can afford a wholesale innerHTML rebuild because you only read
-// it. A tree polled every couple of seconds cannot: a rebuild drops the hovered
-// row out from under the pointer and kills a button mid-click. So rebuild only
-// when the node SET changes, and patch values otherwise.
+// treeDirty re-reads the tree after the stream reported a change: at most one
+// request in flight, and one more if anything changed while it was.
+let treeBusy = false, treeAgain = false;
+function treeDirty() {
+  if (treeBusy) { treeAgain = true; return; }
+  treeBusy = true;
+  loadTree().finally(() => {
+    treeBusy = false;
+    if (treeAgain) { treeAgain = false; treeDirty(); }
+  });
+}
+
+// The tree is re-read on every link/status event. A wholesale rebuild would
+// drop the hovered row out from under the pointer and kill a button
+// mid-click, so rebuild only when the node SET changes, and patch values
+// otherwise.
 function renderWorkflow(t) {
   const nodes = t.nodes || [];
   const setKey = nodes.map((n) => n.id).join(',');
@@ -318,13 +278,6 @@ function paintWorkflowHeader(t) {
 // A run with no relatives gets no chip at all, so the workflow layer costs a
 // plain single run nothing: no extra element in an already-crowded top bar,
 // and no /tree request.
-function wfChip(run) {
-  const k = kinOf(run.id);
-  if (!k || k.nodes < 2) return '';
-  return `<span class="badge wfchip" data-a="wf" title="open the workflow view">⑂ ${k.nodes}`
-       + `${k.running ? ` · ${k.running}▶` : ''}${k.error ? ` · ${k.error}⚠` : ''} · ${fmtN(k.tokens)}</span>`;
-}
-
 function wfCostOf(n) { return num(n.promptTokens) + num(n.completionTokens); }
 
 function nodeRow(n, maxCost) {
@@ -384,38 +337,6 @@ function patchWorkflow(t) {
   }
 }
 
-// kinOf derives a run's tree shape from runsCache, which already carries
-// parentId — so a single childless run costs no request and shows no chip.
-function kinOf(id) {
-  const me = runsCache.find((r) => r.id === id);
-  if (!me) return { nodes: 0 };
-  const root = me.rootId || me.id;
-  const fam = runsCache.filter((r) => (r.rootId || r.id) === root);
-  return {
-    root,
-    nodes: fam.length,
-    running: fam.filter((r) => r.status === 'running' || r.status === 'queued').length,
-    error: fam.filter((r) => r.status === 'error').length,
-    tokens: fam.reduce((a, r) => a + num(r.promptTokens) + num(r.completionTokens), 0),
-  };
-}
-
-function selectRun(id) {
-  if (id == null) return;
-  sel = +id; lastDetailKey = '';
-  // Opening a node from the tree or a timeline chip must reveal it in the
-  // sidebar too, or the selected row is folded away where you cannot see it.
-  const byId = new Map(runsCache.map((r) => [r.id, r]));
-  let cur = byId.get(+id);
-  for (let i = 0; cur && cur.parentId && i < 8; i++) {
-    sideOpen.add(cur.parentId);
-    cur = byId.get(cur.parentId);
-  }
-  saveSideOpen();
-  closeWorkflow();
-  loadRuns(); loadDetail();
-}
-
 async function loadHalt() {
   try {
     const h = await api('/halt');
@@ -425,7 +346,7 @@ async function loadHalt() {
 
 function syncHalt(on) {
   const b = $('halt');
-  b.hidden = !on && !runsCache.some((r) => r.status === 'running' || r.status === 'queued');
+  b.hidden = !on && !session.roots().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input');
   b.textContent = on ? '⏻ HALTED' : '⏻';
   b.title = on ? 'Resume — the agent is halted' : 'Stop every running agent now';
   b.dataset.on = on ? '1' : '';
@@ -559,7 +480,7 @@ async function paintPreview() {
   $('prev-warn').textContent = warns.join(' · ');
 }
 
-// syncPreview follows the run's newest render step. Called from loadDetail on
+// syncPreview follows the run's newest render step. Called from paint on
 // every tick; it only acts when a NEW render lands.
 function syncPreview(d) {
   if (preview && preview.runId !== sel) closePreview();
@@ -582,314 +503,31 @@ function syncPreview(d) {
   openPreview(det.path, num(det.version), true);
 }
 
-// --- selected run -------------------------------------------------------
-
-function eventStream(d) {
-  // Merge transcript messages and the "meta" journal steps into one time-
-  // ordered stream. Tool activity (tool_call/tool_result) is shown via the
-  // transcript messages (assistant tool chips + tool-role results), and asks
-  // via the actionable footer, so those step kinds are omitted here to avoid
-  // duplicating them — renderStep still handles every kind for robustness.
-  const metaKinds = new Set(['llm_call', 'compaction', 'yield', 'state_changed', 'finish', 'error', 'note', 'render',
-                                'spawn', 'await', 'cancel', 'child_settled']);
-  const evs = [];
-  for (const m of d.messages || []) {
-    if (m.role === 'system') continue;
-    evs.push({ t: m.created, order: m.seq, kind: 'msg', m });
-  }
-  for (const s of d.steps || []) {
-    if (metaKinds.has(s.kind)) evs.push({ t: s.created, order: 1000 + s.seq, kind: 'step', s });
-  }
-  evs.sort((a, b) => (a.t - b.t) || (a.order - b.order));
-  return evs;
-}
-
-// Tool calls and results render collapsed to 1-2 lines (click to expand).
-// Open state lives in a session-level set keyed by message id, so it survives
-// the timeline's innerHTML rebuilds — a native <details> would snap shut on
-// every 1.5s poll that changes anything, which is exactly while you are
-// reading a running agent. The backend's capToolResult separately bounds what
-// the LLM context keeps; this is display only.
-const expanded = new Set();
-
-function renderMsg(m) {
-  let calls = '';
-  if (m.toolCalls) {
-    try {
-      calls = JSON.parse(m.toolCalls).map((tc, i) => {
-        const k = `c${m.id}:${i}`;
-        return `<div class="tc xwrap ${expanded.has(k) ? 'on' : ''}" data-x="${k}" title="click to expand / collapse">→ ${esc(tc.function.name)}<span class="xargs">(${esc(tc.function.arguments || '')})</span></div>`;
-      }).join('');
-    } catch { /* ignore */ }
-  }
-  if (m.role === 'tool') {
-    const k = `t${m.id}`;
-    const c = m.content || '';
-    const long = c.length > 160 || (c.match(/\n/g) || []).length > 1;
-    // runOneTool prefixes every failure with "error: ", so flagging it here
-    // makes a failed call visible inside the 2-line clamp instead of hiding
-    // behind a click.
-    const bad = /^error:/.test(c);
-    return `<div class="ev tool xwrap ${bad ? 'bad ' : ''}${expanded.has(k) ? 'on' : ''}" data-tool="${esc(m.name)}">
-      <div class="role xtoggle" data-x="${k}" title="click to expand / collapse">tool · ${esc(m.name)}${long ? ` <span class="xhint">· ${fmtN(c.length)} chars</span>` : ''}</div>
-      ${c ? `<div class="body clampable">${esc(c)}</div>` : ''}</div>`;
-  }
-  // A user message carrying files ends with the backend's "[attached: …]"
-  // note (written for the model); show it as chips instead.
-  let text = m.content, files = '';
-  if (m.role === 'user') [text, files] = splitAttachments(m);
-  const body = text
-    ? (m.role === 'assistant' ? `<div class="body md">${md(text)}</div>` : `<div class="body">${esc(text)}</div>`)
-    : '';
-  return `<div class="ev ${esc(m.role)}"><div class="role">${esc(m.role)}</div>
-    ${body}${files}${calls}</div>`;
-}
-
-// --- attachments on sent messages ------------------------------------------
-
-const ATTACH_NOTE = /\n\n\[attached: ([^\]]*)\]$/;
-const ATTACH_ITEM = /([A-Za-z0-9._\/-]+) \(([^,()]+), ([^()]+)\)/g;
-
-function splitAttachments(m) {
-  const hit = ATTACH_NOTE.exec(m.content || '');
-  if (!hit) return [m.content, ''];
-  const linked = new Set(((detail && detail.messageFiles) || {})[m.id] || []);
-  const chips = [...hit[1].matchAll(ATTACH_ITEM)].map(([, path, mime, size]) => {
-    const live = linked.has(path);
-    const img = live && /^image\/(png|jpeg|gif|webp)$/.test(mime) ? thumbFor(path) : '';
-    const icon = img ? `<img src="${esc(img)}" alt="">` : /^image\//.test(mime) ? '🖼' : mime === 'text' || /^text\//.test(mime) ? '📄' : '📦';
-    return `<span class="afile ${live ? '' : 'gone'}" ${live ? `data-afile="${esc(path)}"` : ''}
-      title="${esc(live ? `${mime} — open in the Files tab` : 'deleted')}"><span class="ic">${icon}</span>
-      <span class="mono">${esc(path)}</span><span class="sz">${esc(size)}</span></span>`;
-  }).join('');
-  const text = (m.content || '').slice(0, hit.index);
-  return [text === '(see attached)' ? '' : text, `<div class="afiles">${chips}</div>`];
-}
-
-// Image thumbnails come from the raw route as object URLs (the frame has no
-// other way to authenticate an <img> fetch). Cached per run and revoked when
-// the run changes; a fetched thumbnail triggers one timeline redraw.
-let thumbs = new Map();
-let thumbRun = null;
-function thumbFor(path) {
-  if (thumbRun !== sel) { thumbs.forEach((u) => u && URL.revokeObjectURL(u)); thumbs = new Map(); thumbRun = sel; }
-  if (thumbs.has(path)) return thumbs.get(path) || '';
-  thumbs.set(path, '');
-  const run = sel;
-  rawBlob(run, path).then((b) => {
-    if (thumbRun !== run) return;
-    thumbs.set(path, URL.createObjectURL(b));
-    lastDetailKey = ''; loadDetail();
-  }).catch(() => {});
-  return '';
-}
-
 async function rawBlob(run, path) {
   const r = await xbin.fetch(`${base}/runs/${run}/raw?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.blob();
 }
 
-// wireExpanders makes [data-x] elements toggle their .xwrap in place (no
-// refetch) while recording state for the next rebuild.
-function wireExpanders(host) {
-  host.querySelectorAll('[data-x]').forEach((el) => el.onclick = (e) => {
-    e.stopPropagation();
-    const k = el.dataset.x;
-    const wrap = el.classList.contains('xwrap') ? el : el.closest('.xwrap');
-    const on = !expanded.has(k);
-    if (on) expanded.add(k); else expanded.delete(k);
-    if (wrap) wrap.classList.toggle('on', on);
-  });
-}
-
-function renderStep(s) {
-  let d = {};
-  try { d = JSON.parse(s.detail); } catch { d = { text: s.detail }; }
-  let g = '◆', txt = '';
-  switch (s.kind) {
-    case 'llm_call':
-      g = '🧠';
-      txt = `${esc(d.model || 'model')} · ${d.latencyMs || 0}ms · in ${fmtN(d.promptTokens)} / out ${fmtN(d.completionTokens)} tok · ${d.toolCalls || 0} tool call(s)${d.finishReason ? ` · ${esc(d.finishReason)}` : ''}`;
-      break;
-    case 'tool_call':
-      g = '🔧';
-      txt = `${esc(d.name || '')}(${esc(typeof d.args === 'string' ? d.args : JSON.stringify(d.args || {}))})`;
-      break;
-    case 'tool_result':
-      g = '↩';
-      txt = `${esc(d.name || '')} → ${esc(clip(d.result || '', 300))}`;
-      break;
-    case 'compaction':
-      g = '🗜';
-      txt = `compacted ${d.messages || 0} message(s) → summary${d.summaryTokens ? ` (${fmtN(d.summaryTokens)} tok)` : ''}`;
-      break;
-    case 'yield':
-      g = '⏸';
-      txt = `yield${d.seconds != null ? ` ${d.seconds}s` : ''}${d.reason ? ` · ${esc(d.reason)}` : ''}`;
-      break;
-    case 'ask':
-      g = d.kind === 'approval' ? '🛂' : '❓';
-      txt = d.kind === 'approval'
-        ? `approval requested${(d.tools || []).length ? ` · ${esc((d.tools || []).join(', '))}` : ''}`
-        : `asked: ${esc(d.question || '')}`;
-      break;
-    case 'state_changed':
-      g = '✳';
-      txt = `state changed${d.summary ? ` · ${esc(d.summary)}` : ''}`;
-      break;
-    case 'finish':
-      g = '✓';
-      txt = `finished${d.result ? `: ${esc(d.result)}` : ''}`;
-      break;
-    case 'error':
-      g = '⚠';
-      txt = esc(d.error || d.text || '');
-      break;
-    case 'spawn':
-      g = '⑂';
-      txt = `spawned <span class="rchip" data-node="${num(d.runId)}" title="open this run">#${num(d.runId)}</span>`
-          + `${(d.after || []).length ? ` after ${(d.after || []).map((i) => '#' + num(i)).join(', ')}` : ''}`
-          + ` · ${esc(clip(d.task || '', 140))}`;
-      break;
-    case 'await':
-      g = '⏳';
-      txt = `waiting on ${num(d.calls)} background run(s)`;
-      break;
-    case 'child_settled':
-      g = '↵';
-      txt = `<span class="rchip" data-node="${num(d.runId)}" title="open this run">#${num(d.runId)}</span> ${esc(d.outcome || 'settled')}`;
-      break;
-    case 'cancel':
-      g = '⏹';
-      txt = `cancelled${d.reason ? ` · ${esc(d.reason)}` : ''}`;
-      break;
-    case 'render': {
-      g = '🖼';
-      const on = preview && preview.path === d.path;
-      txt = `<span class="rchip${on ? ' on' : ''}" data-render="${esc(d.path || '')}" data-rv="${num(d.version)}"
-              title="show this file in the render pane">${esc(d.path || '')}</span>` +
-            `<span class="muted"> · v${num(d.version)} · ${fmtN(d.bytes)} B</span>`;
-      break;
-    }
-    default: // note
-      g = '•';
-      txt = esc(d.text || s.detail || '');
-  }
-  const cls = s.kind === 'error' ? ' err' : '';
-  return `<div class="ev step${cls}"><div class="body"><span class="step-k">${g} ${esc(s.kind)}</span>${txt}</div></div>`;
-}
-
-// The parked action stored on a run: {kind:"approval"|"ask", toolCalls?}.
-function pendingOf(run) {
-  try { return JSON.parse(run.pending || '{}') || {}; } catch { return {}; }
-}
-
-async function loadDetail() {
-  if (sel == null) return;
-  let d;
-  try { d = await api(`/runs/${sel}`); } catch { return; }
-  if (sel !== d.run.id) return; // stale response after navigation
-  detail = d;
-  // Outside the change-key guard below: a run switch must always reset the
-  // render pane, even when the timeline itself has nothing new to draw.
-  syncPreview(d);
-  const run = d.run;
-  const pend = pendingOf(run);
-  const isApproval = run.status === 'waiting_input' && pend.kind === 'approval';
-
-  // Top bar + controls. The lane badge shows the run's immutable toolset.
-  const lane = (d.config && d.config.toolset) === 'web' ? '🌐 web' : '🔒 private';
-  $('top').innerHTML = `<span class="title">${esc(run.title || 'run ' + run.id)}</span>
-    <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
-    <span class="badge ${esc(run.status)}">${esc(run.status)}</span>
-    <button class="btn ghost btnsm" data-a="resume">Resume</button>
-    <button class="btn ghost btnsm" data-a="interrupt">Interrupt</button>
-    <button class="btn ghost btnsm" data-a="compact">Compact</button>
-    <button class="btn ghost btnsm" data-a="learn" title="Distill this run into a reusable skill">Learn skill</button>
-    <button class="btn ghost btnsm" data-a="mem">Memory (${Object.keys(d.memory || {}).length})</button>
-    <button class="btn ghost btnsm" data-a="files" title="This run's session files">Files (${(d.files || []).length})</button>
-    ${wfChip(run)}
-    <button class="btn rm btnsm" data-a="delete">Delete</button>`;
-  $('top').querySelectorAll('[data-a]').forEach((b) => b.onclick = () => control(b.dataset.a));
-
-  // Timeline. Include the live draft + status so streaming re-renders.
-  const key = JSON.stringify([run.status, run.updated, (d.messages || []).length, (d.steps || []).length, d.draft || '']);
-  if (key !== lastDetailKey) {
-    lastDetailKey = key;
-    const evs = eventStream(d);
-    let html = evs.map((e) => e.kind === 'msg' ? renderMsg(e.m) : renderStep(e.s)).join('');
-
-    // Live streaming partial assistant text while running (markdown too —
-    // a mid-fence partial parse just renders literally until the fence
-    // closes, which reads better than a wall of raw markdown).
-    if (run.status === 'running') {
-      html += d.draft
-        ? `<div class="draft"><div class="role">assistant · streaming</div><div class="body md">${md(d.draft)}<span class="cur"></span></div></div>`
-        : `<div class="draft"><div class="role">assistant · thinking<span class="cur"></span></div></div>`;
-    } else if (run.status === 'queued') {
-      // Say which wait this is: a full ceiling can last a whole drive of some
-      // other run, while an admitted run starts within a moment.
-      const sl = d.slots || {};
-      const full = sl.limit && num(sl.active) >= num(sl.limit);
-      html += `<div class="draft"><div class="role">${full
-        ? `queued · all ${num(sl.limit)} drive slots are busy — starts when one frees`
-        : 'queued · starting'}<span class="cur"></span></div></div>`;
-    }
-
-    // Actionable footer: approve/deny, or the ask to answer below.
-    if (isApproval) {
-      const tools = (pend.toolCalls || []).map((tc) => tc.function && tc.function.name).filter(Boolean);
-      html += `<div class="ask"><b>Approval needed</b>${tools.length ? ` for: <span class="mono">${esc(tools.join(', '))}</span>` : ' for a tool call.'}
-        <div style="margin-top:6px"><button class="btn btnsm" data-ap="1">Approve</button>
-        <button class="btn ghost btnsm" data-ap="0">Deny</button></div></div>`;
-    } else if (run.status === 'waiting_input') {
-      html += `<div class="ask"><b>The agent is asking:</b>${run.result ? `<div class="body">${esc(run.result)}</div>` : ''}
-        <div class="muted" style="margin-top:4px">answer below to continue</div></div>`;
-    }
-
-    const tl = $('timeline');
-    const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
-    tl.innerHTML = html || '<div class="empty">…</div>';
-    wireExpanders(tl);
-    // Clicking a chip PINS the pane to that file (live=false), so the newest
-    // render no longer steals it from under you.
-    tl.querySelectorAll('[data-render]').forEach((el) => el.onclick = () =>
-      openPreview(el.dataset.render, +el.dataset.rv, false));
-    tl.querySelectorAll('[data-afile]').forEach((el) => el.onclick = () => {
-      filesSel = el.dataset.afile; openSettings('files');
-    });
-    // Descending from a parent's transcript straight into the child is the most
-    // natural motion there is, and it costs one selector.
-    tl.querySelectorAll('[data-node]').forEach((el) => el.onclick = (e) => {
-      e.stopPropagation();
-      selectRun(+el.dataset.node);
-    });
-    tl.querySelectorAll('[data-ap]').forEach((b) => b.onclick = async () => {
-      try { await api(`/runs/${sel}/approve`, jbody({ approve: b.dataset.ap === '1' }, 'POST')); } catch (e) { alert(e.message); }
-      lastDetailKey = ''; loadDetail();
-    });
-    if (atBottom) tl.scrollTop = tl.scrollHeight;
-  }
-
-  // Composer: on a run it messages/answers that run (a message to a finished
-  // run resumes it); on home it starts a fresh quick ask. Always enabled.
-  $('msg').placeholder = run.status === 'waiting_input' ? 'answer the question…' : 'follow up…';
+// refreshView re-reads the selected run's view after an edit the stream does
+// not carry (memory blocks, session files).
+function refreshView() {
+  if (sel != null) session.fetchView(sel).then(paint).catch(() => {});
 }
 
 async function control(action) {
   if (action === 'mem') return openSettings('memory');
   if (action === 'files') return openSettings('files');
-  if (action === 'wf') { const k = kinOf(sel); return openWorkflow(k.root != null ? k.root : sel); }
+  if (action === 'wf') { const v = session.current(); return openWorkflow(v ? (v.run.rootId || v.run.id) : sel); }
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
     try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
     if (settingsOpen && activeTab === 'memory') renderTab();
+    session.runs.delete(sel);
     return goHome();
   }
-  // resume | interrupt | compact | learn → POST /runs/{id}/{action}
+  // resume | compact | learn → POST /runs/{id}/{action}
   try { await api(`/runs/${sel}/${action}`, { method: 'POST' }); } catch (e) { alert(e.message); }
-  lastDetailKey = ''; loadDetail();
 }
 
 // --- composer -----------------------------------------------------------
@@ -958,10 +596,10 @@ async function send() {
     // On home: start a fresh quick ask and jump into it (streaming answer).
     if (sel == null) {
       if (!attachments.length) {
-        $('msg').value = '';
+        $('msg').value = ''; autosize();
         const run = await api('/ask', jbody({ text: t, toolset }, 'POST'));
-        sel = run.id; lastDetailKey = '';
-        loadRuns(); loadDetail();
+        session.runs.set(run.id, run);
+        await selectRun(run.id);
         return;
       }
       // With attachments there is no run to upload into yet: create it held
@@ -976,22 +614,18 @@ async function send() {
         // chips must upload again next time.
         await api(`/runs/${run.id}`, { method: 'DELETE' }).catch(() => {});
         attachments.forEach((a) => { delete a.path; if (a.state === 'done') a.state = ''; });
-        loadRuns();
         throw e;
       }
-      $('msg').value = ''; attachments = [];
-      sel = run.id; lastDetailKey = '';
-      loadRuns(); loadDetail();
+      $('msg').value = ''; autosize(); attachments = [];
+      session.runs.set(run.id, run);
+      await selectRun(run.id);
       return;
     }
     const files = attachments.length ? await uploadAttachments(sel) : undefined;
-    // Route to /answer when the run is parked on an ask_user; otherwise
-    // /message (the backend aliases them, but this keeps intent explicit).
-    const run = detail && detail.run;
-    const waiting = run && run.status === 'waiting_input' && pendingOf(run).kind !== 'approval';
-    await api(`/runs/${sel}/${waiting ? 'answer' : 'message'}`, jbody({ text: t, files }, 'POST'));
-    $('msg').value = ''; attachments = [];
-    lastDetailKey = ''; loadDetail();
+    // While the run works this is queued and delivered at its next step (the
+    // strip above the composer shows it until then).
+    await session.send(t, files);
+    $('msg').value = ''; autosize(); attachments = [];
   } catch (e) {
     alert(e.message);
   } finally {
@@ -1025,7 +659,27 @@ $('msg').addEventListener('paste', (e) => {
     $('msg').focus();
   });
 }
-$('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+// Enter sends, Shift+Enter is a new line — and Enter that confirms an IME
+// composition (CJK input) is the IME's, not a send.
+$('msg').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
+});
+// The composer grows with its text, up to a third of the tile.
+function autosize() {
+  const m = $('msg');
+  m.style.height = 'auto';
+  m.style.height = Math.min(m.scrollHeight, Math.max(80, window.innerHeight / 3)) + 'px';
+}
+$('msg').addEventListener('input', autosize);
+// Stop interrupts the run. Messages still queued come back into the composer
+// rather than being sent to a run you just stopped.
+$('stop').onclick = async () => {
+  try {
+    const back = await session.stop();
+    const text = back.map((q) => q.text).filter(Boolean).join('\n\n');
+    if (text) { $('msg').value = [text, $('msg').value].filter(Boolean).join('\n\n'); autosize(); $('msg').focus(); }
+  } catch (e) { alert(e.message); }
+};
 
 // Render pane header. Closing remembers WHICH render was dismissed, so the
 // poll doesn't immediately reopen the same one.
@@ -1034,7 +688,7 @@ $('wf-stop').onclick = async () => {
   if (wfRoot == null || !confirm('Cancel this workflow and every run below it?')) return;
   try { await api(`/runs/${wfRoot}/cancel`, jbody({ scope: 'subtree', reason: 'stopped from the tile' }, 'POST')); }
   catch (e) { return alert(e.message); }
-  loadTree(); loadRuns();
+  loadTree();
 };
 // One click, no confirm — during a runaway every dialog is another second of
 // spend. The undo is the same button.
@@ -1042,7 +696,7 @@ $('halt').onclick = async () => {
   const on = $('halt').dataset.on !== '1';
   try { await api('/halt', jbody({ on }, 'PUT')); } catch (e) { return alert(e.message); }
   syncHalt(on);
-  loadRuns(); if (wfOpen) loadTree();
+  if (wfOpen) loadTree();
 };
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
 $('prev-max').onclick = () => {
@@ -1077,9 +731,9 @@ $('n-create').onclick = async (e) => {
   if (!goal) { e.preventDefault(); return; }
   try {
     const run = await api('/runs', jbody({ goal, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value }, 'POST'));
-    sel = run.id; lastDetailKey = '';
+    session.runs.set(run.id, run);
+    await selectRun(run.id);
   } catch (err) { alert(err.message); }
-  loadRuns(); loadDetail();
 };
 
 // --- settings panel + tabs ---------------------------------------------
@@ -1194,7 +848,6 @@ async function tabFeatures(bd) {
 async function tabMemory(bd) {
   if (sel == null) { bd.innerHTML = '<div class="empty">select a run to edit its memory blocks</div>'; return; }
   const d = await api(`/runs/${sel}`);
-  detail = d;
   const entries = Object.entries(d.memory || {});
   const keys = entries.map((e) => e[0]);
   bd.innerHTML = `<div class="sec"><h4>Memory · run ${sel}</h4>
@@ -1211,20 +864,20 @@ async function tabMemory(bd) {
     const i = +b.dataset.set;
     try { await api(`/runs/${sel}/memory`, jbody({ key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }, 'PUT')); }
     catch (e) { return alert(e.message); }
-    tabMemory(bd); loadDetail();
+    tabMemory(bd); refreshView();
   });
   bd.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.del;
     try { await api(`/runs/${sel}/memory?key=${encodeURIComponent(keys[i])}`, { method: 'DELETE' }); }
     catch (e) { return alert(e.message); }
-    tabMemory(bd); loadDetail();
+    tabMemory(bd); refreshView();
   });
   $('madd').onclick = async () => {
     const k = $('mk').value.trim();
     if (!k) return;
     try { await api(`/runs/${sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
     catch (e) { return alert(e.message); }
-    tabMemory(bd); loadDetail();
+    tabMemory(bd); refreshView();
   };
 }
 
@@ -1308,7 +961,7 @@ async function tabFiles(bd) {
     catch (e) { return alert(e.message); }
     if (filesSel === f.path) filesSel = null;
     if (preview && preview.path === f.path) closePreview();
-    tabFiles(bd); lastDetailKey = ''; loadDetail();
+    tabFiles(bd); refreshView();
   });
   if ($('fl-new')) $('fl-new').onclick = () => { filesSel = null; tabFiles(bd); };
   if ($('fl-render')) $('fl-render').onclick = () => { closeSettings(); openPreview(cur.path, cur.version, false); };
@@ -1324,7 +977,7 @@ async function tabFiles(bd) {
       filesSel = path;
       // An open pane showing this file must repaint: bump it to the new version.
       if (preview && preview.path === path) openPreview(path, r.version, preview.live);
-      tabFiles(bd); lastDetailKey = ''; loadDetail();
+      tabFiles(bd); refreshView();
     } catch (e) { $('fl-err').textContent = e.message; }
   };
 }
@@ -1372,7 +1025,7 @@ async function tabSchedules(bd) {
   bd.querySelectorAll('[data-fire]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.fire];
     try { await api(`/schedules/${s.id}/trigger`, { method: 'POST' }); } catch (e) { return alert(e.message); }
-    loadRuns();
+    session.loadRoots().catch(() => {});
   });
   bd.querySelectorAll('[data-delsc]').forEach((b) => b.onclick = async () => {
     const s = schedCache[+b.dataset.delsc];
@@ -1450,14 +1103,8 @@ function tabMcp(bd) {
   </div>`;
 }
 
-// --- poll ---------------------------------------------------------------
+// --- start ------------------------------------------------------------------
 
-loadRuns();
-loadSideOpen();
+paint();
+session.start().catch(() => {});
 loadHalt();
-setInterval(loadRuns, 2500);
-setInterval(loadDetail, 1500);
-// One aggregate request per tick covers the whole tree, so the cost is O(1) in
-// the number of concurrent runs rather than one request per node — and it is
-// only paid while the pane is actually open.
-setInterval(() => { if (wfOpen && document.visibilityState === 'visible') loadTree(); }, 2000);

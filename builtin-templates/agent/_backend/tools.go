@@ -204,8 +204,7 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return "(no such memory block)", nil
 
 	case "note":
-		text, _ := args["text"].(string)
-		ag.db.journal(run.ID, "note", map[string]string{"text": text})
+		// The call itself is the visible note (the chat shows it as a card).
 		return "noted", nil
 
 	case "state_changed":

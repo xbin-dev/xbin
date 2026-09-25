@@ -32,7 +32,8 @@ const ok = (name, cond, extra = '') => {
 };
 
 const ORIGIN = 'http://tile.test';
-const FILES = { '/': 'index.html', '/index.html': 'index.html', '/agent.js': 'agent.js' };
+const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js'];
+const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
@@ -50,6 +51,8 @@ await page.route(`${ORIGIN}/**`, (route) => {
   route.fulfill({ contentType: file.endsWith('.js') ? 'text/javascript' : 'text/html', body });
 });
 await serveKit(page);
+await page.route('**/vendor/lit-all.min.js', (r) => r.fulfill({ contentType: 'text/javascript',
+  body: readFileSync(process.env.BX_VENDOR ? join(process.env.BX_VENDOR, 'lit-all.min.js') : join(here, '..', '..', '..', 'web', 'vendor', 'lit-all.min.js'), 'utf8') }));
 await page.route('**/vendor/marked.esm.js', (r) =>
   r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
 
@@ -72,9 +75,10 @@ await page.addInitScript(() => {
       else if (typeof opt.body === 'string') { try { rec.body = JSON.parse(opt.body); } catch { rec.body = opt.body; } }
       window.__calls.push(rec);
       if (url.includes('/prefs/')) return res(404, {});
-      if (path === '/runs') return res(200, runs);
+      if (path === '/runs' || path === '/runs?roots=1') return res(200, runs);
+      if (path.startsWith('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
       if (path === '/halt') return res(200, { on: false });
-      if (path === '/ask' && method === 'POST') return res(200, { id: 42, title: rec.body.text, status: 'idle' });
+      if (path === '/ask' && method === 'POST') return res(200, { id: 42, title: rec.body.text, status: 'idle', kind: 'quick', parentId: 0 });
       let m = path.match(/^\/runs\/(\d+)\/upload\?name=(.*)$/);
       if (m) {
         const name = decodeURIComponent(m[2]);
@@ -91,6 +95,13 @@ await page.addInitScript(() => {
           messages: [], steps: [], memory: {}, config: {}, files: [], draft: '', messageFiles: {} });
       }
       if (/^\/runs\/\d+\/files$/.test(path)) return res(200, (window.__detail && window.__detail.files) || []);
+      m = path.match(/^\/runs\/(\d+)\/view$/);
+      if (m) {
+        const id = +m[1];
+        const d = window.__detail || { run: { id, title: 'run ' + id, status: 'idle' }, messages: [], files: [], messageFiles: {} };
+        return res(200, { cursor: 'g.1', links: [], queued: [], drafts: [], chain: [], steps: [], memory: {}, config: {}, ...d,
+          run: { pendingState: {}, ...d.run } });
+      }
       return res(200, {});
     },
     download: (name) => { window.__downloaded = name; },
@@ -108,7 +119,8 @@ await page.waitForFunction(() => document.querySelectorAll('#runs .run').length 
 
 const png = Buffer.from('\x89PNG\r\n\x1a\nxxxxxxxx', 'binary');
 const calls = () => page.evaluate(() => window.__calls.filter((c) => !c.path.startsWith('/runs?') && c.path !== '/runs' &&
-  c.path !== '/halt' && !c.path.includes('prefs') && !(c.method === 'GET' && /^\/runs\/\d+(\/files)?$/.test(c.path))));
+  c.path !== '/halt' && !c.path.includes('prefs') && !c.path.startsWith('/stream') &&
+  !(c.method === 'GET' && /^\/runs\/\d+(\/files|\/view)?$/.test(c.path))));
 const resetCalls = () => page.evaluate(() => { window.__calls = []; });
 const chips = () => page.$$eval('#attach .chip', (els) => els.map((e) => ({ cls: e.className, text: e.textContent.replace(/\s+/g, ' ').trim() })));
 const idle = () => page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 3000 });
@@ -191,7 +203,7 @@ seq = (await calls()).map((x) => `${x.method} ${x.path}`);
 ok('in-run retry: only the failed file uploads again, then the message',
   JSON.stringify(seq) === JSON.stringify(['PUT /runs/5/upload?name=two.png', 'POST /runs/5/message']), seq.join(' | '));
 all = await calls();
-ok('in-run: the message names both files', JSON.stringify(all[1].body) === '{"text":"compare","files":["one.png","two.png"]}', JSON.stringify(all[1].body));
+ok('in-run: the message names both files', all[1].body.text === 'compare' && JSON.stringify(all[1].body.files) === '["one.png","two.png"]', JSON.stringify(all[1].body));
 
 // 5. A message with no files sends no `files` at all.
 await resetCalls();
@@ -263,8 +275,8 @@ await page.evaluate(() => {
 await page.click('#home');
 await page.click('#runs .run');
 await page.waitForFunction(() => document.querySelectorAll('.afile').length === 3, { timeout: 3000 });
-const bubble = await page.$$eval('.ev.user', (els) => els.map((e) => ({
-  body: e.querySelector('.body')?.textContent || '',
+const bubble = await page.$$eval('.msg.user', (els) => els.map((e) => ({
+  body: e.querySelector('.txt')?.textContent || '',
   files: [...e.querySelectorAll('.afile')].map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), gone: a.classList.contains('gone'), link: a.dataset.afile || '' })),
 })));
 ok('the note is not shown as text', !bubble[0].body.includes('[attached:') && bubble[0].body.trim() === 'what is this?', JSON.stringify(bubble[0]));

@@ -1,14 +1,15 @@
 <!doctype html>
 <!--
-  The agent control + observability tile. Opinionated on purpose: a run list,
-  a live timeline of the selected run (messages + the journal of every LLM call,
-  tool call, compaction, yield…) with live-streaming partial output, plus the
-  controls to steer it (message, answer/approve, interrupt, resume, compact,
-  learn), a render pane for the HTML files the agent shows, and a tabbed
-  settings area (config / features / memory / files / schedules / skills /
-  MCP). Pure frontend talking to this component's own backend via
-  xbin.fetch (raw fetch to /api/${xbin.self}<path>). No build step: plain ES
-  modules, no framework — exactly like the rest of this tile.
+  The agent control + observability tile. Opinionated on purpose: a run list
+  (top-level runs; subagents live inside their parent's session), the live chat
+  of the selected run — streamed thinking, a card per tool call with the
+  model's own one-line summary, subagents nested inline with their own
+  thinking and tools — the controls to steer it (a message while it works is
+  queued for its next step; Stop; approve; compact; learn), a render pane for
+  the HTML files the agent shows, the workflow tree, and a tabbed settings area
+  (config / features / memory / files / schedules / skills / MCP). Pure
+  frontend talking to this component's own backend via xbin.fetch over one
+  live stream (no polling). No build step: plain ES modules and lit's render().
 -->
 <html lang="en">
 <head>
@@ -43,8 +44,9 @@
     .top { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
-    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; }
-    .composer input { flex: 1; }
+    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; align-items: flex-end; }
+    .composer textarea { flex: 1; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer .btn { height: 30px; }
     /* Attachments waiting to be sent: a row above the composer, never inside
        it, so the composer's own geometry (test/layout.mjs) is unchanged. */
     .attach { flex: none; display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px 0; border-top: 1px solid var(--bx-border); }
@@ -95,67 +97,11 @@
     .badge.done { color: var(--bx-green); }
     .badge.error { color: var(--bx-red); }
     .badge.idle { color: var(--bx-muted); }
-    .ev { border-left: 2px solid var(--bx-border); padding: 4px 0 4px 10px; margin: 2px 0; }
-    .ev.user { border-color: var(--bx-accent); }
-    .ev.assistant { border-color: #6aa9ff; }
-    .ev.tool { border-color: #b58900; }
-    .ev.step { border-color: var(--bx-border); }
-    .ev.step.err { border-color: var(--bx-red); }
-    .ev .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
-    .ev .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
-    /* markdown bodies: the renderer's own block layout, not pre-wrap */
-    .body.md { white-space: normal; }
-    .body.md > :first-child { margin-top: 0; }
-    .body.md > :last-child { margin-bottom: 0; }
-    .body.md p, .body.md ul, .body.md ol, .body.md blockquote { margin: 5px 0; }
-    .body.md ul, .body.md ol { padding-left: 22px; }
-    .body.md h1, .body.md h2, .body.md h3, .body.md h4 { margin: 8px 0 3px; font-size: 14px; }
-    .body.md h1 { font-size: 16px; } .body.md h2 { font-size: 15px; }
-    .body.md code { font-family: var(--bx-mono); font-size: 12px; background: var(--bx-panel-2);
-      border: 1px solid var(--bx-border); border-radius: 4px; padding: 0 4px; }
-    .body.md pre { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-      border-radius: 6px; padding: 7px 9px; margin: 5px 0; overflow-x: auto; }
-    .body.md pre code { background: none; border: 0; padding: 0; white-space: pre; }
-    .body.md blockquote { border-left: 3px solid var(--bx-border); padding-left: 9px; color: var(--bx-muted); }
-    .body.md table { border-collapse: collapse; margin: 5px 0; display: block; overflow-x: auto; }
-    .body.md th, .body.md td { border: 1px solid var(--bx-border); padding: 2px 8px; font-size: 12.5px; }
-    .body.md a { color: var(--bx-accent, #f5a623); text-decoration: underline; }
-    .body.md hr { border: 0; border-top: 1px solid var(--bx-border); margin: 8px 0; }
-    .ev.step .body { color: var(--bx-muted); font-size: 12px; }
-    .ev.step.err .body { color: var(--bx-red); }
-    .step-k { display: inline-block; color: var(--bx-muted); font-size: 10.5px; text-transform: uppercase;
-              letter-spacing: .03em; margin-right: 5px; }
-    /* Tool-call chips + tool results: collapsed to 1-2 lines, click to expand
-       (.xwrap.on = expanded; toggle state survives re-renders via agent.js). */
-    .tc { font-family: var(--bx-mono); font-size: 11.5px; background: var(--bx-panel-2);
-          border: 1px solid var(--bx-border); border-radius: 5px; padding: 4px 7px; margin-top: 3px; overflow-x: auto; }
-    .tc.xwrap { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tc.xwrap::before { content: '▸ '; color: var(--bx-muted); }
-    .tc.xwrap.on { white-space: pre-wrap; word-break: break-word; overflow: visible; }
-    .tc.xwrap.on::before { content: '▾ '; }
-    .ev.tool .role.xtoggle { cursor: pointer; }
-    .ev.tool .role.xtoggle::before { content: '▸ '; }
-    .ev.tool.xwrap.on .role.xtoggle::before { content: '▾ '; }
-    .xhint { text-transform: none; letter-spacing: 0; }
-    .ev.tool.xwrap .clampable { display: -webkit-box; -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical; overflow: hidden; color: var(--bx-muted); font-size: 12px; }
-    .ev.tool.xwrap.on .clampable { display: block; -webkit-line-clamp: unset;
-      overflow: visible; color: var(--bx-text); font-size: 13px; }
-    .ev.tool.bad { border-left: 2px solid var(--bx-red); padding-left: 8px; }
-    .ev.tool.bad .role { color: var(--bx-red); }
     .muted { color: var(--bx-muted); }
     .mono { font-family: var(--bx-mono); }
     .ask { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent);
            border: 1px solid color-mix(in srgb, var(--bx-yellow, #d9a441) 45%, var(--bx-border));
            border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
-    /* Live streaming draft (partial assistant text while status=running). */
-    .draft { border-left: 2px solid #6aa9ff; padding: 4px 0 4px 10px; margin: 2px 0; }
-    .draft .role { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
-    .draft .body { white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
-    .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent);
-           margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
-    @keyframes blink { 50% { opacity: 0; } }
-
     /* Workflow view — shares #timeline's slot rather than adding a third row,
        so the composer geometry the layout test pins is untouched. */
     .wfpane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -243,12 +189,97 @@
     .rchip:hover { border-color: var(--bx-accent); background: var(--bx-panel-2); }
     .rchip.on { background: color-mix(in srgb, var(--bx-accent) 16%, transparent); }
 
-    /* Sandbox results and file contents read as code: tracebacks and aligned
-       columns are unreadable in the UI font. An attribute selector, not a
-       class, because MCP tool names contain colons. */
-    .ev.tool[data-tool="js_eval"] .body, .ev.tool[data-tool="js_run"] .body,
-    .ev.tool[data-tool="file_read"] .body { font-family: var(--bx-mono); font-size: 12px; }
-
+    /* ---- the chat (chat-cards.js) ---- */
+    .muted.small, .small { font-size: 11.5px; }
+    .center { text-align: center; margin: 6px 0; }
+    .crumbs { font-size: 11.5px; color: var(--bx-muted); margin: 0 0 8px; }
+    .crumbs a { cursor: pointer; color: var(--bx-accent); }
+    .msg { margin: 8px 0; word-break: break-word; }
+    .msg.user { margin-left: auto; max-width: 88%; width: fit-content; padding: 6px 11px; border-radius: 10px;
+                background: color-mix(in srgb, var(--bx-accent) 11%, var(--bx-panel)); border: 1px solid color-mix(in srgb, var(--bx-accent) 30%, var(--bx-border)); }
+    .msg.user .txt { white-space: pre-wrap; }
+    .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+    .md p, .md ul, .md ol, .md blockquote { margin: 5px 0; }
+    .md ul, .md ol { padding-left: 22px; }
+    .md h1, .md h2, .md h3, .md h4 { margin: 8px 0 3px; font-size: 14px; }
+    .md h1 { font-size: 16px; } .md h2 { font-size: 15px; }
+    .md code { font-family: var(--bx-mono); font-size: 12px; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 4px; padding: 0 4px; }
+    .md pre { background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; padding: 7px 9px; margin: 5px 0; overflow-x: auto; }
+    .md pre code { background: none; border: 0; padding: 0; white-space: pre; }
+    .md blockquote { border-left: 3px solid var(--bx-border); padding-left: 9px; color: var(--bx-muted); }
+    .md table { border-collapse: collapse; margin: 5px 0; display: block; overflow-x: auto; }
+    .md th, .md td { border: 1px solid var(--bx-border); padding: 2px 8px; font-size: 12.5px; }
+    .md a { color: var(--bx-accent); text-decoration: underline; }
+    .md hr { border: 0; border-top: 1px solid var(--bx-border); margin: 8px 0; }
+    .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent); margin-left: 2px;
+           vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    .spin { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%;
+            border: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); border-top-color: var(--bx-accent);
+            animation: spin .8s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* thinking: a quiet fold; open (with a shimmer) while it streams */
+    .think { margin: 6px 0; font-size: 12px; color: var(--bx-muted); }
+    .think .th { cursor: pointer; user-select: none; display: inline-flex; gap: 5px; }
+    .think.live .th { background: linear-gradient(90deg, var(--bx-muted) 20%, var(--bx-text) 50%, var(--bx-muted) 80%);
+                      background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+                      animation: shimmer 1.6s linear infinite; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    .think .tb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding: 2px 0 2px 10px; margin-top: 3px;
+                 font-style: italic; max-height: 320px; overflow: auto; }
+    .tw { color: var(--bx-muted); font-size: 10px; width: 10px; display: inline-block; }
+    /* tool and subagent cards */
+    .tcard, .acard { border: 1px solid var(--bx-border); border-radius: 7px; margin: 5px 0; background: var(--bx-panel-2); min-width: 0; }
+    .tch, .ach { display: flex; align-items: center; gap: 7px; padding: 4px 9px; cursor: pointer; min-width: 0; font-size: 12.5px; }
+    .tch:hover, .ach:hover { background: var(--bx-panel); border-radius: 7px; }
+    .tch .ic, .ach .ic { flex: none; width: 18px; text-align: center; color: var(--bx-muted); font-family: var(--bx-mono); font-size: 11px; }
+    .tch .hl, .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tch .st, .ach .st { flex: none; font-size: 10.5px; color: var(--bx-muted); }
+    .tcard.error { border-color: color-mix(in srgb, var(--bx-red) 45%, var(--bx-border)); }
+    .tcard.error .st { color: var(--bx-red); }
+    .tcard.approval, .acard.approval { border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 55%, var(--bx-border)); }
+    .tcard.stopped .hl { color: var(--bx-muted); text-decoration: line-through; }
+    .tcb { padding: 2px 10px 8px 34px; font-size: 12px; }
+    .tname { font-size: 10.5px; color: var(--bx-muted); margin-bottom: 3px; }
+    .args { display: grid; gap: 2px; }
+    .arg { display: grid; grid-template-columns: minmax(60px, auto) 1fr; gap: 8px; min-width: 0; }
+    .arg .k { color: var(--bx-muted); font-family: var(--bx-mono); font-size: 11px; }
+    .arg .v { min-width: 0; overflow-wrap: anywhere; }
+    .arg pre.v, .res pre { margin: 0; font-family: var(--bx-mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+                           background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px; padding: 5px 7px;
+                           max-height: 320px; overflow: auto; }
+    .res { margin-top: 6px; }
+    .lnk { border: 0; background: none; color: var(--bx-accent); cursor: pointer; font: inherit; font-size: 11px; padding: 0 2px; }
+    .acard { border-left: 3px solid color-mix(in srgb, var(--bx-accent) 60%, var(--bx-border)); }
+    .acard.done { border-left-color: var(--bx-green); }
+    .acard.error, .acard.stopped { border-left-color: var(--bx-red); }
+    .ach .rid { font-family: var(--bx-mono); font-size: 10.5px; color: var(--bx-muted); }
+    .acb { padding: 0 10px 8px 16px; border-top: 1px dashed var(--bx-border); }
+    .acb .task { font-size: 11.5px; color: var(--bx-muted); margin: 6px 0; cursor: pointer;
+                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .acb .task.on { display: block; white-space: pre-wrap; }
+    .acb .answer { margin-top: 6px; border-top: 1px solid var(--bx-border); padding-top: 5px; }
+    .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); margin-right: 5px; }
+    .notice { font-size: 12px; color: var(--bx-muted); margin: 5px 0; }
+    .notice .nh { cursor: pointer; }
+    .notice .nb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding-left: 10px; margin-top: 3px; }
+    .step { font-size: 11.5px; color: var(--bx-muted); margin: 3px 0; overflow-wrap: anywhere; }
+    .step.error { color: var(--bx-red); }
+    .step .g { display: inline-block; width: 16px; text-align: center; }
+    .activity { font-size: 12px; color: var(--bx-muted); margin: 8px 0 2px; display: flex; gap: 7px; align-items: center; }
+    .activity.warn { color: var(--bx-yellow, #d9a441); }
+    .ask ul { margin: 4px 0 6px; padding-left: 20px; }
+    /* queued messages: a strip above the composer, each removable until delivered */
+    .queue { flex: none; display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px 0; border-top: 1px solid var(--bx-border); }
+    .queue[hidden] { display: none; }
+    .queue + .attach, .queue + .attach + .composer, .queue + .composer { border-top: 0; }
+    .qchip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: 11.5px; padding: 1px 4px 1px 8px;
+             border: 1px dashed var(--bx-accent); border-radius: 999px; background: var(--bx-panel); }
+    .qchip .ql { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-accent); }
+    .qchip .qt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+    .qchip button { border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font: inherit; }
+    .qchip button:hover { color: var(--bx-red); }
+    .run .m .spin { width: 8px; height: 8px; }
     /* Settings panel — overlays the run view (timeline+composer) when open. */
     .settings { position: absolute; inset: 0; background: var(--bx-panel); display: flex; flex-direction: column; z-index: 5; }
     .settings[hidden] { display: none; }
@@ -321,11 +352,11 @@
              never .side, so it stays one click away from every view state. -->
         <button class="btn rm btnsm" id="halt" title="Stop every running agent now" hidden>⏻</button>
       </div>
-      <div class="runs" id="runs"><div class="empty">no tasks yet</div></div>
+      <div class="runs" id="runs"></div>
     </div>
     <div class="main" id="main">
-      <div class="top" id="top"><span class="muted">select or start a run</span></div>
-      <div class="timeline" id="timeline"><div class="empty">—</div></div>
+      <div class="top" id="top"></div>
+      <div class="timeline" id="timeline"></div>
 
       <!-- Workflow view. A SIBLING of #timeline that takes the SAME flex slot:
            the two are alternatives, never both, so the geometry above the
@@ -373,12 +404,14 @@
         </div>
       </div>
 
+      <div class="queue" id="queue" hidden></div>
       <div class="attach" id="attach" hidden></div>
       <div class="composer">
         <button class="btn ghost" id="tset" title="Tool mode for new asks: 🔒 private data (internal systems, no web) / 🌐 web (no internal systems). A run keeps its mode.">🔒</button>
         <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
         <input type="file" id="clipin" multiple hidden>
-        <input id="msg" placeholder="ask anything…" autocomplete="off">
+        <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
+        <button class="btn rm" id="stop" title="Stop the agent — messages still queued come back here" hidden>Stop</button>
         <button class="btn" id="send">Send</button>
       </div>
 
