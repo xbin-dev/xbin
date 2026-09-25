@@ -382,6 +382,10 @@ a banner across the top of the shell naming who you are viewing and an
   **sign out** while viewing) hands the browser back to your own session.
 - **Visible.** `/whoami` reports `impersonatedBy` and `readOnly:true`, the
   sessions tab marks the row, and audit lines carry `impersonator=`.
+  Backends see it too: calls carry `X-XBin-Viewed-By: <admin>` next to
+  `X-XBin-User` (SDK `xbin.Caller(r).ViewedBy`), so a tile that keeps
+  per-user private data — the agent template's conversations — can refuse
+  it to someone looking through the user's eyes.
 - **Limits.** Not a disabled account, not yourself, and not while already
   viewing as someone. Any admin may view any account, admins included —
   it never grants more than reading as them.

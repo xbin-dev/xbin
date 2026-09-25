@@ -399,7 +399,7 @@ _ = xbin.Publish(xbin.Resource("bus"), "changed", payload)
 node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 `os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` (and
 `X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
-D29) headers,
+D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 cgi: any executable; CGI/1.1 env + `XBIN_FROM`/`XBIN_ROLE`; response on

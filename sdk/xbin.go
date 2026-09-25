@@ -96,6 +96,10 @@ type CallerInfo struct {
 	// UserLevel is that user's access level on THIS tile:
 	// read | write | terminal ("" when User is empty).
 	UserLevel string
+	// ViewedBy is set when an admin is VIEWING the workspace as User (D64):
+	// the admin's id ("owner" for the root token). The call reads as User;
+	// don't show it data that is private to User.
+	ViewedBy string
 }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
@@ -105,6 +109,7 @@ func Caller(r *http.Request) CallerInfo {
 	return CallerInfo{
 		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
 		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
+		ViewedBy: r.Header.Get("X-XBin-Viewed-By"),
 	}
 }
 

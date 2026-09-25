@@ -32,10 +32,12 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
+c.ViewedBy                   // an admin viewing as User (D64): hide User's
+                             // private data from them
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
 xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact;

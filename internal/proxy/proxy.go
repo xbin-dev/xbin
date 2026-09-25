@@ -37,6 +37,11 @@ const (
 	// trustworthy because inbound X-XBin-* is stripped.
 	HeaderUser      = "X-XBin-User"
 	HeaderUserLevel = "X-XBin-User-Level"
+	// HeaderViewedBy is set when the attributed user is being VIEWED AS by an
+	// admin (D64): it names the admin ("owner" for the root token). The
+	// request reads as that user; a backend that keeps per-user private data
+	// can refuse to show it to someone else looking through the user's eyes.
+	HeaderViewedBy = "X-XBin-Viewed-By"
 )
 
 // Policy decides whether principal p may call target, and at which role.
@@ -165,33 +170,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Scrub any spoofed identity, then inject the verified one. Strip every
-	// X-XBin-* an inbound caller might set — including X-XBin-Ingress-Host,
-	// which only the ingress path (ForwardIngress) legitimately injects; on
-	// this authenticated /api path a backend must never receive a caller-
-	// supplied one (a tile could otherwise fake a public hostname).
-	for k := range r.Header {
-		if strings.HasPrefix(http.CanonicalHeaderKey(k), "X-Xbin-") {
-			r.Header.Del(k)
-		}
-	}
-	r.Header.Set(HeaderFrom, p.From())
-	r.Header.Set(HeaderRole, role)
-	// Attribute the driving human (D29): frame/terminal principals carry the
-	// user id; session principals are the user. Backends can then tell WHO
-	// clicked — the tile's own UI at `read` is not a blank check anymore.
-	uid := p.UserID
-	if uid == "" && p.User != nil {
-		uid = p.User.ID
-	}
-	if uid != "" {
-		r.Header.Set(HeaderUser, uid)
-		if px.UserLevel != nil {
-			if l := px.UserLevel(uid, comp.Path); l != "" {
-				r.Header.Set(HeaderUserLevel, l)
-			}
-		}
-	}
+	px.identify(r, p, role, comp.Path)
 
 	if comp.Manifest.Runtime == "cgi" {
 		px.serveCGI(w, r, comp, endpoint)
@@ -270,6 +249,40 @@ func (px *Proxy) serveCGI(w http.ResponseWriter, r *http.Request, comp *registry
 		InheritEnv: []string{"PATH", "HOME"},
 	}
 	h.ServeHTTP(w, r)
+}
+
+// identify scrubs any spoofed identity from r and injects the verified one.
+// It strips every X-XBin-* an inbound caller might set — including
+// X-XBin-Ingress-Host, which only the ingress path (ForwardIngress)
+// legitimately injects; on this authenticated /api path a backend must never
+// receive a caller-supplied one (a tile could otherwise fake a public
+// hostname).
+func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) {
+	for k := range r.Header {
+		if strings.HasPrefix(http.CanonicalHeaderKey(k), "X-Xbin-") {
+			r.Header.Del(k)
+		}
+	}
+	r.Header.Set(HeaderFrom, p.From())
+	r.Header.Set(HeaderRole, role)
+	// Attribute the driving human (D29): frame/terminal principals carry the
+	// user id; session principals are the user. Backends can then tell WHO
+	// clicked — the tile's own UI at `read` is not a blank check anymore.
+	uid := p.UserID
+	if uid == "" && p.User != nil {
+		uid = p.User.ID
+	}
+	if uid != "" {
+		r.Header.Set(HeaderUser, uid)
+		if px.UserLevel != nil {
+			if l := px.UserLevel(uid, tile); l != "" {
+				r.Header.Set(HeaderUserLevel, l)
+			}
+		}
+		if p.Impersonator != "" {
+			r.Header.Set(HeaderViewedBy, p.Impersonator)
+		}
+	}
 }
 
 func jsonErr(w http.ResponseWriter, code int, msg, detail string) {

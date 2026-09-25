@@ -18,6 +18,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversations and an Automations page (D83, landing in the next changes).
   Existing runs are classified in place and stay visible to everyone;
   `POST /ask` also takes `title` and `system`. Additive.
+- **Backends can tell when an admin is viewing as a user.** Under view-as
+  (D64) proxied calls carry `X-XBin-Viewed-By: <admin>` next to
+  `X-XBin-User` (SDK `xbin.Caller(r).ViewedBy`), so a tile with per-user
+  private data — the agent template's conversations — can refuse it to
+  someone looking through the user's eyes. Additive
+  ([protocol.md](protocol.md), [auth.md](auth.md)).
 - **SDK: `xbin.SetSecret(name, value)` / `xbin.DeleteSecret(name)`** write a
   component's own vault from its backend (additive). A tile's frontend can't
   reach the vault API (D30), so a settings page hands a token to its backend,

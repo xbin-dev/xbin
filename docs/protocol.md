@@ -52,6 +52,10 @@ X-XBin-User: <user id>                   (the signed-in HUMAN driving the
                                           and the bootstrap token, D29)
 X-XBin-User-Level: read|write|terminal   (that user's level on the callee;
                                           set with X-XBin-User)
+X-XBin-Viewed-By: owner | <admin id>     (set with X-XBin-User when an admin
+                                          is VIEWING AS that user, D64 — a
+                                          backend keeping per-user private
+                                          data should not show it)
 X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 ```
 
