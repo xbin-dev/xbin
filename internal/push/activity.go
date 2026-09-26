@@ -393,19 +393,14 @@ func (s *Service) activityRegistered(user, deviceID, session, handle string, pus
 		ls.state = ls.compute()
 	}
 	switch {
-	case ls == nil || !ls.busy:
-		since := int64(0)
+	case ls == nil || !ls.busy: // the turn is over already
+		final, ts := ActivityState{Phase: PhaseIdle, Since: since}, now.Unix()
 		if ls != nil {
-			since = ls.since
+			final.Since, ts = ls.since, ls.ts(now)
 		}
 		s.st.removeActivity(user, deviceID, session, handle)
-		ts := now.Unix()
-		if ls != nil {
-			ts = ls.ts(now)
-		}
 		jobs = append(jobs, liveJob{user: user, deviceID: deviceID, session: session, handle: handle, priority: 10,
-			act: activityPush{Event: "end", Timestamp: ts, State: ActivityState{Phase: PhaseIdle, Since: since},
-				DismissalDate: now.Add(activityDismiss).Unix()}})
+			act: activityPush{Event: "end", Timestamp: ts, State: final, DismissalDate: now.Add(activityDismiss).Unix()}})
 	case pushStarted && ls.sent[deviceID] != ls.state:
 		ls.sent[deviceID] = ls.state
 		jobs = append(jobs, liveJob{user: user, deviceID: deviceID, session: session, handle: handle, priority: 10,
