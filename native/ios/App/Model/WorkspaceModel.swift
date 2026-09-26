@@ -96,6 +96,7 @@ final class WorkspaceModel: Identifiable {
     func update(record r: WorkspaceRecord) {
         record = r
         Task { await auth.update(record: r) }
+        AppModel.shared.save()
     }
 
     var agents: AgentClient { AgentClient(transport: AgentSessionTransport(auth: auth, transport: transport)) }
@@ -137,7 +138,7 @@ final class WorkspaceModel: Identifiable {
 
     /// The shell's `layout` pref lives in the shell's bucket
     /// (per user × component): read it with a frame token for `shell`.
-    private func loadLayout() async -> JSONValue? {
+    private func loadLayout() async -> XbinCore.JSONValue? {
         guard let t = try? await frameTokens.token(for: "shell") else { return nil }
         let r = try? await transport.send(APIRequest("GET", "/api/xbin/prefs/layout",
                                                      headers: [TileScheme.frameTokenHeader: t,
