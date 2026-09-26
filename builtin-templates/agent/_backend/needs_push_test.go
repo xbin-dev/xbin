@@ -218,3 +218,21 @@ func TestNeedsPushOff(t *testing.T) {
 		t.Fatal(plainText("## **Pick** `one`\n  please"))
 	}
 }
+
+// A run that keeps failing (a watcher, a session) is one push per window,
+// whatever the error says.
+func TestNeedsPushFailingRunOnce(t *testing.T) {
+	db := newTestDB(t)
+	ag := newTestAgent(t, db)
+	log := withPushes(ag, 0)
+	id := runAs(t, ag, runStamp{Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer, Origin: "watcher", OriginID: 2}, false)
+	for i := 0; i < 3; i++ {
+		if err := db.setStatus(id, statusError, 0, fmt.Sprintf("round %d: upstream 500", i), ""); err != nil {
+			t.Fatal(err)
+		}
+		ag.needs.check(ag, id)
+	}
+	if got := log.to(); got != "alice:failed" {
+		t.Fatalf("pushed %s", got)
+	}
+}

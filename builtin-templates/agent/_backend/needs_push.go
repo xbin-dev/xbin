@@ -18,8 +18,9 @@
 // It is best-effort and quiet: the engine hands the moment over after its
 // transaction commits and never waits. After a short grace the run is read
 // again and nothing is sent if it moved on (answered at once, by someone
-// looking). One push per run, state and question/approval/error — a second
-// identical one within dedupeFor is dropped — and at most userBurst per
+// looking). One push per run and state within dedupeFor — per question or
+// approval, so a new question in the same run is news again, but a run that
+// keeps failing is one push — and at most userBurst per
 // person, refilled one per userEvery, over every run of this tile. xbind has
 // its own limits on top (per tile, per person); a refusal is logged, never
 // retried.
@@ -145,7 +146,8 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 		if e := strings.TrimSpace(plainText(run.Result)); e != "" {
 			body += ": " + clip(e, 200)
 		}
-		fp = fmt.Sprint(run.Result, "\x00", run.TurnStarted)
+		// no fingerprint: a run that keeps failing (a watcher, a session)
+		// is one push per dedupe window, not one per failed turn
 	default:
 		return nil
 	}

@@ -80,8 +80,9 @@ Recipients come from the run's own access list only — never from a request —
 so an admin's view-as (D64) neither triggers nor receives one, and a
 team-wide role reaches nobody in particular (those people see it under Needs
 you when they look). It is best-effort: after a 3 s grace the run is read
-again and nothing is sent if it moved on (someone answered at once); the same
-run, state and question is sent once per 6 h; each person gets at most 10 at
+again and nothing is sent if it moved on (someone answered at once); a
+question or approval is sent once per 6 h (a new one in the same run is news
+again), a run that keeps failing once per 6 h; each person gets at most 10 at
 once, refilled one per 6 min, over the whole tile; xbind's own limits apply on
 top, and a refusal is logged, never retried. `needs_push.go`; an instance
 that wants none sets `agent.needs = nil` in `main.go`.
