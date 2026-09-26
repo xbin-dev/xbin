@@ -143,8 +143,9 @@ GET  /c/<component-path>/?native=1
                                  the tile's index.html; 404 with the reason
                                  when the tile has no native entry (trusted
                                  chrome never has one); the slashless URL
-                                 301s keeping the query. ?native=1 on any
-                                 other /c/ URL is an ordinary request
+                                 301s keeping the query; any other
+                                 directory URL 404s. ?native=1 on a file
+                                 URL is an ordinary request
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  UNAUTHENTICATED — shipped xbind code, and
                                  sandboxed tile frames load it credential-less
