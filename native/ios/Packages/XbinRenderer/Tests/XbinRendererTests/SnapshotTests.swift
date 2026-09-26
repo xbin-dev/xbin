@@ -58,7 +58,12 @@ import XbinRendererModel
         for name in names {
             for (scheme, schemeTag, type, typeTag) in variants {
                 let store = try XbinFixtures.store(name, in: set)
-                let view = XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(inlineSheets: true))
+                // An attach service that uploads nothing, so a composer with
+                // an upload target shows its attach button, as the
+                // reference's does (the app's pickers never open here).
+                let services = XbinServices(attach: { _ in [] })
+                let view = XbinTreeView(store: store, send: { _ in }, services: services,
+                                        options: XbinRenderOptions(inlineSheets: true))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
                 let png = Snapshot.png(of: view, size: Self.size, scale: Self.scale, scheme: scheme, type: type)
