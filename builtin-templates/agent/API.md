@@ -811,12 +811,16 @@ the same model.
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
 in pages (`?limit=`, `Session.loadOlder()`, "Paging the view"); the web
-passes neither and reads whole views.
+passes neither and reads whole views. An app that uploads picked files itself
+asks `app.uploadTarget()` where (the open run, or at home the new ask's draft
+`app.draft`) and hands the answer to `app.attach.uploaded({…, at: app.place})`:
+such a chip stays where it was picked (`app.attach.here(place)`), and Send at
+home sends the draft (`POST /ask {draft, files}`).
 
 | The native view | What it draws |
 |---|---|
 | `native.js` | the entry: one surface at a time — home or the open conversation (a subagent's parents under it; back goes up), the Automations screens, pushed tools — plus the conversations drawer and the sheets; deep links (`#c=`, `#auto`, `#join=`) and a restarted runtime (`xbin.native.state`) go through `model/router.js` |
-| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`), the top bar as the toolbar's menu |
+| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
