@@ -1443,6 +1443,105 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          xbin.status/notify. Cleared on backend
                                          restart. Guidelines: workspace AGENTS.md.
 
+POST   /notify                           element: a tile's backend (instance
+                                         token). body {user, title, body?, link?,
+                                         kind?, collapseId?} → 202 {ok:true}. A
+                                         push notification to a person's
+                                         registered app devices (Push
+                                         notifications, below). user: the id to
+                                         notify ("user:<id>" accepted); they must
+                                         be able to read the calling tile — 403
+                                         otherwise, and for unknown or disabled
+                                         users. A tile's frontend (frame token)
+                                         or a shell in it (terminal token) may
+                                         notify only the person using it (403
+                                         for anyone else). link is relative to
+                                         the tile (#fragment, ?query or a path
+                                         inside it; no dot segments, encoded or
+                                         not). kind (a–z 0–9 -) makes the push
+                                         kind tile.<kind>; collapseId (≤64 of
+                                         A–Z a–z 0–9 . _ : -) makes later ones
+                                         replace earlier ones. 429 + Retry-After
+                                         over the per-tile limit. 202 also when
+                                         push is off, the user has no device for
+                                         the kind, muted the tile (nothing is
+                                         counted then), or is over the per-user
+                                         limit (dropped) — delivery is
+                                         best-effort. SDK xbin.NotifyUser
+POST   /devices/push                     a signed-in person (the app's device
+                                         session; not a tile). body {deviceId,
+                                         handle, publicKey, kinds?} → {device:
+                                         {deviceId, kinds, created, updated,
+                                         lastSent?}, workspace, enabled}.
+                                         Registers (or refreshes) where this
+                                         user's pushes go: handle = the push
+                                         relay's handle for this app install and
+                                         workspace, publicKey = the device's
+                                         X25519 key (base64url, 32 bytes), kinds
+                                         = what it wants (agent, agent.permission,
+                                         agent.question, agent.turn, tile,
+                                         tile.<kind>; a kind matches those under
+                                         it; none = all). One registration per
+                                         (user, deviceId); a handle belongs to one
+                                         registration (the newest). workspace =
+                                         the `ws` every payload carries;
+                                         device.needsNewHandle (below)
+GET    /devices/push                     a signed-in person. {workspace, enabled,
+                                         devices:[{deviceId, kinds, created,
+                                         updated, lastSent?, needsNewHandle?,
+                                         relayError?}]} — your own.
+                                         needsNewHandle: the relay no longer
+                                         delivers to that handle for this
+                                         workspace (relayError handle_bound |
+                                         handle_unknown) — the app creates a
+                                         fresh handle and registers again
+DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 404
+GET    /push/prefs                       a signed-in person. {mutedTiles:[path]}
+PUT    /push/prefs                       a signed-in person. body {mutedTiles}
+                                         (replaces; ≤1000) → the stored prefs.
+                                         A muted tile's /notify reaches none of
+                                         your devices
+POST   /push/test                        a signed-in person. A test push to your
+                                         devices (kinds don't filter it) → 202
+                                         {devices}; 409 when push is off or no
+                                         device is registered
+GET    /push/config                      admin. {enabled, source?: env|admin,
+                                         relay?, relayWorkspace?, keySet?,
+                                         defaultRelay?, set?, by?, workspace,
+                                         devices, staleDevices?, stats: {queued,
+                                         sent, retried, failed, dropped, limited,
+                                         lastError?, lastErrorAt?}} — the key is
+                                         never shown; the relay stays listed
+                                         while push is off
+PUT    /push/config                      admin. body {relay?, key?, rotate?}:
+                                         turn push on. relay: https:// (http only
+                                         on localhost; default: the stored relay,
+                                         else XBIN_PUSH_RELAY). key: checked with
+                                         the relay (400 when it does not know
+                                         it). Without key: the stored key when
+                                         the relay is the same (409 when the
+                                         relay no longer knows it), else xbind
+                                         registers the workspace with the relay.
+                                         rotate:true registers anew — every
+                                         handle that delivered under the old key
+                                         then reads needsNewHandle until its app
+                                         renews it. 409 when the environment
+                                         configures the relay; 502 when the relay
+                                         cannot be reached → the /push/config view
+DELETE /push/config                      admin. Push off; the relay key and every
+                                         registration stay, so PUT {} turns it
+                                         back on with nothing to do in the apps
+                                         → 204
+GET    /push/devices?user=<id>           admin. {devices:[{user, deviceId, kinds,
+                                         created, updated, lastSent?,
+                                         needsNewHandle?, relayError?}]} — one
+                                         user's registrations (without ?user=:
+                                         every registration)
+DELETE /push/devices/<user>              admin. Revoke all of a user's
+                                         registrations → {removed} | 404
+DELETE /push/devices/<user>/<deviceId>   admin. Revoke one (a lost phone) →
+                                         {removed} | 404
+
 GET    /cron/jobs                        own jobs (admin: all). {jobs}
 PUT    /cron/jobs                        writer on the cron resource.
                                          body {name, resource, schedule, path, role?, component?¹}
@@ -1473,6 +1572,44 @@ no longer exists loses the subscription. Answer 2xx; ≥400 counts as
 `failed`. Stored in `data/bus-subscriptions.json`, carried in the
 component's backup; a new tile created at a removed tile's path starts
 without that path's cron jobs and subscriptions.
+
+**Push notifications.** The xbin app receives pushes through a push relay
+(the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque
+handle to the device, and never sees content. An admin turns push on per
+workspace (`PUT /push/config`, or `XBIN_PUSH_RELAY` + `XBIN_PUSH_RELAY_KEY`,
+docs/config.md); the app registers each device with `POST /devices/push`.
+Each notification is sealed to the device's X25519 key — ephemeral X25519,
+HKDF-SHA256 (salt = ephemeral public key ‖ device public key, info
+`xbin-push-v1`), AES-256-GCM — over the JSON payload `{v:1, ws, kind,
+title, body, link, collapseId}`; the relay forwards the envelope `{v:1, epk,
+n, ct}` inside a generic "New activity" alert and the app's extension shows
+the real text (the exact format and test vectors: native/spec/push.md in
+the repository). `link` is relative to the workspace: `c/<tile>/…` for a
+tile, `agent/<session>` for an agent session.
+
+Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
+sessions of the device's user — a `permission.request` (`agent.permission`)
+or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
+a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
+buckets): 120/hour per tile (burst 20); 240/hour per user from all tiles
+together (burst 40); agent sessions have their own 240/hour per user (burst
+40) and 120/hour per session (burst 20), so tiles cannot crowd out a
+permission request; 60/hour (burst 5) of `POST /push/test`. Over a per-user
+or per-session limit a push is dropped (counted as `limited`). Nothing
+reaches a disabled user. Signing a user out everywhere (`DELETE
+/users/<id>/sessions`), disabling or deleting them drops their push
+registrations (a deleted user's preferences too); the app registers again
+at the next sign-in. Delivery is asynchronous and best-effort: a bounded
+queue (a full one drops), up to 5 attempts with backoff on relay 429/5xx or
+network errors. Only the relay's own error codes touch a registration: 410
+(the device is gone) removes it; 403 `handle_bound` or 404 `handle_unknown`
+marks it `needsNewHandle` (skipped until the app renews the handle); any
+other refusal — a proxy's 403, a wrong URL's 404, 401 `bad_key` — fails
+that notification only (`lastError`). The relay key identifies this
+workspace at the relay, and the relay binds each handle to the first
+workspace that pushes to it: a new relay workspace (rotate, a changed
+`XBIN_PUSH_RELAY_KEY`, another relay) orphans every handle that delivered
+under the old one. State lives in `data/push/push.json` (mode 0600).
 
 ## WebSockets
 

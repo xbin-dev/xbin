@@ -149,6 +149,9 @@ func (st *State) serve(ctx context.Context) error {
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()
+	if st.Push != nil {
+		st.Push.Close()
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
