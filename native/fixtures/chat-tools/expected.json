@@ -1,0 +1,53 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Fix the pay client","subtitle":"~/src/checkout","style":"scroll"},"c":[
+  {"k":"r.0","t":"transcript","p":{"follow":true},"c":[
+    {"k":"r.0.0:e1","t":"message","p":{"role":"user","text":"Fix the pay client's idle timeout and add a test. Deploy to staging when green."}},
+    {"k":"r.0.0:e2","t":"thinking","p":{"text":"Default the timeout instead of trusting 0; the legacy pool is dead code now.","seconds":6,"open":true},"e":["toggle"]},
+    {"k":"r.0.0:e3","t":"plan","p":{"entries":[{"text":"Default IdleConnTimeout when the config says 0","status":"completed"},{"text":"Add a regression test for connection reuse","status":"completed"},{"text":"Run the test suite","status":"in_progress"},{"text":"Deploy to staging","status":"pending"}]}},
+    {"k":"r.0.0:t1","t":"toolcard","p":{"title":"Read internal/pay/client.go","icon":"doc","family":"read","state":"ok","chips":[{"text":"118 lines","tone":"muted"}],"open":false},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t1.0:0","t":"code","p":{"wrap":false,"text":"func NewClient(cfg Config) *Client {\n\ttr := &http.Transport{\n\t\tIdleConnTimeout: cfg.IdleTimeout,\n\t}"}}
+    ]},
+    {"k":"r.0.0:t2","t":"toolcard","p":{"title":"Edit internal/pay/client.go","icon":"pencil","family":"edit","state":"ok","chips":[{"text":"+2","tone":"ok"},{"text":"−1","tone":"danger"}],"open":false},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t2.0:0","t":"diff","p":{"files":[{"path":"internal/pay/client.go","status":"modified","add":2,"del":1}]}}
+    ]},
+    {"k":"r.0.0:t3","t":"toolcard","p":{"title":"Explore: who else sets IdleTimeout?","icon":"agent","family":"agent","state":"ok","chips":[{"text":"subagent","tone":"accent"},{"text":"3 tools","tone":"muted"}],"open":true},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t3.0:0","t":"transcript","c":[
+        {"k":"r.0.0:t3.0:0.0:x1","t":"message","p":{"role":"user","text":"Find every place that sets IdleTimeout for the pay client."}},
+        {"k":"r.0.0:t3.0:0.0:x2","t":"toolcard","p":{"title":"grep -rn IdleTimeout","icon":"search","family":"shell","state":"ok","open":false},"e":["toggle","open"],"c":[
+          {"k":"r.0.0:t3.0:0.0:x2.0:0","t":"code","p":{"wrap":false,"text":"config/staging.yaml:12:  idle_timeout: 0\ninternal/pay/client.go:43:\t\tIdleConnTimeout: cfg.IdleTimeout,"}}
+        ]},
+        {"k":"r.0.0:t3.0:0.0:x3","t":"message","p":{"role":"assistant","markdown":true,"text":"Only `config/staging.yaml` sets it, to **0**.","tokens":[
+            {"t":"paragraph","c":[{"t":"text","text":"Only "},{"t":"codespan","text":"config/staging.yaml"},{"t":"text","text":" sets it, to "},{"t":"strong","c":[{"t":"text","text":"0"}]},{"t":"text","text":"."}]}
+          ]}}
+      ]}
+    ]},
+    {"k":"r.0.0:t4","t":"toolcard","p":{"title":"go test ./internal/pay/...","icon":"terminal","family":"shell","state":"error","chips":[{"text":"exit 1","tone":"danger"},{"text":"2.4 s","tone":"muted"}],"open":true},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t4.0:0","t":"code","p":{"wrap":true,"text":"--- FAIL: TestIdleReuse (0.21s)\n    client_test.go:31: dialed 12 times, want 1\nFAIL\tacme/internal/pay\t2.412s"}},
+      {"k":"r.0.0:t4.0:1","t":"notice","p":{"tone":"danger","text":"1 test failed"}}
+    ]},
+    {"k":"r.0.0:t5","t":"toolcard","p":{"title":"Screenshot staging checkout","icon":"photo","family":"browser","state":"canceled","chips":[{"text":"canceled by Ana","tone":"warn"}],"open":false},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t5.0:0","t":"image","p":{"src":"api/apps/coder/files/shot-3.png","alt":"Checkout page, spinner on the pay button","aspect":"fit","height":"s"}},
+      {"k":"r.0.0:t5.0:1","t":"text","p":{"tone":"muted","text":"Stopped before the page finished loading."}}
+    ]},
+    {"k":"r.0.0:t6","t":"toolcard","p":{"title":"go test ./internal/pay/... (after the fix)","icon":"terminal","family":"shell","state":"running","chips":[{"text":"12 s","tone":"muted"}],"open":false},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t6.0:0","t":"markdown","p":{"streaming":true,"tokens":[
+          {"t":"paragraph","c":[{"t":"strong","c":[{"t":"text","text":"Running"}]},{"t":"text","text":" 14 packages…"}]},
+          {"t":"list","ordered":false,"loose":false,"items":[{"c":[{"t":"paragraph","c":[{"t":"codespan","text":"internal/pay"},{"t":"text","text":" ok"}]}]},{"c":[{"t":"paragraph","c":[{"t":"codespan","text":"internal/pay/legacy"}]}]}]}
+        ]}}
+    ]},
+    {"k":"r.0.0:t7","t":"toolcard","p":{"title":"Write internal/pay/client_test.go","icon":"pencil","family":"edit","state":"writing","open":false},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t7.0:0","t":"code","p":{"wrap":false,"text":"func TestIdleReuse(t *testing.T) {\n\tsrv := httptest.NewTLSServer("}}
+    ]},
+    {"k":"r.0.0:p1","t":"progress","p":{"value":0.4,"label":"Indexing the repository (4 of 10 modules)"}},
+    {"k":"r.0.0:d1","t":"diff","p":{"files":[{"path":"internal/pay/client.go","status":"modified","add":2,"del":1},{"path":"internal/pay/client_test.go","status":"added","add":38,"del":0},{"path":"internal/pay/legacy_pool.go","status":"deleted","add":0,"del":57},{"path":"config/staging.yaml","status":"modified","add":1,"del":1}],"patch":"--- a/internal/pay/client.go\n+++ b/internal/pay/client.go\n@@ -41,7 +41,9 @@ func NewClient(cfg Config) *Client {\n \ttr := &http.Transport{\n-\t\tIdleConnTimeout: cfg.IdleTimeout,\n+\t\tIdleConnTimeout:     orDefault(cfg.IdleTimeout, 90*time.Second),\n+\t\tMaxIdleConnsPerHost: 32,\n \t}\n"},"e":["open-file"]},
+    {"k":"r.0.0:a1","t":"approval","p":{"title":"Run a shell command","text":"rm internal/pay/legacy_pool.go","options":[{"id":"once","label":"Allow once","kind":"allow_once"},{"id":"always","label":"Always allow rm in this repo","kind":"allow_always"},{"id":"no","label":"Reject","kind":"reject_once"}],"note":"Deletes a tracked file.","feedback":true,"settled":{"by":"Ana","id":"once"}},"e":["choose"]},
+    {"k":"r.0.0:q1","t":"question","p":{"title":"Which staging cluster?","schema":{"type":"object","properties":{"cluster":{"type":"string","title":"Cluster","enum":["staging-eu","staging-us"]},"notify":{"type":"boolean","title":"Notify #deploys"}},"required":["cluster"]},"settled":{"cluster":"staging-eu","notify":true}},"e":["submit","skip"]},
+    {"k":"r.0.0:t8","t":"toolcard","p":{"title":"Subagent: draft the release notes","icon":"agent","family":"agent","state":"running","chips":[{"text":"subagent","tone":"accent"},{"text":"waiting for you","tone":"warn"}],"open":true},"e":["toggle","open"],"c":[
+      {"k":"r.0.0:t8.0:0","t":"transcript","c":[
+        {"k":"r.0.0:t8.0:0.0:y1","t":"message","p":{"role":"user","text":"Draft the release notes for v2.15.0-rc.2."}},
+        {"k":"r.0.0:t8.0:0.0:y2","t":"question","p":{"title":"Who are the notes for?","schema":{"type":"object","properties":{"audience":{"type":"string","title":"Audience","enum":["customers","internal"]},"highlights":{"type":"string","title":"Anything to highlight?"}},"required":["audience"]}},"e":["submit","skip"]}
+      ]}
+    ]},
+    {"k":"r.0.0:a2","t":"approval","p":{"title":"Deploy to staging-eu","text":"bx deploy checkout-api --env staging-eu --tag v2.15.0-rc.2","options":[{"id":"yes","label":"Deploy","kind":"allow_once"},{"id":"no","label":"Not now","kind":"reject_once"}],"note":"Restarts 3 replicas.","feedback":false},"e":["choose"]}
+  ]},
+  {"k":"r.1","t":"composer","p":{"placeholder":"Answer the approval above to continue","disabled":true,"value":""}}
+]}}

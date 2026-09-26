@@ -30,6 +30,7 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor` |
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (`--bx-bg`, `--bx-panel`, `--bx-text`, …) plus opt-in `.bx` control styles. Link it to take the theme; it is **never injected** into your document |
+| `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`). Outside the app nothing loads `native.js`; browsers keep showing `index.html` |
 | `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself |
 
 ## Shell-only modules

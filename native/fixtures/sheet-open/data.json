@@ -1,0 +1,19 @@
+{
+  "about": "a fragment root: a nav plus two sheets; the invite sheet is open (detents medium+large, its own toolbar), the other closed",
+  "self": "apps/team",
+  "routes": {
+    "GET /api/apps/team/team": {"json": {
+      "name": "Acme platform", "plan": "Team", "seats": 10, "seatsLeft": 3,
+      "members": [
+        {"name": "Ana Kowalska", "email": "ana@acme.dev", "role": "owner"},
+        {"name": "Ben Ortiz", "email": "ben@acme.dev", "role": "admin"},
+        {"name": "Chloé Martin", "email": "chloe@acme.dev", "role": "member"}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "toolbar button[label=Invite]", "type": "tap"},
+    {"select": "field[label=Email]", "type": "input", "payload": {"value": "dmitri@"}},
+    {"select": "picker[label=Role]", "type": "change", "payload": {"value": "admin"}}
+  ]
+}

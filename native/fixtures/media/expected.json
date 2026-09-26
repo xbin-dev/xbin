@@ -1,0 +1,46 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"12 Harbour Road","subtitle":"Inspection #218 · Sep 19, 2026","style":"scroll"},"c":[
+  {"k":"r.0","t":"stack","p":{"gap":"m"},"c":[
+    {"k":"r.0.0","t":"image","p":{"src":"photos/218/roof-north.jpg","alt":"Roof, north side: two cracked ridge tiles","aspect":"fill","height":"l","preview":true}},
+    {"k":"r.0.1","t":"text","p":{"style":"footnote","tone":"muted","text":"Roof, north side: two cracked ridge tiles"}},
+    {"k":"r.0.2","t":"stack","p":{"axis":"h","gap":"s"},"c":[
+      {"k":"r.0.2.0:photos/218/front.jpg","t":"image","p":{"src":"photos/218/front-thumb.jpg","alt":"Front elevation, east facing","aspect":"fill","height":"xs"},"e":["tap"]},
+      {"k":"r.0.2.0:photos/218/roof-north.jpg","t":"image","p":{"src":"photos/218/roof-north-thumb.jpg","alt":"Roof, north side: two cracked ridge tiles","aspect":"fill","height":"xs"},"e":["tap"]},
+      {"k":"r.0.2.0:photos/218/boiler.jpg","t":"image","p":{"src":"photos/218/boiler-thumb.jpg","alt":"Boiler room, serviced 2025","aspect":"fill","height":"xs"},"e":["tap"]}
+    ]},
+    {"k":"r.0.3","t":"divider"},
+    {"k":"r.0.4","t":"text","p":{"style":"headline","text":"Findings"}},
+    {"k":"r.0.5:f1","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+      {"k":"r.0.5:f1.0","t":"icon","p":{"name":"check","tone":"ok"}},
+      {"k":"r.0.5:f1.1","t":"text","p":{"text":"Electrical panel labelled and up to code"}}
+    ]},
+    {"k":"r.0.5:f2","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+      {"k":"r.0.5:f2.0","t":"icon","p":{"name":"info","tone":"accent"}},
+      {"k":"r.0.5:f2.1","t":"text","p":{"text":"Gutter on the south side needs cleaning"}}
+    ]},
+    {"k":"r.0.5:f3","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+      {"k":"r.0.5:f3.0","t":"icon","p":{"name":"warning","tone":"warn"}},
+      {"k":"r.0.5:f3.1","t":"text","p":{"text":"Two cracked ridge tiles on the north roof"}}
+    ]},
+    {"k":"r.0.5:f4","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+      {"k":"r.0.5:f4.0","t":"icon","p":{"name":"error","tone":"danger"}},
+      {"k":"r.0.5:f4.1","t":"text","p":{"text":"No carbon-monoxide detector near the boiler"}}
+    ]},
+    {"k":"r.0.5:f5","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+      {"k":"r.0.5:f5.0","t":"icon","p":{"name":"minus","tone":"muted"}},
+      {"k":"r.0.5:f5.1","t":"text","p":{"text":"Pool: not present"}}
+    ]},
+    {"k":"r.0.6","t":"divider"},
+    {"k":"r.0.7","t":"text","p":{"style":"headline","text":"Roof, north side"}},
+    {"k":"r.0.8","t":"image","p":{"src":"photos/218/roof-north-detail.jpg","alt":"Cracked ridge tiles, north side","aspect":"fill","height":"m","preview":true}},
+    {"k":"r.0.9","t":"text","p":{"style":"headline","text":"Ground floor plan"}},
+    {"k":"r.0.10","t":"image","p":{"src":"plans/218/ground-floor.png","alt":"Ground floor plan with the measured rooms","aspect":"fit","height":"xl","preview":true}},
+    {"k":"r.0.11","t":"stack","p":{"axis":"h","gap":"m","align":"end"},"c":[
+      {"k":"r.0.11.0","t":"stack","p":{"gap":"xs"},"c":[
+        {"k":"r.0.11.0.0","t":"text","p":{"style":"caption","tone":"muted","text":"Signed by"}},
+        {"k":"r.0.11.0.1","t":"text","p":{"text":"Marta Nowak"}}
+      ]},
+      {"k":"r.0.11.1","t":"spacer"},
+      {"k":"r.0.11.2","t":"image","p":{"src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAICAYAAADjoT9jAAAAJElEQVR42mNgoBeQk9P4j0xTKk4Xy4iyhFJxFAXUxCMgDqgFAPEvQ/SGaFkBAAAAAElFTkSuQmCC","alt":"Signature of Marta Nowak","aspect":"fit","height":"s"}}
+    ]}
+  ]}
+]}}

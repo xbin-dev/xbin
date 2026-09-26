@@ -1,0 +1,44 @@
+{"v":1,"root":{"k":"r","t":"nav","e":["pop"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Deployments","subtitle":"acme-prod · eu-central","style":"list","large":true,"refreshable":true,"search":""},"e":["refresh","search"],"c":[
+    {"k":"r.0.0","t":"toolbar","c":[
+      {"k":"r.0.0.0","t":"menu","p":{"label":"Sort","icon":"filter"},"c":[
+        {"k":"r.0.0.0.0","t":"button","p":{"icon":"clock","label":"Recently deployed"},"e":["tap"]},
+        {"k":"r.0.0.0.1","t":"button","p":{"icon":"list","label":"Name"},"e":["tap"]},
+        {"k":"r.0.0.0.2","t":"divider"},
+        {"k":"r.0.0.0.3","t":"button","p":{"icon":"refresh","label":"Reload"},"e":["tap"]}
+      ]},
+      {"k":"r.0.0.1","t":"button","p":{"icon":"plus","label":"Deploy"},"e":["tap"]}
+    ]},
+    {"k":"r.0.2","t":"section","p":{"title":"Production","badge":"3"},"c":[
+      {"k":"r.0.2.0:api","t":"row","p":{"title":"api","subtitle":"ghcr.io/acme/api:v2.14.1","detail":"15 min ago","icon":"server","badge":"healthy","tone":"ok","nav":true},"e":["tap"]},
+      {"k":"r.0.2.0:web","t":"row","p":{"title":"web","subtitle":"ghcr.io/acme/web:v5.2.0","detail":"5 h ago","icon":"server","badge":"degraded","tone":"warn","nav":true},"e":["tap"]},
+      {"k":"r.0.2.0:worker","t":"row","p":{"title":"worker","subtitle":"ghcr.io/acme/worker:v2.14.1","detail":"20 h ago","icon":"server","badge":"healthy","tone":"ok","nav":true},"e":["tap"]}
+    ]},
+    {"k":"r.0.3","t":"section","p":{"title":"Staging","badge":"2"},"c":[
+      {"k":"r.0.3.0:api","t":"row","p":{"title":"api","subtitle":"ghcr.io/acme/api:v2.15.0-rc.1","detail":"3 min ago","icon":"server","badge":"failed","tone":"danger","nav":true},"e":["tap"]},
+      {"k":"r.0.3.0:billing","t":"row","p":{"title":"billing","subtitle":"ghcr.io/acme/billing:v0.9.3","detail":"4 d ago","icon":"server","badge":"paused","tone":"muted","nav":true},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"web","subtitle":"ghcr.io/acme/web:v5.2.0","style":"form"},"e":["appear"],"c":[
+    {"k":"r.1.0","t":"section","p":{"title":"Rollout"},"c":[
+      {"k":"r.1.0.0","t":"row","p":{"title":"Status","badge":"degraded","tone":"warn"}},
+      {"k":"r.1.0.1","t":"row","p":{"title":"Replicas","detail":"2 / 3 ready"}},
+      {"k":"r.1.0.2","t":"row","p":{"title":"Region","detail":"eu-central-1","icon":"globe"}},
+      {"k":"r.1.0.3","t":"row","p":{"title":"Deployed","detail":"5 h ago","subtitle":"deployed by ana@acme.dev","icon":"clock"}},
+      {"k":"r.1.0.4","t":"row","p":{"title":"Commit","detail":"3f9c2e1","mono":"detail","icon":"branch"}}
+    ]},
+    {"k":"r.1.1","t":"section","c":[
+      {"k":"r.1.1.0","t":"disclosure","p":{"title":"Environment (4)","open":true},"e":["toggle"],"c":[
+        {"k":"r.1.1.0.0:NODE_ENV","t":"row","p":{"title":"NODE_ENV","detail":"production","mono":"all"}},
+        {"k":"r.1.1.0.0:API_URL","t":"row","p":{"title":"API_URL","detail":"https://api.acme.dev","mono":"all"}},
+        {"k":"r.1.1.0.0:CACHE_TTL","t":"row","p":{"title":"CACHE_TTL","detail":"300","mono":"all"}},
+        {"k":"r.1.1.0.0:FEATURE_CHECKOUT_V2","t":"row","p":{"title":"FEATURE_CHECKOUT_V2","detail":"on","mono":"all"}}
+      ]}
+    ]},
+    {"k":"r.1.2","t":"section","p":{"title":"Redeploy","footer":"Runs on the tile's backend; the rollout is visible in the list."},"c":[
+      {"k":"r.1.2.0","t":"code","p":{"copy":true,"text":"bx deploy web --image ghcr.io/acme/web:v5.2.0"}},
+      {"k":"r.1.2.1","t":"button","p":{"role":"primary","icon":"refresh","busy":false,"label":"Restart"},"e":["tap"]},
+      {"k":"r.1.2.2","t":"button","p":{"role":"destructive","icon":"back","confirm":{"title":"Roll back web?","message":"Returns to v5.1.4.","label":"Roll back","destructive":true},"busy":false,"label":"Roll back"},"e":["tap"]}
+    ]}
+  ]}
+]}}

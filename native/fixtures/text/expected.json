@@ -1,0 +1,41 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"INC-2041","style":"scroll"},"c":[
+  {"k":"r.0","t":"stack","p":{"gap":"l"},"c":[
+    {"k":"r.0.0","t":"stack","p":{"gap":"xs"},"c":[
+      {"k":"r.0.0.0","t":"text","p":{"style":"caption","tone":"muted","text":"Monday 21 September"}},
+      {"k":"r.0.0.1","t":"text","p":{"style":"largeTitle","text":"Checkout latency above 4 s"}},
+      {"k":"r.0.0.2","t":"text","p":{"style":"subheadline","tone":"accent","text":"monitoring · SEV-2 · 105 min"}}
+    ]},
+    {"k":"r.0.1","t":"text","p":{"style":"body","lines":2,"text":"Checkout requests in eu-central slowed to a p95 of 4.2 s after the payment provider's TLS endpoint started rate-limiting our connection pool. A pool-size fix is deployed; latency is back under 600 ms and we are watching the evening peak before closing this."}},
+    {"k":"r.0.2","t":"stack","p":{"gap":"s"},"c":[
+      {"k":"r.0.2.0","t":"text","p":{"style":"title","text":"Impact"}},
+      {"k":"r.0.2.1","t":"text","p":{"style":"callout","tone":"danger","text":"About 18% of checkouts between 14:02 and 15:10 CEST took longer than 4 s; 312 were abandoned."}},
+      {"k":"r.0.2.2","t":"text","p":{"style":"callout","tone":"ok","text":"Recovered: p95 is 580 ms since 15:10 CEST."}},
+      {"k":"r.0.2.3","t":"text","p":{"style":"footnote","tone":"muted","text":"Reported by synthetic-checks · owner Ben Ortiz"}}
+    ]},
+    {"k":"r.0.3","t":"stack","p":{"gap":"s"},"c":[
+      {"k":"r.0.3.0","t":"text","p":{"style":"title2","text":"Timeline"}},
+      {"k":"r.0.3.1:2026-09-21T12:02:00Z","t":"stack","p":{"gap":"none"},"c":[
+        {"k":"r.0.3.1:2026-09-21T12:02:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:02"}},
+        {"k":"r.0.3.1:2026-09-21T12:02:00Z.1","t":"text","p":{"style":"headline","tone":"danger","text":"investigating"}},
+        {"k":"r.0.3.1:2026-09-21T12:02:00Z.2","t":"text","p":{"text":"Latency alert on checkout-api (p95 4.2 s)."}}
+      ]},
+      {"k":"r.0.3.1:2026-09-21T12:40:00Z","t":"stack","p":{"gap":"none"},"c":[
+        {"k":"r.0.3.1:2026-09-21T12:40:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:40"}},
+        {"k":"r.0.3.1:2026-09-21T12:40:00Z.1","t":"text","p":{"style":"headline","tone":"warn","text":"identified"}},
+        {"k":"r.0.3.1:2026-09-21T12:40:00Z.2","t":"text","p":{"text":"Payment provider rate-limits new TLS handshakes; our pool reconnects on every request."}}
+      ]},
+      {"k":"r.0.3.1:2026-09-21T13:10:00Z","t":"stack","p":{"gap":"none"},"c":[
+        {"k":"r.0.3.1:2026-09-21T13:10:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"15:10"}},
+        {"k":"r.0.3.1:2026-09-21T13:10:00Z.1","t":"text","p":{"style":"headline","tone":"accent","text":"monitoring"}},
+        {"k":"r.0.3.1:2026-09-21T13:10:00Z.2","t":"text","p":{"text":"Deployed checkout-api v2.14.1 with a persistent pool of 32 connections."}}
+      ]}
+    ]},
+    {"k":"r.0.4","t":"stack","p":{"gap":"s"},"c":[
+      {"k":"r.0.4.0","t":"text","p":{"style":"title3","text":"Root cause"}},
+      {"k":"r.0.4.1","t":"text","p":{"text":"A config change in v2.14.0 set the HTTP client's idle timeout to 0, so every request opened a new TLS connection to the provider."}},
+      {"k":"r.0.4.2","t":"text","p":{"style":"mono","text":"2026-09-21T12:02:14Z WARN pay.client dial tcp 18.194.3.7:443: rate limited (429)"}},
+      {"k":"r.0.4.3","t":"text","p":{"mono":true,"selectable":true,"style":"footnote","text":"trace 4bf92f3577b34da6a3ce929d0e0e4736"}}
+    ]},
+    {"k":"r.0.5","t":"text","p":{"style":"caption","tone":"accent","text":"Postmortem due Thursday"}}
+  ]}
+]}}

@@ -1,0 +1,15 @@
+{"v":1,"root":{"k":"r","t":"tabs","p":{"style":"bar","selected":"activity"},"e":["change"],"c":[
+  {"k":"r.0","t":"tab","p":{"key":"home","title":"Home","icon":"home"},"c":[]},
+  {"k":"r.1","t":"tab","p":{"key":"activity","title":"Activity","icon":"bell","badge":"2"},"c":[
+    {"k":"r.1.0","t":"nav","c":[
+      {"k":"r.1.0.0","t":"screen","p":{"title":"Activity","style":"list","large":true},"c":[
+        {"k":"r.1.0.0.0","t":"section","c":[
+          {"k":"r.1.0.0.0.0:a1","t":"row","p":{"title":"Ben approved your deploy","subtitle":"checkout-api v2.15.0-rc.2","detail":"2 min","icon":"check","badge":"new","tone":"accent"}},
+          {"k":"r.1.0.0.0.0:a2","t":"row","p":{"title":"Chloé mentioned you","subtitle":"#311 Pay button spins forever","detail":"18 min","icon":"chat","badge":"new","tone":"accent"}},
+          {"k":"r.1.0.0.0.0:a3","t":"row","p":{"title":"Nightly backup finished","subtitle":"backups","detail":"6 h","icon":"archive"}}
+        ]}
+      ]}
+    ]}
+  ]},
+  {"k":"r.2","t":"tab","p":{"key":"settings","title":"Settings","icon":"gear"},"c":[]}
+]}}
