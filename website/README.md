@@ -44,7 +44,15 @@ make website        # assembles website/dist/ (index.html, install.sh, og.png,
 
 `dist/` is the deployable artifact — any static host, GitHub Pages, or an
 object store. `https://xbin.dev/` serves `index.html`;
-`https://xbin.dev/install.sh` serves the bootstrap.
+`https://xbin.dev/install.sh` serves the bootstrap;
+`https://xbin.dev/app/ios.json` is the iOS app's remote kill switch
+(plans/native.md §23): `{"nativeRuntime": {"disabled": false,
+"disabledBuilds": []}}` — `disabled: true`, or a build number
+(`CFBundleVersion`) in `disabledBuilds`, turns native tile views off in the
+app (tiles open as web pages) without an app update. The app re-reads it
+every 6 hours, fails open (an unreachable or unreadable file never turns
+anything off) and ignores an answer older than a week. Serve it as
+`application/json`, uncached or with a short max-age.
 
 ## og.png
 
