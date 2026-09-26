@@ -207,6 +207,77 @@ public struct AgentActivityPolicy: Sendable, Hashable {
     }
 }
 
+/// One card per session, and a dismissed one stays away (native/spec/push.md
+/// §7.1): the choices the app's card keeper (App/Push/LiveActivities.swift)
+/// makes when two cards could show one session, when a registration failed,
+/// and what it remembers of dismissals across launches.
+public enum AgentCardRules {
+    /// A card xbind started by push, placed (xbind named its session and
+    /// follows it), meets what the app has for that session.
+    public enum Join: Sendable, Hashable {
+        /// Nothing else shows the session: it joins.
+        case join
+        /// The user dismissed this turn's card: the pushed one ends too, and
+        /// xbind is told again (its DELETE may not have got through).
+        case endDismissed
+        /// The app shows its own card, and xbind follows that one: the
+        /// pushed one ends.
+        case endPushed
+        /// The app's own card never reached xbind (its registration failed —
+        /// which is why xbind started one): the pushed card, the one xbind
+        /// follows, stays; the app's ends.
+        case replaceOwn
+    }
+
+    /// - Parameters:
+    ///   - own: the activity the app shows for the session (nil: none).
+    ///   - ownRegistered: whether xbind took any token of it.
+    ///   - dismissedSince: the turn (its start) whose card the user dismissed.
+    ///   - pushedSince, latestSince: the turn the pushed card shows, and the
+    ///     one the transcript says is running.
+    public static func join(own: String?, pushed: String, ownRegistered: Bool, dismissedSince: Int64?,
+                            pushedSince: Int64, latestSince: Int64?) -> Join {
+        if let d = dismissedSince, d == pushedSince || d == latestSince { return .endDismissed }
+        guard let own, own != pushed else { return .join }
+        return ownRegistered ? .endPushed : .replaceOwn
+    }
+
+    /// Whether a card's token is registered again now (the app became
+    /// active): it has one, xbind took none, and no try is under way.
+    public static func retry(activity: String?, token: String?, registered: Bool, inFlight: Bool) -> Bool {
+        activity != nil && token != nil && !registered && !inFlight
+    }
+
+    /// An active card ActivityKit shows that the app does not track (it
+    /// started it before this launch: the process ended, the card stayed).
+    public enum Keep: Sendable, Hashable {
+        /// Not the app's own (push-started, or no session named): not here.
+        case ignore
+        /// Taken back as the session's card — never a second one started.
+        case take
+        /// The session shows another card already: this stray one ends.
+        case endStray
+    }
+
+    public static func keep(pushStarted: Bool, appWorkspace: String, sessionID: String, tracked: Bool,
+                            sessionCard: String?, id: String) -> Keep {
+        guard !pushStarted, !appWorkspace.isEmpty, !sessionID.isEmpty, !tracked else { return .ignore }
+        if let other = sessionCard, other != id { return .endStray }
+        return .take
+    }
+
+    /// How long a dismissal is remembered across launches.
+    public static let dismissalMemory: Int64 = 86_400
+
+    /// The dismissals kept across launches (session key → the dismissed
+    /// turn's start) with one more, the day-old ones dropped.
+    public static func remember(_ all: [String: Int64], key: String, since: Int64, now: Int64) -> [String: Int64] {
+        var out = all.filter { $0.value > now - dismissalMemory }
+        out[key] = since
+        return out
+    }
+}
+
 /// What the card says, as strings and symbol names — the widget only lays
 /// them out.
 public struct AgentActivityDisplay: Sendable, Hashable {

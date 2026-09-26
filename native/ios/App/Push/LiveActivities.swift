@@ -22,6 +22,13 @@ import XbinCore
 /// workspace of the app has, ends at once — it never shows a turn nobody
 /// follows. A card that ends or goes takes its relay handles along.
 ///
+/// One card per session: a card the app started before a relaunch is taken
+/// back at launch (not started again); a registration that failed (offline,
+/// the app suspended mid-way) is retried when the app next becomes active;
+/// when xbind started a card for a session whose app-started card never
+/// reached it, the pushed one — the one xbind follows — stays. A card the
+/// user dismissed stays away for its turn, across relaunches too.
+///
 /// Hooks:
 ///  - `start()` once at launch (PushManager.start calls it);
 ///  - the Agent screen, for the session it shows: `follow(_:in:name:)`
@@ -73,6 +80,13 @@ final class LiveActivities {
         var registered: Set<String> = []
         /// Their relay handles (deleted when the card ends or goes).
         var relayHandles: Set<String> = []
+        /// The card's last ActivityKit token: registered again while
+        /// `registered` is empty (a registration that failed).
+        var token: String?
+        /// The session's transcript was seen (`latest` means something): a
+        /// card taken over at launch or placed by push waits for it, or for
+        /// `reconcile`, before the policy may end it.
+        var observed = false
     }
 
     /// A push-started card not placed yet: the workspaces it may be of
@@ -95,6 +109,8 @@ final class LiveActivities {
     }
 
     private var cards: [String: Card] = [:]
+    /// Activity ids with a registration in flight.
+    private var registering: Set<String> = []
     /// Push-started cards being placed, by activity id.
     private var pending: [String: Pending] = [:]
     /// Those with a registration in flight.
@@ -110,6 +126,9 @@ final class LiveActivities {
     func start() {
         guard !started else { return }
         started = true
+        // the app's own cards from before this launch, before any screen can
+        // start another for the same session (reconcile ends the stale ones)
+        for s in Self.snapshotsNow() where s.active { keep(s) }
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { LiveActivities.shared.leavingForeground() }
@@ -146,10 +165,11 @@ final class LiveActivities {
     func observe(_ t: AgentTranscript, session: String, workspace: String, name: String = "") {
         guard Self.enabled else { return }
         let k = Self.key(workspace, session)
-        var c = cards[k] ?? Card(workspace: workspace, session: session, name: "")
+        var c = cards[k] ?? Card(workspace: workspace, session: session, name: "", dismissedSince: Self.dismissal(k))
         let title = name.isEmpty ? (t.state.title ?? "") : name
         if !title.isEmpty { c.name = title }
         c.latest = t.activityState
+        c.observed = true
         cards[k] = c
         evaluate(k, leaving: false)
     }
@@ -193,7 +213,9 @@ final class LiveActivities {
     // MARK: deciding
 
     private func evaluate(_ k: String, leaving: Bool) {
-        guard var c = cards[k] else { return }
+        // (a card whose transcript isn't seen yet: nothing to decide from —
+        // no `latest` is not "the turn is over"; reconcile asks xbind)
+        guard var c = cards[k], c.observed else { return }
         let now = Date()
         var canStart = foreground && Self.enabled && ActivityAuthorizationInfo().areActivitiesEnabled
         if let d = c.dismissedSince, d == c.latest?.since { canStart = false }
@@ -224,6 +246,7 @@ final class LiveActivities {
             retire(c.relayHandles)
             c.relayHandles = []
             c.registered = []
+            c.token = nil
         }
         // one pending re-decision at a time (a streaming turn calls this
         // for every delta)
@@ -272,12 +295,15 @@ final class LiveActivities {
     /// pushing to it.
     private func lost(_ k: String, _ id: String) {
         guard var c = cards[k], c.activityID == id else { return }
+        let since = c.latest?.since ?? c.shown?.since
         c.activityID = nil
         c.shown = nil
-        c.dismissedSince = c.latest?.since
+        c.dismissedSince = since
+        if let since { Self.saveDismissal(k, since: since) }
         retire(c.relayHandles)
         c.relayHandles = []
         c.registered = []
+        c.token = nil
         cards[k] = c.latest == nil ? nil : c
         if let w = AppModel.shared.workspace(c.workspace), PushManager.shared.canPush(w) {
             let req = PushAPI.unregisterActivity(deviceId: PushManager.shared.deviceID(w), session: c.session)
@@ -312,11 +338,12 @@ final class LiveActivities {
             pending[id] = nil
         }
         for s in snaps where s.active {
-            let tracked = cards.first { $0.value.activityID == s.id }
+            var tracked = cards.first { $0.value.activityID == s.id }
             if tracked == nil, s.attributes.pushStarted {
                 await placeAgain(s)
                 continue
             }
+            if tracked == nil, keep(s) { tracked = cards.first { $0.value.activityID == s.id } }
             let ws = tracked?.value.workspace ?? s.attributes.appWorkspace
             let session = tracked?.value.session ?? s.attributes.sessionID
             guard !ws.isEmpty, !session.isEmpty, let w = AppModel.shared.workspace(ws) else { continue }
@@ -336,6 +363,49 @@ final class LiveActivities {
                     cards[k] = nil
                 }
             }
+        }
+        retryRegistrations()
+    }
+
+    /// Takes an active card the app started (before this launch: ActivityKit
+    /// keeps it, the app forgot it) back into `cards` — one card per
+    /// session: another already shown for its session ends it instead.
+    /// Its tokens are followed again; true when it was taken.
+    @discardableResult
+    private func keep(_ s: Snapshot) -> Bool {
+        let a = s.attributes
+        guard s.active else { return false }
+        let k = Self.key(a.appWorkspace, a.sessionID)
+        switch AgentCardRules.keep(pushStarted: a.pushStarted, appWorkspace: a.appWorkspace, sessionID: a.sessionID,
+                                   tracked: cards.values.contains(where: { $0.activityID == s.id }),
+                                   sessionCard: cards[k]?.activityID, id: s.id) {
+        case .ignore:
+            return false
+        case .endStray:
+            Task { await Self.end(s.id, s.state.finished, dismissAt: Date()) }
+            return false
+        case .take:
+            break
+        }
+        var c = cards[k] ?? Card(workspace: a.appWorkspace, session: a.sessionID, name: a.session, dismissedSince: Self.dismissal(k))
+        c.activityID = s.id
+        c.shown = s.state
+        cards[k] = c
+        // (a card started without push yields no token; one with it is
+        // registered — or kept for a retry — as the app's own cards are)
+        followTokens(s.id, key: k)
+        return true
+    }
+
+    /// Registers again the cards whose token never reached xbind (offline,
+    /// a 5xx or 429, the app suspended mid-way) — or xbind would start a
+    /// second card for the session by push.
+    private func retryRegistrations() {
+        for (k, c) in cards {
+            guard AgentCardRules.retry(activity: c.activityID, token: c.token, registered: !c.registered.isEmpty,
+                                       inFlight: c.activityID.map { registering.contains($0) } ?? false),
+                  let id = c.activityID, let hex = c.token else { continue }
+            Task { await self.tokenArrived(hex, activity: id, key: k) }
         }
     }
 
@@ -365,7 +435,10 @@ final class LiveActivities {
     }
 
     private func tokenArrived(_ hex: String, activity id: String, key k: String) async {
-        guard let c = cards[k], c.activityID == id, !c.registered.contains(hex) else { return }
+        guard let c = cards[k], c.activityID == id, !c.registered.contains(hex), !registering.contains(id) else { return }
+        cards[k]?.token = hex // kept for a retry until it is registered
+        registering.insert(id)
+        defer { registering.remove(id) }
         let since = c.shown?.since ?? 0
         guard let got = await register(token: hex, workspace: c.workspace, session: c.session, ref: nil, since: since) else { return }
         switch got.answer {
@@ -462,12 +535,37 @@ final class LiveActivities {
 
     private func join(_ id: String, session: String, workspace ws: String, state: AgentActivityState, token hex: String, handle: String) {
         let k = Self.key(ws, session)
-        var c = cards[k] ?? Card(workspace: ws, session: session, name: "")
-        if let mine = c.activityID, mine != id {
-            // the app shows its own card for the session: one is enough
+        var c = cards[k] ?? Card(workspace: ws, session: session, name: "", dismissedSince: Self.dismissal(k))
+        switch AgentCardRules.join(own: c.activityID, pushed: id, ownRegistered: !c.registered.isEmpty,
+                                   dismissedSince: c.dismissedSince, pushedSince: state.since, latestSince: c.latest?.since) {
+        case .endDismissed:
+            // the user took this turn's card away: it stays away (xbind
+            // stops following it, and starts none again this turn)
+            retire([handle])
+            Task { await Self.end(id, state.finished, dismissAt: Date()) }
+            if let w = AppModel.shared.workspace(ws) {
+                let req = PushAPI.unregisterActivity(deviceId: PushManager.shared.deviceID(w), session: session)
+                Task { _ = try? await w.auth.send(req) }
+            }
+            return
+        case .endPushed:
+            // the app shows its own card for the session, and xbind follows
+            // it: one is enough
             retire([handle])
             Task { await Self.end(id, state.finished, dismissAt: Date()) }
             return
+        case .replaceOwn:
+            // the app's own card never reached xbind (xbind started this one
+            // for want of it): the pushed card is the one xbind follows — it
+            // stays, the app's goes
+            if let mine = c.activityID {
+                let final = (c.shown ?? state).finished
+                Task { await Self.end(mine, final, dismissAt: Date()) }
+            }
+            c.token = nil
+            c.shown = state
+        case .join:
+            break
         }
         c.activityID = id
         if c.shown == nil { c.shown = state }
@@ -500,7 +598,9 @@ final class LiveActivities {
         if let r = try? await w.auth.send(req) {
             answer = ActivityRegistration.of(r)
         }
-        if answer == .unknown { retire([handle]) }
+        // a handle xbind has no use for (unknown), or took no word on (retry:
+        // the next try makes a fresh one) — not left under the device handle
+        if answer == .unknown || answer == .retry { retire([handle]) }
         return (handle, answer)
     }
 
@@ -519,10 +619,27 @@ final class LiveActivities {
     // MARK: ActivityKit (nonisolated: activities are looked up by id here
     // and never handed across)
 
-    nonisolated static func snapshots() async -> [Snapshot] {
+    nonisolated static func snapshots() async -> [Snapshot] { snapshotsNow() }
+
+    nonisolated static func snapshotsNow() -> [Snapshot] {
         Activity<AgentActivityAttributes>.activities.map {
             Snapshot(id: $0.id, attributes: $0.attributes, state: $0.content.state, active: $0.activityState == .active)
         }
+    }
+
+    // Dismissals outlive the process (iOS ends a suspended app; its cards
+    // stay): session key → the dismissed turn's start, a day at most.
+    private static let dismissalsKey = "xbin.liveActivities.dismissed"
+
+    static func dismissal(_ k: String) -> Int64? {
+        let all = UserDefaults.standard.dictionary(forKey: dismissalsKey) as? [String: NSNumber]
+        return all?[k]?.int64Value
+    }
+
+    static func saveDismissal(_ k: String, since: Int64) {
+        let saved = (UserDefaults.standard.dictionary(forKey: dismissalsKey) as? [String: NSNumber] ?? [:]).mapValues { $0.int64Value }
+        let all = AgentCardRules.remember(saved, key: k, since: since, now: Int64(Date().timeIntervalSince1970))
+        UserDefaults.standard.set(all.mapValues { NSNumber(value: $0) }, forKey: dismissalsKey)
     }
 
     nonisolated static func update(_ id: String, _ s: AgentActivityState, staleDate: Date) async -> Bool {

@@ -248,7 +248,12 @@ A card is **one turn**: it starts when a turn has run 10 s (quick turns at
 the desk never flash one), at once when it waits for the user, or when the
 app leaves the foreground mid-turn (ActivityKit starts activities only from
 the foreground); it ends at the turn's `turn.end` (idle, dismissed 10
-minutes later). A card the user swiped away stays away for that turn.
+minutes later). A card the user swiped away stays away for that turn —
+the app remembers it across a relaunch, and xbind starts none by push (the
+app's DELETE, §7.3). One card per session: a card the app started before
+its process ended is taken back at launch, never started again; when
+xbind started one because the app's own never reached it (§7.4), the
+pushed card — the one xbind follows — stays and the app's ends.
 
 ### 7.2 Tokens and handles
 
@@ -339,8 +344,9 @@ what the card shows).
 A push-started card's token reaches the app in the background
 (ActivityKit's `activityUpdates` / `pushTokenUpdates`); the app registers it
 by `ref`, and xbind answers with the session and sends what changed since
-the start (or `ended` and the end, §7.3). A registration that failed for
-want of a network is retried when the app next becomes active.
+the start (or `ended` and the end, §7.3). A registration that failed —
+offline, a 5xx or 429, the app suspended mid-way — is retried when the app
+next becomes active, for the app's own cards as for push-started ones.
 
 ## 8. Relay registration and proof of work
 

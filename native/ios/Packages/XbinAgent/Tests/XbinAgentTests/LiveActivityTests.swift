@@ -122,6 +122,53 @@ import Testing
         #expect(p.decide(state: nil, shown: w, canStart: false, now: now).action == .end(r.finished, dismissAt: now.addingTimeInterval(600)))
     }
 
+    // MARK: one card per session (AgentCardRules)
+
+    @Test func pushedCardMeetsTheApps() {
+        let turn: Int64 = 1_790_000_000
+        // nothing else: it joins
+        #expect(AgentCardRules.join(own: nil, pushed: "p", ownRegistered: false, dismissedSince: nil, pushedSince: turn, latestSince: nil) == .join)
+        #expect(AgentCardRules.join(own: "p", pushed: "p", ownRegistered: true, dismissedSince: nil, pushedSince: turn, latestSince: turn) == .join)
+        // the app's own card, which xbind follows: one is enough
+        #expect(AgentCardRules.join(own: "a", pushed: "p", ownRegistered: true, dismissedSince: nil, pushedSince: turn, latestSince: turn) == .endPushed)
+        // the app's own never reached xbind (that is why it pushed one): the
+        // pushed card stays — ending it would leave a card nothing updates
+        #expect(AgentCardRules.join(own: "a", pushed: "p", ownRegistered: false, dismissedSince: nil, pushedSince: turn, latestSince: turn) == .replaceOwn)
+        // the user dismissed this turn's card: it stays away, by the pushed
+        // card's turn or the transcript's — an earlier turn's doesn't count
+        #expect(AgentCardRules.join(own: nil, pushed: "p", ownRegistered: false, dismissedSince: turn, pushedSince: turn, latestSince: nil) == .endDismissed)
+        #expect(AgentCardRules.join(own: "a", pushed: "p", ownRegistered: false, dismissedSince: turn, pushedSince: 0, latestSince: turn) == .endDismissed)
+        #expect(AgentCardRules.join(own: nil, pushed: "p", ownRegistered: false, dismissedSince: turn - 600, pushedSince: turn, latestSince: turn) == .join)
+    }
+
+    @Test func failedRegistrationsAreRetried() {
+        #expect(AgentCardRules.retry(activity: "a", token: "ab01", registered: false, inFlight: false))
+        #expect(!AgentCardRules.retry(activity: "a", token: "ab01", registered: true, inFlight: false))  // xbind has it
+        #expect(!AgentCardRules.retry(activity: "a", token: "ab01", registered: false, inFlight: true))  // a try is under way
+        #expect(!AgentCardRules.retry(activity: "a", token: nil, registered: false, inFlight: false))    // no token yet
+        #expect(!AgentCardRules.retry(activity: nil, token: "ab01", registered: false, inFlight: false)) // the card ended
+    }
+
+    @Test func cardsFromBeforeALaunchAreKept() {
+        // the app's own, from before the launch: taken back, not started again
+        #expect(AgentCardRules.keep(pushStarted: false, appWorkspace: "w", sessionID: "s1", tracked: false, sessionCard: nil, id: "a") == .take)
+        // …unless the session shows another card already: that one stays
+        #expect(AgentCardRules.keep(pushStarted: false, appWorkspace: "w", sessionID: "s1", tracked: false, sessionCard: "b", id: "a") == .endStray)
+        // not the app's own to keep: push-started (placed by its ref), no
+        // session named, or tracked already
+        #expect(AgentCardRules.keep(pushStarted: true, appWorkspace: "", sessionID: "", tracked: false, sessionCard: nil, id: "a") == .ignore)
+        #expect(AgentCardRules.keep(pushStarted: false, appWorkspace: "w", sessionID: "", tracked: false, sessionCard: nil, id: "a") == .ignore)
+        #expect(AgentCardRules.keep(pushStarted: false, appWorkspace: "w", sessionID: "s1", tracked: true, sessionCard: "a", id: "a") == .ignore)
+    }
+
+    @Test func dismissalsOutliveTheProcessForADay() {
+        let now: Int64 = 1_790_000_000
+        var all = AgentCardRules.remember([:], key: "w\ns1", since: now - 60, now: now)
+        #expect(all == ["w\ns1": now - 60])
+        all = AgentCardRules.remember(all, key: "w\ns2", since: now - 5, now: now + AgentCardRules.dismissalMemory)
+        #expect(all == ["w\ns2": now - 5]) // the day-old one went
+    }
+
     // MARK: what the card says
 
     @Test func display() {
