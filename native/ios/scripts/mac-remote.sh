@@ -43,10 +43,13 @@
 #   XBIN_MAC_PULL      where results land here (default ${TMPDIR:-/tmp}/xbin-mac):
 #                      <command>/ — logs, .xcresult bundles, PNGs
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
-#   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1
+#   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1,
+#   XBIN_E2E_ERASE, XBIN_SIM_ENSURE
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
-#                      DeviceHub.app from Xcode 27 on)
+#                      DeviceHub.app from Xcode 27 on; ENSURE: a
+#                      simulator of that name, made if missing — e2e's
+#                      default is xbin-e2e, give another to keep off it)
 #
 # The same file runs on the Mac as `mac-remote.sh --on-mac <command>` (what
 # the commands above invoke over ssh; usable at the Mac too). Bash 3.2.
@@ -225,13 +228,13 @@ q() { # the arguments, quoted for the remote shell
 }
 
 # remote [ssh options…] -- <on-mac args…> — run this script's --on-mac half
-# in the mirror, passing XBIN_SIM/XBIN_SIGNING/XBIN_XCODE through.
+# in the mirror, passing XBIN_SIM/XBIN_SIGNING/XBIN_XCODE/… through.
 remote() {
   local opts=() envs=""
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   local v
-  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE; do
+  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_SIM_ENSURE; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \
