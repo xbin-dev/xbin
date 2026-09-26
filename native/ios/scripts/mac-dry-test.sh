@@ -437,7 +437,7 @@ if have git; then
   log=$(cat "$FAKE_LOG")
   has "release-build: generates the project" "$log" "xcodegen generate --spec project.yml (in ios)"
   has "release-build: the archive, automatic signing with the API key" "$log" \
-    "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $tmp/rel-out/Xbin.xcarchive -derivedDataPath $tmp/rel-out/derived -allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss DEVELOPMENT_TEAM=$team CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=42 MARKETING_VERSION=1.2.3"
+    "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $tmp/rel-out/Xbin.xcarchive -derivedDataPath $tmp/rel-out/derived -skipPackagePluginValidation -skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss DEVELOPMENT_TEAM=$team CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=42 MARKETING_VERSION=1.2.3"
   has "release-build: the export, the same key" "$log" \
     "xcodebuild -exportArchive -archivePath $tmp/rel-out/Xbin.xcarchive -exportPath $tmp/rel-out/export -exportOptionsPlist $tmp/rel-out/ExportOptions.plist -allowProvisioningUpdates -authenticationKeyPath $k"
   eq "release-build: ExportOptions.plist (App Store Connect, automatic, export)" "$(python3 - "$tmp/rel-out/ExportOptions.plist" <<'PY2'

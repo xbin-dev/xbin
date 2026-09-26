@@ -131,6 +131,11 @@ export PATH
 command -v xcodegen >/dev/null 2>&1 || refuse "xcodegen not found (brew install xcodegen, as mac-setup.sh does)"
 
 auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$kid" -authenticationKeyIssuerID "$issuer")
+# As in CI: xcodebuild otherwise stops at "Validate plug-in" — the trust
+# prompt Xcode's UI shows. The one plugin is SwiftTerm's build-info
+# generator; project.yml pins SwiftTerm to an exact version, so a release
+# never runs a plugin nobody looked at, and Xcode sandboxes its commands.
+trust=(-skipPackagePluginValidation -skipMacroValidation)
 settings=(DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$build")
 [ -z "$version" ] || settings+=(MARKETING_VERSION="$version")
 destination="export"
@@ -148,7 +153,7 @@ fi
 if [ "$dry" = 1 ]; then
   echo "dry run — would run, in $XBIN_REPO/native/ios:"
   echo "  xcodegen generate --spec project.yml"
-  echo "  xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $out/Xbin.xcarchive -derivedDataPath $out/derived ${auth[*]} ${settings[*]}"
+  echo "  xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $out/Xbin.xcarchive -derivedDataPath $out/derived ${trust[*]} ${auth[*]} ${settings[*]}"
   echo "  xcodebuild -exportArchive -archivePath $out/Xbin.xcarchive -exportPath $out/export -exportOptionsPlist $out/ExportOptions.plist ${auth[*]}"
   exit 0
 fi
@@ -192,7 +197,7 @@ ci_project
 ci_metal
 ci_xcodebuild "$out/archive.log" archive -project "$proj" -scheme Xbin -configuration Release \
   -destination generic/platform=iOS -archivePath "$out/Xbin.xcarchive" -derivedDataPath "$out/derived" \
-  "${auth[@]}" "${settings[@]}"
+  "${trust[@]}" "${auth[@]}" "${settings[@]}"
 [ -d "$out/Xbin.xcarchive" ] || refuse "no archive at $out/Xbin.xcarchive (see $out/archive.log)"
 ci_xcodebuild "$out/export.log" -exportArchive -archivePath "$out/Xbin.xcarchive" -exportPath "$out/export" \
   -exportOptionsPlist "$out/ExportOptions.plist" "${auth[@]}"
