@@ -393,6 +393,10 @@ page. What xbind does for it:
   "./native.js"` to opt out of the restart. Any other file, including
   modules the entry shares with `index.html`, restarts the backend as
   always.
+- **Checking it.** `bx native tree <tile>` prints what the entry renders,
+  `bx preview --native <tile> --out shot.png` draws it with the reference
+  renderer, and `bx lint --native` checks every native tile and reports the
+  workspace's native coverage ([bx.md §Native UIs](/docs/bx.md)).
 
 ## Dialogs & windows
 
