@@ -92,6 +92,15 @@ echo engine (ported from `web/term-predict.js`, checked against
   `NSNumber`); key order doesn't matter, key presence does.
 - Anything testable here is tested here — CI time is for what only Xcode can do.
 
+The renderer follows the same split: `Packages/XbinRenderer` keeps
+everything that doesn't draw in its `XbinRendererModel` target (the tree as
+observable nodes, controlled props, the vocabulary tables, markdown/chart/
+question/chat view models — `swift test` there, held to `vocab.json`, the
+fixtures and the Lit renderer's output); its SwiftUI target is empty off
+Apple platforms. After changing a view, run
+`native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`): it
+type-checks the views against stubs of the SDK — our mistakes, not SDK drift.
+
 ### 4. Apple — only through GitHub Actions (minutes)
 
 The workflow (`.github/workflows/ios.yml`, `runs-on: xcode-27`): `brew install
