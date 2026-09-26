@@ -347,7 +347,9 @@ func (s *Server) tileOriginDenied(w http.ResponseWriter, r *http.Request, code i
 // sent — the token is the tile's, and another tile must not obtain it this
 // way. Reports whether it redirected.
 func (s *Server) redirectToTileOrigin(w http.ResponseWriter, r *http.Request, owner string) bool {
-	if !isNavigation(r) {
+	// Programmatic clients carrying their credential in a header (the native
+	// app's scheme handler, bx, backends) are not browsers navigating.
+	if !isNavigation(r) || r.Header.Get(auth.FrameTokenHeader) != "" || r.Header.Get("Authorization") != "" {
 		return false
 	}
 	p := auth.PrincipalOf(r)

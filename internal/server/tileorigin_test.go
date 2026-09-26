@@ -223,6 +223,11 @@ func TestOriginsWorkspaceRedirect(t *testing.T) {
 	if rec := w.do("/c/apps/a/", append(nav, w.frame("apps/b", "ana"))...); rec.Code == http.StatusFound {
 		t.Fatal("another tile's frame principal was sent to apps/a's origin with a fresh token")
 	}
+	// A client with a header credential (the native app's scheme handler)
+	// gets the document itself, even asking for text/html.
+	if rec := w.do("/c/apps/a/", hdr("Accept", "text/html"), w.frame("apps/a", "ana")); rec.Code != 200 {
+		t.Fatalf("header-credentialed document fetch: %d", rec.Code)
+	}
 	if rec := w.do("/c/shell/", append(nav, w.session("ana"))...); rec.Code != 200 {
 		t.Fatalf("chrome: %d", rec.Code)
 	}
