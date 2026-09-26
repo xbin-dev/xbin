@@ -83,8 +83,10 @@ final class TileHatches {
         islands.values.forEach { $0.controller.reload() }
     }
 
-    /// The runtime stopped: every socket and page goes.
+    /// The runtime stopped: every socket and page goes, and a pick still
+    /// open answers "nothing" (its caller never waits forever).
     func stopAll() {
+        attach.picker.cancelled()
         terminals.values.forEach { $0.stop() }
         islands.values.forEach { $0.controller.close() }
         terminals = [:]
