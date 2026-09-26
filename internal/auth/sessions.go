@@ -2,6 +2,7 @@ package auth
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/util"
@@ -33,6 +34,10 @@ type session struct {
 	gen        string    // generation handle frame tokens bind to (not a credential)
 	bearer     bool      // an app session (Authorization: Bearer), not a cookie
 	deviceID   string    // the enrolled device behind a device-key session
+	// notAfter, when set, caps the session below sessionAbsTTL: a device
+	// login in SSO-only mode lives no longer than the IdP's last word
+	// (the user's last SSO sign-in + sessionAbsTTL; devicelogin.go).
+	notAfter time.Time
 	// Impersonation (impersonate.go): who is looking, and how to hand the
 	// browser back to them when they stop — their own session id, or the
 	// owner token when they came in on the bootstrap cookie.
@@ -71,9 +76,33 @@ func (a *Auth) dropSessionLocked(id string) {
 	}
 }
 
-// expiredLocked reports whether a session is past its idle or absolute TTL.
+// expiredLocked reports whether a session is past its idle or absolute TTL
+// (or its own cap).
 func (a *Auth) expiredLocked(s *session, now time.Time) bool {
-	return now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL
+	return now.Sub(s.lastActive) > a.sessionIdleTTL || now.Sub(s.created) > a.sessionAbsTTL ||
+		!s.notAfter.IsZero() && now.After(s.notAfter)
+}
+
+// SessionMaxTTL is the absolute session lifetime (XBIN_SESSION_MAX_TTL).
+func (a *Auth) SessionMaxTTL() time.Duration { return a.sessionAbsTTL }
+
+// LoginTime reports when the login session behind a human principal was
+// opened (its password / SSO / device sign-in) — the freshness step-up
+// checks read (enrolling a device, devicelogin.go). false: p did not
+// authenticate with a live login session of its own user (owner token,
+// tiles, terminals, a session a restart ended).
+func (a *Auth) LoginTime(p Principal) (time.Time, bool) {
+	h, ok := strings.CutPrefix(p.Gen, "s.")
+	if !ok || p.UserID == "" || p.Component != "" {
+		return time.Time{}, false
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	s := a.sessions[a.gens.sessions[h]]
+	if s == nil || s.userID != p.UserID || a.expiredLocked(s, time.Now()) {
+		return time.Time{}, false
+	}
+	return s.created, true
 }
 
 // NewSession creates a server-side browser session for a user, returning its
@@ -102,14 +131,27 @@ type BearerSession struct {
 // deviceID names the enrolled device for a device-key login ("" for the
 // app's password / SSO-ticket login). Same lifetimes as a browser session.
 func (a *Auth) NewBearerSession(userID, deviceID, ip string) BearerSession {
+	return a.NewBearerSessionUntil(userID, deviceID, ip, time.Time{})
+}
+
+// NewBearerSessionUntil is NewBearerSession capped at notAfter (zero: no cap
+// below the usual lifetimes) — a device login under SSO-only mode.
+func (a *Auth) NewBearerSessionUntil(userID, deviceID, ip string, notAfter time.Time) BearerSession {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sweepSessionsLocked(now)
 	id := a.addSessionLocked(&session{userID: userID, created: now, lastActive: now, ip: ip, lastIP: ip,
-		bearer: true, deviceID: deviceID})
+		bearer: true, deviceID: deviceID, notAfter: notAfter})
 	a.warmLocked(ip, now)
-	return BearerSession{Token: id, ExpiresIdle: now.Add(a.sessionIdleTTL), ExpiresMax: now.Add(a.sessionAbsTTL)}
+	bs := BearerSession{Token: id, ExpiresIdle: now.Add(a.sessionIdleTTL), ExpiresMax: now.Add(a.sessionAbsTTL)}
+	if !notAfter.IsZero() && notAfter.Before(bs.ExpiresMax) {
+		bs.ExpiresMax = notAfter
+	}
+	if bs.ExpiresMax.Before(bs.ExpiresIdle) {
+		bs.ExpiresIdle = bs.ExpiresMax
+	}
+	return bs
 }
 
 // DropSession invalidates a browser session (logout).
@@ -117,35 +159,47 @@ func (a *Auth) DropSession(id string) {
 	a.mu.Lock()
 	a.dropSessionLocked(id)
 	a.mu.Unlock()
+	a.saveGens() // an ended login must not come back as an orphan after a crash
 }
 
 // DropBearerSession ends an app session by its token (the app's sign-out);
 // false when tok is not a live bearer session.
 func (a *Auth) DropBearerSession(tok string) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	s, ok := a.sessions[tok]
+	if ok && s.bearer {
+		a.dropSessionLocked(tok)
+	}
+	a.mu.Unlock()
 	if !ok || !s.bearer {
 		return false
 	}
-	a.dropSessionLocked(tok)
+	a.saveGens()
 	return true
 }
 
 // DropUserSessions ends every session of one user — browser and app alike
 // ("sign out everywhere", D53; also disable and delete) — revokes the
 // terminal tokens minted for them, so shells they had open lose their API
-// credential too (the socket itself stays attached until it reconnects), and
+// credential too (the socket itself stays attached until it reconnects),
 // bumps the user's credential generation, so every frame token minted for
-// them dies with it (frametoken.go). Returns the number of sessions dropped.
+// them dies with it (frametoken.go) — the tiles of logins a restart ended
+// included — and voids the enrollment codes and app sign-in tickets still
+// pending for them, so a code minted just before can't enroll a device
+// after. Enrolled devices stay (the callers decide: broker devicesapi.go).
+// Returns the number of sessions dropped.
 func (a *Auth) DropUserSessions(userID string) int {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	n := 0
 	for id, s := range a.sessions {
 		if s.userID == userID {
 			a.dropSessionLocked(id)
 			n++
+		}
+	}
+	for h, s := range a.gens.orphans {
+		if s.userID == userID {
+			delete(a.gens.orphans, h)
 		}
 	}
 	for tok, t := range a.terminals {
@@ -154,6 +208,9 @@ func (a *Auth) DropUserSessions(userID string) int {
 		}
 	}
 	a.gens.users[userID]++
+	a.dev.dropUserLocked(userID)
+	a.mu.Unlock()
+	a.saveGens() // the bump must outlive a crash
 	return n
 }
 
@@ -164,7 +221,6 @@ func (a *Auth) DropDeviceSessions(deviceID string) int {
 		return 0
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	n := 0
 	for id, s := range a.sessions {
 		if s.deviceID == deviceID {
@@ -172,6 +228,13 @@ func (a *Auth) DropDeviceSessions(deviceID string) int {
 			n++
 		}
 	}
+	for h, s := range a.gens.orphans {
+		if s.deviceID == deviceID {
+			delete(a.gens.orphans, h)
+		}
+	}
+	a.mu.Unlock()
+	a.saveGens()
 	return n
 }
 
@@ -227,6 +290,11 @@ func (a *Auth) sweepSessionsLocked(now time.Time) {
 	for id, s := range a.sessions {
 		if a.expiredLocked(s, now) {
 			a.dropSessionLocked(id)
+		}
+	}
+	for h, s := range a.gens.orphans {
+		if a.expiredLocked(s, now) {
+			delete(a.gens.orphans, h)
 		}
 	}
 	a.sweepWarmLocked(now)

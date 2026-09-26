@@ -159,14 +159,16 @@ func (a *Auth) Impersonation(id string) (impersonator string, ok bool) {
 // when id is not an impersonation session (a plain logout handles those).
 func (a *Auth) StopImpersonation(id string) (restoreSession string, restoreOwner, ok bool) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	s, found := a.sessions[id]
 	if !found || s.impersonator == "" {
+		a.mu.Unlock()
 		return "", false, false
 	}
 	a.dropSessionLocked(id)
 	if _, live := a.sessions[s.restoreSession]; live {
 		restoreSession = s.restoreSession
 	}
+	a.mu.Unlock()
+	a.saveGens() // the view's tiles end with it, restart or not
 	return restoreSession, s.restoreOwner, true
 }

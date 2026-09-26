@@ -99,3 +99,36 @@ func (b *Broker) apiDeviceRevoke(srv *server.Server, w http.ResponseWriter, r *h
 	b.usersEvent()
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "user": owner, "dropped": n})
 }
+
+// removeUserDevices removes a user's devices — all of them, or all but keep
+// (the caller's own) — and ends every session each one opened. Returns how
+// many went.
+func (b *Broker) removeUserDevices(srv *server.Server, st *users.Store, uid, keep string) (int, error) {
+	ids, err := st.RemoveDevices(uid, keep)
+	if srv != nil && srv.Auth != nil {
+		for _, id := range ids {
+			srv.Auth.DropDeviceSessions(id)
+		}
+	}
+	if len(ids) > 0 {
+		b.usersEvent()
+	}
+	return len(ids), err
+}
+
+// signoutDevices is sign-out-everywhere's device half (DELETE
+// /users/{id}/sessions): ?devices=1 removes every enrolled device too —
+// otherwise they stay, and devicesLeft says how many can still sign in
+// without a password. false: the removal failed (answered).
+func (b *Broker) signoutDevices(srv *server.Server, st *users.Store, w http.ResponseWriter, r *http.Request, uid string, out map[string]any) bool {
+	if r.URL.Query().Get("devices") == "1" {
+		n, err := b.removeUserDevices(srv, st, uid, "")
+		if err != nil {
+			server.WriteError(w, http.StatusInternalServerError, err.Error())
+			return false
+		}
+		out["devicesRemoved"] = n
+	}
+	out["devicesLeft"] = len(st.Devices(uid))
+	return true
+}

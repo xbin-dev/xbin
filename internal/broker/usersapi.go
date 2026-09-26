@@ -25,7 +25,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("POST /users/{id}/invite", b.apiUsersInvite)
 	srv.RegisterAPI("DELETE /users/{id}", func(w http.ResponseWriter, r *http.Request) { b.apiUsersDelete(srv, w, r) })
 	srv.RegisterAPI("DELETE /users/{id}/sessions", func(w http.ResponseWriter, r *http.Request) { b.apiUsersSignout(srv, w, r) })
-	srv.RegisterAPI("POST /account/password", b.apiAccountPassword)
+	srv.RegisterAPI("POST /account/password", func(w http.ResponseWriter, r *http.Request) { b.apiAccountPassword(srv, w, r) })
 	srv.RegisterAPI("GET /auth-settings", b.apiAuthSettingsGet)
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
 	srv.RegisterAPI("POST /auth-settings/sso/test", func(w http.ResponseWriter, r *http.Request) { b.apiSSOTest(srv, w, r) })
@@ -279,8 +279,9 @@ func (b *Broker) inviteLink(r *http.Request, tok string) string {
 
 // apiAccountPassword is the self-service password change (D38): a signed-in
 // user rotates their OWN credential after proving the current one. Not
-// admin-gated, not usable by elements.
-func (b *Broker) apiAccountPassword(w http.ResponseWriter, r *http.Request) {
+// admin-gated, not usable by elements. removeDevices:true also removes their
+// app devices but the calling one (devicesapi.go).
+func (b *Broker) apiAccountPassword(srv *server.Server, w http.ResponseWriter, r *http.Request) {
 	st := b.usersStore(w)
 	if st == nil {
 		return
@@ -290,7 +291,10 @@ func (b *Broker) apiAccountPassword(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, "password change is for signed-in users (the bootstrap token has no password)")
 		return
 	}
-	var body struct{ Current, New string }
+	var body struct {
+		Current, New  string
+		RemoveDevices bool
+	}
 	if err := server.DecodeJSON(r, &body); err != nil || body.New == "" {
 		server.WriteError(w, http.StatusBadRequest, "need {current, new}")
 		return
@@ -299,7 +303,11 @@ func (b *Broker) apiAccountPassword(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	if body.RemoveDevices {
+		out["devicesRemoved"], _ = b.removeUserDevices(srv, st, p.User.ID, p.DeviceID)
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 // apiUsersInvite (re)mints a single-use invite link for an existing user —
@@ -496,9 +504,11 @@ func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *ht
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "orphanedTiles": orphaned})
 }
 
-// apiUsersSignout — DELETE /users/{id}/sessions: "sign out everywhere"
-// (D53). Ends every browser session and terminal token of the user; they
-// can sign in again (disable the account to stop that).
+// apiUsersSignout — DELETE /users/{id}/sessions[?devices=1]: "sign out
+// everywhere" (D53). Ends every browser and app session, terminal token and
+// frame token of the user, and voids their pending enrollment codes; they
+// can sign in again (disable the account to stop that). Enrolled devices
+// stay unless ?devices=1 (signoutDevices).
 func (b *Broker) apiUsersSignout(srv *server.Server, w http.ResponseWriter, r *http.Request) {
 	if !b.requireUsersCap(w, r) {
 		return
@@ -516,7 +526,10 @@ func (b *Broker) apiUsersSignout(srv *server.Server, w http.ResponseWriter, r *h
 	if srv != nil && srv.Auth != nil {
 		n = srv.Auth.DropUserSessions(u.ID)
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "dropped": n})
+	out := map[string]any{"ok": true, "dropped": n}
+	if b.signoutDevices(srv, st, w, r, u.ID, out) {
+		server.WriteJSON(w, http.StatusOK, out)
+	}
 }
 
 // apiSSOTest — POST /auth-settings/sso/test: probe the provider (discovery +

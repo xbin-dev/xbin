@@ -291,17 +291,20 @@ func TestDeviceLoginDisabledAndSignout(t *testing.T) {
 		t.Fatal("browser logout ended the app session")
 	}
 
-	// SSO-only mode (D53) keeps device login (decision: enrollment already
-	// passed the sign-in policy).
+	// SSO-only mode (D53): a device login needs a recent SSO sign-in
+	// (TestDeviceLoginSSOOnly has the rest).
 	if err := b.Users.SetSSO(&users.SSOConfig{Kind: "github", ClientID: "c"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Users.SetPasswordLoginDisabled(true); err != nil {
 		t.Fatal(err)
 	}
+	if err := b.Users.TouchLogin("ann", "sso"); err != nil {
+		t.Fatal(err)
+	}
 	n = dev.challenge(t, h)
 	if code, _ := dev.login(h, n, dev.sign(t, dev.origin, n)); code != http.StatusOK {
-		t.Fatalf("device login under SSO-only mode: %d", code)
+		t.Fatalf("device login under SSO-only mode after an SSO sign-in: %d", code)
 	}
 
 	// Disable ann: the app session and its frames die; login refuses.

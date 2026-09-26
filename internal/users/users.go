@@ -114,6 +114,10 @@ type User struct {
 	// signal ("never signed in", "stale 30d+").
 	LastLogin    int64  `json:"lastLogin,omitempty"`
 	LastLoginVia string `json:"lastLoginVia,omitempty"`
+	// LastSSO: unix time of the last SSO sign-in (web or app) — how long
+	// the IdP last vouched; SSO-only mode stops device logins past the
+	// session max TTL after it (docs/auth.md §Device login).
+	LastSSO int64 `json:"lastSSO,omitempty"`
 	// SSOGroups are the provider groups seen at the last SSO sign-in (sorted,
 	// deduped, capped) — what the admin UI offers when writing group rules,
 	// so nobody has to guess the IdP's spelling. SSOSyncError is the last
@@ -383,7 +387,8 @@ func (s *Store) SetPasswordLoginDisabled(v bool) error {
 	return s.persistLocked()
 }
 
-// TouchLogin stamps a successful sign-in (via: password | invite | sso).
+// TouchLogin stamps a successful sign-in (via: password | invite | sso |
+// device); an sso one also stamps LastSSO.
 // Called after every session creation; a failure only logs upstream — it
 // must never block a login.
 func (s *Store) TouchLogin(id, via string) error {
@@ -395,6 +400,9 @@ func (s *Store) TouchLogin(id, via string) error {
 	}
 	nu := *u
 	nu.LastLogin, nu.LastLoginVia = timeNow(), via
+	if via == "sso" {
+		nu.LastSSO = nu.LastLogin
+	}
 	s.byID[nu.ID] = &nu
 	return s.persistLocked()
 }
@@ -526,7 +534,7 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		// Sign-in facts are store-owned (TouchLogin / group sync), never part
 		// of an API update. Role provenance survives only while the role does:
 		// a manual role change is manual provenance.
-		u.LastLogin, u.LastLoginVia = existing.LastLogin, existing.LastLoginVia
+		u.LastLogin, u.LastLoginVia, u.LastSSO = existing.LastLogin, existing.LastLoginVia, existing.LastSSO
 		u.SSOGroups, u.SSOSyncError = existing.SSOGroups, existing.SSOSyncError
 		u.Devices = existing.Devices // store-owned too (devices.go)
 		u.RoleVia = ""

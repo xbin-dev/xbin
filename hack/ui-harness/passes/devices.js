@@ -4,6 +4,10 @@
 // for the Secure Enclave) enrolls with it and signs in; the panel notices
 // the new device; the admin console's Users tab lists the user's devices
 // and revokes one; removing the other from the panel ends its session.
+// Step-up: a stale sign-in is asked for the password (or to sign in again)
+// before a code is minted — the harness's logins are always fresh, so the
+// server's answer is stubbed for those checks (the gate itself is
+// TestEnrollCodeStepUp). Sign out everywhere asks the admin about devices.
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { URL, OUT, login, closeCtx, settle, waitSel, openShell, gotoTab, shot, shotEl, checker, log } = require('../lib');
@@ -44,13 +48,45 @@ async function devices(browser) {
   await page.locator('button[title="workspace settings (per user)"]').click();
   await waitSel(page, '.wsmenu');
   await shotEl(page, '.wsmenu', 'devices-menu');
+  check(await page.locator('.wsmenu form input[name=rmdev]').count() === 1, 'the password form offers removing app devices');
   await page.locator('.wsmenu button', { hasText: 'devices…' }).click();
   await waitSel(page, 'bx-devices .box');
   await waitSel(page, 'bx-devices .empty');
   check((await page.locator('bx-devices .empty').textContent()).includes('No devices'), 'the panel opens on an empty list');
 
+  // ---- step-up: "sign in again" (an account without password sign-in) ----
+  const ENROLL = '**/api/xbin/devices/enroll-code';
+  await page.route(ENROLL, (route) => route.fulfill({ status: 403, contentType: 'application/json',
+    body: JSON.stringify({ error: 'adding a device needs a recent sign-in — sign in again, then add it within 10 minutes', stepUp: 'signin' }) }));
   await page.locator('bx-devices button', { hasText: 'add a device' }).click();
+  await waitSel(page, 'bx-devices [data-stepup="signin"]');
+  check(await page.locator('bx-devices [data-stepup="signin"] button', { hasText: 'sign in again' }).count() === 1
+    && await page.locator('bx-devices .foot button', { hasText: 'add a device' }).count() === 0, 'a stale SSO sign-in is asked to sign in again');
+  await settle(page);
+  await shotEl(page, 'bx-devices .box', 'devices-stepup-signin');
+  await page.locator('bx-devices [data-stepup="signin"] button', { hasText: 'not now' }).click();
+  await page.unroute(ENROLL);
+
+  // ---- step-up: the password, then the code ----
+  let served = 0, sentPassword = null;
+  await page.route(ENROLL, (route) => {
+    if (served++ === 0) {
+      return route.fulfill({ status: 403, contentType: 'application/json',
+        body: JSON.stringify({ error: 'confirm your password to add a device', stepUp: 'password' }) });
+    }
+    try { sentPassword = JSON.parse(route.request().postData() || '{}').password ?? null; } catch { /* no body */ }
+    return route.continue();
+  });
+  await page.locator('bx-devices button', { hasText: 'add a device' }).click();
+  await waitSel(page, 'bx-devices [data-stepup="password"] input[name=pw]');
+  await settle(page);
+  await shotEl(page, 'bx-devices .box', 'devices-stepup');
+  await page.locator('bx-devices [data-stepup="password"] input[name=pw]').fill('admin');
+  await page.locator('bx-devices [data-stepup="password"] button', { hasText: 'continue' }).click();
   await waitSel(page, 'bx-devices [data-enroll] svg');
+  await page.unroute(ENROLL);
+  check(sentPassword === 'admin' && !(await page.locator('bx-devices [data-stepup]').count()),
+    `the step-up retry carries the password and gives way to the code (${sentPassword})`);
   const link = await page.locator('bx-devices [data-enroll] input').inputValue();
   const u = new globalThis.URL(link);
   const code = u.searchParams.get('c'), origin = u.searchParams.get('u');
@@ -97,7 +133,8 @@ async function devices(browser) {
 
   // ---- the admin console: Users → admin → devices (2)… → revoke the iPad ----
   const admin = await login(browser, 'admin', 'admin');
-  admin.page.on('dialog', (d) => d.accept());
+  const dialogs = [];
+  admin.page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
   await gotoTab(admin.page, 'users', 'add user');
   const row = admin.page.locator('tr', { has: admin.page.locator('td.user .mono', { hasText: /^admin$/ }) }).first();
   await row.locator('button', { hasText: 'devices (2)' }).click();
@@ -111,6 +148,32 @@ async function devices(browser) {
   // sessions tab marks app sessions
   const sess = (await (await admin.ctx.request.get(`${URL}/api/xbin/sessions`)).json()).sessions ?? [];
   check(sess.some((s) => s.user === 'admin' && s.via === 'device' && s.device === devA.body.deviceId), 'sessions list the device session (via device)');
+
+  // ---- sign out everywhere asks about devices (a throwaway user) ----
+  const TU = 'devtest';
+  await admin.ctx.request.delete(`${URL}/api/xbin/users/${TU}`);
+  await admin.ctx.request.post(`${URL}/api/xbin/users`, { data: { id: TU, password: 'devtest-pass-1' } });
+  const tu = await login(browser, TU, 'devtest-pass-1');
+  const tuCode = await (await tu.ctx.request.post(`${URL}/api/xbin/devices/enroll-code`)).json();
+  const keyC = appKey();
+  const devC = await enroll(tuCode.code, 'Test phone', keyC);
+  const tokC = (await deviceLogin(devC.body, keyC)).body.token;
+  await closeCtx(tu.ctx, tu.page);
+  await gotoTab(admin.page, 'users', 'add user');
+  const trow = admin.page.locator('tr', { has: admin.page.locator('td.user .mono', { hasText: new RegExp(`^${TU}$`) }) }).first();
+  await trow.locator('summary', { hasText: 'more' }).click();
+  dialogs.length = 0;
+  await trow.locator('button', { hasText: 'sign out everywhere' }).click();
+  await admin.page.waitForSelector(`text=signed out ${TU}`, { timeout: 10000 });
+  const gone = await trow.locator('button', { hasText: 'devices (' }).waitFor({ state: 'detached', timeout: 10000 }).then(() => true, () => false);
+  check(gone, 'the users table refreshes: no devices left on the row');
+  await settle(admin.page);
+  await shot(admin.page, 'devices-admin-signout');
+  check(dialogs.length === 2 && /1 xbin app device enrolled/.test(dialogs[1]), `sign out everywhere asks about the device (${JSON.stringify(dialogs)})`);
+  check(await whoamiStatus(tokC) === 401, 'the device session ended');
+  const chC = await post('/login/device/challenge', { deviceId: devC.body.deviceId });
+  check(chC.status === 404, `accepting removed the device (${chC.status})`);
+  await admin.ctx.request.delete(`${URL}/api/xbin/users/${TU}`);
   await closeCtx(admin.ctx, admin.page);
 
   // ---- remove the phone from the shell panel ----

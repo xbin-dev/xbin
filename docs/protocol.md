@@ -24,10 +24,14 @@ its credential generation — the browser or app session behind the
 `/c/` document load or `/api/xbin/frame-token` call, and renewals copy it —
 so logout, revoking the device, "sign out everywhere", disabling the user,
 and (for the bootstrap token's frames) rotating the owner token end it at
-once instead of at expiry. Tokens minted by an xbind older than this rule
-(four `|`-separated fields instead of five) verify until they expire and
-renew into bound ones, tied to the user's current generation. The token
-stays opaque: frontends pass it along, never parse it.
+once instead of at expiry. Frame use counts as that session's activity (its
+idle window slides; the absolute cap stays). An xbind restart ends the
+sessions but not the bound tokens: open tiles renew until their login would
+have expired. Tokens minted by an xbind older than this rule (four
+`|`-separated fields instead of five) verify until they expire and renew
+into bound ones, tied to the user's current generation. The token stays
+opaque: frontends pass it along, never parse it; a renewal answering 401
+means the login ended.
 
 **Browser-plane isolation (ND8):** the cookie proves the human, and humans
 act only from *chrome* (the shell, plus manifest `chrome: true` components).
@@ -139,7 +143,13 @@ POST /login/device               {deviceId, nonce, signature} → {token,
                                  Bearer — the same principal and TTLs as a
                                  browser session (Via "device"). 401: nonce
                                  spent/expired/not this device's, or a bad
-                                 signature; 403: account disabled.
+                                 signature; 403: account disabled — or,
+                                 under SSO-only mode for a non-admin,
+                                 {error, reauth:"sso"} when their last SSO
+                                 sign-in is older than the session max TTL
+                                 (sign in with SSO again; the device stays).
+                                 There, expiresMax is also capped at that
+                                 last SSO sign-in + the max TTL.
                                  Throttled; audit-logged
 POST /logout                     revoke the session (cookie → 302 /login;
                                  an app session's Authorization: Bearer →
@@ -475,12 +485,13 @@ GET    /users                     admin or xbin:users. [{id,name,role,
                                    disabled?, invitePending?,
                                    deviceCount? (enrolled app devices),
                                    email?, roleVia?, lastLogin?,
-                                   lastLoginVia?, ssoGroups?,
+                                   lastLoginVia?, lastSSO?, ssoGroups?,
                                    ssoSyncError?}] — levels
                                    read|write|terminal (docs/auth.md, D16).
                                    Sign-in facts (D53): lastLogin (unix) +
                                    lastLoginVia (password|invite|sso|
-                                   device);
+                                   device); lastSSO (unix) = the last SSO
+                                   sign-in;
                                    ssoGroups = the IdP groups seen at the
                                    last SSO sign-in; ssoSyncError = the
                                    last group-fetch failure; roleVia "sso"
@@ -518,9 +529,12 @@ POST   /users                     admin/xbin:users. create a user: {id,
                                    immutable; password ≥ 8; the legacy body —
                                    tiles array + terminal bool — is still
                                    accepted and migrated)
-POST   /account/password          signed-in users. {current, new} — self-
-                                   service rotation; verifies the current
-                                   password (D38)
+POST   /account/password          signed-in users. {current, new,
+                                   removeDevices?} — self-service rotation;
+                                   verifies the current password (D38).
+                                   removeDevices:true also removes the
+                                   caller's app devices (all but the one
+                                   calling) → {ok, devicesRemoved}
 POST   /login                     none — the password is the credential.
                                    The native app's sign-in: {username,
                                    password} → the app token response
@@ -530,13 +544,20 @@ POST   /login                     none — the password is the credential.
                                    disabled accounts refused, SSO-only mode
                                    (D53) refuses non-admins (403)
 POST   /devices/enroll-code       a signed-in user (browser or app
-                                   session). → {code, url:
+                                   session), [{password}]. → {code, url:
                                    "xbin://enroll?u=<origin>&c=<code>",
                                    origin, expires}: a one-time code
                                    (5 min) enrolling ONE device for the
                                    caller — the shell shows url as a QR
                                    code. origin: the --external-url
-                                   origin, else the request's scheme://host
+                                   origin, else the request's scheme://host.
+                                   Step-up: the caller's sign-in must be
+                                   under 10 min old, or the body carries
+                                   their password; else 403 {error,
+                                   stepUp: "password" (resend with it) |
+                                   "signin" (sign in again: SSO account or
+                                   SSO-only mode)}. Wrong passwords are
+                                   throttled
 POST   /devices/enroll            none — the code is the credential.
                                    {code, name, platform, publicKey (SPKI
                                    DER of an EC P-256 key, base64url)} →
@@ -613,8 +634,14 @@ DELETE /users/<id>                admin/xbin:users. remove (revokes
 DELETE /users/<id>/sessions       admin/xbin:users. "sign out everywhere"
                                    (D53): ends every browser and app
                                    session, terminal token and frame token
-                                   of the user → {ok, dropped}. They can sign in again —
-                                   disable the account to stop that
+                                   of the user and voids their pending
+                                   enrollment codes → {ok, dropped,
+                                   devicesLeft, devicesRemoved?}. They can
+                                   sign in again — disable the account to
+                                   stop that. Enrolled app devices stay
+                                   (devicesLeft of them, able to sign in
+                                   without a password) unless ?devices=1
+                                   removes them too
 GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    created, lastActive, ip, lastIP,
                                    current, impersonatedBy?, via,

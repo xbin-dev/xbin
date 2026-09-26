@@ -44,13 +44,22 @@ bound to the user who minted it. The app may accept it typed: case-
 insensitive, dashes and spaces ignored.
 
 **From the app itself.** After an in-app sign-in (§5) the app holds a session
-and mints its own code:
+and mints its own code — right away: minting is a **step-up**, allowed only
+within **10 minutes** of the sign-in that opened the session (a device
+outlives it), or with the account password in the body:
 
 ```
 POST /api/xbin/devices/enroll-code          Authorization: Bearer <token>
+[{"password": "…"}]                          optional; only needed past the 10 minutes
 → 200 {"code", "url", "origin", "expires"}
-  403  not a user session (the bootstrap token and tiles have no account)
+  403  {"error", "stepUp": "password"}  resend with the password (a wrong one → the same 403, throttled)
+  403  {"error", "stepUp": "signin"}    sign in again (§5), then mint — an SSO account, or SSO-only mode
+  403  not a user session (the bootstrap token and tiles have no account; no stepUp field)
+  429  throttled
 ```
+
+The browser path is held to the same rule (the shell asks for the password
+when the sign-in is older).
 
 **Redeem** (no credential — the code is one):
 
@@ -90,10 +99,20 @@ POST /login/device
   401  nonce spent / expired / issued to another device, or the signature
        doesn't verify (throttled; the nonce is spent either way — get a new one)
   403  the account is disabled
+  403  {"error", "reauth": "sso"}   SSO-only workspace: this user's last SSO sign-in
+       is older than the session max TTL (30 days by default). Run the SSO
+       sign-in (§5) — the device stays enrolled — then device login works again
 ```
 
 The nonce is consumed by the first `POST /login/device` naming it, success or
 not. Ask for a fresh challenge per attempt; don't cache one.
+
+**SSO-only workspaces.** For a non-admin in a workspace with password sign-in
+disabled, the IdP stays in charge: every SSO sign-in (web or app) opens a
+window of the session max TTL in which device logins work, and a device
+session's `expiresMax` never passes the end of that window (it can be much
+sooner than 30 days after the device login). Plan the SSO re-auth around
+`expiresMax` and the `reauth` answer.
 
 ## 4. The signed message
 
@@ -153,13 +172,17 @@ POST /login/ticket
   makes (tile list, whoami, `/api/xbin/frame-token`, `/ws/term`, agent
   sessions). It is the user's session: it reaches exactly what their browser
   session reaches. **Never** hand it to tile code — tiles get frame tokens.
-- It dies after `expiresIdle` without use (every request slides it), at
-  `expiresMax` regardless, on an **xbind restart**, when the device is
+- It dies after `expiresIdle` without use (every request slides it — so do
+  frame-token renewals and tile requests made with frame tokens it minted),
+  at `expiresMax` regardless, on an **xbind restart**, when the device is
   removed, on "sign out everywhere", or when the account is disabled. Any
   `401` ⇒ sign in again (§3); a `404` from the challenge ⇒ the device was
   removed: enroll again.
-- Frame tokens minted with this session die with it — reload open tiles
-  after re-signing.
+- Frame tokens minted with this session die with it on sign-out, device
+  removal, "sign out everywhere" and disabling — reload those tiles after
+  re-signing. An **xbind restart** is the exception: the session dies, but
+  the frame tokens it minted keep working (and renewing) until the session
+  would have expired, so open tiles needn't reload after a restart re-sign.
 - Sign out: `POST /logout` with the bearer → `204` (the device stays
   enrolled; removing it is `DELETE /api/xbin/devices/<deviceId>`).
 - The device list: `GET /api/xbin/devices` → `{"devices": [{"id", "name",

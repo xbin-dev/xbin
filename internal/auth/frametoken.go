@@ -26,9 +26,14 @@ import (
 // frames renewing themselves forever. Renewal copies the generation. Forms:
 //
 //	s.<handle>      a login session (browser cookie or app bearer): dies
-//	                with the session (logout, expiry, revocation, restart)
-//	u.<epoch>.<n>   the user's generation: DropUserSessions bumps n; epoch
-//	                is boot-random, so these never survive a restart either
+//	                with the session (logout, expiry, revocation). Frame
+//	                use counts as the session's activity, so a tile in use
+//	                keeps its login from idling out (sessionAbsTTL still
+//	                caps it). A restart ends the session itself, but its
+//	                handle survives as an orphan (framegens.go): open tiles
+//	                keep renewing until the login would have expired
+//	u.<epoch>.<n>   the user's generation: DropUserSessions bumps n (epoch
+//	                and counters are persisted, framegens.go)
 //	o.<hash>        the bootstrap owner token: dies when it is rotated
 //
 // Wire format: base64url(component)|base64url(user)|exp|gen|hmac. The legacy
@@ -37,17 +42,32 @@ import (
 // legacyFrameWindow — and renews into a bound token tied to the user's
 // current generation, so pages open across the upgrade keep working.
 
-// genState is the live-generation bookkeeping (guarded by Auth.mu).
+// genState is the live-generation bookkeeping (guarded by Auth.mu; path is
+// fixed at Load).
 type genState struct {
-	sessions map[string]string // session generation handle → session id
-	users    map[string]uint64 // user id → generation (bumped by DropUserSessions)
-	epoch    string            // boot-random prefix of user generations
+	sessions map[string]string   // session generation handle → session id
+	orphans  map[string]*session // handle → a login the last restart ended (framegens.go)
+	users    map[string]uint64   // user id → generation (bumped by DropUserSessions)
+	epoch    string              // random prefix of user generations (a lost state file → a new one)
 	boot     time.Time
+	path     string // where it persists ("" = nowhere)
 }
 
 func newGenState() genState {
-	return genState{sessions: map[string]string{}, users: map[string]uint64{},
+	return genState{sessions: map[string]string{}, orphans: map[string]*session{}, users: map[string]uint64{},
 		epoch: util.RandomToken(4), boot: time.Now()}
+}
+
+// sessionSlideGrain: frame activity refreshes a session's idle clock at most
+// this often (a write lock per tile request would be waste) — or a quarter
+// of the idle TTL, when that is shorter.
+const sessionSlideGrain = time.Minute
+
+func (a *Auth) slideGrain() time.Duration {
+	if g := a.sessionIdleTTL / 4; g < sessionSlideGrain {
+		return g
+	}
+	return sessionSlideGrain
 }
 
 // legacyFrameWindow bounds the pre-binding 4-field tokens: one verifies only
@@ -95,29 +115,58 @@ func (a *Auth) defaultGen(userID string) string {
 	return a.userGenLocked(userID)
 }
 
+// genSessionLocked resolves a session generation handle: the live session,
+// or the orphan a restart left behind (caller holds a.mu).
+func (a *Auth) genSessionLocked(handle string) *session {
+	if id, ok := a.gens.sessions[handle]; ok {
+		return a.sessions[id]
+	}
+	return a.gens.orphans[handle]
+}
+
 // genLive reports whether generation gen is still valid for a token naming
 // userID. A session generation also reports who is viewing through that
-// session (an admin's view-as, D64) — its frames stay read-only.
+// session (an admin's view-as, D64) — its frames stay read-only — and counts
+// as that session's activity: a tile renewing its token or calling the API
+// slides the session's idle window like a request on its cookie would (the
+// tile's own requests carry no cookie). sessionAbsTTL still caps it.
 func (a *Auth) genLive(gen, userID string) (impersonator string, ok bool) {
 	kind, rest, found := strings.Cut(gen, ".")
 	if !found || rest == "" {
 		return "", false
 	}
+	if kind == "s" {
+		return a.sessionGenLive(rest, userID)
+	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	switch kind {
-	case "s":
-		s := a.sessions[a.gens.sessions[rest]]
-		if s == nil || s.userID != userID || a.expiredLocked(s, time.Now()) {
-			return "", false
-		}
-		return s.impersonator, true
 	case "u":
 		return "", userID != "" && gen == a.userGenLocked(userID)
 	case "o":
 		return "", userID == "" && gen == a.ownerGenLocked()
 	}
 	return "", false
+}
+
+func (a *Auth) sessionGenLive(handle, userID string) (impersonator string, ok bool) {
+	now := time.Now()
+	a.mu.RLock()
+	s := a.genSessionLocked(handle)
+	live := s != nil && s.userID == userID && !a.expiredLocked(s, now)
+	slide := live && now.Sub(s.lastActive) >= a.slideGrain()
+	if live {
+		impersonator = s.impersonator
+	}
+	a.mu.RUnlock()
+	if slide {
+		a.mu.Lock()
+		if a.genSessionLocked(handle) == s && !a.expiredLocked(s, now) && s.lastActive.Before(now) {
+			s.lastActive = now
+		}
+		a.mu.Unlock()
+	}
+	return impersonator, live
 }
 
 // validGen: generation strings travel inside the |-separated token, so they

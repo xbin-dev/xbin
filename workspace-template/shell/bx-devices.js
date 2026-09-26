@@ -4,9 +4,12 @@
  * sign-in), removes one (its app sessions end at once), and adds one: a
  * one-time enrollment code shown as a QR code of the xbin://enroll link plus
  * the raw link, valid five minutes — the panel watches the list and says so
- * when the phone has enrolled. Opened from the account section of the
- * shell's 🔧 menu (openDevices); a modal over the workspace that removes
- * itself on close. The shell is chrome: these calls ride the session cookie.
+ * when the phone has enrolled. Minting a code is a step-up: a sign-in older
+ * than ten minutes is asked for the password first (or, with no password
+ * sign-in on the account, to sign in again) — a device outlives the session
+ * that adds it. Opened from the account section of the shell's 🔧 menu
+ * (openDevices); a modal over the workspace that removes itself on close.
+ * The shell is chrome: these calls ride the session cookie.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { xbinApi as call } from '/vendor/bx-kit.js';
@@ -46,6 +49,7 @@ export class BxDevices extends LitElement {
   static properties = {
     _devices: { state: true }, // null = loading
     _enroll: { state: true },  // {code, url, origin, expires, qr, known:Set, added}
+    _stepUp: { state: true },  // {mode: 'password'|'signin', msg, retry} — the server asked to re-prove it's you
     _confirm: { state: true }, // device id awaiting "remove?" confirmation
     _err: { state: true },
     _now: { state: true },
@@ -118,11 +122,24 @@ export class BxDevices extends LitElement {
   }
 
   // Mint a code, draw it, and watch the list (every 2 s while the code is
-  // live) for the device it enrolls.
-  async _add() {
+  // live) for the device it enrolls. A 403 carrying stepUp turns into the
+  // password / sign-in-again prompt instead of an error.
+  async _add(password) {
     this._err = null;
     try {
-      const e = await call('/devices/enroll-code', { method: 'POST' });
+      const r = await fetch('/api/xbin/devices/enroll-code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: password ? JSON.stringify({ password }) : '',
+      });
+      const e = await r.json().catch(() => ({}));
+      if (r.status === 403 && e.stepUp) {
+        this._stepUp = { mode: e.stepUp, msg: e.error, retry: !!password };
+        this._enroll = null;
+        clearInterval(this._tick);
+        return;
+      }
+      if (!r.ok) throw new Error(e.error || `error ${r.status}`);
+      this._stepUp = null;
       const qr = await qrPath(e.url);
       this._enroll = { ...e, qr, known: new Set((this._devices ?? []).map((d) => d.id)), added: null };
       this._now = Date.now() / 1000;
@@ -170,6 +187,31 @@ export class BxDevices extends LitElement {
     </li>`;
   }
 
+  // Sign in again: out, then to the login page (password or SSO) — adding a
+  // device works for ten minutes after.
+  async _reauth() {
+    try { await fetch('/logout', { method: 'POST' }); } catch { /* the login page tells */ }
+    location.href = '/login';
+  }
+
+  _stepUpBox() {
+    const s = this._stepUp;
+    if (!s) return nothing;
+    if (s.mode === 'password') {
+      return html`<form class="enroll" data-stepup="password" @submit=${(e) => { e.preventDefault(); this._add(e.target.pw.value); }}>
+        <div class="steps"><b>Confirm it's you.</b> A device keeps signing in after this browser signs out,
+          so adding one needs your password (or a sign-in in the last ten minutes).
+          <div class="link"><input name="pw" type="password" autocomplete="current-password" placeholder="your password" required>
+            <button class="primary" type="submit">continue</button></div>
+          ${s.retry ? html`<div class="timer" style="color: var(--bx-red, #ef5350)">${s.msg}</div>` : nothing}</div>
+      </form>`;
+    }
+    return html`<div class="enroll" data-stepup="signin"><div class="steps"><b>Sign in again first.</b> Adding a device
+      needs a sign-in from the last ten minutes — sign in again, then add it.
+      <div class="link"><button class="primary" @click=${() => this._reauth()}>sign in again</button>
+        <button @click=${() => { this._stepUp = null; }}>not now</button></div></div></div>`;
+  }
+
   _enrollBox() {
     const en = this._enroll;
     if (!en) return nothing;
@@ -206,10 +248,11 @@ export class BxDevices extends LitElement {
         ${list == null ? html`<div class="empty">loading…</div>`
           : list.length ? html`<ul class="devs">${list.map((d) => this._row(d))}</ul>`
           : html`<div class="empty">No devices yet.</div>`}
+        ${this._stepUpBox()}
         ${this._enrollBox()}
         ${this._err ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
         <div class="foot">
-          ${this._enroll && !this._enroll.added ? nothing
+          ${(this._enroll && !this._enroll.added) || this._stepUp ? nothing
             : html`<button class="primary" @click=${() => this._add()}>add a device</button>`}
           <button @click=${() => this.close()}>close</button>
         </div>

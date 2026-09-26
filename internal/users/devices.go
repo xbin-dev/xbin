@@ -153,6 +153,34 @@ func (s *Store) RemoveDevice(deviceID string) (userID string, ok bool, err error
 	return "", false, nil
 }
 
+// RemoveDevices deletes every device of user id except keep ("" = all),
+// returning the removed ids — sign-out-everywhere with ?devices=1, and a
+// password change that asks for it (the caller's own device stays).
+func (s *Store) RemoveDevices(id, keep string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.byID[normalizeID(id)]
+	if u == nil || len(u.Devices) == 0 {
+		return nil, nil
+	}
+	var kept []Device
+	var removed []string
+	for _, d := range u.Devices {
+		if keep != "" && d.ID == keep {
+			kept = append(kept, d)
+		} else {
+			removed = append(removed, d.ID)
+		}
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	nu := *u
+	nu.Devices = kept
+	s.byID[nu.ID] = &nu
+	return removed, s.persistLocked()
+}
+
 // TouchDevice stamps a successful device login (time + client IP). Like
 // TouchLogin, a failure only logs upstream — it never blocks a login.
 func (s *Store) TouchDevice(deviceID, ip string) error {

@@ -163,8 +163,8 @@ func TestAppSSOTicket(t *testing.T) {
 	if w := postJSON(h, "/login/ticket", `{"ticket":"`+tk+`","verifier":"`+verifier+`"}`, "", ""); w.Code != http.StatusUnauthorized {
 		t.Fatalf("ticket replayed: %d", w.Code)
 	}
-	if u, _ := st.Get("jane"); u.LastLoginVia != "sso" {
-		t.Fatalf("last login via %q", u.LastLoginVia)
+	if u, _ := st.Get("jane"); u.LastLoginVia != "sso" || u.LastSSO == 0 {
+		t.Fatalf("last login via %q, last SSO %d", u.LastLoginVia, u.LastSSO) // LastSSO bounds device logins in SSO-only mode
 	}
 	// Failures after the state verifies go back to the app, not /login.
 	u, _ := st.Get("jane")

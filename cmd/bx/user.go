@@ -21,7 +21,8 @@ import (
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
 //	  add|set also:  [--no-personal-tiles|--personal-tiles] [--no-terminal|--allow-terminal]
 //	                 [--sets +s,-s] [--net-sets +n,-n]   the personal plane (D88)
-//	bx user signout <id>   end every session + terminal token ("sign out everywhere")
+//	bx user signout <id> [--devices]   end every session, terminal and frame token
+//	                 ("sign out everywhere"); --devices also removes their app devices
 //	bx user rm  <id>
 //
 // --tiles maps paths (or prefix/* patterns) to access levels read|write|
@@ -39,7 +40,7 @@ const createDeprecated = "note: --create is deprecated and ignored — users cre
 
 func cmdUser(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] [--org o[:level]]… | set <id> [flags] | invite <id> | signout <id> | rm <id>")
+		return fmt.Errorf("usage: bx user ls | add <id> [flags] [--invite|--sso] [--org o[:level]]… | set <id> [flags] | invite <id> | signout <id> [--devices] | rm <id>")
 	}
 	switch args[0] {
 	case "ls":
@@ -308,18 +309,31 @@ func cmdUser(args []string) error {
 		return nil
 
 	case "signout":
-		// Sign out everywhere (D53): every browser session + terminal token
-		// of the user ends; the account itself is untouched.
-		if len(args) < 2 {
-			return fmt.Errorf("usage: bx user signout <id>")
+		// Sign out everywhere (D53): every browser and app session, terminal
+		// and frame token of the user ends; the account itself is untouched.
+		// Enrolled app devices can sign in again unless --devices removes them.
+		if len(args) < 2 || strings.HasPrefix(args[1], "-") {
+			return fmt.Errorf("usage: bx user signout <id> [--devices]")
+		}
+		q := ""
+		if len(args) > 2 && args[2] == "--devices" {
+			q = "?devices=1"
 		}
 		var out struct {
-			Dropped int `json:"dropped"`
+			Dropped        int `json:"dropped"`
+			DevicesRemoved int `json:"devicesRemoved"`
+			DevicesLeft    int `json:"devicesLeft"`
 		}
-		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1]+"/sessions", nil, &out); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/users/"+args[1]+"/sessions"+q, nil, &out); err != nil {
 			return err
 		}
 		fmt.Printf("signed out %s everywhere (%d session(s) ended)\n", args[1], out.Dropped)
+		if out.DevicesRemoved > 0 {
+			fmt.Printf("removed %d app device(s)\n", out.DevicesRemoved)
+		}
+		if out.DevicesLeft > 0 {
+			fmt.Printf("%d app device(s) still enrolled — they can sign in again; add --devices to remove them\n", out.DevicesLeft)
+		}
 		return nil
 
 	case "rm":

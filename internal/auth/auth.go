@@ -224,6 +224,7 @@ type Auth struct {
 	gens      genState              // credential generations for frame tokens (frametoken.go)
 	dev       deviceState           // enrollment codes, challenges, app tickets (devices.go)
 	noAuth    bool
+	saveMu    sync.Mutex // serializes framegens.go writes
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
@@ -260,7 +261,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Auth{
+	a := &Auth{
 		ownerToken:     tok,
 		tokenPath:      filepath.Join(dir, "token"),
 		secret:         []byte(sec),
@@ -274,7 +275,9 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		gens:           newGenState(),
 		dev:            newDeviceState(),
 		noAuth:         noAuth,
-	}, nil
+	}
+	a.loadGens(filepath.Join(dir, gensFileName)) // tiles open across a restart keep their binding
+	return a, nil
 }
 
 // envDuration reads a Go duration from env, falling back to def (and warning on

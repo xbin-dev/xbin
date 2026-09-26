@@ -35,6 +35,11 @@ const (
 	ChallengeTTL  = 60 * time.Second
 	AppTicketTTL  = 2 * time.Minute
 
+	// EnrollFreshLogin: minting an enrollment code — a credential that
+	// outlives the session minting it — needs a login this recent, or the
+	// password again (step-up; a stolen session alone can't mint a device).
+	EnrollFreshLogin = 10 * time.Minute
+
 	// Bounds on the in-memory maps: each is swept of expired entries first;
 	// still full → the mint is refused (a flood can't grow memory).
 	maxPendingDeviceSecrets = 4096
@@ -92,6 +97,21 @@ func (d *deviceState) sweepLocked(now time.Time) {
 	}
 	for k, t := range d.tickets {
 		if now.After(t.expires) {
+			delete(d.tickets, k)
+		}
+	}
+}
+
+// dropUserLocked voids a user's pending enrollment codes and app sign-in
+// tickets (sign out everywhere, disable, delete — DropUserSessions).
+func (d *deviceState) dropUserLocked(userID string) {
+	for k, c := range d.codes {
+		if c.userID == userID {
+			delete(d.codes, k)
+		}
+	}
+	for k, t := range d.tickets {
+		if t.userID == userID {
 			delete(d.tickets, k)
 		}
 	}

@@ -57,13 +57,20 @@ the browser supports it the frame is additionally `credentialless`. The
 injected short-lived token therefore both attributes and authenticates the
 request, cookie not required (renewal at `/api/xbin/frame-token` works
 cookie-less for the tile's own component). **A frame token is bound to the
-login that opened the tile**: it names that session's credential generation,
-renewals keep it, and it stops working the moment that login ends — sign-out,
-expiry, revoking the device, "sign out everywhere", disabling the user, or
-(for frames the bootstrap token opened) rotating the owner token. A tile
-open in an admin's view-as session stays read-only with it. Tokens minted by
-an older xbind verify until they expire and renew into bound ones, so pages
-left open across the upgrade keep working. Frontends never parse the token. Server-side, a **Fetch-Metadata
+login that opened the tile**: it names that session's credential
+generation, renewals keep it, and it stops working the moment that login
+ends — sign-out, expiry, revoking the device, "sign out everywhere",
+disabling the user, or (for frames the bootstrap token opened) rotating the
+owner token. A tile in use keeps its login alive: its renewals and requests
+count as the session's activity (the 12 h idle window slides; the 30-day cap
+since sign-in still ends it). An **xbind restart** still signs everyone out,
+but tiles already open keep working until their login would have expired —
+xbind remembers which logins were live (never their credentials,
+`.xbin/frame-gens.json`). A tile open in an admin's view-as session stays
+read-only with it. Tokens minted by an older xbind verify until they expire
+and renew into bound ones, so pages left open across the upgrade keep
+working. Frontends never parse the token; a renewal that 401s means the
+login ended — reload the page (it signs in again). Server-side, a **Fetch-Metadata
 gate** drops the session cookie from any request showing the opaque-origin
 fingerprint (`Sec-Fetch-Site: cross-site` on a non-navigation, or a non-GET
 navigation to `/api/*`/`/ws/*`), so a tile that omits its token and
@@ -679,8 +686,10 @@ workspace; enabling needs a ready provider, and removing SSO clears the
 mode. The login form stays (the page can't know who is typing) with a note.
 
 **Last sign-in.** Every successful sign-in stamps `lastLogin`/`lastLoginVia`
-(password | invite | sso) on the account — the console's *never signed in*
-and *stale 30d+* filters and its offboarding bulk-disable run on it.
+(password | invite | sso | device) on the account — an SSO one also
+`lastSSO`, what bounds device logins under SSO-only mode (§Device login).
+The console's *never signed in* and *stale 30d+* filters and its offboarding
+bulk-disable run on them.
 
 Requirements and mechanics: the daemon needs **`--external-url`**
 (`XBIN_EXTERNAL_URL`) — the stable public console URL the redirect URI
@@ -709,6 +718,12 @@ account — the bootstrap owner token has none.
   that enrolls one device *for you*. Scan it with the app (or open the link
   on the phone). Alternatively sign in inside the app with your password or
   SSO — it then enrolls itself the same way.
+- **Adding one proves it's you (step-up).** A device keeps signing in long
+  after the session that added it, so a code is minted only for a sign-in
+  from the **last 10 minutes** — otherwise the panel asks for your password
+  again (or, for an account without password sign-in, to sign in again). A
+  stolen browser session alone can't enroll a device. Wrong passwords count
+  against the login throttle.
 - **Signing in.** The app asks for a challenge, signs it with the key (one
   Face ID prompt) and gets a **session** — the same human session a browser
   login gets (12 h idle / 30 days max, `XBIN_SESSION_*_TTL`), carried as
@@ -723,15 +738,25 @@ account — the bootstrap owner token has none.
   platform, last sign-in and its IP) with **remove**; admins see and remove
   any user's devices in the admin console's Users tab. Removing a device ends
   every session it opened at once — and the frame tokens those sessions
-  minted.
+  minted. Changing your password can remove your other devices in the same
+  step (*and remove my app devices* in the password form; the phone making
+  the change keeps its own).
 - **Rules kept.** Enrollment codes, challenges and sign-ins count against
   the login throttle; a disabled account can't sign in (and its app
-  sessions die); "sign out everywhere" ends app sessions too. **SSO-only
-  mode** (D53) refuses the app's *password* sign-in for non-admins, like the
-  sign-in form — but device login stays: a device can only be enrolled from
-  a session that already passed the workspace's sign-in policy. Removing
-  someone at the IdP does not revoke their devices — disable the account in
-  xbin (as for their live browser sessions).
+  sessions die). "Sign out everywhere" ends app sessions too and voids
+  pending enrollment codes; enrolled devices stay unless the admin removes
+  them as well (the console asks; `?devices=1`, `bx user signout --devices`)
+  — a device signs in again without a password, so remove them when
+  handling a compromise.
+- **SSO-only mode** (D53) refuses the app's *password* sign-in for
+  non-admins, like the sign-in form, and keeps the IdP in charge of device
+  logins: a non-admin's device signs in only while their **last SSO
+  sign-in** (web or app) is within the session max TTL (30 days by
+  default), and the session it opens ends when that window does. Past it
+  the app gets `403` with `"reauth": "sso"` and runs the SSO sign-in again —
+  the device stays enrolled. So removing someone at the IdP still ends their
+  access within the session TTL, devices included. Admins keep password
+  sign-in there, and their devices aren't bound.
 - **Which address.** A device signs the server origin it enrolled with: the
   `--external-url` origin when set, otherwise the address your browser used
   when you minted the code. If you reach xbind under several names, set
@@ -758,12 +783,15 @@ is unchecking the box. Org-level moderation without touching the account.
 A third, lighter switch: **sign out everywhere** (`DELETE
 /users/<id>/sessions`, `bx user signout`, the users table's row menu) ends
 every browser and app session, terminal token and frame token of one user
-without changing the account — they can sign in again (their enrolled
-devices stay; revoke those in their devices list).
+and voids their pending device-enrollment codes, without changing the
+account — they can sign in again. Their enrolled app devices can too,
+unless removed with it: `?devices=1` / `bx user signout --devices`, and the
+console asks when there are any.
 
 **Self-service credentials (D38).** Signed-in users rotate their own
 password (`POST /account/password`, the shell's my-account section) after
-proving the current one. Org admins may re-mint invite links for NON-ADMIN
+proving the current one — optionally removing their app devices in the same
+step (`removeDevices`). Org admins may re-mint invite links for NON-ADMIN
 members of their orgs — delegated reset-by-link; admin accounts stay
 ws-admin-only to reset.
 
@@ -1139,9 +1167,11 @@ behave exactly as before.
   forever. The server is authoritative; override the windows with
   `XBIN_SESSION_IDLE_TTL` / `XBIN_SESSION_MAX_TTL` (Go durations, e.g. `8h`).
   Deleting a user, logout, and an xbind restart all end their sessions
-  immediately — and the frame tokens of the tiles those sessions opened. The
-  native app's sessions (§Device login) are the same sessions, carried as a
-  bearer. (Other bearer tokens have no session — the owner token is valid
+  immediately. Logout and deletion also end the frame tokens of the tiles
+  those sessions opened; after a restart, tiles already open keep renewing
+  until their login would have expired (§Who is calling), and a tile in
+  use counts as activity on its login. The native app's sessions (§Device
+  login) are the same sessions, carried as a bearer. (Other bearer tokens have no session — the owner token is valid
   until rotated; element/terminal tokens die with their generation/shell.)
 - Behind an https proxy the cookie turns `Secure` automatically
   (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or

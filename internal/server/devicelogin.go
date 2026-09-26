@@ -1,11 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -95,8 +99,8 @@ type appUser struct {
 	Role string `json:"role"`
 }
 
-func (s *Server) writeAppSession(w http.ResponseWriter, u *users.User, deviceID, ip string) {
-	bs := s.Auth.NewBearerSession(u.ID, deviceID, ip)
+func (s *Server) writeAppSession(w http.ResponseWriter, u *users.User, deviceID, ip string, notAfter time.Time) {
+	bs := s.Auth.NewBearerSessionUntil(u.ID, deviceID, ip, notAfter)
 	w.Header().Set("Cache-Control", "no-store")
 	WriteJSON(w, http.StatusOK, appSession{
 		Token: bs.Token, TokenType: "Bearer", DeviceID: deviceID,
@@ -155,13 +159,19 @@ func (s *Server) EnrollOrigin(r *http.Request) string {
 	return scheme + "://" + strings.ToLower(r.Host)
 }
 
-// apiEnrollCode — POST /api/xbin/devices/enroll-code: a signed-in human
-// (browser session, or the app's own session) mints a one-time code that
-// enrolls one device for THEM. The shell renders url as a QR code.
+// apiEnrollCode — POST /api/xbin/devices/enroll-code [{password}]: a
+// signed-in human (browser session, or the app's own session) mints a
+// one-time code that enrolls one device for THEM. The shell renders url as
+// a QR code. A device outlives the session that enrolled it, so this is a
+// step-up: the login must be fresh (auth.EnrollFreshLogin), or the body
+// carries the account password — a stolen session alone mints nothing.
 func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
-	if p.Component != "" || p.User == nil || s.Auth.Users == nil {
+	if p.Component != "" || p.User == nil || s.Auth.Users == nil || p.ReadOnly() {
 		WriteError(w, http.StatusForbidden, "devices belong to user accounts — sign in with yours (the bootstrap token has none, and tiles can't enroll devices)", "/docs/auth.md")
+		return
+	}
+	if !s.enrollStepUp(w, r, p) {
 		return
 	}
 	origin := s.EnrollOrigin(r)
@@ -175,6 +185,47 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 		"code": code, "origin": origin, "expires": exp.Unix(),
 		"url": "xbin://enroll?u=" + url.QueryEscape(origin) + "&c=" + code,
 	})
+}
+
+// enrollStepUp passes a fresh login, or a correct password in the body;
+// otherwise it answers 403 {error, stepUp}: "password" — resend with
+// {"password"}; "signin" — sign in again (an SSO account, or password
+// sign-in disabled for it) and retry within the window. Wrong passwords
+// count against the login throttle.
+func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal) bool {
+	if at, ok := s.Auth.LoginTime(p); ok && time.Since(at) <= auth.EnrollFreshLogin {
+		return true
+	}
+	var body struct{ Password string }
+	if raw, _ := io.ReadAll(io.LimitReader(r.Body, maxAppLoginBody)); len(bytes.TrimSpace(raw)) > 0 {
+		_ = json.Unmarshal(raw, &body)
+	}
+	pwOK := p.User.PassHash != "" && (!s.Auth.Users.PasswordLoginDisabled() || p.User.IsAdmin())
+	mode := "signin"
+	if pwOK {
+		mode = "password"
+	}
+	refuse := func(msg string) bool {
+		w.Header().Set("Cache-Control", "no-store")
+		WriteJSON(w, http.StatusForbidden, map[string]string{"error": msg, "stepUp": mode, "docs": "/docs/auth.md"})
+		return false
+	}
+	if !pwOK {
+		return refuse(fmt.Sprintf("adding a device needs a recent sign-in — sign in again, then add it within %d minutes", int(auth.EnrollFreshLogin/time.Minute)))
+	}
+	if body.Password == "" {
+		return refuse("confirm your password to add a device")
+	}
+	ip := s.ClientIP(r)
+	if s.throttled(w, ip) {
+		return false
+	}
+	if _, ok := s.Auth.Users.Verify(p.User.ID, body.Password); !ok {
+		s.loginThrottle.fail(ip)
+		return refuse("wrong password")
+	}
+	s.loginThrottle.ok(ip)
+	return true
 }
 
 // apiDeviceEnroll — POST /api/xbin/devices/enroll (no principal: the code is
@@ -277,12 +328,37 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginThrottle.ok(ip)
+	notAfter, ok := s.deviceSSOBound(u)
+	if !ok {
+		w.Header().Set("Cache-Control", "no-store")
+		WriteJSON(w, http.StatusForbidden, map[string]string{"reauth": "sso", "docs": "/docs/auth.md",
+			"error": "this workspace signs in through single sign-on, and yours is too old for this device — sign in with SSO again (the device stays enrolled)"})
+		return
+	}
 	if err := s.Auth.Users.TouchDevice(d.ID, ip); err != nil {
 		slog.Warn("device login: last-used stamp failed", "device", d.ID, "err", err)
 	}
 	s.touchLogin(u.ID, "device")
 	slog.Info("audit", "who", "user:"+u.ID, "method", "POST", "path", "/login/device", "status", 200, "device", d.ID, "ip", ip)
-	s.writeAppSession(w, u, d.ID, ip)
+	s.writeAppSession(w, u, d.ID, ip, notAfter)
+}
+
+// deviceSSOBound: in SSO-only mode (D53) the IdP stays the authority for
+// non-admins — a device key is a way back in, not a replacement. A device
+// login needs the user's last SSO sign-in (web or app) within the session
+// max TTL, and the session it opens ends when that window does, so removing
+// someone at the IdP still bounds their access by the session TTL, as before
+// devices. Outside SSO-only mode (and for admins, who keep password sign-in
+// there too) there is no bound: zero time, true.
+func (s *Server) deviceSSOBound(u *users.User) (time.Time, bool) {
+	if !s.Auth.Users.PasswordLoginDisabled() || u.IsAdmin() {
+		return time.Time{}, true
+	}
+	until := time.Unix(u.LastSSO, 0).Add(s.Auth.SessionMaxTTL())
+	if u.LastSSO == 0 || !time.Now().Before(until) {
+		return time.Time{}, false
+	}
+	return until, true
 }
 
 // apiAppLogin — POST /api/xbin/login {username, password} (no principal):
@@ -312,7 +388,7 @@ func (s *Server) apiAppLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginThrottle.ok(ip)
 	s.touchLogin(u.ID, "password")
-	s.writeAppSession(w, u, "", ip)
+	s.writeAppSession(w, u, "", ip, time.Time{})
 }
 
 // handleTicketRedeem — POST /login/ticket {ticket, verifier}: the second
@@ -337,7 +413,7 @@ func (s *Server) handleTicketRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginThrottle.ok(ip)
-	s.writeAppSession(w, u, "", ip)
+	s.writeAppSession(w, u, "", ip, time.Time{})
 }
 
 // --- the app's SSO leg (hooks in sso.go) ---
