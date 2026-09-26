@@ -6,7 +6,7 @@
 //   - an invite link makes dev1 a participant: dev1 writes, admin sees who,
 //     and the model is told who spoke ([dev1] …);
 //   - removed and made private again, dev1's open chat goes away.
-const { login, sleep, shot, checker } = require('../lib');
+const { login, sleep, shot, checker, noGocryptfs } = require('../lib');
 
 const URL = process.env.URL || 'http://127.0.0.1:8697';
 const FAKE = `http://${process.env.FAKEOPENAI_ADDR || '127.0.0.1:18977'}`;
@@ -29,7 +29,8 @@ async function openAgent(browser, user, pass) {
 }
 
 async function agentConvs(browser) {
-  const { check, done } = checker('agent-convs');
+  const { check, skip, done } = checker('agent-convs');
+  if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); return done(); }
   const admin = await openAgent(browser, 'admin', 'admin');
   const dev = await openAgent(browser, 'dev1', 'devpass123');
 

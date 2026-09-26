@@ -14,7 +14,7 @@
 //   - a bus event runs a bus trigger;
 //   - the bridge backend killed: alwaysOn brings it back, and it reconnects.
 const http = require('http');
-const { login, sleep, shot, checker } = require('../lib');
+const { login, sleep, shot, checker, noGocryptfs } = require('../lib');
 
 const URL = process.env.URL || 'http://127.0.0.1:8697';
 const INGRESS = process.env.INGRESS_ADDR || '127.0.0.1:8698';
@@ -40,7 +40,8 @@ const hook = (path, body) => new Promise((resolve, reject) => {
 });
 
 async function channels(browser) {
-  const { check, done } = checker('channels');
+  const { check, skip, done } = checker('channels');
+  if (noGocryptfs()) { skip(`apps/agent and the bridge are held: ${noGocryptfs()}`); return done(); }
   const admin = await login(browser, 'admin', 'admin', { viewport: { width: 1200, height: 900 } });
   const page = admin.page;
   const errors = [];

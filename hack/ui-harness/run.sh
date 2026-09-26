@@ -77,6 +77,19 @@ start() {
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai); }
+# The seeded agent tiles keep their data in encrypted resources: without a
+# gocryptfs binary xbind HOLDS them (every call a 502). Look for one the way
+# xbind does (internal/resenc Resolve: $XBIN_GOCRYPTFS, next to bin/xbind,
+# $PATH); none ⇒ HARNESS_NO_GOCRYPTFS says why and the passes that need those
+# tiles print SKIP instead of timing out. A fresh worktree has no bin/gocryptfs
+# (make gocryptfs builds it; copying one from another checkout's bin/ works).
+if [[ -n "${XBIN_GOCRYPTFS:-}" ]]; then gcf=$XBIN_GOCRYPTFS; [[ -x "$gcf" && ! -d "$gcf" ]] || gcf=""
+elif [[ -x "$REPO/bin/gocryptfs" ]]; then gcf=$REPO/bin/gocryptfs
+else gcf=$(command -v gocryptfs || true); fi
+if [[ -z "$gcf" ]]; then
+  export HARNESS_NO_GOCRYPTFS="no gocryptfs (XBIN_GOCRYPTFS, $REPO/bin/gocryptfs, PATH): make gocryptfs, or point XBIN_GOCRYPTFS at one"
+  echo "warning: $HARNESS_NO_GOCRYPTFS — the agent-template passes will SKIP" >&2
+fi
 
 case "$mode" in
   --stop) stop; exit 0 ;;
@@ -92,8 +105,12 @@ case "$mode" in
     echo "seeded (log: $OUT/seed.log)" ;;
 esac
 
-(cd "$H" && node shots.js "${passes[@]}") > "$OUT/shots.log" 2>&1 || { echo "shots failed:"; tail -30 "$OUT/shots.log"; exit 1; }
+# a failed default run stops xbind too (only --keep/--restart/--shots leave it up)
+(cd "$H" && node shots.js "${passes[@]}") > "$OUT/shots.log" 2>&1 || {
+  echo "shots failed:"; tail -30 "$OUT/shots.log"; if [[ -z "$mode" ]]; then stop; fi; exit 1; }
 tail -40 "$OUT/shots.log"
+# what this environment could not exercise, with the reason (checker skip())
+grep -F '[shots] SKIP' "$OUT/shots.log" || true
 [[ "$mode" == "" ]] && stop
 echo "screenshots: $OUT"
 ls "$OUT"

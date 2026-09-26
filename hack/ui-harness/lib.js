@@ -165,4 +165,11 @@ function checker(name) {
 const showPickers = (page, src) => fr(page, src, (f) => f.setTools(true));
 const PICKERS = ':is(.titlebar, .toolsrow)';
 
-module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS };
+// The seeded agent tiles keep their data in encrypted resources (gocryptfs);
+// without the binary xbind HOLDS them and every call is a 502. run.sh looks
+// for it the way xbind does (XBIN_GOCRYPTFS, next to bin/xbind, PATH) and sets
+// HARNESS_NO_GOCRYPTFS to the reason when there is none; the passes that need
+// those tiles skip on it rather than time out.
+const noGocryptfs = () => process.env.HARNESS_NO_GOCRYPTFS || '';
+
+module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };

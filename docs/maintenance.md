@@ -416,7 +416,13 @@ The frontend has no unit-test runner; browser behaviour is pinned by
 `focusy` and `linky` fixture tiles) and runs Playwright passes from
 `shots.js` — screenshots and `<select>` dumps to look at, plus asserting
 passes that write `PASS`/`FAIL` lines under `$HARNESS_DIR/out/<pass>.txt`
-and exit 1 on any FAIL.
+and exit 1 on any FAIL. A part the environment cannot exercise writes a
+`SKIP <reason>` line instead (`checker().skip`, echoed at the end of
+`run.sh`) — never a timeout, never a silent pass: without a `gocryptfs`
+binary (a fresh worktree has no `bin/gocryptfs`: `make gocryptfs`, or
+`XBIN_GOCRYPTFS`) the seeded agent tiles are held, so `agentTemplate`,
+`agentConvs` and `channels` skip; a harness xbind that can run VM
+sandboxes skips `vmToggle`'s disabled-toggle half.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
@@ -441,6 +447,14 @@ Rules that keep it cheap to maintain:
   `[data-new-set]`, `[data-save-set]`. Keep them when restructuring
   templates. Playwright selectors pierce open shadow roots, so
   `bx-frame[src="apps/x"] .pop` reaches into a frame.
+- **Terminal windows**: the title bar's pickers live on the bar or, when
+  that host's full bar does not fit the window (a GPU picker, the VM
+  toggle), in the tools row behind `⋯` — `showPickers(page, src)` opens
+  that row and `PICKERS` scopes a selector to either place; never assume
+  `.titlebar select.scope`. A pass that opens a window leaves nothing
+  behind: it ends its sessions and deletes the `term:<tile>` window pref,
+  or the window restores over the tile in the next pass (a right-click
+  on the canvas then lands on it).
 - **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
   polls the shell's test surface, `waitSel` a selector, `settle` two
   animation frames after a state change. A fixed `sleep` is only right

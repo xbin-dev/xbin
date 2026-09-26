@@ -14,7 +14,7 @@
 // The tile is driven as its own document (/c/apps/agent/), like the admin
 // tile's passes. fakeopenai's GET /debug/requests is the model-side record.
 const path = require('path');
-const { login, fs, sleep, log, shot, checker } = require('../lib');
+const { login, fs, sleep, log, shot, checker, noGocryptfs } = require('../lib');
 
 const URL = process.env.URL || 'http://127.0.0.1:8697';
 const FAKE = `http://${process.env.FAKEOPENAI_ADDR || '127.0.0.1:18977'}`;
@@ -59,7 +59,8 @@ const setModel = (page, model) => page.evaluate(async (model) => {
 }, model);
 
 async function agentTemplate(browser) {
-  const { check, done } = checker('agent-template');
+  const { check, skip, done } = checker('agent-template');
+  if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); return done(); }
   const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1300, height: 950 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
