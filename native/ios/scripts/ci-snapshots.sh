@@ -69,6 +69,37 @@ if udid=$(ci_udid "$dest"); then
   ci_endgroup
 fi
 
+# While the listing is still loading the package, show what it is doing:
+# the processes around it every 30 s and one stack sample of xcodebuild
+# (the load took 3–7 min on the hosted runner for a package of local
+# sources only; where it waits decides how to avoid it).
+if kill -0 "$list_pid" 2>/dev/null; then
+  ci_group "while xcodebuild loads the package"
+  sampled=0 tick=0
+  while kill -0 "$list_pid" 2>/dev/null; do
+    if [ $((tick % 30)) -eq 0 ]; then
+      echo "--- $(($(date +%s) - t0)) s"
+      ps -axo pid,ppid,etime,pcpu,rss,command 2>/dev/null |
+        awk 'NR == 1 || /xcodebuild|swift|git|simctl|CoreSimulator|xcrun|sandbox|clang|launchd_sim|mount|diskimage/' |
+        grep -v awk | cut -c1-220 | head -n 30 || true
+    fi
+    if [ "$sampled" = 0 ] && [ "$tick" -ge 20 ] && command -v sample >/dev/null 2>&1; then
+      sampled=1
+      xpid=$(pgrep -f 'xcodebuild -list' 2>/dev/null | head -n 1 || true)
+      if [ -n "$xpid" ]; then
+        out_sample=$XBIN_CI_OUT/renderer-list.sample.txt
+        sample "$xpid" 3 -file "$out_sample" >/dev/null 2>&1 ||
+          sudo -n sample "$xpid" 3 -file "$out_sample" >/dev/null 2>&1 || true
+        echo "--- sample of xcodebuild -list ($xpid)"
+        sed -n '/^Call graph:/,/^Total number in stack/p' "$out_sample" 2>/dev/null | cut -c1-240 | head -n 400 || true
+      fi
+    fi
+    sleep 1
+    tick=$((tick + 1))
+  done
+  ci_endgroup
+fi
+
 wait "$list_pid" || true
 schemes=$(cat "$schemes_file" 2>/dev/null || true)
 ci_group "schemes in XbinRenderer (xcodebuild -list: $(cat "$schemes_file.secs" 2>/dev/null || echo '?') s)"
