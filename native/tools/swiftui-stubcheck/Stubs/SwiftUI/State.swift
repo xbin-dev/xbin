@@ -79,3 +79,10 @@ public struct Environment<Value>: DynamicProperty {
 
 public struct Animation: Sendable { public static let snappy = Animation(), `default` = Animation() }
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result { try body() }
+
+@propertyWrapper
+public struct ScaledMetric<Value: BinaryFloatingPoint>: DynamicProperty {
+    public init(wrappedValue: Value, relativeTo textStyle: Font.TextStyle) {}
+    public init(wrappedValue: Value) {}
+    public var wrappedValue: Value { fatalError() }
+}

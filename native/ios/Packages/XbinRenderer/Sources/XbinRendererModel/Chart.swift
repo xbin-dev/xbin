@@ -85,6 +85,49 @@ public struct ChartModel: Sendable, Equatable {
         guard let lo = ys.min(), let hi = ys.max() else { return nil }
         return lo...hi
     }
+
+    /// The y axis's tick values, the reference renderer's (`frame()` in
+    /// web/xb/render-chart.js): round steps over the data — from zero for
+    /// area and bar charts — two of them under 120 points of height, four
+    /// otherwise; bytes step in their own binary unit (2 GB, 4 GB, … — not
+    /// 1.86 GB for 2·10⁹ bytes). Empty for a spark line or no data. The
+    /// first and last tick are the axis's domain.
+    public var yTicks: [Double] {
+        guard kind != .spark, let r = yRange else { return [] }
+        let zero = kind == .area || kind == .bar
+        var unit = 1.0
+        if y == .bytes {
+            let m = max(abs(r.lowerBound), abs(r.upperBound))
+            while unit * 1024 <= m { unit *= 1024 }
+        }
+        let lo = (zero ? min(0, r.lowerBound) : r.lowerBound) / unit
+        let hi = (zero ? max(0, r.upperBound) : r.upperBound) / unit
+        return ChartModel.nice(lo, hi, count: height < 120 ? 2 : 4).map { $0 * unit }
+    }
+
+    /// Round tick values covering `lo...hi` in about `count` steps of 1, 2,
+    /// 2.5 or 5 × 10ⁿ (the reference's `nice()`).
+    public static func nice(_ lo: Double, _ hi: Double, count: Int = 4) -> [Double] {
+        var lo = lo, hi = hi
+        if !(hi > lo) {
+            let d = abs(lo) == 0 ? 1 : abs(lo)
+            lo -= d / 2
+            hi += d / 2
+        }
+        let raw = (hi - lo) / Double(max(1, count))
+        let mag = pow(10, (log10(raw)).rounded(.down))
+        let step = [1, 2, 2.5, 5, 10].map { $0 * mag }.first { $0 >= raw } ?? raw
+        let a = (lo / step).rounded(.down) * step
+        let b = (hi / step).rounded(.up) * step
+        var ticks: [Double] = []
+        var v = a
+        while v <= b + step / 2 && ticks.count < 64 {
+            // `+v.toPrecision(12)`: drop the float noise of repeated adds.
+            ticks.append(Double(String(format: "%.12g", v)) ?? v)
+            v += step
+        }
+        return ticks
+    }
 }
 
 /// Axis label formats, the reference renderer's (`fmtY`, `compact`,

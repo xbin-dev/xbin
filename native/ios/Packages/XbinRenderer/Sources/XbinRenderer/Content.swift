@@ -28,6 +28,20 @@ struct TextNodeView: View {
     }
 }
 
+/// `icon`: a symbol in a square box that scales with the text size, so a
+/// row of icons with captions lines up (SF Symbols differ in height: `minus`
+/// is a sliver, `trash` is tall), like the reference's fixed icon box.
+struct IconNodeView: View {
+    let node: XbinNode
+    @ScaledMetric(relativeTo: .body) private var box: CGFloat = 24
+
+    var body: some View {
+        XbinIconImage(name: node.props.string("name"), tone: node.props.tone())
+            .font(.body)
+            .frame(width: box, height: box)
+    }
+}
+
 /// `notice`: an inset banner in a tone (`info` is neutral).
 struct NoticeView: View {
     let node: XbinNode
@@ -104,55 +118,69 @@ struct CodeNodeView: View {
 }
 
 /// A block of code: horizontally scrolling (or wrapped) monospaced text on a
-/// neutral fill, with an optional copy button. Reused by markdown code
-/// blocks and the agent screen's tool output.
+/// neutral fill, with an optional copy button beside it (never over the
+/// text) and an optional language label above it (markdown's fence info).
+/// Reused by markdown code blocks and the agent screen's tool output.
 public struct CodeBlock: View {
     public let text: String
     public var wrap: Bool
+    public var language: String?
     public var onCopy: (@MainActor (String) -> Void)?
     @State private var copied = false
 
-    public init(text: String, wrap: Bool = false, onCopy: (@MainActor (String) -> Void)? = nil) {
+    public init(text: String, wrap: Bool = false, language: String? = nil, onCopy: (@MainActor (String) -> Void)? = nil) {
         self.text = text
         self.wrap = wrap
+        self.language = language
         self.onCopy = onCopy
     }
 
     public var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                if wrap {
-                    Text(verbatim: text)
-                        .font(XbinFont.code)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
+        VStack(alignment: .leading, spacing: 0) {
+            if let language, !language.isEmpty {
+                Text(verbatim: language)
+                    .font(.caption2)
+                    .foregroundStyle(XbinColor.muted)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, -4)
+                    .accessibilityHidden(true)
+            }
+            HStack(alignment: .top, spacing: 0) {
+                Group {
+                    if wrap {
                         Text(verbatim: text)
                             .font(XbinFont.code)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
-                            .padding(.trailing, onCopy == nil ? 0 : 28)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(verbatim: text)
+                                .font(XbinFont.code)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(12)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            .textSelection(.enabled)
-            if let onCopy {
-                Button {
-                    onCopy(text)
-                    copied = true
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(1.2))
-                        copied = false
+                .textSelection(.enabled)
+                if let onCopy {
+                    Button {
+                        onCopy(text)
+                        copied = true
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(1.2))
+                            copied = false
+                        }
+                    } label: {
+                        Image(systemName: copied ? XbinIcons.UI.checkmark : "doc.on.doc")
+                            .font(.footnote)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 10)
                     }
-                } label: {
-                    Image(systemName: copied ? XbinIcons.UI.checkmark : "doc.on.doc")
-                        .font(.footnote)
-                        .padding(8)
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(copied ? "Copied" : "Copy")
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(copied ? "Copied" : "Copy")
             }
         }
         .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

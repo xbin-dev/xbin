@@ -42,57 +42,116 @@ struct RowView: View {
     }
 }
 
-/// A row's text and accessories.
+/// A row's text and accessories. The title column is laid out first, so a
+/// short detail or badge never squeezes it into early wraps; a long detail
+/// wraps beside it. At accessibility text sizes the detail and badge go
+/// under the title (as `LabeledContent` does, and the reference renderer's
+/// large-text row), instead of breaking every word into syllables.
 struct RowLabel: View {
     let props: Props
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let mono = props.string("mono")
         let tone = props.tone()
         let badge = props.nonEmpty("badge")
-        HStack(alignment: .center, spacing: 12) {
-            if let icon = props.nonEmpty("icon") {
-                XbinIconImage(name: icon, tone: tone ?? .accent)
-                    .font(.body)
-                    .frame(width: 26)
-            } else if let tone, badge == nil {
-                Circle().fill(XbinColor.tone(tone)).frame(width: 8, height: 8)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: props.string("title") ?? "")
-                    .font(.body)
-                    .monospaced(mono == "title" || mono == "all")
-                    .foregroundStyle(XbinColor.text)
-                if let s = props.nonEmpty("subtitle") {
-                    Text(verbatim: s)
-                        .font(.subheadline)
-                        .monospaced(mono == "subtitle" || mono == "all")
-                        .foregroundStyle(XbinColor.muted)
+        let detail = props.nonEmpty("detail")
+        if typeSize.isAccessibilitySize {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                lead(tone: tone, badge: badge, gap: 0)
+                VStack(alignment: .leading, spacing: 4) {
+                    titles(mono: mono)
+                    if let detail { detailText(detail, mono: mono) }
+                    if let badge { Pill(text: badge, tone: tone).fixedSize() }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                trailing(gap: 0)
             }
-            Spacer(minLength: 8)
-            if let d = props.nonEmpty("detail") {
-                Text(verbatim: d)
-                    .font(.body)
-                    .monospaced(mono == "detail" || mono == "all")
+            .accessibilityElement(children: .combine)
+        } else {
+            HStack(alignment: .center, spacing: 0) {
+                lead(tone: tone, badge: badge, gap: 12)
+                titles(mono: mono).layoutPriority(2)
+                Spacer(minLength: 12)
+                if let detail {
+                    if RowLabel.shortDetail(detail) {
+                        detailText(detail, mono: mono).fixedSize()
+                    } else {
+                        detailText(detail, mono: mono)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
+                            .layoutPriority(1)
+                    }
+                }
+                if let badge { Pill(text: badge, tone: tone).fixedSize().padding(.leading, 8) }
+                trailing(gap: 8)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// A detail short enough ("14:13", "23.5 MB", a short hash) to keep
+    /// whole on one line.
+    static func shortDetail(_ s: String) -> Bool { s.count <= 12 }
+
+    /// The icon or tone dot, `gap` points before the text (nothing at all
+    /// without either).
+    @ViewBuilder
+    private func lead(tone: XbinTone?, badge: String?, gap: CGFloat) -> some View {
+        if let icon = props.nonEmpty("icon") {
+            XbinIconImage(name: icon, tone: tone ?? .accent)
+                .font(.body)
+                .frame(width: 26)
+                .padding(.trailing, gap)
+        } else if let tone, badge == nil {
+            Circle().fill(XbinColor.tone(tone)).frame(width: 8, height: 8).padding(.trailing, gap)
+        }
+    }
+
+    private func titles(mono: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: props.string("title") ?? "")
+                .font(.body)
+                .monospaced(mono == "title" || mono == "all")
+                .foregroundStyle(XbinColor.text)
+            if let s = props.nonEmpty("subtitle") {
+                Text(verbatim: s)
+                    .font(.subheadline)
+                    .monospaced(mono == "subtitle" || mono == "all")
                     .foregroundStyle(XbinColor.muted)
-                    .lineLimit(1)
-            }
-            if let badge { Pill(text: badge, tone: tone) }
-            if props.bool("selected") {
-                Image(systemName: XbinIcons.UI.checkmark)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(XbinColor.accentText)
-                    .accessibilityLabel("Selected")
-            }
-            if props.bool("nav") {
-                Image(systemName: XbinIcons.UI.chevronForward)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
             }
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private func detailText(_ d: String, mono: String?) -> some View {
+        Text(verbatim: d)
+            .font(.body)
+            .monospaced(mono == "detail" || mono == "all")
+            .foregroundStyle(XbinColor.muted)
+    }
+
+    /// Check and chevron, `gap` points after what precedes them.
+    @ViewBuilder
+    private func trailing(gap: CGFloat) -> some View {
+        let selected = props.bool("selected")
+        let nav = props.bool("nav")
+        if selected || nav {
+            HStack(spacing: 8) {
+                if selected {
+                    Image(systemName: XbinIcons.UI.checkmark)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(XbinColor.accentText)
+                        .accessibilityLabel("Selected")
+                }
+                if nav {
+                    Image(systemName: XbinIcons.UI.chevronForward)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.leading, gap)
+        }
     }
 }
 

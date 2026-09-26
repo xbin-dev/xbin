@@ -92,7 +92,9 @@ struct ScreenToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            ForEach(toolbar?.children ?? []) { NodeView(node: $0) }
+            // At their ideal size: a bar item is otherwise measured short
+            // and its label truncated ("d…" for a `draft` badge).
+            ForEach(toolbar?.children ?? []) { NodeView(node: $0).fixedSize() }
                 .environment(\.xbinPlacement, .toolbar)
         }
     }

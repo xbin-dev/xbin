@@ -31,6 +31,9 @@ struct FieldNodeView: View {
                 }
                 input(kind: kind, label: label, p: p)
                     .focused($focused)
+                    // A disabled field reads as disabled (UIKit keeps its
+                    // text at full strength).
+                    .foregroundStyle(p.bool("disabled") ? XbinColor.muted : XbinColor.text)
                     .padding(placement == .list ? 0 : 10)
                     .background(placement == .list ? Color.clear : XbinColor.fill,
                                 in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -73,7 +76,9 @@ struct FieldNodeView: View {
     @ViewBuilder
     private func input(kind: String, label: String, p: Props) -> some View {
         let binding = mainBinding(get: { text }, set: { set($0) })
-        let prompt = p.nonEmpty("placeholder").map { Text(verbatim: $0) }
+        // No placeholder → none: iOS would show the label again in the
+        // field, under the label already drawn above it.
+        let prompt = Text(verbatim: p.nonEmpty("placeholder") ?? "")
         let submitLabel = Self.submitLabel(p.string("submit"))
         switch kind {
         case "secure":

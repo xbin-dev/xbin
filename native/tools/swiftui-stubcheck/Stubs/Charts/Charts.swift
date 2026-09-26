@@ -21,6 +21,8 @@ public struct ChartContentBuilder {
 }
 
 public protocol Plottable {}
+public protocol ScaleDomain {}
+extension ClosedRange: ScaleDomain where Bound: Plottable {}
 extension Date: Plottable {}
 extension Double: Plottable {}
 extension String: Plottable {}
@@ -64,7 +66,15 @@ public struct _Axis: AxisContent {}
     public static func buildBlock<each C: AxisContent>(_ c: repeat each C) -> _Axis { _Axis() }
 }
 public struct AxisValue { public func `as`<P: Plottable>(_ type: P.Type) -> P? { nil } }
-public struct AxisMarks: AxisContent { public init(@AxisMarkBuilder content: @escaping (AxisValue) -> some AxisMark) {} }
+public struct AxisMarkValues: Sendable {
+    public static func automatic(desiredCount: Int? = nil) -> AxisMarkValues { AxisMarkValues() }
+    public static var automatic: AxisMarkValues { AxisMarkValues() }
+}
+public struct AxisMarks: AxisContent {
+    public init(@AxisMarkBuilder content: @escaping (AxisValue) -> some AxisMark) {}
+    public init(values: AxisMarkValues = .automatic) {}
+    public init<Values: Sequence>(values: Values, @AxisMarkBuilder content: @escaping (AxisValue) -> some AxisMark) where Values.Element: Plottable {}
+}
 public protocol AxisMark {}
 public struct _AxisMarks: AxisMark {}
 @resultBuilder public struct AxisMarkBuilder {
@@ -80,4 +90,6 @@ extension View {
     public func chartXAxis(_ visibility: Visibility) -> some View { _V(self) }
     public func chartYAxis(_ visibility: Visibility) -> some View { _V(self) }
     public func chartYAxis<C: AxisContent>(@AxisContentBuilder content: () -> C) -> some View { _V(self) }
+    public func chartXAxis<C: AxisContent>(@AxisContentBuilder content: () -> C) -> some View { _V(self) }
+    public func chartYScale<D: ScaleDomain>(domain: D) -> some View { _V(self) }
 }

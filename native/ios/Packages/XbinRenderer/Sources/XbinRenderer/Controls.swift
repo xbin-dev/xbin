@@ -49,29 +49,36 @@ struct ButtonNodeView: View {
         let symbol = copied ? XbinIcons.UI.checkmark : XbinIcons.symbol(p.string("icon"))
         let fill = placement == .free || placement == .dock
         let iconOnly = (placement == .toolbar || placement == .inlineActions) && symbol != nil
-        let button = Button(role: role == "destructive" ? .destructive : nil) {
+        // Bars and chip rows keep a label on one line; elsewhere it wraps
+        // (a long label at a large text size), as the reference's does.
+        let oneLine = placement == .toolbar || placement == .chips || placement == .inlineActions
+        let destructive = role == "destructive"
+        let button = Button(role: destructive ? .destructive : nil) {
             ButtonPress.press(node, cx: cx, confirm: confirm) { flashCopied() }
         } label: {
-            ButtonLabel(text: text, symbol: symbol, busy: busy, iconOnly: iconOnly, fill: fill)
+            ButtonLabel(text: text, symbol: symbol, busy: busy, iconOnly: iconOnly, fill: fill, oneLine: oneLine)
                 .fontWeight(role == "primary" && placement != .toolbar ? .semibold : nil)
         }
         .disabled(p.bool("disabled") || busy)
         .accessibilityLabel(Text(verbatim: text))
+        // The renderer's amber tint would otherwise win over the destructive
+        // role's red outside a list (bordered buttons, bar items).
+        let danger = DangerTint(on: destructive)
         switch placement {
         case .free, .dock:
             switch role ?? "" {
             case "primary": button.buttonStyle(.borderedProminent).controlSize(.large).foregroundStyle(XbinColor.onTint)
             case "plain": button.buttonStyle(.borderless)
-            default: button.buttonStyle(.bordered).controlSize(.large)
+            default: button.buttonStyle(.bordered).controlSize(.large).modifier(danger)
             }
         case .list:
             button
         case .chips:
-            button.buttonStyle(.bordered).controlSize(.small).buttonBorderShape(.capsule)
+            button.buttonStyle(.bordered).controlSize(.small).buttonBorderShape(.capsule).modifier(danger)
         case .inlineActions:
             button.buttonStyle(.borderless).controlSize(.small).foregroundStyle(XbinColor.muted)
         default:
-            button.buttonStyle(.borderless)
+            button.buttonStyle(.borderless).modifier(danger)
         }
     }
 
@@ -84,6 +91,15 @@ struct ButtonNodeView: View {
     }
 }
 
+/// Red for a destructive button where the role alone doesn't colour it.
+struct DangerTint: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.tint(XbinColor.tone(.danger)) } else { content }
+    }
+}
+
 /// A button's icon (or spinner while `busy`) and label.
 struct ButtonLabel: View {
     let text: String
@@ -91,6 +107,7 @@ struct ButtonLabel: View {
     let busy: Bool
     var iconOnly = false
     var fill = false
+    var oneLine = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -100,7 +117,7 @@ struct ButtonLabel: View {
                 Image(systemName: symbol)
             }
             if !(iconOnly && (symbol != nil || busy)) && !text.isEmpty {
-                Text(verbatim: text).lineLimit(1)
+                Text(verbatim: text).lineLimit(oneLine ? 1 : nil)
             }
         }
         .frame(maxWidth: fill ? .infinity : nil)
@@ -155,6 +172,9 @@ struct ToggleNodeView: View {
         Toggle(isOn: isOn) {
             Text(verbatim: node.props.string("label") ?? "")
         }
+        // A switch is on in green (the platform's, and the reference's
+        // `ok`), not in the renderer's amber tint.
+        .tint(XbinColor.tone(.ok))
         .disabled(node.props.bool("disabled"))
     }
 }

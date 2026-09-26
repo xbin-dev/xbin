@@ -58,6 +58,26 @@ import XbinRendererModel
             }
         }
         if let out { print("snapshots: \(written) PNG in \(out.path)") }
+        if let out { try hierarchyExperiment(set: set, out: out) }
+    }
+
+    /// An experiment: whether `drawHierarchy` (which composites glass,
+    /// materials and vibrancy, all of which `layer.render` skips — bar items
+    /// come out white) works in a test process without a host app. Writes
+    /// experiments/<name>-hierarchy.png next to the snapshots and logs the
+    /// result; nothing depends on it.
+    func hierarchyExperiment(set: FixtureSet, out: URL) throws {
+        let dir = out.appendingPathComponent("experiments")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["buttons", "tabs-bar", "tile-chat"] {
+            let store = try XbinFixtures.store(name, in: set)
+            let view = XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(inlineSheets: true))
+                .environment(\.colorScheme, .light)
+                .environment(\.dynamicTypeSize, .large)
+            let (drawn, png) = Snapshot.hierarchy(of: view, size: Self.size, scale: Self.scale)
+            print("snapshot experiment: drawHierarchy \(name) returned \(drawn), \(png?.count ?? 0) bytes")
+            if let png { try png.write(to: dir.appendingPathComponent("\(name)-hierarchy.png")) }
+        }
     }
 
     @Test func chatComponentsStandAlone() {
@@ -83,8 +103,17 @@ enum Snapshot {
         hosted(view, size: size, scale: scale, scheme: scheme, type: type) ?? rendered(view, size: size, scale: scale)
     }
 
+    /// Whether the safe-area insets were logged (once per run).
+    static var loggedInsets = false
+
     static func hosted<V: View>(_ view: V, size: CGSize, scale: CGFloat, scheme: ColorScheme, type: DynamicTypeSize) -> Data? {
         let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
+        // Lay the tree out in exactly size.width × size.height, like the
+        // reference renderer's viewport: an offscreen window's safe area is
+        // whatever the simulator makes of a window without a scene, and a
+        // 844-point frame inside a smaller safe area overflowed it (the
+        // docked composer was cut off at the bottom).
+        controller.safeAreaRegions = []
         let style: UIUserInterfaceStyle = scheme == .dark ? .dark : .light
         controller.overrideUserInterfaceStyle = style
         controller.traitOverrides.preferredContentSizeCategory = UIContentSizeCategory(type)
@@ -98,6 +127,10 @@ enum Snapshot {
         // Let SwiftUI settle: lists, navigation bars, scroll anchors, tasks.
         for _ in 0..<6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         controller.view.layoutIfNeeded()
+        if !loggedInsets {
+            loggedInsets = true
+            print("snapshot: window safe area \(window.safeAreaInsets), view safe area \(controller.view.safeAreaInsets)")
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
@@ -109,6 +142,30 @@ enum Snapshot {
         window.isHidden = true
         window.rootViewController = nil
         return image.pngData()
+    }
+
+    /// The experiment's renderer: the window drawn with `drawHierarchy`.
+    static func hierarchy<V: View>(of view: V, size: CGSize, scale: CGFloat) -> (Bool, Data?) {
+        let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
+        controller.safeAreaRegions = []
+        controller.overrideUserInterfaceStyle = .light
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        window.rootViewController = controller
+        window.isHidden = false
+        controller.view.frame = window.bounds
+        controller.view.layoutIfNeeded()
+        for _ in 0..<6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        controller.view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        var drawn = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        window.isHidden = true
+        window.rootViewController = nil
+        return (drawn, image.pngData())
     }
 
     static func rendered<V: View>(_ view: V, size: CGSize, scale: CGFloat) -> Data? {

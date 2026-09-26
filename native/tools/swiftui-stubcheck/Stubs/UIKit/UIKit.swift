@@ -33,8 +33,14 @@ public struct UITextContentType: Sendable { public static let password = UITextC
 public struct UIContentSizeCategory: Sendable { public init() {} }
 
 @MainActor open class UIResponder {}
+public struct UIEdgeInsets: Sendable, Equatable {
+    public var top: CGFloat = 0, left: CGFloat = 0, bottom: CGFloat = 0, right: CGFloat = 0
+    public init() {}
+}
 @MainActor open class UIView: UIResponder {
     public var frame: CGRect = CGRect(x: 0, y: 0, width: 0, height: 0)
+    public var safeAreaInsets: UIEdgeInsets { UIEdgeInsets() }
+    public func drawHierarchy(in rect: CGRect, afterScreenUpdates afterUpdates: Bool) -> Bool { false }
     public var bounds: CGRect { frame }
     public var layer: CALayer { CALayer() }
     public func setNeedsLayout() {}

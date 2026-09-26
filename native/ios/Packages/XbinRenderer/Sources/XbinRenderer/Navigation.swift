@@ -230,7 +230,7 @@ private struct SheetToolbar: ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Group {
                 if let cancel {
-                    NodeView(node: cancel)
+                    NodeView(node: cancel).fixedSize()
                 } else {
                     Button(action: dismiss) { Image(systemName: XbinIcons.UI.close) }
                         .accessibilityLabel("Close")
@@ -239,10 +239,10 @@ private struct SheetToolbar: ToolbarContent {
             .environment(\.xbinPlacement, .toolbar)
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            ForEach(rest) { NodeView(node: $0) }.environment(\.xbinPlacement, .toolbar)
+            ForEach(rest) { NodeView(node: $0).fixedSize() }.environment(\.xbinPlacement, .toolbar)
         }
         ToolbarItemGroup(placement: .confirmationAction) {
-            ForEach(confirm) { NodeView(node: $0) }.environment(\.xbinPlacement, .toolbar)
+            ForEach(confirm) { NodeView(node: $0).fixedSize() }.environment(\.xbinPlacement, .toolbar)
         }
     }
 }

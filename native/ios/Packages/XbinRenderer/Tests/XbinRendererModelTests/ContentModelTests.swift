@@ -123,6 +123,21 @@ import XbinCore
         #expect(try chart("r.4.0").height == 360)
     }
 
+    /// The reference renderer's y ticks for the fixture's charts (its
+    /// `nice()`/`frame()` run in node over the same points).
+    @Test func yTicksMatchTheReferenceRenderer() throws {
+        let root = try fixtureSet().expected("charts").root
+        func ticks(_ k: String) throws -> [Double] { ChartModel(props: Props(try #require(root.find(k)).props)).yTicks }
+        #expect(try ticks("r.1.0") == [0, 0.2, 0.4, 0.6])
+        let gib = 1_073_741_824.0
+        #expect(try ticks("r.2.0") == [0, 2 * gib, 4 * gib, 6 * gib])
+        #expect(try ticks("r.3.0") == [0, 10000, 20000])
+        #expect(try ticks("r.4.0") == [0, 5, 10, 15, 20])
+        #expect(try ticks("r.5.0:web-1.0") == [])
+        #expect(ChartModel.nice(3, 3) == [1, 2, 3, 4, 5])
+        #expect(ChartModel(props: Props([:])).yTicks == [])
+    }
+
     @Test func badPointsAreDropped() throws {
         let p = Props(try JSONValue(parsing: """
         {"series":[{"name":"a","points":[[1,2],[2],"x",[3,null],["4","5"],[null,1]]}]}
