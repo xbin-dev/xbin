@@ -111,7 +111,8 @@ jobs:
           DEST: ${{ steps.sim.outputs.destination }}
         run: native/ios/scripts/ci-build-app.sh "$DEST"
       - name: xcodebuild build-for-testing -scheme XbinUITests (compile only)
-        if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
+        # After a green app build only: it builds the app again otherwise.
+        if: hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
         env:
           DEST: ${{ steps.sim.outputs.destination }}
         run: native/ios/scripts/ci-uitests.sh "$DEST"
