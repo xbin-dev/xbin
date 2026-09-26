@@ -48,6 +48,18 @@ siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 
+## Native preview modules
+
+`/vendor/xb/render.js` — `<xb-view>`, the reference renderer of the native
+vocabulary: it draws a native tree (or the runtime's `mount`/`patch`
+messages) the way the xbin app does, light or dark, default or large text,
+and reports the user's taps and typing as the app would.
+`/vendor/xb/preview-host.js` puts it to work inside a tile's native runtime
+document (`/c/<tile>/?native=1&preview=1`), so a browser shows the tile's
+native UI; `/vendor/xb/fixture.html?tree=<url>` draws one tree. They exist
+for previews and tests — a tile never imports them, and they follow the
+app's look rather than a frozen API.
+
 ## Rules
 
 - **URLs are frozen.** A module served today stays at its path; a helper

@@ -66,10 +66,15 @@ the same change, additive APIs, D78 confinement).
   The wire contract is `native/spec/tree.md`; the vocabulary
   `native/spec/vocab.json` (from `web/xb/vocab.js`). `make js-test` runs
   `hack/xb-native*.test.mjs`, including the plans/native.md §18 trees.
-- Screenshots of the reference renderer: headless chromium through Playwright
-  from `~/lcad-wasm` (`PLAYWRIGHT_DIR=~/lcad-wasm`, as the UI harness does),
-  viewport **390×844**, `colorScheme` light **and** dark. **Look at the
-  PNGs** (the Read tool shows images) and fix what's wrong before moving on.
+- Screenshots of the reference renderer (`web/xb/render.js`, `<xb-view>`):
+  `PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/shots.mjs --out <dir>` draws
+  every `native/fixtures/*/expected.json` (or, with none, the design's §18
+  trees) at **390×844**, light **and** dark, default and large text
+  (`--trees native/tools/gallery` adds trees that exercise every primitive;
+  `--full` grows the view to its content; `--sheet` makes a contact sheet).
+  **Look at the PNGs** (the Read tool shows images) and fix what's wrong
+  before moving on. `node --test hack/xb-render.test.mjs` checks that every
+  visible node is drawn and drives a runtime through the preview host.
 
 ### 3. Swift 6 on Linux — XbinCore (tens of seconds)
 

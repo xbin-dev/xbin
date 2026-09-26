@@ -1,0 +1,343 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "screen",
+  "p": {
+   "title": "Fix the build",
+   "subtitle": "claude · running",
+   "style": "scroll"
+  },
+  "c": [
+   {
+    "k": "r.0",
+    "t": "toolbar",
+    "c": [
+     {
+      "k": "r.0.0",
+      "t": "button",
+      "p": {
+       "icon": "share",
+       "label": "Share"
+      },
+      "e": [
+       "tap"
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.1",
+    "t": "transcript",
+    "p": {
+     "follow": true,
+     "older": true
+    },
+    "e": [
+     "more"
+    ],
+    "c": [
+     {
+      "k": "r.1.0:1",
+      "t": "message",
+      "p": {
+       "role": "system",
+       "text": "Session started · sandbox apps/agent"
+      }
+     },
+     {
+      "k": "r.1.0:2",
+      "t": "message",
+      "p": {
+       "role": "user",
+       "text": "The CI build fails on main.go — can you fix it?",
+       "time": 1790000000000,
+       "files": [
+        {
+         "name": "ci.log",
+         "mime": "text/plain",
+         "src": "ci.log"
+        }
+       ]
+      }
+     },
+     {
+      "k": "r.1.0:3",
+      "t": "thinking",
+      "p": {
+       "text": "The import block is malformed; gofmt would fix it.",
+       "seconds": 4,
+       "open": true
+      },
+      "e": [
+       "toggle"
+      ]
+     },
+     {
+      "k": "r.1.0:4",
+      "t": "plan",
+      "p": {
+       "entries": [
+        {
+         "text": "Reproduce the failure",
+         "status": "completed"
+        },
+        {
+         "text": "Fix the import block",
+         "status": "in_progress"
+        },
+        {
+         "text": "Run go vet",
+         "status": "pending"
+        }
+       ]
+      }
+     },
+     {
+      "k": "r.1.0:5",
+      "t": "toolcard",
+      "p": {
+       "title": "go build ./...",
+       "icon": "terminal",
+       "family": "shell",
+       "state": "error",
+       "chips": [
+        {
+         "text": "exit 1",
+         "tone": "danger"
+        },
+        {
+         "text": "2.1s"
+        }
+       ],
+       "open": true
+      },
+      "e": [
+       "toggle",
+       "open"
+      ],
+      "c": [
+       {
+        "k": "r.1.0:5.0",
+        "t": "code",
+        "p": {
+         "text": "./main.go:2:8: expected 'STRING', found newline"
+        }
+       }
+      ]
+     },
+     {
+      "k": "r.1.0:6",
+      "t": "toolcard",
+      "p": {
+       "title": "Edit main.go",
+       "icon": "pencil",
+       "family": "edit",
+       "state": "running"
+      },
+      "e": [
+       "toggle"
+      ],
+      "c": [
+       {
+        "k": "r.1.0:6.0",
+        "t": "diff",
+        "p": {
+         "files": [
+          {
+           "path": "main.go",
+           "status": "modified",
+           "add": 3,
+           "del": 1
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "k": "r.1.0:7",
+      "t": "approval",
+      "p": {
+       "title": "Run go vet ./...?",
+       "text": "The agent wants to run a shell command in the sandbox.",
+       "note": "Allowing for the session skips this question next time.",
+       "feedback": true,
+       "options": [
+        {
+         "id": "a1",
+         "label": "Allow once",
+         "kind": "allow_once"
+        },
+        {
+         "id": "a2",
+         "label": "Allow for this session",
+         "kind": "allow_always"
+        },
+        {
+         "id": "r1",
+         "label": "Reject",
+         "kind": "reject_once"
+        }
+       ]
+      },
+      "e": [
+       "choose"
+      ]
+     },
+     {
+      "k": "r.1.0:8",
+      "t": "diff",
+      "p": {
+       "files": [
+        {
+         "path": "cmd/very/long/path/to/some/deeply/nested/main.go",
+         "status": "modified",
+         "add": 3,
+         "del": 1
+        },
+        {
+         "path": "go.sum",
+         "status": "added",
+         "add": 12
+        }
+       ],
+       "patch": "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1,4 +1,5 @@\n package main\n-import \"fmt\"\n+import (\n+\t\"fmt\"\n+)\n func main() {}"
+      },
+      "e": [
+       "open-file"
+      ]
+     },
+     {
+      "k": "r.1.0:9",
+      "t": "question",
+      "p": {
+       "title": "Which Go version?",
+       "schema": {
+        "type": "object",
+        "description": "Pick the toolchain for CI.",
+        "properties": {
+         "version": {
+          "type": "string",
+          "title": "Version",
+          "enum": [
+           "1.23",
+           "1.24",
+           "1.25"
+          ]
+         },
+         "vet": {
+          "type": "boolean",
+          "title": "Also run vet",
+          "default": true
+         },
+         "note": {
+          "type": "string",
+          "title": "Note"
+         }
+        },
+        "required": [
+         "version"
+        ]
+       }
+      },
+      "e": [
+       "submit",
+       "skip"
+      ]
+     },
+     {
+      "k": "r.1.0:10",
+      "t": "message",
+      "p": {
+       "role": "assistant",
+       "markdown": true,
+       "text": "I fixed the import block in `main.go`:\n\n```go\nimport (\n\t\"fmt\"\n)\n```\n\nNow running **go vet**",
+       "streaming": true
+      }
+     },
+     {
+      "k": "r.1.0:11",
+      "t": "activity",
+      "p": {
+       "text": "Running go vet ./…",
+       "live": true
+      }
+     },
+     {
+      "k": "r.1.0:12",
+      "t": "step",
+      "p": {
+       "glyph": "!",
+       "tone": "warn",
+       "text": "Rate limited — retrying in 5s"
+      }
+     },
+     {
+      "k": "r.1.0:13",
+      "t": "message",
+      "p": {
+       "role": "user",
+       "text": "also update the README",
+       "queued": true
+      }
+     }
+    ]
+   },
+   {
+    "k": "r.2",
+    "t": "composer",
+    "p": {
+     "value": "/rev",
+     "placeholder": "Steer the agent",
+     "busy": true,
+     "attachments": [
+      {
+       "id": "u1",
+       "name": "screenshot.png",
+       "mime": "image/png",
+       "progress": 0.4
+      }
+     ],
+     "upload": {
+      "method": "PUT",
+      "path": "/runs/1/upload?name={name}"
+     },
+     "slash": [
+      {
+       "name": "review",
+       "hint": "[path]",
+       "description": "Review the working tree"
+      },
+      {
+       "name": "revert",
+       "description": "Undo the last edit"
+      },
+      {
+       "name": "status"
+      }
+     ]
+    },
+    "e": [
+     "input",
+     "send",
+     "stop",
+     "remove",
+     "uploaded"
+    ],
+    "c": [
+     {
+      "k": "r.2.0",
+      "t": "button",
+      "p": {
+       "label": "🔒 tools off"
+      },
+      "e": [
+       "tap"
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
