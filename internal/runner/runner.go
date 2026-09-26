@@ -627,9 +627,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		argv = []string{entry}
 		binds = append(binds, sandbox.Bind{Src: bin, Dst: entry, RO: true})
 	case "node":
-		entry, argv = "/usr/bin/node", []string{"node", bin} // bin is a script under c.Dir (bound)
+		entry, argv = rootfsBin(r.Rootfs, "node"), []string{"node", bin} // bin is a script under c.Dir (bound)
 	case "python":
-		entry, argv = "/usr/bin/python3", []string{"python3", bin}
+		entry, argv = rootfsBin(r.Rootfs, "python3"), []string{"python3", bin}
 	}
 
 	// Granted GPUs (gpu:*): bind the device nodes + driver libs and add env.

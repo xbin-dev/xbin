@@ -72,3 +72,15 @@ func isTmpfs(dir string) bool {
 	}
 	return false
 }
+
+// rootfsBin is where the base rootfs keeps an interpreter: the rootfs
+// toolchain dirs first (the image installs Node under /usr/local/node, with
+// no /usr/bin/node), then /usr/bin. The path is as seen inside the sandbox.
+func rootfsBin(rootfs, name string) string {
+	for _, dir := range []string{"/usr/local/node/bin", "/usr/local/bin", "/usr/bin", "/bin"} {
+		if fi, err := os.Stat(filepath.Join(rootfs, dir, name)); err == nil && !fi.IsDir() {
+			return dir + "/" + name
+		}
+	}
+	return "/usr/bin/" + name
+}
