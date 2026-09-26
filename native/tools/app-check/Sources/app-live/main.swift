@@ -8,6 +8,11 @@
 //   cd native/tools/app-check && swift run app-live 127.0.0.1:9461 admin admin
 //
 // (--dev seeds admin/admin.) Exit 0 and "LIVE OK" when every check passes.
+// With node on PATH the app's events socket is checked too (the device
+// session as the bearer on /ws/events, through native/tools/events-live.mjs;
+// APPLIVE_WORKSPACE=<the workspace directory> adds a file change → reload),
+// then the web ticket (or its fallback) and minting a code that enrolls a
+// second device.
 // APPLIVE_RESTART=<command that restarts xbind> adds the restart checks (the
 // app re-signs once; frame tokens outlive the restart). On an xbind that
 // serves native runtime documents (whoami native.runtime), a tile with a
@@ -141,6 +146,9 @@ actor SoftwareKeys: DeviceKeyStore {
     func deleteKey(workspace: String) async { keys[workspace] = nil }
 }
 
+/// The events driver's socket is played by events-live.mjs here.
+@MainActor final class NoSocket: EventSocket { func close() {} }
+
 let transport = Transport()
 let keys = SoftwareKeys()
 let client = "app/0.1-live"
@@ -180,6 +188,95 @@ let shared = SharedScreens(json: try await auth.json(APIRequest("GET", "/api/xbi
 let nav = NavigatorModel(catalog: catalog, layout: PersonalLayout(json: layoutResp.status == 200 ? try layoutResp.json() : nil),
                          shared: shared, user: who.userID)
 check(nav.sections.last?.id == "all", "navigator sections: \(nav.sections.map(\.title))")
+
+// 2b. The app's events socket (App/Model/WorkspaceEvents.swift) with this
+// device session as its bearer: native/tools/events-live.mjs opens
+// /ws/events the way URLSessionWebSocketTask does (libcurl here can't) and
+// causes a branding change and — with APPLIVE_WORKSPACE, the workspace
+// directory — a file change in a tile; the frames it got go through the
+// app's router: the tile's reload follower and the branding hook fire.
+if let tile = catalog.listed.first(where: { !$0.chrome && !$0.isShellInternal }) {
+    let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("events-live.mjs").path
+    let bearer = await auth.credential?.token ?? ""
+    var argv = ["node", script, origin.origin, bearer]
+    let wsDir = ProcessInfo.processInfo.environment["APPLIVE_WORKSPACE"] ?? ""
+    if !wsDir.isEmpty { argv += [wsDir, tile.path] }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    p.arguments = argv
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    do {
+        try p.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let events = WorkspaceEvents(auth: auth, makeSocket: { _, _, _ in NoSocket() })
+        events.userID = { who.userID }
+        var brandings = 0
+        var reloads = 0
+        var frames = 0
+        events.onBranding = { brandings += 1 }
+        let follower = Task { @MainActor in await events.onReload(of: tile.path) { reloads += 1 } }
+        while events.followedTiles.isEmpty { await Task.yield() }
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            guard let j = try? JSONValue(parsing: String(line)) else { continue }
+            if let name = j["check"]?.stringValue { check(j["ok"]?.boolValue == true, "events socket: \(name)") }
+            if let f = j["frame"]?.stringValue { frames += 1; events.receive(f) }
+        }
+        for _ in 0..<100 where reloads == 0 && !wsDir.isEmpty { await Task.yield() }
+        follower.cancel()
+        check(p.terminationStatus == 0, "events-live.mjs finished (\(frames) frames)")
+        check(brandings >= 1, "the branding frame reached the workspace's hook")
+        if wsDir.isEmpty { say("  note APPLIVE_WORKSPACE unset: no file change, reload not checked") }
+        else { check(reloads >= 1, "a file change in \(tile.path) reloaded its open screen (\(reloads))") }
+    } catch {
+        say("  note node not runnable (\(error)): events socket not checked")
+    }
+}
+
+// 2c. Signed-in Safari: a one-shot ticket for the device session (POST
+// /api/xbin/web-ticket); an xbind without the route gets the plain page.
+if let tile = catalog.listed.first(where: { !$0.chrome }) {
+    let next = "/c/\(URLComponent.encodePath(tile.path))/"
+    let r = try? await auth.send(WebTicket.request(next: next))
+    let dest = WebTicket.destination(r, origin: origin, next: next)
+    if r?.status == 404 || r?.status == 405 {
+        check(dest?.fellBack == true && dest?.url.absoluteString == origin.origin + next,
+              "web-ticket: this xbind has no route (\(r?.status ?? 0)) → Safari gets the plain page")
+    } else {
+        check(dest?.fellBack == false && dest?.url.absoluteString.hasPrefix(origin.origin + "/") == true,
+              "web-ticket → a same-origin ticket URL (\(r?.status ?? 0)): \(dest?.url.path ?? "-")")
+        if let u = dest?.url, dest?.fellBack == false {
+            let redeem = try await transport.send(APIRequest("GET", String(u.absoluteString.dropFirst(origin.origin.count))), to: origin)
+            check(redeem.status == 302 || redeem.status == 303, "…which redeems into a redirect (\(redeem.status))")
+        }
+    }
+}
+
+// 2d. Add another device: the device session mints a code (a password
+// step-up if xbind asks for one), and the link the QR code shows enrolls a
+// second device.
+do {
+    var out = AddDevice.outcome(try await auth.send(AddDevice.request()), origin: origin)
+    if out == .signInAgain {
+        _ = try await auth.signIn()
+        out = AddDevice.outcome(try await auth.send(AddDevice.request()), origin: origin)
+        say("  …  enroll-code asked for a fresh sign-in")
+    }
+    if out == .needsPassword {
+        say("  …  enroll-code asked for the password (step-up)")
+        out = AddDevice.outcome(try await auth.send(AddDevice.request(password: password)), origin: origin)
+    }
+    if case .code(let link, let code, _) = out, case .enroll(let server, let c)? = try? DeepLink(string: link) {
+        check(server == origin && c == code, "add another device: the QR link names this workspace (\(AddDevice.grouped(code).prefix(9))…)")
+        let (second, _) = try await enrollment.enroll(server: server, code: c, deviceName: "app-live second")
+        check(second.deviceId != nil && second.deviceId != record.deviceId, "…and enrolls a second device with it")
+        if let d = second.deviceId { _ = try? await auth.send(APIRequest("DELETE", "\(AppAuthRoute.devices)/\(d)")) }
+    } else {
+        check(false, "add another device: \(out)")
+    }
+}
 
 // 3. A tile page as the scheme handler loads it: the frame token only.
 var tileToken: (String, String)?

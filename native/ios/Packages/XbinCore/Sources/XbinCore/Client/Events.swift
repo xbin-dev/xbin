@@ -121,6 +121,27 @@ public struct TermEvent: Sendable, Equatable {
     /// True when the directory must be re-read (the row itself changed or
     /// went away); a `status` carries its own row data.
     public var needsRelist: Bool { op != .status }
+
+    /// Whether this is a session of the user `userID`. xbind sends each
+    /// user's term events to that user — and to every admin, so an admin's
+    /// socket also carries other users' (D97). `user` is the session's home
+    /// key (internal/term/homes.go); an event without one is taken as ours.
+    public func isFor(userID: String) -> Bool {
+        user.isEmpty || user == Self.homeKey(userID: userID)
+    }
+
+    /// internal/term/homes.go `sanitizeHomeKey`: every character outside
+    /// `[A-Za-z0-9._-]` becomes `_`; empty or dots only is `owner`.
+    public static func homeKey(userID: String) -> String {
+        var out = ""
+        for u in userID.unicodeScalars {
+            switch u {
+            case "a"..."z", "A"..."Z", "0"..."9", "-", "_", ".": out.unicodeScalars.append(u)
+            default: out.append("_")
+            }
+        }
+        return out.allSatisfy({ $0 == "." }) ? "owner" : out
+    }
 }
 
 /// Live-reload targeting, as the web shell does it (web/events-socket.js
@@ -276,8 +297,12 @@ public struct EventSocketPolicy: Sendable, Equatable {
         }
     }
 
-    /// The re-sign after a 401 failed (the user must act): park.
+    /// No session to connect with — the re-sign after a 401 failed, or
+    /// there was none to start with (the user must act): park until the
+    /// next foreground.
     public mutating func reauthFailed() -> Action {
+        connected = false
+        connecting = false
         parked = true
         return .none
     }

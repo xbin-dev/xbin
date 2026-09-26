@@ -76,6 +76,25 @@ import Testing
         #expect(TermDirectory.apply(statusOf: "zz", status: "idle", pending: 0, questions: 0, to: list) == nil)
     }
 
+    @Test func statusChangesWorthATap() {
+        func agent(_ st: String, pending: Int = 0, questions: Int = 0) -> TermDirectoryEntry {
+            TermDirectoryEntry(id: "a", cwd: "x", kind: .agent, status: st, pending: pending, questions: questions)
+        }
+        #expect(TermDirectory.change(from: agent("running"), to: agent("idle")) == .settled)
+        #expect(TermDirectory.change(from: agent("cancelling"), to: agent("idle")) == .settled)
+        #expect(TermDirectory.change(from: agent("waiting_permission"), to: agent("idle")) == .settled)
+        #expect(TermDirectory.change(from: agent("running"), to: agent("waiting_permission", pending: 1)) == .needsYou)
+        #expect(TermDirectory.change(from: agent("running"), to: agent("running", questions: 1)) == .needsYou)
+        #expect(TermDirectory.change(from: agent("running"), to: agent("error")) == .failed)
+        #expect(TermDirectory.change(from: agent("idle"), to: agent("idle")) == nil)
+        #expect(TermDirectory.change(from: agent("starting"), to: agent("idle")) == nil)   // a new session is ready: no turn ran
+        #expect(TermDirectory.change(from: agent("idle"), to: agent("running")) == nil)
+        #expect(TermDirectory.change(from: agent("waiting_permission", pending: 1), to: agent("waiting_permission", pending: 2)) == nil)
+        #expect(TermDirectory.change(from: nil, to: agent("idle")) == nil)
+        let shell = TermDirectoryEntry(id: "s", cwd: "x")
+        #expect(TermDirectory.change(from: shell, to: shell) == nil)
+    }
+
     @Test func paths() throws {
         #expect(TermDirectory.listPath() == "/api/xbin/term/sessions")
         #expect(TermDirectory.listPath(cwd: "apps/a b") == "/api/xbin/term/sessions?cwd=apps%2Fa%20b")

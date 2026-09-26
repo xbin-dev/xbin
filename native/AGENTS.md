@@ -176,8 +176,12 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
 ```
 
 `app-live` covers password sign-in, in-app enrollment, device login, one
-re-sign for concurrent requests on a dead session, a tile page by frame
-token, push registration and device removal. Before touching an app file,
+re-sign for concurrent requests on a dead session, the app's `/ws/events`
+socket (the device session as its bearer, via `native/tools/events-live.mjs`
+since libcurl here has no WebSockets; `APPLIVE_WORKSPACE=<dir>` adds a file
+change → the open tile's reload), the web ticket or its fallback, minting a
+code that enrolls a second device, a tile page by frame token, push
+registration and device removal. Before touching an app file,
 `swiftc -frontend -parse <file>` at least catches syntax errors here.
 
 ### 4. Apple — only through GitHub Actions (minutes)

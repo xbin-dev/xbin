@@ -83,6 +83,13 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     }
 }
 
+/// See ``TermDirectory/change(from:to:)``.
+public enum TermSessionChange: Sendable, Equatable {
+    case settled
+    case needsYou
+    case failed
+}
+
 public enum TermDirectory {
     /// `GET` → the list (`?cwd=` one tile).
     public static func listPath(cwd: String? = nil) -> String {
@@ -156,6 +163,18 @@ public enum TermDirectory {
             out[i] = out[i].applying(status: status, pending: pending, questions: questions)
         }
         return out
+    }
+
+    /// What a status change means to the person looking at the session
+    /// (the shell's haptics): a turn settled, it started waiting on them,
+    /// or it failed. nil = nothing worth a tap.
+    public static func change(from old: TermDirectoryEntry?, to new: TermDirectoryEntry?) -> TermSessionChange? {
+        guard let old, let new, old.kind == .agent || new.kind == .agent else { return nil }
+        if new.status == "error", old.status != "error" { return .failed }
+        if !old.needsYou, new.needsYou { return .needsYou }
+        let busy: Set<String> = ["running", "waiting_permission", "cancelling"]
+        if busy.contains(old.status), new.status == "idle" { return .settled }
+        return nil
     }
 
     /// The shell sessions of one tile, most recently active first (the

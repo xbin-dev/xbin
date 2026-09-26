@@ -20,6 +20,8 @@ import Testing
             == .tileStatus(component: "apps/x", level: "error", message: "down"))
         #expect(AppEvent.parse(#"{"type":"pr","component":"apps/x"}"#) == .other(type: "pr"))
         #expect(AppEvent.parse(#"{"type":"something-new","x":[1,2]}"#) == .other(type: "something-new"))
+        // As xbind writes them (encoding/json: a newline after each frame).
+        #expect(AppEvent.parse("{\"type\":\"reload\",\"component\":\"apps/welcome\"}\n") == .reload(component: "apps/welcome"))
     }
 
     @Test func refusesJunk() {
@@ -54,6 +56,20 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"term","data":{"op":"teleport","id":"s"}}"#) == .other(type: "term"))
         #expect(AppEvent.parse(#"{"type":"term","data":{"op":"open"}}"#) == .other(type: "term"))
         #expect(AppEvent.parse(#"{"type":"term"}"#) == .other(type: "term"))
+    }
+
+    /// Admins get every user's term events; the app follows only its own.
+    @Test func termEventsForThisUser() {
+        #expect(TermEvent.homeKey(userID: "alice") == "alice")
+        #expect(TermEvent.homeKey(userID: "a.b-c_d9") == "a.b-c_d9")
+        #expect(TermEvent.homeKey(userID: "ann@example.com") == "ann_example.com")
+        #expect(TermEvent.homeKey(userID: "zoë/x") == "zo__x")
+        #expect(TermEvent.homeKey(userID: "") == "owner")
+        #expect(TermEvent.homeKey(userID: "..") == "owner")
+        let e = TermEvent(component: "x", op: .status, id: "s", user: "ann_example.com")
+        #expect(e.isFor(userID: "ann@example.com") && !e.isFor(userID: "bob"))
+        #expect(TermEvent(component: "x", op: .open, id: "s").isFor(userID: "anyone"))
+        #expect(TermEvent(component: "x", op: .open, id: "s", user: "owner").isFor(userID: ""))
     }
 
     @Test func sessionFramesKeepTheirText() {
@@ -137,6 +153,12 @@ import Testing
         _ = p.opened()                               // a working socket resets the allowance
         #expect(p.closed(.refused(status: 401)) == .reauthenticate)
         #expect(p.reauthFailed() == .none && p.parked)
+        // No session at all while connecting: parked, and the next ask tries again.
+        var q = EventSocketPolicy()
+        #expect(q.setWanted(true) == .connect)
+        #expect(q.reauthFailed() == .none && q.parked && !q.connecting)
+        #expect(q.retryDue() == .none)
+        #expect(q.setWanted(true) == .connect)
     }
 
     @Test func parksOnForbiddenAndNotFound() {
