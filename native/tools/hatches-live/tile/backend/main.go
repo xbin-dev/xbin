@@ -1,6 +1,7 @@
 // ptytest — a tile backend with an upload endpoint and a pty-like WebSocket
-// speaking the /ws/term framing (binary bytes, {"op":"resize"}), for the
-// native app's hatches live check. The WebSocket is hand-rolled (RFC 6455,
+// speaking the /ws/term framing (binary bytes, {"op":"resize"}; "exit\r"
+// answers an exit frame, "close\r" a clean close), plus /flap, a socket that
+// closes at once, for the native app's hatches live check. The WebSocket is hand-rolled (RFC 6455,
 // stdlib only).
 package main
 
@@ -28,24 +29,45 @@ func main() {
 			"mime": r.Header.Get("Content-Type"), "from": xbin.Caller(r).From, "user": xbin.Caller(r).User})
 	})
 	mux.HandleFunc("GET /pty", pty)
+	mux.HandleFunc("GET /flap", flap)
 	xbin.Serve(mux)
 }
 
-func pty(w http.ResponseWriter, r *http.Request) {
+// upgrade answers the WebSocket handshake and hands over the connection.
+func upgrade(w http.ResponseWriter, r *http.Request) (net.Conn, *bufio.ReadWriter, bool) {
 	key := r.Header.Get("Sec-WebSocket-Key")
 	if key == "" {
 		http.Error(w, "websocket only", 400)
-		return
+		return nil, nil, false
 	}
 	sum := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 	conn, rw, err := w.(http.Hijacker).Hijack()
 	if err != nil {
-		return
+		return nil, nil, false
 	}
-	defer conn.Close()
 	fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",
 		base64.StdEncoding.EncodeToString(sum[:]))
 	rw.Flush()
+	return conn, rw, true
+}
+
+// flap accepts every socket and closes it at once with 1011 (a shell that
+// can't start): the app must give up after its retries, not loop.
+func flap(w http.ResponseWriter, r *http.Request) {
+	conn, _, ok := upgrade(w, r)
+	if !ok {
+		return
+	}
+	defer conn.Close()
+	write(conn, 8, []byte{0x03, 0xf3}) // 1011
+}
+
+func pty(w http.ResponseWriter, r *http.Request) {
+	conn, rw, ok := upgrade(w, r)
+	if !ok {
+		return
+	}
+	defer conn.Close()
 	write(conn, 2, []byte(fmt.Sprintf("hello from=%s user=%s\r\n", xbin.Caller(r).From, xbin.Caller(r).User)))
 	for {
 		op, payload, err := read(rw.Reader)
@@ -68,6 +90,11 @@ func pty(w http.ResponseWriter, r *http.Request) {
 			if string(payload) == "exit\r" {
 				write(conn, 1, []byte(`{"op":"exit"}`))
 				continue
+			}
+			if string(payload) == "close\r" {
+				// the shell ended without an exit frame: a clean close (1000)
+				write(conn, 8, []byte{0x03, 0xe8})
+				return
 			}
 			write(conn, 2, append([]byte("echo: "), append(bytes.ToUpper(payload), '\r', '\n')...))
 		case 8:

@@ -16,7 +16,7 @@ this package never imports it.
 |---|---|
 | `TermProtocol.swift` | `TermCodec` (server frames ↔ `TermServerFrame`, client frames → `TermWireMessage`), `TermSessionInfo`, `TermScope`, `TermPaths` (socket/kill/env paths), `TermEnvState` |
 | `TermSession.swift` | `TermSession` (main actor): connect → session frame → replay → live, reattach with backoff, pings/RTT, predictions and acks; the injected `TermEmulator`, `TermTransport`/`TermConnect`, `TermClock` |
-| `TilePty.swift` | `TilePtySession` (main actor): a native tile's `terminal` element on its own backend's pty socket (binary + `resize`/`exit`, live on open, reconnect with backoff, 401 → the app renews the frame token) |
+| `TilePty.swift` | `TilePtySession` (main actor): a native tile's `terminal` element on its own backend's pty socket (binary + `resize`/`exit`, live on open; a clean close — 1000 or no code — ends it like `exit`, any other reconnects with backoff that starts over only after 5 s open; 401 → the app renews the frame token) |
 | `Predictor.swift` | `Predictor`: a port of `web/term-predict.js` (D70/D71) over `TermFramebuffer` |
 | `Keyboard.swift` | `TermKeyboard` (accessory row with sticky ctrl/alt, soft-keyboard text, hardware keys → bytes or ⌘ shortcuts), `TermKeyEncoder` (xterm sequences, DECCKM) |
 

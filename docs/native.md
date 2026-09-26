@@ -465,14 +465,18 @@ The app draws these with the same components as its own agent screen.
 - **`terminal`**: `src` is a WebSocket path of your own backend's pty
   endpoint speaking the `/ws/term` framing (binary data both ways,
   `{"op":"resize","cols","rows"}` from the app — first on every connect —
-  and an optional `{"op":"exit"}` from you when the pty ends —
-  [protocol.md](/docs/protocol.md)). A relative `src` is under
-  `/api/<self>/`; like an upload target it must be your own. It connects
-  as your tile (your frame token as `?frame=`, through xbind's proxy); the
-  user's own xbind terminal is the app's, never a tile element. The app
-  shows it inline as live output and opens it larger, with the keyboard,
-  when tapped; a dropped socket reconnects with backoff, keeping the screen
-  (whether a new socket is the same shell is your backend's call).
+  [protocol.md](/docs/protocol.md)). When the pty ends, send
+  `{"op":"exit"}` or close the socket cleanly (a close frame with code
+  1000, or none): the terminal shows it ended and the user may reconnect.
+  A relative `src` is under `/api/<self>/`; like an upload target it must
+  be your own. It connects as your tile (your frame token as `?frame=`,
+  through xbind's proxy); the user's own xbind terminal is the app's, never
+  a tile element. The app shows it inline as live output and opens it
+  larger, with the keyboard, when tapped. Any other close (a drop, 1001, an error code) reconnects
+  with backoff, keeping the screen (whether a new socket is the same shell
+  is your backend's call); the backoff starts over only after a socket
+  stayed open 5 s, so a backend that keeps closing new sockets at once is
+  given up on after six tries.
   Previews draw a placeholder.
 - **`canvas`**: a web view inside the native screen — `src` a page of your
   own tile (relative, or your own `/c/<self>/…`; loaded like your web page:

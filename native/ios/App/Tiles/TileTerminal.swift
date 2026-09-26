@@ -114,10 +114,14 @@ final class TileSocketTransport: TermTransport {
         events(.opened)
     }
 
-    fileprivate func didClose() { finish(.dropped) }
+    /// The backend (or xbind) sent a close frame: its code tells a pty
+    /// that ended (1000, or none) from one to reconnect to (TilePtySession).
+    fileprivate func didClose(code: Int) { finish(opened ? .openSocketClosed(code: code) : .dropped) }
 
-    fileprivate func didComplete(status: Int?, error: (any Error)?) {
-        if opened { finish(.dropped); return }
+    /// `closeCode`: the task's, when a close frame came (0 when none did) —
+    /// URLSession may report the end here without calling didClose first.
+    fileprivate func didComplete(status: Int?, closeCode: Int, error: (any Error)?) {
+        if opened { finish(.openSocketClosed(code: closeCode)); return }
         if let status, status >= 300 { finish(.refused(status: status, body: "")); return }
         if let error { finish(.unreachable(error.localizedDescription)); return }
         finish(.failed)
@@ -142,13 +146,15 @@ private final class TileSocketDelegate: NSObject, URLSessionWebSocketDelegate, @
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        MainActor.assumeIsolated { owner?.didClose() }
+        let code = closeCode.rawValue
+        MainActor.assumeIsolated { owner?.didClose(code: code) }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         let status = (task.response as? HTTPURLResponse)?.statusCode
+        let closeCode = (task as? URLSessionWebSocketTask)?.closeCode.rawValue ?? 0
         let message = error.map { $0 as NSError }
-        MainActor.assumeIsolated { owner?.didComplete(status: status, error: message) }
+        MainActor.assumeIsolated { owner?.didComplete(status: status, closeCode: closeCode, error: message) }
     }
 }
 

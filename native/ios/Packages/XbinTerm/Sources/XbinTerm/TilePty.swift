@@ -6,18 +6,30 @@
 //
 //   binary, both ways       raw PTY bytes
 //   client → server         {"op":"resize","cols":C,"rows":R} (on open and on every resize)
-//   server → client         {"op":"exit"} the pty ended (optional; a close does too)
+//   server → client         {"op":"exit"} the pty ended — or a clean close
+//                           (a close frame with 1000, or with no code)
 //
 // No session frame, replay, acks or pings (those are xbind's own sessions,
-// TermSession): the socket is live once it opens. A drop reconnects with
-// bx-terminal's backoff; the screen is kept (the backend decides whether a
-// new socket is a new shell). A 401 is the frame token dying with the
-// session behind it: the app renews the token once and calls reconnect().
+// TermSession): the socket is live once it opens. Any other close — a drop,
+// 1001 going away, an error code — reconnects with bx-terminal's backoff;
+// the screen is kept (the backend decides whether a new socket is a new
+// shell). The retries start over only once a socket stayed open
+// `stableMs`: a backend that accepts and closes at once is given up on
+// after `maxRetries`, never hammered. A 401 is the frame token dying with
+// the session behind it: the app renews the token once and calls
+// reconnect().
 
 import Foundation
 
 @MainActor public protocol TilePtyDelegate: AnyObject {
     func tilePty(_ p: TilePtySession, phaseChanged phase: TilePtySession.Phase)
+}
+
+public extension TermCloseInfo {
+    /// How an open socket ended, from the transport's close code (a
+    /// URLSessionWebSocketTask's `closeCode`; 0 when no close frame came —
+    /// a drop).
+    static func openSocketClosed(code: Int) -> TermCloseInfo { code > 0 ? .serverClosed(code: code) : .dropped }
 }
 
 /// Opens the tile's pty socket (the app resolves the path and adds the
@@ -33,8 +45,8 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
         case live
         /// The socket dropped or never opened; trying again after `delayMs`.
         case reconnecting(attempt: Int, delayMs: Double)
-        /// The pty ended (`exit`, or the backend closed a socket that had
-        /// been live after an exit frame).
+        /// The pty ended: an `exit` frame, or the backend closed the socket
+        /// cleanly (``isEnd(closeCode:)``).
         case exited
         /// Gave up; `reconnect()` tries again.
         case failed(Failure)
@@ -57,6 +69,15 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
     public static let maxRetries = 6
     public static let retryBaseMs: Double = 500
     public static let retryCapMs: Double = 10000
+    /// A socket open this long before it dropped starts the retries over;
+    /// one that dropped sooner counts as a failed try.
+    public static let stableMs: Double = 5000
+
+    /// A close code that ends the terminal rather than dropping it: 1000
+    /// (normal closure) and 1005 (a close frame without a code) — the
+    /// backend closed the socket on purpose. 1001 (going away), 1011 and
+    /// the rest reconnect.
+    public static func isEnd(closeCode: Int) -> Bool { closeCode == 1000 || closeCode == 1005 }
 
     public weak var delegate: (any TilePtyDelegate)?
     public private(set) var phase: Phase = .idle {
@@ -69,6 +90,8 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
     private var transport: (any TermTransport)?
     private var gen = 0
     private var opened = false
+    /// When the current socket opened (the clock's ms), nil before.
+    private var openedAt: Double?
     private var retries = 0
     private var retryTimer: (any TermTimer)?
     private var done = false
@@ -120,6 +143,7 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
 
     private func connect() {
         opened = false
+        openedAt = nil
         gen += 1
         let g = gen
         retryTimer?.cancel(); retryTimer = nil
@@ -135,6 +159,7 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
         let t = transport
         transport = nil
         opened = false
+        openedAt = nil
         t?.close()
     }
 
@@ -143,7 +168,7 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
         switch ev {
         case .opened:
             opened = true
-            retries = 0
+            openedAt = clock.now()
             phase = .live
             resized(emulator.size)
         case .message(let m):
@@ -161,10 +186,20 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
     }
 
     private func dropped(_ c: TermCloseInfo) {
+        let wasOpen = opened
+        let openFor = openedAt.map { clock.now() - $0 }
         transport = nil
         opened = false
+        openedAt = nil
         if done { return }
         switch c {
+        case .serverClosed(let code) where wasOpen && Self.isEnd(closeCode: code):
+            // The backend ended it on purpose (its shell exited, it has no
+            // more to say): not a drop to reconnect through.
+            done = true
+            teardown()
+            phase = .exited
+            return
         case .refused(401, _):
             fail(.unauthorized); return
         case .refused(let status, _) where status < 500 && status != 429:
@@ -172,6 +207,7 @@ public typealias TilePtyConnect = @MainActor (_ events: @escaping @MainActor (Te
         default:
             break // a drop, an outage, a 5xx/429: try again
         }
+        if let openFor, openFor >= Self.stableMs { retries = 0 }
         guard retries < Self.maxRetries else { fail(.disconnected); return }
         let wait = min(Self.retryBaseMs * Double(1 << retries), Self.retryCapMs)
         retries += 1

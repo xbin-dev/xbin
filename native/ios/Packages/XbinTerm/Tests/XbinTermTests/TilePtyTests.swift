@@ -85,9 +85,68 @@ import Testing
         r.box.last.open()
         #expect(r.session.phase == .live)
         #expect(r.emu.screen.lineAt(0).hasPrefix("kept") && !r.emu.log.contains("reset"))
-        // the retry count starts over once a socket opened
+        // a socket that dropped soon after opening doesn't start the count over
+        r.clock.advance(TilePtySession.stableMs - 1)
+        r.box.last.drop()
+        #expect(r.session.phase == .reconnecting(attempt: 3, delayMs: 2000))
+        r.clock.advance(2000)
+        r.box.last.open()
+        // one that stayed open does
+        r.clock.advance(TilePtySession.stableMs)
         r.box.last.drop()
         #expect(r.session.phase == .reconnecting(attempt: 1, delayMs: 500))
+    }
+
+    /// A backend that accepts every socket and closes it at once (its shell
+    /// can't start, it closes with an error code) is given up on — it never
+    /// counted as a success, so the retries run out as for a refusal.
+    @Test func flappingBackendIsGivenUpOn() {
+        let r = PtyRig()
+        r.session.start()
+        for i in 0..<TilePtySession.maxRetries {
+            r.box.last.open()
+            r.clock.advance(50)
+            r.box.last.drop(i.isMultiple(of: 2) ? .serverClosed(code: 1011) : .dropped)
+            #expect(r.session.phase == .reconnecting(attempt: i + 1, delayMs: min(500 * Double(1 << i), 10000)))
+            r.clock.advance(TilePtySession.retryCapMs)
+        }
+        r.box.last.open()
+        r.box.last.drop(.serverClosed(code: 1011))
+        #expect(r.session.phase == .failed(.disconnected))
+        r.clock.advance(120_000)
+        #expect(r.box.sockets.count == TilePtySession.maxRetries + 1)
+    }
+
+    /// docs/native.md: the exit frame is optional — a clean close ends the
+    /// terminal too (no reconnect loop, no silently replaced shell).
+    @Test func aCleanCloseIsTheEnd() {
+        for code in [1000, 1005] {
+            let r = PtyRig()
+            r.session.start()
+            r.box.last.open()
+            r.box.last.out("bye")
+            r.clock.advance(60_000)
+            r.box.last.drop(.serverClosed(code: code))
+            #expect(r.session.phase == .exited, "close code \(code)")
+            r.clock.advance(60_000)
+            #expect(r.box.sockets.count == 1 && r.emu.screen.lineAt(0).hasPrefix("bye"))
+            // the user may start it again
+            r.session.reconnect()
+            #expect(r.session.phase == .connecting(attempt: 0) && r.box.sockets.count == 2)
+        }
+        // going away (xbind or the backend restarting) and errors reconnect
+        for code in [1001, 1006, 1011, 4000] {
+            let r = PtyRig()
+            r.session.start()
+            r.box.last.open()
+            r.box.last.drop(.serverClosed(code: code))
+            #expect(r.session.phase == .reconnecting(attempt: 1, delayMs: 500), "close code \(code)")
+        }
+        #expect(TilePtySession.isEnd(closeCode: 1000) && TilePtySession.isEnd(closeCode: 1005))
+        #expect(!TilePtySession.isEnd(closeCode: 1001) && !TilePtySession.isEnd(closeCode: 1011))
+        // the app's transport: the task's close code, 0 when no close frame came
+        #expect(TermCloseInfo.openSocketClosed(code: 1000) == .serverClosed(code: 1000))
+        #expect(TermCloseInfo.openSocketClosed(code: 0) == .dropped)
     }
 
     @Test func givesUpAfterTheRetries() {

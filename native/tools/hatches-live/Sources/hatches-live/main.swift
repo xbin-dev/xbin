@@ -6,8 +6,9 @@
 //     its user; without the token → refused;
 //   - a `terminal` element: TileResource.socketURL (?frame=) through
 //     xbind's proxy to the tile's own pty socket, driven by XbinTerm's
-//     TilePtySession (size first, bytes both ways, resize, exit; no token or
-//     a dead one → unauthorized) — a raw RFC 6455 client stands in for
+//     TilePtySession (size first, bytes both ways, resize, exit, a clean
+//     close ends it, a backend closing every socket is given up on; no
+//     token or a dead one → unauthorized) — a raw RFC 6455 client stands in for
 //     URLSessionWebSocketTask (this box's libcurl has no WebSockets);
 //   - AgentClient.prompt(_:text:attachments:) against hack/fakeacp: the log
 //     lists the files, the model gets the image inline, 11 files are refused
@@ -170,7 +171,9 @@ final class Box: @unchecked Sendable { var closed = false }
                 switch op {
                 case 1: self.post(.message(.text(String(decoding: p, as: UTF8.self))))
                 case 2: self.post(.message(.binary(p)))
-                case 8: self.post(.closed(.dropped)); return
+                case 8:
+                    // the close code, as URLSessionWebSocketTask reports it (1005: none given)
+                    self.post(.closed(.serverClosed(code: p.count >= 2 ? Int(p[0]) << 8 | Int(p[1]) : 1005))); return
                 default: break
                 }
             }
@@ -212,6 +215,32 @@ final class Box: @unchecked Sendable { var closed = false }
     check(await until("resize2") { screen.out.contains("resized 100x30") }, "a resize is a text frame")
     s.send("exit\r")
     check(await until("exit") { s.phase == .exited }, "an exit frame ends it (\(s.phase))")
+
+    // a clean close (1000) without an exit frame ends it too — no reconnect
+    var opened4 = 0
+    let s4 = TilePtySession(emulator: Screen(), clock: TermSystemClock()) { events in
+        opened4 += 1
+        return Socket(path: wsPath, events: events)
+    }
+    s4.start()
+    check(await until("live4") { s4.phase == .live }, "a second socket goes live (\(s4.phase))")
+    s4.send("close\r")
+    check(await until("closed4") { s4.phase == .exited }, "a clean close (1000) ends it (\(s4.phase))")
+    try? await Task.sleep(for: .seconds(2))
+    check(s4.phase == .exited && opened4 == 1, "and nothing reconnects (\(opened4) socket(s), \(s4.phase))")
+
+    // a backend that accepts and closes every socket at once is given up on
+    let flapURL = TileResource.socketURL(origin: origin, path: TileResource.apiPath("flap", tile: tile)!, frameToken: token)!
+    let flapPath = String(flapURL.absoluteString.dropFirst("ws://\(host)".count))
+    var opened5 = 0
+    let s5 = TilePtySession(emulator: Screen(), clock: TermSystemClock()) { events in
+        opened5 += 1
+        return Socket(path: flapPath, events: events)
+    }
+    s5.start()
+    check(await until("flap", timeout: 45) { s5.phase == .failed(.disconnected) },
+          "a backend closing every socket at once (1011) is given up on (\(s5.phase), \(opened5) sockets)")
+    check(opened5 == TilePtySession.maxRetries + 1, "after \(TilePtySession.maxRetries) retries (\(opened5) sockets)")
 
     // without a frame token: refused, and the session says unauthorized
     let s2 = TilePtySession(emulator: Screen(), clock: TermSystemClock()) { events in Socket(path: path, events: events) }
