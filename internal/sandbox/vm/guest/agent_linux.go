@@ -120,6 +120,14 @@ func (a *agent) control(c *proto.Conn) {
 			if s := a.session(m.Session); s != nil {
 				s.signal(unix.Signal(m.Signal))
 			}
+		case "sync":
+			// the host is ending the VM (a terminal closed): hang up the
+			// session, flush every filesystem, say so — it kills us next
+			if s := a.session(m.Session); s != nil {
+				s.signal(unix.SIGHUP)
+			}
+			unix.Sync()
+			a.send(proto.Msg{Op: "synced"})
 		}
 	}
 }

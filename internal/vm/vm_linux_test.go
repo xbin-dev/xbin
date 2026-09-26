@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -251,5 +252,61 @@ func TestVMSandboxEgressAllowed(t *testing.T) {
 			t.Skipf("no internet from this host? %s", out)
 		}
 		t.Errorf("guest couldn't reach the internet through an allow-all relay")
+	}
+}
+
+func TestVMSandboxDiskPersists(t *testing.T) {
+	m, ws := harness(t)
+	if err := m.SetPolicy(Policy{DiskGiB: 1}); err != nil {
+		t.Fatal(err)
+	}
+	layer := filepath.Join(ws, ".xbin", "term", "t1")
+	run := func(script string) string {
+		disk, err := m.EnsureDisk(layer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec := &sandbox.Spec{
+			Lower:   []string{m.Rootfs},
+			Binds:   []sandbox.Bind{{Src: ws, Dst: ws}},
+			Entry:   "/bin/bash",
+			Argv:    []string{"bash", "-c", script},
+			Env:     []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+			Cwd:     ws,
+			HostUID: os.Getuid(),
+			HostGID: os.Getgid(),
+		}
+		if err := m.Apply(context.Background(), spec, Options{MemMiB: 512, Disk: disk}); err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		out, code := launch(t, spec, nil)
+		t.Logf("run (%s, exit %d):\n%s", time.Since(start).Round(time.Millisecond), code, out)
+		return out
+	}
+	run(`echo persisted > /etc/xbin-marker && mkdir -p /opt/made && touch /opt/made/here && df -k / | tail -1`)
+	out := run(`cat /etc/xbin-marker; ls /opt/made; df -k /upperfs 2>/dev/null | tail -1; findmnt -no SIZE / 2>/dev/null`)
+	if !strings.Contains(out, "persisted") || !strings.Contains(out, "here") {
+		t.Fatalf("root filesystem changes did not survive into the next VM:\n%s", out)
+	}
+	fi, _ := os.Stat(filepath.Join(layer, "vm", "disk.img"))
+	var st syscall.Stat_t
+	_ = syscall.Stat(filepath.Join(layer, "vm", "disk.img"), &st)
+	t.Logf("disk image: %d bytes apparent, %d KiB allocated", fi.Size(), st.Blocks/2)
+	if st.Blocks*512 > 200<<20 {
+		t.Errorf("the disk image isn't sparse: %d KiB allocated", st.Blocks/2)
+	}
+	// the admin grows the disk: the next VM's filesystem follows
+	if err := m.SetPolicy(Policy{DiskGiB: 2}); err != nil {
+		t.Fatal(err)
+	}
+	out = run(`cat /etc/xbin-marker; df -BM --output=size / | tail -1`)
+	if !strings.Contains(out, "persisted") {
+		t.Fatalf("data lost across the grow:\n%s", out)
+	}
+	var mb int
+	fmt.Sscanf(strings.TrimSpace(out[strings.LastIndex(strings.TrimSpace(out), "\n")+1:]), "%dM", &mb)
+	if mb < 1500 {
+		t.Errorf("the filesystem didn't grow with the disk (root size %d MiB):\n%s", mb, out)
 	}
 }

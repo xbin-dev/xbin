@@ -5,8 +5,6 @@ package guest
 import (
 	"fmt"
 	"net"
-	"os"
-	"syscall"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -63,27 +61,4 @@ func upLoopback() {
 	if lo, err := netlink.LinkByName("lo"); err == nil {
 		_ = netlink.LinkSetUp(lo)
 	}
-}
-
-// formatExt4 makes the persistent disk's filesystem with the rootfs image's
-// own mkfs.ext4 (the initramfs holds only the agent). PID 1's reaper owns
-// every wait, so the child goes through spawn.
-func (a *agent) formatExt4(dev string) error {
-	if err := unix.Mount("/dev", "/lower/dev", "", unix.MS_BIND, ""); err != nil {
-		return fmt.Errorf("bind /dev for mkfs: %w", err)
-	}
-	defer unix.Unmount("/lower/dev", unix.MNT_DETACH)
-	argv := []string{"mkfs.ext4", "-F", "-q", "-E", "lazy_itable_init=1,lazy_journal_init=1,discard", "-L", "xbin-vm", dev}
-	_, done, err := a.spawn("/sbin/mkfs.ext4", argv, &os.ProcAttr{
-		Env:   []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"},
-		Files: []*os.File{nil, os.Stderr, os.Stderr},
-		Sys:   &syscall.SysProcAttr{Chroot: "/lower"},
-	})
-	if err != nil {
-		return err
-	}
-	if ws := <-done; ws.ExitStatus() != 0 {
-		return fmt.Errorf("mkfs.ext4 exited %d", ws.ExitStatus())
-	}
-	return nil
 }

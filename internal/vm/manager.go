@@ -73,7 +73,8 @@ func (m *Manager) findAssets() (Assets, error) {
 
 // Options size and shape one VM.
 type Options struct {
-	TTY      bool // the shim's stdio is a terminal (a shell session)
+	TTY      bool   // the shim's stdio is a terminal (a shell session)
+	Disk     string // host path of the persistent upper disk image ("" = a tmpfs upper)
 	VCPUs    int
 	MemMiB   int
 	Hostname string
@@ -92,6 +93,7 @@ var (
 	inKernel = sandbox.VMDir + "/boot/vmlinux"
 	inInitrd = sandbox.VMDir + "/boot/initrd"
 	inImage  = sandbox.VMDir + "/img/rootfs.erofs"
+	inDisk   = sandbox.VMDir + "/img/disk.img"
 	inRun    = sandbox.VMDir + "/run"
 )
 
@@ -168,6 +170,10 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 		sandbox.Bind{Src: initrd, Dst: inInitrd, RO: true},
 		sandbox.Bind{Src: image, Dst: inImage, RO: true},
 	)
+	if o.Disk != "" {
+		spec.Binds = append(spec.Binds, sandbox.Bind{Src: o.Disk, Dst: inDisk})
+		hs.Disk = inDisk
+	}
 	spec.VM = hs
 	spec.Lower, spec.Upper, spec.Work = nil, "", ""
 	spec.Entry = inBx

@@ -96,8 +96,9 @@ type Exec struct {
 }
 
 // Msg is one control message. Host → guest ops: "config", "exec",
-// "resize", "signal". Guest → host ops: "ready" (answers config), "started",
-// "listening", "exited", "error".
+// "resize", "signal", "sync" (the VM is about to be killed: hang up session
+// Session and flush the disks). Guest → host ops: "ready" (answers config),
+// "started", "listening", "exited", "synced", "error".
 type Msg struct {
 	Op      string  `json:"op"`
 	Config  *Config `json:"config,omitempty"`

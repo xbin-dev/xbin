@@ -46,13 +46,14 @@ func Main(specPath string) int {
 }
 
 type shim struct {
-	hs     proto.HostSpec
-	serial *ring // Firecracker's stdout/stderr: the guest console and VMM log
-	fc     *exec.Cmd
-	fcDone chan struct{}
-	ctl    *proto.Conn
-	tty    bool
-	raw    *term.State
+	hs      proto.HostSpec
+	serial  *ring // Firecracker's stdout/stderr: the guest console and VMM log
+	fc      *exec.Cmd
+	fcDone  chan struct{}
+	ctl     *proto.Conn
+	pending chan ctlMsg // a control read in flight (recvUntil)
+	tty     bool
+	raw     *term.State
 }
 
 func (s *shim) run() int {
@@ -151,29 +152,54 @@ func (s *shim) session() int {
 		go func() { defer streams.Done(); _, _ = io.Copy(os.Stderr, errc) }()
 	}
 
+	// SIGWINCH resizes the guest PTY; SIGHUP is xbind ending the session (a
+	// closed terminal): the guest syncs its disks before the VM is killed;
+	// other signals go to the guest process (SIGTERM: a backend's drain).
 	sigs := make(chan os.Signal, 8)
+	hup := make(chan struct{}) // closed once, on the first SIGHUP
 	signal.Notify(sigs, unix.SIGWINCH, unix.SIGTERM, unix.SIGINT, unix.SIGHUP, unix.SIGQUIT)
 	go func() {
 		for sig := range sigs {
-			if sig == unix.SIGWINCH {
+			switch sig {
+			case unix.SIGWINCH:
 				if ws, err := unix.IoctlGetWinsize(0, unix.TIOCGWINSZ); err == nil {
 					_ = s.ctl.Send(proto.Msg{Op: "resize", Session: 1, Rows: ws.Row, Cols: ws.Col})
 				}
-				continue
+			case unix.SIGHUP:
+				_ = s.ctl.Send(proto.Msg{Op: "sync", Session: 1})
+				select {
+				case <-hup:
+				default:
+					close(hup)
+				}
+			default:
+				_ = s.ctl.Send(proto.Msg{Op: "signal", Session: 1, Signal: int(sig.(unix.Signal))})
 			}
-			_ = s.ctl.Send(proto.Msg{Op: "signal", Session: 1, Signal: int(sig.(unix.Signal))})
 		}
 	}()
 
 	if err := s.ctl.Send(proto.Msg{Op: "exec", Exec: &ex}); err != nil {
 		return fail(s, "exec: %v", err)
 	}
+	var deadline <-chan time.Time
+	hangup := (<-chan struct{})(hup)
 	for {
-		m, err := s.recv()
+		m, err := s.recvUntil(hangup, deadline)
+		if err == errHangup {
+			hangup, deadline = nil, time.After(2*time.Second) // wait for "synced" (or "exited"), briefly
+			continue
+		}
+		if err == errDeadline {
+			s.restore()
+			return 129
+		}
 		if err != nil {
 			return fail(s, "guest: %v", err)
 		}
 		switch m.Op {
+		case "synced":
+			s.restore()
+			return 129
 		case "error":
 			return fail(s, "%s", m.Error)
 		case "exited":
@@ -203,23 +229,42 @@ func (s *shim) expect(op string) (proto.Msg, error) {
 }
 
 // recv reads one control message, or fails when Firecracker dies first.
-func (s *shim) recv() (proto.Msg, error) {
-	type res struct {
-		m   proto.Msg
-		err error
+func (s *shim) recv() (proto.Msg, error) { return s.recvUntil(nil, nil) }
+
+var (
+	errHangup   = errors.New("hangup")
+	errDeadline = errors.New("deadline")
+)
+
+// recvUntil is recv that also returns errHangup when hangup closes and
+// errDeadline when deadline fires (nil channels never do). A message read
+// after such a return is delivered by the next call.
+func (s *shim) recvUntil(hangup <-chan struct{}, deadline <-chan time.Time) (proto.Msg, error) {
+	if s.pending == nil {
+		ch := make(chan ctlMsg, 1)
+		s.pending = ch
+		go func() {
+			var m proto.Msg
+			err := s.ctl.Recv(&m)
+			ch <- ctlMsg{m, err}
+		}()
 	}
-	ch := make(chan res, 1)
-	go func() {
-		var m proto.Msg
-		err := s.ctl.Recv(&m)
-		ch <- res{m, err}
-	}()
 	select {
-	case r := <-ch:
+	case r := <-s.pending:
+		s.pending = nil
 		return r.m, r.err
 	case <-s.fcDone:
 		return proto.Msg{}, errors.New("the VM exited")
+	case <-hangup:
+		return proto.Msg{}, errHangup
+	case <-deadline:
+		return proto.Msg{}, errDeadline
 	}
+}
+
+type ctlMsg struct {
+	m   proto.Msg
+	err error
 }
 
 // dialAgent connects to the agent's vsock port and sends hello, retrying

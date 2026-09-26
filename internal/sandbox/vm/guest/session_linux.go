@@ -202,6 +202,7 @@ func (s *session) run() error {
 	if s.ptmx != nil {
 		s.ptmx.Close()
 	}
+	unix.Sync() // the host kills the VM once it hears "exited": the disk must hold everything
 	s.a.send(proto.Msg{Op: "exited", Session: ex.Session, Code: code})
 	return nil
 }

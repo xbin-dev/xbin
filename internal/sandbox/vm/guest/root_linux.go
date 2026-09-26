@@ -94,16 +94,8 @@ func (a *agent) assembleRoot(r proto.Root) error {
 		return fmt.Errorf("rootfs image: %w", err)
 	}
 	if r.Upper != "" {
-		// the persistent disk: flush anything the template's kernel may have
-		// cached from the placeholder device, format on first use
-		flushBlockdev(r.Upper)
-		if err := mountAt(r.Upper, "/upperfs", "ext4", unix.MS_NOATIME, ""); err != nil {
-			if err := a.formatExt4(r.Upper); err != nil {
-				return fmt.Errorf("format upper disk: %w", err)
-			}
-			if err := mountAt(r.Upper, "/upperfs", "ext4", unix.MS_NOATIME, ""); err != nil {
-				return fmt.Errorf("upper disk: %w", err)
-			}
+		if err := a.mountDisk(r.Upper); err != nil { // disk_linux.go
+			return err
 		}
 	} else if err := mountAt("tmpfs", "/upperfs", "tmpfs", 0, "mode=0755"); err != nil {
 		return err

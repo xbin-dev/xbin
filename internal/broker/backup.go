@@ -99,8 +99,9 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 			return err
 		}
 	}
-	// Terminal dev layer.
-	if err := bw.Tree(backup.TermPrefix, b.termDir(c.Path), nil); err != nil {
+	// Terminal dev layer — without a VM terminal's disk image (vm/): a sparse
+	// multi-GiB file, live while its VM runs (plans/vm-sandbox.md).
+	if err := bw.Tree(backup.TermPrefix, b.termDir(c.Path), func(rel string) bool { return rel == "vm" }); err != nil {
 		return err
 	}
 	return nil

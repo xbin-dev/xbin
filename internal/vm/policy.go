@@ -21,9 +21,13 @@ type Policy struct {
 	VCPUs     int  `json:"vcpus"`     // vCPUs per VM (default DefaultVCPUs)
 	MaxVMs    int  `json:"maxVMs"`    // concurrent VMs (default 8)
 	BudgetMiB int  `json:"budgetMiB"` // guest memory across running VMs (0 = maxVMs × memMiB)
+	DiskGiB   int  `json:"diskGiB"`   // a VM terminal's persistent disk (sparse; default 20)
 }
 
-const defaultMaxVMs = 8
+const (
+	defaultMaxVMs  = 8
+	defaultDiskGiB = 20
+)
 
 // withDefaults fills the zero fields.
 func (p Policy) withDefaults() Policy {
@@ -39,6 +43,9 @@ func (p Policy) withDefaults() Policy {
 	if p.BudgetMiB <= 0 {
 		p.BudgetMiB = p.MaxVMs * p.MemMiB
 	}
+	if p.DiskGiB <= 0 {
+		p.DiskGiB = defaultDiskGiB
+	}
 	return p
 }
 
@@ -53,6 +60,8 @@ func (p Policy) Validate() error {
 		return fmt.Errorf("maxVMs must be between 1 and 1024")
 	case p.BudgetMiB < 0:
 		return fmt.Errorf("budgetMiB must not be negative")
+	case p.DiskGiB < 0 || p.DiskGiB > 4096:
+		return fmt.Errorf("diskGiB must be between 1 and 4096")
 	}
 	return nil
 }

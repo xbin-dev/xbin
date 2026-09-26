@@ -604,11 +604,9 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	}
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
-	// A VM terminal's upper lives in the guest (vm.go).
-	envKey := termKey(rel)
-	if o.vm {
-		envKey = ""
-	} else if m.acquireEnv(envKey) {
+	// A VM terminal keeps its changes on a disk image in the same layer (vm.go).
+	envKey, vmDisk := termKey(rel), ""
+	if m.acquireEnv(envKey) {
 		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
 		ver := m.ensureLayerBase(layer)        // stamp on first use (new→current, legacy→v0)
 		base, ok := resolveBase(m.Rootfs, ver) // pin the upper to the base it was built on
@@ -621,7 +619,14 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			dropView()
 			return nil, nil, nil, "", nil, fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
 		}
-		if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
+		if o.vm {
+			if vmDisk = m.vmDisk(layer); vmDisk != "" {
+				spec.Lower = []string{base}
+			} else {
+				m.releaseEnv(envKey)
+				envKey = ""
+			}
+		} else if os.MkdirAll(up, 0o755) == nil && os.MkdirAll(work, 0o755) == nil {
 			spec.Lower = []string{base}
 			spec.Upper, spec.Work = up, work
 		} else {
@@ -648,7 +653,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	}
 	releaseVM := func() {}
 	if o.vm {
-		release, _, err := m.applyVM(spec, rel, o)
+		release, err := m.applyVM(spec, rel, o, vmDisk)
 		if err != nil {
 			dropView()
 			return nil, nil, nil, "", nil, err
@@ -929,6 +934,9 @@ func (s *Session) kill() {
 	if s.cmd.Process != nil {
 		if s.pgid { // the non-isolated agent host and its agent: the whole group
 			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		}
+		if s.vm && s.hangupVM() {
+			return
 		}
 		_ = s.cmd.Process.Kill()
 	}

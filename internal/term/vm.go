@@ -3,8 +3,10 @@ package term
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -55,33 +57,63 @@ func (m *Manager) vmRefusal(o openOpts) string {
 
 // applyVM turns spec into a VM sandbox under the workspace policy and
 // reserves its memory; release gives the reservation back when the session
-// ends. memBytes is the cgroup leaf's cap (guest + VMM overhead).
-func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts) (release func(), memBytes int64, err error) {
+// ends. disk is the session's persistent disk image ("" = a fresh guest).
+func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts, disk string) (release func(), err error) {
 	if why := m.vmRefusal(o); why != "" {
-		return nil, 0, errors.New(why)
+		return nil, errors.New(why)
 	}
 	p := m.VM.Policy()
 	release, err = m.VM.Reserve(p.MemMiB)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	if err := m.VM.Apply(ctx, spec, vm.Options{
 		TTY:      o.kind != KindAgent,
+		Disk:     disk,
 		VCPUs:    p.VCPUs,
 		MemMiB:   p.MemMiB,
 		Hostname: vmHostname(rel),
 	}); err != nil {
 		release()
-		return nil, 0, err
+		return nil, err
 	}
-	return release, int64(p.MemMiB+vm.VMOverheadMiB) << 20, nil
+	return release, nil
+}
+
+// vmDisk is the persistent disk image in a tile's terminal layer (made and
+// sized on demand), or "" when there is none to give.
+func (m *Manager) vmDisk(layer string) string {
+	if m.VM == nil {
+		return ""
+	}
+	disk, err := m.VM.EnsureDisk(layer)
+	if err != nil {
+		slog.Warn("VM terminal disk (the session runs without one)", "layer", layer, "err", err)
+		return ""
+	}
+	return disk
 }
 
 // vmLeafBytes is a VM session's cgroup leaf cap: guest memory + overhead.
 func (m *Manager) vmLeafBytes() int64 {
 	return int64(m.VM.Policy().MemMiB+vm.VMOverheadMiB) << 20
+}
+
+// hangupVM ends a VM session gracefully: SIGHUP makes the shim have the
+// guest flush its disk before the VM dies, then the usual SIGKILL follows
+// (the pump sees the exit either way). false = not sent; kill outright.
+func (s *Session) hangupVM() bool {
+	p := s.cmd.Process
+	if p.Signal(syscall.SIGHUP) != nil {
+		return false
+	}
+	time.AfterFunc(3*time.Second, func() { _ = p.Kill() })
+	if s.pty != nil {
+		_ = s.pty.Close()
+	}
+	return true
 }
 
 // vmHostname names the guest after its tile: lowercase letters, digits and
