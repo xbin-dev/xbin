@@ -119,7 +119,7 @@ struct SettingsView: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                     } header: { Text("This workspace on the web") } footer: {
-                        Text("Signed in as you on this device, without typing your password.")
+                        Text("Opens signed in as you (this device's sign-in) where the workspace supports it; otherwise the browser asks you to sign in.")
                     }
 
                     Section {
