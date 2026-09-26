@@ -143,8 +143,11 @@ export function renameSheet() {
   const done = () => { ui.rename = null; ctx.paint(); };
   const save = guard(async () => {
     await app.actions.rename(app.convs, f.id, f.title);
+    // the open conversation's title follows at once (the stream says so too)
+    const title = f.title.trim();
     const v = app.session.views.get(f.id);
-    if (v && f.title.trim()) v.run = { ...v.run, title: f.title.trim() };
+    if (v && title) v.run = { ...v.run, title };
+    if (title && app.session.runs.has(f.id)) app.session.runs.set(f.id, { ...app.session.runs.get(f.id), title });
     ui.rename = null;
   });
   return html`<sheet open title="Rename" detents="medium" @dismiss=${done}>

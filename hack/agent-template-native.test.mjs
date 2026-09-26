@@ -583,3 +583,14 @@ test('a failed action says why, where you look', async () => {
   assert.equal(tr.c[tr.c.length - 1].p.text, 'the agent is halted — a manager must resume it', 'the error is the last thing in the chat');
   assert.equal(find(r.snapshots.said, { t: 'composer' }).p.value, 'hello?', 'the text stays in the composer');
 });
+
+test('rename from the conversation\'s menu: the title follows at once', async () => {
+  const r = await run(oneSeed({ run: { title: 'old name', status: 'idle' } }), [
+    { tap: { t: 'button', p: { label: 'Rename…' } } },
+    { input: [{ t: 'field', p: { label: 'Title' }, in: { t: 'sheet' } }, 'new name'] },
+    { tap: { t: 'button', p: { label: 'Save' }, in: { t: 'sheet' } } },
+  ], { state: { hash: 'c=9' } });
+  assert.deepEqual(JSON.parse(called(r, 'PATCH', /\/runs\/9$/)[0].body), { title: 'new name' });
+  assert.equal(topScreen(r.tree).p.title, 'new name');
+  assert.equal(find(r.tree, { t: 'sheet' }), null);
+});
