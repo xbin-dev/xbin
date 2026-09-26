@@ -1,0 +1,17 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"S3 Archiver","style":"form"},"c":[
+  {"k":"r.0","t":"section","p":{"footer":"Where component backups are stored: any S3-compatible endpoint (AWS, MinIO, R2, B2). Needs egress — bind this tile's net interface."},"c":[
+    {"k":"r.0.0","t":"field","p":{"label":"Endpoint","kind":"url","placeholder":"https://s3.us-east-1.amazonaws.com","value":"https://s3.eu-central-1.amazonaws.com"},"e":["input"]},
+    {"k":"r.0.1","t":"field","p":{"label":"Region","placeholder":"us-east-1","value":"eu-central-1"},"e":["input"]},
+    {"k":"r.0.2","t":"field","p":{"label":"Bucket","placeholder":"my-backups","value":"acme-backups"},"e":["input"]},
+    {"k":"r.0.3","t":"field","p":{"label":"Prefix (optional)","placeholder":"xbin/","value":"xbin/"},"e":["input"]}
+  ]},
+  {"k":"r.1","t":"section","p":{"title":"Credentials","footer":"Secret access key · set"},"c":[
+    {"k":"r.1.0","t":"field","p":{"label":"Access key ID","value":""},"e":["input"]},
+    {"k":"r.1.1","t":"field","p":{"label":"Secret access key","kind":"secure","placeholder":"leave blank to keep","value":""},"e":["input"]}
+  ]},
+  {"k":"r.2","t":"section","c":[
+    {"k":"r.2.0","t":"notice","p":{"tone":"ok","text":"Connected — bucket “acme-backups” is reachable."}},
+    {"k":"r.2.1","t":"button","p":{"label":"Save & test","role":"primary","busy":false,"disabled":false},"e":["tap"]},
+    {"k":"r.2.2","t":"button","p":{"label":"Test connection","busy":false,"disabled":false},"e":["tap"]}
+  ]}
+]}}

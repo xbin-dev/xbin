@@ -1,0 +1,11 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Today","style":"list"},"c":[
+  {"k":"r.1","t":"section","p":{"title":"today"},"c":[
+    {"k":"r.1.0:1","t":"row","p":{"title":"standup","detail":"09:30","mono":"detail"}},
+    {"k":"r.1.0:2","t":"row","p":{"title":"lunch with Ana","detail":"--:--","mono":"detail"}}
+  ]},
+  {"k":"r.2","t":"section","p":{"title":"new event"},"c":[
+    {"k":"r.2.0","t":"field","p":{"label":"Time","placeholder":"HH:MM","value":""},"e":["input"]},
+    {"k":"r.2.1","t":"field","p":{"label":"Title","placeholder":"new event","value":""},"e":["input","submit"]},
+    {"k":"r.2.2","t":"button","p":{"label":"add","role":"primary","disabled":true},"e":["tap"]}
+  ]}
+]}}

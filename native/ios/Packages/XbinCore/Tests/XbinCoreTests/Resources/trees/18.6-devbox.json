@@ -1,0 +1,26 @@
+{"v":1,"root":{"k":"r","t":"fragment","c":[
+  {"k":"r.0","t":"nav","e":["pop"],"c":[
+    {"k":"r.0.0","t":"screen","p":{"title":"Devbox","style":"list","refreshable":true},"e":["refresh"],"c":[
+      {"k":"r.0.0.0","t":"toolbar","c":[
+        {"k":"r.0.0.0.0","t":"button","p":{"label":"Add","icon":"plus"},"e":["tap"]}
+      ]},
+      {"k":"r.0.0.2","t":"tabs","p":{"selected":"containers"},"e":["change"],"c":[
+        {"k":"r.0.0.2.0","t":"tab","p":{"key":"containers","title":"Containers","icon":"box"},"c":[
+          {"k":"r.0.0.2.0.0","t":"section","p":{"footer":"podman 5.2.1 · storage persisted"},"c":[
+            {"k":"r.0.0.2.0.0.0:dev","t":"row","p":{"title":"dev","mono":"title","nav":true,"icon":"box","subtitle":"docker.io/library/ubuntu:24.04","badge":"Up 3 hours","tone":"ok"},"e":["tap"],"c":[
+              {"k":"r.0.0.2.0.0.0:dev.0","t":"actions","c":[
+                {"k":"r.0.0.2.0.0.0:dev.0.0","t":"button","p":{"label":"stop","icon":"stop"},"e":["tap"]},
+                {"k":"r.0.0.2.0.0.0:dev.0.1","t":"button","p":{"label":"remove","role":"destructive","icon":"trash","confirm":{"title":"Remove container dev?","message":"Its filesystem is lost.","label":"Remove","destructive":true}},"e":["tap"]}
+              ]}
+            ]}
+          ]},
+          {"k":"r.0.0.2.0.1","t":"section","p":{"title":"SSH"},"c":[
+            {"k":"r.0.0.2.0.1.0.0","t":"text","p":{"tone":"muted","text":"Publish the SSH port to a host port, then connect:"}},
+            {"k":"r.0.0.2.0.1.0.1","t":"code","p":{"copy":true,"text":"bx expose apps/devbox ssh=runtime --listen 2222"}}
+          ]}
+        ]},
+        {"k":"r.0.0.2.1","t":"tab","p":{"key":"keys","title":"SSH keys","icon":"key"},"c":[]}
+      ]}
+    ]}
+  ]}
+]}}

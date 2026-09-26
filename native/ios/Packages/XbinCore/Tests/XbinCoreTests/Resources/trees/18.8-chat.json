@@ -1,0 +1,17 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Chat","style":"scroll"},"c":[
+  {"k":"r.0","t":"toolbar","c":[
+    {"k":"r.0.0","t":"picker","p":{"style":"menu","value":"0 qwen3-32b","options":[{"value":"0 qwen3-32b","label":"qwen3-32b"}]},"e":["change"]},
+    {"k":"r.0.1","t":"badge","p":{"tone":"muted","text":"3 tools"}},
+    {"k":"r.0.2","t":"button","p":{"label":"New chat","icon":"plus"},"e":["tap"]}
+  ]},
+  {"k":"r.1","t":"transcript","p":{"follow":true},"c":[
+    {"k":"r.1.0:1","t":"message","p":{"role":"user","text":"How many open issues are labelled bug?"}},
+    {"k":"r.1.0:2","t":"toolcard","p":{"title":"apps/github-mcp · search_issues","icon":"wrench","family":"tool","state":"ok"},"c":[
+      {"k":"r.1.0:2.0","t":"code","p":{"text":"{\"q\":\"is:open label:bug\"}"}},
+      {"k":"r.1.0:2.1","t":"code","p":{"text":"{\"total_count\":7}"}}
+    ]},
+    {"k":"r.1.0:3.0","t":"thinking","p":{"text":"The tool says 7.","live":false,"seconds":2}},
+    {"k":"r.1.0:3.1","t":"message","p":{"role":"assistant","markdown":true,"text":"There are **7** open issues labelled `bug`.","streaming":false}}
+  ]},
+  {"k":"r.2","t":"composer","p":{"value":"","placeholder":"Message","busy":false},"e":["input","send","stop"]}
+]}}

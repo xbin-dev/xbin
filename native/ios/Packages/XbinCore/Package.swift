@@ -19,6 +19,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "XbinCore"),
-        .testTarget(name: "XbinCoreTests", dependencies: ["XbinCore"]),
+        .testTarget(
+            name: "XbinCoreTests",
+            dependencies: ["XbinCore"],
+            resources: [.copy("Resources")]
+        ),
     ]
 )
