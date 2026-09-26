@@ -1,0 +1,22 @@
+{
+  "about": "examples/calendar/native.js (§18.2): today's events, then an event added from the form — the POST clears the draft and the tile's bus event reloads the list",
+  "self": "apps/calendar",
+  "routes": {
+    "GET /api/apps/calendar/events": [
+      {"json": {"day": "2026-09-21", "events": [
+        {"id": "2026-09-21/1790000000000000000", "day": "2026-09-21", "time": "09:30", "title": "standup"}
+      ]}},
+      {"json": {"day": "2026-09-21", "events": [
+        {"id": "2026-09-21/1790000000000000000", "day": "2026-09-21", "time": "09:30", "title": "standup"},
+        {"id": "2026-09-21/1790000012000000000", "day": "2026-09-21", "time": "", "title": "lunch with Ana"}
+      ]}}
+    ],
+    "POST /api/apps/calendar/events": {"json": {"id": "2026-09-21/1790000012000000000", "day": "2026-09-21", "time": "", "title": "lunch with Ana"}}
+  },
+  "interactions": [
+    {"select": "field[label=Title]", "type": "input", "payload": {"value": "lunch"}},
+    {"after": 400, "select": "field[label=Title]", "type": "input", "payload": {"value": "lunch with Ana"}},
+    {"after": 300, "select": "button[label=add]", "type": "tap"},
+    {"bus": ["res:apps/calendar/bus/events/created", {"id": "2026-09-21/1790000012000000000", "day": "2026-09-21", "time": "", "title": "lunch with Ana"}], "note": "the backend publishes events/created; the tile reloads"}
+  ]
+}

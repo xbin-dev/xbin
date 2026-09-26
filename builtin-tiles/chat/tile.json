@@ -1,6 +1,7 @@
 {
   "name": "chat",
-  "version": 2,
+  "version": 3,
+  "changelog": "v3: a native view for the xbin app (native.js): the transcript, tool cards and composer drawn natively; the engine (models, MCP tools, streaming, the agent loop) moved from the page into chat-core.js, which the page and the native view share — the page behaves as before",
   "title": "Chat",
   "description": "A streaming LLM chat UI (foldable reasoning + MCP tool use). Pure frontend \u2014 bind one or more OpenAI-compatible LLM providers (e.g. llm-gw) and, optionally, Model Context Protocol servers whose tools the model can call.",
   "defaultPath": "apps/chat",

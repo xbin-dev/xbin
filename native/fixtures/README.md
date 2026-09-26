@@ -166,3 +166,14 @@ the fixtures, `expected.json` and the renderers in one change
 | `split` | `split prefer="auto"`: a plain lazy `list` (selected row, load more, a bus-delivered mail) beside the message detail |
 | `split-single` | `split prefer="single"`: a sectioned list and the opened contact |
 | `stack-layout` | `stack` vertical and horizontal, every gap, start/center/end, wrap; `spacer`, `divider` |
+| `tile-counter-go` | the shipped `examples/counter-go/native.js` (plans/native.md §18.1): a form row and a busy `+1` button through one round trip |
+| `tile-calendar` | the shipped `examples/calendar/native.js` (§18.2): a keyed list, a form whose submit clears the draft, a reload on the tile's bus |
+| `tile-egress-approver` | the shipped `builtin-tiles/egress-approver/native.js` (§18.3, with the page's `fmt.js`): a pushed whois screen and `pop`, an optimistic approve (a keyed move) reconciled by the poll |
+| `tile-s3-archiver` | the shipped `builtin-tiles/s3-archiver/native.js` (§18.4): a settings form with a `secure` field, Save & test's calls in order, the check's notice |
+| `tile-webhooks` | the shipped `builtin-tiles/webhooks/native.js` (§18.5): a `fragment` of a `nav` and the reveal-once secret `sheet`; a hook's detail screen rotates its secret |
+| `tile-devbox` | the shipped `builtin-tiles/devbox/native.js` (§18.6): `tabs` with a lazily materialized keys tab, the toolbar's Add sheet, swipe actions with confirm, pull to refresh |
+| `tile-prometheus-viewer` | the shipped `builtin-tiles/prometheus-viewer/native.js` (§18.7, with the page's `prom.js`): two sources after three scrapes — disclosures per metric, rates, sparklines, a failing source |
+| `tile-chat` | the shipped `builtin-tiles/chat/native.js` (§18.8, with the page's `chat-core.js`): a question answered with an MCP tool call — the toolcard, timed thinking, streamed markdown |
+
+The `tile-*` fixtures import the shipped tile's `native.js` instead of holding
+a copy, so a change to one of those tiles shows up here as a fixture diff.

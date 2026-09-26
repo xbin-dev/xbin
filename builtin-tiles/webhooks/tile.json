@@ -1,7 +1,7 @@
 {
   "name": "webhooks",
-  "version": 1,
-  "changelog": "v1: public webhook URLs (a token or GitHub-style HMAC) that run the triggers of the agents this tile is bound to",
+  "version": 2,
+  "changelog": "v2: a native view for the xbin app (native.js): hooks as a list with a detail screen per hook, the reveal-once secret as a sheet\nv1: public webhook URLs (a token or GitHub-style HMAC) that run the triggers of the agents this tile is bound to",
   "title": "Webhooks",
   "description": "Public webhook URLs for your agents: GitHub, a CI, a monitor or anything that can POST reaches /hook/<id> (checked by a token or an HMAC signature), and each delivery runs the matching triggers on the agents this tile is bound to — as outside data, so only triggers allowed to take it run.",
   "defaultPath": "apps/webhooks",
