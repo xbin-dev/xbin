@@ -2,7 +2,8 @@
   {"k":"r.0","t":"nav","c":[
     {"k":"r.0.0","t":"screen","p":{"title":"Team","subtitle":"Acme platform","style":"list"},"c":[
       {"k":"r.0.0.0","t":"toolbar","c":[
-        {"k":"r.0.0.0.0","t":"button","p":{"icon":"plus","label":"Invite"},"e":["tap"]}
+        {"k":"r.0.0.0.0","t":"button","p":{"icon":"list","label":"Teams"},"e":["tap"]},
+        {"k":"r.0.0.0.1","t":"button","p":{"icon":"plus","label":"Invite"},"e":["tap"]}
       ]},
       {"k":"r.0.0.1","t":"section","p":{"title":"Members","badge":"3"},"c":[
         {"k":"r.0.0.1.0:ana@acme.dev","t":"row","p":{"title":"Ana Kowalska","subtitle":"ana@acme.dev","detail":"owner","icon":"person","nav":true},"e":["tap"]},
@@ -11,7 +12,7 @@
       ]}
     ]}
   ]},
-  {"k":"r.1","t":"sheet","p":{"open":true,"title":"Invite teammate","detents":["medium","large"]},"e":["dismiss"],"c":[
+  {"k":"r.1","t":"sheet","p":{"open":true,"edge":"bottom","title":"Invite teammate","detents":["medium","large"]},"e":["dismiss"],"c":[
     {"k":"r.1.0","t":"toolbar","c":[
       {"k":"r.1.0.0","t":"button","p":{"role":"plain","label":"Cancel"},"e":["tap"]},
       {"k":"r.1.0.1","t":"button","p":{"role":"primary","icon":"send","disabled":true,"busy":false,"label":"Send"},"e":["tap"]}
@@ -21,5 +22,10 @@
     {"k":"r.1.3","t":"toggle","p":{"label":"Send a welcome message","value":true},"e":["change"]},
     {"k":"r.1.4","t":"notice","p":{"tone":"info","text":"3 of 10 seats left on the Team plan."}}
   ]},
-  {"k":"r.2","t":"sheet","p":{"open":false,"title":"Role","detents":"large"},"e":["dismiss"],"c":[]}
+  {"k":"r.2","t":"sheet","p":{"open":false,"title":"Role","detents":"large"},"e":["dismiss"],"c":[]},
+  {"k":"r.3","t":"sheet","p":{"open":false,"edge":"leading","title":"Teams"},"e":["dismiss"],"c":[
+    {"k":"r.3.0","t":"section","p":{"title":"Your teams"},"c":[
+      {"k":"r.3.0.0","t":"row","p":{"title":"Acme platform","subtitle":"Team plan","icon":"person","badge":"current"}}
+    ]}
+  ]}
 ]}}

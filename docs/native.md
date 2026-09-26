@@ -317,13 +317,14 @@ diagnostic (§Checking it) — the render goes on.
 | `disclosure` | a collapsible group | `title`, `open` bool | `toggle` {open} | any |
 | `tabs` | segmented tabs; only the selected tab is materialized | `selected`, `style` segmented·bar | `change` {key} | `tab`; only the selected one is built |
 | `tab` | one tab of tabs; `key` is a prop here (it does not key the node) | `key`, `title`, `icon` *icon*, `badge` | — | any |
-| `sheet` | a modal sheet | `open` bool, `title`, `detents` medium·large, or a list of them | `dismiss` | any |
+| `sheet` | a modal sheet | `open` bool, `title`, `detents` medium·large, or a list of them, `edge` bottom·leading | `dismiss` | any |
 | `split` | list/detail: exactly two children; stacked when compact | `prefer` auto·single | — | exactly 2 |
 | `spacer` | flexible space in a stack | — | — | — |
 | `divider` | a separator line | — | — | — |
 
 - `fragment` is made by the runtime, never written: several top-level elements; no visual of its own (a nav with a sheet laid over it).
 - `screen` `search`: the search query; present (even "") shows the search field.
+- `sheet` `edge`: where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list).
 <!-- /generated:prims-structure -->
 
 ### Content

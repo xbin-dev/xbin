@@ -1,7 +1,8 @@
 // sheet-open — a team tile whose render is a fragment: the navigation stack
-// plus two sheets laid over it. The script taps "Invite" and types an
-// address, so the invite sheet (medium and large detents, its own toolbar)
-// is open over the list; the other sheet stays closed.
+// plus two sheets and a drawer laid over it. The script taps "Invite" and
+// types an address, so the invite sheet (from the bottom edge, medium and
+// large detents, its own toolbar) is open over the list; the role sheet and
+// the team drawer (edge leading) stay closed.
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
 import { selfApi } from '/vendor/bx-kit.js';
 
@@ -16,7 +17,7 @@ const close = () => { sheet = ''; paint(); };
 const validEmail = () => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(invite.email);
 
 const inviteSheet = () => html`
-  <sheet open=${sheet === 'invite'} title="Invite teammate" detents=${['medium', 'large']} @dismiss=${close}>
+  <sheet open=${sheet === 'invite'} edge="bottom" title="Invite teammate" detents=${['medium', 'large']} @dismiss=${close}>
     <toolbar>
       <button role="plain" @tap=${close}>Cancel</button>
       <button role="primary" icon="send" ?disabled=${!validEmail()} ?busy=${sending} @tap=${() => {}}>Send</button>
@@ -35,10 +36,20 @@ const roleSheet = () => html`
       options=${[{ value: 'member', label: 'Member' }, { value: 'admin', label: 'Admin' }, { value: 'owner', label: 'Owner' }]}/>` : nothing}
   </sheet>`;
 
+const teamDrawer = () => html`
+  <sheet open=${sheet === 'teams'} edge="leading" title="Teams" @dismiss=${close}>
+    <section title="Your teams">
+      <row title=${team.name} subtitle=${`${team.plan} plan`} icon="person" badge="current"/>
+    </section>
+  </sheet>`;
+
 const paint = () => render(!team ? nothing : html`
   <nav>
     <screen title="Team" subtitle=${team.name} style="list">
-      <toolbar><button icon="plus" @tap=${() => { sheet = 'invite'; paint(); }}>Invite</button></toolbar>
+      <toolbar>
+        <button icon="list" @tap=${() => { sheet = 'teams'; paint(); }}>Teams</button>
+        <button icon="plus" @tap=${() => { sheet = 'invite'; paint(); }}>Invite</button>
+      </toolbar>
       <section title="Members" badge=${String(team.members.length)}>
         ${repeat(team.members, (m) => m.email, (m) => html`
           <row title=${m.name} subtitle=${m.email} detail=${m.role} icon="person" nav
@@ -47,6 +58,7 @@ const paint = () => render(!team ? nothing : html`
     </screen>
   </nav>
   ${inviteSheet()}
-  ${roleSheet()}`);
+  ${roleSheet()}
+  ${teamDrawer()}`);
 
 load();

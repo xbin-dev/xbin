@@ -1,5 +1,5 @@
 {
-  "about": "a fragment root: a nav plus two sheets; the invite sheet is open (detents medium+large, its own toolbar), the other closed",
+  "about": "a fragment root: a nav plus two sheets and a leading-edge drawer; the invite sheet is open (edge bottom, detents medium+large, its own toolbar), the role sheet and the drawer closed",
   "self": "apps/team",
   "routes": {
     "GET /api/apps/team/team": {"json": {
