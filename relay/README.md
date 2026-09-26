@@ -154,8 +154,11 @@ POST /v1/handles {apnsToken, topic, env, pushType: "liveactivity", parent: <devi
   (the app removing the workspace), APNs killing the parent's device token,
   or retention removing it takes its Live Activity handles along. A parent
   holds at most 16; a new one evicts the least recently used.
-- It is **bound with its parent**: the first push to either binds both to
-  the pushing workspace; another workspace gets 403 `handle_bound`.
+- It is **bound with its parent**: one made under a bound device handle is
+  born bound to that workspace (so retention's rule for handles nothing
+  ever pushed to leaves a push-to-start handle waiting for its first long
+  turn alone); otherwise the first push to either binds both to the
+  pushing workspace. Another workspace gets 403 `handle_bound`.
 - Its token is **not** checked with a silent push (an ActivityKit token
   takes only Live Activity pushes); the parent's was, and bounds how many
   it may hold. `PUT /v1/handles/<handle>` with `pushType: "liveactivity"`

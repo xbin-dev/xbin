@@ -179,8 +179,12 @@ func (s *store) newChild(parent, token, topic, env string, now time.Time) (strin
 			recs = append(recs, s.delTree(c)...)
 		}
 	}
+	// born bound to its parent's workspace, when that is known: the
+	// unbound-handle retention then leaves a push-to-start handle that
+	// waits months for its first long turn alone
 	id := randomID(16)
-	s.st.Handles[id] = &Handle{Token: token, Topic: topic, Env: env, Type: PushTypeLiveActivity, Parent: parent, Created: now.Unix()}
+	s.st.Handles[id] = &Handle{Token: token, Topic: topic, Env: env, Type: PushTypeLiveActivity, Parent: parent,
+		Workspace: p.Workspace, Created: now.Unix()}
 	s.link(parent, id)
 	recs = append(recs, s.putH(id))
 	s.mu.Unlock()

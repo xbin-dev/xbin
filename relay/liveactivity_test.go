@@ -219,6 +219,15 @@ func TestLiveActivityLifecycle(t *testing.T) {
 		t.Fatalf("the device handle went with its activity: %d", code)
 	}
 
+	// a child of a bound device handle is born bound: retention's
+	// unbound rule leaves it alone
+	fresh := r.mustChild(parent, laToken2)
+	r.advance(DefaultUnboundHandleTTL + time.Hour)
+	r.mustChild(parent, strings.Repeat("ee", 60)) // a registration runs the sweep
+	if code, _ := r.live(key, fresh, r.update("running", r.clock().Unix(), 0), nil); code != 200 {
+		t.Fatalf("a bound parent's unused child was swept: %d", code)
+	}
+
 	// the cap: the least recently used goes
 	var kids []string
 	for i := range maxChildren + 1 {
