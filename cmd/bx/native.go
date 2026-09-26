@@ -443,7 +443,7 @@ func cmdLint(args []string) error {
 	var probe []string
 	idx := map[string]int{}
 	for _, c := range targets {
-		rep := tileLint{Tile: c.Path, Entry: c.entry()}
+		rep := tileLint{Tile: c.Path, Entry: c.entry(), Findings: []lintFinding{}}
 		if c.entry() != "" || !workspace { // the workspace sweep reads only native tiles
 			rep.Findings = staticLint(xbindGet, c)
 		}
