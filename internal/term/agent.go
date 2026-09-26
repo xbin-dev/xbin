@@ -330,10 +330,11 @@ func sortedKeys(m map[string]string) []string {
 
 // delta is a message/thought delta being coalesced.
 type delta struct {
-	Role      string `json:"role,omitempty"`
-	Text      string `json:"text"`
-	MessageID string `json:"messageId,omitempty"`
-	Parent    string `json:"parent,omitempty"` // a subagent's text never merges into the main thread's
+	Role        string          `json:"role,omitempty"`
+	Text        string          `json:"text"`
+	MessageID   string          `json:"messageId,omitempty"`
+	Parent      string          `json:"parent,omitempty"`      // a subagent's text never merges into the main thread's
+	Attachments json.RawMessage `json:"attachments,omitempty"` // a prompt's files (names, types, sizes): never merged
 }
 
 // agentPump drains the driver's events into the log and the hub, merging
@@ -365,7 +366,8 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			if e.Type == agent.EvMessageDelta || e.Type == agent.EvThoughtDelta {
 				var d delta
 				_ = json.Unmarshal(e.Data, &d)
-				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent {
+				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent &&
+					len(pd.Attachments) == 0 && len(d.Attachments) == 0 {
 					pd.Text += d.Text
 					continue
 				}
@@ -485,6 +487,12 @@ func (m *Manager) agentOf(id string) (*Session, *agentState, error) {
 // handshake first (ctx bounds the wait). Returns the turn number.
 // agent.ErrBusy while a turn runs.
 func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, error) {
+	return m.AgentPromptWith(ctx, id, agent.Prompt{Text: text})
+}
+
+// AgentPromptWith is AgentPrompt with attachments (agent.PrepareAttachments
+// has normalised them).
+func (m *Manager) AgentPromptWith(ctx context.Context, id string, p agent.Prompt) (uint64, error) {
 	s, st, err := m.agentOf(id)
 	if err != nil {
 		return 0, err
@@ -508,7 +516,7 @@ func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, err
 	if !busy { // (a refused prompt must not move a running turn's base)
 		st.snap.turnStart(2 * time.Second) // the turn's base: edits made between turns are not the agent's
 	}
-	if err := st.drv.Send(ctx, text); err != nil {
+	if err := st.drv.Prompt(ctx, p); err != nil {
 		return 0, err
 	}
 	st.mu.Lock()

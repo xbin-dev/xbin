@@ -7,8 +7,11 @@ package server
 // and admins. The session itself lives in internal/term (agent.go).
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -244,23 +247,76 @@ func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiAgentPrompt starts a turn: {text} → {turn}. 409 while one runs.
+// maxPromptBody bounds a prompt's request: the attachments' 20 MiB as
+// base64, plus the text.
+const maxPromptBody = 32 << 20
+
+// apiAgentPrompt starts a turn: {text, attachments?:[{name, mime, data}]}
+// → {turn}. 409 while one runs; 413 past the attachment limits.
 func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.drive(w, r)
 	if !ok {
 		return
 	}
-	var body struct{ Text string }
-	if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.Text) == "" {
-		apiErr(w, http.StatusBadRequest, "need {text}")
+	p, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody))
+	if err != nil {
+		apiErr(w, code, err.Error())
 		return
 	}
-	turn, err := s.Term.AgentPrompt(r.Context(), id, body.Text)
+	turn, err := s.Term.AgentPromptWith(r.Context(), id, p)
 	if err != nil {
 		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "turn": turn})
+}
+
+// decodePrompt reads a prompt body: the text, and the attachments decoded
+// (standard base64, padded or not) and normalised
+// (agent.PrepareAttachments). The int is the status of a refusal.
+func decodePrompt(body io.Reader) (agent.Prompt, int, error) {
+	var b struct {
+		Text        string `json:"text"`
+		Attachments []struct {
+			Name string `json:"name"`
+			Mime string `json:"mime"`
+			Data string `json:"data"`
+		} `json:"attachments"`
+	}
+	if err := json.NewDecoder(body).Decode(&b); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return agent.Prompt{}, http.StatusRequestEntityTooLarge, fmt.Errorf("the prompt is over %d MiB (attachments: at most %d MiB together)", maxPromptBody>>20, agent.MaxAttachmentsBytes>>20)
+		}
+		return agent.Prompt{}, http.StatusBadRequest, errors.New("need {text, attachments?:[{name, mime, data (base64)}]}")
+	}
+	if strings.TrimSpace(b.Text) == "" && len(b.Attachments) == 0 {
+		return agent.Prompt{}, http.StatusBadRequest, errors.New("need {text}")
+	}
+	if len(b.Attachments) > agent.MaxAttachments {
+		return agent.Prompt{}, http.StatusBadRequest, fmt.Errorf("%d attachments (at most %d)", len(b.Attachments), agent.MaxAttachments)
+	}
+	atts := make([]agent.Attachment, len(b.Attachments))
+	for i, a := range b.Attachments {
+		data, err := base64.StdEncoding.DecodeString(a.Data)
+		if err != nil {
+			if data, err = base64.RawStdEncoding.DecodeString(a.Data); err != nil {
+				return agent.Prompt{}, http.StatusBadRequest, fmt.Errorf("attachment %d (%s): data is not base64", i+1, a.Name)
+			}
+		}
+		atts[i] = agent.Attachment{Name: a.Name, Mime: a.Mime, Data: data}
+	}
+	atts, err := agent.PrepareAttachments(atts)
+	if err != nil {
+		if errors.Is(err, agent.ErrAttachmentTooLarge) {
+			return agent.Prompt{}, http.StatusRequestEntityTooLarge, err
+		}
+		return agent.Prompt{}, http.StatusBadRequest, err
+	}
+	if len(atts) == 0 {
+		atts = nil
+	}
+	return agent.Prompt{Text: b.Text, Attachments: atts}, 0, nil
 }
 
 func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {

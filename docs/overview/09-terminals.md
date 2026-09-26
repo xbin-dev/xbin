@@ -460,6 +460,14 @@ What the agent gets:
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must
   be asked for by name — never a default, never chosen for you.
+- **your files, in its sandbox.** A prompt can carry attachments — a
+  screenshot, a photo, a log, a PDF (`POST
+  /api/xbin/term/sessions/<id>/prompt {text, attachments}`, up to 10 files,
+  20 MiB together). Each is written inside the agent's sandbox (a private
+  directory under its own `/tmp`, never the tile) and handed to the agent by
+  path, so it can read, grep or copy it with its own tools; an image (PNG,
+  JPEG, GIF, WebP) also goes to the model inline, and a small text file
+  inline with the prompt. The transcript shows the file names.
 - **files and terminals inside the sandbox.** The agent's file reads and
   writes and the terminals it opens are served by the host *inside* the
   sandbox, so the kernel's mount view — the allow-list, the masks, the

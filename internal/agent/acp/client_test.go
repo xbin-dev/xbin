@@ -30,6 +30,11 @@ type fakeAgent struct {
 	noLoad bool            // don't advertise loadSession (resume unsupported)
 	caps   json.RawMessage // initialize's clientCapabilities
 	meta   json.RawMessage // session/new's _meta
+	// prompts with attachments (prompt_test.go)
+	promptCaps *PromptCapabilities // advertised in initialize
+	blocks     json.RawMessage     // the last session/prompt's content
+	attached   []string            // _xbin/attach calls seen ("name:len")
+	attachErr  bool                // answer _xbin/attach with an error (no host)
 }
 
 // opts is the fake's config options: one select, "model".
@@ -69,7 +74,17 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		f.caps = p.Caps
 		f.mu.Unlock()
 		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}},
-			AgentCapabilities: &AgentCapabilities{LoadSession: !f.noLoad}}, nil
+			AgentCapabilities: &AgentCapabilities{LoadSession: !f.noLoad, PromptCapabilities: f.promptCaps}}, nil
+	case MXbinAttach: // the host's half, stood in for (prompt_test.go)
+		var p AttachParams
+		_ = json.Unmarshal(m.Params, &p)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.attachErr {
+			return nil, &Error{Code: ErrNotFound, Message: "method not found: " + m.Method}
+		}
+		f.attached = append(f.attached, fmt.Sprintf("%s:%d", p.Name, len(p.Data)))
+		return AttachResult{Path: "/tmp/xbin-attachments-1/" + p.Name}, nil
 	case MAuthenticate:
 		f.mu.Lock()
 		f.authed = true
@@ -120,8 +135,13 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 	case MSessionPrompt:
 		var p PromptParams
 		_ = json.Unmarshal(m.Params, &p)
+		var raw struct {
+			Prompt json.RawMessage `json:"prompt"`
+		}
+		_ = json.Unmarshal(m.Params, &raw)
 		f.mu.Lock()
 		f.prompt = m.ID
+		f.blocks = raw.Prompt
 		f.mu.Unlock()
 		go f.script(f, p.Prompt[0].Text)
 		return nil, nil // answered by the script
@@ -180,7 +200,16 @@ func standard(f *fakeAgent, text string) {
 
 func rig(t *testing.T, script func(f *fakeAgent, text string), mode string, env ...string) (*Client, *fakeAgent, *agent.Permissions, []string) {
 	t.Helper()
+	return rigWith(t, script, mode, nil, env...)
+}
+
+// rigWith is rig with the fake set up before the handshake.
+func rigWith(t *testing.T, script func(f *fakeAgent, text string), mode string, setup func(f *fakeAgent), env ...string) (*Client, *fakeAgent, *agent.Permissions, []string) {
+	t.Helper()
 	f, spawn := newFake(script)
+	if setup != nil {
+		setup(f)
+	}
 	perms := agent.NewPermissions()
 	var logs []string
 	c := New()

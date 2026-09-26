@@ -358,8 +358,28 @@ GET    /term/sessions/<id>        creator or admin → {session, permissions:
                                    the elicitation.request payloads)
 DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
                                    API twin of DELETE /ws/term?session=)
-POST   /term/sessions/<id>/prompt creator or admin. {text} → {ok, turn};
-                                   409 while a turn runs
+POST   /term/sessions/<id>/prompt creator or admin. {text, attachments?:
+                                   [{name, mime?, data}]} → {ok, turn};
+                                   409 while a turn runs. attachments
+                                   (optional; text may then be empty):
+                                   files, data standard base64 — at most
+                                   10, an image ≤ 5 MiB, another file ≤ 10
+                                   MiB, 20 MiB together (413 past a limit;
+                                   the body is capped at 32 MiB). Each is
+                                   written inside the agent's sandbox
+                                   (its private /tmp, the newest 64 MiB of
+                                   the session kept) and handed to the agent
+                                   by that path; a png/jpeg/gif/webp (the
+                                   bytes decide, not mime) also goes inline
+                                   as an image the model sees — 400 when
+                                   the agent does not take images (it did
+                                   not advertise promptCapabilities.image);
+                                   a text file ≤ 128 KiB also inline as an
+                                   embedded resource when the agent takes
+                                   embedded context. Convert HEIC photos
+                                   to JPEG first (other image types are
+                                   files). The log records the names,
+                                   types and sizes, never the bytes
 POST   /term/sessions/<id>/restart
                                    the creator. {net?, api?, gpu?} →
                                    {session, resumed}: the sandbox pickers
@@ -1521,7 +1541,7 @@ hub drops a slow subscriber rather than queue for it).
 
 | type | data |
 |---|---|
-| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?}` — a prompt is logged as one `user` delta, so every client sees it; agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
+| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?, attachments?}` — a prompt is logged as one `user` delta, so every client sees it, with `attachments:[{name, mime, size}]` when it carried files (their bytes are not logged); agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
 | `thought.delta` | `{text, parent?}` — the agent's reasoning, when it shares it |
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?, rawOutput?, name?, label?, parent?, subagent?, planReview?, output?, outputDelta?, exitCode?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| switch_mode \| other; content items are `{type:"content", content:{type:"text", text}}` (often markdown — the adapters fence command output), `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}`. The rest is lifted from the adapter's `_meta` so a client needs no per-agent code: `name` the tool's own name (`Bash`, `ExitPlanMode`, …); `label` a human headline for the call when the harness wrote one (Claude's description of a shell command — the `title` is the command); `parent` the subagent call this one runs under; `subagent` true on a subagent (Task/Agent) call itself; `planReview` true on Codex's plan approval; `outputDelta` a chunk of a shell command's output (append), `output` its whole output (replace), `exitCode` its exit status |

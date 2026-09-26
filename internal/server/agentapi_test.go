@@ -1,7 +1,9 @@
 package server
 
 import (
+	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -155,5 +157,47 @@ func TestDiffQuery(t *testing.T) {
 		if got != want {
 			t.Errorf("%q: %s, want %s", q, got, want)
 		}
+	}
+}
+
+// A prompt body: text only as before; attachments decoded (padded or raw
+// base64) and normalised; refusals are 400 (shape, base64, count) or 413
+// (sizes, the body cap).
+func TestDecodePrompt(t *testing.T) {
+	b64 := func(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	p, code, err := decodePrompt(strings.NewReader(`{"text":"hi"}`))
+	if err != nil || p.Text != "hi" || p.Attachments != nil {
+		t.Fatalf("text only: %+v %d %v", p, code, err)
+	}
+	body := fmt.Sprintf(`{"text":"look","attachments":[{"name":"a.png","mime":"image/png","data":%q},{"name":"n.txt","data":%q}]}`,
+		b64(png), base64.RawStdEncoding.EncodeToString([]byte("hello")))
+	p, _, err = decodePrompt(strings.NewReader(body))
+	if err != nil || len(p.Attachments) != 2 || p.Attachments[0].Mime != "image/png" || string(p.Attachments[1].Data) != "hello" || p.Attachments[1].Mime != "text/plain" {
+		t.Fatalf("attachments: %+v %v", p, err)
+	}
+	if p, _, err := decodePrompt(strings.NewReader(fmt.Sprintf(`{"attachments":[{"name":"a.png","data":%q}]}`, b64(png)))); err != nil || p.Text != "" || len(p.Attachments) != 1 {
+		t.Fatalf("files only: %+v %v", p, err)
+	}
+	many := `{"text":"x","attachments":[` + strings.TrimSuffix(strings.Repeat(`{"name":"a","data":""},`, agent.MaxAttachments+1), ",") + `]}`
+	bigImg := append(append([]byte(nil), png...), make([]byte, agent.MaxImageBytes)...)
+	for _, c := range []struct {
+		body string
+		code int
+	}{
+		{`{"text":"  "}`, 400}, {`{}`, 400}, {`nope`, 400}, {`{"text":5}`, 400},
+		{`{"text":"x","attachments":[{"name":"a","data":"%%%"}]}`, 400},
+		{many, 400},
+		{fmt.Sprintf(`{"text":"x","attachments":[{"name":"a.png","data":%q}]}`, b64(bigImg)), 413},
+	} {
+		if _, code, err := decodePrompt(strings.NewReader(c.body)); err == nil || code != c.code {
+			t.Errorf("%.60s: %d %v, want %d", c.body, code, err, c.code)
+		}
+	}
+	// the route caps the body itself: past it, 413
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"text":"`+strings.Repeat("x", maxPromptBody)+`"}`))
+	if _, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody)); err == nil || code != 413 {
+		t.Fatalf("over the body cap: %d %v", code, err)
 	}
 }

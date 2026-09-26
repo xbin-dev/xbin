@@ -98,11 +98,21 @@ func firstPrompt(evs []agent.Event) string {
 		if e.Type != agent.EvMessageDelta {
 			continue
 		}
-		var d struct{ Role, Text string }
+		var d struct {
+			Role, Text  string
+			Attachments []agent.AttachmentInfo
+		}
 		if json.Unmarshal(e.Data, &d) != nil || d.Role != "user" {
 			continue
 		}
 		line := strings.TrimSpace(d.Text)
+		if line == "" && len(d.Attachments) > 0 { // a prompt of files only: name them
+			names := make([]string, len(d.Attachments))
+			for i, a := range d.Attachments {
+				names[i] = a.Name
+			}
+			line = "[" + strings.Join(names, ", ") + "]"
+		}
 		if i := strings.IndexByte(line, '\n'); i >= 0 {
 			line = strings.TrimSpace(line[:i])
 		}

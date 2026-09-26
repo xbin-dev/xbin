@@ -59,6 +59,9 @@ export class BxAgent extends LitElement {
     .who { font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase;
       letter-spacing: .04em; color: var(--bx-muted, #868f9a); margin-bottom: 2px; }
     .user .bubble { background: var(--bx-panel-2, #2b3038); border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; }
+    .user .files { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; }
+    .user .files.below { margin-top: 4px; }
+    .user .file { border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 0 6px; font-size: 12px; opacity: .85; }
     .agent .bubble > :first-child { margin-top: 0; }
     .agent .bubble > :last-child { margin-bottom: 0; }
     .bubble :is(pre, code) { font-family: var(--bx-mono, ui-monospace, monospace); }
@@ -470,8 +473,9 @@ export class BxAgent extends LitElement {
             else { c = { kind: 'thought', text: d.text || '', t0: e.ts || 0, t1: e.ts || 0, done: false }; list.push(c); }
           } else {
             const role = d.role || 'agent';
-            if (c && c.kind === 'msg' && c.role === role && c.mid === (d.messageId || '')) c.text += d.text || '';
-            else { c = { kind: 'msg', role, mid: d.messageId || '', text: d.text || '' }; list.push(c); }
+            // a prompt's attachments (names, types, sizes) ride its one user delta
+            if (c && c.kind === 'msg' && c.role === role && c.mid === (d.messageId || '') && !c.files && !d.attachments) c.text += d.text || '';
+            else { c = { kind: 'msg', role, mid: d.messageId || '', text: d.text || '', files: d.attachments }; list.push(c); }
           }
           if (into) into.cur = c; else cur = c;
           break;
@@ -684,7 +688,8 @@ export class BxAgent extends LitElement {
     switch (b.kind) {
       case 'msg':
         return b.role === 'user'
-          ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}</div></div>`
+          ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}${b.files?.length ? html`<div class="files ${b.text ? 'below' : ''}">${b.files.map((f) =>
+              html`<span class="file" title=${`${f.mime || ''} · ${fmtN(f.size || 0)} bytes`}>${f.name}</span>`)}</div>` : nothing}</div></div>`
           : html`<div class="row agent"><div class="who">agent</div><div class="bubble" .innerHTML=${md(b.text)}></div></div>`;
       case 'thought': {
         // open while it streams (the last block of a running turn), then
@@ -738,6 +743,7 @@ export class BxAgent extends LitElement {
           ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null,
             children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
           ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
+          ...(b.kind === 'msg' && b.files ? { files: b.files } : {}),
           ...(b.kind === 'ask' ? { eid: b.eid, action: b.action, fields: formFields(b.schema).map((f) => f.key), content: b.content } : {}),
           ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
           ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));

@@ -16,15 +16,15 @@ var (
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns
-// (through the Spawner) and handshakes; Send starts a turn with the user's
-// text; Events is the typed stream (closed when the agent is gone);
+// (through the Spawner) and handshakes; Prompt starts a turn with the
+// user's text and attachments (attachments.go); Events is the typed stream (closed when the agent is gone);
 // RespondPermission answers a request the driver surfaced as a
 // permission.request event; Cancel interrupts the running turn; Close ends
 // the agent. One implementation today (internal/agent/acp); a second is a
 // second package implementing this and a Provider.driver naming it.
 type Driver interface {
 	Start(ctx context.Context, cfg Config) error
-	Send(ctx context.Context, text string) error
+	Prompt(ctx context.Context, p Prompt) error
 	Events() <-chan Event
 	RespondPermission(res *Resolution) error
 	// RespondElicitation answers a question the driver surfaced as an

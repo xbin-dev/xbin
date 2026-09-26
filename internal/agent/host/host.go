@@ -43,6 +43,8 @@ type Host struct {
 	reaper *Reaper
 	cwd    string
 
+	att attachments // a prompt's files, dropped in the sandbox (attach.go)
+
 	mu       sync.Mutex
 	terms    map[string]*terminal
 	nextTerm int
@@ -60,6 +62,7 @@ func New(in io.Reader, out io.Writer, stderr io.Writer) *Host {
 // daemon closes stdin / sends SIGTERM (0). The reaper is installed here:
 // the host owns SIGCHLD from now on.
 func (h *Host) Run() int {
+	defer h.dropAttachments()
 	h.reaper = StartReaper()
 	term := make(chan os.Signal, 1)
 	signal.Notify(term, unix.SIGTERM, unix.SIGINT)
@@ -110,7 +113,8 @@ func (h *Host) Run() int {
 }
 
 // daemonLoop reads the daemon's frames: the first must be _xbin/spawn;
-// the rest go to the agent as they are.
+// _xbin/attach is answered here (attach.go); the rest go to the agent as
+// they are.
 func (h *Host) daemonLoop() {
 	dec := acp.NewDecoder(h.in)
 	for {
@@ -120,6 +124,16 @@ func (h *Host) daemonLoop() {
 				continue
 			}
 			return
+		}
+		if m.Method == acp.MXbinAttach && m.IsRequest() { // answered here, in order: the prompt naming it follows
+			var p acp.AttachParams
+			if err := unmarshal(m.Params, &p); err != nil {
+				_ = h.daemon.Reply(m.ID, nil, &acp.Error{Code: acp.ErrInvalidParam, Message: "bad attach params: " + err.Error()})
+				continue
+			}
+			res, rerr := h.attach(p)
+			_ = h.daemon.Reply(m.ID, res, rerr)
+			continue
 		}
 		if m.Method == acp.MXbinSpawn {
 			var p acp.SpawnParams
