@@ -20,7 +20,9 @@ without a phone.
 serves: discovery, the runtime document, entry paths, live reload) ·
 [bx.md §Native UIs](/docs/bx.md) (previews, lint, fixture replays) ·
 [compat.md](/docs/compat.md) (the additive contract) ·
-[frontend-kit.md](/docs/frontend-kit.md) (the `/vendor/` modules).
+[frontend-kit.md](/docs/frontend-kit.md) (the `/vendor/` modules) ·
+decisions D91 (the runtime, vocabulary and wire format) and D92 (how the
+app and its renderers are verified).
 
 ## When to write one
 

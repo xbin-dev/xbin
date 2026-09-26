@@ -1771,7 +1771,7 @@ no longer exists loses the subscription. Answer 2xx; ≥400 counts as
 component's backup; a new tile created at a removed tile's path starts
 without that path's cron jobs and subscriptions.
 
-**Push notifications.** The xbin app receives pushes through a push relay
+**Push notifications** (D94). The xbin app receives pushes through a push relay
 (the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque
 handle to the device, and never sees content. An admin turns push on per
 workspace (`PUT /push/config`, or `XBIN_PUSH_RELAY` + `XBIN_PUSH_RELAY_KEY`,
@@ -1968,8 +1968,8 @@ cookie required). JSON text frames:
  "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
 ```
 
-Non-bus events go to every subscriber, except `term` and `session` events,
-which reach the session's owner (`data.user`) — their signed-in browsers,
+Non-bus events go to every subscriber, except `term` and `session` events
+(D97), which reach the session's owner (`data.user`) — their signed-in browsers,
 and a shell's terminal token for the sessions on its own tile — and admins;
 never a tile (its frame token names the user it runs for, its backend's
 token no one: neither follows anybody's sessions) — re-list `GET

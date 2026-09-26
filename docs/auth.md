@@ -57,7 +57,7 @@ the browser supports it the frame is additionally `credentialless`. The
 injected short-lived token therefore both attributes and authenticates the
 request, cookie not required (renewal at `/api/xbin/frame-token` works
 cookie-less for the tile's own component). **A frame token is bound to the
-login that opened the tile**: it names that session's credential
+login that opened the tile** (D93): it names that session's credential
 generation, renewals keep it, and it stops working the moment that login
 ends — sign-out, expiry, revoking the device, "sign out everywhere",
 disabling the user, or (for frames the bootstrap token opened) rotating the
@@ -111,7 +111,7 @@ trust with your own session.
 
 ### Tile asset gating (`--tile-assets`)
 
-The rule the strict modes enforce: **a user loads a tile's files — HTML,
+Decision: D95. The rule the strict modes enforce: **a user loads a tile's files — HTML,
 JS, CSS, images, fonts, data, anything under `/c/<tile>/` — only if that
 user can read that tile.** Every request carries a credential proving
 (user, tile), is checked against **live** access (the user exists and is
@@ -835,7 +835,7 @@ like password ones.
 
 ## Device login (the native app)
 
-The xbin app (iOS first) signs in to a workspace with a
+Decision: D93. The xbin app (iOS first) signs in to a workspace with a
 **device key**: a P-256 key generated in the phone's Secure Enclave, unlocked
 with Face ID / Touch ID, one per workspace. It never leaves the device; the
 server keeps only its public key, on your user row. Device login needs a user
@@ -880,7 +880,7 @@ account — the bootstrap owner token has none.
   handling a compromise.
 - **SSO-only mode** (D53) refuses the app's *password* sign-in for
   non-admins, like the sign-in form, and keeps the IdP in charge of device
-  logins: a non-admin's device signs in only while their **last SSO
+  logins (D93): a non-admin's device signs in only while their **last SSO
   sign-in** (web or app) is within the session max TTL (30 days by
   default), and the session it opens ends when that window does. Past it
   the app gets `403` with `"reauth": "sso"` and runs the SSO sign-in again —

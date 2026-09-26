@@ -296,7 +296,7 @@ over; the agent replays the earlier turns first). The Agent tab shows the same
 list under **Recent sessions**.
 
 **Native UIs** (`bx native tree`, `bx lint --native`, `bx preview
---native`) — how an agent sees the `native.js` it writes
+--native`; D98) — how an agent sees the `native.js` it writes
 ([native.md](/docs/native.md), [elements.md §Native app
 UI](/docs/elements.md)). Each loads the tile's runtime document,
 `/c/<tile>/?native=1&preview=1`, in headless Chromium —
