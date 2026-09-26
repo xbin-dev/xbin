@@ -27,22 +27,24 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     public var kind: Kind
     public var vm: Bool
     /// Agent sessions: provider id, mode, model, status
-    /// (`starting | idle | running | waiting_permission | error | exited`)
-    /// and unanswered permission requests.
+    /// (`starting | idle | running | waiting_permission | cancelling | error
+    /// | exited`), unanswered permission requests and unanswered questions
+    /// (elicitations, internal/term/sessions.go `questions`).
     public var provider: String
     public var mode: String
     public var model: String
     public var status: String
     public var pending: Int
+    public var questions: Int
 
     public init(id: String, cwd: String, net: String = "", label: String = "", scopes: [TermScope] = [], gpu: String = "none",
                 api: Bool = true, name: String = "", created: Date? = nil, lastActive: Date? = nil, clients: Int = 0,
                 envHeld: Bool = false, kind: Kind = .shell, vm: Bool = false, provider: String = "", mode: String = "",
-                model: String = "", status: String = "", pending: Int = 0) {
+                model: String = "", status: String = "", pending: Int = 0, questions: Int = 0) {
         self.id = id; self.cwd = cwd; self.net = net; self.label = label; self.scopes = scopes; self.gpu = gpu
         self.api = api; self.name = name; self.created = created; self.lastActive = lastActive; self.clients = clients
         self.envHeld = envHeld; self.kind = kind; self.vm = vm; self.provider = provider; self.mode = mode
-        self.model = model; self.status = status; self.pending = pending
+        self.model = model; self.status = status; self.pending = pending; self.questions = questions
     }
 
     /// What the sheet shows: the user's name, else "shell"/the provider,
@@ -53,9 +55,32 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     }
 
     /// An agent session waiting on the user (a permission request or a
-    /// question).
-    public var needsYou: Bool { kind == .agent && (pending > 0 || status == "waiting_permission") }
+    /// question). A question alone counts: its session reports
+    /// `waiting_permission` too, but a summary can arrive before the status
+    /// catches up, and an older xbind may report the question only.
+    public var needsYou: Bool {
+        kind == .agent && (pending > 0 || questions > 0 || status == "waiting_permission")
+    }
     public var isAgentBusy: Bool { kind == .agent && (status == "running" || status == "starting") }
+
+    /// What the inbox says it waits for.
+    public var waitingFor: String {
+        var parts: [String] = []
+        if pending > 0 { parts.append(pending == 1 ? "1 permission" : "\(pending) permissions") }
+        if questions > 0 { parts.append(questions == 1 ? "1 question" : "\(questions) questions") }
+        return parts.isEmpty ? (needsYou ? "waiting for you" : "") : "waiting: " + parts.joined(separator: ", ")
+    }
+
+    /// This row with a `/ws/events` `term` `status` summary applied (the
+    /// fields it carries; nil = unchanged). The session is an agent.
+    public func applying(status: String?, pending: Int?, questions: Int?) -> TermDirectoryEntry {
+        var e = self
+        e.kind = .agent
+        if let status { e.status = status }
+        if let pending { e.pending = max(0, pending) }
+        if let questions { e.questions = max(0, questions) }
+        return e
+    }
 }
 
 public enum TermDirectory {
@@ -86,7 +111,7 @@ public enum TermDirectory {
 
         enum K: String, CodingKey {
             case id, cwd, net, label, scopes, gpu, api, name, created, lastActive, clients, envHeld, kind, vm
-            case provider, mode, model, status, pending
+            case provider, mode, model, status, pending, questions
         }
 
         init(from decoder: any Decoder) throws {
@@ -103,7 +128,8 @@ public enum TermDirectory {
                 created: TermDirectory.date(s(.created)), lastActive: TermDirectory.date(s(.lastActive)),
                 clients: i(.clients), envHeld: b(.envHeld) ?? false,
                 kind: TermDirectoryEntry.Kind(rawValue: s(.kind)) ?? .shell, vm: b(.vm) ?? false,
-                provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending))
+                provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending),
+                questions: i(.questions))
         }
     }
 
@@ -113,6 +139,23 @@ public enum TermDirectory {
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.date(from: s)
+    }
+
+    /// A `term` `status` event applied to the list: the row updated in
+    /// place (a status names an agent session and carries its summary), or
+    /// nil when the id isn't listed (re-list: the directory is behind).
+    /// A final status (`exited`, `error`) drops the row — the `close` that
+    /// follows would re-list anyway.
+    public static func apply(statusOf id: String, status: String?, pending: Int?, questions: Int?,
+                             to entries: [TermDirectoryEntry]) -> [TermDirectoryEntry]? {
+        guard let i = entries.firstIndex(where: { $0.id == id }) else { return nil }
+        var out = entries
+        if status == "exited" || status == "error" {
+            out.remove(at: i)
+        } else {
+            out[i] = out[i].applying(status: status, pending: pending, questions: questions)
+        }
+        return out
     }
 
     /// The shell sessions of one tile, most recently active first (the

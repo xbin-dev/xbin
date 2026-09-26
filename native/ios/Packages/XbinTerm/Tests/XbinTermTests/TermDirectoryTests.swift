@@ -37,6 +37,45 @@ import Testing
         #expect(TermDirectory.decode(Data("{}".utf8)).isEmpty)
     }
 
+    /// A session waiting only on a question (an elicitation) needs the user
+    /// too: the server's row carries `questions` (internal/term/sessions.go).
+    @Test func questionsCountAsNeedingYou() throws {
+        let json = #"""
+        [{"id":"q1","cwd":"apps/x","kind":"agent","provider":"claude","status":"running","pending":0,"questions":1},
+         {"id":"q2","cwd":"apps/x","kind":"agent","provider":"claude","status":"idle","questions":"2"},
+         {"id":"p1","cwd":"apps/x","kind":"agent","status":"running","pending":2,"questions":1},
+         {"id":"s1","cwd":"apps/x","kind":"shell","questions":4}]
+        """#
+        let list = TermDirectory.decode(Data(json.utf8))
+        #expect(list.map(\.questions) == [1, 0, 1, 4])
+        #expect(list[0].needsYou && list[0].waitingFor == "waiting: 1 question")
+        #expect(!list[1].needsYou && list[1].waitingFor == "")          // a string isn't a count
+        #expect(list[2].needsYou && list[2].waitingFor == "waiting: 2 permissions, 1 question")
+        #expect(!list[3].needsYou)                                      // shells never wait on the user
+        let waiting = TermDirectoryEntry(id: "w", cwd: "a", kind: .agent, status: "waiting_permission")
+        #expect(waiting.needsYou && waiting.waitingFor == "waiting for you")
+        #expect(TermDirectoryEntry(id: "q", cwd: "a", kind: .agent, questions: 3).waitingFor == "waiting: 3 questions")
+    }
+
+    /// `/ws/events` `term` `status` events update a row in place (the inbox
+    /// follows them without re-listing); an unknown id means re-list.
+    @Test func statusEventsApplyInPlace() throws {
+        let list = [TermDirectoryEntry(id: "a", cwd: "apps/x", kind: .agent, status: "running"),
+                    TermDirectoryEntry(id: "s", cwd: "apps/x")]
+        let asked = try #require(TermDirectory.apply(statusOf: "a", status: "waiting_permission", pending: 0, questions: 1, to: list))
+        #expect(asked[0].needsYou && asked[0].questions == 1 && asked[0].status == "waiting_permission")
+        #expect(asked[1] == list[1])
+        let answered = try #require(TermDirectory.apply(statusOf: "a", status: "running", pending: 0, questions: 0, to: asked))
+        #expect(!answered[0].needsYou && answered[0].isAgentBusy)
+        // Fields the event leaves out stay as they were; counts never go negative.
+        let partial = try #require(TermDirectory.apply(statusOf: "a", status: nil, pending: -3, questions: nil, to: asked))
+        #expect(partial[0].status == "waiting_permission" && partial[0].pending == 0 && partial[0].questions == 1)
+        // A final status drops the row.
+        #expect(TermDirectory.apply(statusOf: "a", status: "exited", pending: nil, questions: nil, to: list)?.map(\.id) == ["s"])
+        #expect(TermDirectory.apply(statusOf: "a", status: "error", pending: nil, questions: nil, to: list)?.map(\.id) == ["s"])
+        #expect(TermDirectory.apply(statusOf: "zz", status: "idle", pending: 0, questions: 0, to: list) == nil)
+    }
+
     @Test func paths() throws {
         #expect(TermDirectory.listPath() == "/api/xbin/term/sessions")
         #expect(TermDirectory.listPath(cwd: "apps/a b") == "/api/xbin/term/sessions?cwd=apps%2Fa%20b")
