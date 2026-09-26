@@ -264,7 +264,11 @@ and one habit works in all of them — **relative URLs**:
   under `tokens` none of their files load (use `origins`, or drop the flag).
 - **`origins` mode** gives your tile its own origin: `fetch('/api/<you>/x')`
   works without `xbin.fetch` there (the tile cookie is your credential), and
-  your tile gets its own `localStorage`/IndexedDB.
+  your tile gets its own `localStorage`/IndexedDB. `location.origin` is then
+  the tile's origin, not the workspace's: a link built from it to a
+  workspace page (`/login?invite=…`) or another tile is redirected to the
+  workspace, but a link you hand to someone else is best built from a
+  workspace-relative path.
 
 `legacy` (today's default) still loads absolute self-references
 credential-less; the next release removes that path

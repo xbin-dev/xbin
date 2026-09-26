@@ -266,6 +266,40 @@ func TestOriginsHostRouting(t *testing.T) {
 	if rec := w.do("/healthz", oa); rec.Code != 200 {
 		t.Errorf("/healthz: %d", rec.Code)
 	}
+	// Navigations to what isn't the tile's own business go to the workspace
+	// origin: its pages (links built from location.origin — invites, view-as),
+	// another tile's pages (which then land on THAT tile's origin).
+	nav := []reqOpt{oa, hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Site", "same-origin")}
+	for p, want := range map[string]string{
+		"/login?invite=abc":      "http://xbin.localhost:9260/login?invite=abc",
+		"/docs/elements.md":      "http://xbin.localhost:9260/docs/elements.md",
+		"/c/apps/b/?q=1&frame=x": "http://xbin.localhost:9260/c/apps/b/?q=1",
+		"/c/shell/":              "http://xbin.localhost:9260/c/shell/",
+		"/":                      "http://xbin.localhost:9260/",
+	} {
+		rec := w.do(p, nav...)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
+			t.Errorf("navigation to %s on a tile origin: %d %q, want → %s", p, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+	// The tile's own page without a credential: once through the workspace
+	// for a fresh one (marker), then — if that didn't stick — the page.
+	rec := w.do("/c/apps/a/sub/page.html?q=1", nav...)
+	if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || loc != "http://xbin.localhost:9260/c/apps/a/sub/page.html?q=1&xbin_retry=1" {
+		t.Errorf("credential refresh: %d %q", rec.Code, loc)
+	}
+	if rec := w.do("/c/apps/a/sub/page.html?q=1&xbin_retry=1", nav...); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "Open it from the workspace") {
+		t.Errorf("second miss must stop with the page: %d", rec.Code)
+	}
+	if rec := w.do("/c/apps/a/", oa, hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Site", "cross-site")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("cross-site entry: %d, want the page", rec.Code)
+	}
+	// …and the workspace sends it back with a token, marker kept (no loop).
+	rec = w.do("/c/apps/a/sub/page.html?q=1&xbin_retry=1", hdr("Sec-Fetch-Mode", "navigate"), w.session("ana"))
+	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "http://"+w.originHost("apps/a")+"/c/apps/a/sub/page.html?q=1&xbin_retry=1&frame=") {
+		t.Errorf("workspace leg: %d %q", rec.Code, loc)
+	}
+
 	// The workspace session cookie means nothing on a tile origin.
 	if rec := w.do("/c/apps/a/app.js", oa, w.session("ana"), hdr("Sec-Fetch-Site", "same-origin")); rec.Code != http.StatusUnauthorized {
 		t.Errorf("workspace cookie on a tile origin: %d", rec.Code)

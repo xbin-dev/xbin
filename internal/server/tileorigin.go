@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -26,7 +27,9 @@ import (
 //  3. every later request on that origin — relative or absolute /c/ loads,
 //     workers, fetch — carries the cookie: /c/ is authorized live against
 //     the user's access to the tile being loaded, /api and /ws act as the
-//     tile's frame principal. Nothing else is served there.
+//     tile's frame principal. Nothing else is served there: a navigation
+//     to a workspace page, or to another tile's page, is sent to the
+//     workspace origin.
 //
 // Chrome (root, shell, chrome:true tiles) stays on the workspace origin.
 
@@ -101,7 +104,11 @@ func (s *Server) tileOriginURL(tile string) string {
 	return u.Scheme + "://" + host
 }
 
-// serveTileOrigin serves one request on tile origin id.
+// serveTileOrigin serves one request on tile origin id. Everything that is
+// not the tile's own business — the workspace's pages (/login, /docs/, /),
+// another tile's or chrome's documents — is sent to the workspace origin
+// when a browser navigates there (tile code building links from
+// location.origin keeps working); anything else is 404.
 func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id string) {
 	p := r.URL.Path
 	switch {
@@ -114,9 +121,25 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 	case strings.HasPrefix(p, "/vendor/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.handleVendor(w, r) // xbind's own public code, as on the workspace origin
 		return
-	case strings.HasPrefix(p, "/c/"), strings.HasPrefix(p, "/api/"), p == "/ws/events", strings.HasPrefix(p, "/docs/"):
+	case strings.HasPrefix(p, "/c/"):
+		if rel := strings.TrimPrefix(p, "/c/"); strings.HasPrefix(rel, "~") {
+			http.NotFound(w, r)
+			return
+		} else if owner := s.owningComponent(path.Clean("/" + rel)[1:]); isChrome(owner) || s.Auth.TileHostID(owner) != id {
+			switch {
+			case s.toWorkspace(w, r): // another tile's (or chrome's) page: its own origin, via the workspace
+			case isChrome(owner):
+				http.NotFound(w, r) // chrome lives on the workspace origin only
+			default:
+				s.serveTileOriginAuthed(w, r, id) // another tile's assets: authorized for the user; documents refused
+			}
+			return
+		}
+	case strings.HasPrefix(p, "/api/"), p == "/ws/events":
 	default:
-		http.NotFound(w, r)
+		if !s.toWorkspace(w, r) {
+			http.NotFound(w, r)
+		}
 		return
 	}
 	if strings.HasPrefix(p, "/c/") && hasQueryKey(r.URL.RawQuery, "frame") && isNavigation(r) &&
@@ -124,28 +147,57 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 		s.tileOriginExchange(w, r, id)
 		return
 	}
+	s.serveTileOriginAuthed(w, r, id)
+}
+
+// serveTileOriginAuthed resolves the tile credential and serves /c/, /api/
+// or /ws/events as the tile. A browser navigating to the tile's own page
+// without a (valid) credential — an expired cookie, a bookmark, a shared
+// link — is sent once through the workspace origin to fetch a fresh one;
+// the marker parameter stops a loop when the cookie never sticks.
+func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, id string) {
 	pr, tile, code := s.tileOriginPrincipal(w, r, id)
 	if code != 0 {
+		if code == http.StatusUnauthorized && strings.HasPrefix(r.URL.Path, "/c/") && isNavigation(r) &&
+			r.Header.Get("Sec-Fetch-Site") != "cross-site" && !hasQueryKey(r.URL.RawQuery, retryMarker) {
+			q := dropQueryKey(dropQueryKey(r.URL.RawQuery, "frame"), retryMarker)
+			if q != "" {
+				q += "&"
+			}
+			http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+r.URL.EscapedPath()+"?"+q+retryMarker+"=1", http.StatusFound)
+			return
+		}
 		s.tileOriginDenied(w, r, code)
 		return
 	}
-	ctx := context.WithValue(auth.WithPrincipal(r.Context(), pr), tileOriginKey{}, tile)
-	r = r.WithContext(ctx)
-	switch {
+	r = r.WithContext(context.WithValue(auth.WithPrincipal(r.Context(), pr), tileOriginKey{}, tile))
+	switch p := r.URL.Path; {
 	case strings.HasPrefix(p, "/c/"):
-		rel := strings.TrimPrefix(p, "/c/")
-		if isChrome(firstSeg(rel)) || strings.HasPrefix(rel, "~") {
-			http.NotFound(w, r) // chrome lives on the workspace origin only
-			return
-		}
 		s.handleComponentStatic(w, r)
 	case strings.HasPrefix(p, "/api/"):
 		s.handleAPI(w, r)
-	case p == "/ws/events":
-		s.handleEventsWS(w, r)
 	default:
-		s.handleDocs(w, r)
+		s.handleEventsWS(w, r)
 	}
+}
+
+// retryMarker marks a tile-origin → workspace → tile-origin credential
+// refresh, so it happens once.
+const retryMarker = "xbin_retry"
+
+// toWorkspace sends a browser navigation to the same path and query on the
+// workspace origin (--external-url) and reports whether it did.
+func (s *Server) toWorkspace(w http.ResponseWriter, r *http.Request) bool {
+	if !isNavigation(r) || s.ExternalURL == "" {
+		return false
+	}
+	loc := strings.TrimRight(s.ExternalURL, "/") + r.URL.EscapedPath()
+	if q := dropQueryKey(r.URL.RawQuery, "frame"); q != "" {
+		loc += "?" + q
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, loc, http.StatusFound)
+	return true
 }
 
 // tileOriginPrincipal resolves the credential on a tile-origin request: an

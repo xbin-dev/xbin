@@ -162,8 +162,17 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  its user must read it; a cross-site initiator
                                  is not exchanged; a failed exchange never
                                  redirects), /api/… and /ws/events (as the
-                                 tile's frame principal), /docs/, /vendor/,
-                                 /healthz. /c/ is authorized live for the
+                                 tile's frame principal), /vendor/, /healthz.
+                                 A browser navigating to anything else —
+                                 a workspace page (/login, /docs/, /), chrome,
+                                 another tile's page — is 302'd to the same
+                                 path on --external-url (links built from
+                                 location.origin keep working); a navigation
+                                 to the tile's own page without a valid
+                                 cookie goes once through the workspace for a
+                                 fresh token (marked ?xbin_retry=1 so it
+                                 can't loop; not for cross-site initiators).
+                                 /c/ is authorized live for the
                                  cookie's user on the tile loaded; another
                                  tile's files are served only as non-documents
                                  with CSP sandbox; chrome is not served. The

@@ -132,7 +132,12 @@ gains `allow-same-origin` — the separate origin is now the isolation
 boundary — so each tile gets **its own** `localStorage`/IndexedDB (none of
 it shared with other tiles or the shell), and browsers can give each tile
 origin its own process. Opening a tile's page on the workspace origin (a
-direct tab, an old link) redirects to its origin through the same exchange.
+direct tab, an old link) redirects to its origin through the same exchange;
+a navigation on a tile origin to anything that isn't that tile's — `/login`,
+`/docs/`, another tile's page — goes to the workspace origin (so links a
+tile builds from `location.origin`, which is now its own origin, still
+land), and a tile page whose cookie expired refreshes it once through the
+workspace.
 Chrome stays on the workspace origin with the session cookie. Dev: run the
 shell at `http://xbin.localhost:PORT` with `--external-url
 http://xbin.localhost:PORT --tiles-domain xbin.localhost` (browsers resolve
