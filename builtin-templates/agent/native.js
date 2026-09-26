@@ -1,5 +1,5 @@
 // native.js — the agent tile's native view: what the xbin app draws with
-// platform UI instead of the web page (plans/agent-template-native.md). It
+// platform UI instead of the web page (API.md "The frontend"). It
 // renders the SAME model the web view drives (model/: the Session and its
 // blocks, the conversation list, the Automations page, rules, actions, the
 // router), one surface at a time:

@@ -1,5 +1,5 @@
 // native/convs.js — the conversations drawer (a sheet from the leading
-// edge, over the chat: one surface at a time, plans/native.md §15) and the
+// edge, over the chat: one surface at a time on every device) and the
 // small sheets it opens: new chat with options, rename. The list is the
 // model's ConvList (model/conv-list.js: paging, search, kept current by the
 // stream); its groups are model/conv-groups.js; which glyphs and actions a
@@ -121,7 +121,7 @@ export function newChatSheet() {
         <field kind="multiline" placeholder="what should it do?" value=${f.text} @input=${set('text')}/>
       </section>
       <section title="Tool mode" footer="Fixed for the conversation once it starts: internal systems and the web never meet in one run.">
-        <picker style="segmented" value=${f.toolset} options=${[{ value: 'private', label: 'internal systems', icon: 'lock' }, { value: 'web', label: 'web', icon: 'globe' }]}
+        <picker style="segmented" value=${f.toolset} options=${[{ value: 'private', label: 'internal', icon: 'lock' }, { value: 'web', label: 'web', icon: 'globe' }]}
           @change=${(e) => { f.toolset = e.value; ctx.paint(); }}/>
       </section>
       <section title="Optional">

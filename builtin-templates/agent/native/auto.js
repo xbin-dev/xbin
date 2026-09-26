@@ -50,7 +50,7 @@ function rowTpl(p, it) {
   const whose = it.access === 'oversee' ? `${it.owner}'s · ` : !can.mine && it.owner ? `by ${it.owner} · ` : '';
   const what = it.config ? `${cadence(it.config.cron)} · ${(it.config.goal || '').slice(0, 140)}` : it.summary;
   const how = `${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}`;
-  return html`<row title=${it.name} subtitle=${`${whose}${what}\n${how}`} icon=${it.kind === 'watcher' ? 'eye' : 'clock'}
+  return html`<row title=${it.name} subtitle=${`${whose}${what} · ${how}`} icon=${it.kind === 'watcher' ? 'eye' : 'clock'}
       badge=${badge ? badge[0] : nothing} tone=${badge ? badge[1] : nothing} nav @tap=${() => p.show(it.kind, it.id)}>
     ${can.runNow ? html`<actions><button icon="play" @tap=${() => p.runNow(it)}>Run now</button></actions>` : nothing}
   </row>`;

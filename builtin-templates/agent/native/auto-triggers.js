@@ -76,6 +76,7 @@ export function triggerForm(p) {
   return html`<screen title=${f.id ? 'Edit trigger' : 'New trigger'} style="form">
     <toolbar><button role="primary" ?disabled=${clash} @tap=${() => save(p)}>${f.id ? 'Save' : 'Create'}</button></toolbar>
     ${p.err ? html`<section><notice tone="danger" text=${p.err}/></section>` : nothing}
+    ${clash ? html`<section><notice tone="danger" title="Save is held" text="The web lane and announcing to a chat both reach outside the workspace, so this trigger must take public data only — or use internal systems and read its answers here."/></section>` : nothing}
     <section>
       <field label="Name" placeholder="deploys" value=${f.name} @input=${set('name')}/>
       <picker label="When" style="menu" value=${f.source} @change=${set('source', true)}
@@ -99,7 +100,6 @@ export function triggerForm(p) {
       <picker label="Who can see its runs" style="menu" value=${f.visibility} @change=${set('visibility', true)}
         options=${O([['private', 'only you'], ['team', 'everyone who can open this agent']])}/>
     </section>
-    ${clash ? html`<section><notice tone="danger" text="The web lane and announcing to a chat both reach outside the workspace, so this trigger must take public data only — or use internal systems and read its answers here."/></section>` : nothing}
   </screen>`;
 }
 

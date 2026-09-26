@@ -69,10 +69,10 @@ export function cardState(st) {
   switch (st) {
     case 'writing': return { state: 'writing', chip: null };
     case 'running': return { state: 'running', chip: null };
-    case 'waiting': return { state: 'running', chip: { text: 'waiting', tone: 'muted' } };
+    case 'waiting': return { state: 'running', chip: { text: 'waiting' } };
     case 'approval': return { state: 'running', chip: { text: 'needs approval', tone: 'warn' } };
     case 'error': return { state: 'error', chip: { text: 'failed', tone: 'danger' } };
-    case 'stopped': return { state: 'canceled', chip: { text: 'stopped', tone: 'muted' } };
+    case 'stopped': return { state: 'canceled', chip: { text: 'stopped' } };
     default: return { state: 'ok', chip: null };
   }
 }

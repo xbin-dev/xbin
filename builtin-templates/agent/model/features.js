@@ -194,11 +194,11 @@ export const DIFFERENCES = {
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
   },
   native: {
-    'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself (plans/native.md §8.4)',
+    'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'composer.heldAsk': 'the app uploads a picked file itself, to a path the tile names first (composer upload), and at home there is no run to name yet: the first message starts the conversation, then attachments are offered',
-    'needs.push': 'not yet (milestone 7): reaching a phone needs POST /api/xbin/notify and the push relay (plans/agent-template-native.md §6); until then the view keeps the tile\'s badge at the Needs-you count (xbin.native.meta)',
+    'needs.push': 'not yet (milestone 7): reaching a phone needs POST /api/xbin/notify and the app\'s push relay, which do not exist yet; until then the view keeps the tile\'s badge at the Needs-you count (xbin.native.meta)',
   },
 };
 

@@ -115,9 +115,9 @@ function agentTpl(b, depth) {
   const steps = child.llmCalls ? `${child.llmCalls} step${child.llmCalls === 1 ? '' : 's'}` : '';
   if (open && b.childId && !b.blocks) ctx.app.session.ui.act.loadChild(b.childId);
   const chips = [
-    ...(b.childId ? [{ text: '#' + b.childId, tone: 'muted' }] : []),
-    ...(b.state === 'done' ? [{ text: steps || 'done', tone: 'muted' }] : phase ? [{ text: phase, tone: b.state === 'approval' ? 'warn' : 'accent' }] : []),
-    ...(b.state === 'error' ? [{ text: 'failed', tone: 'danger' }] : b.state === 'stopped' ? [{ text: 'stopped', tone: 'muted' }] : []),
+    ...(b.childId ? [{ text: '#' + b.childId }] : []),
+    ...(b.state === 'done' ? [{ text: steps || 'done' }] : phase ? [{ text: phase, tone: b.state === 'approval' ? 'warn' : 'accent' }] : []),
+    ...(b.state === 'error' ? [{ text: 'failed', tone: 'danger' }] : b.state === 'stopped' ? [{ text: 'stopped' }] : []),
   ];
   const state = { running: 'running', approval: 'running', error: 'error', stopped: 'canceled', done: 'ok' }[b.state] || 'running';
   const answer = !running && b.result && !b.result.startsWith('(') ? stripHead(b.result) : '';
@@ -221,10 +221,13 @@ export function chatScreen(v) {
   </screen>`;
 }
 
+// plain: a markdown question as text (a schema's description is never markup).
+const plain = (md) => String(md ?? '').replace(/\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`/g, (m, a, b, c) => a ?? b ?? c).replace(/^#+\s*/gm, '');
+
 // The agent's question (its run's result), answered by your next message —
 // here or in the composer.
 function questionTpl(r) {
-  const schema = { type: 'object', description: String(r.result), required: ['answer'],
+  const schema = { type: 'object', description: plain(r.result), required: ['answer'],
     properties: { answer: { type: 'string', title: 'Your answer' } } };
   return html`<question title="The agent is asking" schema=${schema}
     @submit=${(e) => ctx.app.send(String((e.content || {}).answer || ''), () => { ui.draft = ''; })}/>`;
