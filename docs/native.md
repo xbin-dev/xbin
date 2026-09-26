@@ -428,13 +428,19 @@ The app draws these with the same components as its own agent screen.
   `busy` turns the send button into stop (`@stop`); `slash` lists commands
   `[{name, hint, description}]` offered when the text starts with `/`; child
   `button`s are chips above the box. **Attachments**: with `upload {method,
-  path}` the composer gets an attach button — the app shows its own pickers,
-  uploads the chosen file's bytes itself with your frame token (to `path`
-  under `/api/<self>/`, unless `path` starts with `/api/`; `{name}` in it
-  becomes the file's name; `method` defaults to `PUT`; `accept` filters the
-  types) and fires `@uploaded {name, response}` with your backend's answer
-  (parsed when it is JSON). Show the files as `attachments`
-  `[{id, name, mime, progress}]`; `@remove {id}` when the user drops one.
+  path}` the composer gets an attach button — the app shows its own pickers
+  (Photos, the camera, Files; `accept` filters the types), uploads each
+  chosen file's bytes itself with your frame token and shows the progress,
+  then fires `@uploaded {name, response}` per file with your backend's
+  answer (parsed when it is JSON). `path` is under `/api/<self>/` (a
+  relative `path`, or one starting with `/` but not `/api/`); one starting
+  with `/api/` must be your own `/api/<self>/…` — the app refuses any other
+  target (another tile, xbind's API, a `..`) and uploads nothing. `{name}`
+  in it becomes the file's name (encoded); `method` is `PUT` (the default),
+  `POST` or `PATCH`. Photos arrive as JPEG (HEIC converted); a file over
+  64 MiB is not sent and you get `response` `{error, status: 413}` for it.
+  Show the files as `attachments` `[{id, name, mime, progress}]`;
+  `@remove {id}` when the user drops one.
 
 <!-- generated:prims-chat (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
@@ -457,13 +463,23 @@ The app draws these with the same components as its own agent screen.
 ### Escape hatches
 
 - **`terminal`**: `src` is a WebSocket path of your own backend's pty
-  endpoint speaking the `/ws/term` framing (binary data plus
-  `{"op":"resize"}` frames — [protocol.md](/docs/protocol.md)). It connects
-  as your tile; the user's own xbind terminal is the app's, never a tile
-  element. Previews draw a placeholder.
+  endpoint speaking the `/ws/term` framing (binary data both ways,
+  `{"op":"resize","cols","rows"}` from the app — first on every connect —
+  and an optional `{"op":"exit"}` from you when the pty ends —
+  [protocol.md](/docs/protocol.md)). A relative `src` is under
+  `/api/<self>/`; like an upload target it must be your own. It connects
+  as your tile (your frame token as `?frame=`, through xbind's proxy); the
+  user's own xbind terminal is the app's, never a tile element. The app
+  shows it inline as live output and opens it larger, with the keyboard,
+  when tapped; a dropped socket reconnects with backoff, keeping the screen
+  (whether a new socket is the same shell is your backend's call).
+  Previews draw a placeholder.
 - **`canvas`**: a web view inside the native screen — `src` a page of your
-  own tile (a relative URL, in your tile's sandbox) or `html`, static markup
-  that runs no scripts; `height` sizes it. It is the one drawing escape:
+  own tile (relative, or your own `/c/<self>/…`; loaded like your web page:
+  your frame token, your sandbox, `xbin.dialog`) or `html`, static markup
+  that runs no scripts and loads nothing — the app shows it under a CSP
+  that allows only inline styles and `data:` images and fonts, and follows
+  no link; `height` sizes it. It is the one drawing escape:
   use it for the one chart the vocabulary cannot express, not for the whole
   UI.
 
@@ -596,9 +612,10 @@ renders natively — web and iOS agree on what a document is:
   of both.
 - **Leaving the app** (`xbin.native.open`, markdown links) takes `https:` and
   the `cap:open-links` grant, as new tabs do on the web (ND11).
-- **Images and uploads** go to and from your own workspace paths with your
-  frame token; a `canvas` with `html` runs no scripts; a `terminal` talks
-  only to your own backend.
+- **Images and uploads** go to and from your own paths (`/c/<self>/…`,
+  `/api/<self>/…`) with your frame token — the app refuses any other; a
+  `canvas` with `html` runs no scripts and loads nothing; a `terminal`
+  talks only to your own backend.
 
 ## Fallback, versions and older apps
 
