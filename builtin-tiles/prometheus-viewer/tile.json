@@ -1,6 +1,7 @@
 {
   "name": "prometheus-viewer",
-  "version": 1,
+  "version": 2,
+  "changelog": "v2: a native view for the xbin app (native.js): a section per source, a disclosure per metric, native sparklines; the binding, scrape, parser, rate math and formatters moved into prom.js, shared by the page and the native view — the page behaves as before",
   "title": "Prometheus Viewer",
   "description": "Live dashboard for Prometheus metrics. Pure frontend — bind one or more components that export a \"prometheus\" metrics service (e.g. llm-gw) and it scrapes their /metrics endpoints, showing current values (counters with a per-second rate, gauges instantaneous) plus a client-side sparkline of recent samples.",
   "defaultPath": "apps/prometheus-viewer",
