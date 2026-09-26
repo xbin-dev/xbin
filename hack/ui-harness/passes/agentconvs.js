@@ -73,8 +73,10 @@ async function agentConvs(browser) {
   const link = await api(admin.page, `/runs/${id}/links`, json('POST', { role: 'participant', expiresIn: 3600 }));
   check(link.status === 200 && !!link.body.token, 'admin creates an invite link');
   await dev.page.goto(`${URL}/c/apps/agent/#join=${link.body.token}`);
-  const joined = await until(dev.page, () => !document.getElementById('msg').disabled, null, 10000).then(() => true, () => false);
-  check(joined && (await dev.page.textContent('#top .title')) === title, 'the link made dev1 a participant');
+  // Joined = the conversation is selected AND writable (the composer of the
+  // page's own empty chat is enabled before the join lands).
+  const joined = await until(dev.page, (t) => !document.getElementById('msg').disabled && document.querySelector('#top .title')?.textContent === t, title, 10000).then(() => true, () => false);
+  check(joined, 'the link made dev1 a participant');
   await dev.page.fill('#msg', 'hello from dev1');
   await dev.page.press('#msg', 'Enter');
   await until(admin.page, () => [...document.querySelectorAll('#timeline .msg.user.other .who')].some((e) => e.textContent === 'dev1'));
