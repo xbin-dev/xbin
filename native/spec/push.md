@@ -60,7 +60,8 @@ Three parties:
      signed out everywhere, disabled or deleted, when the device is removed
      (revoked on its own, `?devices=1` on sign-out-everywhere, a password
      change with `removeDevices`), when its device session signs out
-     (`POST /logout`), when an admin revokes the registration, and when APNs
+     (`POST /logout`), when the owner token it registered with is rotated,
+     when an admin revokes the registration, and when APNs
      reports the device token dead. Register with the device-login
      `deviceId` once the device is enrolled — that is the id revocation
      matches;

@@ -103,6 +103,9 @@ func (s *Server) apiRotateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Warn("owner token rotated", "by", auth.PrincipalOf(r).From())
+	if s.OnOwnerTokenRotated != nil {
+		s.OnOwnerTokenRotated() // the owner's per-device state (push registrations) goes with the old token
+	}
 	WriteJSON(w, http.StatusOK, map[string]string{"token": tok})
 }
 

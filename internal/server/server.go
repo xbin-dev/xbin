@@ -85,6 +85,10 @@ type Server struct {
 	// devicelogin.go), so per-device state — its push registration — ends
 	// with it. Installed at boot.
 	OnDeviceSignedOut func(userID, deviceID string)
+	// OnOwnerTokenRotated, if set, is called after the owner token was
+	// rotated (POST /auth-rotate-token): what devices registered with the old
+	// token — the owner's push registrations — ends with it.
+	OnOwnerTokenRotated func()
 
 	// SSO runtime state (sso.go): per-issuer cached OIDC provider and the
 	// boot-random HMAC key signing the one-shot login-state cookie.

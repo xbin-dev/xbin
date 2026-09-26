@@ -80,6 +80,16 @@ func (st *State) setupPush(srv *server.Server) error {
 		}
 		ps.ForgetDevice(user, device)
 	}
+	// the owner token rotated: devices that registered with the old one
+	// (the bootstrap owner's) lose their registrations like a user signed
+	// out everywhere; they register again once they hold the new token
+	prevRot := srv.OnOwnerTokenRotated
+	srv.OnOwnerTokenRotated = func() {
+		if prevRot != nil {
+			prevRot()
+		}
+		ps.SignedOut(push.OwnerUser)
+	}
 	if st.Term != nil {
 		publish := st.Term.OnEvent // the /ws/events publisher (stepServer)
 		st.Term.OnEvent = func(cwd string, ev term.SessionEvent) {

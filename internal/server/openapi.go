@@ -97,7 +97,7 @@ func endpoints() []ep {
 		{"GET", "/components/{path}", "Components", "Component detail + API.md", "authenticated",
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"POST", "/auth-rotate-token", "Identity", "Rotate the owner token", "admin",
-			"Rewrites .xbin/token; the old token dies immediately (bearer and cookie). The new token is returned once.", nil, nil, "{token}"},
+			"Rewrites .xbin/token; the old token dies immediately (bearer and cookie), with the frames it opened and the push registrations devices made with it. The new token is returned once.", nil, nil, "{token}"},
 		{"POST", "/account/password", "Identity", "Change your own password", "signed-in user",
 			"Self-service rotation: the current password is verified first (D38). removeDevices:true also removes the caller's enrolled app devices — all but the one making the call — and ends their sessions (a new password alone doesn't sign a device out).", nil, jsonBody("passwords", oapi{"current": str(""), "new": str(""), "removeDevices": boolean()}, "current", "new"), "{ok, devicesRemoved?}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",

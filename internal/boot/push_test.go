@@ -160,4 +160,15 @@ func TestPushInProcess(t *testing.T) {
 	if code, out := call("DELETE", "/push/devices/owner/iphone", nil, nil); code != 200 || out["removed"] != float64(1) {
 		t.Fatalf("admin revoke: %d %v", code, out)
 	}
+	// rotating the owner token drops what devices registered with the old one
+	if code, out := call("POST", "/devices/push", nil, map[string]any{"deviceId": "iphone", "handle": "handle-owner-1",
+		"publicKey": base64.RawURLEncoding.EncodeToString(dev.PublicKey().Bytes())}); code != 200 {
+		t.Fatalf("register again: %d %v", code, out)
+	}
+	if code, out := call("POST", "/auth-rotate-token", nil, nil); code != 200 || out["token"] == "" {
+		t.Fatalf("rotate: %d %v", code, out)
+	}
+	if code, out := call("GET", "/push/devices", nil, nil); code != 200 || len(out["devices"].([]any)) != 0 {
+		t.Fatalf("registrations after an owner-token rotation: %d %v", code, out)
+	}
 }

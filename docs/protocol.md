@@ -913,7 +913,9 @@ GET    /auth-settings             admin/xbin:users. {tokenLoginDisabled,
                                    recorded fetch failure)
 POST   /auth-rotate-token         admin. Rotate the owner token: rewrites
                                    .xbin/token, old token dies immediately
-                                   (bearer + cookie). → {token} (shown once).
+                                   (bearer + cookie), with the frame tokens
+                                   it opened and the owner's push
+                                   registrations. → {token} (shown once).
 PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled?:
                                    bool, sso?: {kind, preset, issuer,
                                    clientId, clientSecret, allowedDomains,
@@ -1798,7 +1800,8 @@ registrations (a deleted user's preferences too); removing an enrolled
 device (`DELETE /devices/<id>`, `?devices=1` on sign-out-everywhere, a
 password change with `removeDevices`) or its device session signing out
 (`POST /logout` with its bearer) drops that device's registration — the
-registration's `deviceId` is the device-login device id. The app registers
+registration's `deviceId` is the device-login device id — and rotating the
+owner token (`POST /auth-rotate-token`) drops the owner's. The app registers
 again at the next sign-in. Delivery is asynchronous and best-effort: a bounded
 queue (a full one drops), up to 5 attempts with backoff on relay 429/5xx or
 network errors. Only the relay's own error codes touch a registration: 410
