@@ -82,6 +82,16 @@ echo engine (ported from `web/term-predict.js`, checked against
   `NSNumber`); key order doesn't matter, key presence does.
 - Anything testable here is tested here — CI time is for what only Xcode can do.
 
+The terminal's half is its own package under the same rules,
+`Packages/XbinTerm` (`swift test` there; its README says how the app glues
+SwiftTerm to it): the `/ws/term` codec and session state machine, the
+predictive echo port and the keyboard model. The port's conformance is every
+case of `hack/term-predict.test.mjs` plus a differential trace of the JS
+engine: a change to `web/term-predict.js` runs `node
+hack/term-predict-trace.mjs` and ports the change in the same commit (`make
+js-test` fails until the trace matches). `native/tools/term-live` checks a
+session against a running xbind.
+
 ### 4. Apple — only through GitHub Actions (minutes)
 
 The workflow (`.github/workflows/ios.yml`, `runs-on: xcode-27`): `brew install
