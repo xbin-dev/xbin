@@ -207,7 +207,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 	if code != 0 {
 		if code == http.StatusUnauthorized && doc && topLevel(r) &&
 			r.Header.Get("Sec-Fetch-Site") != "cross-site" && !hasQueryKey(r.URL.RawQuery, retryMarker) {
-			q := dropQueryKeys(r.URL.RawQuery, append(exchangeParams, retryMarker)...)
+			q := dropQueryKey(dropQueryKeys(r.URL.RawQuery, exchangeParams...), retryMarker)
 			if q != "" {
 				q += "&"
 			}
