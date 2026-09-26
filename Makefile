@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -12,6 +12,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ROOTFS ?= $(CURDIR)/.rootfs
 FUSE_OVERLAYFS ?= $(CURDIR)/bin/fuse-overlayfs
 GOCRYPTFS ?= $(CURDIR)/bin/gocryptfs
+FIRECRACKER ?= $(CURDIR)/bin/firecracker
+VMKERNEL ?= $(CURDIR)/bin/vmlinux
+MKFS_EROFS ?= $(CURDIR)/bin/mkfs.erofs
 
 # Build the dev/base rootfs (docker → unpacked dir). Rebuilds when the
 # Dockerfile or build script change; otherwise cached.
@@ -38,6 +41,21 @@ fuse-overlayfs: $(FUSE_OVERLAYFS)
 $(GOCRYPTFS): hack/build-gocryptfs.sh $(wildcard hack/gocryptfs-patches/*.patch) $(wildcard hack/gofuse-patches/*.patch)
 	./hack/build-gocryptfs.sh $(CURDIR)/bin
 gocryptfs: $(GOCRYPTFS)
+
+# VM sandboxes (plans/vm-sandbox.md, D89): the pinned Firecracker release, the
+# guest kernel (6.18 LTS on Firecracker's CI config + hack/vmkernel/xbin.config)
+# and a static mkfs.erofs (the guest's rootfs image). Optional — without them
+# VM sandboxes report "unavailable" and nothing else changes. xbin-vmagent (the
+# guest's init) is built by `make build`. NATIVE=1 builds the kernel/mkfs on
+# the host instead of in docker.
+$(FIRECRACKER): hack/fetch-firecracker.sh
+	./hack/fetch-firecracker.sh $(CURDIR)/bin
+$(VMKERNEL): hack/build-vmkernel.sh hack/vmkernel/xbin.config
+	./hack/build-vmkernel.sh $(CURDIR)/bin
+$(MKFS_EROFS): hack/build-mkfs-erofs.sh
+	./hack/build-mkfs-erofs.sh $(CURDIR)/bin
+vm-assets: $(FIRECRACKER) $(VMKERNEL) $(MKFS_EROFS)
+	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 
 # The core loop: xbind from source against ./devws, isolated.
 # Live-editable core assets + debug logs, with auth ON (multi-user works).
@@ -74,6 +92,7 @@ dev-reset:
 build: $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
+	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 
 test:
 	go test ./...
@@ -82,6 +101,8 @@ integration:
 	go test -tags=integration -count=1 -v ./test/...
 	# the confined tool runs (D78) in real sandboxes: skip without .rootfs/userns
 	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/
+	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets
+	go test -tags=integration -count=1 -v ./internal/vm/
 
 vet:
 	go vet ./...

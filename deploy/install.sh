@@ -334,6 +334,12 @@ preflight() {
   elif [ "$MODE" = user ]; then warn "/dev/net/tun missing — ask root for 'modprobe tun' (no component egress until then)"
   else warn "/dev/net/tun missing — no component egress or terminal internet scope until 'modprobe tun'"; fi
 
+  # /dev/kvm — VM sandboxes (D89, plans/vm-sandbox.md). Optional: without it
+  # they report "unavailable" and everything else works the same.
+  if [ ! -e /dev/kvm ] && [ "$MODE" = system ]; then kvm_modprobe; fi
+  if [ -e /dev/kvm ]; then ok "/dev/kvm present (VM sandboxes can run once an admin enables them)"
+  else warn "/dev/kvm missing — VM sandboxes unavailable (no hardware virtualization, or nested virtualization is off on this VM); nothing else needs it"; fi
+
   if [ "$MODE" = user ]; then
     preflight_user
   else
@@ -378,6 +384,11 @@ preflight() {
 # is CHECKED here and reported with the exact root command — nothing has been
 # touched yet, so aborting is safe.
 preflight_user() {
+  # VM sandboxes open /dev/kvm as this user: membership of its group is root's
+  # to grant (and takes a fresh login, or a restart of the user manager).
+  if [ -e /dev/kvm ] && ! { [ -r /dev/kvm ] && [ -w /dev/kvm ]; }; then
+    warn "/dev/kvm is not usable by $RUN_USER — for VM sandboxes run once as root: sudo usermod -aG kvm $RUN_USER, then log in again (or: sudo systemctl restart user@$(id -u))"
+  fi
   # The user's systemd manager must be reachable (ssh sessions without a
   # session bus can't manage --user units).
   if systemctl --user show-environment >/dev/null 2>&1; then
@@ -523,6 +534,11 @@ build_artifacts() {
   # targets resume where the failed attempt left off).
   retry 2 make -C "$SRC" build DOCKER="$ENGINE" \
     || die "build failed twice — see the output above (container-network trouble? skip building: re-run with --prebuilt-rootfs)"
+  # VM sandboxes' pieces (D89): the guest kernel build takes minutes on a
+  # small host — best effort, x86_64 only; XBIN_BUILD_VM=0 skips it.
+  if [ "${XBIN_BUILD_VM:-1}" = 1 ] && [ "$(uname -m)" = x86_64 ]; then
+    make -C "$SRC" vm-assets DOCKER="$ENGINE" || warn "VM sandbox assets did not build — VM sandboxes will report unavailable (everything else is fine)"
+  fi
   rm -rf "$BUILD_DIR/rootfs"
   retry 2 make -C "$SRC" rootfs DOCKER="$ENGINE" ROOTFS="$BUILD_DIR/rootfs" \
     || die "rootfs build failed twice — see the output above (container-network trouble? skip building: re-run with --prebuilt-rootfs)"
@@ -757,6 +773,26 @@ setup_kernel() { # system mode
     ok "fuse+tun autoload persisted; inotify watches raised"
   fi
 }
+kvm_modprobe() { # load the CPU's KVM module (no-op without VT-x/AMD-V)
+  if grep -qw vmx /proc/cpuinfo 2>/dev/null; then modprobe kvm_intel 2>/dev/null || true
+  elif grep -qw svm /proc/cpuinfo 2>/dev/null; then modprobe kvm_amd 2>/dev/null || true; fi
+}
+setup_kvm() { # system mode, fresh installs and upgrades alike
+  kvm_modprobe
+  local mod=
+  if grep -qw vmx /proc/cpuinfo 2>/dev/null; then mod=kvm_intel; elif grep -qw svm /proc/cpuinfo 2>/dev/null; then mod=kvm_amd; fi
+  if [ -n "$mod" ] && ! grep -qx "$mod" /etc/modules-load.d/xbin.conf 2>/dev/null; then
+    printf '%s\n' "$mod" >>/etc/modules-load.d/xbin.conf
+  fi
+  # Group, not a unit SupplementaryGroups=: that fails the unit where the
+  # group doesn't exist, and systemd applies the user's groups for User=.
+  if getent group kvm >/dev/null 2>&1; then
+    if id -nG "$XBIN_USER" | tr ' ' '\n' | grep -qx kvm; then ok "$XBIN_USER is in the kvm group (VM sandboxes)"
+    else usermod -aG kvm "$XBIN_USER" && ok "added $XBIN_USER to the kvm group (VM sandboxes)"; fi
+  else
+    warn "no kvm group on this host — VM sandboxes need /dev/kvm readable+writable by $XBIN_USER"
+  fi
+}
 test_userns() {
   local ok_ns=0
   if [ "$MODE" = system ]; then
@@ -780,6 +816,14 @@ install_files() {
     [ -f "$XBIN_PREBUILT_BIN/$b" ] || die "missing artifact: $XBIN_PREBUILT_BIN/$b"
     install -m 0755 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b"
   done
+  # VM sandboxes' pieces (D89) — optional: a bundle without them (arm64, an
+  # older release) just has no VM sandboxes.
+  local vm_missing=
+  for b in xbin-vmagent firecracker vmlinux mkfs.erofs; do
+    if [ -f "$XBIN_PREBUILT_BIN/$b" ]; then install -m 0755 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b"
+    else vm_missing="$vm_missing $b"; fi
+  done
+  [ -z "$vm_missing" ] || warn "this bundle has no$vm_missing — VM sandboxes will report unavailable"
   info "installing base rootfs (this copies a few GB)"
   rm -rf "$PREFIX/rootfs.new"
   cp -a "$XBIN_ROOTFS_DIR" "$PREFIX/rootfs.new"
@@ -1054,6 +1098,9 @@ build_plan() {
       else
         plan setup_subids "delegate subuid/subgid $SUBID_START+$SUBID_COUNT to $XBIN_USER (/etc/subuid, /etc/subgid)"
       fi
+    fi
+    if [ -e /dev/kvm ] || grep -qwE 'vmx|svm' /proc/cpuinfo 2>/dev/null; then
+      plan setup_kvm "load + persist the KVM module and add $XBIN_USER to the kvm group (VM sandboxes)"
     fi
     plan setup_kernel "persist fuse+tun autoload + raise inotify watches$([ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && echo ' + lift the AppArmor userns restriction') (/etc/modules-load.d, /etc/sysctl.d)"
   else

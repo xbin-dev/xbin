@@ -475,7 +475,19 @@ Offline (`make pins-offline`, part of `make check`):
 Online (`make pins`, run by every release): EOL dates of the pinned Alpine
 and Ubuntu releases against endoflife.date, and a HEAD request for every
 tarball a build or a tile setup script downloads (Alpine APKINDEX, the Go
-toolchains, the traefik release the builtin tile fetches).
+toolchains, the traefik release the builtin tile fetches, and the VM
+sandboxes' Firecracker release, guest kernel tarball and the Firecracker
+guest config it builds on).
+
+VM sandbox pieces (D89) carry their own pins: `hack/fetch-firecracker.sh`
+(version + per-arch sha256 of the upstream static release),
+`hack/build-vmkernel.sh` (kernel version + sha256 from kernel.org's signed
+sums, Firecracker's CI config by tag + sha256; `hack/vmkernel/xbin.config`
+is merged on top and every line must survive `olddefconfig`), and
+`hack/build-mkfs-erofs.sh` (erofs-utils tag, alpine pin). Bump Firecracker
+and the config tag together — `make pins` warns when they differ. CI builds
+them (cached on those files), turns on KVM for the runner, and boots the VM
+integration tests on a small exported ubuntu image.
 
 ## gofmt scope
 

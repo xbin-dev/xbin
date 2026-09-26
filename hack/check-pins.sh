@@ -21,7 +21,8 @@
 # Online:
 #   4. currency — pinned distro releases vs the endoflife.date API:
 #      FAIL past EOL, WARN within 60 days (API unreachable = warn, not fail)
-#   5. reachability — Alpine APKINDEX (both arches), the pinned Go tarballs
+#   5. reachability — Alpine APKINDEX (both arches), the pinned Go tarballs,
+#      the Firecracker release + guest kernel tarball + its guest config (D89)
 #      (installer + rootfs-baked toolchain), the traefik release tarball the
 #      builtin tile's setup script downloads
 # (golang:alpine, the gocryptfs builder image, floats with upstream — no
@@ -172,6 +173,26 @@ else
     done
   else
     warn "no traefik version pin found in builtin-tiles/traefik/xbin.json"
+  fi
+  # VM sandboxes (D89): the pinned Firecracker release, the guest kernel
+  # tarball and Firecracker's CI guest config it builds on
+  fc=$(sed -n 's/^VERSION="\${FIRECRACKER_VERSION:-\(v[0-9.]*\)}"$/\1/p' "$repo/hack/fetch-firecracker.sh")
+  kv=$(sed -n 's/^KERNEL_VERSION="\${KERNEL_VERSION:-\([0-9.]*\)}"$/\1/p' "$repo/hack/build-vmkernel.sh")
+  fctag=$(sed -n 's/^FC_TAG="\${FC_TAG:-\(v[0-9.]*\)}"$/\1/p' "$repo/hack/build-vmkernel.sh")
+  if [ -n "$fc" ]; then
+    url="https://github.com/firecracker-microvm/firecracker/releases/download/${fc}/firecracker-${fc}-x86_64.tgz"
+    if head_ok "$url"; then ok "Firecracker release served: $fc"; else fail "Firecracker release unreachable: $url"; fi
+  else
+    warn "no Firecracker pin found in hack/fetch-firecracker.sh"
+  fi
+  if [ -n "$kv" ] && [ -n "$fctag" ]; then
+    url="https://cdn.kernel.org/pub/linux/kernel/v${kv%%.*}.x/linux-${kv}.tar.xz"
+    if head_ok "$url"; then ok "guest kernel tarball served: $kv"; else fail "guest kernel tarball unreachable: $url"; fi
+    url="https://raw.githubusercontent.com/firecracker-microvm/firecracker/${fctag}/resources/guest_configs/microvm-kernel-ci-x86_64-$(echo "$kv" | cut -d. -f1-2).config"
+    if head_ok "$url"; then ok "Firecracker guest config served: $fctag"; else fail "Firecracker guest config unreachable: $url"; fi
+    [ "$fc" = "$fctag" ] || warn "Firecracker pins differ: fetch $fc, kernel config $fctag"
+  else
+    warn "no guest kernel pin found in hack/build-vmkernel.sh"
   fi
 fi
 
