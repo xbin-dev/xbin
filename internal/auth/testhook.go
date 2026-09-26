@@ -10,3 +10,19 @@ func (a *Auth) TestAgeWarmIP(ip string, age time.Duration) {
 	a.warm[ip] = time.Now().Add(-age)
 	a.mu.Unlock()
 }
+
+// TestAgeSession back-dates a login session: its sign-in by loginAge and its
+// last activity by idleAge (0 leaves one as is), so tests can reach the
+// step-up and idle windows without sleeping. Test-only.
+func (a *Auth) TestAgeSession(id string, loginAge, idleAge time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[id]; s != nil {
+		if loginAge > 0 {
+			s.created = time.Now().Add(-loginAge)
+		}
+		if idleAge > 0 {
+			s.lastActive = time.Now().Add(-idleAge)
+		}
+	}
+}

@@ -95,4 +95,5 @@ type userListRow struct {
 	users.User
 	InvitePending bool            `json:"invitePending,omitempty"`
 	Personal      *users.Personal `json:"personal,omitempty"`
+	DeviceCount   int             `json:"deviceCount,omitempty"` // enrolled app devices (devicesapi.go)
 }

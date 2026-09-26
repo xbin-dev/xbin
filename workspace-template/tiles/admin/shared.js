@@ -225,11 +225,18 @@ export const WithRouter = (Base) => class extends Base {
   }
   // End every session of a user (they can sign in again); the router
   // reloads the sessions list. Offered by the users and sessions tabs.
+  // Enrolled app devices sign in again without a password, so when there
+  // are any the admin is asked about them separately (?devices=1 removes).
   async _signOutUser(id) {
-    if (!confirm(`Sign out ${id} everywhere? All their browser sessions and terminal tokens end now; they can sign in again.`)) return;
+    let n = 0;
+    try { n = (await api(`/users/${encodeURIComponent(id)}/devices`))?.devices?.length ?? 0; } catch { /* none listed */ }
+    if (!confirm(`Sign out ${id} everywhere? All their browser and app sessions, terminal tokens and open tiles end now; they can sign in again.`)) return;
+    const them = n === 1 ? 'it' : 'them';
+    const rm = n > 0 && confirm(`${id} also has ${n} xbin app device${n === 1 ? '' : 's'} enrolled — ${n === 1 ? 'it signs' : 'they sign'} in again without a password.\n\nOK: remove ${them} too (a new enrollment code is needed)\nCancel: keep ${them}`);
     try {
-      const d = await api(`/users/${encodeURIComponent(id)}/sessions`, { method: 'DELETE' });
-      this._ok(); this._emit('bx-admin-notice', `signed out ${id} (${d.dropped} session${d.dropped === 1 ? '' : 's'})`);
+      const d = await api(`/users/${encodeURIComponent(id)}/sessions${rm ? '?devices=1' : ''}`, { method: 'DELETE' });
+      const dev = d.devicesRemoved ? `, ${d.devicesRemoved} device(s) removed` : d.devicesLeft ? `; ${d.devicesLeft} app device(s) still enrolled` : '';
+      this._ok(); this._emit('bx-admin-notice', `signed out ${id} (${d.dropped} session${d.dropped === 1 ? '' : 's'}${dev})`);
     } catch (e) { this._fail(e); }
     this._emit('bx-admin-refresh');
   }

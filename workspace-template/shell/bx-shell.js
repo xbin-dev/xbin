@@ -42,6 +42,7 @@ import './bx-tile-admin.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
+import { openDevices } from './bx-devices.js';
 
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
@@ -1466,7 +1467,8 @@ export class BxShell extends LitElement {
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
-  // My account (D38): identity + self-service password change.
+  // My account (D38): identity + self-service password change; devices…
+  // opens the xbin app's device list (bx-devices.js).
   _accountMenu() {
     if (this._who?.kind !== 'user') return nothing;
     const w = this._who;
@@ -1477,8 +1479,11 @@ export class BxShell extends LitElement {
         <input name="cur" type="password" placeholder="current password" autocomplete="current-password" required>
         <input name="nw" type="password" placeholder="new password (min 8)" minlength="8" autocomplete="new-password" required>
         <input name="nw2" type="password" placeholder="repeat new password" minlength="8" autocomplete="new-password" required>
+        <label style="font-size:11px; display:flex; gap:5px; align-items:center" title="the xbin app on your phones signs in with its own key — a new password alone doesn't sign it out"><input type="checkbox" name="rmdev" style="margin:0">and remove my app devices</label>
         <button class="act" type="submit">change password</button>
-      </form>`;
+      </form>
+      <button class="act" style="margin-top:6px; width:100%" title="the xbin app on your phones and tablets — add one with a QR code, or remove one"
+              @click=${() => { this._settingsOpen = false; openDevices(); }}>devices…</button>`;
   }
 
   async _changePassword(e) {
@@ -1492,10 +1497,10 @@ export class BxShell extends LitElement {
     try {
       const r = await fetch('/api/xbin/account/password', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: f.cur.value, new: f.nw.value }),
+        body: JSON.stringify({ current: f.cur.value, new: f.nw.value, ...(f.rmdev.checked ? { removeDevices: true } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
-      this._menuMsg = r.ok ? { ok: true, text: 'password changed' }
+      this._menuMsg = r.ok ? { ok: true, text: `password changed${d.devicesRemoved ? ` · ${d.devicesRemoved} device(s) removed` : ''}` }
         : { ok: false, text: d.error ?? `failed (${r.status})` };
       if (r.ok) f.reset();
     } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }

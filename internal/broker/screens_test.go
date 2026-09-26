@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -96,11 +97,11 @@ func TestScreensAndAccountFlows(t *testing.T) {
 	}
 
 	// D38 self-service password change: wrong current refused, right one works.
-	if w := call(t, b.apiAccountPassword, bob, "POST", "/account/password",
+	if w := call(t, func(w http.ResponseWriter, r *http.Request) { b.apiAccountPassword(nil, w, r) }, bob, "POST", "/account/password",
 		`{"current":"wrong","new":"new-password-9"}`, nil); w.Code != 400 {
 		t.Fatalf("wrong current: %d", w.Code)
 	}
-	if w := call(t, b.apiAccountPassword, bob, "POST", "/account/password",
+	if w := call(t, func(w http.ResponseWriter, r *http.Request) { b.apiAccountPassword(nil, w, r) }, bob, "POST", "/account/password",
 		`{"current":"password","new":"new-password-9"}`, nil); w.Code != 200 {
 		t.Fatalf("change: %d %s", w.Code, w.Body.String())
 	}

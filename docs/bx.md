@@ -23,7 +23,7 @@ bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
                                        (upgraded workspaces predating them, D41)
-bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> | rm <id>
+bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> [--devices] | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a
                                        single-use invite link (D22); --email
@@ -32,8 +32,10 @@ bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> | 
                                        SSO-only account (no password, no link;
                                        D52); add --org o[:level[:create[:admin]]]
                                        (repeatable) joins orgs at creation;
-                                       signout ends every session + terminal
-                                       token ("sign out everywhere", D53); set
+                                       signout ends every session, terminal
+                                       and frame token ("sign out everywhere",
+                                       D53) — app devices stay enrolled unless
+                                       --devices removes them too; set
                                        --disable/--enable pauses/restores the
                                        whole account (D34). ls shows last sign-in,
                                        a * on admins/memberships that come from
