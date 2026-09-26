@@ -1,0 +1,35 @@
+{
+  // A TEMPLATE component (docs/overview/03-components.md §Templates): instantiate it into a
+  // named copy (Tile Manager → "New from template", or
+  // `bx template new agent-messaging-bridge as apps/my-bridge`), then have a coding agent
+  // in the copy's terminal add your chat platform — AGENTS.md is its guide. The
+  // "template" block is stripped from each copy.
+  "template": {
+    "title": "Agent messaging bridge",
+    "description": "Connects an agent (the AI Agent template) to a chat platform — Slack, Discord, Telegram, Matrix, email, anything with an API. The copy is customised by a coding agent in its terminal (AGENTS.md); the bridge already handles conversations, DMs and threads, attachments both ways, linking chat accounts to workspace accounts, retries and restarts. A built-in console lets you try it first.",
+    "defaultName": "messaging-bridge"
+  },
+
+  "runtime": "go",
+  // The backend lives in _backend/ (not backend/) so xbin's own `go build ./...` never
+  // sweeps this template in; an instance builds it from here.
+  "entry": "./_backend",
+  // A platform connection the bridge opens (a WebSocket, a long poll) never sends it
+  // the request that starts an ordinary tile: xbind starts it at boot and restarts it
+  // after an exit (docs/elements.md, D84).
+  "alwaysOn": true,
+
+  "uses": [
+    { "target": "res:apps/messaging-bridge/state", "role": "writer" }
+  ],
+  "interfaces": {
+    // The agent to feed: bind it to an agent tile's `inbox` provide —
+    //   bx bind apps/messaging-bridge agent=apps/agent
+    // then claim the new channel on that agent's Automations page.
+    "agent": { "kind": "http", "service": "agent-inbox" },
+    // Egress to your platform only, once you have one, e.g.
+    //   bx bind apps/messaging-bridge net=internet:*.example.com:443
+    // (the page shows the exact rule your platform declares). The console needs none.
+    "net": { "kind": "net" }
+  }
+}

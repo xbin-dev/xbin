@@ -12,6 +12,14 @@ replies back. The split is deliberate (D86):
 An adapter never names a session or picks a lane; it reports facts and
 the agent decides. This page is the contract, **protocol 1**.
 
+**To build one, start from the `agent-messaging-bridge` template.** It
+implements this whole contract: storing events before they are
+acknowledged, ordered delivery, attachments both ways, retries,
+never-twice replies, the typing hint, the linking page. It leaves one Go
+interface for the platform. A coding agent in the copy's terminal writes
+that, guided by the template's `AGENTS.md`; until then the copy's console
+plays the platform.
+
 ## Wiring
 
 The adapter requests an http interface with service `agent-inbox`:
@@ -22,7 +30,7 @@ The adapter requests an http interface with service `agent-inbox`:
 ```
 
 The owner binds it to an agent, for example
-`bx bind apps/slack agent=apps/agent`. The agent's `inbox` provide grants
+`bx bind apps/messaging-bridge agent=apps/agent`. The agent's `inbox` provide grants
 the binding the **`channel` role**, which reaches only the `/adapter/*`
 routes below and nothing else of the agent. The adapter calls the agent
 at `XBIN_IFACE_AGENT_URL` (`http://xbin/api/<agent>`) with its instance
@@ -77,6 +85,7 @@ One inbound message:
 | `assistantThread` | The platform's assistant view (Slack's AI pane). It always gets a session per thread. |
 | `mentioned` | The bot was addressed. Strip the mention from `text`. |
 | `command` | A slash command the adapter parsed, as `"new some text"`. Text starting with `/` is also read as a command. |
+| `files` | Attachment ids from `POST /adapter/files` (below). |
 
 Don't forward the bot's own messages, and mark other bots `isBot`: the
 agent refuses them. Keep the body under 256 KiB.
@@ -98,7 +107,8 @@ The answer is a verdict, always 200 for a known channel:
 | `disabled` | The owner switched the channel off. |
 | `bot` | The sender is a bot. |
 | `not-allowed` | The DM or group policy excludes the sender, or the sender is blocked. |
-| `pairing` | An unknown DM sender. A pairing code was queued for them. |
+| `pairing` | An unknown DM sender. A code was queued for them: they link their account with it, or the owner approves it. |
+| `link-required` | The channel only hears people who linked their xbin account (`dm.policy: linked`, `groups.linkedOnly`). In a DM, a link code was queued; in a group, nothing is posted. |
 | `mention-required` | A group message that didn't address the bot, outside a thread it follows. |
 | `rate` | More than the per-peer limit in a minute. |
 
@@ -118,6 +128,7 @@ event: out     data: {"id": 55, "channelId": 7, "sessionKey": "chan:7:dm:U777",
                       "body": {"text": "Done — **deployed**.", "format": "markdown"},
                       "created": 1759000000}
 event: status  data: {"channelId": 7, "sessionKey": "…", "address": {…}, "state": "working"}
+event: channel data: {"channelId": 7, "accountId": "T0123", "state": "active"}
 event: bye     data: {}
 ```
 
@@ -136,6 +147,11 @@ event: bye     data: {}
   it at the platform's limits.
 - `status` is a hint for a typing indicator. It isn't stored and may be
   dropped.
+- `channel` says the owner changed a channel of this adapter: `active`
+  (claimed, or switched back on), `disabled` or `removed`. It is for the
+  adapter's page, which can then stop saying "claim it". It is a hint too:
+  the verdicts on `/adapter/message` tell the same (`unclaimed`, `disabled`).
+  After `removed`, say hello again for that account to have it offered anew.
 
 **Reconnecting**
 
@@ -160,6 +176,53 @@ The response is `{"settled": n}`. Rows of other adapters are ignored.
 Delivery is **at-least-once**. Record each posted row's `ref` durably
 before you ack it. After a restart, a row you already posted (you have
 its `ref`) is acked without posting again.
+
+### Files: `POST /adapter/files` and `GET /adapter/files/{row}/{i}`
+
+**In:** upload each attachment first:
+
+- The request is `POST /adapter/files?channelId=&name=&mime=`, with the raw
+  bytes as the body (16 MiB at most). It answers `{fileId, name, mime, bytes}`.
+- Then name the ids in the message (`files: [...]`).
+- When the message finds its conversation, each file becomes one of that
+  run's session files, attached to the message. The model sees images and
+  reads documents.
+- A file whose message never comes is dropped after a day.
+
+**Out:** the model attaches session files to its reply (the
+`attach_to_reply` tool, offered to channel conversations). An outbox row
+then lists them in `body.files: [{name, mime, bytes, path}]`. Download
+each with `GET /adapter/files/{row id}/{index}` (only your own channels'
+rows) and post it with the text.
+
+### Linking: `POST /adapter/link`, `GET /adapter/links`, `DELETE /adapter/links/{channelId}/{peer}`
+
+A chat account can be linked to an xbin account, so the agent knows who is
+talking:
+
+1. The person messages the bot. A new person gets a one-hour code (so does
+   `/link`).
+2. Signed in to xbin, they paste the code on **the adapter's page**.
+3. The page calls `POST /adapter/link {code}` itself, from its frame, so
+   xbind attributes the call to that person.
+
+The agent takes the person from the attribution (`X-XBin-User`), never from
+the request:
+
+- A call without a person is refused.
+- So is one while viewing as someone else, or by a person who can't open
+  the agent.
+- The code proves the chat account; the session proves the xbin account.
+
+`GET /adapter/links` lists the caller's links. `DELETE` undoes one. The
+channel's owner can unlink anyone on the Automations page.
+
+Once linked:
+- Their DM is their own conversation: owned by them, private, and listed
+  with their chats in the agent's sidebar.
+- Their group messages carry their id.
+- The owner can admit only linked people (`dm.policy: linked`,
+  `groups.linkedOnly`) and trust them (`trustLinked`).
 
 ### `POST /adapter/event` and `GET /adapter/triggers`: pushing events
 
@@ -224,6 +287,7 @@ anyone the channel admits:
 | `/status` | The session, its run, lane and queue. |
 | `/stop` | Interrupt the current turn. |
 | `/help` | List the commands. |
+| `/link` | A code to link this chat account to an xbin account (DMs only). |
 | `/approve`, `/deny` | Settle a pending tool approval; trusted peers only. |
 
 Old conversations stay listed and searchable on the Automations page.
@@ -232,16 +296,19 @@ Old conversations stay listed and searchable on the Automations page.
 
 | Policy | Values (default first) |
 |---|---|
-| `dm.policy` | `pairing`, `allowlist`, `open`, `disabled` |
+| `dm.policy` | `pairing` (link, or the owner approves), `linked` (only linked people), `allowlist`, `open`, `disabled` |
+| `groups.linkedOnly` | `false`; `true` hears only linked people |
+| `trustLinked` | `false`; `true` counts linked people as trusted |
 | `groups.policy` | `allowlist` (by conversation id, `groups.allow`), `open`, `disabled` |
 | `groups.requireMention` | `true` |
 | `groups.followThreads` | `true` |
 | `ratePerMin` | 20 per peer |
 
-**Pairing:** an unknown DM sender gets an 8-character code, valid for an
-hour and repeated at most every 10 minutes. The channel's owner approves
-it on the Automations page. At most three strangers wait at once; beyond
-that, new ones get no code.
+**Codes:** an unknown DM sender gets an 8-character code, valid for an
+hour and repeated at most every 10 minutes. At most three strangers wait
+at once; beyond that, new ones get no code. With the code they link
+their own xbin account (above). Under `pairing`, the channel's owner can
+instead approve it on the Automations page.
 
 ### Lanes and tools
 
@@ -249,7 +316,7 @@ A reply to a chat is an egress, so channel conversations run in the
 agent's **web lane**, which has no internal reach.
 
 - With `privateLane: true` the private lane opens to trusted DM peers
-  and to `trustedGroups`. Combining it with open DMs is refused.
+  (with `trustLinked`, also to linked people) and to `trustedGroups`. Combining it with open DMs is refused.
 - Revoking trust moves the conversation to a new web-lane run on the
   next message.
 - `deny` lists tools a channel session never gets. The default is

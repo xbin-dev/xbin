@@ -135,10 +135,10 @@ examples, each demonstrating one seam:
 | `s3-archiver` | `archive` service `"s3"` | a **platform-service provider**: xbind itself is the client — components' `@archive` bindings stream backup tars here (manual, scheduled, offload; [14-lifecycle.md](14-lifecycle.md)) |
 
 (`chat` and `prometheus-viewer` round out the catalog as consumers of the
-`openai` and `prometheus` contracts; `slack` and `webhooks` consume
-`agent-inbox`: `slack` is an `alwaysOn` adapter holding Slack's Socket Mode
-connection and feeding an agent, and `webhooks` publishes `/hook/*` through
-ingress and turns each delivery into a trigger event
+`openai` and `prometheus` contracts; `webhooks` consumes `agent-inbox`,
+publishing `/hook/*` through ingress and turning each delivery into a trigger
+event. The `agent-messaging-bridge` *template* is the other side of the same
+contract: an `alwaysOn` adapter whose chat platform a coding agent adds
 ([agent-inbox.md](../agent-inbox.md)).) The pattern generalizes: a WireGuard
 tile is `provides {net, lan-ingress}`; a mail gateway is an `http` service
 with per-account `instances`; a WAF is an ingress terminator.

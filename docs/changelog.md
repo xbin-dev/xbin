@@ -35,17 +35,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Triggers have a section on the Automations page: the grant a bus
     trigger still needs, recent events, test fire, and "create a trigger"
     for a push nothing took. `/triggers…` routes (API.md §Triggers).
-- **New builtin tile `slack` (v1): a Slack adapter for agents.** It holds a
-  Socket Mode connection (no public URL; `alwaysOn`) and feeds the agent its
-  `agent` interface is bound to over [agent-inbox](agent-inbox.md).
-  - What reaches the agent: DMs, mentions (answered in a thread under
-    them), replies in the threads the agent follows, Slack's assistant
-    pane, and `/agent`.
-  - Events are spooled before they are acked; replies are posted as mrkdwn
-    and acked with their ts.
-  - The tile's page generates the Slack app manifest and takes the two
-    tokens.
-  - Egress: `bx bind apps/slack net=internet:*.slack.com:443`.
+- **New builtin template `agent-messaging-bridge`: connect an agent to any
+  chat platform.** A copy speaks the agent-inbox contract
+  ([agent-inbox.md](agent-inbox.md)) and does everything platform-independent:
+  - storing events before they are acknowledged, and delivering them in
+    order;
+  - attachments both ways;
+  - replies formatted, split, retried and never posted twice;
+  - the typing hint;
+  - a page to link chat accounts to xbin accounts;
+  - `alwaysOn` restarts.
+
+  The platform itself is one Go interface. A coding agent in the copy's
+  terminal adds it, guided by the template's `AGENTS.md` (which covers
+  sessions, multi-account and multi-channel use, DMs, files, identity,
+  formatting and testing). Until then the built-in console on the page plays
+  the platform, so the whole flow can be tried first.
 - **Agent template: chat channels.** An agent now `provides` an `inbox`
   (service `agent-inbox`, role `channel`). A chat adapter tile bound to it
   reports messages and pulls replies over the contract in
@@ -63,6 +68,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     what waits on you there (`attention` in the summary).
   - New run config field `deny` (tools a run never gets, inherited by
     subagents).
+  - **Files:** attachments go in through `POST /adapter/files` and become
+    session files on the message; the model sends files back with
+    `attach_to_reply` (run config field `channel`), and adapters download
+    them from `GET /adapter/files/{row}/{i}`.
+  - **Linking chat accounts to xbin accounts:** a person pastes the bot's
+    code (or `/link`) on the adapter's page, signed in; `POST /adapter/link`
+    takes them from xbind's attribution.
+    - Their DMs become their own conversations.
+    - Their group messages carry their id.
+    - New policies: `dm.policy: linked`, `groups.linkedOnly`, `trustLinked`.
+  - The outbox stream also sends `channel` events when the owner claims,
+    switches off or removes one of the adapter's channels, so its page can
+    show that.
 
   Additive.
 - **Bus push subscriptions: backends can react to bus events.**

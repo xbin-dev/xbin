@@ -29,9 +29,7 @@ export REPO
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
 # through llm-gw (hack/fakeopenai)
 export FAKEOPENAI_ADDR=${FAKEOPENAI_ADDR:-127.0.0.1:$((PORT + 10280))}
-# the scripted Slack the channels pass drives (hack/fakeslack), and the
-# ingress listener its webhooks arrive on
-export FAKESLACK_ADDR=${FAKESLACK_ADDR:-127.0.0.1:$((PORT + 10281))}
+# the ingress listener the channels pass's webhooks arrive on
 export INGRESS_ADDR=${INGRESS_ADDR:-127.0.0.1:$((PORT + 1))}
 mkdir -p "$OUT"
 mode="${1:-}"
@@ -42,7 +40,6 @@ passes=("$@")   # --shots [pass…]
 # stop a harness instance from another HARNESS_DIR still holding the port.
 stop() {
   pkill -f "bin/[f]akeopenai -addr $FAKEOPENAI_ADDR" 2>/dev/null || true
-  pkill -f "bin/[f]akeslack -addr $FAKESLACK_ADDR" 2>/dev/null || true
   pkill -f "bin/[x]bind --dev --workspace $WS" 2>/dev/null || true
   pkill -f "bin/[x]bind --dev .*--listen 127.0.0.1:$PORT" 2>/dev/null || true
   # xbind unmounts encrypted resources (gocryptfs) on its way out; give it
@@ -62,13 +59,12 @@ start() {
   # XBIN_SDK_PATH lets Go backends (llm-gw, the agent template) build
   # against this checkout's sdk/.
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
-  (cd "$REPO" && nohup bin/fakeslack -addr "$FAKESLACK_ADDR" > "$HARNESS_DIR/fakeslack.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
-build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai && go build -o bin/fakeslack ./hack/fakeslack); }
+build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai); }
 
 case "$mode" in
   --stop) stop; exit 0 ;;

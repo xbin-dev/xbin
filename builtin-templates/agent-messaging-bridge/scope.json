@@ -1,0 +1,9 @@
+{
+  // A scope of its own: its kv keeps the settings, the events it has taken
+  // from the platform but not yet handed to the agent (so a crash loses none),
+  // which replies it already posted, and the platform's own state. Credentials
+  // live in the vault.
+  "resources": {
+    "state": { "type": "kv" }
+  }
+}

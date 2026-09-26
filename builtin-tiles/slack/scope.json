@@ -1,8 +1,0 @@
-{
-  // apps/slack is a scope: its kv keeps the settings, the events it acked but
-  // hasn't handed to the agent yet (so a crash loses none), and which replies
-  // it already posted. The tokens live in the vault.
-  "resources": {
-    "state": { "type": "kv" }
-  }
-}

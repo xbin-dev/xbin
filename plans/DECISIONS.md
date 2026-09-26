@@ -2342,13 +2342,48 @@ Deviations and refinements made while implementing; all deliberate:
   - A channel running in the private lane by default: any reply could
     carry internal data out.
 
-  **The first adapter is Slack over Socket Mode** (`builtin-tiles/slack`,
-  alwaysOn per D84). Socket Mode needs no public URL; the HTTP Events API
-  would need ingress and request signing, so it comes later.
-  - Every event is written to the tile's kv before it is acked (Slack
-    never resends an acked event), then delivered in order.
-  - A reply's Slack `ts` is recorded before its ack, so a crash between
-    posting and acking doesn't post it twice.
+  **Adapters are built from a template, not shipped per platform.**
+  `builtin-templates/agent-messaging-bridge` implements the contract
+  once:
+  - an event is stored before the platform is acknowledged, then
+    delivered in order;
+  - a reply's platform id is recorded before its ack, so a crash never
+    posts it twice;
+  - attachments both ways, splitting, retries, the typing hint, the
+    linking page, alwaysOn (D84).
+
+  The platform is one Go interface (connect and receive, send, format,
+  fetch), which a coding agent writes in the copy's terminal from the
+  template's `AGENTS.md`. A built-in console plays the platform until
+  then.
+
+  Not chosen: builtin tiles per platform. Every platform's API drifts, and
+  each deployment wants its own variant. A Slack tile was built first and
+  replaced before release: it proved the contract, and its generic parts
+  became the template.
+
+  **Files** go through the contract both ways:
+  - In: `POST /adapter/files` stages an upload; the message names it; on
+    delivery (the new `inbound.Adopt` hook, inside the delivering
+    transaction) it becomes a session file attached to the message.
+  - Out: the model's `attach_to_reply` tool (offered when `Config.Channel`
+    is set) puts files on the turn's outbox row; the adapter downloads
+    them from `GET /adapter/files/{row}/{i}` (its own rows only).
+
+  **Linking a chat account to an xbin account.** The person pastes the
+  code the bot gave them (unasked when they are new, or on `/link`) on the
+  adapter's page while signed in. The page calls `POST /adapter/link`
+  itself, and the agent takes the person from xbind's attribution
+  (`X-XBin-User` with a level on the agent, and no view-as) — never from
+  the adapter's word. A bridge therefore can't make anyone anyone: the code
+  proves the chat account, the session proves the xbin account.
+  - Linked, a person's DM is their own conversation (owned by them, listed
+    with their chats) and their group messages carry their id.
+  - A session changing hands rotates to a new run.
+  - The owner can hear only linked people (`dm.policy: linked`,
+    `groups.linkedOnly`) and trust them (`trustLinked`).
+  - Not chosen: storing the mapping in the adapter. The agent is what must
+    trust it.
 
 - **D87 — Event triggers: bus events and tile pushes start agent work;
   data classes keep the lane firewall across triggers (2026-09-26).** Users

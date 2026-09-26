@@ -1,0 +1,279 @@
+<!doctype html>
+<!-- agent-messaging-bridge: the bridge's page. It tells you what this copy still
+     needs (a platform — a coding agent in this tile's terminal adds one, AGENTS.md —
+     the agent binding, the claim, credentials, egress), lets anyone signed in link
+     their chat account to their workspace account, and, while no platform is added,
+     plays the chat platform itself (the console). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>messaging bridge</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
+    main { max-width: 820px; margin: 0 auto; padding: 14px 16px 28px; }
+    h3 { margin: 0; font-size: 15px; }
+    h4 { margin: 20px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .hd { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--bx-border); }
+    .pill.ok { color: var(--bx-green); border-color: var(--bx-green); }
+    .pill.warn { color: var(--bx-amber, #f2a71b); border-color: var(--bx-amber, #f2a71b); }
+    .pill.err { color: var(--bx-red); border-color: var(--bx-red); }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    .note { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--bx-accent); background: var(--bx-panel-2); }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 10px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .card.custom { border-color: var(--bx-accent); }
+    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    .cmd { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .cmd code { flex: 1; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2); overflow-x: auto; white-space: nowrap; }
+    ul.check { list-style: none; padding: 0; margin: 4px 0; }
+    ul.check li { margin: 6px 0; }
+    ul.check .ok { color: var(--bx-green); }
+    ul.check .todo { color: var(--bx-amber, #f2a71b); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+    input, select, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
+    input.wide { flex: 1; min-width: 220px; }
+    textarea { width: 100%; box-sizing: border-box; }
+    button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
+    button.rm { color: var(--bx-red); }
+    .transcript { border: 1px solid var(--bx-border); border-radius: 7px; padding: 6px 10px; max-height: 360px; overflow-y: auto; background: var(--bx-panel); }
+    .line { padding: 4px 0; border-bottom: 1px solid var(--bx-border); }
+    .line:last-child { border-bottom: 0; }
+    .line .who { font-weight: 600; }
+    .line.out .who { color: var(--bx-accent); }
+    .line .where { color: var(--bx-muted); font-size: 11px; }
+    .line .txt { white-space: pre-wrap; }
+    .line img { max-width: 240px; max-height: 160px; display: block; margin-top: 4px; border-radius: 4px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    td.t { white-space: nowrap; color: var(--bx-muted); }
+    .k-error { color: var(--bx-red); }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module">
+import { html, render, nothing } from 'lit';
+import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+
+const self = window.xbin?.self || 'apps/messaging-bridge';
+const agentURL = () => window.xbin?.iface?.('agent')?.url || '';
+let st = null, err = '', note = '', transcript = [], links = null, linkErr = '', linkNote = '';
+const secrets = {};
+const draft = { id: 'u1', name: 'Uma', conv: 'dm', thread: '', mentioned: true, text: '', files: [] };
+const CONVS = {
+  dm: { id: 'D1', type: 'dm', name: '' },
+  general: { id: 'C1', type: 'channel', name: 'general' },
+  random: { id: 'C2', type: 'channel', name: 'random' },
+  group: { id: 'G1', type: 'group', name: 'Uma, Bo and the bot' },
+};
+const PROMPT = (name) => `Add ${name || '<platform>'} support to this messaging bridge: follow AGENTS.md — write _backend/platform_${(name || 'x').toLowerCase()}.go, test it against a fake, and tell me which credentials and egress it needs.`;
+let platformName = 'Slack';
+
+// the agent, called from this page: xbind attributes YOU, which is what
+// makes linking safe (the agent never takes a person from the bridge's word)
+async function agentCall(path, opt) {
+  const base = agentURL();
+  if (!base) throw new Error('this bridge is not bound to an agent yet');
+  const r = await window.xbin.fetch(base + path, opt);
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(b.error || r.statusText);
+  return b;
+}
+
+async function load() {
+  try { st = await api('/status'); err = ''; } catch (e) { err = e.message; }
+  if (st?.state?.platform === 'console') {
+    try { transcript = (await api('/console/transcript')).lines || []; } catch { /* not running yet */ }
+  }
+  paint();
+}
+async function loadLinks() {
+  try { links = (await agentCall('/adapter/links')).links || []; linkErr = ''; } catch (e) { links = null; linkErr = e.message; }
+  paint();
+}
+async function act(fn, said = '') {
+  err = '';
+  try { const r = await fn(); note = typeof r === 'string' ? r : said; } catch (e) { err = e.message; note = ''; }
+  await load();
+}
+const copy = (text, ev) => navigator.clipboard?.writeText(text).then(() => { ev.target.textContent = 'Copied'; setTimeout(() => { ev.target.textContent = 'Copy'; }, 1500); }, () => {});
+const cmd = (text) => html`<div class="cmd"><code>${text}</code><button @click=${(e) => copy(text, e)}>Copy</button></div>`;
+const ago = (s) => { const d = Math.max(0, Date.now() / 1000 - s); return d < 90 ? 'just now' : d < 5400 ? `${Math.round(d / 60)} min ago` : `${Math.round(d / 3600)} h ago`; };
+
+const PHASE = {
+  connected: ['ok', 'connected'], connecting: ['warn', 'connecting…'], 'needs-agent': ['warn', 'not bound to an agent'],
+  'needs-secrets': ['warn', 'needs credentials'], error: ['err', 'not connected'],
+};
+
+function headTpl() {
+  const s = st.state || {};
+  const [cls, label] = PHASE[s.phase] || ['warn', s.phase || '…'];
+  return html`<div class="hd"><h3>Messaging bridge</h3><span class="muted">${st.info?.title || s.platform}</span>
+      <span class="pill ${cls}" data-phase=${s.phase}>${label}</span><span style="flex:1"></span>
+      <button @click=${() => act(() => api('/reconnect', { method: 'POST' }), 'Reconnecting…')}>Reconnect</button></div>
+    ${s.phase === 'error' ? html`<div class="err">${s.detail}</div>` : nothing}
+    ${err ? html`<div class="err">${err}</div>` : nothing}${note ? html`<div class="note small">${note}</div>` : nothing}`;
+}
+
+// customiseTpl: while only the console exists, say how to add a platform.
+function customiseTpl() {
+  if ((st.platforms || []).some((p) => p !== 'console')) return nothing;
+  return html`<div class="card custom" data-customise>
+    <b>This bridge speaks no chat platform yet.</b> It is a template: it already does the hard parts — conversations
+    per DM and per thread, who may talk, files both ways, linking chat accounts to workspace accounts, retries,
+    restarts — and a coding agent adds the platform you use.
+    <ol class="small">
+      <li>Open a terminal on this tile and start your coding agent there (e.g. <code>claude</code>).</li>
+      <li>Ask it — for <input .value=${platformName} @input=${(e) => { platformName = e.target.value; paint(); }} style="width:120px">:
+        ${cmd(PROMPT(platformName))}</li>
+      <li>It writes <code>_backend/platform_&lt;name&gt;.go</code> (its guide is this tile's <code>AGENTS.md</code>); the bridge restarts
+        on save and this page then asks for that platform's credentials and egress.</li>
+    </ol>
+    <div class="small muted">Meanwhile the console below plays the chat platform, so you can try everything now.</div>
+  </div>`;
+}
+
+function wiringTpl() {
+  const s = st.state || {};
+  const info = st.info || {};
+  const accts = s.accounts || [];
+  const item = (ok, text) => html`<li><span class=${ok ? 'ok' : 'todo'}>${ok ? 'done' : 'to do'}</span> — ${text}</li>`;
+  return html`<h4>Wiring</h4><ul class="check small">
+    ${item(st.agent, html`bound to an agent${st.agent ? '' : html`: ${cmd(`bx bind ${self} agent=apps/agent`)}`}`)}
+    ${(info.secrets || []).length ? item((info.secrets || []).every((f) => st.secretsSet?.[f.name]), 'credentials (below)') : nothing}
+    ${info.egress ? item(s.phase === 'connected', html`egress to the platform: ${cmd(`bx bind ${self} net=${info.egress}`)}`) : nothing}
+    ${accts.length ? accts.map((a) => item(a.claimed === 'active', html`<b>${a.name}</b>: ${a.claimed === 'active' ? 'claimed on the agent'
+        : a.claimed === 'disabled' ? 'switched off on the agent' : html`claim it on the agent's <b>Automations</b> page — until then every message is ignored`}`))
+      : item(false, 'an account connected (once the platform runs)')}
+  </ul>
+  ${(info.setup || []).length ? html`<ol class="small">${info.setup.map((s) => html`<li>${s}</li>`)}</ol>` : nothing}
+  ${(st.platforms || []).length > 1 ? html`<div class="row small">platform
+      <select @change=${(e) => act(() => api('/config', jbody({ platform: e.target.value }, 'PUT')), 'Switching…')}>
+        ${st.platforms.map((p) => html`<option ?selected=${p === s.platform}>${p}</option>`)}</select></div>` : nothing}`;
+}
+
+function secretsTpl() {
+  const fields = st.info?.secrets || [];
+  if (!fields.length) return nothing;
+  return html`<h4>Credentials</h4>${fields.map((f) => html`<div class="row">
+      <label class="small" style="width:150px">${f.label}</label>
+      <input class="wide mono" type="password" .value=${secrets[f.name] || ''} @input=${(e) => { secrets[f.name] = e.target.value; }}
+        placeholder=${st.secretsSet?.[f.name] ? 'set — paste to replace' : (f.prefix ? f.prefix + '…' : '')}></div>
+      ${f.hint ? html`<div class="muted small" style="margin-left:158px">${f.hint}</div>` : nothing}`)}
+    <div class="row"><button class="go" @click=${() => act(async () => {
+      const body = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v.trim()));
+      await api('/config/secrets', jbody(body, 'PUT'));
+      for (const k of Object.keys(secrets)) delete secrets[k];
+    }, 'Saved — they are in the vault.')}>Save</button></div>`;
+}
+
+let code = '';
+function linkTpl() {
+  return html`<h4>Link your chat account</h4>
+    <div class="small">Message the bot — a new person gets a code, or send it <code>/link</code> — and paste the code here, signed in
+      as yourself: the agent then knows your chat account is you (your DMs become your own conversations).</div>
+    <div class="row"><input class="mono" placeholder="code" .value=${code} @input=${(e) => { code = e.target.value; }}
+        @keydown=${(e) => { if (e.key === 'Enter') doLink(); }}>
+      <button class="go" @click=${doLink}>Link</button></div>
+    ${linkErr ? html`<div class="err small">${linkErr}</div>` : nothing}${linkNote ? html`<div class="note small" data-linked>${linkNote}</div>` : nothing}
+    ${links && links.length ? html`<div class="small">${links.map((l) => html`<div class="row">
+        <span>${l.name || l.peerId}</span><span class="muted mono">${l.platform} · ${l.account} · ${l.peerId}</span><span style="flex:1"></span>
+        <button @click=${() => unlink(l)}>Unlink</button></div>`)}</div>` : nothing}`;
+}
+async function doLink() {
+  const c = code.trim();
+  if (!c) return;
+  linkErr = linkNote = '';
+  try {
+    const r = await agentCall('/adapter/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: c }) });
+    code = '';
+    linkNote = `Linked ${r.name || r.peerId} (${r.platform}) to your account.`;
+  } catch (e) { linkErr = e.message; }
+  await loadLinks();
+}
+async function unlink(l) {
+  try { await agentCall(`/adapter/links/${l.channelId}/${encodeURIComponent(l.peerId)}`, { method: 'DELETE' }); } catch (e) { linkErr = e.message; }
+  await loadLinks();
+}
+
+// --- the console -------------------------------------------------------------------
+
+const imgs = new Map(); // console file id → object URL
+function fileTpl(f, out) {
+  if (out && f.id && (f.mime || '').startsWith('image/')) {
+    if (!imgs.has(f.id)) {
+      imgs.set(f.id, '');
+      window.xbin.fetch(`/api/${self}/console/files/${f.id}`).then((r) => r.blob()).then((b) => { imgs.set(f.id, URL.createObjectURL(b)); paint(); }).catch(() => {});
+    }
+    return imgs.get(f.id) ? html`<img src=${imgs.get(f.id)} alt=${f.name}>` : html`<div class="muted small">${f.name}</div>`;
+  }
+  return html`<div class="muted small">file: ${f.name} (${f.size} B)</div>`;
+}
+function consoleTpl() {
+  if (st.state?.platform !== 'console') return nothing;
+  const set = (k) => (e) => { draft[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; paint(); };
+  const names = {}; // replies carry only the conversation's id: name it from what was said there
+  for (const l of transcript) if (l.conversation.name) names[l.conversation.id] = l.conversation.name;
+  const where = (l) => (l.conversation.type === 'dm' ? 'DM' : '#' + (l.conversation.name || names[l.conversation.id] || l.conversation.id)) + (l.thread ? ` · thread ${l.thread}` : '');
+  const lines = transcript.filter((l, i) => l.dir !== 'typing' || i === transcript.length - 1);
+  return html`<h4>Console</h4>
+    <div class="small muted">You are the chat platform: send as a pretend person; the agent's replies appear here. Click a message to reply in its thread.</div>
+    <div class="transcript" data-transcript>${lines.length ? lines.map((l) => html`<div class="line ${l.dir}" data-dir=${l.dir}
+        @click=${() => { if (l.conversation.type !== 'dm') { draft.thread = l.thread || l.messageId; paint(); } }}>
+        <span class="who">${l.dir === 'in' ? l.from : l.dir === 'out' ? 'agent' : 'agent is working'}</span>
+        <span class="where">${where(l)}${l.kind && l.kind !== 'answer' ? ` · ${l.kind}` : ''}</span>
+        <div class="txt">${l.text}</div>${(l.files || []).map((f) => fileTpl(f, l.dir === 'out'))}</div>`)
+      : html`<div class="muted small">nothing yet</div>`}</div>
+    <div class="row">
+      <input style="width:70px" class="mono" .value=${draft.id} @input=${set('id')} title="their chat user id">
+      <input style="width:90px" .value=${draft.name} @input=${set('name')} title="their name">
+      <select @change=${(e) => { draft.conv = e.target.value; draft.thread = ''; paint(); }}>
+        ${Object.keys(CONVS).map((k) => html`<option value=${k} ?selected=${draft.conv === k}>${k === 'dm' ? 'a DM with the bot' : k === 'group' ? 'a group DM' : '#' + k}</option>`)}</select>
+      ${draft.conv !== 'dm' ? html`<label class="small"><input type="checkbox" .checked=${draft.mentioned} @change=${set('mentioned')}> @bot</label>` : nothing}
+      ${draft.thread ? html`<span class="small muted">in thread ${draft.thread}</span><button @click=${() => { draft.thread = ''; paint(); }}>×</button>` : nothing}
+    </div>
+    <div class="row"><input class="wide" data-console-text .value=${draft.text} @input=${set('text')} placeholder="say something (or /help, /new, /link)"
+        @keydown=${(e) => { if (e.key === 'Enter') send(); }}>
+      <input type="file" multiple @change=${(e) => { draft.files = [...e.target.files]; }}>
+      <button class="go" @click=${send}>Send</button></div>`;
+}
+const b64 = (file) => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = bad; r.readAsDataURL(file); });
+async function send() {
+  if (!draft.text.trim() && !draft.files.length) return;
+  const files = await Promise.all(draft.files.map(async (f) => ({ name: f.name, mime: f.type, data: await b64(f) })));
+  const conv = CONVS[draft.conv];
+  await act(() => api('/console/send', jbody({ as: { id: draft.id, name: draft.name }, conversation: conv, thread: draft.thread,
+    mentioned: conv.type === 'dm' || draft.mentioned, text: draft.text, files }, 'POST')));
+  draft.text = '';
+  draft.files = [];
+  paint();
+}
+
+function eventsTpl() {
+  const ev = (st.events || []).slice().reverse();
+  return html`<h4>Recent activity</h4>${ev.length ? html`<table>${ev.map((e) => html`<tr>
+      <td class="t">${ago(e.at)}</td><td class="k-${e.kind}">${e.kind === 'in' ? '→ agent' : e.kind === 'out' ? '← agent' : e.kind}</td>
+      <td>${e.where || ''}${e.who ? html` <span class="muted">${e.who}</span>` : nothing}</td><td>${e.text || ''}</td><td class="muted">${e.verdict || ''}</td></tr>`)}</table>`
+    : html`<div class="muted small">nothing yet (kept since this bridge last started)</div>`}`;
+}
+
+function paint() {
+  // the transcript follows its newest message unless you scrolled up to read
+  const tr = document.querySelector('[data-transcript]');
+  const atEnd = !tr || tr.scrollHeight - tr.scrollTop - tr.clientHeight < 24;
+  render(st ? html`${headTpl()}${customiseTpl()}${wiringTpl()}${secretsTpl()}${linkTpl()}${consoleTpl()}${eventsTpl()}`
+    : html`${err ? html`<div class="err">${err}</div>` : html`<div class="muted">loading…</div>`}`, document.getElementById('app'));
+  const now = document.querySelector('[data-transcript]');
+  if (now && atEnd) now.scrollTop = now.scrollHeight;
+}
+
+load();
+loadLinks();
+setInterval(() => { if (document.visibilityState === 'visible') load(); }, 2000);
+</script>
+</body>
+</html>

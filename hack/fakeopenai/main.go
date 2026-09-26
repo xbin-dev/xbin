@@ -9,6 +9,8 @@
 //
 //	hello        thinking "Considering the greeting…", then "Hello from the fake model."
 //	use a tool   a note call with summary "Jot down a quick note" → "Noted it."
+//	make a file  file_write note.txt, then attach_to_reply it (a chat channel's
+//	             reply files, D86) → "Here is the file."
 //	delegate     subagent_spawn {task:"count to three", label:"counter"} → the
 //	             subagent thinks and answers "one, two, three" → "The helper counted."
 //	slow tool    2.5 s, then a note "Take a slow note"; a later steer is answered
@@ -168,6 +170,10 @@ func script(conv []turn, system string) plan {
 		switch last.Tool {
 		case "note":
 			return plan{Text: "Noted it."}
+		case "file_write":
+			return plan{Calls: []call{{"attach_to_reply", map[string]any{"paths": []string{"note.txt"}, "summary": "Attach the file"}}}}
+		case "attach_to_reply":
+			return plan{Text: "Here is the file."}
 		case "subagent_spawn", "spawn_subagent":
 			if strings.Contains(last.Text, "background") {
 				return plan{Text: "Started three helpers."}
@@ -181,6 +187,8 @@ func script(conv []turn, system string) plan {
 		return plan{Text: "Got your steer: " + lastUser}
 	case strings.Contains(lastUser, "hello"):
 		return plan{Thinking: []string{"Considering ", "the ", "greeting…"}, Text: "Hello from the fake model."}
+	case strings.Contains(lastUser, "make a file"):
+		return plan{Calls: []call{{"file_write", map[string]any{"path": "note.txt", "content": "made by the fake model", "summary": "Write the file"}}}}
 	case strings.Contains(lastUser, "use a tool"):
 		return plan{Calls: []call{{"note", map[string]any{"text": "checked", "summary": "Jot down a quick note"}}}}
 	case strings.Contains(lastUser, "delegate"):
