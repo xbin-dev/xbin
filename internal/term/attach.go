@@ -190,6 +190,7 @@ func (s *Session) attach(conn *websocket.Conn) {
 		hello, _ := json.Marshal(map[string]any{
 			"op": "session", "id": s.ID, "net": s.Net, "baseOutdated": s.baseOld,
 			"label": s.Label, "scopes": s.Scopes, "netNote": s.NetNote,
+			"vm":      s.vm,
 			"echoAck": true, // this xbind acks input and answers pings (D70)
 		})
 		_ = conn.WriteMessage(websocket.TextMessage, hello)

@@ -31,6 +31,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vm"
 	"github.com/xbin-dev/xbin/internal/watch"
 )
 
@@ -52,6 +53,7 @@ type State struct {
 	Broker  *broker.Broker
 	Proxy   *proxy.Proxy
 	Server  *server.Server
+	VM      *vm.Manager // VM sandboxes (vm.go); nil without isolation
 	Started time.Time
 
 	trusted          []netip.Prefix
@@ -101,6 +103,7 @@ var Steps = []Step{
 	{"ingress", (*State).stepIngress},
 	{"cgroup", (*State).stepCgroup},
 	{"isolation", (*State).stepIsolation},
+	{"vm", (*State).stepVM},
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
@@ -664,6 +667,7 @@ func (st *State) stepServer() error {
 	st.Auth.SetClientIP(srv.ClientIP)
 	st.Broker.Register(srv)
 	st.registerRuntimeAPI(srv)
+	st.registerVMAPI(srv)
 	st.Server = srv
 	return nil
 }

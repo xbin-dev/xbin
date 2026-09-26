@@ -34,6 +34,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vm"
 )
 
 const (
@@ -65,6 +66,7 @@ type Session struct {
 	kind    string // KindShell (a PTY) or KindAgent (agent.go: no PTY, an ACP driver over pipes)
 	agent   *agentState
 	pgid    bool // the process leads its own group (the non-isolated agent host): kill the group
+	vm      bool // a VM sandbox (vm.go)
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -145,8 +147,12 @@ type Manager struct {
 	// workspace down. Admin terminals stay unlimited (dev builds are hungry).
 	Cgroup interface {
 		Add(name string, pid int)
+		AddMem(name string, pid int, memMax int64)
 		Remove(name string)
 	}
+
+	// VM runs ?vm=1 sessions as Firecracker microVMs (vm.go); nil = none.
+	VM *vm.Manager
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -178,6 +184,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// api=0 opens a code-only terminal: no terminal token is minted, so it can
 	// read/edit source but can't call the live tile (or xbin) API. Default on.
 	apiAccess := r.URL.Query().Get("api") != "0"
+	wantVM := r.URL.Query().Get("vm") == "1" // a VM sandbox (vm.go)
 	p := auth.PrincipalOf(r)
 
 	var (
@@ -219,7 +226,9 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 			return
 		}
-		s, err = m.create(m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess))
+		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
+		o.vm = wantVM
+		s, err = m.create(o)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -271,6 +280,7 @@ type openOpts struct {
 	readable   []string          // allow-list view: components bound into the mount (D40)
 	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
+	vm         bool              // a VM sandbox (vm.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -353,6 +363,13 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		slog.Error("terminal spawn failed", "cwd", filepath.ToSlash(rel), "err", err)
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
+	id := util.RandomToken(8)
+	// A VM joins its own leaf before it can touch guest memory (vm.go);
+	// a restricted session's leaf is added below.
+	vmLeaf := o.vm && m.Cgroup != nil && cmd.Process != nil
+	if vmLeaf {
+		m.Cgroup.AddMem("term-"+id, cmd.Process.Pid, m.vmLeafBytes())
+	}
 	// The egress relay can only start once init has created the TUN in its netns
 	// (post-fork), so wire it up after StartWithSize.
 	var rl *relay.Relay
@@ -361,7 +378,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	}
 
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell,
+		ID: id, Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
@@ -374,10 +391,11 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	// A restricted session's sandbox goes into its own resource-limited cgroup
 	// leaf (D17d) — children (the shell, builds) follow the leader in.
-	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil
+	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil && !vmLeaf
 	if limited {
 		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
 	}
+	limited = limited || vmLeaf
 
 	go s.pump(func() {
 		m.remove(s.ID)
@@ -390,7 +408,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 			m.Cgroup.Remove("term-" + s.ID)
 		}
 	})
-	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", o.net, "restricted", o.restricted)
+	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", o.net, "restricted", o.restricted, "vm", o.vm)
 	return s, nil
 }
 
@@ -586,8 +604,11 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	}
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
+	// A VM terminal's upper lives in the guest (vm.go).
 	envKey := termKey(rel)
-	if m.acquireEnv(envKey) {
+	if o.vm {
+		envKey = ""
+	} else if m.acquireEnv(envKey) {
 		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
 		ver := m.ensureLayerBase(layer)        // stamp on first use (new→current, legacy→v0)
 		base, ok := resolveBase(m.Rootfs, ver) // pin the upper to the base it was built on
@@ -625,9 +646,19 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		relayNet = true
 		pol, _ = sandbox.Parse(o.netRules)
 	}
+	releaseVM := func() {}
+	if o.vm {
+		release, _, err := m.applyVM(spec, rel, o)
+		if err != nil {
+			dropView()
+			return nil, nil, nil, "", nil, err
+		}
+		releaseVM = release
+	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
 		dropView()
+		releaseVM()
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -669,6 +700,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	cleanup := func() {
 		h.Cleanup()
 		dropView()
+		releaseVM()
 	}
 	return cmd, cleanup, post, envKey, env, nil
 }

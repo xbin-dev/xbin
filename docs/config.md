@@ -43,6 +43,10 @@ xbind version
 | FuseOverlayfs |  | `XBIN_FUSE_OVERLAYFS` |  | `internal/sandbox` | the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay) |
 | SandboxDebug |  | `XBIN_SANDBOX_DEBUG` |  | `internal/sandbox` | set to anything to make the sandbox init log its steps |
 | BuildNet |  | `XBIN_BUILD_NET` |  | `internal/runner` | network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN) |
+| Firecracker |  | `XBIN_FIRECRACKER` |  | `internal/vm` | the Firecracker binary VM sandboxes run in their namespace jail (default: bundled next to xbind, then PATH; none ⇒ VM sandboxes unavailable) |
+| VMKernel |  | `XBIN_VM_KERNEL` |  | `internal/vm` | the VM sandboxes' guest kernel (default: vmlinux next to xbind) |
+| VMAgent |  | `XBIN_VM_AGENT` |  | `internal/vm` | the guest agent packed as VM sandboxes' initramfs (default: xbin-vmagent next to xbind) |
+| MkfsErofs |  | `XBIN_MKFS_EROFS` |  | `internal/vm` | the static mkfs.erofs that builds the VM guests' read-only rootfs image (default: bundled next to xbind, then PATH) |
 
 The vault's boot mode follows from these settings, first match wins:
 `XBIN_VAULT_PASSPHRASE` set → auto-unseal; `--insecure-vault` or `--no-auth` →

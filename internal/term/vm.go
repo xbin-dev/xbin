@@ -1,0 +1,107 @@
+package term
+
+import (
+	"context"
+	"errors"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/vm"
+)
+
+// VM terminals (plans/vm-sandbox.md): the same sandbox spec a namespace
+// terminal gets, turned by internal/vm into a Firecracker microVM that runs
+// the shell as root in its own kernel. The browser asks with ?vm=1 (the
+// title-bar toggle); the admin's workspace policy has to allow it.
+
+// VMStatus is what the terminal picker needs to show the VM toggle.
+type VMStatus struct {
+	Available bool   `json:"available"`        // a VM terminal would start
+	Reason    string `json:"reason,omitempty"` // why not
+	MemMiB    int    `json:"memMiB,omitempty"`
+	VCPUs     int    `json:"vcpus,omitempty"`
+}
+
+// VMStatus reports whether VM terminals can open here, and why not.
+func (m *Manager) VMStatus() VMStatus {
+	if m.VM == nil {
+		return VMStatus{Reason: "VM sandboxes need isolation (xbind --isolate)"}
+	}
+	p := m.VM.Policy()
+	if !p.Terminals {
+		return VMStatus{Reason: "an admin hasn't enabled VM terminals for this workspace"}
+	}
+	if st := m.VM.Status(); !st.Available {
+		return VMStatus{Reason: st.Reason}
+	}
+	return VMStatus{Available: true, MemMiB: p.MemMiB, VCPUs: p.VCPUs}
+}
+
+// vmRefusal is why a session with these options can't be a VM ("" = it can).
+func (m *Manager) vmRefusal(o openOpts) string {
+	if st := m.VMStatus(); !st.Available {
+		return st.Reason
+	}
+	if o.netHost {
+		return "host networking isn't available in a VM terminal — pick another network scope"
+	}
+	if o.gpu != "" && o.gpu != "none" {
+		return "GPUs aren't available in VM terminals"
+	}
+	return ""
+}
+
+// applyVM turns spec into a VM sandbox under the workspace policy and
+// reserves its memory; release gives the reservation back when the session
+// ends. memBytes is the cgroup leaf's cap (guest + VMM overhead).
+func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts) (release func(), memBytes int64, err error) {
+	if why := m.vmRefusal(o); why != "" {
+		return nil, 0, errors.New(why)
+	}
+	p := m.VM.Policy()
+	release, err = m.VM.Reserve(p.MemMiB)
+	if err != nil {
+		return nil, 0, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	if err := m.VM.Apply(ctx, spec, vm.Options{
+		TTY:      o.kind != KindAgent,
+		VCPUs:    p.VCPUs,
+		MemMiB:   p.MemMiB,
+		Hostname: vmHostname(rel),
+	}); err != nil {
+		release()
+		return nil, 0, err
+	}
+	return release, int64(p.MemMiB+vm.VMOverheadMiB) << 20, nil
+}
+
+// vmLeafBytes is a VM session's cgroup leaf cap: guest memory + overhead.
+func (m *Manager) vmLeafBytes() int64 {
+	return int64(m.VM.Policy().MemMiB+vm.VMOverheadMiB) << 20
+}
+
+// vmHostname names the guest after its tile: lowercase letters, digits and
+// dashes, at most 63.
+func vmHostname(rel string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(path.Base("/" + rel)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
+			b.WriteByte('-')
+		}
+	}
+	h := strings.Trim(b.String(), "-")
+	if h == "" {
+		h = "xbin-vm"
+	}
+	if len(h) > 63 {
+		h = h[:63]
+	}
+	return h
+}

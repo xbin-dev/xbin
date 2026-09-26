@@ -31,6 +31,7 @@ type SessionInfo struct {
 	Clients    int     `json:"clients"` // sockets attached right now (another browser, a second tab)
 	EnvHeld    bool    `json:"envHeld"` // this session holds the tile's persistent layer
 	Kind       string  `json:"kind"`    // shell | agent (agent.go, D74)
+	VM         bool    `json:"vm"`      // a VM sandbox (vm.go)
 	Provider   string  `json:"provider,omitempty"`
 	Mode       string  `json:"mode,omitempty"`
 	Model      string  `json:"model,omitempty"`   // the agent's current model option, when it exposes one
@@ -47,7 +48,7 @@ func (s *Session) info() SessionInfo {
 	}
 	si := SessionInfo{
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
-		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell,
+		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm,
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.lastActive.UTC().Format(time.RFC3339),
 		Clients:    len(s.clients), EnvHeld: s.envKey != "",

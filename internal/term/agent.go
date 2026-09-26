@@ -115,6 +115,7 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 type AgentOpen struct {
 	Cwd, Net, GPU, Provider, Mode, Name, Resume string
 	NoAPI                                       bool // a code-only sandbox: no terminal token (api=0 on a shell)
+	VM                                          bool // a VM sandbox (vm.go)
 	Options                                     map[string]string
 }
 
@@ -162,7 +163,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
-	o.kind = KindAgent
+	o.kind, o.vm = KindAgent, a.VM
 	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
 	if err != nil {
 		if errors.Is(err, errLimit) {
@@ -246,6 +247,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("spawn agent host: %w", err))
 	}
+	id := util.RandomToken(8)
+	vmLeaf := o.vm && m.Cgroup != nil && cmd.Process != nil // before the guest touches memory
+	if vmLeaf {
+		m.Cgroup.AddMem("term-"+id, cmd.Process.Pid, m.vmLeafBytes())
+	}
 	var rl *relay.Relay
 	if postStart != nil {
 		rl = postStart()
@@ -253,7 +259,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
 	s := &Session{
-		ID: util.RandomToken(8), Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil,
+		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
@@ -264,10 +270,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 	m.changed("open", s)
-	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil
+	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil && !vmLeaf
 	if limited {
 		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
 	}
+	limited = limited || vmLeaf
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —

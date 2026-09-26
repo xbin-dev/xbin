@@ -147,17 +147,27 @@ func mount(t *testing.T) *server.Server {
 
 var registerLit = regexp.MustCompile(`RegisterAPI\("([^"]+)"`)
 
-// mainRoutes returns the patterns internal/boot/api.go (the runtime API the
-// boot mounts across runner, broker and ingress) registers inline.
+// mainRoutes returns the patterns internal/boot (the runtime API the boot
+// mounts across runner, broker, ingress and VM sandboxes: api.go, vm.go)
+// registers inline.
 func mainRoutes(t *testing.T) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "internal", "boot", "api.go"))
+	files, err := filepath.Glob(filepath.Join("..", "..", "internal", "boot", "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out []string
-	for _, m := range registerLit.FindAllStringSubmatch(string(b), -1) {
-		out = append(out, m[1])
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range registerLit.FindAllStringSubmatch(string(b), -1) {
+			out = append(out, m[1])
+		}
 	}
 	return out
 }

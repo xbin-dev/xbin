@@ -53,9 +53,9 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, api?, gpu?, name?, resume?} → SessionInfo (status starting).
-// net/api/gpu are the sandbox pickers a shell's socket takes (api false = a
-// code-only sandbox, no terminal token). resume names a past session of the
+// mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
+// net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
+// code-only sandbox, no terminal token; vm true = a VM sandbox). resume names a past session of the
 // caller's on this tile (GET /agent/history) to reopen (session/load); 409
 // when that agent cannot.
 func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
@@ -66,10 +66,11 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
 		API                                                      *bool
+		VM                                                       bool
 		Options                                                  map[string]string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, name?, resume?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -86,7 +87,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		body.Name = body.Name[:64]
 	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
-		NoAPI: body.API != nil && !*body.API, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options})
+		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options})
 	if err != nil {
 		apiErr(w, code, err.Error())
 		return
@@ -95,7 +96,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentRestart restarts an agent session with other sandbox pickers
-// {net?, api?, gpu?} (fixed when a sandbox starts): the session ends and a
+// {net?, api?, gpu?, vm?} (fixed when a sandbox starts; vm absent = keep): the session ends and a
 // new one opens on the same tile with the same provider, mode, settings and
 // name — resuming the conversation where the agent can reopen its own
 // session. Creator only (the new session is the caller's). → {session,
@@ -107,13 +108,13 @@ func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Net, GPU string
-		API      *bool
+		API, VM  *bool
 	}
 	if r.ContentLength != 0 && json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {net?, api?, gpu?}")
+		apiErr(w, http.StatusBadRequest, "need {net?, api?, gpu?, vm?}")
 		return
 	}
-	info, resumed, code, err := s.Term.RestartAgent(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API)
+	info, resumed, code, err := s.Term.RestartAgent(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM)
 	if err != nil {
 		apiErr(w, code, err.Error())
 		return

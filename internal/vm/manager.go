@@ -29,6 +29,12 @@ type Manager struct {
 	keys  map[string]*sync.Mutex
 	Logf  func(format string, args ...any)
 	Debug bool
+
+	pmu     sync.Mutex
+	policy  Policy
+	ploaded bool
+	umu     sync.Mutex
+	used    Usage
 }
 
 // Status is whether VM sandboxes can start here, and if not, why.

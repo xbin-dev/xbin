@@ -20,7 +20,7 @@ import (
 // carry over. Only the session's creator may: the new one mounts the
 // caller's $HOME and resumes from the caller's history. resumed reports
 // which it was.
-func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool) (info SessionInfo, resumed bool, code int, err error) {
+func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, vm *bool) (info SessionInfo, resumed bool, code int, err error) {
 	s, st, err := m.agentOf(id)
 	if err != nil {
 		return SessionInfo{}, false, 404, err
@@ -32,8 +32,11 @@ func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool) 
 	mode, provider, reopened := st.mode, st.provider.ID, st.resumed
 	st.mu.Unlock()
 	s.mu.Lock()
-	name := s.name
+	name, inVM := s.name, s.vm
 	s.mu.Unlock()
+	if vm != nil {
+		inVM = *vm // nil keeps the session's sandbox kind
+	}
 	options := currentOptions(st.log)
 
 	s.kill()
@@ -51,7 +54,7 @@ func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool) 
 			break
 		}
 	}
-	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api,
+	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
 		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options})
 	return info, resume != "", code, err
 }

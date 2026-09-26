@@ -658,11 +658,11 @@ func TestAgentRestart(t *testing.T) {
 		return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
 	})
 	bob := auth.Principal{UserID: "bob", User: &users.User{ID: "bob", Role: "admin"}}
-	if _, _, _, err := m.RestartAgent(bob, info.ID, "none", "", true); !errors.Is(err, ErrForbidden) {
+	if _, _, _, err := m.RestartAgent(bob, info.ID, "none", "", true, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("another user restarted it: %v", err)
 	}
 	// never prompted: nothing to resume — a fresh session with the new pickers
-	fresh, resumed, code, err := m.RestartAgent(owner, info.ID, "none", "", false)
+	fresh, resumed, code, err := m.RestartAgent(owner, info.ID, "none", "", false, nil)
 	if err != nil || code != 200 || resumed || fresh.ID == info.ID || fresh.Net != NetNone || fresh.API || fresh.Name != "my agent" {
 		t.Fatalf("fresh restart: %+v resumed=%v %d %v", fresh, resumed, code, err)
 	}
@@ -677,7 +677,7 @@ func TestAgentRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.until(t, func(e SessionEvent) bool { return e.ID == fresh.ID && e.Type == agent.EvTurnEnd })
-	again, resumed, _, err := m.RestartAgent(owner, fresh.ID, "", "", true)
+	again, resumed, _, err := m.RestartAgent(owner, fresh.ID, "", "", true, nil)
 	if err != nil || !resumed || again.ID == fresh.ID || !again.API {
 		t.Fatalf("resumed restart: %+v resumed=%v %v", again, resumed, err)
 	}
@@ -686,7 +686,7 @@ func TestAgentRestart(t *testing.T) {
 	})
 	// restarted again before any new prompt: that session was never saved, but
 	// the one it reopened was — the conversation still carries on
-	third, resumed, _, err := m.RestartAgent(owner, again.ID, "internet", "", true)
+	third, resumed, _, err := m.RestartAgent(owner, again.ID, "internet", "", true, nil)
 	if err != nil || !resumed || third.Net != NetInternet {
 		t.Fatalf("a restart of an unprompted resumed session: %+v resumed=%v %v", third, resumed, err)
 	}

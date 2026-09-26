@@ -61,6 +61,10 @@ type Config struct {
 	FuseOverlayfs string `env:"XBIN_FUSE_OVERLAYFS" readBy:"internal/sandbox" doc:"the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay)"`
 	SandboxDebug  string `env:"XBIN_SANDBOX_DEBUG" readBy:"internal/sandbox" doc:"set to anything to make the sandbox init log its steps"`
 	BuildNet      string `env:"XBIN_BUILD_NET" readBy:"internal/runner" doc:"network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN)"`
+	Firecracker   string `env:"XBIN_FIRECRACKER" readBy:"internal/vm" doc:"the Firecracker binary VM sandboxes run in their namespace jail (default: bundled next to xbind, then PATH; none ⇒ VM sandboxes unavailable)"`
+	VMKernel      string `env:"XBIN_VM_KERNEL" readBy:"internal/vm" doc:"the VM sandboxes' guest kernel (default: vmlinux next to xbind)"`
+	VMAgent       string `env:"XBIN_VM_AGENT" readBy:"internal/vm" doc:"the guest agent packed as VM sandboxes' initramfs (default: xbin-vmagent next to xbind)"`
+	MkfsErofs     string `env:"XBIN_MKFS_EROFS" readBy:"internal/vm" doc:"the static mkfs.erofs that builds the VM guests' read-only rootfs image (default: bundled next to xbind, then PATH)"`
 
 	// Runtime injection — not settings. Version is the build id main
 	// resolves; Listener replaces the console listener (tests bind :0 and set

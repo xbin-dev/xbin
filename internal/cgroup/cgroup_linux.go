@@ -103,6 +103,27 @@ func (m *Manager) Add(name string, pid int) {
 	_ = os.WriteFile(filepath.Join(leaf, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
 }
 
+// AddMem is Add with the leaf's memory.max set to memMax instead of the
+// shared cap, and no soft ceiling: a VM sandbox (plans/vm-sandbox.md) holds
+// its guest's memory by design, so its leaf is sized to guest + VMM overhead
+// and reclaim throttling below that would only stall the guest.
+func (m *Manager) AddMem(name string, pid int, memMax int64) {
+	if !m.Enabled() {
+		return
+	}
+	leaf := m.leaf(name)
+	if err := os.Mkdir(leaf, 0o755); err != nil && !os.IsExist(err) {
+		return
+	}
+	l := m.limits
+	l.MemMax = 0
+	writeLimits(leaf, l)
+	if memMax > 0 {
+		_ = os.WriteFile(filepath.Join(leaf, "memory.max"), []byte(strconv.FormatInt(memMax, 10)), 0o644)
+	}
+	_ = os.WriteFile(filepath.Join(leaf, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
+}
+
 // writeLimits applies l to a leaf (best-effort per file — a missing controller
 // just leaves that cap at the default).
 func writeLimits(leaf string, l Limits) {

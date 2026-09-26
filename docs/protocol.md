@@ -184,6 +184,19 @@ GET    /runtime                    admin. full runtime visibility →
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
+GET    /vm                         authenticated. VM sandboxes (plans/vm-sandbox.md)
+                                   → {status:{available,reason}, policy:
+                                   {terminals,backends,memMiB,vcpus,maxVMs,
+                                   budgetMiB}, used?:{vms,memMiB}} (used: admins).
+                                   available=false names why: no /dev/kvm, the
+                                   xbind user not in the kvm group, a missing
+                                   asset (firecracker, vmlinux, xbin-vmagent,
+                                   mkfs.erofs, a static bx), no --isolate
+PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
+                                   maxVMs,budgetMiB} → {status, policy}. Off by
+                                   default; zero sizes = defaults (2048 MiB,
+                                   2 vCPUs, 8 VMs, budget maxVMs×memMiB). 400
+                                   on out-of-range sizes, 409 without --isolate
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
@@ -290,7 +303,7 @@ POST   /impersonate/stop          a view-as session. ends the view, hands
 GET    /term/sessions             authenticated. the caller's live terminal
                                    sessions — the session directory (D73):
                                    [{id,cwd,net,label,scopes,gpu,api,name,
-                                   created,lastActive,clients,envHeld}], oldest
+                                   created,lastActive,clients,envHeld,vm}], oldest
                                    first; ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
@@ -1305,7 +1318,8 @@ GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session 
 DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
-GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated}
+GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
+                                   vm:{available,reason,memMiB,vcpus}}
 ```
 
 Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
@@ -1364,14 +1378,25 @@ A new session also takes `?gpu=<none|all|index|uuid>` (default `none`) to bind
 host NVIDIA GPU(s) into the terminal's dev sandbox (owner plane; no grant
 needed). Enumerate host GPUs at `GET /api/xbin/gpus` (admin).
 
-The scope is fixed at spawn; switching net or GPU restarts the session (the UI
-ends the old one and opens a new WS).
+`?vm=1` opens the session in a **VM sandbox** (plans/vm-sandbox.md): a
+Firecracker microVM with its own kernel, where the shell is root, running
+inside the same namespace sandbox as the jail. The same mounts appear at the
+same paths (served over 9P), the same network scope applies (the relay
+enforces it outside the VM), and `$XBIN_URL`/`XBIN_TOKEN` work unchanged.
+It needs `--isolate`, KVM, and an admin who turned VM terminals on (`PUT
+/vm/policy`); otherwise the upgrade fails with 400 and the reason (`GET
+/ws/term/env` reports `vm.available` and `vm.reason` beforehand). `net=host`
+and `gpu` can't combine with `vm=1` (400). A VM terminal's root filesystem
+changes are not kept yet (a fresh guest per session).
+
+The scope is fixed at spawn; switching net, GPU or VM restarts the session (the
+UI ends the old one and opens a new WS).
 
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.
   - server → client: `{"op":"session","id":"…","net":"org","label":"org network
     (devs-net)","scopes":[{"id":"org","label":"…","desc":"…"},…],"netNote":"…",
-    "baseOutdated":false}` (first message; `scopes` = what this caller may
+    "baseOutdated":false,"vm":false}` (first message; `vm` = a VM sandbox; `scopes` = what this caller may
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the

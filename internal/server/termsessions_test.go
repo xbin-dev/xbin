@@ -105,10 +105,17 @@ func TestTermEnvStatus(t *testing.T) {
 	h, s := termServer(t)
 	alice := s.Auth.NewSession("alice", "")
 	bob := s.Auth.NewSession("bob", "")
+	// the layer fields only; the vm block (VM sandboxes) has its own test
 	get := func(sid, cwd string) (int, string) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, withCookie("GET", "/ws/term/env?cwd="+cwd, "", sid))
-		return w.Code, strings.TrimSpace(w.Body.String())
+		var body map[string]any
+		if json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			return w.Code, strings.TrimSpace(w.Body.String())
+		}
+		delete(body, "vm")
+		b, _ := json.Marshal(body)
+		return w.Code, string(b)
 	}
 	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":false,"exists":false}` {
 		t.Fatalf("no layer yet: %d %s", c, b)

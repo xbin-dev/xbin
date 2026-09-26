@@ -295,14 +295,15 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 
 // handleTermEnv reports a component's persistent terminal layer (?cwd=):
 // {exists, baseOutdated} — so the terminal window can offer the base update
-// before any terminal is open (GET /ws/term/env).
+// before any terminal is open (GET /ws/term/env) — and whether a VM terminal
+// can open ({vm: {available, reason}}, plans/vm-sandbox.md).
 func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
 	cwd, ok := termEnvGate(w, r)
 	if !ok {
 		return
 	}
 	exists, old := s.Term.EnvStatus(cwd)
-	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old})
+	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old, "vm": s.Term.VMStatus()})
 }
 
 // termEnvGate: a tile's dev layer is the terminal plane (it IS the terminal's
