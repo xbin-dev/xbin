@@ -140,10 +140,10 @@ if errors.Is(err, xbin.ErrNotifyRateLimited) { /* back off */ }
   percent-encoded).
 - **Best-effort.** A nil error means xbind accepted it. Nothing is sent when
   the workspace has push off, the person registered no device for it, muted
-  your tile, or has had too many notifications from tiles this hour (240,
-  bursts of 40, across every tile — over it they are dropped, not refused, so
-  no tile learns what the others send); delivery is asynchronous with
-  retries.
+  your tile, or has had too many notifications from tiles this hour (240
+  deliveries — one per device — in bursts of 40, across every tile — over it
+  they are dropped, not refused, so no tile learns what the others send);
+  delivery is asynchronous with retries.
 - **Rate-limited**: 120 an hour per tile (bursts of 20); over it,
   `ErrNotifyRateLimited` (429, `Retry-After`). Notify for things a person
   must act on, not for every event — a summary with a `CollapseID` beats a

@@ -483,7 +483,8 @@ func TestQueueNeverBlocksCallers(t *testing.T) {
 }
 
 func TestRegistrations(t *testing.T) {
-	r := newRig(t, nil)
+	r := newRig(t, func(o *Options) { o.Limits = DefaultLimits; o.Limits.Register = Rate{} }) // TestRegisterLimit
+
 	k, _ := ecdh.X25519().GenerateKey(nil)
 	pub := b64.EncodeToString(k.PublicKey().Bytes())
 	for _, c := range []struct {
@@ -537,7 +538,8 @@ func TestRegistrations(t *testing.T) {
 	if r.s.ForgetDevice("alice", "deva") { // the stalest: evicted by the cap
 		t.Fatal("the cap kept the oldest registration")
 	}
-	if !r.s.ForgetDevice("alice", "devw") || r.s.ForgetDevice("alice", "devw") {
+	last := "dev" + string(rune('a'+maxDevicesPerUser+2))
+	if !r.s.ForgetDevice("alice", last) || r.s.ForgetDevice("alice", last) {
 		t.Fatal("ForgetDevice")
 	}
 	// the store survives a reopen, private

@@ -32,21 +32,27 @@ const (
 const OwnerUser = "owner"
 
 // Limits are the xbind-side rate limits. Tile bounds POST /notify per
-// calling tile; User what every tile together sends one user; Agent what
-// agent sessions send one user and Session what one session raises — a
-// budget of their own, so tiles cannot starve a permission request; Test
-// the user's own POST /push/test.
+// calling tile (a backend) or per tile and person (a frontend or terminal,
+// which notify only the person using them — a bucket of their own, so a
+// reader can't exhaust the backend's); User what every tile together sends
+// one user; Agent what agent sessions send one user and Session what one
+// session raises — a budget of their own, so tiles cannot starve a
+// permission request; Test the user's own POST /push/test; Register the
+// user's POST /devices/push. User, Agent and Test count relay posts — a
+// notification costs one per device it goes to — so the workspace's relay
+// budget, shared by everyone, bounds what one person can spend of it.
 type Limits struct {
-	Tile, User, Agent, Session, Test Rate
+	Tile, User, Agent, Session, Test, Register Rate
 }
 
 // DefaultLimits are the limits when Options.Limits is zero.
 var DefaultLimits = Limits{
-	Tile:    Rate{PerHour: 120, Burst: 20},
-	User:    Rate{PerHour: 240, Burst: 40},
-	Agent:   Rate{PerHour: 240, Burst: 40},
-	Session: Rate{PerHour: 120, Burst: 20},
-	Test:    Rate{PerHour: 60, Burst: 5},
+	Tile:     Rate{PerHour: 120, Burst: 20},
+	User:     Rate{PerHour: 240, Burst: 40},
+	Agent:    Rate{PerHour: 240, Burst: 40},
+	Session:  Rate{PerHour: 120, Burst: 20},
+	Test:     Rate{PerHour: 60, Burst: 10},
+	Register: Rate{PerHour: 30, Burst: 10},
 }
 
 // Account is what the push plane needs to know about a user.
@@ -103,6 +109,7 @@ type Service struct {
 	agent *limiter
 	sess  *limiter
 	self  *limiter
+	reg   *limiter
 
 	mu   sync.Mutex
 	held map[string]*time.Timer // agent requests inside their grace period
@@ -137,7 +144,7 @@ func New(o Options) (*Service, error) {
 	}
 	s := &Service{o: o, st: st, held: map[string]*time.Timer{},
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
-		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now)}
+		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
 	s.snd = newSender(s)
 	return s, nil
 }
@@ -483,9 +490,14 @@ func (s *Service) release(id string) {
 
 // agentPush applies the session and per-user agent limits (a limited agent
 // push is dropped, not queued) and enqueues. Tiles have a budget of their
-// own (Limits.User) and cannot spend this one.
+// own (Limits.User) and cannot spend this one. The user's agent budget is
+// charged per device the push goes to.
 func (s *Service) agentPush(n note, session string) {
 	if !s.Enabled() {
+		return
+	}
+	posts := s.posts(n.user, n.kind)
+	if posts == 0 {
 		return
 	}
 	if ok, _ := s.sess.allow(session); !ok {
@@ -493,7 +505,7 @@ func (s *Service) agentPush(n note, session string) {
 		s.o.Log.Debug("push: agent session rate-limited", "session", session)
 		return
 	}
-	if ok, _ := s.agent.allow(n.user); !ok {
+	if ok, _ := s.agent.allowN(n.user, posts); !ok {
 		s.snd.limited.Add(1)
 		s.o.Log.Debug("push: user's agent pushes rate-limited", "user", n.user)
 		return
@@ -502,12 +514,16 @@ func (s *Service) agentPush(n note, session string) {
 }
 
 // wants reports whether any of the user's usable registrations takes kind.
-func (s *Service) wants(user, kind string) bool {
-	e := s.currentEpoch()
+func (s *Service) wants(user, kind string) bool { return s.posts(user, kind) > 0 }
+
+// posts is how many relay posts a note of kind to user makes: one per
+// usable registration that takes it.
+func (s *Service) posts(user, kind string) int {
+	e, n := s.currentEpoch(), 0
 	for _, d := range s.devices(user) {
 		if !d.stale(e) && kindAllowed(d.Kinds, kind) {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }

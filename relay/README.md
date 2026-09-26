@@ -129,9 +129,16 @@ Token buckets, in memory (they reset when the relay restarts):
 |---|---|---|
 | pushes | workspace | 3600 / hour, burst 120 |
 | pushes | handle | 600 / hour, burst 30 |
+| pushes to an unknown or another workspace's handle | workspace | 600 / hour, burst 60 |
 | `POST /v1/workspaces` | client (IPv6: /48) | 10 / hour, burst 3 |
 | `POST /v1/workspaces` | everyone together | 600 / hour, burst 60 |
 | `POST`/`PUT /v1/handles` | client (IPv6: /64) | 360 / hour, burst 60 |
+
+A push is checked in this order: the key, the request, the handle (unknown
+or another workspace's: `404`/`403`, charged to the refused-push bucket
+only), the handle's bucket, then the workspace's — so the workspace's
+delivery budget pays only for pushes that can reach a device, and a push a
+handle's own limit refuses costs it nothing.
 
 A client is an IPv4 address or an IPv6 prefix (a /64 is one subscriber's
 LAN: per address, one host would have 2^64 buckets; workspaces are servers,

@@ -1701,7 +1701,10 @@ POST   /notify                           element: a tile's backend (instance
                                          kind tile.<kind>; collapseId (≤64 of
                                          A–Z a–z 0–9 . _ : -) makes later ones
                                          replace earlier ones. 429 + Retry-After
-                                         over the per-tile limit. 202 also when
+                                         over the per-tile limit (a frontend's
+                                         or terminal's: per tile and person, so
+                                         a reader can't spend the backend's).
+                                         202 also when
                                          push is off, the user has no device for
                                          the kind, muted the tile (nothing is
                                          counted then), or is over the per-user
@@ -1838,11 +1841,17 @@ Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
 sessions of the device's user — a `permission.request` (`agent.permission`)
 or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
 a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
-buckets): 120/hour per tile (burst 20); 240/hour per user from all tiles
-together (burst 40); agent sessions have their own 240/hour per user (burst
-40) and 120/hour per session (burst 20), so tiles cannot crowd out a
-permission request; 60/hour (burst 5) of `POST /push/test`. Over a per-user
-or per-session limit a push is dropped (counted as `limited`). Nothing
+buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
+have a bucket per tile and person, apart from its backend's; 240/hour per
+user from all tiles together (burst 40); agent sessions have their own
+240/hour per user (burst 40) and 120/hour per session (burst 20), so tiles
+cannot crowd out a permission request; 60/hour (burst 10) of `POST
+/push/test`; 30/hour (burst 10) of `POST /devices/push` per person (429).
+The per-user budgets count relay posts — a notification costs one per
+device it goes to (at most 10 registrations per person; the least recently
+updated goes) — so one person's devices can't spend the workspace's relay
+budget many times over. Over a per-user or per-session limit a push is
+dropped (counted as `limited`). Nothing
 reaches a disabled user. Signing a user out everywhere (`DELETE
 /users/<id>/sessions`), disabling or deleting them drops their push
 registrations (a deleted user's preferences too); removing an enrolled

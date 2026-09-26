@@ -243,3 +243,79 @@ func TestRegistrationsFollowTheirLogin(t *testing.T) {
 		t.Fatalf("device registration: %+v", d)
 	}
 }
+
+// A reader holding a shared tile's frame (or terminal) token can't spend
+// the tile's /notify budget: frontends notify only their own person, from
+// a bucket per tile and person, so the backend's notifications to everyone
+// keep flowing (review).
+func TestFrontendsCannotExhaustTheBackendsBudget(t *testing.T) {
+	r := newRig(t, func(o *Options) {
+		o.Limits = DefaultLimits
+		o.Limits.Tile = Rate{PerHour: 1, Burst: 3}
+	})
+	r.register(alice, "phone", "handle-alice")
+	bobFrame := auth.Principal{Component: "apps/other", UserID: "bob", Via: "frame"}
+	bobShell := auth.Principal{Component: "apps/other", UserID: "bob", Via: "terminal"}
+	for i := 0; i < 3; i++ {
+		if code, _, _ := r.call(bobFrame, "POST", "/notify", map[string]any{"user": "bob", "title": "spam"}); code != 202 {
+			t.Fatalf("bob's frame %d: %d", i, code)
+		}
+	}
+	for _, p := range []auth.Principal{bobFrame, bobShell} {
+		if code, _, _ := r.call(p, "POST", "/notify", map[string]any{"user": "bob", "title": "spam"}); code != 429 {
+			t.Fatalf("bob's %s over his bucket: %d", p.Via, code)
+		}
+	}
+	if code, out, _ := r.call(other, "POST", "/notify", map[string]any{"user": "alice", "title": "for alice"}); code != 202 {
+		t.Fatalf("the backend after a reader's spam: %d %v", code, out)
+	}
+	if p := r.open(r.relay.waitPushes(1)[0]); p.Title != "for alice" {
+		t.Fatalf("got %+v", p)
+	}
+}
+
+// One person can't turn their budgets into many times as many relay
+// posts by registering many devices (review): User, Agent and Test count a
+// post per device, and registering is itself limited.
+func TestBudgetsCountRelayPosts(t *testing.T) {
+	r := newRig(t, func(o *Options) {
+		o.Limits = Limits{User: Rate{PerHour: 1, Burst: 6}, Agent: Rate{PerHour: 1, Burst: 4}, Test: Rate{PerHour: 1, Burst: 4},
+			Register: Rate{PerHour: 1, Burst: 4}}
+	})
+	for _, d := range []string{"a", "b", "c"} {
+		r.register(alice, "dev-"+d, "handle-alice-"+d)
+	}
+	// tiles: 3 devices × 2 notes fill the 6-post budget; the third is dropped
+	for i := 0; i < 3; i++ {
+		if code, _, _ := r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "x"}); code != 202 {
+			t.Fatalf("notify %d: %d", i, code)
+		}
+	}
+	r.relay.waitPushes(6)
+	time.Sleep(30 * time.Millisecond)
+	if n := len(r.relay.pushes()); n != 6 || r.s.snd.stats().Limited != 1 {
+		t.Fatalf("%d relay posts (limited %d), want 6 (1)", n, r.s.snd.stats().Limited)
+	}
+	// agent pushes: a budget of their own, per post too
+	r.s.AgentEvent("alice", "s1", "apps/cal", agentTurn())
+	r.relay.waitPushes(9)
+	r.s.AgentEvent("alice", "s2", "apps/cal", agentTurn())
+	time.Sleep(30 * time.Millisecond)
+	if n := len(r.relay.pushes()); n != 9 {
+		t.Fatalf("the second agent push went out: %d posts", n)
+	}
+	// the test route: 3 posts, then 429
+	if code, out, _ := r.call(alice, "POST", "/push/test", nil); code != 202 || out["devices"] != float64(3) {
+		t.Fatalf("test: %d %v", code, out)
+	}
+	if code, _, _ := r.call(alice, "POST", "/push/test", nil); code != 429 {
+		t.Fatalf("second test: %d", code)
+	}
+	// registering: 3 above + 1 more, then 429
+	r.register(alice, "dev-d", "handle-alice-d")
+	k, _ := ecdh.X25519().GenerateKey(nil)
+	if code, _, _ := r.call(alice, "POST", "/devices/push", map[string]any{"deviceId": "dev-e", "handle": "handle-alice-e",
+		"publicKey": b64.EncodeToString(k.PublicKey().Bytes())}); code != 429 {
+		t.Fatalf("registering past the limit: %d", code)
+	}
+}

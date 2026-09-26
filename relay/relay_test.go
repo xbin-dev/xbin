@@ -473,9 +473,12 @@ func TestRateLimits(t *testing.T) {
 	if code != 429 || hdr.Get("Retry-After") != "2" {
 		t.Fatalf("handle limit: %d Retry-After %q", code, hdr.Get("Retry-After"))
 	}
-	// the workspace has one token left (the refused push spent one)
-	code, _, _ = r.push(key, h2, nil)
-	if code != 429 {
+	// the handle's refusal spent nothing of the workspace's budget: one
+	// token is left for h2, then it is out
+	if code, _, _ = r.push(key, h2, nil); code != 200 {
+		t.Fatalf("the workspace's last token: %d", code)
+	}
+	if code, _, _ = r.push(key, h2, nil); code != 429 {
 		t.Fatalf("workspace limit: %d", code)
 	}
 	r.advance(2 * time.Second)
@@ -551,5 +554,36 @@ func TestHandlesPerTokenCapped(t *testing.T) {
 	}
 	if _, err := st.target(first, "ws", now); err != errNoHandle {
 		t.Fatal("the oldest handle was not evicted")
+	}
+}
+
+// Pushes to handles a workspace can't use — made up, or another
+// workspace's — don't spend its delivery budget (review: registrations
+// with random handles at the workspace's side drained it, and every other
+// user's pushes then got 429); they spend a budget of their own, which
+// bounds them.
+func TestRefusedPushesSpareTheWorkspaceBudget(t *testing.T) {
+	r := newRig(t, func(c *Config) {
+		c.WorkspaceRate = Rate{PerHour: 1, Burst: 2}
+		c.RefusedPushRate = Rate{PerHour: 1, Burst: 3}
+	})
+	key, other := r.workspace(), r.workspace()
+	h := r.handle(tokenOK)
+	theirs := r.handle(token2)
+	if code, _, _ := r.push(other, theirs, nil); code != 200 { // binds theirs to the other workspace
+		t.Fatal(code)
+	}
+	for i, bad := range []string{"AAAAAAAAAAAAAAAAAAAAAA", theirs, "BBBBBBBBBBBBBBBBBBBBBB"} {
+		if code, _, _ := r.push(key, bad, nil); code != 404 && code != 403 {
+			t.Fatalf("refused push %d: %d", i, code)
+		}
+	}
+	if code, _, _ := r.push(key, "CCCCCCCCCCCCCCCCCCCCCC", nil); code != 429 {
+		t.Fatalf("refused pushes past their budget: %d", code)
+	}
+	for i := 0; i < 2; i++ {
+		if code, _, _ := r.push(key, h, nil); code != 200 {
+			t.Fatalf("delivery %d after the refusals: %d", i, code)
+		}
 	}
 }

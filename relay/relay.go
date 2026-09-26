@@ -50,12 +50,16 @@ type Config struct {
 	// APNs sends the notifications; nil makes /v1/push answer 503.
 	APNs *APNs
 	// Rate limits. WorkspaceRate and HandleRate bound pushes per workspace
-	// and per handle; NewWorkspaceRate and NewHandleRate bound
+	// and per handle — a workspace's budget is charged only for pushes to a
+	// handle it may use, after the handle's own limit; RefusedPushRate
+	// bounds, per workspace, pushes to handles that are unknown or another
+	// workspace's (so they neither drain the delivery budget nor probe
+	// without bound); NewWorkspaceRate and NewHandleRate bound
 	// registrations per client (an IPv4 address; an IPv6 /64 for handles,
 	// a /48 for workspaces); AllNewWorkspacesRate bounds workspace
 	// registrations from everyone together. Zero values take the defaults
 	// below.
-	WorkspaceRate, HandleRate, NewWorkspaceRate, NewHandleRate, AllNewWorkspacesRate Rate
+	WorkspaceRate, HandleRate, RefusedPushRate, NewWorkspaceRate, NewHandleRate, AllNewWorkspacesRate Rate
 	// TrustProxy takes the client IP from the last X-Forwarded-For hop
 	// (set it only behind a reverse proxy that appends one).
 	TrustProxy bool
@@ -80,6 +84,7 @@ type Config struct {
 var (
 	DefaultWorkspaceRate    = Rate{PerHour: 3600, Burst: 120}
 	DefaultHandleRate       = Rate{PerHour: 600, Burst: 30}
+	DefaultRefusedPushRate  = Rate{PerHour: 600, Burst: 60}
 	DefaultNewWorkspaceRate = Rate{PerHour: 10, Burst: 3}
 	DefaultNewHandleRate    = Rate{PerHour: 360, Burst: 60} // generous: carrier NAT puts many phones behind one IPv4
 	// DefaultAllNewWorkspacesRate is a backstop: far more opt-ins than a
@@ -119,6 +124,7 @@ type Server struct {
 	mux   *http.ServeMux
 	wsLim *limiter
 	hLim  *limiter
+	rfLim *limiter
 	nwLim *limiter
 	nhLim *limiter
 	awLim *limiter
@@ -166,6 +172,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{cfg: cfg, st: st, mux: http.NewServeMux(),
 		wsLim: newLimiter(def(cfg.WorkspaceRate, DefaultWorkspaceRate), cfg.Now),
 		hLim:  newLimiter(def(cfg.HandleRate, DefaultHandleRate), cfg.Now),
+		rfLim: newLimiter(def(cfg.RefusedPushRate, DefaultRefusedPushRate), cfg.Now),
 		nwLim: newLimiter(def(cfg.NewWorkspaceRate, DefaultNewWorkspaceRate), cfg.Now),
 		nhLim: newLimiter(def(cfg.NewHandleRate, DefaultNewHandleRate), cfg.Now),
 		awLim: newLimiter(def(cfg.AllNewWorkspacesRate, DefaultAllNewWorkspacesRate), cfg.Now),
@@ -447,17 +454,9 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if ok, wait := s.wsLim.allow(ws); !ok {
-		tooMany(w, wait, "workspace")
-		return
-	}
 	var q pushReq
 	if json.NewDecoder(r.Body).Decode(&q) != nil || q.Envelope == nil {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "need {handle, envelope, collapseId?, priority?}")
-		return
-	}
-	if !validHandle(q.Handle) {
-		writeErr(w, http.StatusNotFound, ErrHandleUnknown, "unknown handle")
 		return
 	}
 	if !q.Envelope.valid() {
@@ -472,13 +471,28 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "priority: 10 or 5")
 		return
 	}
+	// Resolve the handle before charging the workspace: pushes to a handle
+	// it can't use (made up, deleted, another workspace's) spend a budget
+	// of their own, not the one its deliveries live on — a registration an
+	// attacker controls on the workspace's side must not starve the rest.
+	refused := func(status int, code, msg string) {
+		if ok, wait := s.rfLim.allow(ws); !ok {
+			tooMany(w, wait, "refused pushes")
+			return
+		}
+		writeErr(w, status, code, msg)
+	}
+	if !validHandle(q.Handle) {
+		refused(http.StatusNotFound, ErrHandleUnknown, "unknown handle")
+		return
+	}
 	h, err := s.st.target(q.Handle, ws, now)
 	switch {
 	case errors.Is(err, errNoHandle):
-		writeErr(w, http.StatusNotFound, ErrHandleUnknown, "unknown handle")
+		refused(http.StatusNotFound, ErrHandleUnknown, "unknown handle")
 		return
 	case errors.Is(err, errHandleBound):
-		writeErr(w, http.StatusForbidden, ErrHandleBound, "handle belongs to another workspace")
+		refused(http.StatusForbidden, ErrHandleBound, "handle belongs to another workspace")
 		return
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, ErrInternal, "state error")
@@ -486,6 +500,10 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 	if ok, wait := s.hLim.allow(q.Handle); !ok {
 		tooMany(w, wait, "handle")
+		return
+	}
+	if ok, wait := s.wsLim.allow(ws); !ok {
+		tooMany(w, wait, "workspace")
 		return
 	}
 	if s.cfg.APNs == nil {

@@ -2785,7 +2785,13 @@ Deviations and refinements made while implementing; all deliberate:
     every reader's browser. Budgets are separate so tiles can't starve
     agent permission prompts; over a person's shared tile budget a
     notification is dropped with 202 (a 429 would tell one tile what others
-    send). Links stay inside the tile, checked percent-decoded. The SDK
+    send). A frontend's or terminal's budget is per tile and person (a
+    reader must not spend the backend's), and the per-person budgets count
+    relay posts, one per device (at most 10), with registrations limited
+    too: the relay's workspace budget is shared by everyone, and per-note
+    charging let one person's 20 devices spend it 20 times over. The relay
+    charges a workspace only for pushes to handles it may use. Links stay
+    inside the tile, checked percent-decoded. The SDK
     helper is `xbin.NotifyUser` (`xbin.Notify` is the existing toast).
   - **Agent pushes** wait a 3 s grace period (a request answered at the
     desk raises nothing); a finished turn pushes unless the user cancelled

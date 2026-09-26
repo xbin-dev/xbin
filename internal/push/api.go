@@ -141,6 +141,12 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "this sign-in can't hold a push registration (no login to bind it to)")
 		return
 	}
+	// every registration is a relay post per notification, and a new handle
+	// re-arms one the relay refused: bounded per person
+	if ok, wait := s.reg.allow(user); !ok {
+		tooMany(w, wait, "too many push registrations; try later")
+		return
+	}
 	d, err := s.st.upsert(Device{User: user, DeviceID: body.DeviceID, Session: session, Handle: body.Handle,
 		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix())
 	if errors.Is(err, errDeviceBound) {
@@ -248,7 +254,7 @@ func (s *Service) APITest(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "no device is registered for push")
 		return
 	}
-	if ok, wait := s.self.allow(user); !ok {
+	if ok, wait := s.self.allowN(user, n); !ok { // a relay post per device
 		tooMany(w, wait, "too many test notifications; try later")
 		return
 	}
@@ -330,8 +336,14 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// the tile's budget next: refused calls spend it too, so a tile cannot
-	// probe who reads it without bound
-	if ok, wait := s.tile.allow(tile); !ok {
+	// probe who reads it without bound. A frontend or terminal (which
+	// notifies only its own person) has a bucket per tile and person: a
+	// reader holding the tile's frame token can't spend the backend's.
+	budget := tile
+	if self != "" {
+		budget = tile + "\x00" + self
+	}
+	if ok, wait := s.tile.allow(budget); !ok {
 		tooMany(w, wait, "this tile is sending too many notifications; try later")
 		return
 	}
@@ -347,14 +359,19 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 		n.collapse = "tile:" + tile + ":" + body.CollapseID
 	}
 	// nothing would reach a device: spend nothing of the person's budget
-	if !s.Enabled() || !s.wants(user, n.kind) {
+	posts := 0
+	if s.Enabled() {
+		posts = s.posts(user, n.kind)
+	}
+	if posts == 0 {
 		accepted()
 		return
 	}
-	// what every tile together sends this person; over it the notification
-	// is dropped quietly — a 429 would tell this tile how much the others
-	// send (the tile's own limit above is its backpressure)
-	if ok, _ := s.user.allow(user); !ok {
+	// what every tile together sends this person, a relay post per device;
+	// over it the notification is dropped quietly — a 429 would tell this
+	// tile how much the others send (the tile's own limit above is its
+	// backpressure)
+	if ok, _ := s.user.allowN(user, posts); !ok {
 		s.snd.limited.Add(1)
 		accepted()
 		return

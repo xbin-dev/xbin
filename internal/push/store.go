@@ -78,8 +78,10 @@ type fileState struct {
 }
 
 // maxDevicesPerUser bounds registrations; the least recently updated one
-// goes when a user registers more.
-const maxDevicesPerUser = 20
+// goes when a user registers more. Every note fans out to each of them —
+// a relay post apiece, charged to the person's budgets per post — so it is
+// kept to what one person carries.
+const maxDevicesPerUser = 10
 
 // store is data/push/push.json (mode 0600: it holds the relay key),
 // rewritten atomically on every change.

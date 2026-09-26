@@ -35,10 +35,16 @@ func newLimiter(r Rate, now func() time.Time) *limiter {
 
 // allow takes a token for key; when none is left it reports how long until
 // one is.
-func (l *limiter) allow(key string) (bool, time.Duration) {
-	if l == nil || l.rate.PerHour <= 0 || l.rate.Burst <= 0 {
+func (l *limiter) allow(key string) (bool, time.Duration) { return l.allowN(key, 1) }
+
+// allowN takes n tokens for key at once (a note fanned out to n devices
+// costs n relay posts), or none; n is capped at the burst, so a cost the
+// bucket can never hold waits for a full one instead of failing forever.
+func (l *limiter) allowN(key string, n int) (bool, time.Duration) {
+	if l == nil || l.rate.PerHour <= 0 || l.rate.Burst <= 0 || n <= 0 {
 		return true, 0
 	}
+	need := min(float64(n), l.rate.Burst)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -58,10 +64,10 @@ func (l *limiter) allow(key string) (bool, time.Duration) {
 	}
 	b.tokens = min(l.rate.Burst, b.tokens+now.Sub(b.at).Seconds()*perSec)
 	b.at = now
-	if b.tokens >= 1 {
-		b.tokens--
+	if b.tokens >= need {
+		b.tokens -= need
 		return true, 0
 	}
-	wait := time.Duration((1 - b.tokens) / perSec * float64(time.Second))
+	wait := time.Duration((need - b.tokens) / perSec * float64(time.Second))
 	return false, wait
 }

@@ -156,9 +156,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **Tiles: `POST /api/xbin/notify` and `xbin.NotifyUser`** — a backend
     notifies a person who can read the tile; a frontend only the person
     using it. `link` stays inside the tile. 120/hour per tile (429 +
-    Retry-After); 240/hour per person from all tiles together (dropped over
-    it, never refused); agent pushes have their own budget. Muteable per
-    tile per person.
+    Retry-After; a frontend's per tile and person); 240/hour per person
+    from all tiles together, counted per device (dropped over it, never
+    refused); agent pushes have their own budget; at most 10 registrations
+    per person, 30 registrations an hour. Muteable per tile per person.
   - `relay/` is the push relay (`xbin-relay`, its own stdlib-only module):
     handles to APNs tokens, sealed envelopes over HTTP/2, machine-readable
     error codes, per-prefix limits, caps, retention and a journal. Nothing
