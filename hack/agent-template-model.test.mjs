@@ -118,14 +118,17 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   const routed = [];
   const seen = [];
   const app = createApp({ route: (h) => routed.push(h) });
-  app.on('*', () => {});
+  const heard = new Set();
+  const off = app.on('*', (type) => heard.add(type));
   for (const t of ['me', 'list', 'needs', 'halt', 'toolset', 'autos', 'select', 'selected', 'home', 'page', 'sending', 'change', 'error']) {
     app.on(t, (x) => seen.push(x === undefined ? t : `${t}:${x instanceof Error ? x.message : x}`));
   }
   assert.equal(app.base, '/api/apps/agent');
+  assert.equal(typeof off, 'function');
 
   app.start();
   await until(() => app.convs.items.length === 2 && seen.includes('me') && seen.includes('needs') && seen.includes('toolset'));
+  assert.ok(['me', 'needs', 'toolset', 'list'].every((t) => heard.has(t)), `'*' hears every event with its type (${[...heard]})`);
   assert.equal(app.toolset, 'web', 'the tool mode comes from the per-person prefs');
   assert.equal(app.me.user, 'alice');
   assert.equal(app.needs.length, 1);

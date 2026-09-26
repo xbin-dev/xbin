@@ -11,7 +11,7 @@
 //   app.on('*', () => paint());   // or the finer events below
 //   app.start(); app.follow(address);
 //
-// Events (app.on(type, fn) → unsubscribe; '*' hears every one):
+// Events (app.on(type, fn) → unsubscribe; '*' hears every one as fn(type, …args)):
 //   change    the open conversation changed (batched per frame)
 //   runs      the run list changed          list    the conversation list changed
 //   autos     the Automations page changed  needs   GET /needs landed
@@ -49,7 +49,8 @@ export function createApp(opts = {}) {
   const visible = opts.visible || (() => true);
   const listeners = new Map();
   const emit = (type, ...args) => {
-    for (const fn of [...(listeners.get(type) || []), ...(listeners.get('*') || [])]) fn(...args);
+    for (const fn of [...(listeners.get(type) || [])]) fn(...args);
+    for (const fn of [...(listeners.get('*') || [])]) fn(type, ...args);
   };
   let needsT = null, autosT = null;
 
