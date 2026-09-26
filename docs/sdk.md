@@ -113,6 +113,41 @@ mux.HandleFunc("POST /on-deploy", func(w http.ResponseWriter, r *http.Request) {
 `xbin.Unsubscribe(name)` removes it; `GET /api/xbin/bus/subscriptions`
 lists yours with delivered/dropped/failed counters.
 
+### Notifying a person on their phone
+
+`xbin.NotifyUser` sends a push notification to a person's xbin app devices —
+for the moments that need them while they are away: a question, an approval,
+a failed run. It is the platform's `POST /api/xbin/notify`
+(docs/protocol.md §Push notifications), so node/python backends and tile
+frontends can call that route directly with the same body.
+
+```go
+u := xbin.Caller(r).User // the person who started it
+err := xbin.NotifyUser(ctx, u, "Approval needed", "Deploy v2.3 to prod?", "#approvals/17")
+
+// every field: kind (devices can filter on tile.<kind>) and collapseId
+// (a later notification with the same id replaces the earlier one)
+err = xbin.NotifyUserWith(ctx, xbin.UserNotification{User: u, Title: "3 failed runs",
+	Body: "nightly-backup, sync, report", Link: "#runs", Kind: "failure", CollapseID: "failed-runs"})
+if errors.Is(err, xbin.ErrNotifyRateLimited) { /* back off */ }
+```
+
+- The person must be able to **read this tile** — anyone else (and an
+  unknown or disabled account) is refused with 403. The notification names
+  your tile; tapping it opens the tile at `Link` (`#fragment`, `?query` or a
+  path inside the tile — never another URL).
+- **Best-effort.** A nil error means xbind accepted it. Nothing is sent when
+  the workspace has push off, the person registered no device, or they muted
+  your tile; delivery is asynchronous with retries.
+- **Rate-limited**: 120 an hour per tile (bursts of 20) and 240 an hour per
+  person across every source; over it, `ErrNotifyRateLimited` (429,
+  `Retry-After`). Notify for things a person must act on, not for every
+  event — a summary with a `CollapseID` beats a stream.
+- Plain text only, short: titles over 120 characters and bodies over 1000
+  are cut. The content is sealed end to end to the device; the push relay
+  never sees it.
+- `xbin.Notify(level, message)` is different: a toast in the web shell.
+
 ## node backend (no SDK needed)
 
 The contract is just "HTTP on a unix socket + a couple of env vars", so a

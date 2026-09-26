@@ -472,6 +472,11 @@ tab; `info`/`ok` are a steady dot.
   owner sees every tile's, other users only tiles they can read.
 - **Status resets when your backend restarts** (a fresh process re-asserts). If
   health matters, re-report it on startup once you've checked your deps.
+- **Reaching a person who is away** is a different channel: `xbin.NotifyUser(ctx,
+  user, title, body, link)` (Go SDK; any runtime: `POST /api/xbin/notify`) pushes
+  to that person's phone through the xbin app — only people who can read your
+  tile, rate-limited, muteable per tile. Use it for what they must act on (a
+  question, an approval, a failure), never for routine events. /docs/sdk.md.
 
 ## Suggesting changes to other tiles (code PRs)
 
