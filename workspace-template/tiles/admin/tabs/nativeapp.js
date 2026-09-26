@@ -65,7 +65,7 @@ export class BxAdminNativeApp extends WithRouter(LitElement) {
       <div class="state">
         <span class="dot" style="background:${s.enabled ? 'var(--bx-green, #4caf50)' : 'var(--bx-amber, #f2a71b)'}"></span>
         ${s.enabled ? html`on — the app is told native runtime ${s.version}`
-          : html`off — the app is told native runtime 0 and opens web pages; tiles already open switch when reopened`}
+          : html`off — the app is told native runtime 0 and opens web pages; tiles open in the app switch to their web pages now`}
       </div>
     </div>`;
   }

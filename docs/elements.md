@@ -396,9 +396,9 @@ page. How to write one — the template API, every primitive, the rules — is
   {runtime: 0, disabled: true}`, the app opens every tile as its web page,
   and `?native=1` answers `410` with the reason; `&preview=1` (and so `bx
   native tree` / `bx preview --native` / `bx lint --native`) keeps working,
-  so you can fix what the switch is covering for. Tiles already open in the
-  app stay as they are until reopened; open apps are told by the `native`
-  event.
+  so you can fix what the switch is covering for. Open apps are told by the
+  `native` event and switch at once: a tile open natively turns into its
+  web page where it is (and back when the switch goes on again).
 - **Entry paths** are `.js`/`.mjs` modules inside the tile; each segment uses
   letters, digits and `. _ ~ + @ -`, with no `..` or hidden (`.name`)
   segments. A declared entry that is invalid or missing means no native UI.
