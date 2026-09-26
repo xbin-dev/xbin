@@ -83,6 +83,7 @@ final class AgentScreenModel {
         let f = AgentSessionFeed(client: client, sessionID: id)
         feed = f
         tasks.append(Task { await f.run() })
+        tasks.append(workspace.events.deliver(to: f)) // /ws/events session frames, catch-up after a gap
         tasks.append(Task { [weak self] in
             for await t in await f.updates() {
                 guard let self else { return }
