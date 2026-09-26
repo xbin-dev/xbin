@@ -119,7 +119,10 @@ so a `native.js` that fails to load is reported to the app at once. So:
   poll slower when hidden, as the examples do.
 - **Live reload.** Saving the entry reloads the native view the way a web
   frame reloads; the backend is not restarted for it
-  ([elements.md](/docs/elements.md) has the one exception).
+  ([elements.md](/docs/elements.md) has the one exception). The app follows
+  the workspace's event stream while it shows the workspace: a change in
+  your tile reloads its open native view (or web page) in every window
+  that shows it — the most specific open tile, as in the shell.
 - **Only the app loads it** (and the previews in §Checking it). The shell
   and `<bx-frame>` never run `native.js`.
 
@@ -260,7 +263,7 @@ API — each member is app UI acting on data your tile hands it.
 |---|---|
 | `xbin.native.caps` | what the app renders: `{v, renderer, app, prims: {name: rev}, features: […]}`. Previews and `bx` report the full vocabulary |
 | `xbin.native.supports(name[, rev])` | `true` when the app has primitive `name` at revision `rev` (default 1) or newer, or has the feature flag `name` |
-| `xbin.native.meta({title, icon, badge})` | the title, icon and badge the app shows for the tile in its navigator and switcher; only the given fields change, `null` clears one |
+| `xbin.native.meta({title, icon, badge})` | the title, icon and badge the app shows for the tile in its navigator and switcher; only the given fields change, `null` clears one. `icon` is an icon name (§Icons; an unknown one shows nothing there), `badge` a count or a short word (the first 8 characters show). The app remembers the last one it saw, so the badge shows before the tile is opened again |
 | `xbin.native.copy(text)` | the app copies `text` to the clipboard → a promise of `true` when copied |
 | `xbin.native.share({text, url, file})` | the share sheet; `file` is a tile-relative path the app downloads with your frame token → a promise of `true` when shared, `false` when dismissed |
 | `xbin.native.open(url)` | opens an `https:` URL outside the app — anything else rejects at once, and the app refuses unless the tile holds `cap:open-links` (ND11) |
@@ -611,7 +614,10 @@ reason in the tile's report, when:
 - the tree needs something this app lacks — a primitive, a prop newer than
   the app's revision of it, a feature flag (an older app: "update the app for
   the native view");
-- the runtime crashes, or native views are switched off in the app.
+- the runtime crashes, or native views are switched off: by the user (the
+  app's Settings), by the workspace (`whoami.native.runtime` 0), or for an
+  app build with a known problem (the app's remote switch — so a bad app
+  release falls back to web pages without an update).
 
 Shipped apps lag behind xbind by months. The vocabulary only grows
 ([compat.md](/docs/compat.md)): a new prop raises its primitive's revision,
