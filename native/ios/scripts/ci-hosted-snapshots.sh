@@ -39,6 +39,7 @@ echo "SNAPSHOT_DIR=$snap"
 
 cd "$ios"
 ci_project
+ci_conditions
 
 rm -rf "$XBIN_CI_OUT/hosted-snapshots.xcresult"
 status=0
@@ -52,7 +53,8 @@ ci_xcodebuild "$XBIN_CI_OUT/hosted-snapshots.log" test \
   -skipMacroValidation \
   -skipPackagePluginValidation \
   COMPILER_INDEX_STORE_ENABLE=NO \
-  CODE_SIGNING_ALLOWED=NO || status=$?
+  CODE_SIGNING_ALLOWED=NO \
+  ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
 
 pngs=$(find "$snap" -type f -name '*.png' | wc -l | tr -d ' ')
 if [ "$status" -eq 0 ]; then

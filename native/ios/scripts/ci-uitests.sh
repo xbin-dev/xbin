@@ -46,6 +46,7 @@ if [ "$run" = 1 ]; then
   [ -n "${XBIN_E2E_TOKEN:-}" ] || { ci_error "XBIN_E2E_URL is set but XBIN_E2E_TOKEN is not"; exit 2; }
 fi
 ci_signing
+ci_conditions
 
 cd "$ios"
 ci_project
@@ -72,7 +73,7 @@ ci_xcodebuild "$XBIN_CI_OUT/uitests-build.log" build-for-testing "${common[@]}" 
   -resultBundlePath "$XBIN_CI_OUT/uitests-build.xcresult" \
   -IDEBuildingContinueBuildingAfterErrors=YES \
   COMPILER_INDEX_STORE_ENABLE=NO \
-  "${CI_SIGN[@]}" || status=$?
+  "${CI_SIGN[@]}" ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
 if [ "$status" -ne 0 ]; then
   ci_error "xcodebuild build-for-testing -scheme $scheme failed (exit $status); uitests-build.log is in the xcresult-app artifact"
   ci_summary "**UI tests:** \`$scheme\` build **failed** (exit $status)."

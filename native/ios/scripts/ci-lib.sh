@@ -134,6 +134,18 @@ ci_signing() {
   esac
 }
 
+# ci_conditions — sets CI_COND, the build settings that add Swift
+# compilation conditions from XBIN_SWIFT_CONDITIONS (space-separated, e.g.
+# XBIN_SDK_27_1 once XBIN_XCODE pins an Xcode with the iOS 27.1 SDK — the
+# iPhone Duo APIs; ios.yml's env sets it, empty by default). Empty → none.
+# shellcheck disable=SC2034 # CI_COND is for the caller
+ci_conditions() {
+  CI_COND=()
+  local c=${XBIN_SWIFT_CONDITIONS:-}
+  c=$(printf '%s' "$c" | tr -s ' ' | sed 's/^ //; s/ $//')
+  [ -z "$c" ] || CI_COND=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) $c")
+}
+
 # ci_project — in native/ios: `xcodegen generate` (project.yml → the
 # .xcodeproj, never committed), then set proj to the one .xcodeproj there.
 # A second one (a committed or stale project) is an error.

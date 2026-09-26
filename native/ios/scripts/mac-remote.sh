@@ -39,7 +39,9 @@
 #   XBIN_MAC_PULL      where results land here (default ${TMPDIR:-/tmp}/xbin-mac):
 #                      <command>/ — logs, .xcresult bundles, PNGs
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
-#   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE   passed through (pick-sim.sh, ci-*.sh)
+#   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1
+#                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
+#                      Simulator window on the Mac's screen)
 #
 # The same file runs on the Mac as `mac-remote.sh --on-mac <command>` (what
 # the commands above invoke over ssh; usable at the Mac too). Bash 3.2.
@@ -195,7 +197,7 @@ remote() {
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   local v
-  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SIM_GUI XBIN_E2E_ERASE; do
+  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \

@@ -10,6 +10,8 @@
 #   XBIN_SIGNING      none (default: unsigned, CODE_SIGNING_ALLOWED=NO) or
 #                     adhoc (signed to run locally — a simulator run that
 #                     needs the app's Keychain entitlements)
+#   XBIN_SWIFT_CONDITIONS  extra compilation conditions, e.g. XBIN_SDK_27_1
+#                     (every build script takes it; ci-lib.sh ci_conditions)
 #
 # Results in $XBIN_CI_OUT (default $RUNNER_TEMP/xbin-ci): app-build.xcresult
 # and the full xcodebuild log app-build.log; the build in
@@ -30,6 +32,7 @@ if [ ! -f "$ios/project.yml" ]; then
   exit 0
 fi
 ci_signing
+ci_conditions
 
 cd "$ios"
 ci_project
@@ -60,7 +63,8 @@ ci_xcodebuild "$XBIN_CI_OUT/app-build.log" build \
   -skipPackagePluginValidation \
   -IDEBuildingContinueBuildingAfterErrors=YES \
   COMPILER_INDEX_STORE_ENABLE=NO \
-  "${CI_SIGN[@]}" || status=$?
+  "${CI_SIGN[@]}" \
+  ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
 
 if [ "$status" -eq 0 ]; then
   ci_summary "**App:** \`$scheme\` built for \`$dest\`."

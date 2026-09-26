@@ -151,6 +151,13 @@ XBIN_SIGNING=adhoc XBIN_CI_DERIVED=$tmp/dd run "$S/ci-build-app.sh" "$dest"
 has "ci-build-app: XBIN_SIGNING=adhoc signs to run locally; DerivedData and SwiftPM dirs follow XBIN_CI_DERIVED" "$(cat "$FAKE_LOG")" \
   "-derivedDataPath $tmp/dd/app -clonedSourcePackagesDirPath $tmp/dd/SourcePackages -resultBundlePath $RUNNER_TEMP/xbin-ci/app-build.xcresult -skipMacroValidation -skipPackagePluginValidation -IDEBuildingContinueBuildingAfterErrors=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER="
 : >"$FAKE_LOG"
+XBIN_SWIFT_CONDITIONS=" XBIN_SDK_27_1  XBIN_OTHER " run "$S/ci-build-app.sh" "$dest"
+has "ci-build-app: XBIN_SWIFT_CONDITIONS adds compilation conditions to the target's own" "$(cat "$FAKE_LOG")" \
+  "COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) XBIN_SDK_27_1 XBIN_OTHER"
+: >"$FAKE_LOG"
+run "$S/ci-build-app.sh" "$dest"
+hasnt "ci-build-app: …and nothing without it" "$(cat "$FAKE_LOG")" "SWIFT_ACTIVE_COMPILATION_CONDITIONS"
+: >"$FAKE_LOG"
 XBIN_SIGNING=bogus run "$S/ci-build-app.sh" "$dest"
 eq "ci-build-app: an unknown XBIN_SIGNING fails before building" "$rc:$(grep -c 'xcodebuild build' "$FAKE_LOG" || true)" "1:0"
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-build-app.sh" "$dest"
@@ -206,6 +213,10 @@ has "ci-snapshots: the tests get SNAPSHOT_DIR and FIXTURES_DIR" "$log" \
 eq "ci-snapshots: PNGs where ios.yml uploads them" "$(find "$RUNNER_TEMP/snapshots" -name '*.png' | wc -l | tr -d ' ')" 3
 isdir "ci-snapshots: xcresult where ios.yml uploads it" "$RUNNER_TEMP/xbin-ci/snapshots-test.xcresult"
 has "ci-snapshots: summary counts PNGs" "$(cat "$GITHUB_STEP_SUMMARY")" "3 PNG in the snapshots artifact"
+: >"$FAKE_LOG"
+XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1 run "$S/ci-snapshots.sh" "$dest"
+has "ci-snapshots: XBIN_SWIFT_CONDITIONS reaches the renderer's tests" "$(cat "$FAKE_LOG")" \
+  "CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) XBIN_SDK_27_1"
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: a failing test fails the step" "$rc" 65
 eq "ci-snapshots: …and its PNGs are still there" "$(find "$RUNNER_TEMP/snapshots" -name '*.png' | wc -l | tr -d ' ')" 3

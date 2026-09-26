@@ -64,6 +64,7 @@ if [ -z "${XBIN_RENDERER_SCHEME:-}" ] && ! printf '%s\n' "$schemes" | grep -qxF 
   scheme=XbinRenderer-Package
 fi
 
+ci_conditions
 rm -rf "$XBIN_CI_OUT/snapshots-test.xcresult"
 status=0
 ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
@@ -75,7 +76,8 @@ ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
   -skipMacroValidation \
   -skipPackagePluginValidation \
   COMPILER_INDEX_STORE_ENABLE=NO \
-  CODE_SIGNING_ALLOWED=NO || status=$?
+  CODE_SIGNING_ALLOWED=NO \
+  ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
 
 count_pngs() { find "$snap" -type f -name '*.png' | wc -l | tr -d ' '; }
 
