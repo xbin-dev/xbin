@@ -816,8 +816,9 @@ native/ios/scripts/mac-remote.sh shell            # a shell in the mirror
 
 DerivedData stays on the Mac (`~/xbin-remote/derived`), so the second
 build is incremental. `XBIN_SIM`, `XBIN_XCODE`, `XBIN_SIGNING`,
-`XBIN_SWIFT_CONDITIONS` and `XBIN_SIM_GUI=1` (show the Simulator window on
-the Mac's screen) pass through. Look at the pulled PNGs.
+`XBIN_SWIFT_CONDITIONS`, `XBIN_SIM_GUI=1` (show the simulator on the Mac's
+screen), `XBIN_SIM_ENSURE` and `XBIN_E2E_ERASE` pass through. Look at the
+pulled PNGs.
 
 ### The UI tests against a real xbind
 
@@ -841,11 +842,19 @@ only way in; without `--isolate` (`XBIN_E2E_XBIND_ARGS="--isolate --rootfs
 …"`) its terminals are shells as you on this box, and `mac-remote.sh` says
 so. On the Mac,
 `XbinUITests` runs on `xbin-e2e`, erased first: add a workspace by URL +
-token, open the web tile `apps/welcome`, open the native counter and tap
-+1 (checked on the server and in the row), type into a terminal on
-`apps/welcome` (its output — an OSC title only the shell's arithmetic makes
-— must reach the navigation bar), and an agent session with the fake agent
-(its `echo: …` answer in the transcript). The screenshots land in
+token, open the web tile `apps/welcome` (its 13 px heading readable at
+1:1), open the native counter and tap +1 (checked on the server and in the
+row), type into a terminal on `apps/welcome` (its output — an OSC title
+only the shell's arithmetic makes — must reach the navigation bar; the key
+row sits right on the software keyboard and its ↑ recalls a command), an
+agent session with the fake agent (its `echo: …` answer in the
+transcript), the viewports (`apps/wide`, a desktop-first page from
+`scripts/testdata/e2e-tiles/`, laid out at its 1200 px and fitted, pinch
+zoom; `apps/phone` keeps its own viewport) and the key row docked at the
+bottom with no software keyboard (test07). A headless simulator can't
+attach a hardware keyboard — XCUITest always brings the software one up —
+so test07 launches the app with `-XbinNoSoftKeyboard YES` (Debug builds:
+the terminal gets an empty input view). The screenshots land in
 `$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
 by itself: `XBIN_E2E_URL=… XBIN_E2E_TOKEN=… mac-remote.sh e2e` (no tunnel).
@@ -853,6 +862,25 @@ by itself: `XBIN_E2E_URL=… XBIN_E2E_TOKEN=… mac-remote.sh e2e` (no tunnel).
 tests need of the server. `mac-remote.sh tunnel` holds only the tunnel, for
 running the tests from Xcode on the Mac (`TEST_RUNNER_XBIN_E2E_URL`/`_TOKEN`
 in the environment of `xcodebuild test -scheme XbinUITests`).
+
+Sharing the Mac (learned 2026-09-26, several agents at once):
+
+- **A simulator, a port and a mirror of your own**: `XBIN_SIM_ENSURE=
+  xbin-e2e-<you>` (made if missing; the run erases it, never anyone
+  else's), `--port` other than 9871, `XBIN_MAC_DIR=xbin-remote-<you>`,
+  `XBIN_MAC_PULL` and `XBIN_E2E_DIR` of your own (the latter defaults to
+  `/tmp/xbin-e2e`, whose `stop` kills whichever xbind is recorded there).
+  `XBIN_E2E_ERASE=0` keeps the simulator's app and workspace between runs.
+- **After a failed run, reboot the simulator** (`xcrun simctl shutdown
+  <udid>; xcrun simctl boot <udid>`): the next run otherwise often dies
+  with "Timed out waiting for AX loaded notification", and xcodebuild then
+  waits up to 600 s on `simctl diagnose` (kill that one — it's yours by
+  its `--udid`).
+- **`--keep` and a second run**: point the second at the kept xbind with
+  `XBIN_E2E_URL`/`XBIN_E2E_TOKEN` from `$XBIN_E2E_DIR/env` and hold the
+  tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
+  returns at once — the forward lives on the master connection; drop it
+  with `ssh -O cancel -R 127.0.0.1:P:127.0.0.1:P <mac>`.
 
 ### Security
 
