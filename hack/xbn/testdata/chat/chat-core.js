@@ -1,6 +1,7 @@
-// Stand-in for builtin-tiles/chat/chat-core.js (not extracted yet): the
-// state of the sample conversation in the design's tree, behind the Chat
-// shape the native.js example uses.
+// A canned Chat for the design's §18.8 example (plans/native.md): the sample
+// conversation of the design's tree behind the shape of the real engine,
+// builtin-tiles/chat/chat-core.js (whose own native.js runs in the
+// native/fixtures/tile-chat fixture).
 export class Chat extends EventTarget {
   constructor() {
     super();

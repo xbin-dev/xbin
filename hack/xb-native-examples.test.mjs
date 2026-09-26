@@ -1,9 +1,13 @@
 // The eight tile rewrites of the native design (plans/native.md §18) run
 // against a stubbed xbin in node (hack/xbn/node.mjs); each rendered tree must
 // equal the JSON printed beside it. The examples are read from the design
-// itself, so the design and the runtime cannot drift apart silently. Modules
-// the examples import that the tiles have not extracted yet (fmt.js, prom.js,
-// chat-core.js) are stand-ins in hack/xbn/testdata/ copied from the pages.
+// itself, so the design and the runtime cannot drift apart silently. The
+// modules the examples import are the tiles' own (builtin-tiles/*/fmt.js and
+// prom.js, which the pages import too), except the chat example's Chat: a
+// canned stand-in in hack/xbn/testdata/chat/ holding the design's sample
+// conversation (the real engine, builtin-tiles/chat/chat-core.js, runs in the
+// native/fixtures/tile-chat fixture). The shipped native.js of each of the
+// eight tiles is checked by native/fixtures/tile-*.
 //
 // Deviations from the printed trees, each said in the design's own words:
 //   devbox      "sheets closed and trimmed from the tree for brevity" — the
@@ -38,12 +42,18 @@ function examples() {
 const EX = examples();
 
 const NOW = 1790000000000; // 2026-09-21T14:13:20Z
+// the tile modules an example imports, copied next to it (the pages import them too)
+const SHARED = {
+  'egress-approver': ['builtin-tiles/egress-approver/fmt.js'],
+  'prometheus-viewer': ['builtin-tiles/prometheus-viewer/prom.js'],
+};
 async function run(name, data, steps = []) {
   const ex = EX[name];
   assert.ok(ex, `plans/native.md §18 has no example "${name}"`);
   const dir = mkdtempSync(join(tmpdir(), `xbn-${name}-`));
   try {
     writeFileSync(join(dir, 'native.js'), ex.js);
+    for (const f of SHARED[name] ?? []) copyFileSync(join(ROOT, f), join(dir, f.split('/').pop()));
     const extra = join(ROOT, 'hack/xbn/testdata', name);
     if (existsSync(extra)) for (const f of readdirSync(extra)) copyFileSync(join(extra, f), join(dir, f));
     const r = await runNative({ entry: join(dir, 'native.js'), data: { now: NOW, ...data }, steps });
