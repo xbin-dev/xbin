@@ -151,17 +151,15 @@ public enum TermDirectory {
     /// A `term` `status` event applied to the list: the row updated in
     /// place (a status names an agent session and carries its summary), or
     /// nil when the id isn't listed (re-list: the directory is behind).
-    /// A final status (`exited`, `error`) drops the row — the `close` that
-    /// follows would re-list anyway.
+    /// No status removes a row, as in the web shell: `error` isn't final (a
+    /// failed prompt — signed out, an API error — leaves the session alive
+    /// and listed, and nothing else follows), and a session that ends sends
+    /// `close`, which re-lists.
     public static func apply(statusOf id: String, status: String?, pending: Int?, questions: Int?,
                              to entries: [TermDirectoryEntry]) -> [TermDirectoryEntry]? {
         guard let i = entries.firstIndex(where: { $0.id == id }) else { return nil }
         var out = entries
-        if status == "exited" || status == "error" {
-            out.remove(at: i)
-        } else {
-            out[i] = out[i].applying(status: status, pending: pending, questions: questions)
-        }
+        out[i] = out[i].applying(status: status, pending: pending, questions: questions)
         return out
     }
 

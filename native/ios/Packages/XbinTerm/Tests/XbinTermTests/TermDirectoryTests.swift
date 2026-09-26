@@ -70,9 +70,17 @@ import Testing
         // Fields the event leaves out stay as they were; counts never go negative.
         let partial = try #require(TermDirectory.apply(statusOf: "a", status: nil, pending: -3, questions: nil, to: asked))
         #expect(partial[0].status == "waiting_permission" && partial[0].pending == 0 && partial[0].questions == 1)
-        // A final status drops the row.
-        #expect(TermDirectory.apply(statusOf: "a", status: "exited", pending: nil, questions: nil, to: list)?.map(\.id) == ["s"])
-        #expect(TermDirectory.apply(statusOf: "a", status: "error", pending: nil, questions: nil, to: list)?.map(\.id) == ["s"])
+        // No status drops a row (the web shell's rule): a failed prompt
+        // (`error`) leaves the session alive and listed — it stays in the
+        // Agents list and the tile's pickers with its status — and an ended
+        // one is re-listed by the `close` that follows.
+        let failed = try #require(TermDirectory.apply(statusOf: "a", status: "error", pending: nil, questions: nil, to: list))
+        #expect(failed.map(\.id) == ["a", "s"] && failed[0].status == "error" && !failed[0].isAgentBusy)
+        #expect(TermDirectory.forTile(failed, cwd: "apps/x").map(\.id) == ["s", "a"])
+        let recovered = try #require(TermDirectory.apply(statusOf: "a", status: "running", pending: 0, questions: 0, to: failed))
+        #expect(recovered[0].status == "running" && recovered[0].isAgentBusy)
+        let exited = try #require(TermDirectory.apply(statusOf: "a", status: "exited", pending: nil, questions: nil, to: list))
+        #expect(exited.map(\.id) == ["a", "s"] && exited[0].status == "exited")
         #expect(TermDirectory.apply(statusOf: "zz", status: "idle", pending: 0, questions: 0, to: list) == nil)
     }
 
