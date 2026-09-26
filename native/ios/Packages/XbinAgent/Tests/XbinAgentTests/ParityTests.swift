@@ -93,7 +93,7 @@ import Testing
     }
 
     /// Every captured session folds to the same transcript the web renders.
-    @Test(arguments: ["basic", "permissions", "plan", "ask", "subagent", "shell", "cancel", "signedout"])
+    @Test(arguments: ["basic", "permissions", "plan", "ask", "subagent", "shell", "cancel", "signedout", "attach"])
     func transcript(_ name: String) throws {
         let want = try #require(p["transcripts"]?[name]?.array)
         let t = AgentTranscript(events: try events(name))

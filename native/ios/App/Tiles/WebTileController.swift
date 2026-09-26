@@ -49,25 +49,35 @@ final class WebTileController: NSObject {
     /// navigation) answers `xbin.window` with null.
     @ObservationIgnored weak var nav: WorkspaceNav?
 
-    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, subpath: String = "", query: String? = nil,
-         fragment: String? = nil) {
+    convenience init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, subpath: String = "", query: String? = nil,
+                     fragment: String? = nil) {
+        self.init(workspace: workspace, tile: tile, canOpenLinks: canOpenLinks,
+                  url: TileScheme.pageURL(workspace: workspace.id, tile: tile, subpath: subpath, query: query, fragment: fragment))
+    }
+
+    /// A page of `tile` by its scheme URL. An `island` (a native tile's
+    /// `canvas src`, TileHatches) sits inside a native screen: no pull to
+    /// refresh, no back/forward swipes.
+    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false) {
         self.workspace = workspace
         self.tile = tile
         self.canOpenLinks = canOpenLinks
-        initialURL = TileScheme.pageURL(workspace: workspace.id, tile: tile, subpath: subpath, query: query, fragment: fragment)
+        initialURL = url
         webView = WKWebView(frame: .zero, configuration: Self.configuration(for: workspace, bridge: true))
         super.init()
         webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsBackForwardNavigationGestures = !island
         webView.customUserAgent = nil
         #if DEBUG
         webView.isInspectable = true
         #endif
-        let refresh = UIRefreshControl()
-        refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
-        webView.scrollView.refreshControl = refresh
+        if !island {
+            let refresh = UIRefreshControl()
+            refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
+            webView.scrollView.refreshControl = refresh
+        }
         workspace.schemeHandler.register(webView, tile: tile)
         observations = [
             webView.observe(\.estimatedProgress) { [weak self] wv, _ in

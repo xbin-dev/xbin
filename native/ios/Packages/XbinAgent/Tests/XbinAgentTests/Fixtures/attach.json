@@ -1,0 +1,815 @@
+{
+ "about": "prompts with files: an image and a text file with text (the image inline, the text as embedded context); files alone (empty text); then text alone",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790433639659,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790433639675,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790433639678,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "what is in these?",
+    "attachments": [
+     {
+      "name": "shot.png",
+      "mime": "image/png",
+      "size": 72,
+      "inline": true
+     },
+     {
+      "name": "notes.txt",
+      "mime": "text/plain",
+      "size": 12,
+      "inline": true
+     }
+    ]
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790433639678,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790433639679,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "echo: what is in these? [image image/png 72B] [file shot.png 72B] [resource notes.txt 12B]",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790433639679,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790433639679,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: what is in these?"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790433639679,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790433639679,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790433639679,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "",
+    "attachments": [
+     {
+      "name": "Photo-1.jpg",
+      "mime": "image/jpeg",
+      "size": 44,
+      "inline": true
+     }
+    ]
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790433639679,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790433639680,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "echo:  [image image/jpeg 44B] [file Photo-1.jpg 44B]",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790433639680,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790433639680,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790433639680,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790433639680,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "and now just text"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1790433639680,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1790433639680,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "echo: and now just text",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1790433639680,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1790433639680,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 3,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1790433639680,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790433639659,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790433639675,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790433639678,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "what is in these?",
+     "attachments": [
+      {
+       "name": "shot.png",
+       "mime": "image/png",
+       "size": 72,
+       "inline": true
+      },
+      {
+       "name": "notes.txt",
+       "mime": "text/plain",
+       "size": 12,
+       "inline": true
+      }
+     ]
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790433639678,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790433639679,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "echo: what is in these? [image image/png 72B] [file shot.png 72B] [resource notes.txt 12B]",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790433639679,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790433639679,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "title": "fake: what is in these?"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790433639679,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 1,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790433639679,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790433639679,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "",
+     "attachments": [
+      {
+       "name": "Photo-1.jpg",
+       "mime": "image/jpeg",
+       "size": 44,
+       "inline": true
+      }
+     ]
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790433639679,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790433639680,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "echo:  [image image/jpeg 44B] [file Photo-1.jpg 44B]",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790433639680,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790433639680,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 2,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790433639680,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790433639680,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "and now just text"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790433639680,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 18,
+    "ts": 1790433639680,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "echo: and now just text",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 19,
+    "ts": 1790433639680,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 20,
+    "ts": 1790433639680,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 3,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 21,
+    "ts": 1790433639680,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 22,
+    "ts": 1790433639681,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "880c1d14e1d699e3",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: what is in these?",
+   "created": "2026-09-26T14:40:39Z",
+   "ended": "2026-09-26T14:40:39Z",
+   "turns": 3,
+   "preview": "what is in these?",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "880c1d14e1d699e3",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: what is in these?",
+   "created": "2026-09-26T14:40:39Z",
+   "ended": "2026-09-26T14:40:39Z",
+   "turns": 3,
+   "preview": "what is in these?",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "attach",
+ "session": {
+  "id": "880c1d14e1d699e3",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T14:40:39Z",
+  "lastActive": "2026-09-26T14:40:39Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ }
+}

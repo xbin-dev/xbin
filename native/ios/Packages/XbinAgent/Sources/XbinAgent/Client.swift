@@ -137,9 +137,20 @@ public struct AgentClient: Sendable {
 
     // MARK: turns
 
-    /// `POST …/prompt {text}` → the turn number; 409 while a turn runs.
-    public func prompt(_ id: String, text: String) async throws -> PromptAccepted {
-        let v = try await call("POST", sessionPath(id) + "/prompt", body: ["text": .string(text)])
+    /// `POST …/prompt {text, attachments?}` → the turn number; 409 while a
+    /// turn runs. With attachments `text` may be empty; they are checked
+    /// against the server's limits first (``PromptAttachment/check(_:)``:
+    /// a 413 or 400 `AgentAPIError` without a request, as xbind would
+    /// answer). Without them the body is `{text}`, as before.
+    public func prompt(_ id: String, text: String, attachments: [PromptAttachment] = []) async throws -> PromptAccepted {
+        if attachments.isEmpty {
+            let v = try await call("POST", sessionPath(id) + "/prompt", body: ["text": .string(text)])
+            return PromptAccepted(turn: v["turn"]?.int ?? 0)
+        }
+        if let problem = PromptAttachment.check(attachments) {
+            throw AgentAPIError(status: problem.status, message: problem.description)
+        }
+        let v = try await call("POST", sessionPath(id) + "/prompt", rawBody: PromptAttachment.body(text: text, attachments))
         return PromptAccepted(turn: v["turn"]?.int ?? 0)
     }
 
@@ -243,12 +254,190 @@ public struct AgentClient: Sendable {
     }
 
     func call(_ method: String, _ path: String, query: [(String, String)] = [], body: JSONValue? = nil) async throws -> JSONValue {
+        try await call(method, path, query: query, rawBody: body?.data)
+    }
+
+    /// A call whose JSON body is already encoded (a prompt's attachments:
+    /// tens of MiB of base64 are appended as bytes, not built as a string).
+    func call(_ method: String, _ path: String, query: [(String, String)] = [], rawBody: Data?) async throws -> JSONValue {
         var headers: [String: String] = ["Accept": "application/json"]
-        if body != nil { headers["Content-Type"] = "application/json" }
-        let r = try await transport.send(HTTPRequest(method: method, path: prefix + path, query: query, headers: headers, body: body?.data))
+        if rawBody != nil { headers["Content-Type"] = "application/json" }
+        let r = try await transport.send(HTTPRequest(method: method, path: prefix + path, query: query, headers: headers, body: rawBody))
         guard (200..<300).contains(r.status) else { throw AgentAPIError(r) }
         if r.body.isEmpty || r.status == 204 { return .null }
         return try JSONValue.parse(r.body)
+    }
+}
+
+// MARK: - prompt attachments
+
+/// A file sent with a prompt (`POST …/prompt {text, attachments:[{name,
+/// mime, data}]}`, docs/protocol.md): a photo, a screenshot, a log, a PDF.
+/// xbind writes each into the agent's sandbox and hands it over by path; a
+/// png/jpeg/gif/webp — the bytes decide — also goes to the model inline
+/// when it is small enough (``maxInlineImageBytes``, ``maxInlineImagesBytes``
+/// per prompt), a text file ≤ ``maxInlineTextBytes`` as embedded context.
+/// Downscale photos (``maxImageEdge``) and send HEIC as JPEG.
+public struct PromptAttachment: Sendable, Hashable {
+    /// A plain file name (xbind keeps the last path element and makes it unique).
+    public var name: String
+    /// Its media type; "" lets xbind decide (from the name, else the bytes).
+    public var mime: String
+    public var data: Data
+
+    public init(name: String, mime: String = "", data: Data) {
+        self.name = name
+        self.mime = mime
+        self.data = data
+    }
+
+    // xbind's limits (internal/agent/attachments.go, internal/server/agentapi.go).
+    public static let maxCount = 10
+    public static let maxFileBytes = 10 << 20
+    public static let maxTotalBytes = 20 << 20
+    /// The whole request body (base64 grows the bytes by 4/3).
+    public static let maxBodyBytes = 32 << 20
+    /// An image the model sees inline (5 MiB as base64); a bigger one is a file only.
+    public static let maxInlineImageBytes = 15 << 18
+    /// Inline images per prompt, together.
+    public static let maxInlineImagesBytes = 4 << 20
+    /// A text file sent inline as embedded context.
+    public static let maxInlineTextBytes = 128 << 10
+    /// All a model reads of a photo's long edge.
+    public static let maxImageEdge = 2576
+    /// The largest image the app reads to make it model-ready: a 48 MP
+    /// photo, a panorama or a big PNG is redrawn to ``maxImageEdge`` and
+    /// ≤ ``maxInlineImageBytes`` before it rides, so it may start well over
+    /// ``maxFileBytes``.
+    public static let maxPickedImageBytes = 64 << 20
+
+    /// The most of a picked file the app reads for a prompt: an image up to
+    /// ``maxPickedImageBytes`` (it is redrawn smaller first), anything else
+    /// up to ``maxFileBytes`` — it goes as it is. A bigger file is left
+    /// unread (``refusal(name:bytes:read:)``).
+    public static func readLimit(image: Bool) -> Int { image ? maxPickedImageBytes : maxFileBytes }
+
+    /// Why a picked file can't wait for the next prompt, or nil: `bytes` is
+    /// its size once the app prepared it (a photo redrawn) — held to
+    /// ``maxFileBytes`` only then — or, with `read` false, the size it was
+    /// left unread at (over ``readLimit(image:)``).
+    public static func refusal(name: String, bytes: Int, read: Bool = true) -> AttachmentProblem? {
+        if !read { return .tooLargeToRead(name: name, bytes: bytes) }
+        return bytes > maxFileBytes ? .fileTooLarge(name: name, bytes: bytes) : nil
+    }
+
+    /// The image type the bytes are, when it is one the model takes inline
+    /// (png, jpeg, gif, webp — xbind sniffs the same way; the declared type
+    /// doesn't count).
+    public var inlineImageType: String? { Self.sniffImage(data) }
+
+    /// Whether the model would get this image inline on its own (the
+    /// prompt's total may still push it to a file).
+    public var fitsInline: Bool { inlineImageType != nil && data.count <= Self.maxInlineImageBytes }
+
+    public static func sniffImage(_ d: Data) -> String? {
+        let b = [UInt8](d.prefix(12))
+        if b.count >= 8, b[0...7] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] { return "image/png" }
+        if b.count >= 3, b[0...2] == [0xFF, 0xD8, 0xFF] { return "image/jpeg" }
+        if b.count >= 6, b[0...5] == Array("GIF87a".utf8)[...] || b[0...5] == Array("GIF89a".utf8)[...] { return "image/gif" }
+        if b.count >= 12, b[0...3] == Array("RIFF".utf8)[...], b[8...11] == Array("WEBP".utf8)[...] { return "image/webp" }
+        return nil
+    }
+
+    /// What to do with a picked image before it rides a prompt.
+    public enum ImagePlan: Sendable, Hashable {
+        /// Send the bytes as they are.
+        case keep
+        /// Redraw at this size (never larger) and encode: PNG when `png`
+        /// (a screenshot stays sharp; the app falls back to JPEG when the PNG
+        /// is still over ``maxInlineImageBytes``), else JPEG.
+        case reencode(width: Int, height: Int, png: Bool)
+    }
+
+    /// The plan for an image of `width`×`height` pixels, `bytes` long,
+    /// whose bytes sniff as `type` (``sniffImage(_:)``; nil for HEIC,
+    /// TIFF, …): a model-ready image (png/jpeg/webp, the long edge ≤
+    /// ``maxImageEdge``, ≤ ``maxInlineImageBytes``) and any GIF (it may
+    /// move) are kept; anything else is redrawn to fit.
+    public static func imagePlan(width: Int, height: Int, bytes: Int, type: String?) -> ImagePlan {
+        if type == "image/gif" { return .keep }
+        let edge = max(width, height)
+        if type != nil, edge <= maxImageEdge, bytes <= maxInlineImageBytes { return .keep }
+        guard edge > 0 else { return .keep }
+        let scale = min(1, Double(maxImageEdge) / Double(edge))
+        let w = max(1, Int((Double(width) * scale).rounded()))
+        let h = max(1, Int((Double(height) * scale).rounded()))
+        return .reencode(width: w, height: h, png: type == "image/png")
+    }
+
+    /// Why xbind would refuse these, or nil: at most ``maxCount``, each ≤
+    /// ``maxFileBytes``, together ≤ ``maxTotalBytes``.
+    public static func check(_ list: [PromptAttachment]) -> AttachmentProblem? {
+        if list.count > maxCount { return .tooMany(list.count) }
+        var total = 0
+        for a in list {
+            if a.data.count > maxFileBytes { return .fileTooLarge(name: a.name, bytes: a.data.count) }
+            total += a.data.count
+            if total > maxTotalBytes { return .tooLargeTogether(bytes: total) }
+        }
+        return nil
+    }
+
+    /// The prompt's JSON body, the base64 appended as bytes.
+    public static func body(text: String, _ list: [PromptAttachment]) -> Data {
+        var out = Data()
+        out.reserveCapacity(64 + list.reduce(0) { $0 + ($1.data.count + 2) / 3 * 4 + 96 })
+        out.append(contentsOf: #"{"text":"#.utf8)
+        out.append(JSONValue.string(text).data)
+        out.append(contentsOf: #","attachments":["#.utf8)
+        for (i, a) in list.enumerated() {
+            if i > 0 { out.append(UInt8(ascii: ",")) }
+            out.append(contentsOf: #"{"name":"#.utf8)
+            out.append(JSONValue.string(a.name).data)
+            if !a.mime.isEmpty {
+                out.append(contentsOf: #","mime":"#.utf8)
+                out.append(JSONValue.string(a.mime).data)
+            }
+            out.append(contentsOf: #","data":""#.utf8)
+            out.append(a.data.base64EncodedData())
+            out.append(contentsOf: #""}"#.utf8)
+        }
+        out.append(contentsOf: "]}".utf8)
+        return out
+    }
+}
+
+/// A prompt's attachments past xbind's limits.
+public enum AttachmentProblem: Error, Sendable, Hashable, CustomStringConvertible {
+    case tooMany(Int)
+    case fileTooLarge(name: String, bytes: Int)
+    case tooLargeTogether(bytes: Int)
+    /// Picked, but too big to read at all (``PromptAttachment/readLimit(image:)``).
+    case tooLargeToRead(name: String, bytes: Int)
+
+    /// What xbind answers: 400 for too many, 413 past a size limit.
+    public var status: Int {
+        if case .tooMany = self { return 400 }
+        return 413
+    }
+
+    public var description: String {
+        switch self {
+        case .tooMany(let n):
+            return "\(n) attachments (at most \(PromptAttachment.maxCount))"
+        case .fileTooLarge(let name, let bytes):
+            return "\(name) is \(mib(bytes)) — the limit for a file is \(mib(PromptAttachment.maxFileBytes))"
+        case .tooLargeTogether:
+            return "the attachments are over \(mib(PromptAttachment.maxTotalBytes)) together"
+        case .tooLargeToRead(let name, let bytes):
+            return "\(name) is \(mib(bytes)) — too large to attach (a photo up to \(mib(PromptAttachment.maxPickedImageBytes)), "
+                + "another file up to \(mib(PromptAttachment.maxFileBytes)))"
+        }
+    }
+
+    private func mib(_ n: Int) -> String {
+        let v = Double(n) / Double(1 << 20)
+        return v == v.rounded() ? "\(Int(v)) MiB" : String(format: "%.1f MiB", v)
     }
 }
 

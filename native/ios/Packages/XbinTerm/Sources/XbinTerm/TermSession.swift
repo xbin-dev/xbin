@@ -70,6 +70,12 @@ public enum TermCloseInfo: Equatable, Sendable {
     /// An open socket closed (network drop, xbind shutting down, the server
     /// ending the socket).
     case dropped
+    /// An open socket the server closed with a close frame, and its close
+    /// code (1000 normal closure, 1001 going away, 1005 none given, 1011 an
+    /// error…). Transports that can't see the code report `.dropped`; the
+    /// /ws/term session treats both alike, a tile's pty (TilePtySession)
+    /// takes a normal closure as the pty's end.
+    case serverClosed(code: Int)
     /// The upgrade was answered with this HTTP status instead of 101: 401
     /// signed out, 403 no terminal level / revoked / another user's session,
     /// 404 no such session, 409 an agent session, 400 bad options (an
@@ -479,7 +485,7 @@ public extension TermSessionDelegate {
                 reattachFails += 1
                 if reattachFails >= Self.reattachFailsToRestart { sessionGone(); return }
             }
-        case .dropped, .unreachable, .refused:
+        case .dropped, .serverClosed, .unreachable, .refused:
             break // a drop, an outage, a 5xx/429 on a reattach: retry
         }
         // Reattach by session id with backoff (xbind keeps the PTY).

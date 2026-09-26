@@ -25,6 +25,8 @@ final class NativeTileRuntime: NSObject {
     var title: String?
     var shareItems: [Any]?
     var tileDialog: TileDialog?
+    /// Its terminal, canvas and attach hatches (TileHatches.swift).
+    let hatches: TileHatches
 
     @ObservationIgnored var onFallback: ((String) -> Void)?
     @ObservationIgnored private var storeObservation: TreeStoreObservation?
@@ -36,6 +38,7 @@ final class NativeTileRuntime: NSObject {
         self.tile = tile
         let saved = NativeStateFile.load(workspace: workspace.id, tile: tile.path)
         store = TreeStore(savedState: saved)
+        hatches = TileHatches(workspace: workspace, tile: tile)
         let config = WebTileController.configuration(for: workspace, bridge: false)
         let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios")
         // Caps and state before any page script (tree.md §1), then the
@@ -80,6 +83,7 @@ final class NativeTileRuntime: NSObject {
 
     func stop() {
         timeout?.cancel()
+        hatches.stopAll()
         workspace.schemeHandler.unregister(webView)
         let ucc = webView.configuration.userContentController
         ucc.removeScriptMessageHandler(forName: "xbn", contentWorld: .page)
@@ -91,6 +95,7 @@ final class NativeTileRuntime: NSObject {
     func reload() {
         store.reset()
         lifecycle = NativeTileLifecycle()
+        hatches.reloadPages()
         start()
     }
 
@@ -118,6 +123,7 @@ final class NativeTileRuntime: NSObject {
         switch event {
         case .tree:
             lifecycle.mounted()
+            hatches.prune(store.tree)
         case .meta:
             title = store.meta.title
             workspace.tileMeta.set(tile.path, store.meta)
@@ -164,19 +170,32 @@ final class NativeTileRuntime: NSObject {
         call(.resolve(id: id, value: true))
     }
 
-    /// A tile-relative file, fetched with the tile's frame token (images,
-    /// shared files) — never through the bridge (§7.5).
-    func tileFile(_ relative: String) async throws -> APIResponse {
-        let clean = relative.hasPrefix("./") ? String(relative.dropFirst(2)) : relative
-        let path = "/c/\(URLComponent.encodePath(tile.path))/\(clean)"
-        let token = try await workspace.frameTokens.token(for: tile.path)
+    /// A file of the tile, fetched with the tile's frame token (images,
+    /// shared files) — never through the bridge (§7.5). Relative to its page,
+    /// or its own `/c/<self>/…` or `/api/<self>/…` (TileResource); anything
+    /// else is refused.
+    func tileFile(_ ref: String) async throws -> APIResponse {
+        guard let path = TileResource.assetPath(ref, tile: tile.path, known: workspace.catalog.tiles.map(\.path)) else {
+            throw APIError(status: 403, message: "not a file of this tile")
+        }
+        let tokens = workspace.frameTokens
+        let token = try await tokens.token(for: tile.path)
+        let r = try await getFile(path, token: token)
+        guard r.status == 401 else { return r }
+        // The token died with the session behind it: renew it once.
+        await tokens.invalidate(tile.path, token: token)
+        return try await getFile(path, token: try await tokens.renew(tile.path))
+    }
+
+    private func getFile(_ path: String, token: String) async throws -> APIResponse {
         var headers = [TileScheme.frameTokenHeader: token, TileScheme.clientHeader: AppInfo.clientHeader]
         headers["Accept"] = "*/*"
         return try await workspace.transport.send(APIRequest("GET", path, headers: headers), to: workspace.origin)
     }
 
     /// What the renderer asks of the app: the clipboard, links (only with
-    /// cap:open-links, ND11), tile images by frame token.
+    /// cap:open-links, ND11), tile images by frame token, and the escape
+    /// hatches — terminal, canvas, attach (TileHatches).
     var services: XbinServices {
         // Typed locals: the closures inline in one call (one of them behind
         // a ternary) crashed the type checker's diagnostics on Xcode 27.
@@ -188,7 +207,8 @@ final class NativeTileRuntime: NSObject {
             guard r.isSuccess else { throw APIError(r) }
             return r.body
         }
-        return XbinServices(copy: { UIPasteboard.general.string = $0 }, openLink: openLink, imageData: imageData)
+        let copy: @MainActor (String) -> Void = { UIPasteboard.general.string = $0 }
+        return hatches.services(copy: copy, openLink: openLink, imageData: imageData)
     }
 
     /// A link the tile may open (cap:open-links): http(s) and mailto only.
@@ -286,6 +306,8 @@ struct NativeTileScreen: View {
                     .accessibilityHidden(true)
                 if rt.lifecycle.phase == .live {
                     XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services)
+                        .modifier(AttachPickers(picker: rt.hatches.attach.picker))
+                        .overlay(alignment: .bottom) { AttachStatusView(flow: rt.hatches.attach) }
                 } else {
                     ProgressView().controlSize(.large)
                 }

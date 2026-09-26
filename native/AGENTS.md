@@ -204,7 +204,9 @@ registration and device removal. Before touching an app file,
 `swiftc -frontend -parse <file>` at least catches syntax errors here; for
 `App/Terminal`, `native/tools/term-stubcheck/run.sh` (and `--sdk-27-1`)
 type-checks the whole directory against stubs, as the renderer's stubcheck
-does for XbinRenderer.
+does for XbinRenderer. `native/tools/hatches-live` (its header says how)
+runs the hatches' non-UI halves — the frame-token upload, the tile pty
+socket, prompt attachments — against a running xbind with its test tile.
 
 ### 4. Apple — GitHub Actions (minutes), or the Mac mini
 

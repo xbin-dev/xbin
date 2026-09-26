@@ -46,6 +46,9 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// The latest run of its list: more text may still arrive. Streaming =
     /// `open && status.isBusy` (the session's).
     public var open: Bool
+    /// The files a user's prompt carried (a message with files never
+    /// merges with another delta, as on the web).
+    public var files: [MessageAttachment] = []
 
     /// Text still streaming in: the open run of a session that runs a turn.
     public func isStreaming(status: SessionStatus, ended: Bool = false) -> Bool { open && !ended && status.isBusy }

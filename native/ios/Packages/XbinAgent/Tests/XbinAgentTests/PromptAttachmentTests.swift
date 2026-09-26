@@ -1,0 +1,164 @@
+import Foundation
+import Testing
+@testable import XbinAgent
+
+/// Prompt attachments (POST …/prompt {text, attachments:[{name, mime, data}]}):
+/// the body xbind decodes, its limits checked before any request, the
+/// image sniffing that decides what the model sees inline.
+@Suite struct PromptAttachmentTests {
+    static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13])
+    static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 16])
+
+    @Test func bodyAndRoute() async throws {
+        let t = FakeTransport { _ in ok(#"{"ok":true,"turn":3}"#) }
+        let c = AgentClient(transport: t)
+        let files = [
+            PromptAttachment(name: "shot.png", mime: "image/png", data: Self.png),
+            PromptAttachment(name: "notes \"v2\".txt", data: Data("héllo\n".utf8)),
+        ]
+        #expect(try await c.prompt("s 1", text: "what's in \"these\"?\n", attachments: files).turn == 3)
+        let r = try #require(t.requests.first)
+        #expect(r.method == "POST" && r.target == "/api/xbin/term/sessions/s%201/prompt")
+        #expect(r.headers["Content-Type"] == "application/json")
+        let body = try #require(r.json)
+        #expect(body["text"]?.string == "what's in \"these\"?\n")
+        let atts = try #require(body["attachments"]?.array)
+        #expect(atts.count == 2)
+        #expect(atts[0]["name"]?.string == "shot.png" && atts[0]["mime"]?.string == "image/png")
+        #expect(atts[0]["data"]?.string.flatMap { Data(base64Encoded: $0) } == Self.png)
+        // no declared type: the key is left out (xbind guesses from the name, then the bytes)
+        #expect(atts[1]["name"]?.string == "notes \"v2\".txt" && atts[1]["mime"] == nil)
+        #expect(atts[1]["data"]?.string.flatMap { Data(base64Encoded: $0) } == Data("héllo\n".utf8))
+        // files only: the text may be empty
+        _ = try await c.prompt("s", text: "", attachments: [files[0]])
+        #expect(t.requests[1].json?["text"]?.string == "")
+        // no files: the old body, exactly
+        _ = try await c.prompt("s", text: "hi", attachments: [])
+        #expect(t.requests[2].json?.compactString == #"{"text":"hi"}"#)
+    }
+
+    @Test func limitsRefuseWithoutARequest() async throws {
+        let t = FakeTransport { _ in ok(#"{"ok":true,"turn":1}"#) }
+        let c = AgentClient(transport: t)
+        let one = PromptAttachment(name: "a.bin", data: Data(count: 1))
+        await #expect(throws: AgentAPIError(status: 400, message: "11 attachments (at most 10)")) {
+            _ = try await c.prompt("s", text: "x", attachments: Array(repeating: one, count: 11))
+        }
+        let big = PromptAttachment(name: "big.mov", data: Data(count: PromptAttachment.maxFileBytes + 1))
+        await #expect(throws: AgentAPIError(status: 413, message: "big.mov is 10.0 MiB — the limit for a file is 10 MiB")) {
+            _ = try await c.prompt("s", text: "x", attachments: [big])
+        }
+        let nine = PromptAttachment(name: "n.bin", data: Data(count: 9 << 20))
+        let e = PromptAttachment.check([nine, nine, nine])
+        #expect(e == .tooLargeTogether(bytes: 27 << 20) && e?.status == 413)
+        #expect(e?.description == "the attachments are over 20 MiB together")
+        #expect(t.requests.isEmpty)
+        // exactly at the limits is fine
+        let ten = PromptAttachment(name: "t.bin", data: Data(count: PromptAttachment.maxFileBytes))
+        #expect(PromptAttachment.check([ten, ten]) == nil)
+        #expect(PromptAttachment.check(Array(repeating: one, count: 10)) == nil)
+        // the largest allowed prompt fits the server's body cap as base64
+        let body = PromptAttachment.body(text: "x", [ten, ten])
+        #expect(body.count < PromptAttachment.maxBodyBytes)
+    }
+
+    @Test func feedSendsFiles() async throws {
+        let t = FakeTransport { r in
+            if r.path.hasSuffix("/prompt") { return ok(#"{"ok":true,"turn":1}"#) }
+            return page([])
+        }
+        let feed = AgentSessionFeed(client: AgentClient(transport: t), sessionID: "s")
+        let r = try await feed.send("look", attachments: [PromptAttachment(name: "a.jpg", data: Self.jpeg)])
+        #expect(r.turn == 1)
+        let p = try #require(t.requests.first { $0.path.hasSuffix("/prompt") })
+        #expect(p.json?["attachments"]?.array?.first?["name"]?.string == "a.jpg")
+        // a refusal is the feed's lastError, as the server's would be
+        await #expect(throws: AgentAPIError.self) {
+            _ = try await feed.send("", attachments: Array(repeating: PromptAttachment(name: "x", data: Data(count: 1)), count: 12))
+        }
+    }
+
+    /// The log's user delta lists a prompt's files; such a message never
+    /// merges with another delta (bx-agent.js _blocks()), so two prompts in
+    /// a row stay two bubbles when either carried files.
+    @Test func transcriptKeepsFiles() throws {
+        func user(_ seq: UInt64, _ text: String, _ files: [JSONValue] = []) -> AgentEvent {
+            var d: JSONValue = ["role": "user", "text": .string(text)]
+            if !files.isEmpty, case .object(var o) = d { o["attachments"] = .array(files); d = .object(o) }
+            return AgentEvent(json: ["seq": .number(Double(seq)), "ts": .number(Double(seq)), "type": "message.delta", "data": d])!
+        }
+        let shot: JSONValue = ["name": "shot.png", "mime": "image/png", "size": 72, "inline": true]
+        let doc: JSONValue = ["name": "a.pdf", "mime": "application/pdf", "size": 9000]
+        let t = AgentTranscript(events: [user(1, "look", [shot, doc]), user(2, " more"), user(3, "", [shot]), user(4, "a"), user(5, "b")])
+        let msgs = t.items.compactMap { if case .message(let m) = $0 { return m } else { return nil } }
+        #expect(msgs.map(\.text) == ["look", " more", "", "ab"])
+        #expect(msgs[0].files == [MessageAttachment(name: "shot.png", mime: "image/png", size: 72, inline: true),
+                                  MessageAttachment(name: "a.pdf", mime: "application/pdf", size: 9000, inline: false)])
+        #expect(msgs[1].files.isEmpty && msgs[2].files.map(\.name) == ["shot.png"] && msgs[3].files.isEmpty)
+        // a malformed entry is skipped, the rest kept
+        let odd = MessageDelta(json: ["role": "user", "text": "x", "attachments": [["mime": "x"], ["name": "ok.txt"]]])
+        #expect(odd.attachments == [MessageAttachment(name: "ok.txt")])
+    }
+
+    @Test func imagePlans() {
+        let edge = PromptAttachment.maxImageEdge
+        // model-ready: kept
+        #expect(PromptAttachment.imagePlan(width: 1170, height: 2532, bytes: 900_000, type: "image/png") == .keep)
+        #expect(PromptAttachment.imagePlan(width: edge, height: 10, bytes: 1, type: "image/jpeg") == .keep)
+        // a 12 MP photo: down to the model's long edge, JPEG
+        #expect(PromptAttachment.imagePlan(width: 4032, height: 3024, bytes: 3_000_000, type: "image/jpeg")
+            == .reencode(width: edge, height: 1932, png: false))
+        // HEIC (no inline type): redrawn even when small
+        #expect(PromptAttachment.imagePlan(width: 800, height: 600, bytes: 200_000, type: nil) == .reencode(width: 800, height: 600, png: false))
+        // a big screenshot stays PNG
+        #expect(PromptAttachment.imagePlan(width: 2880, height: 1800, bytes: 5_000_000, type: "image/png")
+            == .reencode(width: edge, height: 1610, png: true))
+        // small in pixels but over the inline size: redrawn at its size
+        #expect(PromptAttachment.imagePlan(width: 2000, height: 2000, bytes: 6_000_000, type: "image/webp")
+            == .reencode(width: 2000, height: 2000, png: false))
+        #expect(PromptAttachment.imagePlan(width: 5000, height: 5000, bytes: 9_000_000, type: "image/gif") == .keep)
+        #expect(PromptAttachment.imagePlan(width: 0, height: 0, bytes: 10, type: nil) == .keep)
+    }
+
+    @Test func imageSniffing() {
+        #expect(PromptAttachment.sniffImage(Self.png) == "image/png")
+        #expect(PromptAttachment.sniffImage(Self.jpeg) == "image/jpeg")
+        #expect(PromptAttachment.sniffImage(Data("GIF89a....".utf8)) == "image/gif")
+        #expect(PromptAttachment.sniffImage(Data("RIFF\u{0}\u{0}\u{0}\u{0}WEBPVP8 ".utf8)) == "image/webp")
+        #expect(PromptAttachment.sniffImage(Data("RIFF\u{0}\u{0}\u{0}\u{0}WAVEfmt ".utf8)) == nil)
+        #expect(PromptAttachment.sniffImage(Data("%PDF-1.7".utf8)) == nil)
+        #expect(PromptAttachment.sniffImage(Data()) == nil)
+        // the declared type doesn't count: xbind sniffs the bytes
+        let heic = PromptAttachment(name: "IMG.HEIC", mime: "image/jpeg", data: Data("\u{0}\u{0}\u{0}\u{18}ftypheic".utf8))
+        #expect(heic.inlineImageType == nil && !heic.fitsInline)
+        #expect(PromptAttachment(name: "a.png", data: Self.png).fitsInline)
+        var huge = Self.jpeg
+        huge.append(Data(count: PromptAttachment.maxInlineImageBytes))
+        #expect(!PromptAttachment(name: "a.jpg", data: huge).fitsInline)
+    }
+
+    /// A photo over the 10 MiB file limit is read — it is redrawn smaller
+    /// before it rides — and only then held to the limit; anything else
+    /// must fit as it is (AgentScreenModel.pickAttachments).
+    @Test func bigPhotosAreReadThenShrunk() {
+        let fifteen = 15 << 20
+        // a 48 MP JPEG from Photos, a 12-15 MB PNG from Files: read, not dropped
+        #expect(PromptAttachment.readLimit(image: true) >= 48 << 20 && fifteen <= PromptAttachment.readLimit(image: true))
+        // … and planned down to the model's edge
+        #expect(PromptAttachment.imagePlan(width: 8064, height: 6048, bytes: fifteen, type: "image/jpeg")
+            == .reencode(width: PromptAttachment.maxImageEdge, height: 1932, png: false))
+        #expect(PromptAttachment.imagePlan(width: 12000, height: 2000, bytes: 20 << 20, type: "image/png")
+            == .reencode(width: PromptAttachment.maxImageEdge, height: 429, png: true))
+        // once redrawn (≤ 3.75 MiB) it may wait for the prompt
+        #expect(PromptAttachment.refusal(name: "IMG.jpg", bytes: PromptAttachment.maxInlineImageBytes) == nil)
+        // a GIF is kept as it is (it may move): past 10 MiB it can't go
+        #expect(PromptAttachment.imagePlan(width: 800, height: 600, bytes: 12 << 20, type: "image/gif") == .keep)
+        #expect(PromptAttachment.refusal(name: "a.gif", bytes: 12 << 20) == .fileTooLarge(name: "a.gif", bytes: 12 << 20))
+        // anything else is not read past the file limit
+        #expect(PromptAttachment.readLimit(image: false) == PromptAttachment.maxFileBytes && fifteen > PromptAttachment.readLimit(image: false))
+        let unread = PromptAttachment.refusal(name: "log.pdf", bytes: fifteen, read: false)
+        #expect(unread == .tooLargeToRead(name: "log.pdf", bytes: fifteen) && unread?.status == 413)
+        #expect(unread?.description == "log.pdf is 15 MiB — too large to attach (a photo up to 64 MiB, another file up to 10 MiB)")
+        #expect(PromptAttachment.refusal(name: "ok.txt", bytes: PromptAttachment.maxFileBytes) == nil)
+    }
+}

@@ -271,8 +271,13 @@ test('the preview host lends the tile\'s credentials to its own workspace only',
     const v = window.xbnPreview.view;
     const off = await v.loadImage('https://elsewhere.example/a.png').then(() => 'loaded', (e) => String(e.message));
     const own = await v.loadImage('/t/tile.js').then((u) => (u.startsWith('blob:') ? 'blob' : u), (e) => String(e.message));
+    // uploads: the tile's own API only (docs/native.md), as the app requires
+    const file = new File(['x'], 'a b.png', { type: 'image/png' });
+    for (const path of ['upload?name={name}', '/api/apps/t/u', '/api/other/u', '/api/apps/tx/u', '/api/apps/t/../x', '/api/apps/t/%2e%2e/x']) {
+      await v.onupload({ k: 'c', p: { upload: { path, method: 'PUT' } } }, file);
+    }
     return { off, own, fetched: window.fetched };
   });
-  assert.deepEqual(got, { off: 'not a tile resource', own: 'blob', fetched: ['/t/tile.js'] });
+  assert.deepEqual(got, { off: 'not a tile resource', own: 'blob', fetched: ['/t/tile.js', '/api/apps/t/upload?name=a%20b.png', '/api/apps/t/u'] });
   await ctx.close();
 });

@@ -1,0 +1,494 @@
+import Foundation
+import Observation
+import PhotosUI
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+import XbinCore
+import XbinRenderer
+
+// Attachments (plans/native.md §8.4): the composer's attach button opens
+// the APP's pickers — Photos, the camera, Files — and the app handles the
+// bytes itself: for a native tile it uploads them to the tile's own
+// `upload.path` with the tile's frame token (TileAttachFlow); for the ACP
+// agent they ride the prompt (AgentScreen). No device API reaches tile code.
+
+/// The pickers behind an attach button: a source dialog, then Photos, the
+/// camera or Files; `pick` returns what the user chose ([] when cancelled),
+/// a file over its ``PickLimits`` as an unread placeholder (XbinCore's
+/// ``PickedFile``: name and size, no bytes) so the caller can say so — a
+/// tile gets `uploaded {…, 413}` for it. Present them with ``AttachPickers``.
+@MainActor
+@Observable
+final class AttachPicker {
+    enum Source: Equatable { case photos, camera, files }
+
+    var choosing = false
+    var showPhotos = false
+    var showCamera = false
+    var showFiles = false
+    var photoItems: [PhotosPickerItem] = []
+    /// Picked files are being read (a large video, many photos).
+    var loading = false
+    private(set) var filter = AcceptFilter(nil)
+    private(set) var maxCount = 10
+    /// A file that was left out (unreadable, not accepted), said once.
+    var notice: String?
+
+    @ObservationIgnored private var continuation: CheckedContinuation<[PickedFile], Never>?
+    @ObservationIgnored private var presenting: Source?
+    @ObservationIgnored private var limits = PickLimits.tileUpload
+
+    /// Shows the pickers `accept` allows and returns the chosen files. A
+    /// file over `limits` (by its kind: images may have a larger one) comes
+    /// back as ``PickedFile/unread(name:mime:bytes:)`` — a file from Files
+    /// is never read then; Photos hands its bytes over whole.
+    func pick(accept: String?, maxCount: Int = 10, limits: PickLimits = .tileUpload) async -> [PickedFile] {
+        guard continuation == nil else { return [] }
+        filter = AcceptFilter(accept)
+        self.maxCount = max(1, maxCount)
+        self.limits = limits
+        notice = nil
+        return await withCheckedContinuation { (c: CheckedContinuation<[PickedFile], Never>) in
+            continuation = c
+            let sources = availableSources
+            if sources.count == 1 { present(sources[0]) } else if sources.isEmpty { finish([]) } else { choosing = true }
+        }
+    }
+
+    var availableSources: [Source] {
+        var s: [Source] = []
+        if filter.allowsImages || filter.allowsVideos { s.append(.photos) }
+        if filter.allowsImages, UIImagePickerController.isSourceTypeAvailable(.camera) { s.append(.camera) }
+        if filter.allowsFiles || s.isEmpty { s.append(.files) }
+        return s
+    }
+
+    /// A source from the dialog: presented once the dialog has gone.
+    func choose(_ s: Source) {
+        presenting = s
+        choosing = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            self.present(s)
+        }
+    }
+
+    /// The dialog went away: without a choice, the pick is over. Judged a
+    /// beat later, so the order SwiftUI runs a button's action and clears
+    /// `isPresented` in doesn't matter.
+    func dialogDismissed() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            if self.presenting == nil, !self.choosing { self.finish([]) }
+        }
+    }
+
+    private func present(_ s: Source) {
+        presenting = s
+        switch s {
+        case .photos: photoItems = []; showPhotos = true
+        case .camera: showCamera = true
+        case .files: showFiles = true
+        }
+    }
+
+    var photoFilter: PHPickerFilter {
+        if filter.isAny || (filter.allowsImages && filter.allowsVideos) { return .any(of: [.images, .videos]) }
+        return filter.allowsVideos ? .videos : .images
+    }
+
+    var fileTypes: [UTType] {
+        if filter.isAny { return [.item] }
+        var out: [UTType] = []
+        for t in filter.types {
+            if t.hasSuffix("/*") {
+                switch t {
+                case "image/*": out.append(.image)
+                case "video/*": out.append(.movie)
+                case "audio/*": out.append(.audio)
+                case "text/*": out.append(.text)
+                default: out.append(.item)
+                }
+            } else if let u = UTType(mimeType: t) {
+                out.append(u)
+            }
+        }
+        for e in filter.extensions { if let u = UTType(filenameExtension: e) { out.append(u) } }
+        return out.isEmpty ? [.item] : out
+    }
+
+    // MARK: results
+
+    /// The Photos sheet closed: read what was selected.
+    func photosDismissed() {
+        guard presenting == .photos else { return }
+        Task { @MainActor in
+            // The selection binding is set as the sheet goes; give it a beat.
+            try? await Task.sleep(for: .milliseconds(150))
+            let items = self.photoItems
+            self.photoItems = []
+            guard !items.isEmpty else { self.finish([]); return }
+            self.loading = true
+            var out: [PickedFile] = []
+            for (i, item) in items.prefix(self.maxCount).enumerated() {
+                if let f = await Self.load(item, index: i, limits: self.limits) {
+                    out.append(f)
+                } else {
+                    self.notice = "A photo or video couldn't be read — left out."
+                }
+            }
+            self.loading = false
+            self.finish(out)
+        }
+    }
+
+    /// A Photos item's bytes: a JPEG, PNG or GIF photo as it is, any other
+    /// (HEIC, …) as JPEG, a movie as it is; over `limits`, a placeholder.
+    /// nil: unreadable.
+    private static func load(_ item: PhotosPickerItem, index: Int, limits: PickLimits) async -> PickedFile? {
+        let type = item.supportedContentTypes.first ?? .data
+        let image = type.conforms(to: .image)
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
+        let stamp = Self.stamp()
+        let limit = limits.limit(image: image)
+        if image {
+            if type.conforms(to: .jpeg) || type.conforms(to: .png) || type.conforms(to: .gif) {
+                let ext = type.preferredFilenameExtension ?? "jpg"
+                let name = "Photo-\(stamp)-\(index + 1).\(ext)"
+                let mime = type.preferredMIMEType ?? "image/jpeg"
+                guard data.count <= limit else { return .unread(name: name, mime: mime, bytes: data.count) }
+                return PickedFile(name: name, mime: mime, data: data)
+            }
+            // HEIC and friends: JPEG, which every backend and model reads.
+            let name = "Photo-\(stamp)-\(index + 1).jpg"
+            guard data.count <= limit else { return .unread(name: name, mime: "image/jpeg", bytes: data.count) }
+            guard let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) else { return nil }
+            guard jpeg.count <= limit else { return .unread(name: name, mime: "image/jpeg", bytes: jpeg.count) }
+            return PickedFile(name: name, mime: "image/jpeg", data: jpeg)
+        }
+        let ext = type.preferredFilenameExtension ?? "bin"
+        let name = "Video-\(stamp)-\(index + 1).\(ext)"
+        let mime = type.preferredMIMEType ?? ""
+        guard data.count <= limit else { return .unread(name: name, mime: mime, bytes: data.count) }
+        return PickedFile(name: name, mime: mime, data: data)
+    }
+
+    /// The camera's photo (nil: cancelled).
+    func shot(_ image: UIImage?) {
+        showCamera = false
+        guard let image, let jpeg = image.jpegData(compressionQuality: 0.85) else { finish([]); return }
+        let name = "Photo-\(Self.stamp()).jpg"
+        guard limits.reads(jpeg.count, image: true) else {
+            finish([.unread(name: name, mime: "image/jpeg", bytes: jpeg.count)])
+            return
+        }
+        finish([PickedFile(name: name, mime: "image/jpeg", data: jpeg)])
+    }
+
+    /// Files chose these (security-scoped URLs).
+    func imported(_ result: Result<[URL], any Error>) {
+        guard case .success(let urls) = result else { finish([]); return }
+        var out: [PickedFile] = []
+        for url in urls.prefix(maxCount) {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let name = TileResource.fileName(url.lastPathComponent, fallback: "file")
+            let type = UTType(filenameExtension: url.pathExtension)
+            let mime = type?.preferredMIMEType ?? ""
+            guard filter.accepts(name: name, mime: mime) else {
+                notice = "\(name) isn't a kind of file this accepts — left out."
+                continue
+            }
+            let limit = limits.limit(image: type?.conforms(to: .image) ?? false)
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            // Too big: not read at all; the caller says so (a tile gets a 413).
+            if size > limit {
+                out.append(.unread(name: name, mime: mime, bytes: size))
+                continue
+            }
+            guard let data = try? Data(contentsOf: url) else {
+                notice = "\(name) couldn't be read — left out."
+                continue
+            }
+            guard data.count <= limit else {
+                out.append(.unread(name: name, mime: mime, bytes: data.count))
+                continue
+            }
+            out.append(PickedFile(name: name, mime: mime, data: data))
+        }
+        finish(out)
+    }
+
+    func cancelled() { finish([]) }
+
+    private func finish(_ files: [PickedFile]) {
+        presenting = nil
+        let c = continuation
+        continuation = nil
+        c?.resume(returning: files)
+    }
+
+    private static func stamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f.string(from: Date())
+    }
+}
+
+/// Presents an ``AttachPicker``'s dialog and pickers.
+struct AttachPickers: ViewModifier {
+    @Bindable var picker: AttachPicker
+
+    func body(content: Content) -> some View {
+        let sources = picker.availableSources
+        content
+            .confirmationDialog("Attach", isPresented: $picker.choosing, titleVisibility: .hidden) {
+                if sources.contains(.photos) {
+                    Button("Photo Library", systemImage: "photo.on.rectangle") { picker.choose(.photos) }
+                }
+                if sources.contains(.camera) {
+                    Button("Take Photo", systemImage: "camera") { picker.choose(.camera) }
+                }
+                if sources.contains(.files) {
+                    Button("Choose File", systemImage: "folder") { picker.choose(.files) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .onChange(of: picker.choosing) { _, shown in
+                if !shown { picker.dialogDismissed() }
+            }
+            .photosPicker(isPresented: $picker.showPhotos, selection: $picker.photoItems,
+                          maxSelectionCount: picker.maxCount, matching: picker.photoFilter,
+                          preferredItemEncoding: .compatible)
+            .onChange(of: picker.showPhotos) { _, shown in
+                if !shown { picker.photosDismissed() }
+            }
+            .fileImporter(isPresented: $picker.showFiles, allowedContentTypes: picker.fileTypes,
+                          allowsMultipleSelection: picker.maxCount > 1,
+                          onCompletion: { result in picker.imported(result) },
+                          onCancellation: { picker.cancelled() })
+            // A sheet, not a full-screen cover: a cover takes the presenting
+            // screen off the hierarchy, and its onDisappear stops a native
+            // tile's runtime or an agent session's feed.
+            .sheet(isPresented: $picker.showCamera) {
+                CameraPicker { image in picker.shot(image) }
+                    .ignoresSafeArea()
+                    .interactiveDismissDisabled()
+            }
+    }
+}
+
+/// The camera (UIImagePickerController): one photo.
+struct CameraPicker: UIViewControllerRepresentable {
+    let done: @MainActor (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let c = UIImagePickerController()
+        c.sourceType = .camera
+        c.mediaTypes = [UTType.image.identifier]
+        c.delegate = context.coordinator
+        return c
+    }
+
+    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    @MainActor
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: @MainActor (UIImage?) -> Void
+        private var answered = false
+
+        init(done: @escaping @MainActor (UIImage?) -> Void) { self.done = done }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            guard !answered else { return }
+            answered = true
+            done(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            guard !answered else { return }
+            answered = true
+            done(nil)
+        }
+    }
+}
+
+// MARK: - A native tile's uploads
+
+/// Uploads a picked file to the tile's own backend with the tile's frame
+/// token (never the user's session), reporting progress; a 401 renews the
+/// token once (the body is in memory, nothing happened server-side).
+struct TileUploader {
+    let origin: ServerOrigin
+    let tile: String
+    let frameTokens: FrameTokenCache
+
+    /// The `response` the tile gets: the backend's answer (parsed JSON, else
+    /// text), or `{error}` when nothing came back.
+    func upload(_ file: PickedFile, to path: String, method: String,
+                progress: @escaping @MainActor @Sendable (Double) -> Void) async -> JSONValue {
+        for attempt in 0..<2 {
+            let token: String
+            do {
+                token = attempt == 0 ? try await frameTokens.token(for: tile) : try await frameTokens.renew(tile)
+            } catch {
+                return TileUpload.failure("upload failed: no frame token (\(error.localizedDescription))")
+            }
+            guard let url = origin.url(path: path) else { return TileUpload.failure("upload failed: bad path") }
+            var req = URLRequest(url: url)
+            req.httpMethod = method
+            req.timeoutInterval = 600
+            req.setValue(token, forHTTPHeaderField: TileScheme.frameTokenHeader)
+            req.setValue(AppInfo.clientHeader, forHTTPHeaderField: TileScheme.clientHeader)
+            req.setValue(file.mime.isEmpty ? "application/octet-stream" : file.mime, forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json, */*;q=0.5", forHTTPHeaderField: "Accept")
+            do {
+                let delegate = UploadProgress(report: progress)
+                let (body, resp) = try await AppTransport.shared.session.upload(for: req, from: file.data, delegate: delegate)
+                guard let h = resp as? HTTPURLResponse else { return TileUpload.failure("upload failed: no answer") }
+                if h.statusCode == 401, attempt == 0 {
+                    await frameTokens.invalidate(tile, token: token)
+                    continue
+                }
+                return TileUpload.response(body: body)
+            } catch {
+                return TileUpload.failure("upload failed: \(error.localizedDescription)")
+            }
+        }
+        return TileUpload.failure("upload failed: signed out", status: 401)
+    }
+}
+
+/// A task delegate forwarding upload progress to the main actor.
+final class UploadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let report: @MainActor @Sendable (Double) -> Void
+
+    init(report: @escaping @MainActor @Sendable (Double) -> Void) { self.report = report }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        let p = min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend))
+        let report = self.report
+        Task { @MainActor in report(p) }
+    }
+}
+
+/// A native tile's attach button (``XbinServices/attach``): the pickers,
+/// then each file uploaded to the tile's own `upload.path` (confined to
+/// `/api/<self>/`, TileResource) with progress shown over the tile; the
+/// renderer hands the tile `uploaded {name, response}` per file.
+@MainActor
+@Observable
+final class TileAttachFlow {
+    struct Status: Equatable {
+        var name: String
+        var index: Int
+        var count: Int
+        var progress: Double
+    }
+
+    let picker = AttachPicker()
+    /// The upload in progress (nil: none).
+    var status: Status?
+    /// A short message over the tile (a refused target, a file left out).
+    var message: String?
+
+    @ObservationIgnored private let workspace: WorkspaceModel
+    @ObservationIgnored private let tile: String
+    @ObservationIgnored private var busy = false
+
+    init(workspace: WorkspaceModel, tile: String) {
+        self.workspace = workspace
+        self.tile = tile
+    }
+
+    func run(_ request: XbinAttachRequest) async -> [XbinUpload] {
+        guard !busy else { return [] }
+        busy = true
+        defer { busy = false; status = nil }
+        let known = workspace.catalog.tiles.map(\.path)
+        guard let method = TileResource.uploadMethod(request.method),
+              TileResource.apiPath(request.path, tile: tile, known: known, name: "file") != nil else {
+            say("This tile's upload target is outside its own API — nothing was sent.")
+            return []
+        }
+        let files = await picker.pick(accept: request.accept, limits: .tileUpload)
+        // Every pick ends in an `uploaded` event (TileUpload.plan): one over
+        // the limit is answered 413 without a request, and the user is told.
+        let steps = TileUpload.plan(files, ref: request.path, tile: tile, known: known)
+        let tooBig = files.filter { $0.oversize != nil || $0.bytes > TileUpload.maxBytes }.map(\.name)
+        if let n = tooBig.first {
+            say(tooBig.count == 1 ? "\(n) is over \(TileUpload.maxBytes >> 20) MiB — not sent."
+                : "\(tooBig.count) files are over \(TileUpload.maxBytes >> 20) MiB — not sent.")
+        } else if let n = picker.notice {
+            say(n)
+        }
+        let uploader = TileUploader(origin: workspace.origin, tile: tile, frameTokens: workspace.frameTokens)
+        var out: [XbinUpload] = []
+        for (i, step) in steps.enumerated() {
+            switch step {
+            case .answer(let name, let response):
+                out.append(XbinUpload(name: name, response: response))
+            case .send(let name, let path):
+                status = Status(name: name, index: i, count: files.count, progress: 0)
+                let response = await uploader.upload(files[i], to: path, method: method) { [weak self] p in
+                    self?.status?.progress = p
+                }
+                out.append(XbinUpload(name: name, response: response))
+            }
+        }
+        return out
+    }
+
+    private func say(_ text: String) {
+        message = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if self?.message == text { self?.message = nil }
+        }
+    }
+}
+
+/// Upload progress and messages over a native tile.
+struct AttachStatusView: View {
+    let flow: TileAttachFlow
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let m = flow.message {
+                Text(verbatim: m)
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.thinMaterial, in: Capsule())
+            }
+            if let s = flow.status {
+                HStack(spacing: 8) {
+                    ProgressView(value: s.progress).frame(width: 72)
+                    Text(verbatim: s.count > 1 ? "Uploading \(s.name) (\(s.index + 1) of \(s.count))" : "Uploading \(s.name)")
+                        .font(.footnote)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.thinMaterial, in: Capsule())
+                .accessibilityElement(children: .combine)
+            } else if flow.picker.loading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Reading…").font(.footnote)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.thinMaterial, in: Capsule())
+            }
+        }
+        .padding(.bottom, 72)
+        .animation(.default, value: flow.status?.name)
+        .allowsHitTesting(false)
+    }
+}

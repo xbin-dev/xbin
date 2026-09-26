@@ -30,9 +30,11 @@ enum AgentChat {
                         blocks: (String) -> [MarkdownBlock]) -> ChatMessage {
         let user: Bool
         if case .user = m.role { user = true } else { user = false }
+        // A prompt's files show as chips (their bytes are never logged).
+        let files = m.files.map { ChatFile(name: $0.name, mime: $0.mime) }
         return ChatMessage(id: m.id, role: user ? .user : .assistant, sender: user ? nil : agentName, text: m.text,
                            markdown: user ? nil : blocks(m.text), streaming: m.isStreaming(status: status, ended: ended),
-                           time: m.ts > 0 ? ChatFormat.time(.int(m.ts)) : nil)
+                           time: m.ts > 0 ? ChatFormat.time(.int(m.ts)) : nil, files: files)
     }
 
     static func thinking(_ t: Thought, status: SessionStatus, ended: Bool) -> ChatThinking {

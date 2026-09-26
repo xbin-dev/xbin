@@ -25,7 +25,7 @@ cd native/ios/Packages/XbinAgent && swift build && swift test
 | `Slash.swift` | slash completion: `SlashCompletion.query/matches/menu/hint` |
 | `ANSI.swift` | shell output: `ANSIText.parse` (styled spans), `OutputView` (tail + full), `stripANSI` (the web's) |
 | `Diff.swift` | `LineDiff` (the web's LCS, hunks with context, unified text, stats), `GitPatch.parse` |
-| `Client.swift` | `AgentClient` over an injected `AgentTransport`; `NDJSONLines`; `AgentAPIError` |
+| `Client.swift` | `AgentClient` over an injected `AgentTransport`; `NDJSONLines`; `AgentAPIError`; `PromptAttachment` (a prompt's files: xbind's limits, the byte-built body, image sniffing and `imagePlan` for photos) |
 | `Feed.swift` | `AgentSessionFeed` — one session kept current: replay, follow with reconnect, live frames, refetch on gaps, actions, plan-feedback follow-up |
 
 ## How the screen uses it
@@ -41,7 +41,7 @@ for await t in await feed.updates() {                             // AgentTransc
 }
 // /ws/events frames: if let h = SessionHubEvent(json: frame) { await feed.receive(h) }
 // foreground / socket reconnect: await feed.catchUp()
-// actions: feed.send(text), feed.cancel(), feed.answer(card, choice:), feed.keepPlanning(card, choice:, feedback:),
+// actions: feed.send(text), feed.send(text, attachments: [PromptAttachment]), feed.cancel(), feed.answer(card, choice:), feed.keepPlanning(card, choice:, feedback:),
 //          feed.answer(questionCard, action:, values:), feed.set(picker.id, to: value)
 ```
 

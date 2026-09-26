@@ -43,7 +43,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan a workspace's QR code to add this device to it.</string>
+	<string>Scan a workspace's QR code to add this device to it, or take a photo to attach to a message.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID unlocks this device's key for your workspaces.</string>
 	<key>NSLocalNetworkUsageDescription</key>

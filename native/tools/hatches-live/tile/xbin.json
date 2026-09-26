@@ -1,0 +1,4 @@
+{
+  // hatches-live's test tile: an upload endpoint and a pty-like WebSocket.
+  "runtime": "go"
+}

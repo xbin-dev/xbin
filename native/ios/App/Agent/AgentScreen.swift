@@ -25,6 +25,9 @@ final class AgentScreenModel {
     var openThoughts: Set<String> = []
     var detail: ToolCall?
     var signInCommand: LoginNeeded?
+    /// Files waiting to ride the next prompt (§13): photos, the camera, Files.
+    var attachments: [PendingAttachment] = []
+    let picker = AttachPicker()
 
     @ObservationIgnored private var feed: AgentSessionFeed?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -107,15 +110,60 @@ final class AgentScreenModel {
 
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let feed else { return }
+        let files = attachments
+        guard !text.isEmpty || !files.isEmpty, let feed else { return }
         draft = ""
-        do { _ = try await feed.send(text) } catch {
+        attachments = []
+        do {
+            if files.isEmpty {
+                _ = try await feed.send(text)
+            } else {
+                _ = try await feed.send(text, attachments: files.map(\.prompt))
+            }
+        } catch {
             draft = text
+            attachments = files + attachments
             self.error = describe(error)
             if let e = error as? AgentAPIError, e.looksLikeAuth {
                 signInCommand = state?.signIn(provider: provider, lastError: e.message)
             }
         }
+    }
+
+    /// The attach button: the app's pickers; photos made model-ready
+    /// (PromptAttachment.imagePlan). A photo is read up to 64 MiB and held
+    /// to the 10 MiB file limit only once redrawn; anything else must fit
+    /// as it is (PromptAttachment.readLimit/refusal). A file that can't go
+    /// is left out and said; past the prompt's total the files stay (to
+    /// remove some) and the limit is said.
+    func pickAttachments() async {
+        let room = PromptAttachment.maxCount - attachments.count
+        guard room > 0 else {
+            error = "\(PromptAttachment.maxCount) files at most in one message"
+            return
+        }
+        let limits = PickLimits(file: PromptAttachment.readLimit(image: false), image: PromptAttachment.readLimit(image: true))
+        let picked = await picker.pick(accept: nil, maxCount: room, limits: limits)
+        var notes: [String] = []
+        if let n = picker.notice { notes.append(n) }
+        for f in picked {
+            if let size = f.oversize {
+                notes.append(AttachmentProblem.tooLargeToRead(name: f.name, bytes: size).description)
+                continue
+            }
+            let ready = AgentImages.prepare(f)
+            if let problem = PromptAttachment.refusal(name: ready.name, bytes: ready.data.count) {
+                notes.append(problem.description)
+                continue
+            }
+            attachments.append(PendingAttachment(file: ready))
+        }
+        if let problem = PromptAttachment.check(attachments.map(\.prompt)) { notes.append(problem.description) }
+        if !notes.isEmpty { error = notes.joined(separator: "\n") }
+    }
+
+    func removeAttachment(_ id: String) {
+        attachments.removeAll { $0.id == id }
     }
 
     func cancel() async { try? await feed?.cancel() }
@@ -218,6 +266,7 @@ struct AgentScreen: View {
             }
             composer(m)
         }
+        .modifier(AttachPickers(picker: m.picker))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if let pickers = m.state?.pickers(provider: m.provider), !pickers.isEmpty {
@@ -256,19 +305,46 @@ struct AgentScreen: View {
         }
     }
 
-    private func composer(_ m: AgentScreenModel) -> some View {
+    /// Stop, while a turn runs (a plain function: a ViewBuilder can't assign).
+    private func stopAction(_ m: AgentScreenModel, busy: Bool) -> (@MainActor () -> Void)? {
+        guard busy else { return nil }
+        return { Task { await m.cancel() } }
+    }
+
+    @ViewBuilder private func composer(_ m: AgentScreenModel) -> some View {
         let busy = m.state?.isBusy ?? false
         let slash = (m.state?.commands ?? []).map {
             XbinRendererModel.SlashCommand(name: "/" + $0.name, hint: $0.hint.isEmpty ? nil : $0.hint,
                                            description: $0.description.isEmpty ? nil : $0.description)
         }
+        let chips = m.attachments.map { ChatAttachment(id: $0.id, name: $0.file.name, mime: $0.file.mime) }
         let c = ChatComposer(placeholder: m.ended ? "The session ended" : "Message the agent", busy: busy,
-                             disabled: m.ended, slash: slash)
-        var onStop: (@MainActor () -> Void)?
-        if busy { onStop = { Task { await m.cancel() } } }
-        return ComposerView(composer: c, text: Binding(get: { m.draft }, set: { m.draft = $0 }),
-                            onSend: { text in m.draft = text; Task { await m.send() } },
-                            onStop: onStop)
+                             disabled: m.ended, attachments: chips, canAttach: !m.ended, slash: slash)
+        let text = Binding(get: { m.draft }, set: { m.draft = $0 })
+        let onSend: @MainActor (String) -> Void = { text in
+            m.draft = text
+            Task { await m.send() }
+        }
+        let onStop = stopAction(m, busy: busy)
+        let onAttach: @MainActor () -> Void = { Task { await m.pickAttachments() } }
+        let onRemove: @MainActor (String) -> Void = { id in m.removeAttachment(id) }
+        // The send button needs text; files alone go with this chip.
+        if m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !m.attachments.isEmpty, !busy, !m.ended {
+            ComposerView(composer: c, text: text, onSend: onSend, onStop: onStop, onAttach: onAttach,
+                         onRemoveAttachment: onRemove) {
+                Button {
+                    Task { await m.send() }
+                } label: {
+                    Label(m.attachments.count == 1 ? "Send the file" : "Send \(m.attachments.count) files",
+                          systemImage: "arrow.up.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        } else {
+            ComposerView(composer: c, text: text, onSend: onSend, onStop: onStop, onAttach: onAttach,
+                         onRemoveAttachment: onRemove)
+        }
     }
 }
 

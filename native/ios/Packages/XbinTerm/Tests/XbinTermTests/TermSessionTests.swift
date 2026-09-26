@@ -223,6 +223,18 @@ struct TermSessionTests {
         }
     }
 
+    @Test("a close frame from xbind, whatever its code, is a drop: reattach")
+    func serverCloseIsADrop() {
+        let h = Harness()
+        h.live("s1")
+        for code in [1000, 1001, 1005, 1011] {
+            h.sock.drop(.serverClosed(code: code))
+            #expect(h.session.phase == .reconnecting(attempt: 1, delayMs: 500))
+            h.clock.advance(500); h.sock.open(); h.sock.session("s1")
+            #expect(h.session.target == .reattach(id: "s1"))
+        }
+    }
+
     @Test("a reattach that twice fails to open, for a reason the transport can't see, starts fresh (bx-terminal's rule)")
     func failedTwiceStartsFresh() {
         let h = Harness()

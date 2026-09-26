@@ -182,6 +182,13 @@ public actor AgentSessionFeed {
         return r
     }
 
+    /// Sends a prompt with files (text may then be empty). Over a limit it
+    /// throws without a request (``PromptAttachment/check(_:)``).
+    @discardableResult
+    public func send(_ text: String, attachments: [PromptAttachment]) async throws -> PromptAccepted {
+        try await act { try await self.client.prompt(self.sessionID, text: text, attachments: attachments) }
+    }
+
     public func cancel() async throws { try await act { try await self.client.cancel(self.sessionID) } }
 
     /// Answers a permission (404: another client answered first — the
