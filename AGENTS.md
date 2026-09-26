@@ -19,6 +19,7 @@ decision + rationale — **check it before re-litigating a choice**).
 | `builtin-tiles/`, `builtin-templates/` | optional importable tiles / blueprints |
 | `docs/` | builder docs, **embedded into xbind**, served at `/docs/` |
 | `examples/` | doubles as integration fixtures and docs — keep them working |
+| `native/` | the mobile app (iOS first) — design in `plans/native.md`, dev loop (Linux + CI, no Mac) in `native/AGENTS.md` |
 
 ## Dev flow
 
