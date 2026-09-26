@@ -1,0 +1,19 @@
+{"v":1,"root":{"k":"r","t":"nav","e":["pop"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Egress Approver","style":"list","subtitle":"2 clients · egress ready"},"c":[
+    {"k":"r.0.0","t":"section","p":{"title":"pending","badge":"1"},"c":[
+      {"k":"r.0.0.0:203.0.113.7","t":"row","p":{"title":"203.0.113.7","mono":"title","tone":"warn","nav":true,"subtitle":"cdn.example.net","detail":"↑1.5K · 38s ago"},"e":["tap"],"c":[
+        {"k":"r.0.0.0:203.0.113.7.0","t":"actions","c":[
+          {"k":"r.0.0.0:203.0.113.7.0.0","t":"button","p":{"label":"approve","role":"primary","icon":"check"},"e":["tap"]},
+          {"k":"r.0.0.0:203.0.113.7.0.1","t":"button","p":{"label":"deny","role":"destructive","icon":"xmark"},"e":["tap"]}
+        ]}
+      ]}
+    ]},
+    {"k":"r.0.1","t":"section","p":{"title":"approved","badge":"1"},"c":[
+      {"k":"r.0.1.0:198.51.100.20","t":"row","p":{"title":"198.51.100.20","mono":"title","tone":"ok","subtitle":"api.github.com","detail":"↑47.1K ↓1.0M · 2m ago"},"c":[
+        {"k":"r.0.1.0:198.51.100.20.0","t":"actions","c":[
+          {"k":"r.0.1.0:198.51.100.20.0.0","t":"button","p":{"label":"revoke","role":"destructive"},"e":["tap"]}
+        ]}
+      ]}
+    ]}
+  ]}
+]}}

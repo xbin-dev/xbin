@@ -1,0 +1,13 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Prometheus","style":"list"},"c":[
+  {"k":"r.0","t":"toolbar","c":[
+    {"k":"r.0.0","t":"badge","p":{"tone":"ok","pulse":true,"text":"live · every 3s"}}
+  ]},
+  {"k":"r.1:https://node.example/api/apps/node-exporter","t":"section","p":{"title":"apps/node-exporter","footer":"https://node.example/api/apps/node-exporter"},"c":[
+    {"k":"r.1:https://node.example/api/apps/node-exporter.0:process_cpu_seconds_total","t":"disclosure","p":{"title":"process_cpu_seconds_total"},"c":[
+      {"k":"r.1:https://node.example/api/apps/node-exporter.0:process_cpu_seconds_total.0","t":"row","p":{"title":"process_cpu_seconds_total","mono":"title","subtitle":"Total user and system CPU time spent in seconds.","badge":"counter","tone":"accent"}},
+      {"k":"r.1:https://node.example/api/apps/node-exporter.0:process_cpu_seconds_total.1:process_cpu_seconds_total{}","t":"row","p":{"title":"process_cpu_seconds_total","mono":"all","detail":"12.34 · 0.021/s"},"c":[
+        {"k":"r.1:https://node.example/api/apps/node-exporter.0:process_cpu_seconds_total.1:process_cpu_seconds_total{}.0","t":"chart","p":{"kind":"spark","x":"time","series":[{"name":"process_cpu_seconds_total{}","points":[[1790000000000,12.28],[1790000003000,12.3],[1790000006000,12.34]]}]}}
+      ]}
+    ]}
+  ]}
+]}}

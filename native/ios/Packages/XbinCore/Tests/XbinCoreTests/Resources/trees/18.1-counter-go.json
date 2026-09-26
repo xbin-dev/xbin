@@ -1,0 +1,6 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Counter","style":"form"},"c":[
+  {"k":"r.0","t":"section","c":[
+    {"k":"r.0.0","t":"row","p":{"title":"Count","detail":"42","mono":"detail"}},
+    {"k":"r.0.1","t":"button","p":{"label":"+1","role":"primary","icon":"plus","busy":false},"e":["tap"]}
+  ]}
+]}}

@@ -1,0 +1,12 @@
+{
+  "comment": "The device-login test vector of native/spec/device-login.md §7 (xbind: TestDeviceLoginVector in internal/auth/devices_test.go). message = UTF-8 of \"xbin-device-login-v1\\n\" + origin + \"\\n\" + deviceId + \"\\n\" + nonce; signature = ECDSA P-256/SHA-256, ASN.1 DER; publicKey = SPKI DER; binary values base64url without padding. The signature is randomized: verify it, don't reproduce it.",
+  "privateScalarHex": "56972329cd96fbb1c5ed326c9930baa3921e2c7660e0485e439293ce4432cd5f",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpVrcD7rXkoAfUgG-zMQbXbm6_8DAlKHGjvB5plisVHw_cypnpN6IdyZpAD3skiCZvuksA6pE7T7Iai4J8zi6Xw",
+  "publicKeyX963Hex": "04a55adc0fbad792801f5201beccc41b5db9baffc0c094a1c68ef079a658ac547c3f732a67a4de88772669003dec922099bee92c03aa44ed3ec86a2e09f338ba5f",
+  "origin": "https://xbin.example.com",
+  "deviceId": "dev-00112233445566778899aabb",
+  "nonce": "q2Yf0GJwq0t5J7m8sK0b3Qn9eW1xZ4vC6uR2pL8yT5A",
+  "message": "xbin-device-login-v1\nhttps://xbin.example.com\ndev-00112233445566778899aabb\nq2Yf0GJwq0t5J7m8sK0b3Qn9eW1xZ4vC6uR2pL8yT5A",
+  "messageSHA256Hex": "34a9d6a88b9e1a0e7f4bde58507c25b0ea9a5f2101ceb5c6e7abd2d414f55d2e",
+  "signature": "MEUCIBivy2f2ukCTylHbrik4FnmCw9rGMMivDcsqDMYb5YjHAiEA1o7xq4pOOITOwO4bUHKXsLICRr2_E2ey7sm8tvcGi54"
+}
