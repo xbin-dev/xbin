@@ -124,3 +124,32 @@ import XbinCore
         #expect(off.disabled && !off.canSend("x") && !off.canAttach && off.placeholder == "Answer the approval above to continue")
     }
 }
+
+@Suite struct ValueTests {
+    @Test func pickerOptions() throws {
+        let root = try fixtureSet().expected("controls").root
+        let keep = PickerOption.list(Props(try #require(root.find("r.1.3")).props))
+        #expect(keep.map(\.value) == [7, 30, 90, 365] && keep[2].label == "90 days" && keep[0].icon == "archive")
+        let p = Props(try JSONValue(parsing: #"{"options":[{"value":"a"},{"label":"no value"},3,{"value":true,"label":"Yes"}]}"#).objectValue!)
+        #expect(PickerOption.list(p) == [PickerOption(value: "a", label: "a"), PickerOption(value: true, label: "Yes")])
+    }
+
+    @Test func dataURLs() throws {
+        let sig = try #require(try fixtureSet().expected("media").root.find("r.0.11.2")?.props["src"]?.stringValue)
+        let png = try #require(DataURL.decode(sig))
+        #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]) && DataURL.mime(sig) == "image/png")
+        #expect(DataURL.decode("data:text/plain,a%20b") == Data("a b".utf8))
+        #expect(DataURL.decode("https://x/y.png") == nil && DataURL.decode("data:image/png;base64") == nil)
+        let big = "data:image/png;base64," + Data(count: DataURL.maxBytes + 1).base64EncodedString()
+        #expect(DataURL.decode(big) == nil)
+    }
+
+    @MainActor @Test func rendererValuesOnlyForUnboundProps() throws {
+        let (_, model, sent) = mounted(try Node(parsing: #"{"k":"r","t":"fragment","c":[{"k":"a","t":"composer","e":["send"]},{"k":"b","t":"composer","p":{"value":"x"}}]}"#))
+        model.emit("a", "input", ["value": "hi"])
+        #expect(model.node("a")?.value("value") == "hi" && sent.calls.isEmpty)
+        model.setRendererValue("a", "value", "")
+        model.setRendererValue("b", "value", "")
+        #expect(model.node("a")?.value("value") == "" && model.node("b")?.value("value") == "x" && sent.calls.isEmpty)
+    }
+}

@@ -171,6 +171,14 @@ public final class XbinTreeModel {
         return true
     }
 
+    /// Sets a renderer-owned value for `prop` on `key` without telling the
+    /// tile — only when the tile doesn't bind the prop (an unbound composer
+    /// clears itself after `send`, as the reference renderer's does).
+    public func setRendererValue(_ key: String, _ prop: String, _ value: JSONValue) {
+        guard let node = nodes[key], !node.binds(prop) else { return }
+        node.show(prop, value)
+    }
+
     /// Answers a ``BridgeCall`` (copy/share/open): the value, or an error
     /// that rejects the tile's promise.
     public func resolve(_ call: BridgeCall, value: JSONValue, error: String? = nil) {
