@@ -67,7 +67,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   starts over only after a socket stayed open 5 s. `canvas src` loads one
   of the tile's pages in an island like its web page (frame token,
   sandbox, `xbin.dialog`, alert/confirm/prompt, downloads); `canvas html`
-  renders with JavaScript off under a CSP that loads nothing.
+  renders with JavaScript off under a CSP that loads nothing, on a
+  transparent page in the light/dark default colours — and `bx preview
+  --native` now draws it the same way (it was an opaque white box in dark
+  mode there, and loaded images the app refuses).
 - **xbin app: composer attachments** ([native.md](native.md) `composer`).
   With `upload {method, path}` the app offers Photos, the camera and Files,
   uploads each file itself with the tile's frame token and shows progress.

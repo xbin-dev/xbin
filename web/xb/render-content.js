@@ -120,15 +120,29 @@ function terminal(n, cx) {
 }
 
 // canvas: a WebView island. `html` is static (sandbox="" — no scripts, no
-// same-origin); `src` is a page of the tile's own (a relative URL — anything
-// with a scheme or a host is not drawn), sandboxed like one.
+// same-origin) in the document the app wraps it in (CanvasDocument.wrap in
+// XbinCore): a CSP that loads nothing, and a transparent page in the
+// light/dark default colours — without it the island was an opaque white
+// box in dark mode, and a preview loaded images the app refuses. `src` is
+// a page of the tile's own (a relative URL — anything with a scheme or a
+// host is not drawn), sandboxed like one.
 const RELATIVE = (s) => s !== '' && !/^[a-z][a-z0-9+.-]*:/i.test(s) && !s.startsWith('//') && !s.startsWith('\\');
+const CANVAS_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
+export const canvasDocument = (body) => '<!doctype html><html><head><meta charset="utf-8">'
+  + `<meta http-equiv="Content-Security-Policy" content="${CANVAS_CSP}">`
+  + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+  + '<meta name="color-scheme" content="light dark">'
+  + '<meta name="referrer" content="no-referrer">'
+  // -apple-system-body is WebKit's; elsewhere the declaration before it holds.
+  + '<style>html,body{margin:0;padding:0;background:transparent;font:17px/1.29 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;'
+  + 'font:-apple-system-body;-webkit-text-size-adjust:100%}</style>'
+  + `</head><body>${body}</body></html>`;
 function canvas(n, cx) {
   const p = P(n);
   const h = HEIGHTS.has(p.height) ? `var(--xb-h-${p.height})` : 'var(--xb-h-m)';
   const src = str(p.src);
   return html`<xb-canvas data-k=${n.k} class=${cls('canvas', cell(cx))} style=${`height:${h}`}>${p.html != null
-    ? html`<iframe sandbox="" srcdoc=${str(p.html)} title="canvas"></iframe>`
+    ? html`<iframe sandbox="" srcdoc=${canvasDocument(str(p.html))} title="canvas"></iframe>`
     : RELATIVE(src) ? html`<iframe sandbox="allow-scripts allow-forms" src=${src} title="canvas"></iframe>` : nothing}</xb-canvas>`;
 }
 
