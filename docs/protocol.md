@@ -311,6 +311,19 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    loads it there with allow-same-origin and
                                    no credentialless)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
+GET    /tile-assets                any (read-filtered); ?component=<p> for one.
+                                   The tile asset report:
+                                   per sandboxed tile, what strict tile asset
+                                   gating refuses — {mode, tiles:[{component,
+                                   injectFalse?, files, findings:[{file, line,
+                                   col, kind: html-attr|importmap|css-url|
+                                   js-import|js-string|inject-false|base-tag|
+                                   symlink-escape, ref, target, breaks:
+                                   ""|tokens|strict, fix (the relative URL bx
+                                   fix assets writes; "" = by hand), note}],
+                                   truncated?, breaking:{tokens, origins}}]}.
+                                   Only tiles with findings unless
+                                   ?component= (404 if unknown/unreadable).
 GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    (cookie) any tile they can read; a tile
                                    frontend its OWN component — including

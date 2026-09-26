@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,7 @@ func newAssetWS(t *testing.T, mode string) *assetWS {
 		"apps/a/sub/page.html":  assetPage,
 		"apps/a/sub/based.html": `<!doctype html><html><head><base href="../assets/"></head><body></body></html>`,
 		"apps/a/offsite.html":   `<!doctype html><html><head><base href="https://cdn.example/x/"></head><body></body></html>`,
+		"apps/a/abs.html":       `<!doctype html><html><head></head><body><img src="/c/apps/a/img.svg"></body></html>`,
 		"apps/b/xbin.json":      `{}`,
 		"apps/b/lib.js":         `export const lib = 1;`,
 		"apps/b/index.html":     assetPage,
@@ -378,4 +380,65 @@ func mustRead(t *testing.T, p string) []byte {
 		t.Fatal(err)
 	}
 	return []byte(strings.TrimSpace(string(b)))
+}
+
+// The tile asset report (detection): read-filtered, per sandboxed tile,
+// with the fix bx fix assets would write; chrome is never listed.
+func TestTileAssetsReport(t *testing.T) {
+	w := newAssetWS(t, TileAssetsLegacy)
+	get := func(url string, p auth.Principal) (int, map[string]any) {
+		r := httptest.NewRequest("GET", url, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		rec := httptest.NewRecorder()
+		w.s.apiTileAssets(rec, r)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	acc, _ := w.st.Access("ana")
+	ana := auth.Principal{UserID: "ana", Access: acc, Via: "session"}
+	code, out := get("/api/xbin/tile-assets", ana)
+	if code != 200 || out["mode"] != "legacy" {
+		t.Fatalf("%d %v", code, out)
+	}
+	tiles := map[string]map[string]any{}
+	for _, x := range out["tiles"].([]any) {
+		m := x.(map[string]any)
+		tiles[m["component"].(string)] = m
+	}
+	a, ok := tiles["apps/a"]
+	if !ok {
+		t.Fatalf("apps/a missing: %v", out)
+	}
+	if _, ok := tiles["apps/secret"]; ok {
+		t.Fatal("report lists a tile the caller can't read")
+	}
+	if _, ok := tiles["shell"]; ok {
+		t.Fatal("chrome listed")
+	}
+	if !tiles["apps/raw"]["injectFalse"].(bool) {
+		t.Fatal("inject:false not reported")
+	}
+	var sawFix, sawLink bool
+	for _, f := range a["findings"].([]any) {
+		m := f.(map[string]any)
+		if m["file"] == "abs.html" && m["fix"] == "img.svg" && m["breaks"] == "tokens" {
+			sawFix = true
+		}
+		if m["kind"] == "symlink-escape" && m["file"] == "leak.txt" {
+			sawLink = true
+		}
+	}
+	if !sawFix || !sawLink {
+		t.Fatalf("apps/a findings: %v", a["findings"])
+	}
+	if b := a["breaking"].(map[string]any); b["tokens"].(float64) < 2 || b["origins"].(float64) != 1 {
+		t.Fatalf("breaking: %v", b)
+	}
+	if code, _ := get("/api/xbin/tile-assets?component=apps/secret", ana); code != 404 {
+		t.Fatalf("unreadable tile by name: %d", code)
+	}
+	if code, out := get("/api/xbin/tile-assets?component=apps/b", ana); code != 200 || len(out["tiles"].([]any)) != 1 {
+		t.Fatalf("a clean tile by name is listed: %d %v", code, out)
+	}
 }

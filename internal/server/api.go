@@ -22,6 +22,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /components/{path...}", s.apiComponent)
 	s.RegisterAPI("GET /gpus", s.apiGPUs)
 	s.RegisterAPI("GET /frame-token", s.apiFrameToken)
+	s.RegisterAPI("GET /tile-assets", s.apiTileAssets) // strict asset gating's detection (tileassetsapi.go)
 	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
 	s.RegisterAPI("POST /impersonate", s.apiImpersonate)          // view as user (impersonate.go)
 	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
