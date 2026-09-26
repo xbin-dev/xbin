@@ -62,19 +62,23 @@ import Testing
 
     /// The captured sessions: a card from a turn's start to its end (the
     /// turn.end, not the idle status after it — xbind ends it there too),
-    /// and `since` never moves within a turn.
+    /// and `since` is the turn's prompt, to the second — what xbind computes
+    /// for the same log (internal/push TestLiveActivityTurnStartMatchesTheApp).
     @Test func capturedSessions() throws {
         for name in ["basic", "cancel"] {
             var t = AgentTranscript()
             var since: Int64?
             var inTurn = false
+            var prompt: Int64 = 0
             for e in try events(name) {
                 t.receiveLive(e)
+                if e.type == "message.delta", e.data["role"]?.string == "user" { prompt = e.ts }
                 if e.type == "status", e.data["status"]?.string == "running" { inTurn = true }
                 if e.type == "turn.end" { inTurn = false }
                 let s = t.activityState
                 #expect((s != nil) == inTurn, "\(name) seq \(e.seq)")
                 if let s {
+                    #expect(s.since == prompt / 1000, "\(name) seq \(e.seq)")
                     if let since { #expect(s.since == since, "\(name) seq \(e.seq)") }
                     since = s.since
                 } else {

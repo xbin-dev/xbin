@@ -231,13 +231,18 @@ func TestLiveActivityPushToStart(t *testing.T) {
 	}
 
 	// a quick turn: no start
+	ev(agent.EvMessageDelta, -500, map[string]any{"role": "user", "text": "hi"})
 	ev(agent.EvStatus, 0, map[string]any{"status": "running"})
+	if st, _ := r.s.liveState("s1"); st.Since != (t0-500)/1000 {
+		t.Fatalf("the turn's start is its prompt: %+v", st)
+	}
 	ev(agent.EvTurnEnd, 10, map[string]any{"turn": 1, "stopReason": "end_turn"})
 	time.Sleep(120 * time.Millisecond)
 	if n := len(livePushes(r)); n != 0 {
 		t.Fatalf("a quick turn started %d activities", n)
 	}
-	// a long one; the mac shows its own (local) activity already
+	// a long one (a prompt from before the last turn ended is not its
+	// start); the mac shows its own (local) activity already
 	ev(agent.EvStatus, 1000, map[string]any{"status": "running"})
 	if code, out := r.activity(alice, map[string]any{"deviceId": "mac", "session": "s1", "handle": "la-handle-mac"}); code != 200 {
 		t.Fatalf("mac: %d %v", code, out)
@@ -463,5 +468,44 @@ func TestLiveActivityPushOff(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if len(r.relay.pushes()) != 0 {
 		t.Fatal("pushed while off")
+	}
+}
+
+// xbind and the app count a turn's start the same way (the card's clock
+// must not jump when an update comes from the other side): the captured
+// agent sessions the app's own tests replay (XbinAgent's Fixtures; its
+// LiveActivityTests.capturedSessions checks the same numbers) give every
+// turn its prompt's second here too.
+func TestLiveActivityTurnStartMatchesTheApp(t *testing.T) {
+	for _, name := range []string{"basic", "cancel"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "native", "ios", "Packages", "XbinAgent", "Tests", "XbinAgentTests", "Fixtures", name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fx struct{ Events []agent.Event }
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			t.Fatal(err)
+		}
+		r, _ := liveRig(t, -1, nil)
+		r.register(alice, "phone", "handle-phone")
+		var prompt int64
+		turns := 0
+		for _, e := range fx.Events {
+			var d struct{ Role, Parent string }
+			if e.Type == agent.EvMessageDelta && json.Unmarshal(e.Data, &d) == nil && d.Role == "user" && d.Parent == "" {
+				prompt = e.TS
+			}
+			_, was := r.s.liveState("s1")
+			r.s.AgentEvent("alice", "s1", "apps/cal", e)
+			if st, busy := r.s.liveState("s1"); busy && !was {
+				turns++
+				if st.Since != prompt/1000 {
+					t.Fatalf("%s seq %d: since %d, want the prompt's %d", name, e.Seq, st.Since, prompt/1000)
+				}
+			}
+		}
+		if turns < 2 {
+			t.Fatalf("%s: %d turns seen", name, turns)
+		}
 	}
 }

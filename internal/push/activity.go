@@ -96,7 +96,8 @@ type liveSession struct {
 	status   string
 	turn     int   // turns seen start (a push-to-start timer names its turn)
 	since    int64 // unix seconds the turn started
-	promptMS int64 // the last user prompt (unix ms): a turn's start when its running status follows
+	promptMS int64 // the last user prompt (unix ms): the next turn's start…
+	clearMS  int64 // …unless a non-busy status or a turn end came after it (as the app's transcript counts)
 	pids     map[string]bool
 	eids     map[string]bool
 	state    ActivityState
@@ -170,6 +171,9 @@ func (s *Service) activityEvent(user, session string, ev agent.Event) {
 	case agent.EvStatus:
 		if d.Status != "" { // a partial status (commands, usage, title) says nothing of the turn
 			ls.status, ls.busy = d.Status, busyStatus(d.Status)
+			if !ls.busy {
+				ls.clearMS = ev.TS
+			}
 		}
 	case agent.EvPermissionRequest:
 		ls.pids[rawID(d.PID)] = true
@@ -181,13 +185,17 @@ func (s *Service) activityEvent(user, session string, ev agent.Event) {
 		delete(ls.eids, rawID(d.EID))
 	case agent.EvTurnEnd:
 		ls.busy = false
+		ls.clearMS = ev.TS
 	}
 	switch {
 	case ls.busy && !was: // a turn starts
 		ls.turn++
+		// the prompt that began it, else this status — the rule the app's
+		// transcript follows (XbinAgent SessionState.turnStartedAt), so
+		// both show the same clock
 		start := ev.TS
-		if ls.promptMS != 0 && ev.TS-ls.promptMS < 10_000 {
-			start = ls.promptMS // the prompt that began it
+		if ls.promptMS > ls.clearMS {
+			start = ls.promptMS
 		}
 		if start <= 0 {
 			start = now.UnixMilli()
