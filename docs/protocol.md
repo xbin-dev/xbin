@@ -121,6 +121,61 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  source is still not where secrets live).
                                  Non-chrome HTML responses carry CSP sandbox;
                                  all responses X-Content-Type-Options: nosniff.
+                                 That credential-less rule is the LEGACY mode
+                                 (--tile-assets=legacy, the default this
+                                 release; removed in the next). Under the
+                                 strict modes (tokens, origins) there is no
+                                 credential-less path: every /c/ request needs
+                                 one of the credentials above (401 otherwise,
+                                 body naming the fix), a tile's own frame
+                                 token is re-checked against its USER's live
+                                 access, files are opened beneath their tile
+                                 (a symlink leaving the tile → 404), and a
+                                 sandboxed tile's non-HTML files carry
+                                 `Content-Security-Policy: sandbox` (PDF
+                                 excepted). docs/auth.md §Tile asset gating.
+GET  /c/~<asset-token>/<component-path>/<file>
+                                 tokens mode only: the asset-token plane the
+                                 injected <base> points at (docs/elements.md
+                                 §Asset URLs). A non-document static file of a
+                                 tile the token's user may read — checked live
+                                 for the token's tile AND the tile loaded, so
+                                 cross-tile loads work exactly when the user
+                                 can read the other tile. Never HTML, a
+                                 directory, chrome (root/shell) or a document
+                                 destination (Sec-Fetch-Dest document/iframe/
+                                 embed/object, or a navigation) → 403; GET/HEAD
+                                 only; invalid/expired/revoked token → 401.
+                                 Answers carry CSP sandbox + Referrer-Policy:
+                                 no-referrer. The token authenticates nothing
+                                 else (not /api, not /c/ without the prefix,
+                                 not a frame token).
+(tile origin)                    origins mode only: the host
+                                 t-<id>.<tiles-domain> is tile <id>'s own
+                                 origin (id = keyed hash of the tile path; the
+                                 URL is /components' `origin`). It serves
+                                 ONLY: GET /c/… (?frame=<frame token> on a
+                                 navigation is exchanged for the HttpOnly,
+                                 Secure, SameSite=Strict, host-only cookie
+                                 xbin_tile and 302'd to the same URL without
+                                 it; the token's tile must be this origin's,
+                                 its user must read it; a cross-site initiator
+                                 is not exchanged; a failed exchange never
+                                 redirects), /api/… and /ws/events (as the
+                                 tile's frame principal), /docs/, /vendor/,
+                                 /healthz. /c/ is authorized live for the
+                                 cookie's user on the tile loaded; another
+                                 tile's files are served only as non-documents
+                                 with CSP sandbox; chrome is not served. The
+                                 cookie alone is honoured only from the origin
+                                 itself (Sec-Fetch-Site same-origin/none; a
+                                 same-site navigation to /c/ — the shell
+                                 framing the tile; never a foreign Origin on a
+                                 write or WebSocket). An explicit frame token
+                                 must be this tile's. On the workspace origin,
+                                 a browser navigating to a sandboxed tile's
+                                 document is 302'd to its tile origin with a
+                                 fresh ?frame= (humans and the tile itself).
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  UNAUTHENTICATED — shipped xbind code, and
                                  sandboxed tile frames load it credential-less
@@ -249,7 +304,12 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    sandbox? (extra iframe/CSP sandbox tokens
                                    the tile's grants unlock — cap:open-links
                                    → allow-popups allow-popups-to-escape-
-                                   sandbox, ND11; bx-frame appends them)}]
+                                   sandbox, ND11; bx-frame appends them),
+                                   origin? (--tile-assets=origins only: the
+                                   tile's own origin, e.g.
+                                   https://t-<id>.tiles.example.com — bx-frame
+                                   loads it there with allow-same-origin and
+                                   no credentialless)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    (cookie) any tile they can read; a tile

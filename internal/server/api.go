@@ -143,6 +143,11 @@ type componentInfo struct {
 	// header of the component's documents carries the same list. Absent for
 	// chrome and for tiles holding no such grant.
 	Sandbox []string `json:"sandbox,omitempty"`
+	// Origin is the tile's own origin under --tile-assets=origins
+	// (tileorigin.go): bx-frame loads the tile there, sandboxed WITH
+	// allow-same-origin and without credentialless. Absent in other modes
+	// and for chrome.
+	Origin string `json:"origin,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +171,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		ci.Owner = s.policy().OwnerOf(c.Path)
 		if !ci.Chrome {
 			ci.Sandbox = s.sandboxExtras(c.Path)
+			ci.Origin = s.tileOriginURL(c.Path)
 		}
 		if st := s.Reg.LifecycleState(c.Path); st != registry.StateEnabled {
 			ci.State = st
@@ -197,6 +203,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ci.Chrome {
 		ci.Sandbox = s.sandboxExtras(c.Path)
+		ci.Origin = s.tileOriginURL(c.Path)
 	}
 	if c.Manifest.Expose != nil {
 		ci.Roles = c.Manifest.Expose.Roles

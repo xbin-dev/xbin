@@ -51,11 +51,11 @@ func (s *Server) sandboxExtras(comp string) []string { return s.policy().Sandbox
 // the HTML spec, which would break every direct-tab open of /c/<tile>/.
 // Opener severing lives on the popup targets instead (chrome pages and
 // /docs/ send COOP; tile authors use rel="noopener").
-func (s *Server) sandboxDocument(w http.ResponseWriter, compPath string, comp *registry.Component) bool {
+func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPath string, comp *registry.Component) bool {
 	if !sandboxedFrame(compPath, comp) {
 		return false
 	}
-	w.Header().Set("Content-Security-Policy", sandboxHeader(s.sandboxExtras(compPath)))
+	w.Header().Set("Content-Security-Policy", sandboxHeader(s.docSandboxExtras(r, compPath)))
 	return true
 }
 
@@ -92,8 +92,14 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// files); the 2026-08-02 element read clamp governs everything else.
 	// Note the D4 injection mints a frame token only when CanReadTile passes,
 	// so grant-based reads never leak the OTHER tile's credential.
-	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r) {
+	//
+	// Strict asset gating (--tile-assets=tokens|origins, tileassets.go) has
+	// no credential-less path at all, re-checks the DRIVING USER's live
+	// access for a tile's own frame principal too, and serves through
+	// serveStrictStatic (no symlink leaves the tile).
+	owner := s.owningComponent(cleaned)
+	if !isChrome(owner) {
+		if p := auth.PrincipalOf(r); (!p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r)) || !s.strictLiveRead(p, owner) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.serveRequestAccessPage(w, owner)
 				return
@@ -101,6 +107,10 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
 			return
 		}
+	}
+	if s.strictAssets() {
+		s.serveStrictStatic(w, r, cleaned, owner)
+		return
 	}
 
 	full = s.overlayFile(cleaned, full) // dev overlay: a file it carries wins
@@ -138,7 +148,7 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		// regardless (ND8) — bx-frame sandboxes it when framed; this header
 		// covers direct-tab opens. Without injection it holds no frame token
 		// either, so its frontend has no identity at all.
-		s.sandboxDocument(w, s.owningComponent(cleaned), comp)
+		s.sandboxDocument(w, r, s.owningComponent(cleaned), comp)
 	}
 	http.ServeFile(w, r, full)
 }
@@ -197,8 +207,11 @@ func (s *Server) codeGranted(p auth.Principal, target string) bool {
 // source IP (auth.RecentlyAuthed). Used identically by authedStatic
 // (admission) and handleComponentStatic (authorization) so the two never
 // disagree.
+//
+// Strict asset gating (--tile-assets=tokens|origins) has no such
+// exception: every /c/ request carries a credential.
 func (s *Server) tileSubresourceAuthed(r *http.Request) bool {
-	return tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
+	return !s.strictAssets() && tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
 }
 
 var tileSubresourceDests = map[string]bool{
@@ -282,7 +295,12 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		http.NotFound(w, r)
 		return
 	}
+	s.injectHTML(w, r, body, comp, cleaned, dirIndex)
+}
 
+// injectHTML writes body with the D4 injection (serveInjectedHTML reads the
+// file; the strict plane hands over what it read through its own opener).
+func (s *Server) injectHTML(w http.ResponseWriter, r *http.Request, body []byte, comp *registry.Component, cleaned string, dirIndex bool) {
 	compPath := ""
 	switch {
 	case comp != nil:
@@ -297,12 +315,16 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	}
 
 	imports := s.Reg.ImportMapFor(comp)
-	im, _ := json.Marshal(map[string]any{"imports": imports})
 
-	frameTok := ""
+	frameTok, assetHead := "", ""
 	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
+		// Strict asset gating: tokens mode's <base> + import-map remap
+		// (which rewrites imports in place), origins mode's mode meta;
+		// "" in legacy, so the injection below is byte-for-byte unchanged.
+		assetHead = s.assetHead(r, body, compPath, p.UserID, imports)
 	}
+	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	ifaceMeta := ""
 	if ifaces := s.policy().Interfaces(compPath); len(ifaces) > 0 {
@@ -315,17 +337,17 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	// without popups" and say which grant a blocked target=_blank needs.
 	sandboxMeta := ""
 	if sandboxedFrame(compPath, comp) {
-		tokens := strings.TrimPrefix(sandboxHeader(s.sandboxExtras(compPath)), "sandbox ")
+		tokens := strings.TrimPrefix(sandboxHeader(s.docSandboxExtras(r, compPath)), "sandbox ")
 		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
 	}
 
 	inject := fmt.Sprintf(
-		"\n<script type=\"importmap\">%s</script>\n"+
+		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
 			"%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta)
+		assetHead, im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta)
 
 	var out []byte
 	if loc := headRe.FindIndex(body); loc != nil {
@@ -343,7 +365,7 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	// frame token. Delivered as a header (not just the iframe attribute) so
 	// direct-tab opens of /c/<tile>/ are confined identically, with the same
 	// grant-unlocked extras (ND11).
-	if !s.sandboxDocument(w, compPath, comp) {
+	if !s.sandboxDocument(w, r, compPath, comp) {
 		// Trusted chrome: keep popups it opens (full-page tile views, docs)
 		// in its own browsing-context group.
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")

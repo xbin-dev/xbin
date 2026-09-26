@@ -72,6 +72,14 @@ type Server struct {
 	// on tunnel-only deployments (SSO then refuses to start).
 	ExternalURL string
 
+	// TileAssets is the tile asset gating mode (--tile-assets, tileassets.go):
+	// "" or "legacy" (today's credential-less subresource rule), "tokens"
+	// (path-scoped asset tokens) or "origins" (a per-tile origin under
+	// TilesDomain, tileorigin.go). TilesDomain is the parent domain of the
+	// tile origins (--tiles-domain, optionally with a :port).
+	TileAssets  string
+	TilesDomain string
+
 	// SSO runtime state (sso.go): per-issuer cached OIDC provider and the
 	// boot-random HMAC key signing the one-shot login-state cookie.
 	ssoMu         sync.Mutex
@@ -129,7 +137,7 @@ func (s *Server) Handler() http.Handler {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
 	})))
 
-	handle("/c/", s.authedStatic(http.HandlerFunc(s.handleComponentStatic)))
+	handle("/c/", s.withAssetTokens(s.authedStatic(http.HandlerFunc(s.handleComponentStatic))))
 	// /vendor/ is UNAUTHENTICATED on purpose: it's xbind's own shipped code
 	// (core elements, vendored libs — public by nature), and sandboxed/
 	// credential-less tile frames must load xbin-client.js, lit, and
@@ -147,7 +155,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerCoreAPI()
 	s.registerBrandingAPI()
-	return logRequests(nullOriginCORS(mux))
+	return logRequests(s.tileOrigins(nullOriginCORS(mux)))
 }
 
 // nullOriginCORS lets sandboxed tile frames talk to their APIs at all. A
@@ -232,6 +240,9 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 			if err == nil {
 				if owner := s.owningComponent(cleaned); !isChrome(owner) && s.tileSubresourceAuthed(r) {
 					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
+					return
+				} else if !isChrome(owner) && s.strictAssets() && !isNavigation(r) {
+					http.Error(w, strictAssetRefusal, http.StatusUnauthorized)
 					return
 				}
 			}
@@ -649,6 +660,6 @@ func logRequests(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/ws/") {
 			return // long-lived; logged at close by their handlers
 		}
-		slog.Debug("http", "m", r.Method, "path", r.URL.Path, "dur", time.Since(start).Round(time.Millisecond))
+		slog.Debug("http", "m", r.Method, "path", redactAssetToken(r.URL.Path), "dur", time.Since(start).Round(time.Millisecond))
 	})
 }

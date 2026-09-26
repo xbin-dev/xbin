@@ -653,6 +653,8 @@ func (st *State) stepServer() error {
 		TrustedProxies: st.trusted,
 		ExternalURL:    st.externalURL,
 		Overlay:        st.overlay,
+		TileAssets:     st.Cfg.TileAssets, // --tile-assets (validated); docs/auth.md §Tile asset gating
+		TilesDomain:    st.Cfg.tilesDomain(),
 		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
 	}
 	if st.Term != nil {
@@ -661,6 +663,9 @@ func (st *State) stepServer() error {
 	}
 	if st.overlay != "" {
 		slog.Info("dev overlay: /c/ files shadowed from disk (manifests excluded)", "dir", st.overlay)
+	}
+	if m := st.Cfg.TileAssets; m != "" && m != "legacy" {
+		slog.Info("strict tile asset gating", "mode", m, "tilesDomain", srv.TilesDomain)
 	}
 	// One client-IP resolver for everything: login throttle, session IP
 	// attribution, and the /c/ warm-IP gate (all trusted-proxy aware).
