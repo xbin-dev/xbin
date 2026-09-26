@@ -18,8 +18,11 @@ make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
 
 CI (`.github/workflows/ci.yml`) runs exactly `make check` then
-`make integration`; a release (`make release TAG=vX.Y.Z`) runs `make check`
-and the online pin checks before building. Builder-visible behaviour also
+`make integration`, and in a second job (`native`) the native client's
+Linux half: `make swift-test` under Swift 6.4, `make native-check` and the
+iOS CI's own check (`native/ios/scripts/ci-local-check.sh`); a release
+(`make release TAG=vX.Y.Z`) runs `make check` and the online pin checks
+before building. Builder-visible behaviour also
 needs a `docs/changelog.md` entry and the relevant `docs/*.md` update; every
 non-obvious choice gets a numbered entry in the decision log
 (`plans/DECISIONS.md` in the repo). Each guard below is its own Makefile
@@ -38,8 +41,9 @@ target, so a red line names the guard that failed.
 
 Not in `check`: `make swift-test` runs the native client's Swift packages
 (`native/ios/Packages/*`, Foundation only) on any machine with a swift
-toolchain, Linux included — the Apple CI (`.github/workflows/ios.yml`) runs
-them on macOS; `make tile-check` needs the network (CI runs it).
+toolchain, Linux included — ci.yml's `native` job installs one to run them,
+and the Apple CI (`.github/workflows/ios.yml`) runs them on macOS; `make
+tile-check` needs the network (CI runs it).
 
 ## Exec guard (nothing runs as xbind on tile data)
 
