@@ -60,8 +60,12 @@ swift build && swift test            # Linux: the model (the SwiftUI target is e
 ```
 
 On Linux the SwiftUI sources are parsed (inactive `#if` blocks must still
-parse) but not type-checked; `SourceCoverageTests` also checks that every
-fixture has a `#Preview` and every primitive a dispatch branch. The views are
+parse) but not type-checked by `swift build`; `SourceCoverageTests` also
+checks that every fixture has a `#Preview` and every primitive a dispatch
+branch. `native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`)
+type-checks the views and the snapshot tests against stubs of the SDK — run
+it after every change to the views; it catches our own mistakes, not SDK
+drift. The views are
 compiled, and the snapshots written, only by the Apple CI
 (`native/ios/scripts/ci-snapshots.sh`: `xcodebuild test` on a simulator with
 `TEST_RUNNER_SNAPSHOT_DIR`, seen by the tests as `SNAPSHOT_DIR`). PNGs are
