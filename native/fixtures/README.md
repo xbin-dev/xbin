@@ -136,9 +136,12 @@ when the tree is not what a user should see.
 
 Rules: content is realistic and self-consistent (names, times, counts agree
 with each other); nothing depends on the machine (no `Math.random`, no real
-network — every request has a route; time only through the pinned clock); no
-real secrets or personal data; a vocabulary change updates the fixtures,
-`expected.json` and the renderers in one change (native/AGENTS.md).
+network — every request has a route; time only through the pinned clock;
+`Intl` formats whose output ICU versions disagree on — AM/PM spacing,
+abbreviated month names, time-zone names — are avoided, since CI's node may
+not be yours); no real secrets or personal data; a vocabulary change updates
+the fixtures, `expected.json` and the renderers in one change
+(native/AGENTS.md).
 
 ## Index
 

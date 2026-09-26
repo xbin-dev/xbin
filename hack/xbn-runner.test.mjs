@@ -22,13 +22,14 @@ const NOW = Date.parse('2026-09-21T14:13:20Z');
 test('a pinned time zone and locale apply to Date and Intl (a child process when they differ)', async () => {
   const t = tile(`import { html, render } from '/vendor/xb-native.js';
     render(html\`<screen title="t"><text>\${new Date().getHours()}</text>
-      <text>\${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(Date.now())}</text>
+      <text>\${new Intl.DateTimeFormat(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(Date.now())}</text>
       <text>\${(1234.5).toLocaleString()}</text></screen>\`);`);
   try {
     const tokyo = await runNative({ entry: t.entry, data: { now: NOW, tz: 'Asia/Tokyo', locale: 'de-DE' } });
     assert.deepEqual(tokyo.tree.root.c.map((c) => c.p.text), ['23', '21.09.2026, 23:13', '1.234,5']);
-    const utc = await runNative({ entry: t.entry, data: { now: NOW, tz: 'UTC', locale: 'en-US' } });
-    assert.deepEqual(utc.tree.root.c.map((c) => c.p.text), ['14', 'Sep 21, 2026, 2:13 PM', '1,234.5']);
+    // (numeric fields only: ICU versions disagree on "Sep"/"Sept" and the space before "PM")
+    const utc = await runNative({ entry: t.entry, data: { now: NOW, tz: 'UTC', locale: 'en-GB' } });
+    assert.deepEqual(utc.tree.root.c.map((c) => c.p.text), ['14', '21/09/2026, 14:13', '1,234.5']);
   } finally { t.done(); }
 });
 

@@ -5,7 +5,7 @@ import { html, render, repeat, nothing } from '/vendor/xb-native.js';
 
 let inc = null;
 
-const time = (iso) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso));
+const time = (iso) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 const day = (iso) => new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(iso));
 const mins = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 60000);
 const stateTone = { investigating: 'danger', identified: 'warn', monitoring: 'accent', resolved: 'ok' };

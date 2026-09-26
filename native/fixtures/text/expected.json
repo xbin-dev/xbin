@@ -15,17 +15,17 @@
     {"k":"r.0.3","t":"stack","p":{"gap":"s"},"c":[
       {"k":"r.0.3.0","t":"text","p":{"style":"title2","text":"Timeline"}},
       {"k":"r.0.3.1:2026-09-21T12:02:00Z","t":"stack","p":{"gap":"none"},"c":[
-        {"k":"r.0.3.1:2026-09-21T12:02:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:02 CEST"}},
+        {"k":"r.0.3.1:2026-09-21T12:02:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:02"}},
         {"k":"r.0.3.1:2026-09-21T12:02:00Z.1","t":"text","p":{"style":"headline","tone":"danger","text":"investigating"}},
         {"k":"r.0.3.1:2026-09-21T12:02:00Z.2","t":"text","p":{"text":"Latency alert on checkout-api (p95 4.2 s)."}}
       ]},
       {"k":"r.0.3.1:2026-09-21T12:40:00Z","t":"stack","p":{"gap":"none"},"c":[
-        {"k":"r.0.3.1:2026-09-21T12:40:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:40 CEST"}},
+        {"k":"r.0.3.1:2026-09-21T12:40:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"14:40"}},
         {"k":"r.0.3.1:2026-09-21T12:40:00Z.1","t":"text","p":{"style":"headline","tone":"warn","text":"identified"}},
         {"k":"r.0.3.1:2026-09-21T12:40:00Z.2","t":"text","p":{"text":"Payment provider rate-limits new TLS handshakes; our pool reconnects on every request."}}
       ]},
       {"k":"r.0.3.1:2026-09-21T13:10:00Z","t":"stack","p":{"gap":"none"},"c":[
-        {"k":"r.0.3.1:2026-09-21T13:10:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"15:10 CEST"}},
+        {"k":"r.0.3.1:2026-09-21T13:10:00Z.0","t":"text","p":{"style":"caption2","tone":"muted","text":"15:10"}},
         {"k":"r.0.3.1:2026-09-21T13:10:00Z.1","t":"text","p":{"style":"headline","tone":"accent","text":"monitoring"}},
         {"k":"r.0.3.1:2026-09-21T13:10:00Z.2","t":"text","p":{"text":"Deployed checkout-api v2.14.1 with a persistent pool of 32 connections."}}
       ]}
