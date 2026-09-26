@@ -326,8 +326,10 @@ What the packages and tests must do for CI:
   (`ci-hosted-snapshots.sh`, PNGs in `snapshots/hosted/`, same names). Use the
   hosted PNGs for comparisons when the run produced them.
 - **UI tests** (`native/ios/UITests`, target and scheme `XbinUITests`, host
-  app `Xbin`) skip unless `XBIN_E2E_URL` and `XBIN_E2E_TOKEN` reach them
-  (`TEST_RUNNER_XBIN_E2E_*`); they query the app by what a person sees
+  app `Xbin`) skip unless `XBIN_E2E_URL`, `XBIN_E2E_USER` and
+  `XBIN_E2E_PASSWORD` reach them (`TEST_RUNNER_XBIN_E2E_*`); they sign in
+  through the app's Log in as a person does (the app has no token login)
+  and query the app by what a person sees
   (labels, placeholders), so a renamed button breaks them — run
   `native/tools/uitest-stubcheck/run.sh` after editing them, and "Mac mini"
   below to run them.
@@ -586,7 +588,7 @@ Four accounts, each doing one thing:
 
 The dev loop is not ci's because a CI job is code from any pushed branch
 running as ci: it could leave a `~/.zshenv` behind that reads the e2e
-token off the next ssh session, or reach the e2e tunnel's port, and every
+account's password off the next ssh session, or reach the e2e tunnel's port, and every
 job shuts ci's simulators down — the dev loop's included, were they the
 same user's. Each user has its own simulators (CoreSimulator is per user).
 `mac-remote.sh` refuses `e2e` and `tunnel` as the runner's user.
@@ -855,29 +857,41 @@ This starts `e2e-xbind.sh` here — a fresh workspace with
 scripted fake ACP agent, xbind started as the UI harness starts it: `xbind
 --dev --dev-overlay workspace-template --workspace <ws> --listen
 127.0.0.1:9871 --external-url http://127.0.0.1:9871` with
-`XBIN_AGENT_FAKE=bin/fakeacp XBIN_BIN=bin XBIN_SDK_PATH=sdk`, the owner token
-from `<ws>/.xbin/token` — and waits until the counter's backend answers.
-The run's ssh connection carries a reverse tunnel (`-R
+`XBIN_AGENT_FAKE=bin/fakeacp XBIN_BIN=bin XBIN_SDK_PATH=sdk` — creates the
+admin account `e2e` with a random password (with the owner token from
+`<ws>/.xbin/token`, which stays on this box), deletes the `admin`/`admin`
+login `--dev` seeds, and waits until the counter's backend answers. The
+run's ssh connection carries a reverse tunnel (`-R
 127.0.0.1:9871:127.0.0.1:9871`), so the simulator reaches the same origin,
-`http://127.0.0.1:9871`; the token travels on ssh's stdin. `e2e-xbind.sh`
-deletes the `admin`/`admin` login `--dev` seeds, so the owner token is the
-only way in; without `--isolate` (`XBIN_E2E_XBIND_ARGS="--isolate --rootfs
-…"`) its terminals are shells as you on this box, and `mac-remote.sh` says
-so. On the Mac,
-`XbinUITests` runs on `xbin-e2e`, erased first: add a workspace by URL +
-token, open the web tile `apps/welcome` (its 13 px heading readable at
-1:1), open the native counter and tap +1 (checked on the server and in the
-row), type into a terminal on `apps/welcome` (its output — an OSC title
-only the shell's arithmetic makes — must reach the navigation bar; the key
-row sits right on the software keyboard and its ↑ recalls a command), an
-agent session with the fake agent (its `echo: …` answer in the
-transcript), the viewports (`apps/wide`, a desktop-first page from
-`scripts/testdata/e2e-tiles/`, laid out at its 1200 px and fitted, pinch
-zoom; `apps/phone` keeps its own viewport) and the key row docked at the
-bottom with no software keyboard (test07). A headless simulator can't
-attach a hardware keyboard — XCUITest always brings the software one up —
-so test07 launches the app with `-XbinNoSoftKeyboard YES` (Debug builds:
-the terminal gets an empty input view). The screenshots land in
+`http://127.0.0.1:9871`; the account's name and password travel on ssh's
+stdin, a line each. The password is the only way in from the Mac; without
+`--isolate` (`XBIN_E2E_XBIND_ARGS="--isolate --rootfs …"`) its terminals
+are shells as you on this box, and `mac-remote.sh` says so. On the Mac,
+`XbinUITests` runs on `xbin-e2e` (`XBIN_SIM_ENSURE=<name>` for a simulator
+of your own), erased first. `XbinE2ETests`: sign in by Log in → Enter
+workspace address → the password (discovery, enrollment and device login
+on every run), open the web tile `apps/welcome` (its 13 px heading
+readable at 1:1), open the native counter and tap +1 (checked on the
+server and in the row), type into a terminal on `apps/welcome` (its
+output — an OSC title only the shell's arithmetic makes — must reach the
+navigation bar; the key row sits right on the software keyboard and its ↑
+recalls a command), an agent session with the fake agent (its `echo: …`
+answer in the transcript), the viewports (`apps/wide`, a desktop-first
+page from `scripts/testdata/e2e-tiles/`, laid out at its 1200 px and
+fitted, pinch zoom; `apps/phone` keeps its own viewport) and the key row
+docked at the bottom with no software keyboard (test07). A headless
+simulator can't attach a hardware keyboard — XCUITest always brings the
+software one up — so test07 launches the app with `-XbinNoSoftKeyboard
+YES` (Debug builds: the terminal gets an empty input view).
+`XbinOnboardingTests` launch the app as a fresh install (Debug builds'
+`-XbinFreshStart YES`: no workspace, the saved list untouched): the
+Welcome's levels and the help, Run your own xbin, address → methods →
+password, joining with an invite the test makes (spent on the server
+afterwards), an unreachable address ("Can't connect"), a code the
+workspace never minted ("Code refused"), "Sign in again" replacing its
+workspace after the device is removed, and `test10Gallery`: every
+onboarding screen in light and dark (`-XbinAppearance`), as
+`gallery-<light|dark>-NN-<screen>.png`. The screenshots land in
 `$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
 XCUITest types with key presses: the software keyboard hides while
 `typeText` types and slides back up a moment later, so a control that rides
@@ -888,11 +902,14 @@ row waits in `keyRowAboveKeyboard`). Where a tap landed is in the
 simulator's log (`xcrun simctl spawn <udid> log show`): testmanagerd's
 "Synthesizing event … Touch down at x, y".
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
-by itself: `XBIN_E2E_URL=… XBIN_E2E_TOKEN=… mac-remote.sh e2e` (no tunnel).
-`e2e-xbind.sh smoke` checks here, over HTTP and `/ws/term`, everything the
-tests need of the server. `mac-remote.sh tunnel` holds only the tunnel, for
-running the tests from Xcode on the Mac (`TEST_RUNNER_XBIN_E2E_URL`/`_TOKEN`
-in the environment of `xcodebuild test -scheme XbinUITests`).
+by itself: `XBIN_E2E_URL=… XBIN_E2E_USER=… XBIN_E2E_PASSWORD=…
+mac-remote.sh e2e` (no tunnel; an admin account, the tests make invites).
+`e2e-xbind.sh smoke` checks here, over HTTP and `/ws/term`, everything
+the tests need of the server; `e2e-xbind.sh invite` makes an invited
+account and prints its link. `mac-remote.sh tunnel` holds only the
+tunnel, for running the tests from Xcode on the Mac
+(`TEST_RUNNER_XBIN_E2E_URL`/`_USER`/`_PASSWORD` in the environment of
+`xcodebuild test -scheme XbinUITests`).
 
 Sharing the Mac (learned 2026-09-26, several agents at once):
 
@@ -921,7 +938,7 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
   failed test04 and test05 this way.)
 - **`--keep` and a second run**: point the second at the kept xbind with
-  `XBIN_E2E_URL`/`XBIN_E2E_TOKEN` from `$XBIN_E2E_DIR/env` and hold the
+  `XBIN_E2E_URL`/`_USER`/`_PASSWORD` from `$XBIN_E2E_DIR/env` and hold the
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
   returns at once — the forward lives on the master connection; drop it
   with `ssh -O cancel -R 127.0.0.1:P:127.0.0.1:P <mac>`.
@@ -950,12 +967,13 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   contents: read`, no signing, no provisioning, no TestFlight); the runner's
   own credentials are its registration, nothing else.
 - **The e2e xbind is the dev user's.** A throwaway workspace on the Linux
-  box whose only credential is its random owner token (the seeded dev
-  login is deleted); the tunnel binds the Mac's loopback, which every local
-  user can reach, and an xbind without `--isolate` hands whoever holds the
-  token a shell as you on the Linux box. So the token and the tunnel go
-  only to the dev user's ssh session — never ci's, whose jobs are code from
-  any pushed branch (`mac-remote.sh` refuses `e2e` and `tunnel` as ci).
+  box whose only way in from the Mac is the `e2e` admin account's random
+  password (the seeded dev login is deleted; the owner token stays on the
+  Linux box); the tunnel binds the Mac's loopback, which every local user
+  can reach, and an xbind without `--isolate` hands whoever signs in a
+  shell as you on the Linux box. So the password and the tunnel go only to
+  the dev user's ssh session — never ci's, whose jobs are code from any
+  pushed branch (`mac-remote.sh` refuses `e2e` and `tunnel` as ci).
 - **The release key is another user's.** It lives in the release user's
   home (mode 700, the `.p8` 600), which the runner's user ci — standard,
   no sudo — can't read; `release-build.sh` refuses to run as ci, as an

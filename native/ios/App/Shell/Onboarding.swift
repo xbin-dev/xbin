@@ -427,7 +427,6 @@ struct RunYourOwnPage: View {
                 Text(verbatim: Self.install)
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
-                    .accessibilityLabel("The install command")
                 Button(copied ? "Copied" : "Copy the command", systemImage: copied ? "checkmark" : "doc.on.doc") {
                     UIPasteboard.general.string = Self.install
                     copied = true
@@ -588,11 +587,12 @@ struct HelpPage: View {
         case 1:
             return "On a computer, open your workspace in a browser where you're signed in. Click settings at the top right."
         case 2:
-            return "Choose add a device. A QR code appears. It works once, for 5 minutes."
+            return "Choose add a device, at the top of the menu. A QR code appears. It works once, for 5 minutes."
         default:
-            return "In this app, choose Log in, then Scan QR code, and point the camera at the code. If your browser "
-                + "reaches xbin through a tunnel or a proxy, first set \"address your phone uses\" in the same panel "
-                + "to an address this phone can reach, such as the workspace's https address."
+            return "In this app, tap Log in, then Scan QR code, and point the camera at the code. No camera? Copy "
+                + "the link under the code and paste it on Log in.\n\nIf your browser reaches xbin through a tunnel "
+                + "or a proxy, first set \"address your phone uses\" in the same panel to an address this phone can "
+                + "reach, such as the workspace's https address."
         }
     }
 

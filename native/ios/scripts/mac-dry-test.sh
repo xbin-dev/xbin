@@ -584,7 +584,7 @@ has "mac-remote e2e: the tests get the URL and the account" "$log" "e2e-env URL=
 has "mac-remote e2e: --only filters" "$log" "-only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
 eq "mac-remote e2e: pulls the screenshots" "$(find "$tmp/pull/e2e" -name '*.png' | wc -l | tr -d ' ')" 3
 : >"$FAKE_LOG"
-XBIN_SIM_ENSURE=xbin-e2e-mine XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret run "$S/mac-remote.sh" e2e
+XBIN_SIM_ENSURE=xbin-e2e-mine XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
 has "mac-remote e2e: XBIN_SIM_ENSURE passes through" "$(cat "$FAKE_LOG")" " XBIN_SIM_ENSURE=xbin-e2e-mine /bin/bash"
 has "mac-remote e2e: …and names the run's own simulator" "$(cat "$FAKE_LOG")" "xcrun simctl create xbin-e2e-mine"
 XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/mac-remote.sh" e2e
