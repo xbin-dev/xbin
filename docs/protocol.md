@@ -1790,9 +1790,11 @@ POST   /notify                           element: a tile's backend (instance
                                          best-effort. SDK xbin.NotifyUser
 POST   /devices/push                     a signed-in person (the app's device
                                          session; not a tile). body {deviceId,
-                                         handle, publicKey, kinds?} → {device:
-                                         {deviceId, kinds, created, updated,
-                                         lastSent?}, workspace, enabled}.
+                                         handle, publicKey, kinds?,
+                                         startHandle?} → {device: {deviceId,
+                                         kinds, created, updated, lastSent?,
+                                         pushToStart?, activities?},
+                                         workspace, enabled}.
                                          Registers (or refreshes) where this
                                          user's pushes go: handle = the push
                                          relay's handle for this app install and
@@ -1813,17 +1815,51 @@ POST   /devices/push                     a signed-in person (the app's device
                                          that login ends, and can't take over an
                                          enrolled device's deviceId (409).
                                          workspace = the `ws` every payload
-                                         carries; device.needsNewHandle (below)
+                                         carries; device.needsNewHandle (below).
+                                         startHandle: the relay's Live Activity
+                                         handle of the app's push-to-start
+                                         token ("" removes it, absent keeps
+                                         it); a new handle drops it and the
+                                         device's Live Activities
 GET    /devices/push                     a signed-in person. {workspace, enabled,
                                          devices:[{deviceId, kinds, created,
                                          updated, lastSent?, needsNewHandle?,
-                                         relayError?}]} — your own.
+                                         relayError?, pushToStart?,
+                                         activities?: [session]}]} — your own.
                                          needsNewHandle: the relay no longer
                                          delivers to that handle for this
                                          workspace (relayError handle_bound |
                                          handle_unknown) — the app creates a
                                          fresh handle and registers again
 DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 404
+POST   /devices/push/activities          a signed-in person, for a registration
+                                         of theirs (a device session: its own
+                                         deviceId, else 403). body {deviceId,
+                                         session | ref, handle, since?} →
+                                         {activity: {session, created,
+                                         ended?}}. A Live Activity the device
+                                         shows for one of your agent sessions:
+                                         handle = the relay's Live Activity
+                                         handle of its update token; ref = the
+                                         one a push-started activity carries
+                                         (the answer names its session); since
+                                         = the turn's start the card shows
+                                         (unix s; taken only for a turn xbind
+                                         did not see begin). ended: the turn is
+                                         over already — xbind sends the card
+                                         its end and keeps no registration (a
+                                         push-started card whose turn ended
+                                         before its token came is answered so
+                                         for 4 h). 404 for a session that is
+                                         not yours or not there, an unknown
+                                         ref, or a device with no registration
+                                         (the app ends such a card); 429 over
+                                         240/hour (burst 30). xbind then pushes
+                                         the turn's state changes and its end
+                                         to it (below)
+DELETE /devices/push/<deviceId>/activities/<session>
+                                         a signed-in person: the device stopped
+                                         showing it → 204 | 404
 GET    /push/prefs                       a signed-in person. {mutedTiles:[path]}
 PUT    /push/prefs                       a signed-in person. body {mutedTiles}
                                          (replaces; ≤1000) → the stored prefs.
@@ -1959,6 +1995,39 @@ workspace at the relay, and the relay binds each handle to the first
 workspace that pushes to it: a new relay workspace (rotate, a changed
 `XBIN_PUSH_RELAY_KEY`, another relay) orphans every handle that delivered
 under the old one. State lives in `data/push/push.json` (mode 0600).
+
+**Live Activities.** The app shows an agent turn on the lock screen and in
+the Dynamic Island. It keeps the activity current itself while it runs;
+otherwise xbind does, through the relay (`apns-push-type: liveactivity`).
+An ActivityKit payload can't be sealed, so it carries generic state only —
+`{phase: running | waiting | idle, since: <unix s the turn started>,
+pending: <permission requests and questions waiting>}` — never a title,
+name or text (the relay refuses anything else). xbind follows the agent
+sessions of users with a registered device from their events: a change of
+phase or pending count updates each registered activity of the session
+(`POST /devices/push/activities`; priority 10 for waiting, else 5; stale
+after 4 h without news), the turn's end ends them (idle, dismissed after 10
+minutes) and drops their registrations — an activity is one turn — and so
+does the session closing. A turn still running after 30 s starts an
+activity by push (ActivityKit push-to-start) on each device whose
+registration has a `startHandle`, takes `agent` kinds, and shows none for
+the session: the start carries only the workspace's push id and a random
+`ref`, by which the app registers the new activity's token (if the turn
+ended first, that registration answers `ended` and the card gets its end;
+an unknown ref is 404 and the app ends the card itself). At start xbind
+ends every activity still registered (agent sessions do not outlive it).
+The relay's 410, `handle_bound` or `handle_unknown` on an activity's handle
+drops that activity (or the push-to-start handle — and so does a start the
+relay calls `bad_request`: a handle it does not hold as push-to-start); the
+app registers the next one. Updates are limited to 240/hour per activity (burst 30). Wire
+formats: native/spec/push.md §7.
+
+**Relay proof of work.** A relay may ask an anonymous workspace
+registration for a proof of work (`xbin-relay -registration-pow <bits>`,
+relay/README.md): xbind fetches its challenge (`GET
+/v1/workspaces/challenge`), solves it — at most 28 bits; `PUT /push/config`
+waits for it — and registers with it; a relay that asks for more answers
+502 with a hint to get a key from its operator.
 
 ## WebSockets
 

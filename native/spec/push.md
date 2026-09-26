@@ -2,7 +2,10 @@
 
 > Status: implemented on the xbind and relay side (`internal/push`,
 > `relay/`); the app's Notification Service Extension implements the device
-> side against this page and [push-vectors.json](push-vectors.json).
+> side against this page and [push-vectors.json](push-vectors.json). Live
+> Activities (§7): xbind and relay implemented and tested; the app side
+> (`native/ios/App/Push/LiveActivities.swift`, `native/ios/Widgets`) is
+> written against this page and compiles only on the Apple CI.
 > Design: plans/native.md §14. Relay operations: relay/README.md.
 
 Three parties:
@@ -179,7 +182,7 @@ The Notification Service Extension:
    suppresses the banner (`willPresent`).
 
 Live Activity updates cannot be decrypted by an extension, so they carry only
-generic state (running, waiting, elapsed) — not specified here.
+generic state (running, waiting, elapsed): §7.
 
 ## 5. Test vectors
 
@@ -202,3 +205,140 @@ entry of `invalid`.
 - The relay learns which handles a workspace notifies and when — not what. Its
   collapse ids are hashes; xbind never sends tile paths or session ids in
   clear.
+- Live Activity pushes (§7) are the one unsealed channel: the relay and APNs
+  see that an agent turn runs, waits or ended, since when and how many
+  requests wait — never a name, a title or text (the relay refuses any) —
+  and a push-to-start's `ws` and random `ref`.
+
+## 7. Live Activities
+
+The app shows an agent turn as a **Live Activity** (the lock screen and the
+Dynamic Island): which session, running or waiting for you, since when, how
+many requests wait. It is **generic on purpose**. An ActivityKit payload is
+decoded and drawn by the system before any code of the app runs, so it can't
+be sealed; xbind sends only the state below and the relay builds the APNs
+body from it, refusing anything else (relay/README.md §Live Activities).
+Names — the workspace's, the session's — exist only on the device.
+
+### 7.1 The card
+
+ActivityKit attributes type `AgentActivityAttributes` (XbinAgent), fixed for
+the activity's life; all strings, a missing one reads as `""`:
+
+| Field | Set by the app | In a push-to-start |
+|---|---|---|
+| `ws` | xbind's push id of the workspace (`workspace` of §1.3), or `""` | the same |
+| `ref` | `""` | the reference the app registers the token under (§7.3) |
+| `workspace`, `session` | display names | `""` (the widget looks `ws` up in the app's push keyring) |
+| `appWorkspace`, `sessionID` | the app's workspace id and the agent session id — the card's link `xbin://<appWorkspace>/agent/<sessionID>` | `""` (the link opens the workspace) |
+
+Content state (`ContentState`, `AgentActivityState`):
+
+```json
+{"phase": "running" | "waiting" | "idle", "since": <unix s, the turn's start; 0 = unknown>, "pending": <0–99>}
+```
+
+`waiting` = a permission request or a question is unanswered (or the agent
+says `waiting_permission`); `pending` counts both; `idle` = the turn is
+over (the last state, shown until dismissed). Decoders are lenient: an
+unknown phase reads as `running`, a missing number as 0.
+
+A card is **one turn**: it starts when a turn has run 10 s (quick turns at
+the desk never flash one), at once when it waits for the user, or when the
+app leaves the foreground mid-turn (ActivityKit starts activities only from
+the foreground); it ends at the turn's `turn.end` (idle, dismissed 10
+minutes later). A card the user swiped away stays away for that turn.
+
+### 7.2 Tokens and handles
+
+ActivityKit gives the app one push token per activity (its updates) and one
+per app (push-to-start). Each goes to the relay as a **Live Activity handle
+under the workspace's device handle** (§1.2):
+
+```
+POST <relay>/v1/handles {"apnsToken": "<hex>", "topic": "<bundle id>", "env": …,
+                         "pushType": "liveactivity", "parent": "<the workspace's device handle>",
+                         "start": true}                     (the push-to-start token only)
+→ {"handle"}
+```
+
+It lives, binds and goes with its parent: deleting the parent (removing the
+workspace from the app), a rotation that orphans it (`needsNewHandle`), or
+APNs killing the device token takes the Live Activity handles along — the
+app makes new ones under its new device handle. The same token under the
+same parent answers the same handle. The first push to the device handle or
+any handle under it binds them all to the pushing workspace. A parent holds
+one push-to-start handle (it takes `start` events only; a new token
+replaces it) and at most 16 activity handles (they take `update` and `end`
+only; the least recently used go first, never the push-to-start handle). An
+`end` APNs took retires the activity's handle at the relay; the app also
+deletes (`DELETE /v1/handles/<handle>`) the handles of a card it ends or
+loses, and one xbind answered 404 for.
+
+### 7.3 Registration with xbind
+
+- **Push-to-start**: the device's registration carries it —
+  `POST /api/xbin/devices/push {…, "startHandle": "<Live Activity handle>"}`
+  (absent keeps the one registered, `""` removes it: the user turned
+  push-started cards off). A new device `handle` drops it and every
+  activity registration (they hang off the old handle at the relay);
+  `GET /api/xbin/devices/push` shows `pushToStart: true` and
+  `activities: [session]` per device.
+- **An activity**: once ActivityKit hands its update token,
+  ```
+  POST /api/xbin/devices/push/activities {"deviceId", "session": "<agent session id>", "handle", "since"?}   (one the app started)
+  POST /api/xbin/devices/push/activities {"deviceId", "ref": "<attributes.ref>", "handle"}                   (one xbind started)
+  → {"activity": {"session", "created", "ended"?: true}}
+  ```
+  `since` is the turn's start the card shows (unix seconds); xbind takes it
+  only for a turn it did not see begin (the user had no device then), so
+  its updates keep the card's clock. `ended`: the turn is over already —
+  xbind sends the card its `end` and keeps no registration; the app ends
+  the card too. A push-started card whose turn ended before its token came
+  is answered so for 4 hours (xbind remembers its ref, in memory); after
+  that, after an xbind restart, and for a ref xbind never gave (a start
+  another workspace sent under this one's `ws`) the answer is 404, and the
+  app ends the card: a card it can't place — no workspace with that `ws`,
+  or xbind's 404 — never stays up.
+  The session must be the caller's (404 otherwise); the registration is the
+  caller's own (the device session: its own `deviceId`, 403 otherwise).
+  `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>` when the
+  user dismissed the card.
+
+### 7.4 What xbind sends
+
+xbind follows the agent sessions of users with a registered device from
+their events and posts to the relay (`POST /v1/push {handle, type:
+"liveactivity", activity, priority}`, relay/README.md):
+
+| When | `event` | To | Priority |
+|---|---|---|---|
+| the phase or the pending count changes | `update` (+ `staleDate` now + 4 h) | each registered activity of the session | 10 for `waiting`, else 5 |
+| `turn.end`, the session going busy → idle, error, exited, or closing | `end` (idle, + `dismissalDate` now + 10 min); the registrations go | the same | 10 |
+| a turn still busy after 30 s, on a device with a `startHandle`, `agent` kinds, and no card for the session | `start` (`ws`, a fresh random `ref`, the state) | the device's `startHandle` | 10 |
+| xbind starts (agent sessions do not outlive it) | `end` | every registered activity | 5 |
+
+`timestamp` is unix seconds, strictly increasing per session (the device
+drops an update older than what it shows). The relay's 410, `handle_bound`
+or `handle_unknown` for an activity's handle drops that registration (for
+the `startHandle`: the start handle — and so does a `start` the relay
+answers `bad_request`, a handle it does not hold as push-to-start); the app
+registers the next one — no `needsNewHandle` round for these. Limits: 240 updates/hour per activity
+(burst 30), 240 activity registrations/hour per person (burst 30).
+
+A push-started card's token reaches the app in the background
+(ActivityKit's `activityUpdates` / `pushTokenUpdates`); the app registers it
+by `ref`, and xbind answers with the session and sends what changed since
+the start (or `ended` and the end, §7.3). A registration that failed for
+want of a network is retried when the app next becomes active.
+
+## 8. Relay registration and proof of work
+
+xbind mints the workspace's relay key with `POST <relay>/v1/workspaces`.
+A relay may ask for a proof of work (`-registration-pow`,
+relay/README.md §Proof of work): xbind reads `GET
+/v1/workspaces/challenge`, finds the first decimal nonce with SHA-256
+(`challenge ":" nonce`) starting with `bits` zero bits (at most 28), and
+posts `{"pow": {"challenge", "nonce"}}`; a 401 `pow_required` /
+`pow_invalid` carries a fresh challenge, solved once more. The app is not
+involved.

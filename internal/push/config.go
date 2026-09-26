@@ -250,20 +250,6 @@ func (s *Service) probeKey(ctx context.Context, relay, key string) (id string, c
 	return out.WorkspaceID, code, err
 }
 
-func (s *Service) registerWorkspace(ctx context.Context, relay string) (id, key string, err error) {
-	var out struct {
-		WorkspaceID string `json:"workspaceId"`
-		Key         string `json:"key"`
-	}
-	if _, err := s.relayCall(ctx, http.MethodPost, relay+"/v1/workspaces", "", &out); err != nil {
-		return "", "", err
-	}
-	if out.Key == "" {
-		return "", "", errors.New("the relay answered no key")
-	}
-	return out.WorkspaceID, out.Key, nil
-}
-
 // --- registrations, the admin's view ---
 
 // APIAdminDevices is GET /push/devices[?user=] (admins): every

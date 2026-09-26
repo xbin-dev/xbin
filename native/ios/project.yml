@@ -3,6 +3,8 @@
 #
 #   Xbin                     the app (scheme Xbin, shared): App/ + Shared/
 #   XbinNotificationService  decrypts pushes (native/spec/push.md §4)
+#   XbinWidgets              the agent turn's Live Activity: lock screen and
+#                            Dynamic Island (native/spec/push.md §7)
 #   XbinSnapshotHost         an empty app hosting XbinSnapshotTests: the
 #   XbinSnapshotTests        renderer's snapshot tests drawn on a real window
 #                            scene (scheme XbinSnapshots, ci-hosted-snapshots.sh)
@@ -48,6 +50,7 @@ targets:
     sources:
       - path: App
       - path: Shared
+      - path: Widgets/Shared
     dependencies:
       - package: XbinCore
       - package: XbinTerm
@@ -55,6 +58,7 @@ targets:
       - package: XbinRenderer
       - package: SwiftTerm
       - target: XbinNotificationService
+      - target: XbinWidgets
     settings:
       base:
         PRODUCT_NAME: Xbin
@@ -81,6 +85,23 @@ targets:
         INFOPLIST_FILE: Support/NotificationService-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Support/NotificationService.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+  XbinWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared/Keychain.swift
+    dependencies:
+      - package: XbinAgent
+    settings:
+      base:
+        PRODUCT_NAME: XbinWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.app.widgets
+        INFOPLIST_FILE: Support/Widgets-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Support/Widgets.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         TARGETED_DEVICE_FAMILY: "1,2"
   XbinSnapshotHost:

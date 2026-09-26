@@ -50,6 +50,17 @@ func (st *State) setupPush(srv *server.Server) error {
 			}
 			return st.Auth.CredentialLive(gen, user)
 		},
+		// Live Activities: whose an agent session is, and how it is doing
+		Session: func(id string) (push.SessionInfo, bool) {
+			if st.Term == nil {
+				return push.SessionInfo{}, false
+			}
+			info, ok := st.Term.Info(id)
+			if !ok || info.Kind != "agent" {
+				return push.SessionInfo{}, false
+			}
+			return push.SessionInfo{Owner: st.Term.Owner(id), Status: info.Status}, true
+		},
 	})
 	if err != nil {
 		return err
@@ -58,6 +69,9 @@ func (st *State) setupPush(srv *server.Server) error {
 	// the relay deletes keys nobody uses: a daily check keeps ours (the
 	// environment's included) and says at once when it is gone
 	ps.StartKeyCheck()
+	// agent sessions do not outlive xbind: Live Activities still showing
+	// one of the last run's turns end now
+	ps.EndActivities()
 	if st.Broker != nil {
 		// signed out everywhere, disabled or deleted: the devices lose their
 		// pushes with their sessions (a deleted account's preferences go too)
@@ -112,10 +126,23 @@ func (st *State) setupPush(srv *server.Server) error {
 			}
 			ps.AgentEvent(ev.User, ev.ID, cwd, ev.Event)
 		}
+		// a session that closes ends its Live Activities (it may go
+		// without a last status event)
+		changed := st.Term.OnChange
+		st.Term.OnChange = func(op, homeKey, id, cwd string) {
+			if changed != nil {
+				changed(op, homeKey, id, cwd)
+			}
+			if op == "close" {
+				ps.SessionClosed(id)
+			}
+		}
 	}
 	srv.RegisterAPI("POST /devices/push", ps.APIRegister)
 	srv.RegisterAPI("GET /devices/push", ps.APIList)
 	srv.RegisterAPI("DELETE /devices/push/{deviceId}", ps.APIUnregister)
+	srv.RegisterAPI("POST /devices/push/activities", ps.APIActivity)
+	srv.RegisterAPI("DELETE /devices/push/{deviceId}/activities/{session}", ps.APIActivityDelete)
 	srv.RegisterAPI("GET /push/prefs", ps.APIPrefs)
 	srv.RegisterAPI("PUT /push/prefs", ps.APISetPrefs)
 	srv.RegisterAPI("POST /push/test", ps.APITest)

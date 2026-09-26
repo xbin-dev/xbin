@@ -44,6 +44,20 @@ type Device struct {
 	// handle_unknown), made under the relay epoch ErrEpoch.
 	RelayErr string `json:"relayError,omitempty"`
 	ErrEpoch string `json:"errEpoch,omitempty"`
+	// StartHandle is the relay's Live Activity handle for the app's
+	// push-to-start token, and Activities the Live Activities the device
+	// shows for agent sessions (activity.go). Both hang off Handle at the
+	// relay: a new Handle drops them.
+	StartHandle string     `json:"startHandle,omitempty"`
+	Activities  []Activity `json:"activities,omitempty"`
+}
+
+// clone copies d with slices of its own (a copy handed out of the store
+// must not share what the store changes in place).
+func (d Device) clone() Device {
+	d.Kinds = slices.Clone(d.Kinds)
+	d.Activities = slices.Clone(d.Activities)
+	return d
 }
 
 // stale reports a registration whose handle cannot deliver under the relay
@@ -142,8 +156,10 @@ var errDeviceBound = errors.New("that deviceId is an enrolled device's registrat
 // upsert registers or refreshes a device. A handle belongs to one
 // registration: another one holding it (the app signed in as someone else)
 // is replaced. An enrolled device's registration (Session "") is its
-// device session's alone.
-func (s *store) upsert(d Device, now int64) (Device, error) {
+// device session's alone. start, when set, replaces the push-to-start
+// handle ("" removes it); a new handle drops it and the Live Activities
+// (they hang off the old one at the relay).
+func (s *store) upsert(d Device, now int64, start *string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, x := range s.st.Devices {
@@ -181,9 +197,13 @@ func (s *store) upsert(d Device, now int64) (Device, error) {
 	}
 	if cur.Handle != d.Handle { // a fresh handle: nothing the relay said about the old one holds
 		cur.Bound, cur.RelayErr, cur.ErrEpoch = "", "", ""
+		cur.StartHandle, cur.Activities = "", nil
+	}
+	if start != nil {
+		cur.StartHandle = *start
 	}
 	cur.Handle, cur.PublicKey, cur.Kinds, cur.Updated, cur.Session = d.Handle, d.PublicKey, d.Kinds, now, d.Session
-	return *cur, s.saveLocked()
+	return cur.clone(), s.saveLocked()
 }
 
 // removeIf drops the registrations drop picks (dead logins' — the caller's
@@ -192,7 +212,7 @@ func (s *store) removeIf(drop func(Device) bool) int {
 	s.mu.Lock()
 	cands := make([]Device, 0, len(s.st.Devices))
 	for _, x := range s.st.Devices {
-		cands = append(cands, *x)
+		cands = append(cands, x.clone())
 	}
 	s.mu.Unlock()
 	var gone []Device
@@ -284,7 +304,7 @@ func (s *store) all() []Device {
 	defer s.mu.Unlock()
 	out := make([]Device, 0, len(s.st.Devices))
 	for _, x := range s.st.Devices {
-		out = append(out, *x)
+		out = append(out, x.clone())
 	}
 	return out
 }
@@ -296,7 +316,7 @@ func (s *store) devices(user string) []Device {
 	var out []Device
 	for _, x := range s.st.Devices {
 		if x.User == user {
-			out = append(out, *x)
+			out = append(out, x.clone())
 		}
 	}
 	return out

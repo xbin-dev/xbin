@@ -42,8 +42,12 @@ const OwnerUser = "owner"
 // user's POST /devices/push. User, Agent and Test count relay posts — a
 // notification costs one per device it goes to — so the workspace's relay
 // budget, shared by everyone, bounds what one person can spend of it.
+// Activities bounds a person's Live Activity registrations (one per agent
+// turn the app shows), ActivityPush the updates one activity gets (a state
+// change each; starts and ends are not counted — a turn has one of each).
 type Limits struct {
 	Tile, User, Agent, Session, Test, Register Rate
+	Activities, ActivityPush                   Rate
 }
 
 // DefaultLimits are the limits when Options.Limits is zero.
@@ -54,6 +58,9 @@ var DefaultLimits = Limits{
 	Session:  Rate{PerHour: 120, Burst: 20},
 	Test:     Rate{PerHour: 60, Burst: 10},
 	Register: Rate{PerHour: 30, Burst: 10},
+	// Live Activities (activity.go)
+	Activities:   Rate{PerHour: 240, Burst: 30},
+	ActivityPush: Rate{PerHour: 240, Burst: 30},
 }
 
 // Account is what the push plane needs to know about a user.
@@ -100,7 +107,20 @@ type Options struct {
 	// KeyCheck is how often StartKeyCheck asks the relay whether it still
 	// knows the key in force (0 = daily; negative = never).
 	KeyCheck time.Duration
-	Log      *slog.Logger
+	// Session looks an agent session up for Live Activities (activity.go):
+	// whose it is and its status. nil: no activity can be registered.
+	Session func(id string) (SessionInfo, bool)
+	// StartAfter is how long a turn runs before xbind starts its Live
+	// Activity by push on devices that show none (0 = 30s; negative =
+	// never).
+	StartAfter time.Duration
+	Log        *slog.Logger
+}
+
+// SessionInfo is what the push plane needs of an agent session.
+type SessionInfo struct {
+	Owner  string // the push user key (a user id, or OwnerUser)
+	Status string // starting | idle | running | waiting_permission | cancelling | error | exited
 }
 
 // Service is the push plane of one workspace.
@@ -115,8 +135,15 @@ type Service struct {
 	self  *limiter
 	reg   *limiter
 
+	actReg  *limiter
+	actPush *limiter
+
 	mu   sync.Mutex
 	held map[string]*time.Timer // agent requests inside their grace period
+
+	lmu   sync.Mutex
+	turns map[string]*liveSession // agent sessions followed for Live Activities (activity.go)
+	ended map[string]endedRef     // push-started activities whose turn ended before their token came (activity.go)
 
 	// the last key check (StartKeyCheck): when, and what went wrong ("" ok)
 	keyAt  int64
@@ -152,7 +179,8 @@ func New(o Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, done: make(chan struct{}),
+	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, turns: map[string]*liveSession{}, done: make(chan struct{}),
+		actReg: newLimiter(o.Limits.Activities, o.Now), actPush: newLimiter(o.Limits.ActivityPush, o.Now), ended: map[string]endedRef{},
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
 		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
 	s.snd = newSender(s)
@@ -169,6 +197,13 @@ func (s *Service) Close() {
 		delete(s.held, k)
 	}
 	s.mu.Unlock()
+	s.lmu.Lock()
+	for _, ls := range s.turns {
+		if ls.timer != nil {
+			ls.timer.Stop()
+		}
+	}
+	s.lmu.Unlock()
 	s.snd.close()
 }
 
@@ -452,6 +487,7 @@ func tileBase(tile string) string {
 // to the session owner's devices. Requests wait out the grace period and
 // are dropped when answered within it. Never blocks.
 func (s *Service) AgentEvent(user, session, tile string, ev agent.Event) {
+	s.activityEvent(user, session, ev)
 	switch ev.Type {
 	case agent.EvPermissionResolved, agent.EvElicitResolved:
 		// may release a held request (below)

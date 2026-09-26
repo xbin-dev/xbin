@@ -8,14 +8,19 @@
 //
 // HTTP API (relay/README.md):
 //
-//	POST   /v1/handles            {apnsToken, topic, env} → {handle}
-//	PUT    /v1/handles/{handle}   {apnsToken, topic, env} → {handle}
+//	POST   /v1/handles            {apnsToken, topic, env, pushType?, parent?, start?} → {handle}
+//	PUT    /v1/handles/{handle}   {apnsToken, topic, env, pushType?} → {handle}
 //	DELETE /v1/handles/{handle}   → 204
-//	POST   /v1/workspaces         → {workspaceId, key}
+//	GET    /v1/workspaces/challenge → {challenge, bits, expires}
+//	POST   /v1/workspaces         {pow?: {challenge, nonce}} → {workspaceId, key}
 //	GET    /v1/workspace          Authorization: Bearer <key> → {workspaceId}
 //	POST   /v1/push               Authorization: Bearer <key>
 //	                              {handle, envelope, collapseId?, priority?}
+//	                              {handle, type: "liveactivity", activity, priority?}
 //	GET    /healthz
+//
+// Live Activities (liveactivity.go) and the registration proof of work
+// (pow.go) have files of their own.
 //
 // Errors are {"error": "<text>", "code": "<code>"}; the codes (Err*) are
 // the contract, the text is for people.
@@ -82,6 +87,10 @@ type Config struct {
 	// minted by the operator and given to xbind (PUT /api/xbin/push/config
 	// {key}, or XBIN_PUSH_RELAY_KEY).
 	RegistrationTokens []string
+	// RegistrationPoW, when above zero, makes an anonymous POST
+	// /v1/workspaces carry a proof of work of that many bits (pow.go; at
+	// most MaxRegistrationPoW). A registration token (above) skips it.
+	RegistrationPoW int
 	// Expiry is how long APNs keeps an undelivered notification (default 24h).
 	Expiry time.Duration
 	Now    func() time.Time
@@ -137,6 +146,7 @@ type Server struct {
 	nwLim *limiter
 	nhLim *limiter
 	awLim *limiter
+	pow   *powState
 }
 
 // New opens the state and builds the handler.
@@ -149,6 +159,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Expiry <= 0 {
 		cfg.Expiry = 24 * time.Hour
+	}
+	if cfg.RegistrationPoW < 0 || cfg.RegistrationPoW > MaxRegistrationPoW {
+		return nil, errors.New("relay: RegistrationPoW is 0–32 bits")
 	}
 	def := func(r, d Rate) Rate {
 		if r == (Rate{}) {
@@ -185,11 +198,13 @@ func New(cfg Config) (*Server, error) {
 		nwLim: newLimiter(def(cfg.NewWorkspaceRate, DefaultNewWorkspaceRate), cfg.Now),
 		nhLim: newLimiter(def(cfg.NewHandleRate, DefaultNewHandleRate), cfg.Now),
 		awLim: newLimiter(def(cfg.AllNewWorkspacesRate, DefaultAllNewWorkspacesRate), cfg.Now),
+		pow:   newPoWState(),
 	}
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	s.mux.HandleFunc("POST /v1/handles", s.handleNewHandle)
 	s.mux.HandleFunc("PUT /v1/handles/{handle}", s.handleRepoint)
 	s.mux.HandleFunc("DELETE /v1/handles/{handle}", s.handleDeleteHandle)
+	s.mux.HandleFunc("GET /v1/workspaces/challenge", s.handleChallenge)
 	s.mux.HandleFunc("POST /v1/workspaces", s.handleNewWorkspace)
 	s.mux.HandleFunc("GET /v1/workspace", s.handleWorkspace)
 	s.mux.HandleFunc("POST /v1/push", s.handlePush)
@@ -254,16 +269,37 @@ type handleReq struct {
 	APNsToken string `json:"apnsToken"`
 	Topic     string `json:"topic"`
 	Env       string `json:"env"`
+	// PushType "liveactivity" makes a Live Activity handle (an ActivityKit
+	// push token) under Parent, the device handle of the same app install
+	// and workspace — Start: of the app's push-to-start token, else of one
+	// activity's; "" or "alert" a device handle.
+	PushType string `json:"pushType"`
+	Parent   string `json:"parent"`
+	Start    bool   `json:"start"`
 }
 
-// validate normalises the token (lowercase hex) and env.
+// validate normalises the token (lowercase hex), env and push type.
 func (s *Server) validate(q *handleReq) string {
+	switch q.PushType {
+	case "", "alert":
+		q.PushType = ""
+	case PushTypeLiveActivity:
+	default:
+		return "pushType: alert | liveactivity"
+	}
+	if q.Start && q.PushType != PushTypeLiveActivity {
+		return "start: liveactivity handles only"
+	}
 	q.APNsToken = strings.ToLower(strings.TrimSpace(q.APNsToken))
-	if len(q.APNsToken) < 64 || len(q.APNsToken) > 200 {
-		return "apnsToken: hex, 64–200 characters"
+	lo, hi, what := 64, 200, "apnsToken: hex, 64–200 characters"
+	if q.PushType == PushTypeLiveActivity { // ActivityKit tokens: no documented length
+		lo, hi, what = 32, 512, "apnsToken: hex, 32–512 characters"
+	}
+	if len(q.APNsToken) < lo || len(q.APNsToken) > hi {
+		return what
 	}
 	if _, err := hex.DecodeString(q.APNsToken); err != nil {
-		return "apnsToken: hex, 64–200 characters"
+		return what
 	}
 	if q.Topic == "" || len(q.Topic) > 200 || (len(s.cfg.Topics) > 0 && !slices.Contains(s.cfg.Topics, q.Topic)) {
 		return "topic: not an app this relay serves"
@@ -297,11 +333,31 @@ func (s *Server) handleNewHandle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, msg)
 		return
 	}
-	if !s.verifyToken(w, r, q) {
-		return
+	var h string
+	var err error
+	if q.PushType == PushTypeLiveActivity {
+		// an ActivityKit token can't be checked with a silent push; its
+		// parent's device token was (and bounds how many it may hold)
+		if !validHandle(q.Parent) {
+			writeErr(w, http.StatusBadRequest, ErrBadRequest, "parent: the device handle this Live Activity token belongs to")
+			return
+		}
+		h, err = s.st.newChild(q.Parent, q.APNsToken, q.Topic, q.Env, q.Start, s.cfg.Now())
+	} else {
+		if q.Parent != "" {
+			writeErr(w, http.StatusBadRequest, ErrBadRequest, "parent: liveactivity handles only")
+			return
+		}
+		if !s.verifyToken(w, r, q) {
+			return
+		}
+		h, err = s.st.newHandle(q.APNsToken, q.Topic, q.Env, s.cfg.Now())
 	}
-	h, err := s.st.newHandle(q.APNsToken, q.Topic, q.Env, s.cfg.Now())
 	switch {
+	case errors.Is(err, errNoHandle):
+		writeErr(w, http.StatusNotFound, ErrHandleUnknown, "unknown parent handle")
+	case errors.Is(err, errHandleType):
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "parent: a device handle of the same topic and env")
 	case errors.Is(err, errFull):
 		s.cfg.Log.Warn("relay: at capacity, handle refused")
 		writeErr(w, http.StatusServiceUnavailable, ErrFull, "the relay is at capacity; try later")
@@ -353,12 +409,19 @@ func (s *Server) handleRepoint(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, msg)
 		return
 	}
-	if !s.verifyToken(w, r, q) {
+	// the handle's kind first: a mismatch must not cost a token check
+	if typ, ok := s.st.handleType(id); ok && typ != q.PushType {
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "pushType, topic and env must stay the handle's (its parent's)")
 		return
 	}
-	switch err := s.st.repoint(id, q.APNsToken, q.Topic, q.Env); {
+	if q.PushType == "" && !s.verifyToken(w, r, q) {
+		return
+	}
+	switch err := s.st.repoint(id, q.PushType, q.APNsToken, q.Topic, q.Env); {
 	case errors.Is(err, errNoHandle):
 		writeErr(w, http.StatusNotFound, ErrHandleUnknown, "unknown handle")
+	case errors.Is(err, errHandleType):
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "pushType, topic and env must stay the handle's (its parent's)")
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, ErrInternal, "could not store the handle")
 	default:
@@ -380,6 +443,9 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 		tooMany(w, wait, "workspace registration")
 		return
 	}
+	// a proof is spent before the global limit is asked (a replay must not
+	// take its tokens) and taken back when the registration does not happen
+	unspend := func() {}
 	if len(s.cfg.RegistrationTokens) > 0 {
 		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !slices.ContainsFunc(s.cfg.RegistrationTokens, func(t string) bool {
@@ -388,13 +454,45 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusUnauthorized, ErrRegistration, "this relay registers workspaces for its operator only — ask them for a workspace key")
 			return
 		}
+	} else if s.cfg.RegistrationPoW > 0 {
+		var body struct {
+			PoW *struct {
+				Challenge string `json:"challenge"`
+				Nonce     string `json:"nonce"`
+			} `json:"pow"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.PoW == nil || body.PoW.Challenge == "" {
+			s.powRefused(w, ErrPoWRequired, "this relay asks for a proof of work: GET /v1/workspaces/challenge, then POST {pow: {challenge, nonce}}")
+			return
+		}
+		now := s.cfg.Now()
+		exp, ok := s.pow.verify(body.PoW.Challenge, body.PoW.Nonce, s.cfg.RegistrationPoW, now)
+		if !ok {
+			s.powRefused(w, ErrPoWInvalid, "the proof of work is wrong, expired or asks too little; solve this challenge")
+			return
+		}
+		ch := body.PoW.Challenge
+		switch ok, full := s.pow.spend(ch, exp, now); {
+		case full:
+			writeErr(w, http.StatusServiceUnavailable, ErrFull, "too many registrations at once; try later")
+			return
+		case !ok:
+			s.powRefused(w, ErrPoWInvalid, "that challenge was spent already; solve this one")
+			return
+		}
+		unspend = func() { s.pow.unspend(ch) }
 	}
 	if ok, wait := s.awLim.allow(""); !ok {
+		unspend()
 		s.cfg.Log.Warn("relay: the global workspace registration limit is reached")
 		tooMany(w, wait, "workspace registration")
 		return
 	}
 	id, key, err := s.st.newWorkspace(s.cfg.Now())
+	if err != nil {
+		unspend()
+	}
 	switch {
 	case errors.Is(err, errFull):
 		s.cfg.Log.Warn("relay: at capacity, workspace refused")
@@ -451,6 +549,10 @@ type pushReq struct {
 	Envelope   *Envelope `json:"envelope"`
 	CollapseID string    `json:"collapseId"`
 	Priority   int       `json:"priority"`
+	// Type "liveactivity" pushes a content state (Activity) to a Live
+	// Activity handle; "" or "alert" an envelope to a device handle.
+	Type     string        `json:"type"`
+	Activity *ActivityPush `json:"activity"`
 }
 
 // apnsBody is the alert the device receives: generic text, mutable-content
@@ -473,11 +575,31 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var q pushReq
-	if json.NewDecoder(r.Body).Decode(&q) != nil || q.Envelope == nil {
+	if json.NewDecoder(r.Body).Decode(&q) != nil {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "need {handle, envelope, collapseId?, priority?}")
 		return
 	}
-	if !q.Envelope.valid() {
+	live := q.Type == PushTypeLiveActivity
+	switch {
+	case q.Type != "" && q.Type != "alert" && !live:
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "type: alert | liveactivity")
+		return
+	case live && q.Activity == nil:
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "need {handle, type: liveactivity, activity, priority?}")
+		return
+	case live:
+		if msg := q.Activity.check(now); msg != "" {
+			writeErr(w, http.StatusBadRequest, ErrBadRequest, msg)
+			return
+		}
+		if q.Envelope != nil || q.CollapseID != "" {
+			writeErr(w, http.StatusBadRequest, ErrBadRequest, "a liveactivity push carries an activity, no envelope or collapseId")
+			return
+		}
+	case q.Envelope == nil:
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "need {handle, envelope, collapseId?, priority?}")
+		return
+	case !q.Envelope.valid():
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "envelope: {v:1, epk, n, ct} (base64url; ct at most 3200 characters)")
 		return
 	}
@@ -504,13 +626,20 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		refused(http.StatusNotFound, ErrHandleUnknown, "unknown handle")
 		return
 	}
-	h, err := s.st.target(q.Handle, ws, now)
+	typ := ""
+	if live {
+		typ = PushTypeLiveActivity
+	}
+	h, err := s.st.target(q.Handle, ws, typ, live && q.Activity.Event == "start", now)
 	switch {
 	case errors.Is(err, errNoHandle):
 		refused(http.StatusNotFound, ErrHandleUnknown, "unknown handle")
 		return
 	case errors.Is(err, errHandleBound):
 		refused(http.StatusForbidden, ErrHandleBound, "handle belongs to another workspace")
+		return
+	case errors.Is(err, errHandleType):
+		refused(http.StatusBadRequest, ErrBadRequest, "the handle's kind is not the push's (a device handle takes alerts, a push-to-start handle start events, an activity's handle update and end events)")
 		return
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, ErrInternal, "state error")
@@ -528,22 +657,36 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, ErrNoAPNs, "this relay has no APNs key configured")
 		return
 	}
-	body, err := apnsBody(q.Envelope)
-	if err != nil || len(body) > maxAPNsBody {
+	n := Notification{Token: h.Token, Topic: h.Topic, Env: h.Env, CollapseID: q.CollapseID, Priority: q.Priority,
+		Expiration: now.Add(s.cfg.Expiry)}
+	if live {
+		n.Payload, err = activityBody(q.Activity)
+		n.Topic, n.PushType = h.Topic+liveTopicSuffix, PushTypeLiveActivity
+	} else {
+		n.Payload, err = apnsBody(q.Envelope)
+	}
+	if err != nil || len(n.Payload) > maxAPNsBody {
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "envelope too large")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	id, err := s.cfg.APNs.Send(ctx, Notification{Token: h.Token, Topic: h.Topic, Env: h.Env, Payload: body,
-		CollapseID: q.CollapseID, Priority: q.Priority, Expiration: now.Add(s.cfg.Expiry)})
+	id, err := s.cfg.APNs.Send(ctx, n)
 	var ae *APNsError
 	switch {
 	case err == nil:
+		if live && q.Activity.Event == "end" {
+			s.st.retire(q.Handle) // an ended activity takes nothing more
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "apnsId": id})
+	case errors.As(err, &ae) && ae.Dead() && live:
+		// one activity's token (it ended) or the app's push-to-start
+		// token (reinstalled): only this handle goes
+		s.st.deleteHandle(q.Handle)
+		writeErr(w, http.StatusGone, ErrHandleGone, "handle gone ("+ae.Reason+")")
 	case errors.As(err, &ae) && ae.Dead():
-		n := s.st.dropToken(h.Token)
-		s.cfg.Log.Info("relay: device token gone", "reason", ae.Reason, "handlesDropped", n)
+		dropped := s.st.dropToken(h.Token)
+		s.cfg.Log.Info("relay: device token gone", "reason", ae.Reason, "handlesDropped", dropped)
 		writeErr(w, http.StatusGone, ErrHandleGone, "handle gone ("+ae.Reason+")")
 	case errors.As(err, &ae) && ae.Status == http.StatusTooManyRequests:
 		tooMany(w, max(ae.RetryAfter, time.Second), "APNs")
