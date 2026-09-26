@@ -60,7 +60,9 @@ await import('/vendor/xb/preview-host.js');
 let srv; let base; let browser;
 before(async () => {
   if (skip) return;
-  srv = await serve({ '/t/tile.js': TILE, '/t/rt.html': RT_PAGE, '/t/img.html': IMG_PAGE });
+  srv = await serve({ '/t/tile.js': TILE, '/t/rt.html': RT_PAGE, '/t/img.html': IMG_PAGE,
+    '/c/apps/t/logo.png': 'own', '/c/apps/other/logo.png': 'theirs', '/c/apps/t/sub/logo.png': 'nested',
+    '/api/xbin/components': JSON.stringify([{ path: 'apps/t' }, { path: 'apps/t/sub' }, { path: 'apps/other' }]) });
   base = `http://127.0.0.1:${srv.address().port}`;
   browser = await pw.chromium.launch();
 });
@@ -261,23 +263,37 @@ test('text controls hold input back while an input method composes', { skip }, a
 });
 
 // xbin.fetch attaches the tile's frame token to whatever URL it is given: the
-// preview host loads images (and uploads) through it only for this
-// workspace's own paths — an image elsewhere is not a tile resource.
-test('the preview host lends the tile\'s credentials to its own workspace only', { skip }, async () => {
+// preview host loads images (and uploads) through it under the app's rule
+// (D103, web/xb/tile-resource.js) — the tile's own /c/ and /api/ paths only,
+// never another tile's, a nested tile's, xbind's API or another site — and
+// uploads by PUT, POST or PATCH, as the app does.
+test('the preview host confines images and uploads as the app does', { skip }, async () => {
   const { p, ctx } = await page();
   await p.goto(`${base}/t/img.html`);
   await p.waitForFunction(() => window.xbnPreview);
   const got = await p.evaluate(async () => {
     const v = window.xbnPreview.view;
-    const off = await v.loadImage('https://elsewhere.example/a.png').then(() => 'loaded', (e) => String(e.message));
-    const own = await v.loadImage('/t/tile.js').then((u) => (u.startsWith('blob:') ? 'blob' : u), (e) => String(e.message));
-    // uploads: the tile's own API only (docs/native.md), as the app requires
-    const file = new File(['x'], 'a b.png', { type: 'image/png' });
-    for (const path of ['upload?name={name}', '/api/apps/t/u', '/api/other/u', '/api/apps/tx/u', '/api/apps/t/../x', '/api/apps/t/%2e%2e/x']) {
-      await v.onupload({ k: 'c', p: { upload: { path, method: 'PUT' } } }, file);
+    const img = {};
+    for (const src of ['https://elsewhere.example/a.png', '/c/apps/other/logo.png', '/api/xbin/whoami', '/t/tile.js',
+      '../other/logo.png', 'sub/logo.png', '/c/apps/t/logo.png', 'logo.png']) {
+      img[src] = await v.loadImage(src).then((u) => (u.startsWith('blob:') ? 'blob' : u), (e) => String(e.message));
     }
-    return { off, own, fetched: window.fetched };
+    const file = new File(['x'], 'a b.png', { type: 'image/png' });
+    for (const [path, method] of [['upload?name={name}', 'PUT'], ['/api/apps/t/u', 'post'], ['/api/apps/t/u', 'DELETE'],
+      ['/api/other/u', 'PUT'], ['/api/apps/tx/u', 'PUT'], ['/api/apps/t/../x', 'PUT'], ['/api/apps/t/%2e%2e/x', 'PUT'],
+      ['/api/apps/t/sub/u', 'PUT'], ['/api/xbin/frame-token', 'PUT']]) {
+      await v.onupload({ k: 'c', p: { upload: { path, method } } }, file);
+    }
+    return { img, fetched: window.fetched };
   });
-  assert.deepEqual(got, { off: 'not a tile resource', own: 'blob', fetched: ['/t/tile.js', '/api/apps/t/upload?name=a%20b.png', '/api/apps/t/u'] });
+  const refused = 'not a tile resource';
+  assert.deepEqual(got.img, {
+    'https://elsewhere.example/a.png': refused, '/c/apps/other/logo.png': refused, '/api/xbin/whoami': refused,
+    '/t/tile.js': refused, '../other/logo.png': refused, 'sub/logo.png': refused,
+    '/c/apps/t/logo.png': 'blob', 'logo.png': 'blob',
+  });
+  // the tile list is read once; only the tile's own paths are fetched
+  assert.deepEqual(got.fetched, ['/api/xbin/components', '/c/apps/t/logo.png', '/c/apps/t/logo.png',
+    '/api/apps/t/upload?name=a%20b.png', '/api/apps/t/u']);
   await ctx.close();
 });

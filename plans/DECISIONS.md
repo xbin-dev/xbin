@@ -3110,7 +3110,10 @@ Deviations and refinements made while implementing; all deliberate:
     any encoding, paths a nested tile owns); upload paths keep their query
     (`{name}` percent-encoded). xbind authorizes anyway; this stops the app
     acting as the tile's proxy to anything else. `bx preview --native`
-    applies the same rule.
+    applies the same rule — images, upload targets and methods, nested
+    tiles included — through web/xb/tile-resource.js, a port checked
+    against TileResourceTests' vectors (hack/xb-tile-resource.test.mjs), so
+    the preview never shows working what the app refuses.
   - **Pty close semantics**: `{"op":"exit"}`, or a close with 1000 or no
     code after the socket was live, ends the terminal; any other close
     reconnects (500 ms doubling to 10 s, 6 tries), and the count starts

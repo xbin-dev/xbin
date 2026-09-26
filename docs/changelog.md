@@ -79,7 +79,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `@uploaded {name, response}`: one over 64 MiB is neither read nor sent
   and gets `{error, status: 413}`. JPEG, PNG and GIF photos arrive as they
   are; HEIC photos and camera shots as JPEG; videos as the movie file.
-  `bx preview --native` refuses upload targets that aren't the tile's own.
+  `bx preview --native` refuses what the app refuses: images and upload
+  targets outside the tile's own `/c/<self>/` and `/api/<self>/` (another
+  tile's, a nested tile's, xbind's API), and other upload methods.
 - **xbin app: files in agent prompts** — the Agent tab attaches photos and
   files to the next prompt (`POST …/prompt {text, attachments}`); photos
   are made model-ready first (HEIC to JPEG, long edge 2576 px, ≤ 3.75 MiB

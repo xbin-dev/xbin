@@ -645,7 +645,8 @@ renders natively — web and iOS agree on what a document is:
 - **Leaving the app** (`xbin.native.open`, markdown links) takes `https:` and
   the `cap:open-links` grant, as new tabs do on the web (ND11).
 - **Images and uploads** go to and from your own paths (`/c/<self>/…`,
-  `/api/<self>/…`) with your frame token — the app refuses any other; a
+  `/api/<self>/…`, not a nested tile's) with your frame token — the app
+  refuses any other, and so does `bx preview --native`; a
   `canvas` with `html` runs no scripts and loads nothing; a `terminal`
   talks only to your own backend.
 

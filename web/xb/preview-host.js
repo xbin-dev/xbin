@@ -15,7 +15,10 @@
  *     open → a new tab for https; meta → the document title;
  *   - keeps errors and diagnostics, shown in a strip at the bottom;
  *   - images and composer uploads go through xbin.fetch (the tile's own
- *     credentials), like the app's loader — this workspace's paths only.
+ *     credentials), like the app's loader, under the app's rule (D103,
+ *     xb/tile-resource.js): the tile's own /c/<self>/ and /api/<self>/
+ *     paths only — never another tile's, a nested tile's, xbind's API or
+ *     another site — and uploads by PUT, POST or PATCH only.
  * Query: &theme=light|dark, &text=large.
  *
  * window.xbnPreview = {view, messages, errors, diagnostics, ready, tree()}:
@@ -24,6 +27,7 @@
  */
 import { attach } from '/vendor/xb-native.js';
 import '/vendor/xb/render.js';
+import { apiPath, assetPath, uploadMethod } from '/vendor/xb/tile-resource.js';
 
 const G = globalThis;
 const on = typeof document === 'object' && document.querySelector('meta[name="xbin-native-preview"]');
@@ -61,14 +65,20 @@ function start() {
   view.addEventListener('xb-remount', () => G.xbn?.remount());
   view.oncopy = async (text) => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } };
   if (typeof G.xbin?.fetch === 'function') {
-    // xbin.fetch attaches the tile's frame token to any URL: only this
-    // workspace's own paths get it. An image elsewhere is not a tile resource
-    // (docs/native.md §Images) and is not drawn — the app must not send the
-    // token off-site either.
-    const own = (u) => { try { return new URL(u, document.baseURI).origin === location.origin; } catch { return false; } };
+    // xbin.fetch attaches the tile's frame token to any URL: the app confines
+    // every reference a tile hands over to that tile's own paths (D103), and
+    // so does its stand-in here — an image or upload the app would refuse is
+    // refused, so a builder never sees one work in the preview only. A path
+    // a nested tile owns is refused too: the workspace's tile list, read
+    // once (none when it can't be read).
+    let tiles;
+    const known = () => (tiles ??= G.xbin.fetch('/api/xbin/components')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((l) => (Array.isArray(l) ? l.map((c) => c?.path).filter((p) => typeof p === 'string') : []), () => []));
     view.loadImage = async (src) => {
-      if (!own(src)) throw new Error('not a tile resource');
-      const r = await G.xbin.fetch(src);
+      const path = assetPath(src, G.xbin.self, await known());
+      if (!path) throw new Error('not a tile resource');
+      const r = await G.xbin.fetch(path);
       if (!r.ok) throw new Error(`${r.status}`);
       return URL.createObjectURL(await r.blob());
     };
@@ -78,14 +88,12 @@ function start() {
       // tile-relative: under the tile's own API unless already an /api/ path,
       // which must be the tile's own, as the app requires (docs/native.md);
       // {name} is the file's name
-      let path = String(up.path).split('{name}').join(encodeURIComponent(file.name));
-      if (!path.startsWith('/api/')) path = `/api/${G.xbin.self}${path.startsWith('/') ? '' : '/'}${path}`;
-      const mine = `/api/${G.xbin.self}`;
-      const pathOnly = path.split(/[?#]/)[0];
-      const outside = (pathOnly !== mine && !pathOnly.startsWith(`${mine}/`)) || /(^|\/)\.\.?(\/|$)|%2e|%2f|%5c/i.test(pathOnly);
-      if (outside || !own(path)) { note(`upload refused: ${path} is not this tile's own API (${mine}/…)`); return; }
+      const method = uploadMethod(up.method);
+      if (!method) { note(`upload refused: method ${up.method} (PUT, POST or PATCH)`); return; }
+      const path = apiPath(String(up.path), G.xbin.self, await known(), file.name);
+      if (!path) { note(`upload refused: ${up.path} is not this tile's own API (/api/${G.xbin.self}/…)`); return; }
       try {
-        const r = await G.xbin.fetch(path, { method: up.method || 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+        const r = await G.xbin.fetch(path, { method, body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
         const text = await r.text();
         let response = text;
         try { response = JSON.parse(text); } catch { /* not JSON: the text */ }
