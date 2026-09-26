@@ -710,6 +710,65 @@ Apple Distribution identity is in the keychain (it would be used instead of
 the cloud certificate, and is a distribution key on disk). The team id is
 on developer.apple.com → Membership details.
 
+### App Store: the icon, privacy, export compliance
+
+What App Store Connect asks for besides a signed build, and where each
+answer lives. `native/tools/store-check.py` (in `ci-local-check.sh`) keeps
+the files in agreement with the code.
+
+**The icon** is `App/Resources/AppIcon.icon`, an Icon Composer document (the
+iOS 26+ format: Liquid Glass, with the dark, clear and tinted looks derived
+by the system). It holds two layers drawn from `web/favicon.svg` at 13×,
+offset 96, on the 1024 canvas: `plate.svg`, the amber chamfered plate with
+its rivets, and `x.svg`, the charcoal X in a group of its own, raised above
+the plate with a shadow. The background is an automatic gradient of the
+shell's steel `#2a2f37`. Edit the SVGs, or open the document in Icon Composer
+(`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`). Preview
+every look on the Mac without a build:
+
+```sh
+T="/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
+for r in Default Dark ClearLight ClearDark TintedLight TintedDark; do
+  "$T" AppIcon.icon --export-image --output-file $r.png --platform iOS --rendition $r \
+    --width 512 --height 512 --scale 2   # Tinted*: add --tint-color 0.25 --tint-strength 0.75
+done
+```
+
+The build compiles it into `Assets.car` (`ASSETCATALOG_COMPILER_APPICON_NAME:
+AppIcon` in project.yml), with the marketing icon App Store Connect wants.
+
+**Privacy.** The app's code collects nothing for the developer. It talks to
+the workspaces its user adds, which are their servers, and fetches the kill
+switch (`https://xbin.dev/app/ios.json`) with no identifier. Push is the
+exception once a relay ships: the app then registers its APNs token with the
+relay the xbin project runs (spec/push.md). Three places say this and must
+agree:
+
+| | While `XbinPushRelay` (Support/App-Info.plist) is empty: push off | Once it names the project's relay |
+|---|---|---|
+| `App/Resources/PrivacyInfo.xcprivacy` → collected data | none | `NSPrivacyCollectedDataTypeDeviceID`, linked false, tracking false, purpose App Functionality |
+| App Store Connect → App Privacy | "Data Not Collected" | Identifiers → Device ID: App Functionality, not linked to identity, not used for tracking |
+| https://xbin.dev/privacy.html (`website/privacy.html`) | already describes the relay as opt-in | unchanged |
+
+The manifest also declares the required-reason APIs the binary uses (`nm -u`
+on a build: `NSUserDefaults`, `stat`, `fstat`). They are UserDefaults
+`CA92.1` for the app's own settings, and file timestamp `C617.1` for SwiftTerm's
+kitty-graphics `stat`/`fstat` of files in the app's temporary directory.
+Neither extension uses one, so neither has a manifest; store-check.py fails
+when the app's sources use UserDefaults without the declaration. The privacy
+policy URL for App Store Connect is `https://xbin.dev/privacy.html` (deploy
+with the website: `make website`). Its sentence that the relay does not
+store IP addresses holds only if the relay's deployment (its reverse proxy
+included) keeps no access logs with them.
+
+**Export compliance.** `ITSAppUsesNonExemptEncryption` is `false`: the app's
+encryption is TLS through URLSession and Apple's CryptoKit and Secure Enclave
+(push sealing, device keys). That is encryption within Apple's operating
+system, which the exemption covers. No own cipher code is compiled for iOS
+(`Shared/PushCrypto.swift` uses swift-crypto only on Linux, for the tests).
+It is the account holder's declaration: revisit it if the app ever ships its
+own cryptography.
+
 ### The ssh dev loop
 
 `native/ios/scripts/mac-remote.sh`, from this box, with `XBIN_MAC=user@host`

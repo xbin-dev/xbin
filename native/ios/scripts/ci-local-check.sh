@@ -33,6 +33,10 @@
 #   7. with XCODEGEN=/path/to/xcodegen (it builds on Linux: swift build in
 #      a checkout of yonaskolb/XcodeGen): project.yml generates, with the
 #      schemes CI runs (Xbin, XbinSnapshots, XbinUITests)
+#   8. the App Store metadata agrees with the code (native/tools/
+#      store-check.py): the privacy manifest's required-reason APIs and
+#      collected data (vs the push relay the app ships with), the
+#      export-compliance key, the app icon
 #
 # Exit status: non-zero when any check fails.
 set -euo pipefail
@@ -335,6 +339,13 @@ if [ -n "${XCODEGEN:-}" ]; then
   rm -rf "$gen"
 else
   echo "skipped: XCODEGEN=/path/to/xcodegen to generate the project here"
+fi
+
+step "App Store metadata (native/tools/store-check.py)"
+if command -v python3 >/dev/null 2>&1; then
+  python3 native/tools/store-check.py || fail "native/tools/store-check.py"
+else
+  fail "python3 not found (store-check.py)"
 fi
 
 if [ -n "$failed" ]; then

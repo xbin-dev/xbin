@@ -69,6 +69,9 @@ targets:
         INFOPLIST_FILE: Support/App-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Support/Xbin.entitlements
+        # App/Resources/AppIcon.icon (Icon Composer; native/AGENTS.md →
+        # "App Store")
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
     scheme: {}

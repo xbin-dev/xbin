@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The app's privacy manifest (native/AGENTS.md → "App Store": what we tell
+  Apple and why; checked by native/tools/store-check.py).
+
+  No tracking, no analytics, no third-party SDKs. The app talks to the
+  workspaces its user adds — servers they run — and, for its remote kill
+  switch, fetches https://xbin.dev/app/ios.json (no identifiers sent).
+  Neither is data the developer collects.
+
+  Push is the exception once it ships: the app then registers its APNs
+  device token with the push relay run by the xbin project (native/spec/
+  push.md). While XbinPushRelay in Support/App-Info.plist is empty, push is
+  off and nothing reaches a relay, so nothing is declared below. When it
+  names the project's relay, declare NSPrivacyCollectedDataTypeDeviceID
+  (not linked, not tracking, App Functionality) here and in App Store
+  Connect's App Privacy — store-check.py fails until both agree.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- The app's own settings, caches and scene state (AppSettings,
+		     TerminalPrefs, RemoteConfig, LiveActivities, @SceneStorage). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- SwiftTerm's kitty graphics protocol stat()s and fstat()s image
+		     files in the app's temporary directory and shared memory to
+		     check their type and size (KittyGraphics.swift). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

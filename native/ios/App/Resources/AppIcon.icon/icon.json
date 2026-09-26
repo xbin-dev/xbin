@@ -1,0 +1,24 @@
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:0.16471,0.18431,0.21569,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        { "image-name" : "x.svg", "name" : "x" }
+      ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.6 },
+      "specular" : true,
+      "translucency" : { "enabled" : false, "value" : 0 }
+    },
+    {
+      "layers" : [
+        { "image-name" : "plate.svg", "name" : "plate" }
+      ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "specular" : true,
+      "translucency" : { "enabled" : true, "value" : 0.15 }
+    }
+  ],
+  "supported-platforms" : { "squares" : [ "iOS" ] }
+}
