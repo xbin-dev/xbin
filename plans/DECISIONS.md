@@ -2715,11 +2715,15 @@ Deviations and refinements made while implementing; all deliberate:
   - **Enrolling is a step-up**: a code needs a sign-in under 10 minutes old
     or the password again — a device outlives the session that adds it, so
     a stolen cookie must not become a permanent credential.
-  - **SSO-only mode keeps the IdP in charge** (D53): a non-admin's device
-    signs in only while their last SSO sign-in is within the session max
-    TTL, and the session ends when that window does (`403
-    {reauth:"sso"}`), so removing someone at the IdP still ends their
-    access within the session TTL.
+  - **The IdP stays in charge of accounts it alone lets in** (D53): in
+    SSO-only mode every non-admin, and whenever SSO is configured every
+    account without a password (SSO-provisioned, or an admin by SSO group
+    — "admins keep password sign-in" does not hold for them; mixed mode is
+    the default once SSO is set up). Such a device signs in only while the
+    user's last SSO sign-in is within the session max TTL, and the session
+    ends when that window does (`403 {reauth:"sso"}`), so removing someone
+    at the IdP still ends their access within the session TTL. An account
+    with a usable password is not bound (the IdP is not its only way in).
   - **Sign-out-everywhere keeps enrolled devices unless asked**
     (`?devices=1`, `bx user signout --devices`; the console asks) — the
     route has always meant "they can sign in again"; a password change can

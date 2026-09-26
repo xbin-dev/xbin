@@ -1644,8 +1644,10 @@ contracts are native/spec/tree.md (the runtime bridge), native/spec/vocab.json
 `signature` and `platform`; the signed message is
 `"xbin-device-login-v1\n" + origin + "\n" + deviceId + "\n" + nonce`, and
 the origin is the one fixed at enrollment. Enrolling is a step-up (a sign-in
-under 10 minutes old or the password). SSO-only mode lets a non-admin's
-device sign in only within the session max TTL of their last SSO sign-in.
+under 10 minutes old or the password). An account whose only way in is SSO
+(a non-admin in SSO-only mode, or any passwordless account once SSO is
+configured) has devices that sign in only within the session max TTL of
+their last SSO sign-in.
 Sign-out-everywhere keeps enrolled devices unless asked (`?devices=1`).
 Frame-token generations persist across restarts (`.xbin/frame-gens.json`)
 and frame use slides the login's idle window. Deep links also accept the

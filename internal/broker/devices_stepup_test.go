@@ -198,6 +198,78 @@ func TestDeviceLoginSSOOnly(t *testing.T) {
 	}
 }
 
+// An account whose only way in is SSO keeps the IdP in charge of its
+// devices in every mode (review): a passwordless JIT account while password
+// sign-in is still on (mixed mode — the default once SSO is set up), and a
+// passwordless admin granted by an SSO group in SSO-only mode ("admins keep
+// password sign-in" does not hold for them). Before, both devices signed in
+// forever after the IdP removed the person. An account with a password is
+// not bound outside SSO-only mode (or as an admin), nor anyone once SSO is
+// removed.
+func TestDeviceLoginPasswordlessSSO(t *testing.T) {
+	t.Setenv("XBIN_SESSION_MAX_TTL", "2s")
+	h, srv, b := deviceStack(t)
+	if err := b.Users.SetSSO(&users.SSOConfig{Kind: "github", ClientID: "c", AllowedDomains: []string{"corp.com"}, AdminGroups: []string{"admins"}}); err != nil {
+		t.Fatal(err)
+	}
+	zed, err := b.Users.ProvisionSSO("zed@corp.com", "Zed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Users.TouchLogin(zed.ID, "sso"); err != nil {
+		t.Fatal(err)
+	}
+	login := func(d testDevice) (int, map[string]any) {
+		n := d.challenge(t, h)
+		return d.login(h, n, d.sign(t, d.origin, n))
+	}
+	zdev := enroll(t, h, caller{cookie: srv.Auth.NewSession(zed.ID, "")})
+	adev := enroll(t, h, caller{cookie: srv.Auth.NewSession("ann", "")}) // ann has a password
+	u, _ := b.Users.Get(zed.ID)
+	code, out := login(zdev)
+	if code != http.StatusOK || int64(out["expiresMax"].(float64)) > u.LastSSO+2 {
+		t.Fatalf("mixed mode, passwordless, within the window: %d %v (lastSSO %d)", code, out, u.LastSSO)
+	}
+	if code, out := login(adev); code != http.StatusOK || int64(out["expiresMax"].(float64)) < time.Now().Unix()+1 {
+		t.Fatalf("mixed mode, with a password: %d %v", code, out)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	if code, out := login(zdev); code != http.StatusForbidden || out["reauth"] != "sso" {
+		t.Fatalf("mixed mode, passwordless, past the window: %d %v", code, out)
+	}
+	if code, _ := login(adev); code != http.StatusOK {
+		t.Fatalf("mixed mode, with a password, later: %d", code)
+	}
+
+	// SSO-only mode: zed made admin by an SSO group — still no password.
+	if _, err := b.Users.SyncSSOGroups(zed.ID, []string{"admins"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := b.Users.Get(zed.ID); !u.IsAdmin() || u.PassHash != "" {
+		t.Fatalf("zed: %+v", u)
+	}
+	if err := b.Users.SetPasswordLoginDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := login(zdev); code != http.StatusForbidden || out["reauth"] != "sso" {
+		t.Fatalf("SSO-only, passwordless admin past the window: %d %v", code, out)
+	}
+	if err := b.Users.TouchLogin(zed.ID, "sso"); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := login(zdev); code != http.StatusOK {
+		t.Fatalf("SSO-only, passwordless admin after SSO: %d %v", code, out)
+	}
+	// SSO removed: no IdP to defer to, nobody bound.
+	if err := b.Users.SetSSO(nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	if code, out := login(zdev); code != http.StatusOK {
+		t.Fatalf("SSO removed: %d %v", code, out)
+	}
+}
+
 // A tile renewing its frame token over HTTP (no cookie) keeps its login's
 // idle clock moving: the reviewer's repro, through /api/xbin/frame-token.
 func TestFrameRenewalSlidesSession(t *testing.T) {

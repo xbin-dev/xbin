@@ -893,15 +893,19 @@ account — the bootstrap owner token has none.
   them as well (the console asks; `?devices=1`, `bx user signout --devices`)
   — a device signs in again without a password, so remove them when
   handling a compromise.
-- **SSO-only mode** (D53) refuses the app's *password* sign-in for
-  non-admins, like the sign-in form, and keeps the IdP in charge of device
-  logins (D93): a non-admin's device signs in only while their **last SSO
-  sign-in** (web or app) is within the session max TTL (30 days by
-  default), and the session it opens ends when that window does. Past it
-  the app gets `403` with `"reauth": "sso"` and runs the SSO sign-in again —
-  the device stays enrolled. So removing someone at the IdP still ends their
-  access within the session TTL, devices included. Admins keep password
-  sign-in there, and their devices aren't bound.
+- **The IdP stays in charge** (D93) of every account whose only way in is
+  SSO: in **SSO-only mode** (D53, which also refuses the app's *password*
+  sign-in for non-admins, like the sign-in form) every non-admin, and — in
+  any mode, once SSO is configured — every account **without a password**
+  (provisioned by SSO, or made admin by an SSO group). Such a device signs
+  in only while the user's **last SSO sign-in** (web or app) is within the
+  session max TTL (30 days by default), and the session it opens ends when
+  that window does. Past it the app gets `403` with `"reauth": "sso"` and
+  runs the SSO sign-in again — the device stays enrolled. So removing
+  someone at the IdP still ends their access within the session TTL,
+  devices included. An account that can still sign in with its password —
+  outside SSO-only mode, or an admin in it — has devices that aren't bound
+  (the IdP is not its only way in), and nobody's are once SSO is removed.
 - **Which address.** A device signs the server origin it enrolled with: the
   `--external-url` origin when set, otherwise the address your browser used
   when you minted the code. If you reach xbind under several names, set

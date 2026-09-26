@@ -343,15 +343,23 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 	s.writeAppSession(w, u, d.ID, ip, notAfter)
 }
 
-// deviceSSOBound: in SSO-only mode (D53) the IdP stays the authority for
-// non-admins — a device key is a way back in, not a replacement. A device
-// login needs the user's last SSO sign-in (web or app) within the session
-// max TTL, and the session it opens ends when that window does, so removing
-// someone at the IdP still bounds their access by the session TTL, as before
-// devices. Outside SSO-only mode (and for admins, who keep password sign-in
-// there too) there is no bound: zero time, true.
+// deviceSSOBound: where the IdP is the account's only way in, it stays the
+// authority — a device key is a way back in, not a replacement. That is
+// every account without a usable password while SSO is configured: in
+// SSO-only mode (D53) every non-admin, and in any mode an account with no
+// password at all (provisioned by SSO, or an admin granted by an SSO
+// group). A device login then needs the user's last SSO sign-in (web or
+// app) within the session max TTL, and the session it opens ends when that
+// window does, so removing someone at the IdP still bounds their access by
+// the session TTL, as before devices. An account that can still sign in
+// with its password (outside SSO-only mode, or an admin in it) is not
+// bound, nor is anyone once SSO is removed: zero time, true.
 func (s *Server) deviceSSOBound(u *users.User) (time.Time, bool) {
-	if !s.Auth.Users.PasswordLoginDisabled() || u.IsAdmin() {
+	st := s.Auth.Users
+	if sso := st.SSO(); sso == nil || !sso.Enabled() {
+		return time.Time{}, true
+	}
+	if u.PassHash != "" && (!st.PasswordLoginDisabled() || u.IsAdmin()) {
 		return time.Time{}, true
 	}
 	until := time.Unix(u.LastSSO, 0).Add(s.Auth.SessionMaxTTL())

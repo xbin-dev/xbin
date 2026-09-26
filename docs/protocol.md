@@ -153,13 +153,15 @@ POST /login/device               {deviceId, nonce, signature} → {token,
                                  Bearer — the same principal and TTLs as a
                                  browser session (Via "device"). 401: nonce
                                  spent/expired/not this device's, or a bad
-                                 signature; 403: account disabled — or,
-                                 under SSO-only mode for a non-admin,
-                                 {error, reauth:"sso"} when their last SSO
-                                 sign-in is older than the session max TTL
-                                 (sign in with SSO again; the device stays).
-                                 There, expiresMax is also capped at that
-                                 last SSO sign-in + the max TTL.
+                                 signature; 403: account disabled — or, for
+                                 an account whose only way in is SSO (SSO
+                                 configured, and no password, or a non-admin
+                                 in SSO-only mode), {error, reauth:"sso"}
+                                 when their last SSO sign-in is older than
+                                 the session max TTL (sign in with SSO
+                                 again; the device stays). There, expiresMax
+                                 is also capped at that last SSO sign-in +
+                                 the max TTL.
                                  Throttled; audit-logged
 POST /logout                     revoke the session (cookie → 302 /login;
                                  an app session's Authorization: Bearer →

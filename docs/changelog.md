@@ -94,8 +94,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - A device login opens the same human session a browser login gets, as
     `Authorization: Bearer`. `/sessions` rows gain `via` (session | device
     | app) and `device`; `/users` rows gain `deviceCount` and `lastSSO`.
-  - **SSO-only mode:** a non-admin's device signs in only while their last
-    SSO sign-in is within the session max TTL; past it the app gets `403
+  - **The IdP stays in charge:** for an account whose only way in is SSO —
+    a non-admin in SSO-only mode, or any account without a password once
+    SSO is configured — a device signs in only while their last SSO sign-in
+    is within the session max TTL; past it the app gets `403
     {reauth:"sso"}` and runs SSO again.
   - **Sign out everywhere** also ends app sessions and cancels pending
     enrollment codes; enrolled devices stay unless removed with it

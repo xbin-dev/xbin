@@ -99,16 +99,18 @@ POST /login/device
   401  nonce spent / expired / issued to another device, or the signature
        doesn't verify (throttled; the nonce is spent either way — get a new one)
   403  the account is disabled
-  403  {"error", "reauth": "sso"}   SSO-only workspace: this user's last SSO sign-in
-       is older than the session max TTL (30 days by default). Run the SSO
-       sign-in (§5) — the device stays enrolled — then device login works again
+  403  {"error", "reauth": "sso"}   an SSO-only account (below): this user's last SSO
+       sign-in is older than the session max TTL (30 days by default). Run the
+       SSO sign-in (§5) — the device stays enrolled — then device login works again
 ```
 
 The nonce is consumed by the first `POST /login/device` naming it, success or
 not. Ask for a fresh challenge per attempt; don't cache one.
 
-**SSO-only workspaces.** For a non-admin in a workspace with password sign-in
-disabled, the IdP stays in charge: every SSO sign-in (web or app) opens a
+**SSO-only accounts.** For an account whose only way in is SSO — a
+non-admin in a workspace with password sign-in disabled, or, whenever SSO is
+configured, an account with no password (provisioned by SSO, or an admin by
+SSO group) — the IdP stays in charge: every SSO sign-in (web or app) opens a
 window of the session max TTL in which device logins work, and a device
 session's `expiresMax` never passes the end of that window (it can be much
 sooner than 30 days after the device login). Plan the SSO re-auth around
