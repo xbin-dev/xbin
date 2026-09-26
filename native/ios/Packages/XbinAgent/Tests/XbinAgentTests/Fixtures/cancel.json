@@ -1,0 +1,705 @@
+{
+ "about": "a slow turn cancelled mid-stream (stopReason cancelled); a pending permission cancelled by a cancel",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403295772,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403295784,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403295784,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "slow"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403295784,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403295816,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "tick 0 ",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403295816,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "cancelling"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403295816,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "cancelled",
+    "turn": 1
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403295816,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790403295816,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm then cancel"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790403295816,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790403295817,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790403295817,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p1",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790403295817,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790403295817,
+   "type": "tool.update",
+   "data": {
+    "id": "t1",
+    "status": "cancelled"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790403295817,
+   "type": "permission.resolved",
+   "data": {
+    "by": "cancel",
+    "optionId": "",
+    "pid": "p1"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790403295817,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1790403295817,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "cancelling"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1790403295817,
+   "type": "tool.update",
+   "data": {
+    "id": "t1",
+    "status": "failed"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1790403295817,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "cancelled",
+    "turn": 2
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1790403295817,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403295772,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403295784,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403295784,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "slow"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403295784,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403295816,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "tick 0 ",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403295816,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "cancelling"
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403295816,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "cancelled",
+     "turn": 1
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403295816,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790403295816,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "perm then cancel"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790403295816,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790403295817,
+    "type": "tool.call",
+    "data": {
+     "id": "t1",
+     "kind": "execute",
+     "rawInput": {
+      "cmd": "ls"
+     },
+     "status": "pending",
+     "title": "run ls"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790403295817,
+    "type": "permission.request",
+    "data": {
+     "meta": null,
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p1",
+     "rule": {
+      "kind": "execute",
+      "scoped": true,
+      "title": "run ls"
+     },
+     "toolCall": {
+      "id": "t1",
+      "title": "run ls",
+      "kind": "execute"
+     }
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790403295817,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790403295817,
+    "type": "tool.update",
+    "data": {
+     "id": "t1",
+     "status": "cancelled"
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790403295817,
+    "type": "permission.resolved",
+    "data": {
+     "by": "cancel",
+     "optionId": "",
+     "pid": "p1"
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790403295817,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790403295817,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "cancelling"
+    }
+   },
+   {
+    "seq": 18,
+    "ts": 1790403295817,
+    "type": "tool.update",
+    "data": {
+     "id": "t1",
+     "status": "failed"
+    }
+   },
+   {
+    "seq": 19,
+    "ts": 1790403295817,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "cancelled",
+     "turn": 2
+    }
+   },
+   {
+    "seq": 20,
+    "ts": 1790403295817,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 21,
+    "ts": 1790403295819,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "1e17ccf94f5e5f66",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "created": "2026-09-26T06:14:55Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 2,
+   "preview": "slow",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "1e17ccf94f5e5f66",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "created": "2026-09-26T06:14:55Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 2,
+   "preview": "slow",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "cancel",
+ "session": {
+  "id": "1e17ccf94f5e5f66",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:55Z",
+  "lastActive": "2026-09-26T06:14:55Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ }
+}

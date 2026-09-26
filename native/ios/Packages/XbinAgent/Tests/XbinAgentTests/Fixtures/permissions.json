@@ -1,0 +1,1727 @@
+{
+ "about": "a permission answered allow once; one rejected; one answered allow always (a session rule); the next one auto-allowed by that rule; the slash commands and config options on idle",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403290069,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403290082,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403290082,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm one"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403290082,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403290083,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403290083,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p1",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403290083,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:alice",
+    "optionId": "once",
+    "pid": "p1"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790403290083,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "a.txt b.txt"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "t1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "listed",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: perm one"
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790403290083,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm two"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1790403290083,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1790403290083,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p2",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1790403290083,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:bob",
+    "optionId": "no",
+    "pid": "p2"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1790403290083,
+   "type": "tool.update",
+   "data": {
+    "id": "t1",
+    "status": "failed"
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "denied",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 25,
+   "ts": 1790403290083,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2
+   }
+  },
+  {
+   "seq": 26,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 27,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm three"
+   }
+  },
+  {
+   "seq": 28,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 29,
+   "ts": 1790403290083,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 30,
+   "ts": 1790403290083,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p3",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 31,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 32,
+   "ts": 1790403290083,
+   "type": "permission.resolved",
+   "data": {
+    "by": "owner",
+    "optionId": "always",
+    "pid": "p3"
+   }
+  },
+  {
+   "seq": 33,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 34,
+   "ts": 1790403290083,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "a.txt b.txt"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "t1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 35,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "listed",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 36,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 37,
+   "ts": 1790403290083,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 3,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 38,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 39,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm four"
+   }
+  },
+  {
+   "seq": 40,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 41,
+   "ts": 1790403290083,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 42,
+   "ts": 1790403290083,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p4",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 43,
+   "ts": 1790403290083,
+   "type": "permission.resolved",
+   "data": {
+    "by": "auto",
+    "optionId": "always",
+    "pid": "p4"
+   }
+  },
+  {
+   "seq": 44,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 45,
+   "ts": 1790403290083,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "a.txt b.txt"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "t1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 46,
+   "ts": 1790403290083,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "listed",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 47,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 48,
+   "ts": 1790403290083,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 4,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 49,
+   "ts": 1790403290083,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403290069,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403290082,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403290082,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "perm one"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403290082,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403290083,
+    "type": "tool.call",
+    "data": {
+     "id": "t1",
+     "kind": "execute",
+     "rawInput": {
+      "cmd": "ls"
+     },
+     "status": "pending",
+     "title": "run ls"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403290083,
+    "type": "permission.request",
+    "data": {
+     "meta": null,
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p1",
+     "rule": {
+      "kind": "execute",
+      "scoped": true,
+      "title": "run ls"
+     },
+     "toolCall": {
+      "id": "t1",
+      "title": "run ls",
+      "kind": "execute"
+     }
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403290083,
+    "type": "permission.resolved",
+    "data": {
+     "by": "user:alice",
+     "optionId": "once",
+     "pid": "p1"
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790403290083,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "a.txt b.txt"
+       },
+       "type": "content"
+      }
+     ],
+     "id": "t1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "listed",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "title": "fake: perm one"
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790403290083,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 1,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "perm two"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 18,
+    "ts": 1790403290083,
+    "type": "tool.call",
+    "data": {
+     "id": "t1",
+     "kind": "execute",
+     "rawInput": {
+      "cmd": "ls"
+     },
+     "status": "pending",
+     "title": "run ls"
+    }
+   },
+   {
+    "seq": 19,
+    "ts": 1790403290083,
+    "type": "permission.request",
+    "data": {
+     "meta": null,
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p2",
+     "rule": {
+      "kind": "execute",
+      "scoped": true,
+      "title": "run ls"
+     },
+     "toolCall": {
+      "id": "t1",
+      "title": "run ls",
+      "kind": "execute"
+     }
+    }
+   },
+   {
+    "seq": 20,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 21,
+    "ts": 1790403290083,
+    "type": "permission.resolved",
+    "data": {
+     "by": "user:bob",
+     "optionId": "no",
+     "pid": "p2"
+    }
+   },
+   {
+    "seq": 22,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 23,
+    "ts": 1790403290083,
+    "type": "tool.update",
+    "data": {
+     "id": "t1",
+     "status": "failed"
+    }
+   },
+   {
+    "seq": 24,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "denied",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 25,
+    "ts": 1790403290083,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 2
+    }
+   },
+   {
+    "seq": 26,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 27,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "perm three"
+    }
+   },
+   {
+    "seq": 28,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 29,
+    "ts": 1790403290083,
+    "type": "tool.call",
+    "data": {
+     "id": "t1",
+     "kind": "execute",
+     "rawInput": {
+      "cmd": "ls"
+     },
+     "status": "pending",
+     "title": "run ls"
+    }
+   },
+   {
+    "seq": 30,
+    "ts": 1790403290083,
+    "type": "permission.request",
+    "data": {
+     "meta": null,
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p3",
+     "rule": {
+      "kind": "execute",
+      "scoped": true,
+      "title": "run ls"
+     },
+     "toolCall": {
+      "id": "t1",
+      "title": "run ls",
+      "kind": "execute"
+     }
+    }
+   },
+   {
+    "seq": 31,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 32,
+    "ts": 1790403290083,
+    "type": "permission.resolved",
+    "data": {
+     "by": "owner",
+     "optionId": "always",
+     "pid": "p3"
+    }
+   },
+   {
+    "seq": 33,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 34,
+    "ts": 1790403290083,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "a.txt b.txt"
+       },
+       "type": "content"
+      }
+     ],
+     "id": "t1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 35,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "listed",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 36,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 37,
+    "ts": 1790403290083,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 3,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 38,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 39,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "perm four"
+    }
+   },
+   {
+    "seq": 40,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 41,
+    "ts": 1790403290083,
+    "type": "tool.call",
+    "data": {
+     "id": "t1",
+     "kind": "execute",
+     "rawInput": {
+      "cmd": "ls"
+     },
+     "status": "pending",
+     "title": "run ls"
+    }
+   },
+   {
+    "seq": 42,
+    "ts": 1790403290083,
+    "type": "permission.request",
+    "data": {
+     "meta": null,
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p4",
+     "rule": {
+      "kind": "execute",
+      "scoped": true,
+      "title": "run ls"
+     },
+     "toolCall": {
+      "id": "t1",
+      "title": "run ls",
+      "kind": "execute"
+     }
+    }
+   },
+   {
+    "seq": 43,
+    "ts": 1790403290083,
+    "type": "permission.resolved",
+    "data": {
+     "by": "auto",
+     "optionId": "always",
+     "pid": "p4"
+    }
+   },
+   {
+    "seq": 44,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 45,
+    "ts": 1790403290083,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "a.txt b.txt"
+       },
+       "type": "content"
+      }
+     ],
+     "id": "t1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 46,
+    "ts": 1790403290083,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "listed",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 47,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 48,
+    "ts": 1790403290083,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 4,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 49,
+    "ts": 1790403290083,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 50,
+    "ts": 1790403290085,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "5f05e07c7be7eac4",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: perm one",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 4,
+   "preview": "perm one",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "5f05e07c7be7eac4",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: perm one",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 4,
+   "preview": "perm one",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "permissions",
+ "session": {
+  "id": "5f05e07c7be7eac4",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:50Z",
+  "lastActive": "2026-09-26T06:14:50Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ },
+ "snapshot": {
+  "permissions": [
+   {
+    "pid": "p1",
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    },
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ]
+   }
+  ],
+  "session": {
+   "id": "5f05e07c7be7eac4",
+   "cwd": "apps/x",
+   "net": "internet",
+   "label": "internet",
+   "scopes": [
+    {
+     "id": "internet",
+     "label": "internet",
+     "desc": "public internet through the egress relay (no LAN)"
+    },
+    {
+     "id": "host",
+     "label": "host net",
+     "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+    },
+    {
+     "id": "none",
+     "label": "offline",
+     "desc": "no network at all (xbind unreachable)"
+    }
+   ],
+   "gpu": "",
+   "api": true,
+   "name": "",
+   "created": "2026-09-26T06:14:50Z",
+   "lastActive": "2026-09-26T06:14:50Z",
+   "clients": 0,
+   "envHeld": false,
+   "kind": "agent",
+   "vm": false,
+   "provider": "fake",
+   "mode": "ask",
+   "model": "fake-default",
+   "status": "waiting_permission",
+   "pending": 1
+  }
+ }
+}

@@ -1,0 +1,645 @@
+{
+ "about": "Claude's Task call: the subagent's thought, a Read call and its text nested by parent; the Task completes with its answer",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403290114,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403290125,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403290125,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "subagent explore"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403290125,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403290125,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "Find where **main** starts."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "task1",
+    "kind": "think",
+    "label": "Explore the repo",
+    "name": "Task",
+    "rawInput": {
+     "description": "Explore the repo",
+     "prompt": "Find where **main** starts.",
+     "subagent_type": "Explore"
+    },
+    "status": "in_progress",
+    "subagent": true,
+    "title": "Explore the repo"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403290175,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "running"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403290325,
+   "type": "thought.delta",
+   "data": {
+    "text": "Looking for the entry point.",
+    "parent": "task1"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403290325,
+   "type": "tool.call",
+   "data": {
+    "id": "read1",
+    "kind": "read",
+    "name": "Read",
+    "parent": "task1",
+    "status": "in_progress",
+    "title": "Read main.go"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790403290526,
+   "type": "tool.update",
+   "data": {
+    "id": "read1",
+    "parent": "task1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790403290558,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "main starts in main.go",
+    "messageId": "sub-m",
+    "parent": "task1"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790403290726,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "`main` is in **main.go**."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "task1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790403290726,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "the subagent found it",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790403290726,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790403290726,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: subagent explore"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790403290726,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790403290726,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403290114,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403290125,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403290125,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "subagent explore"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403290125,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403290125,
+    "type": "tool.call",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "Find where **main** starts."
+       },
+       "type": "content"
+      }
+     ],
+     "id": "task1",
+     "kind": "think",
+     "label": "Explore the repo",
+     "name": "Task",
+     "rawInput": {
+      "description": "Explore the repo",
+      "prompt": "Find where **main** starts.",
+      "subagent_type": "Explore"
+     },
+     "status": "in_progress",
+     "subagent": true,
+     "title": "Explore the repo"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403290175,
+    "type": "status",
+    "data": {
+     "commands": [
+      {
+       "name": "review",
+       "description": "Review the pending changes",
+       "hint": "what to focus on"
+      },
+      {
+       "name": "compact",
+       "description": "Summarize the conversation to free context"
+      },
+      {
+       "name": "init",
+       "description": "Write a CLAUDE.md for this project"
+      }
+     ],
+     "status": "running"
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403290325,
+    "type": "thought.delta",
+    "data": {
+     "text": "Looking for the entry point.",
+     "parent": "task1"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403290325,
+    "type": "tool.call",
+    "data": {
+     "id": "read1",
+     "kind": "read",
+     "name": "Read",
+     "parent": "task1",
+     "status": "in_progress",
+     "title": "Read main.go"
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790403290526,
+    "type": "tool.update",
+    "data": {
+     "id": "read1",
+     "parent": "task1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790403290558,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "main starts in main.go",
+     "messageId": "sub-m",
+     "parent": "task1"
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790403290726,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "`main` is in **main.go**."
+       },
+       "type": "content"
+      }
+     ],
+     "id": "task1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790403290726,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "the subagent found it",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790403290726,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790403290726,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "title": "fake: subagent explore"
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790403290726,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 1,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790403290726,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "commands": [
+      {
+       "name": "review",
+       "description": "Review the pending changes",
+       "hint": "what to focus on"
+      },
+      {
+       "name": "compact",
+       "description": "Summarize the conversation to free context"
+      },
+      {
+       "name": "init",
+       "description": "Write a CLAUDE.md for this project"
+      }
+     ],
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790403290728,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "e9846a4da115903c",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: subagent explore",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 1,
+   "preview": "subagent explore",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "e9846a4da115903c",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: subagent explore",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 1,
+   "preview": "subagent explore",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "subagent",
+ "session": {
+  "id": "e9846a4da115903c",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:50Z",
+  "lastActive": "2026-09-26T06:14:50Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ }
+}

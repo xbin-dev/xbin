@@ -1,0 +1,1085 @@
+{
+ "about": "Claude's plan approval (switch_mode, meta.title Ready to code?): approved with a mode option; then a plan kept (reject) — the turn ends cancelled",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403290087,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403290097,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403290097,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "plan the work"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403290097,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403290098,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "plan1",
+    "kind": "switch_mode",
+    "name": "ExitPlanMode",
+    "rawInput": {
+     "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+     "planFilePath": "/tmp/fake-plan.md"
+    },
+    "status": "pending",
+    "title": "Ready to code?"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403290098,
+   "type": "permission.request",
+   "data": {
+    "meta": {
+     "title": "Ready to code?"
+    },
+    "options": [
+     {
+      "optionId": "exit-plan-default",
+      "name": "Yes, manually approve edits",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "exit-plan-clear-auto",
+      "name": "Yes, clear context (13% used) and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "auto",
+      "name": "Yes, and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "reject",
+      "name": "No, keep planning",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p1",
+    "rule": {
+     "kind": "switch_mode",
+     "scoped": false,
+     "title": "Approve Plan"
+    },
+    "toolCall": {
+     "id": "plan1",
+     "title": "Approve Plan",
+     "kind": "switch_mode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403290098,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:alice",
+    "optionId": "auto",
+    "pid": "p1"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790403290098,
+   "type": "tool.update",
+   "data": {
+    "id": "plan1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790403290098,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "plan approved: auto",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: plan the work"
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790403290098,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790403290098,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "plan it again"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1790403290098,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "plan1",
+    "kind": "switch_mode",
+    "name": "ExitPlanMode",
+    "rawInput": {
+     "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+     "planFilePath": "/tmp/fake-plan.md"
+    },
+    "status": "pending",
+    "title": "Ready to code?"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1790403290098,
+   "type": "permission.request",
+   "data": {
+    "meta": {
+     "title": "Ready to code?"
+    },
+    "options": [
+     {
+      "optionId": "exit-plan-default",
+      "name": "Yes, manually approve edits",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "exit-plan-clear-auto",
+      "name": "Yes, clear context (13% used) and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "auto",
+      "name": "Yes, and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "reject",
+      "name": "No, keep planning",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p2",
+    "rule": {
+     "kind": "switch_mode",
+     "scoped": false,
+     "title": "Approve Plan"
+    },
+    "toolCall": {
+     "id": "plan1",
+     "title": "Approve Plan",
+     "kind": "switch_mode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1790403290098,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:bob",
+    "optionId": "reject",
+    "pid": "p2"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1790403290098,
+   "type": "tool.update",
+   "data": {
+    "id": "plan1",
+    "status": "failed"
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1790403290098,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "cancelled",
+    "turn": 2
+   }
+  },
+  {
+   "seq": 25,
+   "ts": 1790403290098,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403290087,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403290097,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403290097,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "plan the work"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403290097,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403290098,
+    "type": "tool.call",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ],
+     "id": "plan1",
+     "kind": "switch_mode",
+     "name": "ExitPlanMode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "status": "pending",
+     "title": "Ready to code?"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403290098,
+    "type": "permission.request",
+    "data": {
+     "meta": {
+      "title": "Ready to code?"
+     },
+     "options": [
+      {
+       "optionId": "exit-plan-default",
+       "name": "Yes, manually approve edits",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "exit-plan-clear-auto",
+       "name": "Yes, clear context (13% used) and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "auto",
+       "name": "Yes, and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "reject",
+       "name": "No, keep planning",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p1",
+     "rule": {
+      "kind": "switch_mode",
+      "scoped": false,
+      "title": "Approve Plan"
+     },
+     "toolCall": {
+      "id": "plan1",
+      "title": "Approve Plan",
+      "kind": "switch_mode",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "content": [
+       {
+        "content": {
+         "type": "text",
+         "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+        },
+        "type": "content"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403290098,
+    "type": "permission.resolved",
+    "data": {
+     "by": "user:alice",
+     "optionId": "auto",
+     "pid": "p1"
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790403290098,
+    "type": "tool.update",
+    "data": {
+     "id": "plan1",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790403290098,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "plan approved: auto",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "title": "fake: plan the work"
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790403290098,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 1,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790403290098,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "plan it again"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 18,
+    "ts": 1790403290098,
+    "type": "tool.call",
+    "data": {
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ],
+     "id": "plan1",
+     "kind": "switch_mode",
+     "name": "ExitPlanMode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "status": "pending",
+     "title": "Ready to code?"
+    }
+   },
+   {
+    "seq": 19,
+    "ts": 1790403290098,
+    "type": "permission.request",
+    "data": {
+     "meta": {
+      "title": "Ready to code?"
+     },
+     "options": [
+      {
+       "optionId": "exit-plan-default",
+       "name": "Yes, manually approve edits",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "exit-plan-clear-auto",
+       "name": "Yes, clear context (13% used) and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "auto",
+       "name": "Yes, and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "reject",
+       "name": "No, keep planning",
+       "kind": "reject_once"
+      }
+     ],
+     "pid": "p2",
+     "rule": {
+      "kind": "switch_mode",
+      "scoped": false,
+      "title": "Approve Plan"
+     },
+     "toolCall": {
+      "id": "plan1",
+      "title": "Approve Plan",
+      "kind": "switch_mode",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "content": [
+       {
+        "content": {
+         "type": "text",
+         "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+        },
+        "type": "content"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "seq": 20,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "waiting_permission"
+    }
+   },
+   {
+    "seq": 21,
+    "ts": 1790403290098,
+    "type": "permission.resolved",
+    "data": {
+     "by": "user:bob",
+     "optionId": "reject",
+     "pid": "p2"
+    }
+   },
+   {
+    "seq": 22,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 23,
+    "ts": 1790403290098,
+    "type": "tool.update",
+    "data": {
+     "id": "plan1",
+     "status": "failed"
+    }
+   },
+   {
+    "seq": 24,
+    "ts": 1790403290098,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "cancelled",
+     "turn": 2
+    }
+   },
+   {
+    "seq": 25,
+    "ts": 1790403290098,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 26,
+    "ts": 1790403290100,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "6fa7facb8483cdf1",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: plan the work",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 2,
+   "preview": "plan the work",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "6fa7facb8483cdf1",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: plan the work",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:50Z",
+   "turns": 2,
+   "preview": "plan the work",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "plan",
+ "session": {
+  "id": "6fa7facb8483cdf1",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:50Z",
+  "lastActive": "2026-09-26T06:14:50Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ },
+ "snapshot": {
+  "permissions": [
+   {
+    "pid": "p1",
+    "toolCall": {
+     "id": "plan1",
+     "title": "Approve Plan",
+     "kind": "switch_mode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ]
+    },
+    "options": [
+     {
+      "optionId": "exit-plan-default",
+      "name": "Yes, manually approve edits",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "exit-plan-clear-auto",
+      "name": "Yes, clear context (13% used) and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "auto",
+      "name": "Yes, and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "reject",
+      "name": "No, keep planning",
+      "kind": "reject_once"
+     }
+    ]
+   }
+  ],
+  "session": {
+   "id": "6fa7facb8483cdf1",
+   "cwd": "apps/x",
+   "net": "internet",
+   "label": "internet",
+   "scopes": [
+    {
+     "id": "internet",
+     "label": "internet",
+     "desc": "public internet through the egress relay (no LAN)"
+    },
+    {
+     "id": "host",
+     "label": "host net",
+     "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+    },
+    {
+     "id": "none",
+     "label": "offline",
+     "desc": "no network at all (xbind unreachable)"
+    }
+   ],
+   "gpu": "",
+   "api": true,
+   "name": "",
+   "created": "2026-09-26T06:14:50Z",
+   "lastActive": "2026-09-26T06:14:50Z",
+   "clients": 0,
+   "envHeld": false,
+   "kind": "agent",
+   "vm": false,
+   "provider": "fake",
+   "mode": "ask",
+   "model": "fake-default",
+   "status": "waiting_permission",
+   "pending": 1
+  }
+ }
+}
