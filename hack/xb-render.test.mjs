@@ -67,7 +67,7 @@ async function page() {
 }
 
 // the keys a user can see: closed sheets, collapsed sections, closed
-// disclosures/tool cards and menus (drawn in their popover) hide their children
+// disclosures/tool cards, menus and row/message actions (drawn in their popover) hide their children
 function visible(n, out = new Set()) {
   out.add(n.k);
   const p = n.p || {};
@@ -75,6 +75,7 @@ function visible(n, out = new Set()) {
   if (n.t === 'section' && p.collapsible && p.collapsed) return out;
   if ((n.t === 'disclosure' || n.t === 'toolcard') && !p.open) return out;
   if (n.t === 'menu') return out;
+  if (n.t === 'actions') return out; // a row's or message's actions fold into a popover (render-structure.js folded)
   for (const c of n.c || []) visible(c, out);
   return out;
 }
