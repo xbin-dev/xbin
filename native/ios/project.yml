@@ -8,6 +8,9 @@
 #   XbinSnapshotHost         an empty app hosting XbinSnapshotTests: the
 #   XbinSnapshotTests        renderer's snapshot tests drawn on a real window
 #                            scene (scheme XbinSnapshots, ci-hosted-snapshots.sh)
+#   XbinUITests              XCUITest: the app end to end on a simulator against
+#                            a real xbind (scheme XbinUITests, ci-uitests.sh;
+#                            they skip without XBIN_E2E_URL — native/AGENTS.md)
 #
 # Local packages: XbinCore, XbinTerm, XbinAgent (Foundation only, tested on
 # Linux) and XbinRenderer (the SwiftUI renderer). SwiftTerm draws the
@@ -133,7 +136,28 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/XbinSnapshotHost.app/XbinSnapshotHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) XBIN_SNAPSHOT_HOST"
+  XbinUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Xbin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Xbin
+        TARGETED_DEVICE_FAMILY: "1,2"
 schemes:
+  XbinUITests:
+    build:
+      targets:
+        Xbin: all
+        XbinUITests: [test]
+    test:
+      targets:
+        - XbinUITests
   XbinSnapshots:
     build:
       targets:

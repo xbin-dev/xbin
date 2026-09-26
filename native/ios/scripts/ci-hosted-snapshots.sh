@@ -17,7 +17,7 @@
 #   XBIN_SNAPSHOT_SCHEME      the scheme (default XbinSnapshots)
 #
 # Results in $XBIN_CI_OUT: hosted-snapshots.xcresult and hosted-snapshots.log.
-# No project.yml → a notice, success. Needs xcodegen on PATH.
+# No project.yml → a notice, success. Needs xcodegen on PATH (ci-xcodegen.sh).
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/ci-lib.sh
 . "$(dirname "$0")/ci-lib.sh"
@@ -30,8 +30,6 @@ if [ ! -f "$ios/project.yml" ]; then
   ci_notice "no native/ios/project.yml yet — hosted snapshots skipped"
   exit 0
 fi
-command -v xcodegen >/dev/null 2>&1 || { ci_error "xcodegen not found (brew install xcodegen)"; exit 1; }
-
 TEST_RUNNER_SNAPSHOT_DIR=${TEST_RUNNER_SNAPSHOT_DIR:-$XBIN_CI_OUT/snapshots/hosted}
 TEST_RUNNER_FIXTURES_DIR=${TEST_RUNNER_FIXTURES_DIR:-$XBIN_REPO/native/fixtures}
 export TEST_RUNNER_SNAPSHOT_DIR TEST_RUNNER_FIXTURES_DIR
@@ -40,20 +38,8 @@ mkdir -p "$snap" "$XBIN_CI_OUT"
 echo "SNAPSHOT_DIR=$snap"
 
 cd "$ios"
-ci_group "xcodegen generate"
-xcodegen generate --spec project.yml
-ci_endgroup
-proj=""
-for p in *.xcodeproj; do
-  if [ -d "$p" ]; then
-    if [ -n "$proj" ]; then
-      ci_error "several .xcodeproj in native/ios ($proj, $p) — is one committed? (native/AGENTS.md: never commit it)"
-      exit 1
-    fi
-    proj=$p
-  fi
-done
-[ -n "$proj" ] || { ci_error "xcodegen generated no .xcodeproj in native/ios"; exit 1; }
+ci_project
+ci_conditions
 
 rm -rf "$XBIN_CI_OUT/hosted-snapshots.xcresult"
 status=0
@@ -62,10 +48,13 @@ ci_xcodebuild "$XBIN_CI_OUT/hosted-snapshots.log" test \
   -scheme "$scheme" \
   -destination "$dest" \
   -derivedDataPath "$XBIN_CI_DERIVED/hosted" \
+  -clonedSourcePackagesDirPath "$XBIN_CI_SPM" \
   -resultBundlePath "$XBIN_CI_OUT/hosted-snapshots.xcresult" \
   -skipMacroValidation \
   -skipPackagePluginValidation \
-  CODE_SIGNING_ALLOWED=NO || status=$?
+  COMPILER_INDEX_STORE_ENABLE=NO \
+  CODE_SIGNING_ALLOWED=NO \
+  ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
 
 pngs=$(find "$snap" -type f -name '*.png' | wc -l | tr -d ' ')
 if [ "$status" -eq 0 ]; then

@@ -9,7 +9,8 @@
 #
 # Prints: xcodebuild -version, swift --version, the installed Xcodes,
 # xcodebuild -showsdks, and `xcrun simctl list` of device types, runtimes
-# and available devices; one line of it goes to the job summary.
+# and available devices; one line of it goes to the job summary, and the
+# step output `xcode` is the Xcode's version-build ("27.0-27A266a").
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/ci-lib.sh
 . "$(dirname "$0")/ci-lib.sh"
@@ -56,3 +57,6 @@ ci_endgroup
 xcode=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
 sdks=$(xcodebuild -showsdks 2>/dev/null | sed -n 's/.*-sdk \(iphone[a-z]*[0-9.]*\).*/\1/p' | tr '\n' ' ' | sed 's/ *$//')
 ci_summary "**Toolchain:** ${xcode:-?} · iOS SDKs: ${sdks:-none}"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  echo "xcode=$(ci_xcode_slug)" >>"$GITHUB_OUTPUT"
+fi

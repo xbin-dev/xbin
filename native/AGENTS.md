@@ -8,9 +8,11 @@ only Apple toolchain.
 
 ## The situation
 
-- **No Mac, no Xcode, no simulator locally.** The Apple toolchain exists only
-  in GitHub Actions (`runs-on: xcode-27`). A Mac over ssh may come later; this
-  loop must not depend on it.
+- **No Mac, no Xcode, no simulator locally.** The Apple toolchain is GitHub
+  Actions (the hosted `xcode-27` runner) and, once it exists, the owner's
+  **Mac mini**: the same CI on it is one repository variable away, and
+  `native/ios/scripts/mac-remote.sh` drives it over ssh ("Mac mini" below).
+  Nothing here may depend on the Mac being there.
 - **Fast local loops exist** for everything that isn't SwiftUI/UIKit: Go
   (xbind), JavaScript (the runtime, the Lit reference renderer), Swift 6 on
   Linux (Foundation only), headless chromium for screenshots.
@@ -46,9 +48,13 @@ native/
     Widgets/                the widget extension: the agent turn's Live Activity (Shared/: also in the app)
     Support/                Info.plists and entitlements
     SnapshotHost/           the empty app the hosted snapshot tests run in (CI only, see §4)
-    scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
+    UITests/                XbinUITests: the app end to end on a simulator against a real xbind
+    scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh and the
+                            dry tests; the Mac: mac-setup.sh, mac-remote.sh, mac-cleanup.sh,
+                            e2e-xbind.sh (the UI tests' xbind, on this box)
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
+                            uitest-stubcheck/ (the UI tests vs XCUITest stubs),
                             app-check/ (the app's UIKit-free sources on Linux),
                             term-live/, agent-parity.mjs, bridge-check.mjs, runtime-check.mjs,
                             markdown-parity.mjs
@@ -56,7 +62,7 @@ web/xb-native.js            the runtime's template layer, served at /vendor/ (fr
 web/xb/                     the runtime's modules (rt-*.js, vocab.js) and the Lit reference renderer
                             (render*.js, preview-host.js — previews and tests only)
 relay/                      the push relay (Go, stdlib only, its own module)
-.github/workflows/ios.yml   the Apple CI
+.github/workflows/ios.yml   the Apple CI (ci.yml's `native` job: the Linux half, below)
 ```
 
 ## The loop, fastest first
@@ -190,38 +196,71 @@ token, push registration and device removal. Before touching an app file,
 type-checks the whole directory against stubs, as the renderer's stubcheck
 does for XbinRenderer.
 
-### 4. Apple — only through GitHub Actions (minutes)
+### 4. Apple — GitHub Actions (minutes), or the Mac mini
 
-The workflow is `.github/workflows/ios.yml` (`runs-on: xcode-27`). It runs on
-a push to **any branch but master** that touches `native/ios/**`,
-`native/fixtures/**`, `native/spec/**` or the workflow itself, and by hand
-(`gh workflow run ios.yml --ref <branch>`); a newer push to the same branch
-cancels the run in progress. Three independent jobs — a broken app build
-still yields snapshots:
+The workflow is `.github/workflows/ios.yml`. It runs on a push to **any
+branch but master** that touches `native/ios/**`, `native/fixtures/**`,
+`native/spec/**` or the workflow itself, and by hand (`gh workflow run
+ios.yml --ref <branch>`); a newer push to the same branch cancels the run
+in progress. Three independent jobs — a broken app build still yields
+snapshots:
 
 | job | does | artifacts |
 |---|---|---|
 | `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails (XbinRenderer's model tests run in `snapshots`) | — |
-| `app` | `brew install xcodegen` → `xcodegen generate` (if `project.yml` exists) → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`) |
+| `app` | xcodegen if missing (`ci-xcodegen.sh`) → `xcodegen generate` → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` → `build-for-testing -scheme XbinUITests` (compile only: there is no xbind to test against; "Mac mini" below runs them) | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`, `uitests-build.*`) |
 | `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × the default, xxxLarge (`large`, the reference's large text) and accessibility2 (`ax2`) Dynamic Type sizes; then the same tests hosted by an app (`ci-hosted-snapshots.sh`, below) | `snapshots` (the PNGs; the hosted ones under `hosted/`), `xcresult-snapshots` (`.xcresult` + log of both) |
 
 Artifacts upload even when a step fails; each job's summary page has a
-one-line result (toolchain, package table, PNG count).
+one-line result (toolchain, package table, PNG count, cache).
 
-The logic is in `native/ios/scripts/`, so it runs the same on any Mac (and
-a Mac over ssh later) and most of it is checked here:
+**Where it runs.** Every job's `runs-on` is `${{ fromJSON(vars.XBIN_IOS_RUNNER
+|| '"xcode-27"') }}`: without the repository variable, GitHub's hosted
+`xcode-27` runner; with `XBIN_IOS_RUNNER=["self-hosted","macOS","xbin-mini"]`,
+the Mac mini ("Mac mini" below). Switching is one command either way:
+
+```sh
+gh variable set XBIN_IOS_RUNNER --body '["self-hosted","macOS","xbin-mini"]'   # the Mac mini
+gh variable delete XBIN_IOS_RUNNER                                             # back to xcode-27
+```
+
+**Caches.** Each job's DerivedData and SwiftPM clones (`SourcePackages`,
+shared by every xcodebuild of the job through
+`-clonedSourcePackagesDirPath`) outlive it (`ci-cache.sh`): on a hosted
+runner through `actions/cache`, keyed `ios-<job>-<Xcode version>-<hash of
+project.yml and every Package.swift/Package.resolved>`, with the newest entry
+for that Xcode as the fallback (the build is incremental; a stale tree beats
+none), saved after a green job; on a self-hosted runner in
+`~/Library/Caches/xbin-ci/<runner>/<Xcode>/` on its own disk (nothing
+uploaded; `mac-cleanup.sh` drops trees unused for a week). Builds skip the
+index store (`COMPILER_INDEX_STORE_ENABLE=NO`). A suspected stale cache:
+`gh variable set XBIN_CI_CACHE --body off` (a clean build; delete the
+variable after), or bump `XBIN_CI_CACHE_VERSION` in the workflow to drop
+every entry. xcodegen is used when on PATH, else the pinned release zip
+(SHA-256 checked), else Homebrew; the Metal toolchain is fetched only when
+`xcrun metal` fails.
+
+The logic is in `native/ios/scripts/`, so it runs the same on any Mac (the
+Mac mini over ssh included) and most of it is checked here:
 
 - `pick-sim.sh` — prints the destination (`platform=iOS Simulator,id=…`):
   an iPhone on the newest iOS runtime, newest model generation, base model
   before Pro/Max; no iPhone → any iOS simulator; none at all → creates one.
-  `XBIN_SIM="iPhone 17 Pro"` prefers a name.
-- `ci-toolchain.sh` (every job), `ci-swift-test.sh`, `ci-build-app.sh`,
-  `ci-snapshots.sh`, `ci-hosted-snapshots.sh`, sharing `ci-lib.sh`. Bash 3.2 (macOS's), no GNU-only
-  flags. Results go to `$RUNNER_TEMP/xbin-ci/`, which is what the workflow
-  uploads.
-- Pin an Xcode when the runner has several: set `XBIN_XCODE:
-  /Applications/Xcode_27.1.app` in the workflow's `env` (empty = the
-  runner's default).
+  `XBIN_SIM="iPhone 17 Pro"` prefers a name; `XBIN_SIM_ENSURE=xbin-e2e` uses
+  (or creates) the device of exactly that name.
+- `ci-toolchain.sh` (every job), `ci-cache.sh`, `ci-xcodegen.sh`,
+  `ci-swift-test.sh`, `ci-build-app.sh`, `ci-uitests.sh`, `ci-snapshots.sh`,
+  `ci-hosted-snapshots.sh`, sharing `ci-lib.sh`. Bash 3.2 (macOS's), no
+  GNU-only flags. Results go to `$RUNNER_TEMP/xbin-ci/`, which is what the
+  workflow uploads.
+- Knobs in the workflow's `env`: `XBIN_XCODE: /Applications/Xcode_27.1.app`
+  pins an Xcode when the runner has several (empty = the runner's default);
+  `XBIN_SWIFT_CONDITIONS: XBIN_SDK_27_1` compiles the iPhone Duo code (every
+  build gets `SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) …`) — only
+  with an Xcode that has the iOS 27.1 SDK, so the two go together.
+  `XBIN_SIGNING=adhoc` signs to run locally (the scripts' default is
+  unsigned; `mac-remote.sh run`/`e2e` use adhoc, the app's Keychain needs
+  its entitlements).
 
 What the packages and tests must do for CI:
 
@@ -234,17 +273,17 @@ What the packages and tests must do for CI:
   on CI though they pass on Linux, where `platforms` is ignored.
 - **The app scheme is `Xbin`**, shared, declared in `project.yml`
   (`targets.Xbin.scheme` or `schemes.Xbin`); the package scheme is
-  `XbinRenderer` (`XbinRenderer-Package` is used if that's the only one).
+  `XbinRenderer` (`XbinRenderer-Package` is used if that's the only one);
+  the UI tests' is `XbinUITests` (`schemes.XbinUITests`).
 - **Snapshot tests write PNGs to `SNAPSHOT_DIR`** (the environment of the
   test process; the workflow sets `TEST_RUNNER_SNAPSHOT_DIR` and xcodebuild
-  strips the prefix), named `<fixture>-<light|dark>-<size>.png` with sizes
+  strips the prefix), named `<fixture>-<light|dark>-<default|large|ax2>.png`:
   `default`, `large` (xxxLarge — what `shots.mjs` draws as large, so the two
   compare like for like) and `ax2` (accessibility2, iOS only: the overflow
-  test); the contact sheet below uses `default` (and `large` for a second).
-  `FIXTURES_DIR` is the absolute path of `native/fixtures`. When `SNAPSHOT_DIR`
-  is unset (Xcode locally) tests skip writing rather than fail. Images a test
-  only *attaches* to the result are exported into `snapshots/attachments/` as
-  a fallback.
+  test). `FIXTURES_DIR` is the absolute path of `native/fixtures`. When
+  `SNAPSHOT_DIR` is unset (Xcode locally) tests skip writing rather than
+  fail. Images a test only *attaches* to the result are exported into
+  `snapshots/attachments/` as a fallback.
 - **Two snapshot runs, one test file.** The package run has no app, so its
   windows are offscreen and drawn with `layer.render`, which skips Liquid
   Glass, materials and vibrancy: bar items, back buttons, tab bars and the
@@ -256,19 +295,32 @@ What the packages and tests must do for CI:
   drawn with `drawHierarchy`, as the screen shows them
   (`ci-hosted-snapshots.sh`, PNGs in `snapshots/hosted/`, same names). Use the
   hosted PNGs for comparisons when the run produced them.
+- **UI tests** (`native/ios/UITests`, target and scheme `XbinUITests`, host
+  app `Xbin`) skip unless `XBIN_E2E_URL` and `XBIN_E2E_TOKEN` reach them
+  (`TEST_RUNNER_XBIN_E2E_*`); they query the app by what a person sees
+  (labels, placeholders), so a renamed button breaks them — run
+  `native/tools/uitest-stubcheck/run.sh` after editing them, and "Mac mini"
+  below to run them.
 
-Before pushing anything under `.github/workflows/ios.yml` or
-`native/ios/scripts/`:
+Before pushing anything under `.github/workflows/` or `native/ios/scripts/`:
 
 ```sh
-native/ios/scripts/ci-local-check.sh   # YAML shape (python3+PyYAML or ruby), actionlint if
-                                       # installed, bash -n + shellcheck, and ci-dry-test.sh:
-                                       # the scripts against fake xcrun/xcodebuild/xcodegen/swift
-CI_LOCAL_BASH32=1 native/ios/scripts/ci-local-check.sh   # + the dry test under bash 3.2
+native/ios/scripts/ci-local-check.sh   # ios.yml + ci.yml shape (the runner expression evaluated,
+                                       # the cache wiring, action majors), actionlint if installed,
+                                       # bash -n + shellcheck, ci-dry-test.sh + mac-dry-test.sh (the
+                                       # scripts against fake xcrun/xcodebuild/xcodegen/swift/ssh…),
+                                       # the UI tests against XCUITest stubs (with swift on PATH)
+CI_LOCAL_BASH32=1 native/ios/scripts/ci-local-check.sh   # + the dry tests under bash 3.2
                                        # (macOS's) in a container — after editing a script
+XCODEGEN=/path/to/xcodegen native/ios/scripts/ci-local-check.sh   # + project.yml generates, with
+                                       # the three schemes (XcodeGen builds on Linux: swift build)
 ```
 
-`make shellcheck` (part of `make check`) covers `native/ios/scripts/` too.
+`make shellcheck` (part of `make check`) covers `native/ios/scripts/` too, and
+ci.yml's **`native` job** (Linux, on master and pull requests) runs Swift 6.4
+through swiftly (`ci-linux-swift.sh`: the pinned swiftly, SHA-256 checked;
+the toolchain cached on the script's pins) with `make swift-test`, then `make
+native-check` and `CI_LOCAL_BASH32=1 ci-local-check.sh` with actionlint.
 
 Then:
 
@@ -283,13 +335,15 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
 
 - **Check the SDK before using new APIs.** Every job logs `xcodebuild
   -showsdks` and `xcrun simctl list devicetypes` / `runtimes` (its
-  "toolchain" step). The iPhone Duo APIs (`ArrangementView`, reserved regions, hinge)
-  come with the **iOS 27.1** SDK; gate their use with `#available(iOS 27.1,
-  *)` and confirm the names against the SDK the runner actually has — the
-  design cites them from secondary sources.
+  "toolchain" step). The iPhone Duo APIs (`ArrangementView`, reserved
+  regions, hinge) come with the **iOS 27.1** SDK: they sit behind `#if
+  XBIN_SDK_27_1` (off unless `XBIN_SWIFT_CONDITIONS` says so) and
+  `#available(iOS 27.1, *)`; confirm the names against the SDK the runner
+  actually has — the design cites them from secondary sources.
 - **Batch.** One push should carry every fix you can make from one failure log.
 
-What the runner turned out to be (runs 36237646621–36243877514, 2026-09-26):
+What the hosted runner turned out to be (runs 36237646621–36243877514,
+2026-09-26):
 
 - `xcode-27` is Xcode 27.0 (27A266a) with Swift 6.4 and **only the iOS 27.0
   SDK and simulator runtime**. There is no 27.1 SDK yet, so no Duo API can be
@@ -299,25 +353,27 @@ What the runner turned out to be (runs 36237646621–36243877514, 2026-09-26):
   MetalToolchain`, about 840 MB, a few seconds). The build runs with
   `-IDEBuildingContinueBuildingAfterErrors=YES`, so one log lists every
   target's errors.
-- Job times: `packages` takes about 1.5 minutes, `app` 2–3 and `snapshots`
-  11–17 (both snapshot runs, 162 PNGs each). The `snapshots` artifact is
-  about 90 MB.
+- Job times (before caching): `packages` takes about 1.5 minutes, `app` 2–3
+  and `snapshots` 11–17 (both snapshot runs, 162 PNGs each). The
+  `snapshots` artifact is about 90 MB.
 - **Xcode's type checker gives up where the stub check doesn't.** One big
   initializer call full of inline closures, one of them behind `?:`, failed
   with "failed to produce diagnostic for expression" (`NativeTile.swift`'s
   `services`, 1904702). Build such arguments as typed locals first. A
   ternary between closures also loses `@Sendable` inference, which shows up
   as a Swift 6 data-race warning.
-- `actions/checkout@v4` and `upload-artifact@v4` get a Node 20 deprecation
-  annotation (the runner forces Node 24). This is harmless for now; bump the
-  majors when newer ones are out.
+- The actions are on their Node 24 majors (`checkout@v7`,
+  `upload-artifact@v7`, `cache@v6`; `ci-local-check.sh` refuses older
+  ones). They need runner ≥ 2.327.1 — a self-hosted runner updates itself.
 
 ## Comparing iOS with the reference
 
 After a green run, download the snapshots (the `hosted/` ones when present:
 they show bars and materials as a device does), render the same fixtures with
-the reference renderer (`shots.mjs`, same names), and compare side by side,
-fixture by fixture. Differences that are intended platform conventions stay:
+the reference renderer (`shots.mjs`), and compare side by side, fixture by
+fixture. Both sides name a PNG `<fixture>-<light|dark>-<default|large|ax2>.png`
+(`ax2` is iOS only), so the same name is the same fixture, scheme and text
+size. Differences that are intended platform conventions stay:
 fonts and their metrics, control chrome (glass bar items, segmented controls
 without badges, switches, menus), list insets and grouped section headers,
 swipe actions for the reference's `⋯` menus, pull to refresh for its refresh
@@ -327,17 +383,159 @@ layout, clipped text at large Dynamic Type) gets fixed. Not bugs, the
 harness: a secure field's text never shows in a capture (iOS keeps it out),
 and without the app's services a `canvas` or `terminal` is a placeholder and
 tile images are grey boxes (the reference's previews show the same boxes).
-Then make the contact sheets (`size` = `default`, then `large`):
+Then make the contact sheets, one per size:
 
 ```sh
+gh run download <run-id> -n snapshots -D "$SCRATCH/snap"
+ios=$SCRATCH/snap; [ -d "$ios/hosted" ] && ios=$ios/hosted      # the hosted run when there is one
+PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/shots.mjs --out "$SCRATCH/web"
 # one row per fixture: iOS light | web light | iOS dark | web dark
-for f in $(ls native/fixtures | grep -v README); do
-  montage -label "$f · iOS light" ios/$f-light-$size.png -label "$f · web light" web/$f-light-$size.png \
-    -label "$f · iOS dark" ios/$f-dark-$size.png -label "$f · web dark" web/$f-dark-$size.png \
-    -tile 4x1 -geometry 390x844+8+8 -background '#111' -fill '#ccc' -pointsize 18 "$SCRATCH/row-$f.png"
+for size in default large; do
+  rm -f "$SCRATCH"/row-*.png
+  for f in $(ls native/fixtures | grep -v README); do
+    montage -label "$f · iOS light" "$ios/$f-light-$size.png" -label "$f · web light" "$SCRATCH/web/$f-light-$size.png" \
+      -label "$f · iOS dark" "$ios/$f-dark-$size.png" -label "$f · web dark" "$SCRATCH/web/$f-dark-$size.png" \
+      -tile 4x1 -geometry 390x844+8+8 -background '#111' -fill '#ccc' -pointsize 18 "$SCRATCH/row-$f.png"
+  done
+  montage "$SCRATCH"/row-*.png -tile 1x -geometry +0+12 -background '#111' -depth 8 "$SCRATCH/contact-sheet-$size.png"
 done
-montage "$SCRATCH"/row-*.png -tile 1x -geometry +0+12 -background '#111' -depth 8 contact-sheet.png
+# ax2 has no web side: an iOS-only sheet, light | dark
+montage $(for f in $(ls native/fixtures | grep -v README); do echo "$ios/$f-light-ax2.png $ios/$f-dark-ax2.png"; done) \
+  -tile 2x -geometry 390x844+8+8 -background '#111' -depth 8 "$SCRATCH/contact-sheet-ax2.png"
 ```
+
+Look at every sheet (the Read tool shows images) before calling a
+comparison done.
+
+## Mac mini
+
+The owner's Mac mini (24 GB, Apple silicon) becomes the CI machine and an
+Apple toolchain reachable over ssh. Everything below is ready but **has not
+run on a Mac yet**: `ci-local-check.sh` checks it against fake Mac tools
+here, the first real run is the owner's.
+
+### Setting it up (once, then after each Xcode update)
+
+On the Mac, logged in as the user the runner will run as (an admin: sudo is
+needed for Xcode's licence and first launch), with Xcode 27 installed (App
+Store, or `brew install xcodes && xcodes install 27.0`) and opened once. Get
+a runner registration token from GitHub → the repository → Settings →
+Actions → Runners → New self-hosted runner (valid an hour), then:
+
+```sh
+native/ios/scripts/mac-setup.sh --check          # what is missing; changes nothing
+native/ios/scripts/mac-setup.sh --runner-token <token>
+# or from this box, over ssh (interactive: sudo, the token prompt; it ships
+# only the scripts, by tar — the full mirror needs the Homebrew rsync this installs):
+XBIN_MAC=me@mini.local native/ios/scripts/mac-remote.sh setup
+```
+
+It is idempotent — each item is checked and only fixed when missing — and
+does: Xcode (`XBIN_XCODE`, else the selected one, else the newest
+`/Applications/Xcode*.app`) and `xcode-select`; the licence; the
+first-launch packages; the iOS simulator runtime matching the SDK
+(`xcodebuild -downloadPlatform iOS`); the Metal toolchain; Homebrew with
+xcodegen, xcbeautify and rsync; the simulator `xbin-e2e` (the UI tests'
+own); a LaunchAgent `dev.xbin.ci-cleanup` running `mac-cleanup.sh` daily at
+04:30 (DerivedData, CI caches and the ssh loop's trees unused for 7 days,
+unavailable simulators; skipped while a job runs; log in
+`~/Library/Logs/xbin-ci/`); and the GitHub Actions runner in
+`~/actions-runner` — the pinned release, SHA-256 checked, registered to the
+**repository** with the labels `self-hosted`, `macOS`, `xbin-mini`,
+installed as a launchd service, with a job hook (`~/xbin-ci/bin/job-hook.sh`)
+that shuts the simulators down before and after every job. It warns when
+the Mac may sleep (`sudo pmset -a sleep 0`) or has no automatic login (the
+runner's LaunchAgent starts with the login session: turn it on in System
+Settings → Users & Groups). Then point the CI at it:
+
+```sh
+gh variable set XBIN_IOS_RUNNER --body '["self-hosted","macOS","xbin-mini"]'
+gh workflow run ios.yml --ref <feature-branch>    # and watch it as in §4
+```
+
+On the Mac the jobs keep DerivedData and SwiftPM clones on disk
+(`~/Library/Caches/xbin-ci/`), run one at a time (one runner), and start
+from a clean checkout (`actions/checkout` cleans the workspace;
+`$RUNNER_TEMP` is emptied per job).
+
+### The ssh dev loop
+
+`native/ios/scripts/mac-remote.sh`, from this box, with `XBIN_MAC=user@host`
+(key-based ssh; `XBIN_MAC_SSH_OPTS` for a port or key): it mirrors the
+working tree to `~/xbin-remote/tree` on the Mac (tracked and untracked
+files as git sees them, deletions included; the Mac's `.build` and
+generated `.xcodeproj` stay), runs the same scripts CI runs there, and pulls
+the results into `$XBIN_MAC_PULL` (default `${TMPDIR:-/tmp}/xbin-mac/<command>/`):
+
+```sh
+export XBIN_MAC=me@mini.local
+native/ios/scripts/mac-remote.sh build            # xcodegen + build Xbin: app-build.log, .xcresult
+native/ios/scripts/mac-remote.sh packages         # swift test, on macOS
+native/ios/scripts/mac-remote.sh snapshots        # renderer snapshots, package + hosted: the PNGs
+native/ios/scripts/mac-remote.sh run --url 'xbin://127.0.0.1:9871/c/apps/counter' --wait 10
+                                                  # build (signed to run locally), boot, install,
+                                                  # launch, open the link: screen.png + app.log
+native/ios/scripts/mac-remote.sh shell            # a shell in the mirror
+```
+
+DerivedData stays on the Mac (`~/xbin-remote/derived`), so the second
+build is incremental. `XBIN_SIM`, `XBIN_XCODE`, `XBIN_SIGNING`,
+`XBIN_SWIFT_CONDITIONS` and `XBIN_SIM_GUI=1` (show the Simulator window on
+the Mac's screen) pass through. Look at the pulled PNGs.
+
+### The UI tests against a real xbind
+
+```sh
+native/ios/scripts/mac-remote.sh e2e              # all of XbinUITests
+native/ios/scripts/mac-remote.sh e2e --only XbinUITests/XbinE2ETests/test03NativeCounter --keep
+```
+
+This starts `e2e-xbind.sh` here — a fresh workspace with
+`examples/counter-go` (its `native.js` included) as `apps/counter` and the
+scripted fake ACP agent, xbind started as the UI harness starts it: `xbind
+--dev --dev-overlay workspace-template --workspace <ws> --listen
+127.0.0.1:9871 --external-url http://127.0.0.1:9871` with
+`XBIN_AGENT_FAKE=bin/fakeacp XBIN_BIN=bin XBIN_SDK_PATH=sdk`, the owner token
+from `<ws>/.xbin/token` — and waits until the counter's backend answers.
+The run's ssh connection carries a reverse tunnel (`-R
+127.0.0.1:9871:127.0.0.1:9871`), so the simulator reaches the same origin,
+`http://127.0.0.1:9871`; the token travels on ssh's stdin. On the Mac,
+`XbinUITests` runs on `xbin-e2e`, erased first: add a workspace by URL +
+token, open the web tile `apps/welcome`, open the native counter and tap
++1 (checked on the server and in the row), type into a terminal on
+`apps/welcome` (its output — an OSC title only the shell's arithmetic makes
+— must reach the navigation bar), and an agent session with the fake agent
+(its `echo: …` answer in the transcript). The screenshots land in
+`$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
+`--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
+by itself: `XBIN_E2E_URL=… XBIN_E2E_TOKEN=… mac-remote.sh e2e` (no tunnel).
+`e2e-xbind.sh smoke` checks here, over HTTP and `/ws/term`, everything the
+tests need of the server. `mac-remote.sh tunnel` holds only the tunnel, for
+running the tests from Xcode on the Mac (`TEST_RUNNER_XBIN_E2E_URL`/`_TOKEN`
+in the environment of `xcodebuild test -scheme XbinUITests`).
+
+### Security
+
+- **The runner is repository-scoped** (registered with the repository's
+  URL), never an organization's, and runs as an ordinary user on a machine
+  that does nothing else.
+- **Never a `pull_request` trigger for a self-hosted runner.** `ios.yml`
+  runs on pushes to this repository's branches and by hand only; anyone who
+  can open a pull request from a fork must not get code onto the Mac.
+  `ci-local-check.sh` fails on a `pull_request*` trigger in `ios.yml` and on
+  any `ci.yml` job (which does run for pull requests) that could reach a
+  self-hosted runner. Keep the repository's "Require approval for all
+  outside collaborators" for fork workflows on.
+- **No secrets on the runner.** The workflows use none (`permissions:
+  contents: read`, no signing, no provisioning, no TestFlight); the runner's
+  own credentials are its registration, nothing else. The e2e owner token
+  belongs to a throwaway workspace on the Linux box, reachable only through
+  the tunnel while a run lasts.
+- **Clean workspaces.** Every job checks out clean, `$RUNNER_TEMP` is
+  emptied per job, the job hook shuts the simulators down, the UI tests
+  erase their simulator first; caches (`~/Library/Caches/xbin-ci`) hold only
+  build products keyed by their inputs, and the daily cleanup drops what
+  goes unused.
 
 ## Rules
 
