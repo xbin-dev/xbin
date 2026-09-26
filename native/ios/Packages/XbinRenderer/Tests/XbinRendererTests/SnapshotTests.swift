@@ -33,12 +33,6 @@ import XbinRendererModel
 @Suite struct SnapshotTests {
     static let size = CGSize(width: 390, height: 844)
     static let scale: CGFloat = 2
-    /// The Gregorian calendar in UTC.
-    static let utc: Calendar = {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "UTC") ?? .gmt
-        return c
-    }()
 
     /// Where PNGs go, or nil (render only).
     static var outputDirectory: URL? {
@@ -55,6 +49,11 @@ import XbinRendererModel
         #expect(!names.isEmpty)
         let out = Self.outputDirectory
         if let out { try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true) }
+        // UTC, as shots.mjs pins the reference's browser, so a chart's time
+        // axis reads the same hours on both sides: Swift Charts formats
+        // dates in the process's zone, whatever the environment says (the
+        // hosted runner's Pacific time put the charts fixture 7 h off).
+        NSTimeZone.default = TimeZone(identifier: "UTC") ?? .gmt
         let variants: [(ColorScheme, String, DynamicTypeSize, String)] = out == nil
             ? [(.light, "light", .large, "default")]
             : [(.light, "light", .large, "default"), (.dark, "dark", .large, "default"),
@@ -68,14 +67,10 @@ import XbinRendererModel
                 // an upload target shows its attach button, as the
                 // reference's does (the app's pickers never open here).
                 let services = XbinServices(attach: { _ in [] })
-                // UTC and en_US, as shots.mjs pins the reference's browser:
-                // a chart's time axis then reads the same hours on both
-                // sides (the hosted runner's Pacific time put it 7 h off).
-                // Swift Charts takes the zone from the calendar.
+                // en_US, as shots.mjs pins the reference's browser (the
+                // time zone is the process's, above).
                 let view = XbinTreeView(store: store, send: { _ in }, services: services,
                                         options: XbinRenderOptions(inlineSheets: true))
-                    .environment(\.timeZone, Self.utc.timeZone)
-                    .environment(\.calendar, Self.utc)
                     .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
