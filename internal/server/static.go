@@ -90,8 +90,9 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// An element principal holding a code[:<owner>] grant reads sibling
 	// source here too (the grant's whole point — tooling backends fetching
 	// files); the 2026-08-02 element read clamp governs everything else.
-	// Note the D4 injection mints a frame token only when CanReadTile passes,
-	// so grant-based reads never leak the OTHER tile's credential.
+	// Note the D4 injection mints a frame token only for a human or the tile
+	// itself (mayMintFrameToken), so element reads — grant-based or through
+	// the attributed user's access — never leak the OTHER tile's credential.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
 		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -101,6 +102,12 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
 			return
 		}
+	}
+
+	// A native runtime document (?native=1 on a tile's directory URL) is
+	// generated, not a file — authorized above exactly like index.html.
+	if nativeRuntimeRequest(r) && s.serveNativeRoute(w, r, cleaned) {
+		return
 	}
 
 	full = s.overlayFile(cleaned, full) // dev overlay: a file it carries wins
@@ -296,11 +303,52 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		compPath = strings.TrimSuffix(cleaned, "/"+filepath.Base(cleaned))
 	}
 
+	inject := s.headInjection(r, comp, compPath)
+
+	var out []byte
+	if loc := headRe.FindIndex(body); loc != nil {
+		out = append(out, body[:loc[1]]...)
+		out = append(out, []byte(inject)...)
+		out = append(out, body[loc[1]:]...)
+	} else {
+		out = append([]byte(inject), body...)
+	}
+
+	s.documentHeaders(w, compPath, comp)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
+}
+
+// documentHeaders sets the headers of an injected document of compPath (a
+// tile page or its native runtime document): the content type, and the
+// sandbox — or, for trusted chrome, COOP.
+func (s *Server) documentHeaders(w http.ResponseWriter, compPath string, comp *registry.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
+	// in an opaque origin — no parent/sibling DOM access, no storage, no
+	// ambient credentials on subresources; its only credential is the injected
+	// frame token. Delivered as a header (not just the iframe attribute) so
+	// direct-tab opens of /c/<tile>/ are confined identically, with the same
+	// grant-unlocked extras (ND11).
+	if !s.sandboxDocument(w, compPath, comp) {
+		// Trusted chrome: keep popups it opens (full-page tile views, docs)
+		// in its own browsing-context group.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	}
+}
+
+// headInjection is the D4 <head> block of one of compPath's documents: the
+// merged import map, the component and frame-token metas (a token only for
+// a human or the tile itself that may read it — mayMintFrameToken), bound
+// interfaces, the sandbox token
+// list, the WebSocket origin for app WebViews (appWSOriginMeta), and the
+// xbin-client module.
+func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string) string {
 	imports := s.Reg.ImportMapFor(comp)
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	frameTok := ""
-	if p := auth.PrincipalOf(r); p.CanReadTile(compPath) {
+	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 
@@ -319,37 +367,31 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
 	}
 
-	inject := fmt.Sprintf(
+	return fmt.Sprintf(
 		"\n<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s%s"+
+			"%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta)
+		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+}
 
-	var out []byte
-	if loc := headRe.FindIndex(body); loc != nil {
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(inject)...)
-		out = append(out, body[loc[1]:]...)
-	} else {
-		out = append([]byte(inject), body...)
+// mayMintFrameToken: the injection mints compPath's frame token only for a
+// principal that may read the tile AND is not another tile — a human
+// (cookie, bearer) or the tile itself (its own frame/terminal/instance
+// principal, including an xbin.window sub-path token like apps/x/editor,
+// whose owning component is apps/x). Without the second half, any tile's
+// frontend could xbin.fetch('/c/<other>/') — or, since native runtime
+// documents, '/c/<other>/?native=1', which exists even for inject:false
+// tiles and tiles with no index.html — and lift the other tile's token out
+// of the HTML whenever its user can read that tile. Element principals
+// reading other tiles' documents (code grants, the user's RBAC) get the
+// HTML without a token, as code-grant reads always did.
+func (s *Server) mayMintFrameToken(p auth.Principal, compPath string) bool {
+	if !p.CanReadTile(compPath) {
+		return false
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
-	// in an opaque origin — no parent/sibling DOM access, no storage, no
-	// ambient credentials on subresources; its only credential is the injected
-	// frame token. Delivered as a header (not just the iframe attribute) so
-	// direct-tab opens of /c/<tile>/ are confined identically, with the same
-	// grant-unlocked extras (ND11).
-	if !s.sandboxDocument(w, compPath, comp) {
-		// Trusted chrome: keep popups it opens (full-page tile views, docs)
-		// in its own browsing-context group.
-		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(out)
+	return p.Component == "" || p.Component == compPath || s.owningComponent(p.Component) == compPath
 }
 
 func htmlEscape(s string) string {

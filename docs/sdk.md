@@ -183,7 +183,8 @@ const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
 
 // attributed WebSocket to an element API (browsers can't set WS headers,
 // so the frame token rides a query param xbind consumes — the callee
-// never sees it):
+// never sees it). In the xbin app it connects to the injected
+// xbin-ws-origin (docs/elements.md §Views) — same code:
 const sock = xbin.ws('/api/apps/other/stream');
 
 // attributed URL string — same query-param trick for TAG-driven requests

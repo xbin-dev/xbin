@@ -167,19 +167,36 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
 			slog.Warn("go.work", "err", err)
 		}
-		affected := map[string]*registry.Component{}
-		for _, p := range ev.Paths {
-			if c, _, ok := reg.Resolve(p); ok {
-				affected[c.Path] = c
-			}
-		}
-		for _, c := range affected {
+		reload, restart := changedComponents(reg, ev.Paths)
+		for _, c := range reload {
 			slog.Debug("changed", "component", c.Path)
 			hub.Publish(events.Event{Type: "reload", Component: c.Path})
-			run.Changed(c)
+			if restart[c.Path] {
+				run.Changed(c)
+			}
 		}
 		run.WakeAlwaysOn() // a new tile, or the flag added
 	}
+}
+
+// changedComponents maps one batch of changed workspace paths to the
+// components they belong to. Every one reloads (web frames and native
+// runtimes alike); restart marks the ones whose backend must be rebuilt —
+// all but those whose only change is their native UI entry, which no
+// backend reads (registry.Component.NativeOnlyChange).
+func changedComponents(reg *registry.Registry, paths []string) (reload map[string]*registry.Component, restart map[string]bool) {
+	reload, restart = map[string]*registry.Component{}, map[string]bool{}
+	for _, p := range paths {
+		c, rest, ok := reg.Resolve(p)
+		if !ok {
+			continue
+		}
+		reload[c.Path] = c
+		if !c.NativeOnlyChange(rest) {
+			restart[c.Path] = true
+		}
+	}
+	return reload, restart
 }
 
 // reapZombies handles PID-1 duty: adopt and reap orphaned grandchildren.
