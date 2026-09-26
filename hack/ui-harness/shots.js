@@ -15,7 +15,7 @@ const {
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
-const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions');
+const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
 const { viewAs } = require('./passes/viewas');
 const { windows } = require('./passes/windows');
 const { agentTab } = require('./passes/agenttab');
@@ -838,7 +838,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle,
 };
 
 (async () => {

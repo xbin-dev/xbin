@@ -9,9 +9,12 @@
  *              clamp the request; the attribute then mirrors what it granted.
  *   session  — existing session id to reattach (set automatically after
  *              connect; survives element re-creation if you persist it)
+ *   vm       — "1": open the session in a VM sandbox (a Firecracker microVM,
+ *              root in its own kernel; plans/vm-sandbox.md). Changing it
+ *              restarts the session, like net/gpu/api.
  *
  * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,
- * netNote}) once the server assigns a session — `scopes` is exactly what this
+ * netNote, vm}) once the server assigns a session — `scopes` is exactly what this
  * user may pick on this tile, `netNote` explains a clamp.
  * Wire protocol: docs/protocol.md §/ws/term.
  *
@@ -466,14 +469,15 @@ export class BxTerminal extends HTMLElement {
   // spawn), so a live change to `net` restarts the session: drop the current
   // session id and reconnect, which asks xbind for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
-  static get observedAttributes() { return ['net', 'gpu', 'api']; }
+  static get observedAttributes() { return ['net', 'gpu', 'api', 'vm']; }
   attributeChangedCallback(name, oldV, newV) {
-    if ((name !== 'net' && name !== 'gpu' && name !== 'api') || oldV === null || oldV === newV || !this.#term) return;
+    if (!['net', 'gpu', 'api', 'vm'].includes(name) || oldV === null || oldV === newV || !this.#term) return;
     // The server reports the EFFECTIVE scope in its session frame (it may
     // clamp what was asked — D54); mirroring that into the attribute must not
     // respawn the shell we just got.
     if (name === 'net' && newV === this.#serverNet) return;
     const msg = name === 'gpu' ? `switching GPU → ${newV}…`
+      : name === 'vm' ? (newV === '1' ? 'starting a VM…' : 'leaving the VM…')
       : name === 'api' ? `${newV === '0' ? 'disabling' : 'enabling'} tile API…`
         : `switching network → ${newV === 'org' || newV === 'personal' ? newV + ' network' : newV}…`;
     this.#restart(msg);
@@ -595,7 +599,8 @@ export class BxTerminal extends HTMLElement {
         // tile (the org network on org-owned tiles, D54).
         (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
         `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
-        `&api=${this.getAttribute('api') === '0' ? '0' : '1'}`;
+        `&api=${this.getAttribute('api') === '0' ? '0' : '1'}` +
+        (this.getAttribute('vm') === '1' ? '&vm=1' : '');
     const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
     ws.binaryType = 'arraybuffer';
     this.#ws = ws;
@@ -629,7 +634,7 @@ export class BxTerminal extends HTMLElement {
             this.#term.write(`\r\n\x1b[90m[${ctl.netNote}]\x1b[0m\r\n`);
           }
           this.dispatchEvent(new CustomEvent('bx-session', {
-            detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated },
+            detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm },
             bubbles: true }));
           // this xbind acks input and answers pings: measure the link, keep measuring
           this.#echoAck = !!ctl.echoAck;

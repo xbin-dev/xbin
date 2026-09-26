@@ -89,8 +89,10 @@ function layoutGroup(f) {
 // the select back to the tab's value (f._set* resolve false).
 function pickers(f) {
   const cur = f._sessions[f._active];
-  const scopes = cur?.scopes ?? [
-    { id: 'internet', label: 'internet' }, { id: 'host', label: 'host net' }, { id: 'none', label: 'offline' }];
+  // a VM can't share the host network (the guest sits behind the relay)
+  const scopes = (cur?.scopes ?? [
+    { id: 'internet', label: 'internet' }, { id: 'host', label: 'host net' }, { id: 'none', label: 'offline' }])
+    .filter((s) => !(cur?.vm && s.id === 'host'));
   const now = scopes.find((s) => s.id === (cur?.net || scopes[0].id)) ?? scopes[0];
   const api = cur?.api === false ? 'off' : 'on';
   const gpu = cur?.gpu || 'none';
@@ -108,7 +110,8 @@ function pickers(f) {
       <option value="on">🔌 tile API</option>
       <option value="off">⛔ no API</option>
     </select>
-    ${f._gpus.length ? html`
+    ${vmToggle(f, restarts)}
+    ${f._gpus.length && !cur?.vm ? html`
       <select class="scope" title=${`GPU (${restarts})`}
               .value=${gpu}
               @change=${async (e) => { if (!(await f._setGpu(f._active, e.target.value))) e.target.value = gpu; }}>
@@ -117,6 +120,26 @@ function pickers(f) {
         ${f._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
       </select>` : nothing}
     ${layerButtons(f)}`;
+}
+
+// The VM toggle (plans/vm-sandbox.md): the session restarts as a Firecracker
+// microVM — root in its own kernel, the same files and network scope. Shown
+// disabled with the reason when this host or the workspace policy can't run
+// one (GET /ws/term/env's vm block, loaded with the tile state).
+function vmToggle(f, restarts) {
+  const cur = f._sessions[f._active];
+  const st = f._vmStatus;
+  if (!cur || !st) return nothing;
+  const on = !!cur.vm;
+  const who = f._isAgent ? 'agent' : 'shell';
+  const size = st.memMiB ? ` (${st.memMiB} MiB, ${st.vcpus} vCPU)` : '';
+  const tip = on ? `VM sandbox: this ${who} is root in its own kernel${size} — click to leave the VM (${restarts})`
+    : st.available ? `run this ${who} in a VM sandbox: root in its own kernel${size}, the same files and network (${restarts})`
+      : `VM sandbox unavailable: ${st.reason}`;
+  const patch = { vm: !on };
+  if (!on && cur.net === 'host') patch.net = null; // back to the tile's default scope
+  return html`<button class=${'vm' + (on ? ' on' : '')} ?disabled=${!on && !st.available} title=${tip}
+      @click=${() => f._respawn(f._active, patch, on ? 'outside the VM' : 'in a VM sandbox')}>⧉ VM</button>`;
 }
 
 // The tile's persistent terminal layer — shared by its shells and agents:
@@ -166,6 +189,8 @@ export const titlebarCss = css`
     color: var(--bx-text, #d4d9e0);
   }
   .titlebar button:hover, .toolsrow button:hover { color: var(--bx-text, #d4d9e0); }
+  .titlebar button:disabled, .toolsrow button:disabled { opacity: .45; cursor: default; }
+  .titlebar button.vm.on, .toolsrow button.vm.on { color: var(--bx-accent, #7fb4ff); }
   .titlebar button.upgrade, .toolsrow button.upgrade {
     color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
     border-radius: 5px; padding: 1px 8px; white-space: nowrap;

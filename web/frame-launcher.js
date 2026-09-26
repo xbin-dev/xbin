@@ -30,7 +30,8 @@ export function loadHistory(f) { agentHistory(f.src).then((h) => { if (f.isConne
 export const envStatus = (cwd) => fetch(`/ws/term/env?cwd=${encodeURIComponent(cwd)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
 export function loadTileState(f) {
   loadHistory(f);
-  envStatus(f.src).then((s) => { if (f.isConnected) f._envOld = !!s.baseOutdated; });
+  // vm: whether a VM terminal can open here, and why not (the title bar's toggle)
+  envStatus(f.src).then((s) => { if (f.isConnected) { f._vmStatus = s.vm || null; f._envOld = !!s.baseOutdated; f.requestUpdate(); } });
 }
 
 // LAST_KIND: the launcher's remembered choice (per browser).
@@ -90,7 +91,7 @@ export async function restartAgent(f, i, patch, what) {
   try {
     const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(cur.id)}/restart`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ net: want.net || undefined, api: want.api !== false, gpu: want.gpu || 'none' }),
+      body: JSON.stringify({ net: want.net || undefined, api: want.api !== false, gpu: want.gpu || 'none', vm: !!want.vm }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `restart failed (${r.status})`);

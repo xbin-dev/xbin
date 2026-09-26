@@ -86,6 +86,7 @@ export function tabsFrom(server, local) {
       key: was?.key ?? uid(), id: s.id, kind,
       provider: s.provider || was?.provider || '', status: s.status || was?.status || '',
       net: was ? (was.net ?? null) : (s.net || null), gpu: was ? (was.gpu || 'none') : (s.gpu || 'none'), api: was ? was.api !== false : s.api !== false,
+      vm: s.vm ?? !!was?.vm,
       name: s.name || '', scopes: s.scopes ?? was?.scopes ?? null, label: s.label || '',
       baseOutdated: !!was?.baseOutdated,
     });

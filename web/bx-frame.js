@@ -609,7 +609,7 @@ export class BxFrame extends LitElement {
       setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu })); },
+      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu, vm: !!s.vm })); },
       get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
       get activeTab() { return f._active; },
       setActiveTab(i) { f._setActive(i | 0); },
@@ -885,7 +885,7 @@ export class BxFrame extends LitElement {
                   @bx-open-terminal=${this._signIn}
                   @bx-exit=${() => this._endTab(s.key)}></bx-agent>`
               : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'} run=${s.run || nothing}
+                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'} vm=${s.vm ? '1' : '0'} run=${s.run || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
                   @bx-exit=${() => this._closeTerm(s.key, true)}></bx-terminal>`)}
             </div>
