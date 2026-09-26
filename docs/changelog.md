@@ -12,6 +12,163 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **xbin app: live reload, windows as tabs, Needs-you that keeps up**
+  (D99, [native.md](native.md), [protocol.md](protocol.md)). While the app
+  shows a workspace it follows `/ws/events` with its own device session
+  (a bearer — never handed to a tile): saving a tile reloads its open
+  native view or web page in every window that shows it (the most specific
+  open tile, as in the shell); agent screens follow their session live and
+  catch up after a gap; the Needs-you inbox updates in place and now counts
+  a session waiting only on a question. On iPad, Stage Manager and Mac
+  each window has its own workspace and place: open a tile, terminal or
+  agent session in a new window, or drag a tile out; a tile's
+  `xbin.window` opens in the window the tile is in, never another. A
+  native tile's `xbin.native.meta({icon, badge})` shows in the navigator
+  and switcher; Handoff offers the current tile or session; haptics on
+  send, approve, a finished turn and a session that starts waiting.
+- **xbin app: open the workspace in Safari, signed in** (D100,
+  [auth.md](auth.md) §Device login, [protocol.md](protocol.md)). The app's
+  device-key session mints a one-shot link: `POST /api/xbin/web-ticket
+  {next?}` → `{url, expires, expiresIn: 60}`, `url` =
+  `<origin>/login?ticket=…&next=<path>`, `next` a path on this workspace.
+  Opening it never signs a browser in by itself: a browser signed in as you
+  lands on `next`, one signed in as someone else is refused, and a
+  signed-out one shows **"Continue as <name>"** and signs in only when that
+  button is pressed (`POST /login/web-ticket`, a same-origin form post from
+  that browser only) — anyone can make such a link for their own account
+  and send it to you, so check the name. The session it opens ends with
+  the device and the app's sign-out and keeps the device login's time and
+  SSO window (D93). Only a device-key session mints (403 otherwise); 10 per
+  minute per device; every mint and sign-in is audit-logged.
+- **xbin app: add another device** — Settings → Devices shows a QR code the
+  new device scans. A device login (a fresh Face ID signature) counts as
+  the recent sign-in that minting an enrollment code needs, for 10 minutes;
+  after that a device session needs the password like any other
+  ([auth.md](auth.md) §Device login).
+- **Native views can be switched off without an app update** (D101,
+  [elements.md](elements.md) §Native app UI, [native.md](native.md)). Admins
+  turn the app's native tile UIs off for the workspace in the admin
+  console's *workspace → xbin app* tab, or with `PUT
+  /api/xbin/native-runtime {"enabled": false}` (`GET` for anyone signed in →
+  `{enabled, runtime, version}`). While off, `whoami` says `native:
+  {runtime: 0, disabled: true}` and apps open every tile as its web page;
+  `/c/<tile>/?native=1` answers `410` with the reason; `&preview=1` — and so
+  `bx native tree`, `bx preview --native` and `bx lint --native` — keeps
+  working; open apps learn of it from the new `{"type":"native"}` event on
+  `/ws/events`. The app also honours a user switch (Settings → Native views)
+  and a remote file for a build with a known problem
+  (`https://xbin.dev/app/ios.json`, re-read every 6 hours and at once after
+  a crash; it fails open).
+- **xbin app: a native tile's escape hatches work** (D103,
+  [native.md](native.md) §Escape hatches). `terminal` connects as the tile
+  to its own backend's pty WebSocket (the frame token as `?frame=` through
+  xbind's proxy, the `/ws/term` framing): `{"op":"exit"}` or a clean close
+  (1000, or no code) ends it, any other close reconnects with backoff that
+  starts over only after a socket stayed open 5 s. `canvas src` loads one
+  of the tile's pages in an island like its web page (frame token,
+  sandbox, `xbin.dialog`, alert/confirm/prompt, downloads); `canvas html`
+  renders with JavaScript off under a CSP that loads nothing.
+- **xbin app: composer attachments** ([native.md](native.md) `composer`).
+  With `upload {method, path}` the app offers Photos, the camera and Files,
+  uploads each file itself with the tile's frame token and shows progress.
+  `path` must be the tile's own `/api/<self>/…` (other targets are refused
+  and nothing is sent) and may carry a query; `{name}` is percent-encoded;
+  `method` is PUT (the default), POST or PATCH. Every picked file ends in
+  `@uploaded {name, response}`: one over 64 MiB is neither read nor sent
+  and gets `{error, status: 413}`. JPEG, PNG and GIF photos arrive as they
+  are; HEIC photos and camera shots as JPEG; videos as the movie file.
+  `bx preview --native` refuses upload targets that aren't the tile's own.
+- **xbin app: files in agent prompts** — the Agent tab attaches photos and
+  files to the next prompt (`POST …/prompt {text, attachments}`); photos
+  are made model-ready first (HEIC to JPEG, long edge 2576 px, ≤ 3.75 MiB
+  inline); xbind's limits are checked before sending, and the transcript
+  shows a message's files.
+- **Native renderer: drawers, folded actions, thumbnails, input methods**
+  (D104, [native.md](native.md)). `sheet edge="leading"` slides in from the
+  leading edge over the screen, bar included (the backdrop or the escape
+  gesture fires `@dismiss`); a row's `actions` also sit behind a trailing ⋯,
+  and a message's fold into a ⋯ under its bubble; `message` files with an
+  image `src` show as thumbnails (tap: Quick Look, as `image preview` now
+  does); `field` and `composer` never report text still being composed with
+  an input method — the commit arrives as one `@input`, and a value the
+  tile sets meanwhile is applied when the composition ends. Long
+  identifiers wrap at characters instead of being hyphenated; bar-tab
+  content clears the floating tab bar; a lighter chat header. The web
+  preview does the same. New fixtures: `drawer`, `folded-actions`,
+  `message-files`, `ime-field`.
+- **xbin app: the terminal** (D105) — scrollback search (⌘F or More → Find;
+  older/newer matches, case, whole words, regex, "3 of 14"), a precise
+  selection mode (More → Select Text: by character, word or line, handles,
+  the loupe, nudges, copy), keyboard settings (the accessory row's extra
+  key — a key, F1–F12, a character, a snippet, or none — and ⌥ as Meta;
+  also in the app's Settings), and the iPhone Duo's tabletop layout behind
+  the `XBIN_SDK_27_1` build flag.
+- **push: Live Activities for agent turns** (D102,
+  [protocol.md](protocol.md), relay README). The app shows a running agent
+  turn on the lock screen and in the Dynamic Island (running / waiting for
+  you, elapsed time, pending requests — generic text only), started and
+  updated by the app while it runs and kept current by xbind through the
+  relay otherwise; xbind starts one by push for a turn still running after
+  30 s. `POST /api/xbin/devices/push {…, startHandle}` registers the app's
+  push-to-start handle; `POST /api/xbin/devices/push/activities {deviceId,
+  session | ref, handle, since?}` → `{activity: {session, created,
+  ended?}}` and `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>`
+  register and unregister a card. xbind sends only phase, since and pending
+  (`apns-push-type: liveactivity`), never a title or text.
+- **relay: Live Activity handles, and optional proof of work** (D102).
+  `POST /v1/handles {pushType: "liveactivity", parent, start?}` and `POST
+  /v1/push {type: "liveactivity", activity}`: one push-to-start handle and up
+  to 16 card handles per device handle; an accepted end deletes its handle.
+  `-registration-pow <bits>` and `GET /v1/workspaces/challenge` put a
+  hashcash proof on anonymous workspace registration, which xbind solves; a
+  replayed proof never uses up the global limit and a refusal spends
+  nothing. A relay that requires it refuses xbinds from before this change.
+- **Devices panel** — each device shows its push registration (what it is
+  notified about, when it was last sent one, whether the relay wants a new
+  handle, its Live Activities) with a **remove** that stops notifications
+  without signing the device out; registrations no enrolled device owns
+  are listed apart.
+- **agent template: Needs you reaches your phone** (D106, the template's
+  API.md "Needs you on your phone"). When the agent or a subagent asks a
+  question or wants an approval, or an automation's run fails, the backend
+  pushes it (`xbin.NotifyUserWith`) to the people who'd see it under Needs
+  you — the owner and participant members for a question or approval, the
+  owner for a failure; link `#c=<run>`, kind `question` | `approval` |
+  `failed`. Best-effort: a 3 s grace, once per question or approval and
+  once per failing run per 6 h, at most 10 per person refilled 1 per 6
+  min, never for view-as.
+- **agent template: attachments on a new ask from home** in the native app:
+  `PUT /ask/upload?draft=<key>&name=` uploads into a run held for the draft
+  (listed nowhere until sent), `POST /ask {text, draft, files}` sends it;
+  unsent drafts go a day later. The web's `hold: true` flow is unchanged.
+  Also: tool-call arguments stream as `tool.delta` on `/stream?deltas=1`;
+  `fold()` caches per block (`FoldCache` — identical output, unchanged
+  blocks keep their identity); settings, memory, files and skills calls
+  live in `model/actions.js` (the web is pixel-identical). Running
+  instances are copies and are unaffected; when upstreaming an instance's
+  patches (D72), retarget hunks on `agent.js`'s settings tabs to the
+  `actions.*` calls.
+- **`bx lint --native`** reads the preview runtime document
+  (`?native=1&preview=1`), so it keeps working while native UIs are off.
+- **terminal window: the title bar degrades whenever it doesn't fit** (D107,
+  [elements.md](elements.md)) — not only below 640 px: on a GPU host the GPU
+  picker and the VM toggle overflowed the default 680 px window, squeezing
+  the tab under `+` and pushing the ✕ out. The bar is measured: the path
+  and network label shorten first, then the layout switcher and the
+  pickers move behind `⋯`; tabs keep a legible width and the strip scrolls.
+  A window restored open (a reload, a second browser) now loads its GPU
+  picker, VM toggle, base update, recent sessions and PR badge; pickers keep
+  their value when re-created; the Agent tab's one-click sign-in keeps its
+  command when a session listing lands first.
+- **native CI and the Mac mini** (D108, D109) — ios.yml runs where the
+  `XBIN_IOS_RUNNER` repository variable says (GitHub's `xcode-27`, or the
+  Mac mini), with cached builds; ci.yml gains a Linux `native` job (Swift
+  6.4: `make swift-test`, `make swift-stubcheck`, `make native-check`,
+  `ci-local-check.sh`); `mac-setup.sh` / `mac-remote.sh` set up and drive
+  the Mac (UI tests against a real xbind over an ssh tunnel), and the Mac's
+  release signing is scaffolded for a separate user. Nothing here changes a
+  workspace.
+
 - **security: tile backends no longer receive xbind's credentials.** A
   request proxied to `/api/<tile>/…` arrived with the caller's session
   cookie (a link followed to the tile's API, a chrome page's call) or

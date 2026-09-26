@@ -1,16 +1,21 @@
 # Native client — the xbin app (iOS first)
 
-> Status: **implemented** (2026-09-26; decisions D91–D98). Built and tested:
-> the xbind side (runtime document, discovery, device login, frame-token
-> binding, push and `POST /notify`, the agent-session additions — §20 rows
-> 1–10), the runtime `/vendor/xb-native.js` and its vocabulary, the Lit
-> reference renderer, the fixtures, the `bx` native commands, the eight tile
-> rewrites and the agent template's native view. The iOS app, its Swift
-> packages and the SwiftUI renderer are written; the packages and the
-> renderer's model pass `swift test` on Linux, but nothing has been compiled
-> by Xcode or run on a device yet (the first Apple CI run is pending).
-> Open: who operates the push relay (decision 13) and App Review (16). §26
-> lists where the build departs from this text. Companion plans:
+> Status: **implemented** (2026-09-26; decisions D91–D98, then D99–D109).
+> Built and tested: the xbind side (runtime document, discovery, device
+> login, frame-token binding, push and `POST /notify`, the agent-session
+> additions — §20 rows 1–10 — then the web ticket, the per-workspace native
+> switch and Live Activity pushes), the runtime `/vendor/xb-native.js` and
+> its vocabulary, the Lit reference renderer, the fixtures, the `bx` native
+> commands, the eight tile rewrites and the agent template's native view.
+> The iOS app, its Swift packages and the SwiftUI renderer are written; the
+> first round builds and its snapshots pass on GitHub's `xcode-27` runner.
+> The second round — the app's events socket and live reload, windows as
+> tabs, the kill switches, signed-in Safari, the escape hatches, Live
+> Activities, the terminal's search and selection, drawers and IME-safe
+> input (§26 "Round 2") — passes `swift test` and the stub checks on Linux
+> and awaits its first Apple CI run. Nothing has run on a device. Open: who
+> operates the push relay (decision 13) and App Review (16). §26 lists
+> where the build departs from this text. Companion plans:
 > plans/tile-asset-auth.md (strict frontend gating) and
 > plans/agent-template-native.md (the agent tile's native mode). Dev loop:
 > native/AGENTS.md.
@@ -1497,15 +1502,21 @@ Phase 0 is this document. Then three tracks, in parallel:
   SwiftUI renderer → the eight tile rewrites as fixtures → the agent template
   (its own plan).
 
-**CI.** `.github/workflows/ios.yml` on `runs-on: xcode-27`: `brew install
-xcodegen` → generate → build → test (XbinCore, renderer snapshots of every
-fixture: light/dark × default/large Dynamic Type) → upload PNGs and the
-`.xcresult`; triggered by a push to a feature branch (never master) that
-touches `native/ios/**`, `native/fixtures/**`, `native/spec/**` or the
-workflow, and by hand. Then
-download the snapshots, compare with the Lit reference screenshots, fix what
-isn't an intended platform difference, and publish a montage contact sheet
-(iOS vs web per fixture). Details: native/AGENTS.md.
+**CI.** `.github/workflows/ios.yml` on the runner the repository variable
+`XBIN_IOS_RUNNER` names (GitHub's `xcode-27` when unset, the owner's Mac mini
+with `["self-hosted","macOS","xbin-mini"]`; D108): a pinned xcodegen →
+generate → build (the app, the widget extension, the UI tests) → test
+(XbinCore, renderer snapshots of every fixture: light/dark × default/large
+Dynamic Type) → upload PNGs and the `.xcresult`, with DerivedData and
+SwiftPM clones cached; triggered by a push to a feature branch (never
+master) that touches `native/ios/**`, `native/fixtures/**`, `native/spec/**`
+or the workflow, and by hand — never by a pull request (a self-hosted
+runner). ci.yml's Linux `native` job runs the packages and the stub checks
+(D109). Then download the snapshots, compare with the Lit reference
+screenshots, fix what isn't an intended platform difference, and publish a
+montage contact sheet (iOS vs web per fixture). The UI tests run on the
+Mac against an xbind on the Linux box (`mac-remote.sh e2e`). Details:
+native/AGENTS.md ("Mac mini" included).
 
 ## 22. Compatibility
 
@@ -1543,11 +1554,14 @@ isn't an intended platform difference, and publish a montage contact sheet
   LRU; measure on device early.
 - **Controlled text fields over an async bridge**: the §7.3 rule must hold
   under fast typing and IME composition; fixture tests with scripted input.
+  (IME: closed by D104's `TextInputGate`, tested on Linux and, for the
+  reference renderer, with Chromium's IME emulation; not yet on a device.)
 - **iPhone Duo APIs** are known from secondary sources; confirm against the
   Xcode 27.1 SDK before use; the design only needs size classes + two optional
   APIs (reserved regions, hinge).
 - **App Review** (§23).
-- **Relay operations**: who runs it, where, abuse limits (decision 13).
+- **Relay operations**: who runs it, where (decision 13); abuse limits now
+  include an optional proof of work on anonymous registration (D102).
 
 ## 25. Decisions for review
 
@@ -1658,7 +1672,9 @@ server's `host[:port]` for `<ws>`, plus `xbin://<ws>` and
 handler counts as embedded for `xbin-client.js`, so `xbin.dialog` and
 `xbin.window` reach the app (§6.2 assumed the page's own posts would). The
 scheme handler follows redirects only on the workspace origin. "Open in
-Safari" opens the plain URL (no one-shot signed-in ticket route exists).
+Safari" opens a one-shot web ticket that the browser confirms once
+("Continue as <name>", D100); an xbind without the route gets the plain
+URL.
 
 **Push (§14, D94).** Sealing is ephemeral X25519 + HKDF-SHA256 + AES-256-GCM
 (envelope `{v, epk, n, ct}`), not RFC 9180 HPKE. The SDK helper is
@@ -1679,9 +1695,9 @@ replay. Images past the inline limits (3.75 MiB each, 4 MiB per prompt)
 become files the agent opens (`inline:false`) instead of a 400. Status
 changes ride `term` op `status`; `term`/`session` events reach humans only,
 and no agent sandbox's token may open or drive an agent session (its own
-or a sibling's). The app has no
-`/ws/events` socket yet: Needs-you comes from the session directory and
-pushes, and native runtimes don't reload live on file changes.
+or a sibling's). Since round 2 the app has its own `/ws/events` socket
+(D99): native runtimes and web tiles reload live, and Needs-you follows
+`term` status events.
 
 **Asset gating (§6.1, D95).** The origins exchange is a one-time,
 session-bound `?xbin_ticket=`, not `?frame=`; origins mode renames the
@@ -1697,7 +1713,49 @@ ones, and must exercise the whole vocabulary.
 
 **Rendering (§10, §15).** The SwiftUI tint is `accentText` (darkened amber in
 light mode) for text contrast. `split` stacks both panes when compact, like
-the reference renderer; iPhone Duo APIs are not used yet. Snapshots render
+the reference renderer; the iPhone Duo APIs sit behind `XBIN_SDK_27_1`
+(off until the 27.1 SDK is on CI: `split`'s ArrangementView, the terminal's
+tabletop). Snapshots render
 a hosted offscreen window (ImageRenderer draws UIKit-backed views as
 placeholders). The reference renderer draws pull-to-refresh as a bar button
 and folds swipe actions into a ⋯ popover.
+
+### Round 2 (2026-09-26, D99–D109)
+
+The remaining roadmap, built as nine work packages and integrated on
+`native`. Where it departs from the text above:
+
+- **Events and windows (§4, §7.7, D99).** The app's `/ws/events` socket is
+  one per workspace a foreground window shows, with the device session as
+  a bearer. Windows are tabs: navigation is per window (`WorkspaceNav`),
+  and a tile's `xbin.window` — a canvas island's included — pushes onto its
+  own window only; the focused-window API is gone.
+- **Signed-in Safari (§6.3, D100)** is a one-shot ticket plus one tap on a
+  "Continue as" page (login-CSRF defence), not a silent sign-in.
+- **The kill switch (§23, D101)** is three: the remote app config
+  (fail-open, re-fetched at once after a crash), the workspace's admin
+  switch (`whoami.native.runtime` 0, `?native=1` 410, a `native` event), and
+  the user's.
+- **Escape hatches (§8.5, D103).** The expanded terminal and the camera are
+  sheets, not full-screen covers; a tile pty's clean close (1000 or none)
+  ends the terminal; composer uploads go through URLSession with the frame
+  token, and a file over 64 MiB is answered with a 413 rather than dropped.
+- **The terminal (§12, D105).** Precise selection is entered from the More
+  menu (SwiftTerm's long-press menu can't be extended); the Duo tabletop
+  uses reserved regions, not the hinge, and puts a key panel between the
+  fold and the keyboard rather than the keyboard itself in the lower half.
+- **The renderer (§8, §15, D104).** Drawers dismiss from the backdrop only;
+  messages fold their actions into a ⋯ with no context menu (text
+  selection); long identifiers wrap at characters; Quick Look is
+  `.quickLookPreview` on a temp copy.
+- **Push (§14, D102).** Live Activity handles are children of a device
+  handle at the relay (one push-to-start, 16 cards); the payload is built
+  by the relay from generic state.
+- **CI and the Mac (§21, D108, D109).** The runner is a repository
+  variable; the Mac mini's setup, ssh loop, UI tests and release-signing
+  scaffolding are in native/AGENTS.md; the app's SwiftUI/UIKit code is
+  type-checked on Linux against layered stubs in CI.
+- **Verified where:** Go and JS on Linux (unit, integration, the UI
+  harness in all asset modes); Swift packages under `swift test` on Linux;
+  the app's SwiftUI/UIKit code against stubs only; not yet compiled by
+  Xcode, not run on a simulator or device.

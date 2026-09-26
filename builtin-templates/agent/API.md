@@ -62,7 +62,7 @@ own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
 
-**Needs you on your phone.** The moments `/needs` lists are also pushed to the
+**Needs you on your phone** (D106). The moments `/needs` lists are also pushed to the
 xbin app of each person who would see them there (`xbin.NotifyUserWith` →
 `POST /api/xbin/notify`; xbind delivers only to people who can read this tile,
 sealed to their devices, and only when the workspace has push set up):

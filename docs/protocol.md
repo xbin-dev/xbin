@@ -2163,7 +2163,7 @@ GET    /ws/events?frame=<token>    WebSocket upgrade → the event stream (below
 
 Auth: cookie (owner), a bearer session (`Authorization: Bearer` — the xbin
 app's own socket, with its device session: the human's events, never handed
-to a tile) or `?frame=<frame-token>` (element; standalone — no cookie
+to a tile; D99) or `?frame=<frame-token>` (element; standalone — no cookie
 required). JSON text frames:
 
 ```jsonc
@@ -2173,7 +2173,7 @@ required). JSON text frames:
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
-{"type":"native"}                                    // the native-runtime switch changed: re-read whoami (native.runtime)
+{"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

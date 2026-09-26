@@ -2968,3 +2968,316 @@ Deviations and refinements made while implementing; all deliberate:
     diagnostics, so bx carries no copy of `vocab.json` that could drift.
   - A run settles on quiet (no new messages for 400 ms, no non-streaming
     request in flight); the first tree gets twice the app's 5 s fallback.
+
+- **D99 — The xbin app follows its workspaces over `/ws/events`, and each
+  window navigates only itself (2026-09-26).** plans/native.md §7.7, §26;
+  docs/protocol.md (`/ws/events` with a bearer session); native/AGENTS.md.
+  - **One socket per workspace a foreground window shows**, closed in the
+    background, authenticated with the workspace's device session as a
+    bearer — a human principal, held in Swift, never handed to a web view
+    or a tile. The pure policy is XbinCore's (`EventSocketPolicy`: 0.5 s
+    doubling to 15 s with jitter, reset on open; one re-sign on a 401, a
+    second parks; 403/404 park until the next foreground); a reopen after
+    a gap re-lists sessions, catches agent feeds up and re-reads whoami.
+  - **Frames route to hooks**: `reload` → the most specific open tile, as
+    the web shell picks it (a native runtime remounts — its canvas islands
+    reload with it — a web tile reloads), in every window showing it;
+    `session` → the agent feed; `term` status → the Needs-you row in place
+    (TermDirectory decodes `questions`, and no status — `error` included —
+    drops a row, as in bx-frame); `branding`; `native` → a whoami re-read
+    (D101).
+  - **Windows are tabs.** Every window (SceneModel) owns a `WorkspaceNav`
+    per workspace; a screen acts only on its own window's
+    (`@Environment(WorkspaceNav.self)`, handed to what it creates:
+    `WebTileController.nav`, canvas islands through `TileHatches.nav`,
+    `AgentScreenModel(nav:)`). The single-window API that resolved to "the
+    focused window" was removed so the compiler flags old callers: a page
+    in a background Stage Manager window calling `xbin.window` after a
+    fetch would otherwise push over another window's tile (spoofing). Only
+    input from outside every window (a notification tap, an `xbin://`
+    link) goes to the focused one. Per-window state restores through
+    `@SceneStorage`; Handoff offers the current tile or session.
+  - **Tile meta** (`xbin.native.meta({icon, badge})`) is remembered per
+    workspace (TileMetaStore, cached) and shown in the navigator and the
+    switcher. **Haptics** fire where a person acts (send, approve, a
+    failure) or a watched turn settles or starts waiting on them.
+
+- **D100 — Signed-in Safari: a one-shot device-session web ticket,
+  confirmed on a "Continue as" page (2026-09-26).** docs/auth.md §Device
+  login; native/spec/device-login.md §6; docs/protocol.md.
+  - **Only a device-key session mints** (`POST /api/xbin/web-ticket
+    {next}`; not the app's password/SSO session, a browser, a tile, a
+    terminal or the owner token): the handoff trades a Face ID sign-in for
+    a browser one, never something weaker. The ticket lives 60 s, is spent
+    by its first open, and is bound to the minting session's generation
+    (D93), so sign-out, device removal, sign-out-everywhere, disabling and
+    the SSO window void it. The browser session it opens carries the
+    device id and keeps the device login's created time and cap — it ends
+    with the device and can't launder an old login into a fresh one. `next`
+    is a same-origin path; 10 per minute per device; audit-logged.
+  - **A GET never signs a signed-out browser in** (login CSRF): anyone can
+    mint a ticket for their own account and hand the link over, and a link
+    opened from Messages, Mail, a QR code or the address bar arrives with
+    `Sec-Fetch-Site: none` exactly like the app's own open, so Fetch
+    Metadata can't tell them apart. The GET shows "Continue as <name>"
+    (login, email, the landing path; no script, `frame-ancestors 'none'`,
+    `strict-origin` so the form's Origin isn't `null`), and only its button
+    opens the session: `POST /login/web-ticket` with a one-shot nonce (2
+    min) that must equal a SameSite=Strict cookie the page's response set
+    (`__Host-` behind TLS) — only the browser the page was served to — and
+    only as a same-origin form post (`Sec-Fetch-Site: same-origin`, or an
+    Origin of this host without Fetch Metadata); a refused post spends
+    nothing. A browser signed in as the same user goes straight to `next`,
+    as someone else gets a 403. Rejected: matching the redeem IP to the
+    device's (iCloud Private Relay splits Safari from the app; NAT defeats
+    it) and Fetch Metadata alone. Cost: one tap; the app never automates it.
+  - **A device login counts as the enrollment step-up** for 10 minutes: a
+    fresh Secure Enclave signature behind Face ID is at least as strong as
+    retyping the password, so the app's "Add another device" mints a code
+    without one; an older device session needs the password.
+
+- **D101 — Native views can be switched off without an app update: a
+  remote app config (fail-open), a per-workspace admin switch, the user's
+  setting (2026-09-26).** plans/native.md §23; docs/elements.md §Native app
+  UI; docs/native.md.
+  - **The workspace switch** is an admin setting in users.json (`GET/PUT
+    /api/xbin/native-runtime`, the admin console's workspace → xbin app
+    tab). Off means `whoami.native = {runtime: 0, disabled: true}` — shipped
+    apps already open every tile as its web page below runtime 1 — and
+    `/c/<tile>/?native=1` answers 410 with the reason (apps that cached
+    discovery). `&preview=1` keeps working, so `bx native tree`, `bx preview
+    --native` and `bx lint --native` still help a builder fix what the
+    switch covers for. A `{"type":"native"}` hub event makes open apps
+    re-read whoami at once.
+  - **The remote config** (`https://xbin.dev/app/ios.json`, `{nativeRuntime:
+    {disabled, disabledBuilds}}`, https only; Info.plist `XbinAppConfigURL`
+    overrides it or says `off`) turns native views off only after a
+    successful read: network errors, 5xx and junk keep the previous
+    answer, 404/410 mean nothing is off, an answer older than 7 days is
+    ignored; re-read every 6 h. It is fetched first — at launch and on
+    becoming active, before the app lock and workspace refreshes — and a
+    crash mark (`ForegroundMark`: a run that ended in the foreground)
+    makes the next launch fetch at once and restore windows to their
+    workspace's navigator until it lands: a build whose renderer crashes
+    on mount would otherwise crash every launch before learning it is
+    disabled. The file is deployed with the website, by hand.
+  - **The user's own switch** (Settings → Native views) and a per-tile
+    "Open as web page" stay; all four end in the same fallback (the tile's
+    web page, and a reason in Settings).
+
+- **D102 — Live Activities over the push relay, and proof of work on
+  anonymous relay registration (2026-09-26).** native/spec/push.md §7;
+  relay/README.md §Live Activities; docs/protocol.md. Extends D94.
+  - **Generic state only, bodies built by the relay.** An ActivityKit
+    payload is decoded by the system before app code runs, so it can't be
+    sealed; xbind sends `{phase, since, pending}` (plus `ws` and a random
+    `ref` on a push-to-start) and the relay builds the APNs body from
+    enumerated and numeric fields (`apns-push-type: liveactivity`, topic
+    `<bundle>.push-type.liveactivity`). Names stay in the card's
+    attributes, on the device. The app starts, updates and ends a card
+    itself while it runs; xbind keeps it current while the app is
+    suspended and starts one by push for a turn still running after 30 s.
+  - **Relay handle kinds**: Live Activity handles are children of a device
+    handle; one push-to-start handle per parent (`start: true`, start
+    events only, a new token replaces it, never evicted for cards) and at
+    most 16 card handles (update and end only, LRU); the first push to any
+    handle of the tree binds them all (journaled), and retention counts a
+    child as bound while its parent is. An end APNs accepted deletes the
+    card's handle; the app deletes the handles of cards it ends or loses.
+  - **Late tokens**: xbind remembers, in memory for the card's stale time
+    (4 h), push-started refs whose turn ended before the app registered
+    their token, and answers `ended`; the app places a push-started card by
+    its ref across its workspaces with that `ws` and ends it at once when
+    it's over or unknown (404/403 from every candidate) — never just
+    because the phone is locked.
+  - **Proof of work** (`-registration-pow <bits>`, `GET
+    /v1/workspaces/challenge`, a stateless HMAC challenge) on anonymous
+    `POST /v1/workspaces`, which xbind solves (up to 28 bits). A proof is
+    spent atomically before the global registration limit is asked, and
+    the spend is taken back when a limit or capacity refuses — a replayed
+    proof never consumes the global limit and a refusal spends nothing.
+    Closes D94's open item on abuse control.
+
+- **D103 — A native tile's escape hatches run as the tile, confined in the
+  app (2026-09-26).** docs/native.md §Escape hatches, §composer;
+  plans/native.md §8.5.
+  - **Everything uses the tile's frame token**, never the user's session:
+    the `terminal`'s pty socket (`?frame=` through xbind's proxy, the
+    `/ws/term` framing), uploads, `canvas src` pages and tile images. Every
+    tile-supplied reference goes through XbinCore `TileResource` and is
+    refused unless it resolves to the tile's own `/api/<self>/` or
+    `/c/<self>/` (no schemes, hosts, other tiles, `/api/xbin`, traversal in
+    any encoding, paths a nested tile owns); upload paths keep their query
+    (`{name}` percent-encoded). xbind authorizes anyway; this stops the app
+    acting as the tile's proxy to anything else. `bx preview --native`
+    applies the same rule.
+  - **Pty close semantics**: `{"op":"exit"}`, or a close with 1000 or no
+    code after the socket was live, ends the terminal; any other close
+    reconnects (500 ms doubling to 10 s, 6 tries), and the count starts
+    over only after a socket stayed open 5 s, so a backend that accepts and
+    closes every socket is given up on. xbind's own `/ws/term` sessions
+    still treat every close as a drop.
+  - **Every picked file is answered**: over 64 MiB it is neither read nor
+    sent, and the tile gets `uploaded {name, response: {error, status:
+    413}}`. For agent prompts, photos are read up to 64 MiB and redrawn
+    (HEIC → JPEG, long edge 2576 px, ≤ 3.75 MiB inline) before xbind's 10
+    MiB per-file limit applies; prompt bodies are built as bytes.
+  - **`canvas`**: `src` is a `WebTileController` island (dialogs, JS
+    alert/confirm/prompt, downloads as on the web tile screen; no
+    pull-to-refresh or swipes; it pushes onto its own window, D99); `html`
+    renders with JavaScript off under a CSP that loads nothing, no base
+    URL, no navigation. The expanded terminal and the camera are sheets,
+    not full-screen covers (a cover's onDisappear would stop the runtime).
+
+- **D104 — Renderer: drawers, folded actions, IME-safe input, Quick Look
+  (2026-09-26).** docs/native.md; native/spec/tree.md §6; the fixtures
+  `drawer`, `folded-actions`, `message-files`, `ime-field`.
+  - **IME**: SwiftUI's TextField exposes no marked range, so `field` and
+    `composer` wrap UITextField/UITextView and ask a Foundation-only
+    `TextInputGate`: no report while text is marked, one on commit; a value
+    the tile sets meanwhile is applied when the composition ends and
+    replaces the composed text, which is then not reported (tree.md §6).
+    The Lit reference does the same. Closes the §24 risk.
+  - **Drawers** (`sheet edge="leading"`) are overlays on the container
+    that owns the navigation chrome (a fragment, a nav's stack, a screen's
+    own), so they cover the bar; 86 % of the width, ≤ 400 pt; dismissed by
+    a tap or a leading-ward drag on the backdrop (not the panel: its rows
+    have swipe actions in the same direction) or the escape gesture.
+  - **Folded actions**: rows keep swipe actions and the context menu and
+    gain a trailing ⋯ Menu; a message's actions all fold into a ⋯ under
+    the bubble (no context menu there: it would fight text selection).
+  - **Message files and previews**: image files with a `src` are
+    thumbnails loaded through a per-tree `XbinImages` over
+    `services.imageData` (the tile's frame token); Quick Look
+    (`.quickLookPreview`) opens a private temp copy, removed on dismiss.
+  - **Polish**: identifier-like and monospaced words wrap at characters
+    (zero-width spaces, never in selectable text) rather than being
+    hyphenated; the toolbar groups status items apart from actions;
+    bar-tab content clears the floating tab bar; snapshot windows use
+    `UIWindow(windowScene:)` whenever a scene exists; `split` uses
+    `ArrangementView` only behind `XBIN_SDK_27_1` (its name is from the
+    design, unconfirmed until the 27.1 SDK is on CI).
+
+- **D105 — The app's terminal: SwiftTerm's search, a precise selection
+  mode, a settable accessory key, the Duo's tabletop (2026-09-26).**
+  plans/native.md §12.
+  - **Search is SwiftTerm 1.20's own** (`findNext/findPrevious/
+    searchMatchSummary` over the whole scrollback), starting at the newest
+    output: the actions are older/newer (Return, ⌘G, ↑ / ⇧Return, ⌘⇧G, ↓).
+    XbinTerm's `TermFind` holds only the bar's state. Mouse reporting is
+    off while the bar or the selection shows (SwiftTerm drops its
+    selection on every output otherwise).
+  - **Precise selection**: a transparent layer takes every touch (one
+    finger selects by character, word or line, two scroll, the loupe
+    follows, the edges autoscroll); XbinTerm's `TermSelection` decides the
+    range over scroll-invariant rows and hands it to SwiftTerm's
+    `SelectionService` to draw; app-check requires the copied text to equal
+    SwiftTerm's own Copy.
+  - **The accessory slot** keeps its first stored format (`termCustomKey`:
+    missing = F1, null = none) and adds characters and snippets; ⌥ as Meta
+    and ⌥-arrows persist as `termKeyboard`. Reachable from the terminal and
+    from the app's Settings.
+  - **Tabletop** comes from the active `.division` reserved region (layout),
+    not the hinge (effects), behind `XBIN_SDK_27_1` and `#available(iOS
+    27.1, *)`; the arithmetic is XbinTerm's, tested on Linux;
+    `-XbinForceTabletop YES` simulates a fold.
+
+- **D106 — The agent template reaches the phone: Needs-you pushes, a held
+  ask at home, cached folds (2026-09-26).** plans/agent-template-native.md;
+  builtin-templates/agent/API.md. Extends D96.
+  - **Needs-you recipients come from the run's ACL, as `GET /needs`
+    decides**: the owner and participant members for a question or
+    approval, the owner for a failed automation run — never from a
+    request, so an admin's view-as neither triggers nor receives one, and a
+    team-wide participant role reaches nobody in particular. After the
+    committing transaction, a 3 s grace re-reads the run; dedupe for 6 h
+    per run+state+content (questions, approvals) or per run+state
+    (failures); a per-person bucket (10, +1 per 6 min) on top of xbind's
+    limits. The link is `#c=<run>`; kinds `question`, `approval`,
+    `failed`. The sender is injectable (`agent.needs = nil` turns it off).
+  - **A held ask from home uses draft keys**: the app uploads a picked
+    file at once to a path named in advance, and the vocabulary has no
+    event before the attach tap, so the tile names `PUT
+    /ask/upload?draft=<key>&name={name}`; the first upload creates a held
+    run for (caller, key), listed nowhere; `POST /ask {draft, files}`
+    releases it (409 when spent or expired). Unsent drafts are deleted a
+    day later when their owner starts another (no timers). Chips belong to
+    where they were picked. The web keeps `hold: true`.
+  - **`tool.delta`** per (run, call index) under `?deltas=1`, with the
+    text deltas' resync rules; **`FoldCache`** rebuilds a block only when
+    its message, result, link, step or subagent changes (objects are
+    replaced, never edited in place), so unchanged blocks keep their
+    identity and the bridge sends patches only; the output is identical.
+    Settings, memory, files and skills calls live in `model/actions.js`.
+
+- **D107 — The terminal window's title bar degrades on measurement, and
+  the UI harness says SKIP instead of timing out (2026-09-26).**
+  docs/elements.md; docs/maintenance.md.
+  - The degrade ("degrade, never clip") used a fixed 640 px threshold, but
+    the bar's width depends on the host and the tab (a GPU picker, D89's VM
+    toggle, labels): on a GPU host the full bar overflowed the default 680
+    px window and clipped the tabs and the ✕. The bar is now measured
+    after every render and resize (`fitBar`); it degrades when it
+    overflows and comes back once the window is as wide as it needed; the
+    need is re-measured when the content changes. Order: the path and the
+    network label shrink, then the bar degrades, then tabs shrink to 56
+    px and the strip scrolls. Data-built pickers mark their option
+    `selected` (a re-created select got its value before its options).
+  - A window restored open (a reload, a second browser) now loads its
+    tile state as one opened by hand; a tab absorbed by a session listing
+    keeps its one-shot `run` command.
+  - Harness passes write `SKIP <reason>` when the environment lacks
+    something (no gocryptfs → the agent passes), never time out, and leave
+    no terminal window behind; a fresh `run.sh` is the gate.
+
+- **D108 — The Mac mini: CI one variable away, a headless box in a
+  datacenter, and release signing kept away from CI (2026-09-26).**
+  native/AGENTS.md "Mac mini"; .github/workflows/ios.yml, ci.yml.
+  - **CI**: every ios.yml job runs on `fromJSON(vars.XBIN_IOS_RUNNER ||
+    '"xcode-27"')`, so the repository's runner or the Mac is one variable;
+    DerivedData and SwiftPM clones persist (actions/cache on hosted
+    runners, the machine's disk on the Mac, `XBIN_CI_CACHE=off` for a
+    clean build); pinned, checksummed downloads (the runner, xcodegen,
+    swiftly, actionlint); a Linux `native` job in ci.yml (Swift 6.4 via
+    swiftly: `swift-test`, `swift-stubcheck`, `native-check`,
+    `ci-local-check.sh`). The runner is repository-scoped with a job hook
+    that shuts simulators down. ci-local-check.sh *enforces* the security
+    rules: ios.yml triggers only on push and dispatch, no ci.yml job can
+    reach a self-hosted runner, no secrets.
+  - **UI tests by visible labels against a real xbind** (XbinUITests),
+    skipping without one; run through `mac-remote.sh e2e` over an ssh
+    reverse tunnel to an xbind on the Linux box.
+  - **The box**: isolated VLAN, ssh over a VPN, key-only sshd with
+    `AllowUsers`, firewall and stealth mode, Screen Sharing off or
+    admin-only, no Apple ID, a KVM-over-IP, an HDMI dummy plug and a
+    switchable PDU; `mac-setup.sh --check` reports all of it and changes
+    none. **FileVault on** over an unattended reboot: the box holds a
+    release key, so a power loss waits for an unlock at the KVM, planned
+    reboots use `fdesetup authrestart`, and ci is the FileVault user whose
+    unlock starts the runner's session.
+  - **Three users**: an admin (setup), a standard `ci` (the runner,
+    simulators, the dev loop) and a standard `release` that alone holds
+    the App Store Connect API key (`~/.appstoreconnect/private_keys`, mode
+    600) and runs `release-build.sh` by hand: automatic signing with
+    `-allowProvisioningUpdates` and the key, so the distribution
+    certificate is Apple's cloud-managed one and no distribution private
+    key lands on the Mac. The script refuses the CI user, admins, any
+    other user, pull_request/fork-triggered workflows and any workflow
+    without an explicit opt-in. The key's role is Admin (cloud signing
+    for team keys, as of now); nothing has been signed yet.
+
+- **D109 — The app's SwiftUI/UIKit code is type-checked on Linux against
+  one layered set of SDK stubs, in CI (2026-09-26).** native/AGENTS.md §3b;
+  native/tools/*-stubcheck. Extends D92.
+  - Four tools compile what only Xcode builds, in Swift 6 mode, against
+    hand-written SDK stubs and the real packages: swiftui-stubcheck (the
+    renderer), term-stubcheck (App/Terminal), app-stubcheck (Model, Shell,
+    a native tile's hatches and the Agent tab — together, so the seams
+    between them meet the real declarations) and widget-stubcheck (the
+    widget extension); uitest-stubcheck covers the UI tests.
+  - **The stubs are layered, one declaration in one place**: the
+    renderer's, then the terminal's, then the app's. Integrating this
+    round showed why: two work packages grew the same UIKit types on
+    their own sides and each tool broke the other's build. `make
+    swift-stubcheck` runs them all and ci.yml's native job runs it. A pass
+    still means "consistent with the stubs", not "compiles for iOS".

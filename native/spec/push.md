@@ -218,7 +218,8 @@ many requests wait. It is **generic on purpose**. An ActivityKit payload is
 decoded and drawn by the system before any code of the app runs, so it can't
 be sealed; xbind sends only the state below and the relay builds the APNs
 body from it, refusing anything else (relay/README.md §Live Activities).
-Names — the workspace's, the session's — exist only on the device.
+Names — the workspace's, the session's — exist only on the device. The
+decisions: D102.
 
 ### 7.1 The card
 

@@ -390,7 +390,7 @@ page. How to write one — the template API, every primitive, the rules — is
   name="xbin-native-preview" content="1">` and loads the preview host
   (`/vendor/xb/preview-host.js`) before the entry, for drawing in a
   browser.
-- **The workspace switch.** An admin can turn native UIs off for the whole
+- **The workspace switch** (D101). An admin can turn native UIs off for the whole
   workspace — the admin console's *workspace → xbin app* tab, or `PUT
   /api/xbin/native-runtime {"enabled": false}`. `whoami` then says `native:
   {runtime: 0, disabled: true}`, the app opens every tile as its web page,

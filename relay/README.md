@@ -135,7 +135,7 @@ registration.
 
 ## Live Activities
 
-A Live Activity (the app's agent-turn card on the lock screen and in the
+(Decision D102 in the repository's plans/DECISIONS.md.) A Live Activity (the app's agent-turn card on the lock screen and in the
 Dynamic Island) is updated by pushes of its own: ActivityKit hands the app
 one push token per activity (its updates) and one per app (push-to-start),
 and APNs takes them with `apns-push-type: liveactivity` on the topic

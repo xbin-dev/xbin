@@ -1,18 +1,25 @@
 # The agent template, native — keeping the UX at today's level
 
-> Status: **implemented** (2026-09-26, D96) — the model/view split
+> Status: **implemented** (2026-09-26, D96, then D106) — the model/view split
 > (`builtin-templates/agent/model/`, `createApp()`, the FEATURES registry with
 > both views' `IMPLEMENTS` and `DIFFERENCES`), the native view (`native.js` +
 > `native/`, the drawer as `sheet edge="leading"`), and the backend's
-> `/stream?deltas=1`, paged `/view` and `/thumb` (§4, milestone 2's server
-> half). Not yet: §4's per-block fold cache and the on-device performance
-> targets, and "Needs you" as a push (`POST /api/xbin/notify` now exists,
-> D94); the SwiftUI renderer still has to draw the drawer, folded
-> row/message actions, message thumbnails and the render preview's
-> `canvas html=` island. Departures: uploads and images use origin-absolute
-> `/api/<self>/…` paths; rename and "new chat with options" live in menus (the
-> vocabulary has no title tap or long press); a held ask with attachments
-> isn't offered from home natively.
+> `/stream?deltas=1` (text, thinking and, since D106, `tool.delta`), paged
+> `/view` and `/thumb` (§4, milestone 2's server half). Since D106: §4's
+> fold cache (`FoldCache`, per block, identical output), "Needs you" as a
+> push (`xbin.NotifyUserWith` for questions, approvals and failed
+> automation runs, to the people `/needs` lists them for), a held ask with
+> attachments from home (draft keys: `PUT /ask/upload?draft=`, `POST /ask
+> {draft, files}`), and the settings, memory, files and skills calls in
+> `model/actions.js`. The SwiftUI renderer now draws the drawer, folded
+> row/message actions and message thumbnails (D104), and the app draws the
+> render preview's `canvas html=` island (D103) — type-checked on Linux,
+> not yet on a device. Not yet: the on-device performance targets.
+> Departures: uploads and images use origin-absolute `/api/<self>/…` paths;
+> rename and "new chat with options" live in menus (the vocabulary has no
+> title tap or long press); Needs-you pushes reach the owner and explicit
+> participant members, not a team-wide role's members (the tile can't list
+> a team).
 
 `builtin-templates/agent` is the one big tile in this repo (≈3.7k lines of
 frontend: 15 modules plus `index.html`, and a Go backend with ~75 routes) and the owner's

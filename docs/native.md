@@ -13,7 +13,10 @@ without a phone.
 > xbind today — the runtime (`/vendor/xb-native.js`), the vocabulary, the
 > runtime document and the checking tools (`bx lint --native`, `bx preview
 > --native`, `bx native tree`) — so native UIs can be written and checked
-> now. The desktop shell never shows them: browsers keep showing
+> now. The app side described here is built: live reload, the `terminal`,
+> `canvas` and composer-upload hatches, drawers, folded actions, message
+> thumbnails and IME-safe fields; it has not run on a device yet. The
+> desktop shell never shows native UIs: browsers keep showing
 > `index.html`.
 
 **Related:** [elements.md §Native app UI](/docs/elements.md) (what xbind
@@ -21,8 +24,10 @@ serves: discovery, the runtime document, entry paths, live reload) ·
 [bx.md §Native UIs](/docs/bx.md) (previews, lint, fixture replays) ·
 [compat.md](/docs/compat.md) (the additive contract) ·
 [frontend-kit.md](/docs/frontend-kit.md) (the `/vendor/` modules) ·
-decisions D91 (the runtime, vocabulary and wire format) and D92 (how the
-app and its renderers are verified).
+decisions D91 (the runtime, vocabulary and wire format), D92 and D109 (how
+the app and its renderers are verified), D99 (live reload in the app), D101
+(switching native views off), D103 (the escape hatches) and D104 (drawers,
+folded actions, input methods).
 
 ## When to write one
 
