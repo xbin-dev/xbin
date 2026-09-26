@@ -45,7 +45,10 @@ packages:
     path: Packages/XbinRenderer
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    from: 1.20.0
+    # Exact: the .xcodeproj (and its Package.resolved) is generated, so a
+    # range would let a release build pick up an unreviewed version — and
+    # run its build plugin (release-build.sh skips Xcode's plugin prompt).
+    exactVersion: 1.20.0
 targets:
   Xbin:
     type: application
