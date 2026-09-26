@@ -10,20 +10,23 @@
  * an agent resuming its conversation (frame-launcher.js restartAgent). An
  * ended or read-only (history) agent tab has no sandbox: layer buttons only. The bar DEGRADES, it never clips:
  * when the pop is narrower than the bar's content (f._narrow — below
- * ~640 px, or the phone sheet) the layout switcher and the pickers move
- * into a tools row behind a "⋯" toggle, and the tab strip scrolls, so the
- * tabs and the window's ✕ are always reachable. `+` opens a launcher menu
+ * ~640 px, the phone sheet, or whenever the full bar measures wider than
+ * the pop: fitBar) the layout switcher and the pickers move into a tools
+ * row behind a "⋯" toggle; tabs shrink to a legible floor, then the tab
+ * strip scrolls, so the tabs and the window's ✕ are always reachable. The
+ * bar's width depends on the host (a GPU picker, the VM toggle) and the
+ * tab, so it is measured, never assumed. `+` opens a launcher menu
  * (Bash, or a coding agent). An ended agent tab (its session gone,
  * transcript kept) is greyed and dismissed with its ✕.
  */
-import { html, css, nothing } from 'lit';
+import { html, css, nothing, live } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
 
 export function titlebar(f) {
   return html`
     <div class="titlebar" @pointerdown=${(e) => f._dragStart(e)}>
       <span class="path" title=${f.src}>${f.src}</span>
-      <span class="tabs">
+      <span class="tabs" @wheel=${scrollTabs}>
         ${f._sessions.map((s, i) => html`
           <span class="tab ${i === f._active ? 'on' : ''} ${s.kind === 'agent' ? 'agent' : ''} ${s.ended ? 'ended' : ''}"
                 @click=${() => f._setActive(i)}
@@ -42,6 +45,46 @@ export function titlebar(f) {
       <button class="winx" title="close (session keeps running)"
               @click=${() => { f._termOpen = false; }}>✕</button>
     </div>`;
+}
+
+// A mouse wheel over a tab strip that overflows scrolls it sideways.
+function scrollTabs(e) {
+  const s = e.currentTarget;
+  if (s.scrollWidth <= s.clientWidth + 1 || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+  s.scrollLeft += e.deltaY;
+  e.preventDefault();
+}
+
+// barKey: what the full bar's width depends on. When it changes, the width
+// the bar last needed (f._barNeed) is stale and fitBar measures again.
+export const barKey = (f) => JSON.stringify([f._active, f._gpus.length, !!f._vmStatus, !!f._envOld, f._prCount || 0,
+  f._sessions.map((s) => [s.kind, s.name, s.provider, !!s.ended, !!s.history, !!s.vm, s.net, !!s.baseOutdated])]);
+
+// fitBar(f, pop, sheet): whether the bar must degrade (the new f._narrow).
+// Under 640 px or on the phone sheet it always does. Otherwise the full bar
+// is measured while it shows: when it overflows — the pickers pushed past
+// the ✕, or the tabs squeezed below their floor — it degrades, remembering
+// the width it needed (f._barNeed), and comes back once the pop is that
+// wide. The frame calls it after every render and on every resize, and
+// resets f._barNeed when barKey changes; the tab strip then scrolls its
+// active tab into view.
+export function fitBar(f, pop, sheet) {
+  const w = pop.offsetWidth, bar = pop.querySelector('.titlebar'), tabs = bar?.querySelector('.tabs');
+  let narrow = sheet || w < 640;
+  if (!narrow && bar && tabs) {
+    if (f._narrow) narrow = w < (f._barNeed || 0);
+    else {
+      const over = Math.max(0, bar.scrollWidth - bar.clientWidth) + Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+      if (over > 1) { f._barNeed = w + over; narrow = true; }
+    }
+  }
+  const on = tabs?.querySelector('.tab.on');
+  if (on) {
+    const s = tabs.getBoundingClientRect(), t = on.getBoundingClientRect();
+    if (t.left < s.left) tabs.scrollLeft -= s.left - t.left;
+    else if (t.right > s.right) tabs.scrollLeft += t.right - s.right;
+  }
+  return narrow;
 }
 
 // toolsRow: where the layout switcher and the pickers live when the bar is
@@ -86,7 +129,11 @@ function layoutGroup(f) {
 
 // The pickers restart the session (netns/relay, device binds and the token
 // are fixed at spawn), so each change asks first; a declined change snaps
-// the select back to the tab's value (f._set* resolve false).
+// the select back to the tab's value (f._set* resolve false). A picker whose
+// options are rendered from data marks its choice on the OPTIONS (live
+// .selected): the select's .value is committed before its options exist
+// when the select is new (the bar degrading or coming back re-creates it)
+// or its options were rebuilt, and the browser then shows the first option.
 function pickers(f) {
   const cur = f._sessions[f._active];
   // a VM can't share the host network (the guest sits behind the relay)
@@ -98,11 +145,11 @@ function pickers(f) {
   const gpu = cur?.gpu || 'none';
   const restarts = `switching restarts the ${f._isAgent ? 'agent (its conversation resumes)' : 'terminal'}`;
   return html`
-    <select class="scope"
+    <select class="scope net"
             title=${`network scope (${restarts})` + (now?.desc ? '\n' + now.desc : '')}
             .value=${now.id}
             @change=${async (e) => { if (!(await f._setNet(f._active, e.target.value))) e.target.value = now.id; }}>
-      ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''}>${scopeIcon(s.id)} ${s.label}</option>`)}
+      ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''} .selected=${live(s.id === now.id)}>${scopeIcon(s.id)} ${s.label}</option>`)}
     </select>
     <select class="scope" title=${`live tile API access — off = the ${f._isAgent ? 'agent' : 'shell'} can read/edit code but every API call is unauthorized (${restarts})`}
             .value=${api}
@@ -115,9 +162,9 @@ function pickers(f) {
       <select class="scope" title=${`GPU (${restarts})`}
               .value=${gpu}
               @change=${async (e) => { if (!(await f._setGpu(f._active, e.target.value))) e.target.value = gpu; }}>
-        <option value="none">no GPU</option>
-        ${f._gpus.map((g) => html`<option value=${g.index}>🎮 GPU ${g.index}</option>`)}
-        ${f._gpus.length > 1 ? html`<option value="all">🎮 all</option>` : nothing}
+        <option value="none" .selected=${live(gpu === 'none')}>no GPU</option>
+        ${f._gpus.map((g) => html`<option value=${g.index} .selected=${live(String(gpu) === String(g.index))}>🎮 GPU ${g.index}</option>`)}
+        ${f._gpus.length > 1 ? html`<option value="all" .selected=${live(gpu === 'all')}>🎮 all</option>` : nothing}
       </select>` : nothing}
     ${layerButtons(f)}`;
 }
@@ -174,10 +221,17 @@ export const titlebarCss = css`
     padding: 0 8px 0 4px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 48px;
   }
+  /* On the full bar the tabs keep their width: the path and the network
+     picker give way, then the bar degrades (fitBar). On the degraded bar
+     the strip absorbs the width: its tabs shrink to a legible floor, then
+     it scrolls (a wheel scrolls it sideways). */
   .titlebar .tabs {
     display: flex; align-items: center; gap: 2px;
     flex: 0 1 auto; min-width: 0;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   }
+  .pop:not(.narrow) .titlebar .tabs { flex-shrink: 0; }
+  .titlebar .tabs::-webkit-scrollbar { display: none; }
   .titlebar .spacer, .toolsrow .spacer { flex: 1; }
   .titlebar button, .toolsrow button {
     border: 1px solid transparent; background: transparent;
@@ -203,7 +257,7 @@ export const titlebarCss = css`
   /* Tabs are spans (not buttons) so each can hold a close button — nested
      buttons are invalid HTML. Styled like the titlebar buttons. */
   .titlebar .tab {
-    display: inline-flex; align-items: center; gap: 2px; max-width: 150px; min-width: 0; flex: 0 1 auto;
+    display: inline-flex; align-items: center; gap: 2px; max-width: 150px; min-width: 56px; flex: 0 1 auto;
     border: 1px solid transparent; border-radius: 4px; padding: 1px 3px 1px 7px;
     color: var(--bx-muted, #868f9a);
     font: 11px var(--bx-mono, ui-monospace, monospace); cursor: pointer;
@@ -237,6 +291,8 @@ export const titlebarCss = css`
        — cap it so the API/GPU pickers stay on the bar; the tooltip has it all */
     max-width: 24ch; text-overflow: ellipsis;
   }
+  /* the network picker's label is the long one: it shortens before the bar degrades */
+  .titlebar select.scope.net { flex-shrink: 1; min-width: 12ch; }
   .toolsrow {
     display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
     background: var(--bx-panel-2, #2b3038);

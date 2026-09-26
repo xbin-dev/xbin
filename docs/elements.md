@@ -342,9 +342,17 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   (docs/overview/09-terminals.md §Agent sessions). A tab whose session
   ended keeps its transcript, greyed, until you dismiss it.
 - **The bar degrades, never clips**: when the window is narrow (below
-  ~640 px, or the phone sheet) the layout switcher and the pickers move
-  into a tools row behind `⋯`; the pickers ask before restarting a live
-  session, since the network scope, GPU and API token are fixed at spawn.
+  ~640 px, or the phone sheet) or the full bar measures wider than the
+  window (it varies by host and tab: a GPU picker, the VM toggle, long tab
+  names), the path and the network picker's label shorten first, then the
+  layout switcher and the pickers move into a tools row behind `⋯`. Tabs
+  keep a legible width; a tab strip that still overflows scrolls (the
+  wheel scrolls it sideways) and keeps the active tab in view, so every
+  tab and the window's `✕` stay reachable. The pickers ask before
+  restarting a live session, since the network scope, GPU and API token
+  are fixed at spawn. A window restored open (a reload, another browser)
+  loads the same pickers, VM toggle and base-update state as one opened by
+  hand.
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
   whole `apps/cal` frame, when both are mounted.

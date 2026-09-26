@@ -43,7 +43,7 @@ import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
-import { titlebar, toolsRow, titlebarCss } from '/vendor/frame-titlebar.js';
+import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
 import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory, restartAgent } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
@@ -234,6 +234,13 @@ export class BxFrame extends LitElement {
       if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
       this._popChanged();
     }
+    const el = this._termOpen && this._popEl;
+    if (el) { // the bar's content may have changed: does the full bar still fit? (fitBar)
+      const k = barKey(this);
+      if (k !== this._barKey) { this._barKey = k; this._barNeed = 0; }
+      const n = fitBar(this, el, SHEET.matches);
+      if (n !== this._narrow) this._narrow = n;
+    }
   }
 
   // What the window shows besides its tabs — the GPU picker, the launcher's
@@ -247,16 +254,17 @@ export class BxFrame extends LitElement {
     this._loadPRCount();
   }
 
-  // A ResizeObserver on the pop: below ~640 px (or on the phone sheet) the
-  // title bar degrades — the pickers move to the tools row — and a native
-  // resize is remembered (the handle writes nothing; only a pointerdown or a
-  // drag end used to read the size back).
+  // A ResizeObserver on the pop: when the full title bar no longer fits
+  // (fitBar: below ~640 px, the phone sheet, or measured) it degrades — the
+  // pickers move to the tools row — and a native resize is remembered (the
+  // handle writes nothing; only a pointerdown or a drag end used to read the
+  // size back).
   _observePop() {
     const el = this._popEl;
     if (!el || this._ro || typeof ResizeObserver !== 'function') return;
     this._ro = new ResizeObserver(() => {
       const w = el.offsetWidth, h = el.offsetHeight;
-      this._narrow = SHEET.matches || w < 640;
+      this._narrow = fitBar(this, el, SHEET.matches);
       if (this._pop && !SHEET.matches && (Math.abs(this._pop.w - w) > 1 || Math.abs(this._pop.h - h) > 1)) { this._pop.w = w; this._pop.h = h; this._saveTerm(); }
     });
     this._ro.observe(el);
@@ -574,6 +582,7 @@ export class BxFrame extends LitElement {
       setActiveTab(i) { f._setActive(i | 0); },
       get layout() { return f._layout; },
       get narrow() { return f._narrow; },
+      setTools(v) { f._tools = !!v; }, // the degraded bar's tools row (the pickers) open — a no-op on the full bar
       newTerm() { f._newTerm(); },
       newAgent() { f._newAgent(); },
       startKind(kind, provider, opts) { f._startKind(kind, provider, opts || {}); }, // launcher path (a provider eager-creates)
