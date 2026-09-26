@@ -10,5 +10,6 @@ use (
 	./examples/counter-go
 	./examples/email
 	./examples/netrouter
+	./relay
 	./sdk
 )

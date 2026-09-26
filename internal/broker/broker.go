@@ -77,6 +77,12 @@ type Broker struct {
 	// new policy/env — those are captured at spawn, not per request.
 	OnGrantChange func(component string)
 
+	// OnUserSignedOut, if set, is called after a user was signed out
+	// everywhere — by an admin, by disabling the account, or by deleting it
+	// (deleted) — so per-user state bound to their devices (push
+	// registrations) goes with the sessions.
+	OnUserSignedOut func(userID string, deleted bool)
+
 	// StopBackend, if set, terminates a component's running backend now (used
 	// when the owner disables/offloads it; plans/lifecycle.md). Wired to
 	// runner.Stop by main.
