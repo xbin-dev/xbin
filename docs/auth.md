@@ -893,12 +893,18 @@ account — the bootstrap owner token has none.
   out of the workspace, it lives no longer than the device sign-in it came
   from (and, for an SSO-bound account, the IdP's window below), and it
   keeps that sign-in's time — so it is only as "recent" for the step-up
-  above as the device login was. The link works once, only as a page the
-  app opens (a link or redirect from any page, this workspace's included,
-  is refused — so nobody can sign your browser into *their* account with
-  one), and never switches a browser already signed in as someone else;
-  failed attempts count against the login throttle, and each redeem is in
-  the audit log.
+  above as the device login was. The link works once. Opening it never
+  signs a browser in by itself: a browser already signed in as you just
+  lands on the page, one signed in as someone else is refused, and a
+  signed-out one shows **"Continue as <your name>"** — the account the link
+  belongs to — and signs in only when that button is pressed on that page.
+  Anyone can make such a link for *their own* account and send it to you
+  (a chat message, an email, a QR code); opened from another app it looks
+  exactly like the xbin app's own open, so the page is what protects you:
+  **only press Continue if you just opened the link from your own app**,
+  and check the name. (A link followed from a web page — this workspace's
+  included — is refused outright.) Failed attempts count against the login
+  throttle, and each browser sign-in is in the audit log.
 - **Managing devices.** The same *devices* panel lists your devices (name,
   platform, last sign-in and its IP) with **remove**, and under each one its
   **push registration** (what it is notified about, when it was last sent
@@ -942,7 +948,7 @@ account — the bootstrap owner token has none.
 Routes: `POST /api/xbin/devices/enroll-code`, `POST /api/xbin/devices/enroll`,
 `POST /login/device/challenge`, `POST /login/device`, `POST /api/xbin/login`,
 `GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
-`GET /login?ticket=`, `GET|DELETE /api/xbin/devices`,
+`GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
 `GET /api/xbin/users/<id>/devices` ([protocol.md](/docs/protocol.md)). The
 exact signed message and a test vector for client implementers:
 `native/spec/device-login.md` in the source tree.

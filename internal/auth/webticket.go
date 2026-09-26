@@ -30,10 +30,21 @@ import (
 //     into a fresh one;
 //   - it inherits the device session's cap (an SSO-bound account's window,
 //     D93), further capped by the caller's notAfter.
+//
+// Redeeming is two steps when the browser has no session of its own (login
+// CSRF: anyone can mint a ticket for THEIR account and hand the link to
+// someone else — a chat message, a QR code — and a link opened from another
+// app is as "nobody started it" as the xbin app's own open). The GET spends
+// the ticket and trades it for a confirmation (HoldWebTicket): a page that
+// names the account, whose Continue button posts a one-shot nonce back from
+// the same browser (ConsumeWebConfirm) — only then is the session opened.
 
 const (
 	// WebTicketTTL bounds the mint → open gap (the app opens it at once).
 	WebTicketTTL = 60 * time.Second
+	// WebConfirmTTL bounds the confirmation page → Continue gap (a person
+	// reads the page first).
+	WebConfirmTTL = 2 * time.Minute
 	// maxWebTicketsPerSession: outstanding tickets per device session (the
 	// oldest is dropped past it).
 	maxWebTicketsPerSession = 4
@@ -147,6 +158,59 @@ func (a *Auth) ConsumeWebTicket(ticket string) (WebTicket, bool) {
 	return WebTicket{UserID: t.userID, DeviceID: t.deviceID, Next: t.next, handle: t.handle}, true
 }
 
+// HoldWebTicket trades a consumed ticket for the confirmation step's nonce:
+// one-shot, WebConfirmTTL, naming the same user, device, device session and
+// landing path (ConsumeWebConfirm gives it back). Only while the device
+// session that minted the ticket lives.
+func (a *Auth) HoldWebTicket(t WebTicket) (string, time.Time, error) {
+	now := time.Now()
+	tok := util.RandomToken(32)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.webParentLocked(t, now); !ok {
+		return "", time.Time{}, errWebTicketGone
+	}
+	a.dev.sweepLocked(now)
+	if len(a.dev.webConfirms) >= maxPendingDeviceSecrets {
+		return "", time.Time{}, errDeviceBusy
+	}
+	exp := now.Add(WebConfirmTTL)
+	a.dev.webConfirms[secretKey(tok)] = &webTicket{userID: t.UserID, deviceID: t.DeviceID, handle: t.handle,
+		next: t.Next, created: now, expires: exp}
+	return tok, exp, nil
+}
+
+// ConsumeWebConfirm spends a confirmation nonce (HoldWebTicket) — single
+// use, whatever happens next — and reports the ticket it stands for; false
+// when unknown, spent or expired.
+func (a *Auth) ConsumeWebConfirm(nonce string) (WebTicket, bool) {
+	if nonce == "" || len(nonce) > 128 {
+		return WebTicket{}, false
+	}
+	k := secretKey(nonce)
+	now := time.Now()
+	a.mu.Lock()
+	t := a.dev.webConfirms[k]
+	delete(a.dev.webConfirms, k)
+	a.mu.Unlock()
+	if t == nil || now.After(t.expires) {
+		return WebTicket{}, false
+	}
+	return WebTicket{UserID: t.userID, DeviceID: t.deviceID, Next: t.next, handle: t.handle}, true
+}
+
+// webParentLocked finds the live device session a ticket was minted by
+// (caller holds a.mu).
+func (a *Auth) webParentLocked(t WebTicket, now time.Time) (string, bool) {
+	pid, ok := a.gens.sessions[t.handle]
+	parent := a.sessions[pid]
+	if t.handle == "" || !ok || parent == nil || !parent.bearer || parent.deviceID != t.DeviceID ||
+		parent.userID != t.UserID || a.expiredLocked(parent, now) {
+		return "", false
+	}
+	return pid, true
+}
+
 // OpenWebSession opens the browser session a consumed ticket stands for —
 // only while the device session that minted it still lives (checked under
 // the lock the session is created under, so a sign-out racing the redeem
@@ -156,12 +220,11 @@ func (a *Auth) OpenWebSession(t WebTicket, ip string, notAfter time.Time) (strin
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	pid, ok := a.gens.sessions[t.handle]
-	parent := a.sessions[pid]
-	if !ok || parent == nil || !parent.bearer || parent.deviceID != t.DeviceID || parent.userID != t.UserID ||
-		a.expiredLocked(parent, now) {
+	pid, ok := a.webParentLocked(t, now)
+	if !ok {
 		return "", errWebTicketGone
 	}
+	parent := a.sessions[pid]
 	capAt := parent.notAfter
 	if !notAfter.IsZero() && (capAt.IsZero() || notAfter.Before(capAt)) {
 		capAt = notAfter

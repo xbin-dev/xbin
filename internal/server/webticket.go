@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,21 +13,30 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // Signed-in Safari (docs/auth.md §Device login, native/spec/device-login.md
 // §6): the xbin app opens the workspace in a browser already signed in.
 //
 //	POST /api/xbin/web-ticket {next}   the app's DEVICE session → {url, expires, expiresIn}
-//	GET  /login?ticket=<t>&next=<path> top level, in the browser → a cookie session, 302 next
+//	GET  /login?ticket=<t>&next=<path> top level, in the browser → "Continue as <name>"
+//	POST /login/web-ticket {confirm}   that page's button → a cookie session, 303 next
 //
 // The ticket is one-shot, lives WebTicketTTL (60 s) and is bound to the
 // device session that minted it (internal/auth/webticket.go). The redeem is
 // the D64 view-as pattern — a URL minted by a credential the browser can't
-// hold, opened top-level — with login-CSRF defences of its own: it must be
-// a navigation nobody else started (Fetch Metadata `Sec-Fetch-Site: none`,
-// or no metadata at all), and it never switches a browser that is signed in
-// as somebody else.
+// hold, opened top-level — with login-CSRF defences of its own. Anyone can
+// mint a ticket for THEIR account and hand the link over (a chat message, a
+// QR code, a redirector): a link another app opens is a navigation "nobody
+// started" (Sec-Fetch-Site: none) exactly like the xbin app's own open, so
+// Fetch Metadata can't tell them apart. So a GET never signs a browser in:
+// a browser signed in as the same person just lands on next, one signed in
+// as somebody else is refused, and a signed-out one gets a page naming the
+// account, whose Continue posts a one-shot nonce back — bound to this
+// browser by a cookie only that page's response set, and accepted only from
+// this origin's own page (Sec-Fetch-Site: same-origin, or a matching Origin;
+// neither: refused). The person sees whose account they are entering.
 
 // maxNextLen bounds the landing path a ticket carries.
 const maxNextLen = 2048
@@ -132,10 +142,10 @@ func (s *Server) apiWebTicket(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWebTicketRedeem is GET /login?ticket=<t>[&next=<path>]: the
-// browser half. The ticket is spent first, whatever happens next.
+// browser half. The ticket is spent first, whatever happens next; a GET
+// never opens a session (the package comment above).
 func (s *Server) handleWebTicketRedeem(w http.ResponseWriter, r *http.Request, ticket string) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	webTicketHeaders(w)
 	if r.Method != http.MethodGet { // a HEAD (a link checker, a preview) must not spend it
 		w.Header().Set("Allow", http.MethodGet)
 		http.Error(w, "open this link in a browser", http.StatusMethodNotAllowed)
@@ -147,62 +157,228 @@ func (s *Server) handleWebTicketRedeem(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	t, ok := s.Auth.ConsumeWebTicket(ticket)
-	refuse := func(why string) {
-		slog.Warn("web ticket refused", "why", why, "ip", ip, "user", t.UserID, "device", t.DeviceID)
-		http.Error(w, why, http.StatusForbidden)
-	}
 	if !ok || s.Auth.Users == nil {
 		s.loginThrottle.fail(ip)
-		refuse("this sign-in link is invalid, expired or already used — open the workspace from the xbin app again, or sign in here")
+		webTicketRefuse(w, t, ip, "this sign-in link is invalid, expired or already used — open the workspace from the xbin app again, or sign in here")
 		return
 	}
-	// Login CSRF: someone else's ticket, planted by a link, a redirect or a
-	// form from any site (this one included), would sign the victim's
-	// browser into their account. The app opens the URL itself — a
-	// navigation no page started.
+	// Defence in depth (the confirmation below is the defence): a link, a
+	// redirect or a form from a page — this workspace's included — or a
+	// subresource never gets as far as the page. What the app (or anything
+	// outside a browser page) opens says none, or nothing at all.
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "none" {
-		refuse("this sign-in link only works opened by the xbin app, not followed from a page")
+		webTicketRefuse(w, t, ip, "this sign-in link only works opened by the xbin app, not followed from a page")
 		return
 	}
 	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" && mode != "navigate" {
-		refuse("this sign-in link only works as a page the xbin app opens")
+		webTicketRefuse(w, t, ip, "this sign-in link only works as a page the xbin app opens")
 		return
 	}
 	if q := r.URL.Query().Get("next"); q != "" && q != t.Next {
-		refuse("this sign-in link was altered — open the workspace from the xbin app again")
+		webTicketRefuse(w, t, ip, "this sign-in link was altered — open the workspace from the xbin app again")
 		return
 	}
-	u, found := s.Auth.Users.Get(t.UserID)
-	if !found || u.Disabled {
-		refuse("this account is disabled")
+	u, _, same, why := s.webTicketCheck(r, t)
+	switch {
+	case why != "":
+		webTicketRefuse(w, t, ip, why)
 		return
-	}
-	if uid, _, found := s.Auth.Users.FindDevice(t.DeviceID); !found || uid != t.UserID {
-		refuse("the device that opened this link was removed")
-		return
-	}
-	notAfter, ok := s.deviceSSOBound(u)
-	if !ok {
-		refuse("this workspace signs in through single sign-on, and yours is too old — sign in with SSO again")
-		return
-	}
-	// Never switch a browser signed in as somebody else (the owner token and
-	// view-as sessions included); the same person is simply let through.
-	if p, ok := s.Auth.FromRequest(r); ok {
-		if p.Owner || p.Component != "" || p.ReadOnly() || p.UserID != t.UserID {
-			refuse("this browser is signed in as someone else — sign out here first, then open the workspace from the app again")
-			return
-		}
+	case same: // already signed in as this person: nothing to open
 		http.Redirect(w, r, t.Next, http.StatusFound)
+		return
+	}
+	nonce, _, err := s.Auth.HoldWebTicket(t)
+	if err != nil {
+		webTicketRefuse(w, t, ip, err.Error())
+		return
+	}
+	secure := s.Auth.SessionCookieSecure(r)
+	http.SetCookie(w, &http.Cookie{Name: webConfirmCookie(secure), Value: nonce, Path: "/", HttpOnly: true,
+		SameSite: http.SameSiteStrictMode, Secure: secure, MaxAge: int(auth.WebConfirmTTL / time.Second)})
+	name := u.Name
+	if strings.TrimSpace(name) == "" {
+		name = u.ID
+	}
+	who := u.ID
+	if u.Email != "" {
+		who += " · " + u.Email
+	}
+	page := s.brandPage(webConfirmPageHTML, " — continue")
+	page = strings.NewReplacer("{{NAME}}", htmlEscape(name), "{{WHO}}", htmlEscape(who),
+		"{{NEXT}}", htmlEscape(t.Next), "{{NONCE}}", htmlEscape(nonce)).Replace(page)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Not no-referrer here: under it a browser sends the form post's Origin
+	// as "null", which a browser without Fetch Metadata then can't prove
+	// anything with. strict-origin: the origin, never the (spent) ticket.
+	w.Header().Set("Referrer-Policy", "strict-origin")
+	w.Header().Set("Content-Security-Policy", webConfirmCSP)
+	w.Header().Set("X-Frame-Options", "DENY")
+	_, _ = w.Write([]byte(page))
+}
+
+// handleWebTicketConfirm is POST /login/web-ticket {confirm}: the
+// confirmation page's Continue. Only from this origin's own page, only
+// from the browser that page was served to, once.
+func (s *Server) handleWebTicketConfirm(w http.ResponseWriter, r *http.Request) {
+	webTicketHeaders(w)
+	ip := s.ClientIP(r)
+	if !s.loginThrottle.allow(ip) {
+		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
+		return
+	}
+	if !webConfirmSameOrigin(r) { // before anything is spent: a forged post burns nothing
+		webTicketRefuse(w, auth.WebTicket{}, ip, "confirm this sign-in on the page that asked — a post from anywhere else is refused")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	_ = r.ParseForm()
+	nonce := r.PostFormValue("confirm")
+	secure := s.Auth.SessionCookieSecure(r)
+	c, err := auth.OnlyCookie(r, webConfirmCookie(secure))
+	http.SetCookie(w, &http.Cookie{Name: webConfirmCookie(secure), Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
+		SameSite: http.SameSiteStrictMode, Secure: secure})
+	if err != nil || nonce == "" || subtle.ConstantTimeCompare([]byte(c.Value), []byte(nonce)) != 1 {
+		s.loginThrottle.fail(ip)
+		webTicketRefuse(w, auth.WebTicket{}, ip, "this confirmation isn't from this browser's own page — open the workspace from the xbin app again")
+		return
+	}
+	t, ok := s.Auth.ConsumeWebConfirm(nonce)
+	if !ok || s.Auth.Users == nil {
+		s.loginThrottle.fail(ip)
+		webTicketRefuse(w, t, ip, "this confirmation expired or was already used — open the workspace from the xbin app again")
+		return
+	}
+	_, notAfter, same, why := s.webTicketCheck(r, t)
+	switch {
+	case why != "":
+		webTicketRefuse(w, t, ip, why)
+		return
+	case same:
+		http.Redirect(w, r, t.Next, http.StatusSeeOther)
 		return
 	}
 	sid, err := s.Auth.OpenWebSession(t, ip, notAfter)
 	if err != nil {
-		refuse(err.Error())
+		webTicketRefuse(w, t, ip, err.Error())
 		return
 	}
 	s.setSessionCookie(w, r, sid)
-	slog.Info("audit", "who", "user:"+t.UserID, "method", "GET", "path", "/login?ticket=", "status", http.StatusFound,
+	slog.Info("audit", "who", "user:"+t.UserID, "method", "POST", "path", "/login/web-ticket", "status", http.StatusSeeOther,
 		"device", t.DeviceID, "ip", ip)
-	http.Redirect(w, r, t.Next, http.StatusFound)
+	http.Redirect(w, r, t.Next, http.StatusSeeOther)
 }
+
+// webTicketCheck is what both halves re-check: the account and the device
+// still exist and may sign in (and the SSO window, D93, whose end caps the
+// session: notAfter), and the browser isn't signed in as somebody else —
+// the owner token and view-as sessions included; same: it already is this
+// person. why is the refusal, "" when none.
+func (s *Server) webTicketCheck(r *http.Request, t auth.WebTicket) (u *users.User, notAfter time.Time, same bool, why string) {
+	u, found := s.Auth.Users.Get(t.UserID)
+	if !found || u.Disabled {
+		return nil, notAfter, false, "this account is disabled"
+	}
+	if uid, _, found := s.Auth.Users.FindDevice(t.DeviceID); !found || uid != t.UserID {
+		return nil, notAfter, false, "the device that opened this link was removed"
+	}
+	notAfter, ok := s.deviceSSOBound(u)
+	if !ok {
+		return nil, notAfter, false, "this workspace signs in through single sign-on, and yours is too old — sign in with SSO again"
+	}
+	if p, ok := s.Auth.FromRequest(r); ok {
+		if p.Owner || p.Component != "" || p.ReadOnly() || p.UserID != t.UserID {
+			return nil, notAfter, false, "this browser is signed in as someone else — sign out here first, then open the workspace from the app again"
+		}
+		return u, notAfter, true, ""
+	}
+	return u, notAfter, false, ""
+}
+
+// webConfirmSameOrigin: the post came from a page of this origin. With
+// Fetch Metadata the browser says so (Sec-Fetch-Site same-origin — an
+// opaque-origin sandbox is cross-site — and a navigation: a form, not a
+// fetch); an Origin it sends must then name this host, or be "null" (what
+// a no-referrer policy a privacy setting forces makes of a same-origin
+// post's Origin). Without Fetch Metadata (Safari before 16.4) the Origin
+// must name this host. A request proving neither is refused.
+func webConfirmSameOrigin(r *http.Request) bool {
+	site, origin := r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Origin")
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" && mode != "navigate" {
+		return false
+	}
+	switch {
+	case site != "" && site != "same-origin":
+		return false
+	case site == "" && (origin == "" || origin == "null"):
+		return false
+	case origin == "" || origin == "null":
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+}
+
+// webConfirmCookie binds a confirmation to the browser its page was served
+// to: __Host- when secure, so a sibling (tile) origin can't toss one in.
+func webConfirmCookie(secure bool) string {
+	if secure {
+		return "__Host-xbin_webconfirm"
+	}
+	return "xbin_webconfirm"
+}
+
+func webTicketHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+}
+
+// webTicketRefuse answers 403 with why (a fixed text, never request input)
+// and logs it.
+func webTicketRefuse(w http.ResponseWriter, t auth.WebTicket, ip, why string) {
+	slog.Warn("web ticket refused", "why", why, "ip", ip, "user", t.UserID, "device", t.DeviceID)
+	http.Error(w, why, http.StatusForbidden)
+}
+
+// webConfirmCSP: the confirmation page runs no script, loads nothing but
+// its inline style and data: icons, is never framed (no clickjacking of
+// Continue) and posts only here.
+const webConfirmCSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+
+// webConfirmPageHTML is the signed-out browser's "Continue as <name>" page
+// (the sign-in pages' styling; brandPage fills TITLE/ICON/LOGO, the rest is
+// HTML-escaped server-side).
+const webConfirmPageHTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="icon" href="{{ICON}}">
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
+.card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
+  padding:26px 28px;width:320px;max-width:calc(100vw - 24px);box-sizing:border-box}
+.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:16px}
+.logo svg,.logo img.mark{flex:none}
+.logo img.mark{width:22px;height:22px;object-fit:contain;border-radius:4px}
+h1{font-size:16px;margin:0 0 2px;overflow-wrap:anywhere}
+.who{font-size:12.5px;color:#868f9a;margin:0 0 4px;overflow-wrap:anywhere}
+.next{font-size:12px;color:#868f9a;margin:0;overflow-wrap:anywhere}
+.next code{color:#d4d9e0}
+button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;border-radius:6px;
+  padding:9px;font:700 14px inherit;cursor:pointer;overflow-wrap:anywhere}
+button:hover{background:#e0912a}
+.warn{margin-top:14px;background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
+  padding:8px 10px;font-size:12px}
+.alt{margin-top:12px;font-size:12px;color:#868f9a}
+.alt a{color:#f5a623}
+</style></head><body>
+<form class="card" method="post" action="/login/web-ticket">
+  <div class="logo">{{LOGO}}</div>
+  <h1>Continue as {{NAME}}</h1>
+  <p class="who">{{WHO}}</p>
+  <p class="next">opens <code>{{NEXT}}</code></p>
+  <input type="hidden" name="confirm" value="{{NONCE}}">
+  <button autofocus>Continue as {{NAME}}</button>
+  <div class="warn">Only continue if you just opened this from the xbin app on your own phone or tablet. If someone sent you this link, close this page: it would sign this browser into <b>their</b> account.</div>
+  <div class="alt">Not you? <a href="/login">Sign in with your own account</a></div>
+</form></body></html>`

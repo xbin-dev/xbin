@@ -6,6 +6,9 @@
 // and revokes one; removing the other from the panel ends its session.
 // Each device row shows its push registration (GET /devices/push) with its
 // own remove; registrations no enrolled device owns are listed apart.
+// Signed-in Safari: the phone's device session mints a web ticket; a
+// signed-out browser opening it sees "Continue as <name>" and is signed in
+// only by that button (login CSRF — webticket.go).
 // Step-up: a stale sign-in is asked for the password (or to sign in again)
 // before a code is minted — the harness's logins are always fresh, so the
 // server's answer is stubbed for those checks (the gate itself is
@@ -126,6 +129,29 @@ async function devices(browser) {
   check(loginA.status === 200 && loginA.body.user?.id === 'admin' && loginA.body.tokenType === 'Bearer', `device login → ${loginA.status}`);
   const tokA = loginA.body.token;
   check(await whoamiStatus(tokA) === 200, 'the device session works as a bearer');
+
+  // ---- signed-in Safari: the phone opens the workspace in a browser ----
+  // A fresh (signed-out) phone-sized context stands in for
+  // SFSafariViewController: opening the link shows "Continue as <name>"
+  // and signs nothing in; the button does.
+  const wt = await post('/api/xbin/web-ticket', { next: '/c/root/' }, tokA);
+  check(wt.status === 200 && /\/login\?ticket=.+&next=%2Fc%2Froot%2F$/.test(wt.body.url ?? ''), `the phone mints a web ticket (${wt.status} ${wt.body.url})`);
+  const safari = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const sp = await safari.newPage();
+  await sp.goto(wt.body.url);
+  await waitSel(sp, 'form[action="/login/web-ticket"] button');
+  const heading = (await sp.locator('h1').textContent()).trim();
+  check(/^Continue as /.test(heading), `the link opens a "Continue as" page (${heading})`);
+  const noSession = (await safari.request.get(`${URL}/api/xbin/whoami`)).status();
+  check(noSession === 401, `opening the link signed nothing in (${noSession})`);
+  await shot(sp, 'devices-web-ticket', { fullPage: false });
+  await sp.locator('form[action="/login/web-ticket"] button').click();
+  await sp.waitForURL(/\/c\/root\/$/, { timeout: 15000 });
+  const me = await (await safari.request.get(`${URL}/api/xbin/whoami`)).json().catch(() => ({}));
+  check(me.kind === 'user' && me.id === 'admin', `Continue signs the browser in as the phone's user, landing on next (${me.kind}:${me.id})`);
+  const replay = await (await safari.newPage()).goto(wt.body.url);
+  check(replay.status() === 403, `the link works once (${replay.status()})`);
+  await safari.close();
 
   // a second device, enrolled straight through the API (for the admin tab)
   const minted = await (await ctx.request.post(`${URL}/api/xbin/devices/enroll-code`)).json();

@@ -189,3 +189,64 @@ func TestWebSessionBinding(t *testing.T) {
 		t.Fatal("sign-out-everywhere left a web ticket redeemable")
 	}
 }
+
+// The confirmation step (a signed-out browser's "Continue as" page): a
+// consumed ticket becomes a one-shot nonce naming the same thing, only
+// while the device session lives, voided by sign-out-everywhere.
+func TestWebConfirm(t *testing.T) {
+	a, _, dev := webTicketAuth(t)
+	hold := func() (WebTicket, string) {
+		t.Helper()
+		tk, _, err := a.MintWebTicket(dev, "/c/apps/x/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wt, ok := a.ConsumeWebTicket(tk)
+		if !ok {
+			t.Fatal("consume")
+		}
+		nonce, exp, err := a.HoldWebTicket(wt)
+		if err != nil || time.Until(exp) > WebConfirmTTL || time.Until(exp) < WebConfirmTTL-5*time.Second {
+			t.Fatalf("hold: %v (expires in %v)", err, time.Until(exp))
+		}
+		return wt, nonce
+	}
+	wt, nonce := hold()
+	got, ok := a.ConsumeWebConfirm(nonce)
+	if !ok || got != wt {
+		t.Fatalf("confirm: %+v %v, want %+v", got, ok, wt)
+	}
+	if _, ok := a.ConsumeWebConfirm(nonce); ok {
+		t.Fatal("a confirmation used twice")
+	}
+	if _, ok := a.ConsumeWebTicket(nonce); ok {
+		t.Fatal("a confirmation nonce redeemed as a ticket")
+	}
+	if _, err := a.OpenWebSession(got, "", time.Time{}); err != nil {
+		t.Fatalf("open after confirm: %v", err)
+	}
+	// expiry
+	_, nonce = hold()
+	a.TestExpireWebTickets()
+	if _, ok := a.ConsumeWebConfirm(nonce); ok {
+		t.Fatal("an expired confirmation")
+	}
+	// sign-out-everywhere voids a pending one
+	_, nonce = hold()
+	a.DropUserSessions("ann")
+	if _, ok := a.ConsumeWebConfirm(nonce); ok {
+		t.Fatal("sign-out-everywhere left a confirmation")
+	}
+	// a ticket whose device session ended holds nothing
+	bs2 := a.NewBearerSession("ann", "dev-1", "")
+	dev2, _ := a.bearerSessionPrincipal(bs2.Token, "")
+	tk, _, _ := a.MintWebTicket(dev2, "/")
+	wt, _ = a.ConsumeWebTicket(tk)
+	a.DropBearerSession(bs2.Token)
+	if _, _, err := a.HoldWebTicket(wt); err == nil {
+		t.Fatal("held a ticket of an ended device session")
+	}
+	if _, _, err := a.HoldWebTicket(WebTicket{UserID: "ann", DeviceID: "dev-1"}); err == nil {
+		t.Fatal("held a forged ticket")
+	}
+}

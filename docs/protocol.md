@@ -107,25 +107,37 @@ GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  cookie becomes a read-only session as the
                                  user → 302 / (D64)
 GET  /login?ticket=<t>&next=<path>
-                                 signed-in Safari: redeems a one-shot
+                                 signed-in Safari: spends a one-shot
                                  ticket the app's device session minted
-                                 (POST /api/xbin/web-ticket) into an
-                                 ordinary cookie session of the same user
-                                 → 302 <path> (the ticket's own next).
-                                 Single use, 60 s. 403 when another page
-                                 started the navigation (Fetch Metadata
-                                 Sec-Fetch-Site other than none — login
-                                 CSRF), when the browser is signed in as
-                                 someone else (the same user is let
-                                 through without a new session), when next
-                                 was altered, or once the device session,
-                                 the device or the account is gone (or an
-                                 SSO-bound account's window closed, D93).
-                                 The session ends with the device and the
-                                 app's sign-out and keeps the device
-                                 login's time (docs/auth.md §Device login).
-                                 A HEAD answers 405 and leaves it unspent.
-                                 Throttled; audit-logged
+                                 (POST /api/xbin/web-ticket; single use,
+                                 60 s). A GET never signs a browser in: one
+                                 already signed in as the same user → 302
+                                 <path> (the ticket's own next); a signed-
+                                 out one gets a "Continue as <name>" page
+                                 naming the account (CSP frame-ancestors
+                                 'none'), whose button posts to POST
+                                 /login/web-ticket — login CSRF: a link to
+                                 someone else's ticket, opened from a chat
+                                 or a QR code, can't sign you in unseen.
+                                 403 when a page started the navigation
+                                 (Sec-Fetch-Site other than none), when
+                                 the browser is signed in as someone else,
+                                 when next was altered, or once the device
+                                 session, the device or the account is
+                                 gone (or an SSO-bound account's window
+                                 closed, D93). A HEAD answers 405 and
+                                 leaves it unspent. Throttled
+POST /login/web-ticket           {confirm} form, from that page only:
+                                 Sec-Fetch-Site same-origin (or, without
+                                 Fetch Metadata, an Origin of this host;
+                                 neither → 403), the confirm nonce equal to
+                                 the cookie the page's response set (this
+                                 browser), single use, 2 min → the cookie
+                                 session, 303 <path>. The session ends
+                                 with the device and the app's sign-out
+                                 and keeps the device login's time
+                                 (docs/auth.md §Device login). Throttled;
+                                 audit-logged
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
                                  signs the user in (throttled)
@@ -875,9 +887,12 @@ POST   /web-ticket                the app's device-key session (via
                                    [{next}] → {url: "<device origin>/
                                    login?ticket=<t>&next=<path>", expires,
                                    expiresIn: 60}: signed-in Safari — the
-                                   app opens url top-level and GET /login?
-                                   ticket= (Core) signs that browser in as
-                                   the same user, landing on next. next: a
+                                   app opens url top-level; GET /login?
+                                   ticket= (Core) shows a signed-out
+                                   browser "Continue as <name>", and its
+                                   button (POST /login/web-ticket) signs
+                                   that browser in as the same user,
+                                   landing on next. next: a
                                    path on this workspace (one leading
                                    slash, printable ASCII, no backslash,
                                    ≤ 2048, not /login… or /logout;
