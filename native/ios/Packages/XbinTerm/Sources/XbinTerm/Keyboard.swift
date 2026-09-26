@@ -218,6 +218,7 @@ public enum AccessoryKey: Hashable, Sendable, Codable {
 /// USB HID usage IDs (page 7) — UIKeyboardHIDUsage's raw values.
 public enum HIDUsage {
     public static let a: UInt16 = 0x04, k: UInt16 = 0x0e, t: UInt16 = 0x17, c: UInt16 = 0x06, v: UInt16 = 0x19, f: UInt16 = 0x09
+    public static let g: UInt16 = 0x0a
     public static let digit0: UInt16 = 0x27
     public static let returnOrEnter: UInt16 = 0x28, escape: UInt16 = 0x29, deleteOrBackspace: UInt16 = 0x2a
     public static let tab: UInt16 = 0x2b, spacebar: UInt16 = 0x2c, hyphen: UInt16 = 0x2d, equalSign: UInt16 = 0x2e
@@ -269,6 +270,8 @@ public enum TermShortcut: Equatable, Sendable {
     case fontBigger, fontSmaller, fontReset
     /// ⌘F: scrollback search
     case find
+    /// ⌘G, ⌘⇧G: the next / previous match of the last search
+    case findNext, findPrevious
 }
 
 public enum HardwareKeyResult: Equatable, Sendable {
@@ -394,6 +397,7 @@ public struct TermKeyboard: Equatable, Sendable {
         case HIDUsage.hyphen where !shift: return .shortcut(.fontSmaller)
         case HIDUsage.digit0 where !shift: return .shortcut(.fontReset)
         case HIDUsage.f where !shift: return .shortcut(.find)
+        case HIDUsage.g: return .shortcut(shift ? .findPrevious : .findNext)
         default: return .passthrough
         }
     }

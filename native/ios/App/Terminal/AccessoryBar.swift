@@ -12,18 +12,15 @@ final class AccessoryBar: UIInputView {
     private var repeatTimer: Timer?
     private var swipeOrigin: CGPoint = .zero
 
-    /// The user's extra key (Settings), after the designed row.
-    static var customKey: AccessoryKey? {
-        guard let d = UserDefaults.standard.data(forKey: "termCustomKey") else { return .key(.function(1)) }
-        return try? JSONDecoder().decode(AccessoryKey.self, from: d)
-    }
+    /// The user's extra key (TerminalKeyboardSettingsView), after the designed row.
+    static var customKey: AccessoryKey? { TerminalPrefs.accessorySlot }
 
     init(controller: TerminalController) {
         self.controller = controller
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 46), inputViewStyle: .keyboard)
         allowsSelfSizing = true
         stack.axis = .horizontal
-        stack.distribution = .fillEqually
+        stack.distribution = .fill // widths by constraint (buildRow)
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -34,28 +31,51 @@ final class AccessoryBar: UIInputView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
             heightAnchor.constraint(equalToConstant: 46),
         ])
-        var row = AccessoryKey.defaultRow
-        if let c = Self.customKey { row.append(c) }
-        for key in row { add(key) }
+        buildRow()
         let pan = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         pan.cancelsTouchesInView = false
         addGestureRecognizer(pan)
+        NotificationCenter.default.addObserver(self, selector: #selector(keysChanged), name: .xbinTerminalKeysChanged, object: nil)
+    }
+
+    /// The designed row and the user's slot.
+    private func buildRow() {
+        repeatTimer?.invalidate()
+        repeatTimer = nil
+        for (_, b) in buttons { b.removeFromSuperview() }
+        buttons = []
+        let slot = Self.customKey
+        var row = AccessoryKey.defaultRow
+        if let slot { row.append(slot) }
+        for key in row { add(key) }
+        // Equal widths, but a slot whose cap is a word ("sudo") gets two.
+        if let first = buttons.first?.1 {
+            for (i, (key, b)) in buttons.enumerated() where i > 0 {
+                let wide = slot != nil && i == row.count - 1 && AccessorySlot.capLabel(key).count > 3
+                b.widthAnchor.constraint(equalTo: first.widthAnchor, multiplier: wide ? 2 : 1).isActive = true
+            }
+        }
         refresh()
     }
+
+    /// The slot was changed in the settings: redraw the row.
+    @objc private func keysChanged() { buildRow() }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private func add(_ key: AccessoryKey) {
         var cfg = UIButton.Configuration.gray()
-        cfg.title = key.label
+        cfg.title = AccessorySlot.capLabel(key)
         cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
+        cfg.titleLineBreakMode = .byClipping
+        let size: CGFloat = AccessorySlot.capLabel(key).count > 3 ? 12 : 14
         cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
             var a = a
-            a.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .medium)
+            a.font = UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
             return a
         }
         let b = UIButton(configuration: cfg)
-        b.accessibilityLabel = key.label
+        b.accessibilityLabel = AccessorySlot.describe(key)
         b.addAction(UIAction { [weak self] _ in self?.tap(key) }, for: .touchUpInside)
         if key.repeats {
             let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
