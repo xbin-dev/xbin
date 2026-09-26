@@ -112,7 +112,7 @@ of `r.1`; `r.1.0:3.1` is slot 1 of the multi-root template item `3` renders;
 
 | Call | Meaning |
 |---|---|
-| `xbn.event(k, type, payload, n?)` | the user acted on node `k`. `type` must be in the node's `e`; `payload` is the event's object (§6), `{}` when it has none. `n` (optional, recommended): the `n` of the last `mount`/`patch` the app had applied when the user acted (§5). Returns `true` when a handler ran. |
+| `xbn.event(k, type, payload, n?)` | the user acted on node `k`. `type` is in the node's `e` (or reports a controlled prop, §6); `payload` is the event's object (§6), `{}` when it has none. `n` (optional, recommended): the `n` of the last `mount`/`patch` the app had applied when the user acted (§5). Returns `true` when a handler ran. |
 | `xbn.visibility(state)` | `"visible"` / `"hidden"`: the tile's surface is on or off screen. Drives `document.visibilityState` (tiles slow their polling) and fires `visibilitychange`. |
 | `xbn.resolve(id, value, error?)` | answers `{op:"call"}` `id`; a non-null `error` (a string) rejects the tile's promise instead. |
 | `xbn.frame()` | the renderer's frame clock: flush a pending render now (§7). Returns whether a tree message was sent. |
@@ -215,8 +215,10 @@ violation keeps the child.
 ## 6. Events and controlled props
 
 The events of each primitive and their payloads are `vocab.json`
-`prims.<name>.events` (`payload`: field → type). The app sends an event only
-when its type is in the node's `e`.
+`prims.<name>.events` (`payload`: field → type). The app sends an event when
+its type is in the node's `e` — and an event that reports a controlled prop
+(below) whenever the node has that prop, listened to or not, so the shadow
+stays true (no handler runs; `xbn.event` returns `false`).
 
 **Controlled props.** Some events report the app-side value of a prop
 (`reports` in the vocabulary):
@@ -239,7 +241,9 @@ for a bound prop updates the shadow first, so
   event per keystroke and no patch back);
 - a re-render with a different value sends it as a plain `set` (a reset such as
   `draft = ''`, or the tile refusing a toggle), which the app applies;
-- a report for an unbound prop changes nothing.
+- a report for an unbound prop changes nothing;
+- a bound prop with no listener is read-only: the app's change is reported,
+  the tile's next render puts its own value back.
 
 **Ordering.** If the app passes `n` and a report was produced before the app
 applied the patch that last `set` that prop (`n` < that patch's `n`), the

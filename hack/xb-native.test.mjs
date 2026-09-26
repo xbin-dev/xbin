@@ -462,6 +462,14 @@ test('controlled: toggles, sheets, tabs and disclosure report their props', () =
   assert.deepEqual(r(v(false, 'b', true)).ops, [['set', 'r.3', { open: false }]]);
 });
 
+test('controlled without a listener is read-only: the report keeps the shadow true', () => {
+  const { r, rt } = mk();
+  r(html`<sheet open=${true}/>`);
+  assert.equal(rt.xbn.event('r', 'dismiss'), false, 'no handler ran');
+  assert.equal(rt.tree.root.p.open, false, 'but the app shows it dismissed');
+  assert.deepEqual(r(html`<sheet open=${true}/>`).ops, [['set', 'r', { open: true }]], 'so the tile\'s value goes back');
+});
+
 test('controlled: a report the app made before applying our last set of that prop is stale', () => {
   const { r, rt } = mk();
   const v = (x) => html`<field value=${x} @input=${() => {}}/>`;
