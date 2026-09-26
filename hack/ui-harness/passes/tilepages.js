@@ -47,7 +47,12 @@ async function tilePages(browser) {
     const page = await ctx.newPage();
     const errors = [], modules = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    page.on('response', (r) => { if (/\/c\/apps\/[^/]+\/[\w-]+\.js$/.test(r.url())) modules.push(`${r.status()} ${r.url().replace(URL, '')}`); });
+    // by path: under TILE_ASSETS=origins the page is on the tile's own origin,
+    // under tokens a relative module loads from /c/~<asset-token>/…
+    page.on('response', (r) => {
+      const path = new globalThis.URL(r.url()).pathname.replace(/^\/c\/~[^/]+\//, '/c/');
+      if (/^\/c\/apps\/[^/]+\/[\w-]+\.js$/.test(path)) modules.push(`${r.status()} ${path}`);
+    });
     await page.addInitScript(() => { window.__xbn = []; window.xbnHost = { post: (m) => window.__xbn.push(m) }; });
     await page.goto(`${URL}/c/${tile}/`);
     return { page, errors, modules };
