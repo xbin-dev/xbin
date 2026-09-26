@@ -19,7 +19,7 @@
  *   cx.update()         re-render after changing ui state
  *   cx.v                the <xb-view> element (copy, confirm, images, menus)
  */
-import { html, svg, nothing, unsafeSVG } from '/vendor/lit-all.min.js';
+import { html, svg, nothing, noChange, live, unsafeSVG } from '/vendor/lit-all.min.js';
 import { ICON_SVG } from '/vendor/xb/render-icons.js';
 import { ICONS } from '/vendor/xb/vocab.js';
 
@@ -53,5 +53,43 @@ export const spinner = (c = '') => html`<svg class=${cls('spin', c)} viewBox="0 
 
 // str(v): a prop as display text ('' for null/undefined)
 export const str = (v) => (v == null ? '' : String(v));
+
+// composing(n, cx): a text control's input-method rules (native/spec/tree.md
+// §6, the app's TextInputGate): no `input` while a composition is in
+// progress (the reading before its kanji are chosen), one when it commits;
+// a value the tile sets meanwhile is never drawn over the text being
+// composed — it replaces it when the composition ends (and the composed
+// text is not reported).
+//   .value(v)            bind the control's value: live(v), or noChange while composing
+//   .input, .start, .end the input / compositionstart / compositionend handlers
+// Browsers disagree on the order at the end (Chromium: the last input, then
+// compositionend; WebKit: compositionend, then an input that is no longer
+// composing), so the commit is reported once either way.
+export function composing(n, cx) {
+  const u = cx.ui(n.k);
+  const shown = () => str(own(n.p, 'value') ? n.p.value : u.value);
+  return {
+    value: (v) => (u.composing ? noChange : live(v)),
+    input: (e) => {
+      if (e.isComposing || u.composing) return;
+      if (u.committed != null && u.committed === e.target.value) { u.committed = null; return; }
+      u.committed = null;
+      cx.emit(n, 'input', { value: e.target.value });
+    },
+    start: () => { u.composing = true; u.base = shown(); u.committed = null; },
+    end: (e) => {
+      u.composing = false;
+      const tile = shown();
+      if (tile !== u.base) {
+        e.target.value = tile; // the tile set it meanwhile: its value now
+        u.committed = tile;
+        cx.update();
+        return;
+      }
+      u.committed = e.target.value;
+      cx.emit(n, 'input', { value: e.target.value });
+    },
+  };
+}
 
 export { html, svg, nothing };

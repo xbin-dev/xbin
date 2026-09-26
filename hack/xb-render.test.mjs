@@ -182,8 +182,80 @@ test('a row\'s and a message\'s actions open as a popover and fire', { skip }, a
   await root.locator('.as-btn.danger').click(); // a destructive action confirms first
   await root.locator('[data-k="r.1.0"] .m-bubble').click({ button: 'right' });
   await root.locator('.pop [data-k="r.1.0.0.0"] button').click();
+  // …and behind the message's ⋯, as the app folds them
+  await root.locator('[data-k="r.1.0"] .m-more').click();
+  await root.locator('.pop [data-k="r.1.0.0.0"] button').click();
   const taps = await p.evaluate(() => window.xbnFixture.events.map((e) => e[0] + ':' + e[1]));
-  assert.deepEqual(taps, ['r.0.0.0.0:tap', 'r.0.0.0.1:tap', 'r.1.0.0.0:tap']);
+  assert.deepEqual(taps, ['r.0.0.0.0:tap', 'r.0.0.0.1:tap', 'r.1.0.0.0:tap', 'r.1.0.0.0:tap']);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// A message's image files are thumbnails that open full screen; other files
+// are chips (native/fixtures/message-files).
+test('message thumbnails open the image preview', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  const tree = JSON.parse(readFileSync(join(ROOT, 'native/fixtures/message-files/expected.json'), 'utf8'));
+  await p.evaluate((t) => window.xbnFixture.load(t), tree);
+  const root = p.locator('xb-view');
+  assert.equal(await root.locator('.m-thumb').count(), 3, 'two tile photos and the data: label');
+  assert.equal(await root.locator('.m-file').count(), 3, 'a PDF, a CSV and an image without a src');
+  await root.locator('[data-k="r.0.0:m3"] .m-thumb').click();
+  await root.locator('.ov-img img').waitFor();
+  assert.deepEqual(await p.evaluate(() => window.xbnFixture.events), [], 'a thumbnail is no tap on the message');
+  assert.deepEqual(errors.filter((e) => !/Failed to load resource/.test(e)), []);
+  await ctx.close();
+});
+
+// Input methods (plans/native.md §24, tree.md §6): nothing is reported
+// while a composition is in progress, the commit is reported once, and a
+// value the tile sets meanwhile replaces the composed text at the end —
+// the app's TextInputGate, here driven through Chromium's IME emulation.
+test('text controls hold input back while an input method composes', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), { v: 1, root: { k: 'r', t: 'screen', p: { title: 'T', style: 'form' }, c: [
+    { k: 'f', t: 'field', p: { label: 'Name', value: '' }, e: ['input'] },
+    { k: 'm', t: 'field', p: { label: 'Note', kind: 'multiline', value: '' }, e: ['input'] },
+    { k: 'c', t: 'composer', p: { value: '' }, e: ['input', 'send'] },
+  ] } });
+  const cdp = await ctx.newCDPSession(p);
+  const ime = (text) => cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  const commit = async (text) => { await cdp.send('Input.insertText', { text }); await p.evaluate(() => window.xbnFixture.settle()); };
+  const events = () => p.evaluate(() => window.xbnFixture.events.map((e) => [e[0], e[1], e[2].value]));
+
+  const input = p.locator('xb-view [data-k="f"] input');
+  await input.focus();
+  for (const step of ['t', 'と', 'とう', 'とうきょう']) await ime(step);
+  assert.equal(await input.inputValue(), 'とうきょう');
+  assert.deepEqual(await events(), [], 'nothing while composing');
+  await commit('東京');
+  assert.deepEqual(await events(), [['f', 'input', '東京']], 'the commit, once');
+
+  // The tile clears the field during the next composition: the text being
+  // composed stays until the composition ends, then the tile's value wins.
+  await ime('と');
+  await p.evaluate(() => window.xbnFixture.apply({ op: 'patch', n: 2, ops: [['set', 'f', { value: '' }]] }));
+  assert.equal(await input.inputValue(), '東京と', 'a set never lands mid-composition');
+  await commit('都');
+  assert.equal(await input.inputValue(), '');
+  assert.deepEqual(await events(), [['f', 'input', '東京']], 'the composed text is not reported');
+
+  // Plain typing still reports every change.
+  await input.pressSequentially('ab');
+  assert.deepEqual((await events()).slice(1), [['f', 'input', 'a'], ['f', 'input', 'ab']]);
+
+  // A multiline field and the composer follow the same rules.
+  for (const k of ['m', 'c']) {
+    const ta = p.locator(`xb-view [data-k="${k}"] textarea`);
+    await ta.focus();
+    for (const step of ['ㅎ', '하', '한']) await ime(step);
+    await commit('한');
+    assert.deepEqual((await events()).filter((e) => e[0] === k), [[k, 'input', '한']], `${k}: one report`);
+  }
   assert.deepEqual(errors, []);
   await ctx.close();
 });

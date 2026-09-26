@@ -13,8 +13,8 @@
  * layout (sheet, scroll screen), accent-text cells in an inset group, bare
  * items in a toolbar, compact pills among a row's actions, rows in a menu.
  */
-import { css, live } from '/vendor/lit-all.min.js';
-import { html, nothing, P, cls, icon, spinner, str } from '/vendor/xb/render-base.js';
+import { css } from '/vendor/lit-all.min.js';
+import { html, nothing, P, cls, icon, spinner, str, composing } from '/vendor/xb/render-base.js';
 
 // press(n, view): a button's tap — its confirmation first, then the native
 // copy, then the tile's `tap`.
@@ -69,18 +69,19 @@ function field(n, cx) {
   const kind = Object.hasOwn(INPUT, p.kind) || p.kind === 'multiline' ? p.kind : 'text';
   const v = str(cx.val(n, 'value', ''));
   const report = (type) => (e) => cx.emit(n, type, { value: e.target.value });
+  const ime = composing(n, cx);
   const key = (e) => {
     if (e.key === 'Enter' && !e.isComposing && kind !== 'multiline') { e.preventDefault(); cx.emit(n, 'submit', { value: e.target.value }); }
   };
   const ph = str(p.placeholder) || nothing;
   const common = { dis: !!p.disabled };
   const input = kind === 'multiline'
-    ? html`<textarea class="f-input" rows="3" placeholder=${ph} ?disabled=${common.dis} .value=${live(v)}
-        @input=${report('input')} @change=${report('change')}></textarea>`
-    : html`<input class="f-input" type=${INPUT[kind]} placeholder=${ph} ?disabled=${common.dis} .value=${live(v)}
+    ? html`<textarea class="f-input" rows="3" placeholder=${ph} ?disabled=${common.dis} .value=${ime.value(v)}
+        @input=${ime.input} @compositionstart=${ime.start} @compositionend=${ime.end} @change=${report('change')}></textarea>`
+    : html`<input class="f-input" type=${INPUT[kind]} placeholder=${ph} ?disabled=${common.dis} .value=${ime.value(v)}
         inputmode=${kind === 'number' ? 'decimal' : nothing} enterkeyhint=${p.submit ? str(p.submit) : nothing}
         autocomplete=${kind === 'secure' ? 'new-password' : 'off'} spellcheck="false" autocapitalize="off"
-        @input=${report('input')} @change=${report('change')} @keydown=${key}>`;
+        @input=${ime.input} @compositionstart=${ime.start} @compositionend=${ime.end} @change=${report('change')} @keydown=${key}>`;
   return html`<xb-field data-k=${n.k} class=${cls('field', cx.place === 'group' ? 'cell' : 'free', p.error && 'invalid', p.disabled && 'disabled', `k-${kind}`)}>
     <label class="f-wrap">${p.label ? html`<span class="f-label">${p.label}</span>` : nothing}
       <span class="f-box">${kind === 'search' ? icon('search') : nothing}${input}</span></label>
