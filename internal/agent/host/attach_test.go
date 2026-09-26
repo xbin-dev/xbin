@@ -60,9 +60,10 @@ func TestAttachDrops(t *testing.T) {
 	}
 }
 
-// With isolation off the daemon owns the directory (_xbin/spawn attachDir):
-// the host writes there, and on a clean exit removes its files but leaves
-// the directory to the daemon.
+// With isolation off the daemon names the directory (_xbin/spawn
+// attachDir): the host writes there and makes none of its own, and a clean
+// exit (xbind stopping closes its stdin) removes it — a SIGKILLed host
+// leaves it to the daemon.
 func TestAttachGivenDir(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	h := newHost(t, t.TempDir())
@@ -79,7 +80,7 @@ func TestAttachGivenDir(t *testing.T) {
 		t.Fatalf("the host made its own dir too: %v", left)
 	}
 	h.dropAttachments()
-	if names, err := os.ReadDir(dir); err != nil || len(names) != 0 {
-		t.Fatalf("after exit: %v %v", names, err)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("after exit: %v", err)
 	}
 }

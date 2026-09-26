@@ -29,7 +29,6 @@ const attachBudget = 64 << 20
 type attachments struct {
 	mu    sync.Mutex
 	dir   string
-	given bool      // dir is the daemon's (isolation off): it removes it
 	files []dropped // oldest first
 	total int64
 }
@@ -42,7 +41,7 @@ func (a *attachments) setDir(dir string) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.dir, a.given = dir, true
+	a.dir = dir
 }
 
 type dropped struct {
@@ -124,22 +123,15 @@ func plainName(name string) string {
 	return name
 }
 
-// dropAttachments removes the session's attachment files on a clean host
-// exit: its own directory, or the files it wrote into the daemon's (which
-// the daemon removes as well — a SIGKILLed host runs nothing).
+// dropAttachments removes the session's attachment directory on a clean
+// host exit (the daemon closed our stdin: the session ended, or xbind
+// stopped) — the daemon's too, which it also removes itself when the
+// session ends: a SIGKILLed host runs nothing.
 func (h *Host) dropAttachments() {
 	h.att.mu.Lock()
 	defer h.att.mu.Unlock()
-	if h.att.dir == "" {
-		return
-	}
-	if h.att.given {
-		for _, f := range h.att.files {
-			_ = os.Remove(f.path)
-		}
-	} else {
+	if h.att.dir != "" {
 		_ = os.RemoveAll(h.att.dir)
-		h.att.dir = ""
+		h.att.dir, h.att.files, h.att.total = "", nil, 0
 	}
-	h.att.files, h.att.total = nil, 0
 }

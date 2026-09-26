@@ -95,6 +95,7 @@ type agentState struct {
 	snap      *snapper    // files.changed snapshots of the tile (agentdiff.go); nil = off
 	published statusKey   // the last summary handed to OnStatus (agentstatus.go)
 	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
+	attachDir string      // the daemon's attachments dir (isolation off), removed with the session
 }
 
 func (st *agentState) logf(line string) {
@@ -286,7 +287,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		rl = postStart()
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
-		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
+		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
+		attachDir: attachDir}
 	s := &Session{
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,

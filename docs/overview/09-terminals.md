@@ -465,7 +465,8 @@ What the agent gets:
   /api/xbin/term/sessions/<id>/prompt {text, attachments}`, up to 10 files,
   10 MiB each, 20 MiB together). Each is written inside the agent's sandbox
   (a private directory under its own `/tmp`, never the tile; with isolation
-  off, a directory xbind makes for the session and removes when it ends)
+  off, a directory xbind makes for the session and removes when it ends or
+  xbind stops)
   and handed to the agent by path, so it can read, grep or copy it with its
   own tools; an image (PNG, JPEG, GIF, WebP) up to 3.75 MiB also goes to the
   model inline (4 MiB of images per prompt — a bigger one is a file the agent

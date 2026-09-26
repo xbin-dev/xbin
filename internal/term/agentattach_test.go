@@ -166,3 +166,36 @@ func TestAgentSelfToken(t *testing.T) {
 		t.Fatal("an unknown session")
 	}
 }
+
+// xbind stopping (FlushAgents) leaves nothing of a live session in its
+// TMPDIR: the private snapshot dir and the attachments dir go then — the
+// sessions' own teardown never runs, and the hosts go with xbind.
+func TestFlushAgentsDropsSessionDirs(t *testing.T) {
+	r := newAgentRig(t)
+	gitRepo(t, filepath.Join(r.root, "apps", "x"))
+	info, code, err := r.m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
+	}
+	defer func() {
+		r.m.Kill(info.ID)
+		waitClose(t, r.change, "close:"+info.ID)
+	}()
+	r.until(t, func(e SessionEvent) bool {
+		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	atts, _ := agent.PrepareAttachments([]agent.Attachment{{Name: "notes.txt", Mime: "text/plain", Data: []byte("hi")}})
+	if _, err := r.m.AgentPromptWith(context.Background(), info.ID, agent.Prompt{Text: "x", Attachments: atts}); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, ofType(agent.EvTurnEnd))
+	for _, pat := range []string{"xbin-attachments-*", "xbin-agentdiff-*"} {
+		if dirs, _ := filepath.Glob(filepath.Join(r.tmp, pat)); len(dirs) != 1 {
+			t.Fatalf("%s while the session lives: %v", pat, dirs)
+		}
+	}
+	r.m.FlushAgents()
+	if left, _ := filepath.Glob(filepath.Join(r.tmp, "xbin-*")); len(left) != 0 {
+		t.Fatalf("left behind at shutdown: %v", left)
+	}
+}

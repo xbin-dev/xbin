@@ -233,11 +233,18 @@ func (m *Manager) pruneHistory(dir string) {
 }
 
 // FlushAgents persists every live agent session — on shutdown, so an
-// update/restart turns open conversations into history, not losses.
+// update/restart turns open conversations into history, not losses — and
+// drops what each keeps outside its sandbox: the private snapshot dir and,
+// with isolation off, the attachments dir (the agent hosts go with xbind,
+// and the sessions' own teardown will not run).
 func (m *Manager) FlushAgents() {
 	for _, s := range m.sorted() {
 		if s.agent != nil {
 			m.saveHistory(s)
+			s.agent.snap.discard(2 * time.Second)
+			if s.agent.attachDir != "" {
+				_ = os.RemoveAll(s.agent.attachDir)
+			}
 		}
 	}
 }
