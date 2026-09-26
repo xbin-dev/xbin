@@ -109,7 +109,11 @@ func staticLint(get fetchFn, c nativeComp) []lintFinding {
 	if c.ManifestErr != "" {
 		add("error", "xbin.json", "%s", c.ManifestErr)
 	}
-	docPath := "/c/" + c.Path + "/?native=1"
+	// &preview=1: the same document plus the preview host's meta and import
+	// (nothing the checks below read) — and served while an admin has
+	// turned native UIs off for the workspace (410 without it), so lint
+	// keeps working while a builder fixes what the switch covers for.
+	docPath := "/c/" + c.Path + "/?native=1&preview=1"
 	st, doc, err := get(docPath)
 	if err != nil {
 		add("error", "", "runtime document: %v", err)
