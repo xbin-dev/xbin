@@ -6,7 +6,10 @@ import XbinRendererModel
 /// The message composer: a growing text field with send (or stop while
 /// busy), an attach button when attaching is possible, attachment chips
 /// with upload progress, suggestion chips above, and a slash-command
-/// palette while the draft is a `/word`. The draft is the caller's binding.
+/// palette while the draft is a `/word`. The draft is the caller's binding,
+/// set with committed text only: while an input method composes, the
+/// binding keeps the text before the composition (``XbinTextArea``), and
+/// send commits the composition first.
 public struct ComposerView<Chips: View>: View {
     public let composer: ChatComposer
     @Binding public var text: String
@@ -15,6 +18,8 @@ public struct ComposerView<Chips: View>: View {
     public var onAttach: (@MainActor () -> Void)?
     public var onRemoveAttachment: (@MainActor (String) -> Void)?
     let chips: Chips
+    @State private var input = TextInputHandle()
+    @State private var composing = false
 
     public init(composer: ChatComposer, text: Binding<String>, onSend: @escaping @MainActor (String) -> Void,
                 onStop: (@MainActor () -> Void)? = nil, onAttach: (@MainActor () -> Void)? = nil,
@@ -80,8 +85,8 @@ public struct ComposerView<Chips: View>: View {
                     .disabled(composer.disabled)
                     .accessibilityLabel("Attach")
                 }
-                TextField(composer.placeholder, text: $text, axis: .vertical)
-                    .lineLimit(1...6)
+                XbinTextArea(text: text, style: Self.style(composer), lines: 1...6, handle: input,
+                             onInput: { text = $0 }, onComposing: { composing = $0 })
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -93,12 +98,14 @@ public struct ComposerView<Chips: View>: View {
                     .accessibilityLabel("Stop")
                 } else {
                     Button {
+                        // Marked text is committed (and reported) first.
+                        input.commitComposition()
                         let draft = text
                         if composer.canSend(draft) { onSend(draft) }
                     } label: {
                         Image(systemName: XbinIcons.UI.send).font(.title)
                     }
-                    .disabled(!composer.canSend(text))
+                    .disabled(!(composer.canSend(text) || (composing && !composer.disabled)))
                     .accessibilityLabel("Send")
                 }
             }
@@ -106,6 +113,16 @@ public struct ComposerView<Chips: View>: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+}
+
+extension ComposerView {
+    /// The composer's text traits: prose, the placeholder.
+    static func style(_ composer: ChatComposer) -> TextInputStyle {
+        var s = TextInputStyle()
+        s.placeholder = composer.placeholder
+        s.accessibilityLabel = composer.placeholder.isEmpty ? "Message" : composer.placeholder
+        return s
     }
 }
 

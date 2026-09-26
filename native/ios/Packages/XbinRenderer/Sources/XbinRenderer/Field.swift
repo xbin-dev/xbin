@@ -6,16 +6,19 @@ import XbinRendererModel
 
 /// `field`: a text field (text, secure, number, email, url, multiline,
 /// search) or a date/time picker. The value is controlled and app-owned
-/// while focused (§7.3, tree.md §6): every keystroke is shown at once and
-/// reported as `input {value}`; the tile's value replaces it only when the
-/// tile sets it (a reset, a correction). Focus loss (or return) reports
-/// `change` when the text changed; return reports `submit`.
+/// while focused (§7.3, tree.md §6): every committed change is shown at
+/// once and reported as `input {value}` — text still being composed with
+/// an input method is not (``XbinTextField``, ``TextInputGate``) — and the
+/// tile's value replaces it only when the tile sets it (a reset, a
+/// correction), at the end of a composition in progress. Focus loss (or
+/// return) reports `change` when the text changed; return reports
+/// `submit`.
 struct FieldNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
     @Environment(\.xbinPlacement) private var placement
     @Environment(\.scenePhase) private var scenePhase
-    @FocusState private var focused: Bool
+    @State private var focused = false
     @State private var atFocus: String?
 
     var body: some View {
@@ -30,10 +33,6 @@ struct FieldNodeView: View {
                     Text(verbatim: label).font(.footnote).foregroundStyle(XbinColor.muted)
                 }
                 input(kind: kind, label: label, p: p)
-                    .focused($focused)
-                    // A disabled field reads as disabled (UIKit keeps its
-                    // text at full strength).
-                    .foregroundStyle(p.bool("disabled") ? XbinColor.muted : XbinColor.text)
                     .padding(placement == .list ? 0 : 10)
                     .background(placement == .list ? Color.clear : XbinColor.fill,
                                 in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -45,9 +44,6 @@ struct FieldNodeView: View {
             }
         }
         .disabled(p.bool("disabled"))
-        .onChange(of: focused) { _, now in
-            if now { atFocus = text } else { commit() }
-        }
         .onChange(of: scenePhase) { _, phase in
             // Secure values never outlive the app going to the background.
             if phase == .background && kind == "secure" && !text.isEmpty { set("") }
@@ -60,6 +56,11 @@ struct FieldNodeView: View {
     private func set(_ value: String, change: Bool = false) {
         cx?.emit(node, "input", ["value": .string(value)])
         if change { cx?.emit(node, "change", ["value": .string(value)]) }
+    }
+
+    private func focus(_ now: Bool) {
+        focused = now
+        if now { atFocus = text } else { commit() }
     }
 
     /// Reports `change` when the text differs from when focus began.
@@ -75,42 +76,41 @@ struct FieldNodeView: View {
 
     @ViewBuilder
     private func input(kind: String, label: String, p: Props) -> some View {
-        let binding = mainBinding(get: { text }, set: { set($0) })
         // No placeholder → none: iOS would show the label again in the
         // field, under the label already drawn above it.
-        let prompt = Text(verbatim: p.nonEmpty("placeholder") ?? "")
-        let submitLabel = Self.submitLabel(p.string("submit"))
+        let style = Self.style(kind: kind, label: label, p: p)
+        let onInput: @MainActor (String) -> Void = { set($0) }
+        let onFocus: @MainActor (Bool) -> Void = { focus($0) }
+        let onReturn: @MainActor () -> Void = { submit() }
         switch kind {
         case "secure":
-            SecureField(text: binding, prompt: prompt) { Text(verbatim: label) }
-                .textContentType(.password)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            XbinTextField(text: text, style: style, onInput: onInput, onFocus: onFocus, onReturn: onReturn)
                 .privacySensitive()
-                .submitLabel(submitLabel)
-                .onSubmit { submit() }
         case "multiline":
-            TextField(text: binding, prompt: prompt, axis: .vertical) { Text(verbatim: label) }
-                .lineLimit(3...8)
+            XbinTextArea(text: text, style: style, lines: 3...8, onInput: onInput, onFocus: onFocus)
         case "search":
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(XbinColor.muted)
-                TextField(text: binding, prompt: prompt) { Text(verbatim: label) }
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.webSearch)
-                    .submitLabel(p.string("submit") == nil ? .search : submitLabel)
-                    .onSubmit { submit() }
+                XbinTextField(text: text, style: style, onInput: onInput, onFocus: onFocus, onReturn: onReturn)
             }
         default:
-            TextField(text: binding, prompt: prompt) { Text(verbatim: label) }
-                .keyboardType(Self.keyboard(kind))
-                .textContentType(Self.contentType(kind))
-                .textInputAutocapitalization(kind == "text" ? .sentences : .never)
-                .autocorrectionDisabled(kind != "text")
-                .submitLabel(submitLabel)
-                .onSubmit { submit() }
+            XbinTextField(text: text, style: style, onInput: onInput, onFocus: onFocus, onReturn: onReturn)
         }
+    }
+
+    /// The UIKit traits of a field kind.
+    static func style(kind: String, label: String, p: Props) -> TextInputStyle {
+        var s = TextInputStyle()
+        s.placeholder = p.nonEmpty("placeholder") ?? ""
+        s.accessibilityLabel = label.isEmpty ? s.placeholder : label
+        s.keyboard = keyboard(kind)
+        s.contentType = contentType(kind)
+        let prose = kind == "text" || kind == "multiline"
+        s.autocapitalization = prose ? .sentences : .none
+        s.autocorrection = prose ? .default : .no
+        s.returnKey = returnKey(p.string("submit")) ?? (kind == "search" ? .search : .default)
+        s.secure = kind == "secure"
+        return s
     }
 
     static func keyboard(_ kind: String) -> UIKeyboardType {
@@ -118,6 +118,7 @@ struct FieldNodeView: View {
         case "number": return .decimalPad
         case "email": return .emailAddress
         case "url": return .URL
+        case "search": return .webSearch
         default: return .default
         }
     }
@@ -126,19 +127,21 @@ struct FieldNodeView: View {
         switch kind {
         case "email": return .emailAddress
         case "url": return .URL
+        case "secure": return .password
         default: return nil
         }
     }
 
-    /// The return key: `go`, `send`, `done`, `search`, `next` (else return).
-    static func submitLabel(_ s: String?) -> SubmitLabel {
+    /// The return key: `go`, `send`, `done`, `search`, `next` (else the
+    /// kind's default).
+    static func returnKey(_ s: String?) -> UIReturnKeyType? {
         switch s ?? "" {
         case "go": return .go
         case "send": return .send
         case "done": return .done
         case "search": return .search
         case "next": return .next
-        default: return .return
+        default: return nil
         }
     }
 }

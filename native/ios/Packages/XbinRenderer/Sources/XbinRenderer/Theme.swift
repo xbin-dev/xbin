@@ -57,10 +57,18 @@ public enum XbinColor {
 
     /// A colour that follows the scheme.
     public static func dynamic(light: UInt32, dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
-            UIColor(xbinHex: traits.userInterfaceStyle == .dark ? dark : light)
-        })
+        Color(uiColor: uiDynamic(light: light, dark: dark))
     }
+
+    /// The same as a UIKit colour (the renderer's UIKit text views).
+    static func uiDynamic(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traits in
+            UIColor(xbinHex: traits.userInterfaceStyle == .dark ? dark : light)
+        }
+    }
+
+    /// ``tint`` for UIKit (a text view's caret and selection).
+    static let uiTint = uiDynamic(light: XbinPalette.amberTextLight, dark: XbinPalette.amberTextDark)
 }
 
 extension UIColor {
