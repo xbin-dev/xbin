@@ -1,9 +1,10 @@
 // native/settings.js — the managers' settings, as pushed screens: the config
 // (a model per tier, the base system prompt, limits, behaviour), the feature
 // switches, the skill library (tools.js) and the MCP servers bound. The web's
-// agent.js draws the same as the ⚙ panel's tabs, over the same routes.
+// agent.js draws the same as the ⚙ panel's tabs, over the same calls
+// (model/actions.js).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+import * as actions from '../model/actions.js';
 import { ui, ctx, push } from './ui.js';
 
 function load(s, fn) {
@@ -40,9 +41,9 @@ const TIERS = [['general', 'General'], ['code', 'Code'], ['memory', 'Memory'], [
 // (features, mcp and the rest ride along untouched), as the web does.
 function configTpl(s) {
   load(s, async () => {
-    const [c, m] = await Promise.all([api('/config'), api('/models').catch(() => ({ data: [] }))]);
+    const [c, m] = await Promise.all([actions.getConfig(), actions.models().catch(() => [])]);
     s.cfg = c;
-    s.models = (m.data || []).map((x) => x.id).filter(Boolean);
+    s.models = m;
     s.f = { models: { ...(c.models || {}) }, system: c.system || '', tokenBudget: String(Number(c.tokenBudget) || 0),
       maxIters: String(Number(c.maxIters) || 0), toolTimeout: String(Number(c.toolTimeout) || 0), subagents: !!c.subagents, approve: !!c.approve };
   });
@@ -53,7 +54,7 @@ function configTpl(s) {
     s.err = ''; s.msg = '';
     const next = { ...s.cfg, models: { ...f.models }, system: f.system, tokenBudget: Number(f.tokenBudget) || 0,
       maxIters: Number(f.maxIters) || 0, toolTimeout: Number(f.toolTimeout) || 0, subagents: f.subagents, approve: f.approve };
-    try { await api('/config', jbody(next, 'PUT')); s.cfg = next; s.msg = 'saved ✓'; } catch (e) { s.err = e.message; }
+    try { await actions.saveConfig(next); s.cfg = next; s.msg = 'saved ✓'; } catch (e) { s.err = e.message; }
     ctx.paint();
   };
   return html`<screen title="Config" subtitle=${s.msg || nothing} style="form">
@@ -88,13 +89,11 @@ const FEATURE_DESC = {
 
 // features: each switch merges {features: {k: on}} into the current config.
 function featuresTpl(s) {
-  load(s, async () => { const f = await api('/features'); s.keys = f.keys || []; s.on = f.features || {}; });
+  load(s, async () => { const f = await actions.features(); s.keys = f.keys || []; s.on = f.features || {}; });
   const flip = (k) => async (e) => {
     s.err = '';
     try {
-      const c = await api('/config');
-      c.features = { ...(c.features || {}), [k]: e.value };
-      await api('/config', jbody(c, 'PUT'));
+      await actions.setFeature(k, e.value);
       s.on = { ...s.on, [k]: e.value };
     } catch (err) { s.err = err.message; }
     ctx.paint();

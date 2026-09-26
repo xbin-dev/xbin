@@ -107,7 +107,7 @@ test('home: the greeting, example asks, what needs you, and the composer', async
     [['which vendor?', 'has a question for you', 'accent'], ['nightly digest', 'failed', 'danger']]);
   const composer = find(home, { t: 'composer' });
   assert.equal(composer.p.placeholder, 'ask anything…');
-  assert.equal(composer.p.upload, undefined, 'at home there is no run to upload into');
+  assert.match(composer.p.upload.path, /^\/api\/apps\/agent\/ask\/upload\?draft=[\w-]{8,64}&name=\{name\}$/, 'at home the app uploads into the new ask\'s draft');
   assert.ok(find(home, { t: 'button', p: { label: 'internal', icon: 'lock' } }), 'the tool-mode chip');
   assert.equal(find(r.snapshots.picked, { t: 'composer' }).p.value, 'What can you do in this workspace?', 'an example fills the composer');
   assert.equal(called(r, 'GET', /\/runs\/2\/view\?limit=50$/).length, 1, 'a need opens its conversation, read in pages');
@@ -199,6 +199,48 @@ test('the composer: queued messages taken back, Stop returns queued text, attach
   assert.deepEqual({ ...JSON.parse(sent.body), clientId: 'x' }, { text: 'look at this', files: ['shot.png'], clientId: 'x' });
   assert.equal(find(r.snapshots.sent, { t: 'composer' }).p.value, '', 'the text box empties once it is on its way');
   assert.deepEqual(find(r.snapshots.sent, { t: 'composer' }).p.attachments, []);
+});
+
+test('a new ask with attachments from home: the app uploads into the draft, Send sends it', async () => {
+  const seed = { me: ME,
+    runs: [{ id: 2, title: 'which vendor?', status: 'waiting_input' }, { id: 9, title: 'look at this', status: 'running' }],
+    needs: [{ reason: 'question', run: { id: 2, title: 'which vendor?' } }],
+    views: { 9: { access: 'owner', run: { id: 9, rootId: 9, parentId: 0, title: 'look at this', status: 'running' } } },
+    routes: [['POST', '/ask$', { id: 9, title: 'look at this', status: 'running', rootId: 9, parentId: 0 }]] };
+  const r = await run(seed, [
+    { snapshot: 'home' },
+    { event: [{ t: 'composer' }, 'uploaded', { name: 'shot.png', response: { path: 'shot.png', mime: 'image/png', bytes: 1234, binary: true, run: 41 } }] },
+    { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'file too large (max 16 MiB)' } }] },
+    { event: [{ t: 'composer' }, 'uploaded', { name: 'b.txt', response: { path: 'b.txt', mime: 'text/plain', bytes: 3, binary: false, run: 41 } }] },
+    { snapshot: 'attached' },
+    { tap: { t: 'row', p: { title: 'which vendor?' } } },
+    { snapshot: 'elsewhere' },
+    { tap: { t: 'button', p: { label: 'New chat' } } },
+    { snapshot: 'back' },
+    { event: [{ t: 'composer' }, 'remove', { id: '2' }] },
+    { event: [{ t: 'composer' }, 'remove', { id: '3' }] },
+    { event: [{ t: 'composer' }, 'send', { value: 'look at this' }] },
+    { snapshot: 'sent' },
+    { tap: { t: 'button', p: { label: 'New chat' } } },
+    { snapshot: 'again' },
+  ]);
+  const up = find(r.snapshots.home, { t: 'composer' }).p.upload;
+  assert.equal(up.method, 'PUT');
+  const key = /draft=([\w-]+)&/.exec(up.path)[1];
+  const chips = (snap) => find(r.snapshots[snap], { t: 'composer' }).p.attachments.map((a) => a.name);
+  assert.deepEqual(chips('attached'), ['shot.png', 'huge.mov — too large (max 16.0 MB)', 'b.txt']);
+  assert.deepEqual(chips('elsewhere'), [], 'what was picked at home stays at home');
+  assert.deepEqual(find(r.snapshots.elsewhere, { t: 'composer' }).p.upload, { method: 'PUT', path: '/api/apps/agent/runs/2/upload?name={name}' });
+  assert.deepEqual(chips('back'), ['shot.png', 'huge.mov — too large (max 16.0 MB)', 'b.txt'], '…and is there when you come back');
+  const asks = called(r, 'POST', /\/ask$/);
+  assert.equal(asks.length, 1);
+  assert.deepEqual(JSON.parse(asks[0].body), { text: 'look at this', toolset: 'private', draft: key, files: ['shot.png'] }, 'Send sends the draft with the chips still there');
+  assert.equal(called(r, 'PUT', /upload/).length, 0, 'the tile uploads nothing itself: the app did');
+  assert.equal(topScreen(r.snapshots.sent).p.title, 'look at this', 'the new conversation opens');
+  assert.deepEqual(chips('sent'), []);
+  const next = find(r.snapshots.again, { t: 'composer' });
+  assert.deepEqual(next.p.attachments, [], 'the sent chips are gone');
+  assert.ok(!next.p.upload.path.includes(key), 'the next ask gets a draft of its own');
 });
 
 // one conversation, alone, in a state

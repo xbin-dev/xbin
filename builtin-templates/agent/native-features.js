@@ -69,6 +69,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.toolMode': 'native/chat.js — the lock/globe chip (app.toolset)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
+  'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
   'composer.attach.limit': 'native/chat.js — uploaded(): a refused file is a marked chip',
   'composer.attach.camera': 'native/chat.js — composer upload (the app offers the camera and Photos)',
   'composer.dictation': 'native/chat.js — composer (the system keyboard dictates)',
@@ -157,4 +158,7 @@ export const IMPLEMENTS = {
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',
   'link.auto': 'native.js — app.follow (model/router.js)',
   'link.join': 'native.js — app.follow (model/router.js); native/convs.js — a pasted link',
+
+  // Needs you, beyond the tile
+  'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
 };

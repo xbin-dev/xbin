@@ -159,7 +159,7 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall) {
 			return err
 		}
 		e.emitRun(t, run.ID)
-		t.AfterCommit(func() { publishEvent(run.ID, "waiting_input") })
+		t.AfterCommit(func() { publishEvent(run.ID, "waiting_input"); e.ag.needsMoment(run.ID) })
 		return nil
 	})
 }
@@ -321,7 +321,7 @@ func (e *Engine) controlTool(ctx context.Context, ts *turnState, tc toolCall, re
 				return err
 			}
 			e.emitRun(t, run.ID)
-			t.AfterCommit(func() { publishEvent(run.ID, "waiting_input") })
+			t.AfterCommit(func() { publishEvent(run.ID, "waiting_input"); e.ag.needsMoment(run.ID) })
 			return nil
 		})
 	case "yield":

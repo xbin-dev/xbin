@@ -4,7 +4,7 @@
 // polled. No lit, no DOM: shown() is what a view draws (chat-view.js adds the
 // web's template(); a native view draws the same blocks).
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
-import { fold, activity, busy } from './fold.js';
+import { fold, activity, busy, FoldCache } from './fold.js';
 import { Live } from './stream.js';
 
 const cid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -33,6 +33,7 @@ export class Session {
     this.drafts = new Map(); // run id → the model call in flight
     this.runs = new Map();   // run id → summary (the run list, plus what events told us)
     this.open = new Map();   // ui id → explicitly opened/closed
+    this.folds = new Map();  // run id → its FoldCache (fold.js): blocks rebuilt only when they change
     this.loading = new Set();
     this.conn = 'live';
     this.live = new Live(base, {
@@ -163,7 +164,7 @@ export class Session {
       case 'text': case 'thinking': case 'tool':
         this.draft(ev);
         break;
-      case 'text.delta': case 'thinking.delta':
+      case 'text.delta': case 'thinking.delta': case 'tool.delta':
         this.delta(ev);
         break;
       case 'draft.end':
@@ -191,11 +192,20 @@ export class Session {
   }
 
   // delta appends what a draft added (API.md "Deltas"): `at` is the length
-  // the text had before it. A delta that does not fit what is held (a view
-  // replaced the draft meanwhile, an event was coalesced away) reconnects the
-  // stream, which then sends every live draft in full.
+  // the text (a tool call's arguments) had before it. A delta that does not
+  // fit what is held (a view replaced the draft meanwhile, an event was
+  // coalesced away) reconnects the stream, which then sends every live draft
+  // in full.
   delta(ev) {
     const x = ev.data || {};
+    if (ev.type === 'tool.delta') {
+      const d = this.drafts.get(ev.run);
+      const t = d && d.tools[x.index];
+      if (!t || (t.args || '').length !== x.at) { this.live.resync(); return; }
+      d.tools[x.index] = { ...t, args: (t.args || '') + (x.delta || '') };
+      if (d.thinkStart && !d.thinkEnd) d.thinkEnd = ev.ts;
+      return;
+    }
     const field = ev.type === 'text.delta' ? 'text' : 'thinking';
     let d = this.drafts.get(ev.run);
     if (!d && x.at === 0) d = { text: '', thinking: '', tools: {}, thinkStart: 0, thinkEnd: 0 };
@@ -223,13 +233,25 @@ export class Session {
 
   current() { return this.sel == null ? null : this.merged(this.sel); }
 
+  // blocks is a held run's transcript as blocks (fold.js), cached per block:
+  // what did not change since the last paint is the same objects. The few
+  // runs folded lately (the open one, a subagent's parents) keep a cache each.
+  blocks(id, v = this.merged(id)) {
+    if (!v) return null;
+    const c = this.folds.get(id) || new FoldCache();
+    this.folds.delete(id); // most recently used last
+    this.folds.set(id, c);
+    if (this.folds.size > 8) this.folds.delete(this.folds.keys().next().value);
+    return fold(v, (x) => this.merged(x), 0, c);
+  }
+
   // shown is what the chat of the selected run shows: its run, the breadcrumb
   // chain (a subagent's parents), the blocks (fold.js), the activity line, the
   // connection state, and whether compaction hid earlier turns.
   shown() {
     const v = this.current();
     if (!v) return { blocks: [], run: {} };
-    const blocks = fold(v, (id) => this.merged(id));
+    const blocks = this.blocks(this.sel, v);
     return {
       run: v.run, chain: v.chain, blocks, activity: activity(v, blocks), conn: this.conn,
       // a page leaves compacted messages out and counts them instead

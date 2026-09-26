@@ -39,10 +39,11 @@ func handleListRuns(w http.ResponseWriter, r *http.Request) {
 	where, args := aclWhere(callerOf(r))
 	var runs []*Run
 	var err error
+	// an unsent draft (ask.go) is nobody's run yet
 	if r.URL.Query().Get("roots") == "1" {
-		runs, err = agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` ORDER BY r.id DESC`, args...)
+		runs, err = agent.db.queryRuns(`r WHERE r.parent_id=0 AND r.origin<>'held' AND `+where+` ORDER BY r.id DESC`, args...)
 	} else {
-		runs, err = agent.db.queryRuns(`WHERE root_id IN (SELECT r.id FROM runs r WHERE r.parent_id=0 AND `+where+`) ORDER BY id DESC`, args...)
+		runs, err = agent.db.queryRuns(`WHERE root_id IN (SELECT r.id FROM runs r WHERE r.parent_id=0 AND r.origin<>'held' AND `+where+`) ORDER BY id DESC`, args...)
 	}
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())

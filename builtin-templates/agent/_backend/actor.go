@@ -651,6 +651,9 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		t.AfterCommit(func() { publishEvent(run.ID, "done") })
 	case endError:
 		t.AfterCommit(func() { publishEvent(run.ID, "error") })
+		if run.ParentID == 0 && automationOrigin(run.Origin) {
+			t.AfterCommit(func() { e.ag.needsMoment(run.ID) })
+		}
 	}
 	return nil
 }

@@ -62,6 +62,31 @@ own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
 
+**Needs you on your phone.** The moments `/needs` lists are also pushed to the
+xbin app of each person who would see them there (`xbin.NotifyUserWith` →
+`POST /api/xbin/notify`; xbind delivers only to people who can read this tile,
+sealed to their devices, and only when the workspace has push set up):
+
+| When | Who | Push |
+|---|---|---|
+| a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
+| a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
+| an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
+
+The title is the conversation's; tapping it opens `#c=<run>` (the subagent's
+own run for a subagent's approval — where its card is); `collapseId`
+`needs:<run>` lets a later push for the same run replace an earlier one.
+Recipients come from the run's own access list only — never from a request —
+so an admin's view-as (D64) neither triggers nor receives one, and a
+team-wide role reaches nobody in particular (those people see it under Needs
+you when they look). It is best-effort: after a 3 s grace the run is read
+again and nothing is sent if it moved on (someone answered at once); a
+question or approval is sent once per 6 h (a new one in the same run is news
+again), a run that keeps failing once per 6 h; each person gets at most 10 at
+once, refilled one per 6 min, over the whole tile; xbind's own limits apply on
+top, and a refusal is logged, never retried. `needs_push.go`; an instance
+that wants none sets `agent.needs = nil` in `main.go`.
+
 ### Titles
 
 A new conversation is titled with the start of its first message
@@ -105,10 +130,11 @@ llm-gw's logs. Give team members `read` on the tile.
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
+| `POST /ask` | `{text, toolset?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
+| `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
-| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text as appended pieces |
+| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
@@ -176,7 +202,7 @@ The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 | `inbox` | `{queued}` — the run's undelivered messages |
 | `link` | a subagent link changed (spawned, phase, settled, delivered) |
 | `thinking` · `text` · `tool` | a model call in flight: the ACCUMULATED reasoning, answer text, or `{index, id, name, args}` of a tool call being written |
-| `thinking.delta` · `text.delta` | only with `deltas=1`: `{delta, at}` — text appended to that draft (see **Deltas** below) |
+| `thinking.delta` · `text.delta` · `tool.delta` | only with `deltas=1`: `{delta, at}` — text appended to that draft; `tool.delta` is `{index, delta, at}`, appended to that tool call's `args` (see **Deltas** below) |
 | `draft.end` | that call finished (its message follows as `message`) |
 | `reset` | the cursor is from another process or too old: re-read `/view` |
 | `bye` | this process is handing over: reconnect at once, the successor answers |
@@ -190,17 +216,21 @@ latest text, not every token.
 **Deltas.** With `&deltas=1` the stream sends what a draft APPENDED instead of
 the whole text so far: `text.delta` / `thinking.delta` with
 `{delta, at}` — `delta` goes on the end of the text you hold, and `at` is that
-text's length in UTF-16 code units (a JS string's `.length`) before it. The
-first draft event of a run on a connection, and any that does not simply
-extend what the connection wrote (a new model call, a rewritten text), still
-comes as the full `text` / `thinking` event, which always replaces;
-`draft.end` and `reset` start that over, and a new connection sends every
-live draft in full. So a client handles both forms, and when its text's
-length is not `at` (it replaced the draft from a `/view` meanwhile, say) it
-reconnects the stream. `tool` events are unchanged. `hello` carries
-`deltas: true` when the backend honours the flag — an older one ignores it
-and sends full text, which such a client handles anyway. Without the flag
-nothing changes.
+text's length in UTF-16 code units (a JS string's `.length`) before it. A tool
+call being written streams the same way, per call: `tool.delta` with
+`{index, delta, at}` appends to the `args` of the call at `index` (its `id`
+and `name` are what the last full `tool` event said). The first draft event of
+a run (or of a tool call) on a connection, and any that does not simply
+extend what the connection wrote (a new model call, a rewritten text, a new
+`id` or `name` at that index), still comes as the full `text` / `thinking` /
+`tool` event, which always replaces; `draft.end` and `reset` start that over,
+and a new connection sends every live draft in full. So a client handles both
+forms, and when what it holds is not `at` long (it replaced the draft from a
+`/view` meanwhile, or holds no call at that index) it reconnects the stream.
+`hello` carries `deltas: true` when the backend honours the flag — an older
+one ignores it and sends full text, which such a client handles anyway (a
+backend from before `tool.delta` sends `tool` events whole, which a client
+also handles). Without the flag nothing changes.
 
 ### Paging the view
 
@@ -271,6 +301,31 @@ A quick ask from the home view has no run to upload into yet, so the tile sends
 user message and no drive — uploads into it, then sends the message with
 `POST /runs/{id}/message {text, files}`. If an upload fails it deletes the
 empty run and keeps the files for another try.
+
+**A draft** is the same for a client that uploads a file the moment it is
+picked, before the text is written — the native view, whose app uploads to a
+path the tile names in advance (the composer's `upload`). The tile makes up a
+draft key (8–64 of `A–Z a–z 0–9 _ -`, e.g. `d` + a random UUID's hex) for the
+next ask and names `PUT /ask/upload?draft=<key>&name={name}`:
+
+- the first upload for a key creates the run **held** for it (as `hold:true`
+  does, owned by the caller) and every later one — parallel ones too — goes
+  into the same run; each answers the upload's `{path, mime, bytes, binary}`
+  plus `run`. A key is the caller's own: someone else's upload with it makes
+  their own draft;
+- until it is sent the run is listed nowhere (`origin: "held"`: not in
+  `/conversations`, `/runs`, search, `/needs` or the stream's conversation
+  list);
+- `POST /ask {text, toolset?, title?, system?, draft: <key>, files: [path…]}`
+  sends it: titled from `title`, the text or the files' names, the tool mode
+  and instructions of this call, the first message with the files still
+  chosen (a removed chip's upload stays in the run's files), driven — and
+  answers the run as `/ask` does. `text` may be empty when `files` is not.
+  A `draft` nothing was uploaded for is an ordinary ask; **409** when files
+  are named for a draft that is gone (already sent, or expired) — the chips
+  must be attached again;
+- a draft nobody sent is deleted, files and all, when its owner starts
+  another more than a day later.
 
 ## Capability lanes (the toolset firewall)
 
@@ -743,11 +798,11 @@ the same model.
 | `model/` | What it holds |
 |---|---|
 | `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the tool mode for new asks, what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
-| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws) |
-| `fold.js`, `tool-heads.js` | a run's view → chat blocks; a tool call's headline, family and state |
+| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache) |
+| `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
-| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining |
+| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining, and the settings (config, models, features), a run's memory and files, the skill library |
 | `rules.js` | who may do what and what the controls say: the top bar, the composer's state, the halt switch, a row's menu, the share dialog |
 | `router.js` | addresses: `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` |
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
@@ -757,12 +812,16 @@ the same model.
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
 in pages (`?limit=`, `Session.loadOlder()`, "Paging the view"); the web
-passes neither and reads whole views.
+passes neither and reads whole views. An app that uploads picked files itself
+asks `app.uploadTarget()` where (the open run, or at home the new ask's draft
+`app.draft`) and hands the answer to `app.attach.uploaded({…, at: app.place})`:
+such a chip stays where it was picked (`app.attach.here(place)`), and Send at
+home sends the draft (`POST /ask {draft, files}`).
 
 | The native view | What it draws |
 |---|---|
 | `native.js` | the entry: one surface at a time — home or the open conversation (a subagent's parents under it; back goes up), the Automations screens, pushed tools — plus the conversations drawer and the sheets; deep links (`#c=`, `#auto`, `#join=`) and a restarted runtime (`xbin.native.state`) go through `model/router.js` |
-| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`), the top bar as the toolbar's menu |
+| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |

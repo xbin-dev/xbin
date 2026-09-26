@@ -1,7 +1,9 @@
 // model/actions.js — what the views DO to this tile's backend: ask, send
 // (with attachments), steer the run (retry/compact/learn, delete, stop the
 // workflow), the halt switch, the tool mode for new asks, the conversation
-// list's row actions, sharing and joining. Plain calls over the kit's api()
+// list's row actions, sharing and joining, and the managers' settings, a
+// run's memory and session files and the skill library (the web's ⚙ tabs,
+// the native view's pushed screens). Plain calls over the kit's api()
 // (xbin.fetch in a tile frame); no lit, no DOM, no dialogs — a view asks
 // "are you sure?" itself, then calls these. The Session (session.js) keeps
 // the calls that act on the open conversation's own state (send, stop,
@@ -12,7 +14,17 @@ import { selfApi as api, jbody } from '/vendor/bx-kit.js';
 
 // ask starts a conversation: {text, toolset, title?, system?, hold?} — hold
 // creates it without a message or a drive (attachments upload into it first).
+// {draft, files} sends the draft the app uploaded into at home instead
+// (PUT /ask/upload?draft=<key>, API.md "Attachments").
 export const ask = (body) => api('/ask', jbody(body, 'POST'));
+
+// draftKey names a new ask's draft: where the app uploads what is picked at
+// home before there is a conversation (8–64 of A–Z a–z 0–9 _ -).
+export function draftKey() {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return 'd' + c.randomUUID().replace(/-/g, '');
+  return 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 // message sends into a run: {text, files?, clientId?}.
 export const message = (runId, body) => api(`/runs/${runId}/message`, jbody(body, 'POST'));
@@ -83,6 +95,62 @@ export async function joinFrom(text) {
   return api('/join', jbody({ token: m[1] }, 'POST'));
 }
 
+// --- settings (managers) ------------------------------------------------------------
+
+// The tile-wide config: {models, system, tokenBudget, maxIters, toolTimeout,
+// subagents, approve, features, mcp, …}. saveConfig sends the WHOLE config
+// back — what a form did not touch rides along as it was.
+export const getConfig = () => api('/config');
+export const saveConfig = (c) => api('/config', jbody(c, 'PUT'));
+
+// models: the model ids llm-gw lists (for the tier pickers); throws when it
+// cannot say (no llm-gw backend token).
+export const models = async () => ((await api('/models')).data || []).map((x) => x.id).filter(Boolean);
+
+// features: {keys, features} — the switches there are and which are on.
+// setFeature merges one switch into the current config and saves it; it
+// answers the config it saved.
+export const features = () => api('/features');
+export async function setFeature(key, on) {
+  const c = await api('/config');
+  c.features = { ...(c.features || {}), [key]: on };
+  await api('/config', jbody(c, 'PUT'));
+  return c;
+}
+
+// --- a run's memory blocks and session files ----------------------------------------------
+
+// memory: a run's memory blocks, {key: value}.
+export const memory = async (runId) => (await api(`/runs/${runId}`)).memory || {};
+export const setMemory = (runId, key, value) => api(`/runs/${runId}/memory`, jbody({ key, value }, 'PUT'));
+export const deleteMemory = (runId, key) => api(`/runs/${runId}/memory?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+
+// files: a run's session files, metadata only ([{path, bytes, version, mime?,
+// binary?}]); file: one text file with its content ({content, version}).
+export const files = async (runId) => (await api(`/runs/${runId}/files`)) || [];
+export const file = (runId, path) => api(`/runs/${runId}/file?path=${encodeURIComponent(path)}`);
+// saveFile writes {path, content, version}: the version you loaded (0: a new
+// file) — a write the agent made in between comes back as a 409, not lost.
+export const saveFile = (runId, body) => api(`/runs/${runId}/file`, jbody(body, 'PUT'));
+export const deleteFile = (runId, path) => api(`/runs/${runId}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+
+// rawFile is a file's bytes as a Blob (an attachment's preview, a download).
+// Raw bytes go through xbin.fetch — the kit's api() parses JSON — so it
+// takes this backend's prefix.
+export async function rawFile(base, runId, path) {
+  const r = await xbin.fetch(`${base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.blob();
+}
+
+// --- the skill library ---------------------------------------------------------------------
+
+// skills: [{name, description, content, owner?, lane?, updated}].
+export const skills = async () => (await api('/skills')) || [];
+// saveSkill: {name, description, content} — adds or replaces by name.
+export const saveSkill = (s) => api('/skills', jbody(s, 'PUT'));
+export const deleteSkill = (name) => api(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
 // --- attachments ------------------------------------------------------------------
 
 // Attachments waiting to be sent. Each is uploaded into the run's session files
@@ -93,13 +161,19 @@ export const MAX_ATTACH = 16 * 1024 * 1024; // the backend's per-file cap
 
 export const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
+// A chip a native app uploaded belongs where it was picked (`at`: a run id,
+// or 'home' for a new ask's draft) and shows and is sent only there; a
+// picked File (the web) has no `at` and goes wherever it is sent.
 export class Attachments {
   /** @param on {change()} — a chip changed (added, removed, uploading, failed, done) */
   constructor(on = {}) {
     this.on = on;
-    this.items = []; // [{key, file, name, size, type, path?, state?, err?}]; state: '' | up | done | bad
+    this.items = []; // [{key, file, name, size, type, path?, state?, err?, at?}]; state: '' | up | done | bad
     this.seq = 0;
   }
+
+  // here: the chips at a place (a run id | 'home'); undefined: all of them.
+  here(place) { return place === undefined ? this.items : this.items.filter((a) => a.at == null || a.at === place); }
 
   changed() { this.on.change?.(); }
 
@@ -114,9 +188,9 @@ export class Attachments {
   }
 
   // uploaded takes a file a view already put into the run itself (a native
-  // app uploads with its own frame token): {name, size, type, path}.
+  // app uploads with its own frame token): {name, size, type, path, at?}.
   uploaded(f) {
-    this.items.push({ key: ++this.seq, name: f.name, size: f.size, type: f.type, path: f.path, state: 'done' });
+    this.items.push({ key: ++this.seq, name: f.name, size: f.size, type: f.type, path: f.path, state: 'done', ...(f.at != null ? { at: f.at } : {}) });
     this.changed();
   }
 
@@ -125,18 +199,20 @@ export class Attachments {
     this.changed();
   }
 
-  tooBig() { return this.items.some((a) => a.size > MAX_ATTACH); }
+  tooBig(place) { return this.here(place).some((a) => a.size > MAX_ATTACH); }
 
   // clear and unupload are silent: the view repaints when the send settles.
-  clear() { this.items = []; }
+  // clear(place) empties one place (its own chips and the unplaced ones).
+  clear(place) { this.items = place === undefined ? [] : this.items.filter((a) => !(a.at == null || a.at === place)); }
   unupload() { this.items.forEach((a) => { delete a.path; if (a.state === 'done') a.state = ''; }); }
 
   // upload puts every not-yet-uploaded attachment into run `id` (base: this
   // backend's prefix), in order, and returns all their session-file paths.
   // Throws on the first failure with that chip marked; chips already
   // uploaded keep their path.
-  async upload(base, id) {
-    for (const a of this.items) {
+  async upload(base, id, place) {
+    const items = this.here(place);
+    for (const a of items) {
       if (a.path) continue;
       a.state = 'up'; a.err = ''; this.changed();
       const r = await xbin.fetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
@@ -149,6 +225,6 @@ export class Attachments {
       }
       a.path = d.path; a.state = 'done'; this.changed();
     }
-    return this.items.map((a) => a.path);
+    return items.map((a) => a.path);
   }
 }

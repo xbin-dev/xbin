@@ -54,6 +54,7 @@ func routeTable() []routeDef {
 		{"POST /automations/{kind}/{aid}/reset", needAny, handleAutomationReset},
 		{"POST /runs", needStart, handleNewRun},
 		{"POST /ask", needStart, handleAsk},
+		{"PUT /ask/upload", needStart, handleAskUpload},
 		{"GET /runs/{id}", needViewer, handleGetRun},
 		{"GET /runs/{id}/view", needViewer, handleView},
 		{"GET /runs/{id}/stream", needViewer, handleStream},

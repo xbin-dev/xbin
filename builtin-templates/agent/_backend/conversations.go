@@ -226,7 +226,7 @@ func searchConversations(w http.ResponseWriter, c who, q string) {
 		seen[root] = true
 		hits = append(hits, hit{root, snip, msgID})
 	}
-	if rows, err := agent.db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND title LIKE ? ORDER BY activity_ms DESC LIMIT 200`,
+	if rows, err := agent.db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND origin<>'held' AND title LIKE ? ORDER BY activity_ms DESC LIMIT 200`,
 		"%"+strings.ReplaceAll(q, "%", "")+"%"); err == nil {
 		var ids []int64
 		for rows.Next() {

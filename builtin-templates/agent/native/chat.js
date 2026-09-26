@@ -9,7 +9,6 @@
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE } from './ui.js';
 import { argsShown } from '../model/tool-heads.js';
-import { fold } from '../model/fold.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
@@ -186,8 +185,7 @@ const loadingScreen = () => html`<screen title="loading…" style="scroll"><prog
 // A parent under a subagent: its transcript as last seen (back re-reads it).
 function parentScreen(c) {
   const s = ctx.app.session;
-  const pv = s.merged(c.id);
-  const blocks = pv ? fold(pv, (id) => s.merged(id)) : null;
+  const blocks = s.blocks(c.id);
   return html`<screen title=${c.title || '#' + c.id} style="scroll">
     <transcript>${blocks ? repeat(blocks, (b) => b.id, (b) => blockTpl(b)) : html`<progress/>`}</transcript>
   </screen>`;
@@ -260,7 +258,9 @@ export function composerTpl(v, t) {
   const app = ctx.app;
   const c = app.rules.composer(v, app.HOME);
   const talk = !v || app.rules.access(v).talk;
-  const att = app.attach.items.map((a) => ({
+  // what was picked here (at home: into the new ask's draft, which Send sends)
+  const place = v ? v.run.id : 'home';
+  const att = app.attach.here(place).map((a) => ({
     id: String(a.key), name: a.err ? `${a.name} — ${a.err}` : a.name, mime: a.type || '',
     ...(a.state === 'up' ? { progress: 0 } : {}),
   }));
@@ -268,11 +268,11 @@ export function composerTpl(v, t) {
   const web = app.toolset === 'web';
   return html`<composer value=${ui.draft} placeholder=${c.placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
       attachments=${att}
-      upload=${v && talk ? { method: 'PUT', path: `${app.base}/runs/${v.run.id}/upload?name={name}` } : nothing}
+      upload=${talk ? app.uploadTarget() : nothing}
       @input=${(e) => { ui.draft = e.value; }}
       @send=${(e) => app.send(e.value, () => { ui.draft = ''; })}
       @stop=${stop}
-      @uploaded=${uploaded}
+      @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
     <button icon=${web ? 'globe' : 'lock'} @tap=${() => app.toggleToolset()}>${web ? 'web' : 'internal'}</button>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
@@ -287,18 +287,20 @@ const stop = guard(async () => {
   if (text) ui.draft = [text, ui.draft].filter(Boolean).join('\n\n');
 });
 
-// uploaded: the app put a picked file into the run (PUT /runs/{id}/upload)
-// and hands over the backend's answer; the next Send names it.
-function uploaded(e) {
+// uploaded: the app put a picked file into the run (PUT /runs/{id}/upload),
+// or at home into the new ask's draft (PUT /ask/upload?draft=), and hands over
+// the backend's answer; the next Send there names it. The chip stays where it
+// was picked (`at`), even if you went elsewhere meanwhile.
+const uploaded = (place) => (e) => {
   const r = e.response || {};
   if (r.path) {
-    ctx.app.attach.uploaded({ name: e.name, size: r.bytes || 0, type: r.mime || '', path: r.path });
+    ctx.app.attach.uploaded({ name: e.name, size: r.bytes || 0, type: r.mime || '', path: r.path, at: place });
     return;
   }
   // Refused over the 16 MiB cap (413): a chip marked like the web's, which
   // holds Send until it is removed. Any other failure is just said.
   if (!/413|too large|over 16/i.test(JSON.stringify(r))) { fail(`${e.name}: ${r.error || 'upload failed'}`); return; }
   const a = ctx.app.attach;
-  a.items.push({ key: ++a.seq, name: e.name, size: MAX_ATTACH + 1, type: '', state: 'bad', err: `too large (max ${fmtBytes(MAX_ATTACH)})` });
+  a.items.push({ key: ++a.seq, name: e.name, size: MAX_ATTACH + 1, type: '', state: 'bad', err: `too large (max ${fmtBytes(MAX_ATTACH)})`, at: place });
   a.changed();
-}
+};

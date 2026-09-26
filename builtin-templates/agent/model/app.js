@@ -62,6 +62,7 @@ export function createApp(opts = {}) {
     toolset: 'private',    // for NEW asks; a run keeps its own
     needs: [],
     halted: false,
+    draft: actions.draftKey(), // where the app uploads what is picked at home (API.md "Attachments")
     sel: null,             // the open conversation (a run id), null = home
     page: null,            // what the main pane shows with no conversation: null (home) | 'automations'
     sending: false,
@@ -76,6 +77,15 @@ export function createApp(opts = {}) {
 
     // root: the conversation the open run belongs to (a subagent's is its root's).
     get root() { const c = app.session.current(); return c ? (c.run.rootId || c.run.id) : null; },
+    // place: where the composer is — the open run, or 'home' (a new ask).
+    get place() { return app.sel == null ? 'home' : app.sel; },
+
+    // uploadTarget is where an app that uploads a picked file itself puts it
+    // ({method, path}, {name} its name): into the open run, or at home into
+    // the new ask's draft, which Send then sends (a held ask).
+    uploadTarget() {
+      return { method: 'PUT', path: app.sel == null ? `${base}/ask/upload?draft=${app.draft}&name={name}` : `${base}/runs/${app.sel}/upload?name={name}` };
+    },
 
     // --- start ------------------------------------------------------------
 
@@ -178,20 +188,40 @@ export function createApp(opts = {}) {
     },
 
     // send is the composer's Send. At home it starts a conversation (with
-    // attachments: created held, uploaded into, then sent); in a conversation
-    // it is a message — queued while the run works, delivered at its next step.
-    // clear() empties the view's text box once the text is on its way.
+    // attachments: created held, uploaded into, then sent — or, when the app
+    // already uploaded them into the draft, the draft is sent); in a
+    // conversation it is a message — queued while the run works, delivered
+    // at its next step. clear() empties the view's text box once the text is
+    // on its way. Only the chips of where you are go (Attachments.here).
     async send(text, clear = () => {}) {
       if (app.sending) return;
       const t = String(text ?? '').trim();
       const att = app.attach;
-      if (!t && !att.items.length) return;
-      if (att.tooBig()) return app.fail(new Error('Remove the files that are too large first.'));
+      const place = app.place;
+      const items = att.here(place);
+      if (!t && !items.length) return;
+      if (att.tooBig(place)) return app.fail(new Error('Remove the files that are too large first.'));
       app.sending = true;
       emit('sending');
       try {
+        if (app.sel == null && items.some((a) => a.at === 'home')) {
+          // the app uploaded them into the draft already: send it
+          let run;
+          try {
+            run = await actions.ask({ text: t, toolset: app.toolset, draft: app.draft, files: items.map((a) => a.path) });
+          } catch (e) {
+            // the draft is gone (sent from elsewhere, or expired): those chips can't go
+            if (/attach them again/.test(e.message)) { att.clear('home'); app.draft = actions.draftKey(); emit('attach'); }
+            throw e;
+          }
+          clear(); att.clear('home');
+          app.draft = actions.draftKey();
+          app.session.runs.set(run.id, run);
+          await app.select(run.id);
+          return;
+        }
         if (app.sel == null) {
-          if (!att.items.length) {
+          if (!items.length) {
             clear();
             const run = await actions.ask({ text: t, toolset: app.toolset });
             app.session.runs.set(run.id, run);
@@ -200,10 +230,10 @@ export function createApp(opts = {}) {
           }
           // With attachments there is no run to upload into yet: create it held
           // (no message, no drive), upload, then send the message into it.
-          const title = t || att.items.map((a) => a.name).join(', ');
+          const title = t || items.map((a) => a.name).join(', ');
           const run = await actions.ask({ text: title, toolset: app.toolset, hold: true });
           try {
-            const files = await att.upload(base, run.id);
+            const files = await att.upload(base, run.id, place);
             await actions.message(run.id, { text: t, files });
           } catch (e) {
             // Don't leave an empty run behind; its uploads go with it, so the
@@ -212,14 +242,14 @@ export function createApp(opts = {}) {
             att.unupload();
             throw e;
           }
-          clear(); att.clear();
+          clear(); att.clear(place);
           app.session.runs.set(run.id, run);
           await app.select(run.id);
           return;
         }
-        const files = att.items.length ? await att.upload(base, app.sel) : undefined;
+        const files = items.length ? await att.upload(base, app.sel, place) : undefined;
         await app.session.send(t, files);
-        clear(); att.clear();
+        clear(); att.clear(place);
       } catch (e) {
         app.fail(e);
       } finally {
