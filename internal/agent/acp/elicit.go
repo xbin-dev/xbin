@@ -12,6 +12,7 @@ package acp
 
 import (
 	"encoding/json"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -21,27 +22,48 @@ import (
 type elicits struct {
 	mu   sync.Mutex
 	next int
-	pend map[string]json.RawMessage // eid → the request's rpc id
+	pend map[string]pendingElicit // eid → the request
 }
 
-func (e *elicits) add(rpcID json.RawMessage) string {
+// pendingElicit is one question awaiting an answer: the request's rpc id
+// (for the reply) and what the clients were shown.
+type pendingElicit struct {
+	rpcID json.RawMessage
+	q     agent.Elicitation
+}
+
+// add files a question; q.EID is assigned here.
+func (e *elicits) add(rpcID json.RawMessage, q agent.Elicitation) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.pend == nil {
-		e.pend = map[string]json.RawMessage{}
+		e.pend = map[string]pendingElicit{}
 	}
 	e.next++
-	eid := "e" + strconv.Itoa(e.next)
-	e.pend[eid] = rpcID
-	return eid
+	q.EID = "e" + strconv.Itoa(e.next)
+	e.pend[q.EID] = pendingElicit{rpcID: rpcID, q: q}
+	return q.EID
 }
 
 func (e *elicits) take(eid string) (json.RawMessage, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	id, ok := e.pend[eid]
+	p, ok := e.pend[eid]
 	delete(e.pend, eid)
-	return id, ok
+	return p.rpcID, ok
+}
+
+// list is the pending questions, oldest first.
+func (e *elicits) list() []agent.Elicitation {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]agent.Elicitation, 0, len(e.pend))
+	for _, p := range e.pend {
+		out = append(out, p.q)
+	}
+	num := func(eid string) int { n, _ := strconv.Atoi(eid[1:]); return n }
+	sort.Slice(out, func(i, j int) bool { return num(out[i].EID) < num(out[j].EID) })
+	return out
 }
 
 func (e *elicits) count() int { e.mu.Lock(); defer e.mu.Unlock(); return len(e.pend) }
@@ -69,12 +91,9 @@ func (c *Client) onElicit(m *Message) (any, *Error) {
 	if p.Mode != "" && p.Mode != "form" {
 		return map[string]string{"action": "decline"}, nil // we advertise form only
 	}
-	eid := c.elicits.add(m.ID)
-	d := map[string]any{"eid": eid, "message": p.Message, "schema": p.RequestedSchema}
-	if p.ToolCallID != "" {
-		d["toolCallId"] = p.ToolCallID
-	}
-	c.emit(agent.New(agent.EvElicitRequest, d))
+	q := agent.Elicitation{ToolCallID: p.ToolCallID, Message: p.Message, Schema: p.RequestedSchema}
+	q.EID = c.elicits.add(m.ID, q)
+	c.emit(agent.New(agent.EvElicitRequest, q))
 	c.setStatus(agent.StatusWaiting, "")
 	return nil, nil // answered by RespondElicitation
 }
@@ -110,6 +129,10 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	}
 	return err
 }
+
+// PendingElicitations is the questions still waiting for an answer, oldest
+// first (GET /term/sessions/<id> lists them beside the permissions).
+func (c *Client) PendingElicitations() []agent.Elicitation { return c.elicits.list() }
 
 // cancelElicits answers every pending question "cancel" (the turn is being
 // cancelled).

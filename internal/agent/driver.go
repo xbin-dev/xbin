@@ -13,24 +13,29 @@ var (
 	ErrEnded             = errors.New("the agent session has ended")
 	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
 	ErrNoElicitation     = errors.New("no such pending question")
+	ErrCancelled         = errors.New("the prompt was cancelled before its turn started")
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns
-// (through the Spawner) and handshakes; Send starts a turn with the user's
-// text; Events is the typed stream (closed when the agent is gone);
+// (through the Spawner) and handshakes; Prompt starts a turn with the
+// user's text and attachments (attachments.go); Events is the typed stream (closed when the agent is gone);
 // RespondPermission answers a request the driver surfaced as a
 // permission.request event; Cancel interrupts the running turn; Close ends
 // the agent. One implementation today (internal/agent/acp); a second is a
 // second package implementing this and a Provider.driver naming it.
 type Driver interface {
 	Start(ctx context.Context, cfg Config) error
-	Send(ctx context.Context, text string) error
+	Prompt(ctx context.Context, p Prompt) error
 	Events() <-chan Event
 	RespondPermission(res *Resolution) error
 	// RespondElicitation answers a question the driver surfaced as an
 	// elicitation.request (action accept | decline | cancel; content the
 	// form's values on accept). ErrNoElicitation once it is answered.
 	RespondElicitation(eid, action string, content json.RawMessage, by string) error
+	// PendingElicitations lists the questions still waiting for an answer,
+	// oldest first (the elicitation.request payloads) — the session
+	// snapshot's twin of the permissions list.
+	PendingElicitations() []Elicitation
 	Cancel() error
 	Close() error
 	// SetOption changes one of the agent's session settings (a config option
@@ -41,6 +46,15 @@ type Driver interface {
 	// agent could reopen it later (session/load) — persisted with the
 	// transcript so a past session can be resumed (term/history.go).
 	Session() (id string, loadable bool)
+}
+
+// Elicitation is a question the agent is waiting on: an
+// elicitation.request's payload, until it is answered.
+type Elicitation struct {
+	EID        string          `json:"eid"`
+	ToolCallID string          `json:"toolCallId,omitempty"`
+	Message    string          `json:"message"`
+	Schema     json.RawMessage `json:"schema"`
 }
 
 // Config is what a session hands its driver.

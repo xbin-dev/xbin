@@ -3,7 +3,10 @@
 // binary>). It speaks ACP v1 over stdio the way the real adapters do and
 // plays a script chosen by words in the prompt:
 //
-//	(default)   one agent_message_chunk "echo: <text>", usage, end_turn
+//	(default)   one agent_message_chunk "echo: <text>" — plus, for a prompt
+//	            with attachments, a description of each non-text block
+//	            ([image <type> <n>B], [resource <name> <n>B], [file <name>
+//	            <n>B] read from the linked path) — usage, end_turn
 //	perm        a tool_call + session/request_permission (once/always/no);
 //	            selected → the tool completes, cancelled → the turn ends cancelled
 //	plan…       (a prefix) Claude's plan approval: an ExitPlanMode tool_call
@@ -43,14 +46,18 @@
 // session/set_config_option (the response carries the refreshed list, and
 // a config_option_update follows) — the "env" script reports the current
 // value too, so a test can see a requested model applied. It advertises
+// promptCapabilities image + embeddedContext, as the real adapters do. It advertises
 // loadSession: session/load replays one canned earlier turn ("resumed <id>"
 // and the agent's echo) before answering — the resume tests.
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -82,8 +89,9 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	switch m.Method {
 	case acp.MInitialize:
 		return acp.InitializeResult{ProtocolVersion: 1, AgentInfo: &acp.Info{Name: "fakeacp", Version: "1"},
-			AgentCapabilities: &acp.AgentCapabilities{LoadSession: true}, // session/load replays a canned history (resume tests)
-			AuthMethods:       []acp.AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
+			AgentCapabilities: &acp.AgentCapabilities{LoadSession: true, // session/load replays a canned history (resume tests)
+				PromptCapabilities: &acp.PromptCapabilities{Image: true, EmbeddedContext: true}}, // as the real adapters do
+			AuthMethods: []acp.AuthMethod{{ID: "api-key", Name: "API key"}}}, nil
 	case acp.MAuthenticate:
 		return map[string]any{}, nil
 	case acp.MSessionNew:
@@ -138,16 +146,13 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	case acp.MSessionPrompt:
 		var p acp.PromptParams
 		_ = json.Unmarshal(m.Params, &p)
-		text := ""
-		if len(p.Prompt) > 0 {
-			text = p.Prompt[0].Text
-		}
+		text, files := readPrompt(p.Prompt)
 		f.mu.Lock()
 		f.prompt = m.ID
 		f.cancel = make(chan struct{})
 		c := f.cancel
 		f.mu.Unlock()
-		go f.turn(text, c)
+		go f.turn(text, files, c)
 		return nil, nil
 	}
 	return nil, &acp.Error{Code: acp.ErrNotFound, Message: "method not found: " + m.Method}
@@ -207,7 +212,49 @@ func cancelled(c chan struct{}) bool {
 	}
 }
 
-func (f *fake) turn(text string, cancel chan struct{}) {
+// readPrompt is a prompt's text (its text blocks) and a description of
+// every other block — what the default script echoes: [image <type>
+// <bytes>B], [resource <name> <bytes>B] for embedded text, [file <name>
+// <bytes>B] for a resource_link, read from the path it names (the file the
+// host dropped in the sandbox: the size proves it arrived).
+func readPrompt(blocks []acp.ContentBlock) (string, []string) {
+	var text []string
+	var files []string
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text = append(text, b.Text)
+		case "image":
+			raw, err := base64.StdEncoding.DecodeString(b.Data)
+			if err != nil {
+				files = append(files, "[image "+b.MimeType+" undecodable]")
+				continue
+			}
+			files = append(files, fmt.Sprintf("[image %s %dB]", b.MimeType, len(raw)))
+		case "resource":
+			if b.Resource != nil {
+				files = append(files, fmt.Sprintf("[resource %s %dB]", path.Base(b.Resource.URI), len(b.Resource.Text)))
+			}
+		case "resource_link":
+			u, err := url.Parse(b.URI)
+			if err != nil || u.Scheme != "file" {
+				files = append(files, "[link "+b.URI+"]")
+				continue
+			}
+			data, err := os.ReadFile(u.Path)
+			if err != nil {
+				files = append(files, "[file "+b.Name+" unreadable]")
+				continue
+			}
+			files = append(files, fmt.Sprintf("[file %s %dB]", b.Name, len(data)))
+		default:
+			files = append(files, "["+b.Type+"]")
+		}
+	}
+	return strings.Join(text, "\n"), files
+}
+
+func (f *fake) turn(text string, files []string, cancel chan struct{}) {
 	f.mu.Lock()
 	mode, cwd := f.mode, f.cwd
 	f.mu.Unlock()
@@ -375,7 +422,11 @@ func (f *fake) turn(text string, cancel chan struct{}) {
 			f.say("wrote fake-wrote.txt")
 		}
 	default:
-		f.say("echo: " + text)
+		if len(files) > 0 {
+			f.say("echo: " + text + " " + strings.Join(files, " "))
+		} else {
+			f.say("echo: " + text)
+		}
 	}
 	if cancelled(cancel) {
 		return

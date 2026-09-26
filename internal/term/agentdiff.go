@@ -75,10 +75,15 @@ type snapper struct {
 	jobs    chan diffJob
 	mu      sync.Mutex
 	closed  bool
-	kinds   map[string]string // tool id → kind (pump goroutine only)
-	settled map[string]bool   // tool ids already snapshotted
-	prev    string            // the last tree
-	base    string            // the turn's starting tree
+	off     bool                 // a snapshot failed: no more diffs this session
+	ranges  map[string]diffRange // "tool:<id>" | "turn:<n>" → its trees, for the full patch (agentdiff_full.go); under mu
+	rorder  []string             // ranges' keys, oldest first (the bound)
+	kinds   map[string]string    // tool id → kind (pump goroutine only)
+	settled map[string]bool      // tool ids already snapshotted
+	prev    string               // the last tree
+	base    string               // the turn's starting tree
+	full    chan struct{}        // one full diff at a time (agentdiff_full.go)
+	stopped chan struct{}        // closed once the worker is done and the private dir removed
 }
 
 // newSnapper starts a snapshotter for a tile that is a git repo (each tile
@@ -91,7 +96,8 @@ func newSnapper(work string, emit func(agent.Event)) *snapper {
 	if err != nil {
 		return nil
 	}
-	s := &snapper{work: work, gitDir: gd, emit: emit, jobs: make(chan diffJob, 128), kinds: map[string]string{}, settled: map[string]bool{}}
+	s := &snapper{work: work, gitDir: gd, emit: emit, jobs: make(chan diffJob, 128), kinds: map[string]string{}, settled: map[string]bool{},
+		ranges: map[string]diffRange{}, full: make(chan struct{}, 1), stopped: make(chan struct{})}
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 	if _, err := s.git(ctx, "init", "-q", "--bare", gd); err != nil || os.WriteFile(filepath.Join(gd, "xbin-excludes"), []byte(defaultExcludes), 0o600) != nil {
@@ -201,7 +207,23 @@ func (s *snapper) close() {
 	s.mu.Unlock()
 }
 
+// discard is close for a daemon on its way out: the worker is not waited
+// for past wait (it may have snapshots queued), and the private dir goes
+// now — xbind is not there to remove it later.
+func (s *snapper) discard(wait time.Duration) {
+	if s == nil {
+		return
+	}
+	s.close()
+	select {
+	case <-s.stopped:
+	case <-time.After(wait):
+	}
+	_ = os.RemoveAll(s.gitDir)
+}
+
 func (s *snapper) run() {
+	defer close(s.stopped)
 	defer os.RemoveAll(s.gitDir)
 	off := false
 	for j := range s.jobs {
@@ -216,6 +238,9 @@ func (s *snapper) run() {
 		if err != nil {
 			slog.Warn("agent diffs off for this session: snapshot failed", "tile", s.work, "err", err)
 			off = true
+			s.mu.Lock()
+			s.off = true
+			s.mu.Unlock()
 			continue
 		}
 		from := s.prev
@@ -224,11 +249,17 @@ func (s *snapper) run() {
 		case "base":
 			s.base = tree
 		case "tool":
-			if j.emit && from != "" && from != tree {
-				s.report(map[string]any{"toolCallId": j.id}, from, tree, toolPatchCap)
+			if from != "" && from != tree {
+				// remembered before it is reported: a client asks for the
+				// full patch when it sees the event
+				s.remember("tool:"+j.id, from, tree)
+				if j.emit {
+					s.report(map[string]any{"toolCallId": j.id}, from, tree, toolPatchCap)
+				}
 			}
 		case "turn":
 			if s.base != "" && s.base != tree {
+				s.remember("turn:"+strconv.FormatInt(j.turn, 10), s.base, tree)
 				s.report(map[string]any{"turn": j.turn}, s.base, tree, turnPatchCap)
 			}
 			s.base = tree

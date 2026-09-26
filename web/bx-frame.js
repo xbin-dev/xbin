@@ -430,8 +430,8 @@ export class BxFrame extends LitElement {
         // ambient badge when it isn't).
         if (e.component === this.src && this._termOpen) this._loadPRCount();
         break;
-      case 'term': // the session directory changed for this tile (D73)
-        if (e.component === this.src) this._relist();
+      case 'term': // the session directory changed for this tile (D73); a status op carries its own row data
+        if (e.component === this.src && e.data?.op !== 'status') this._relist();
         break;
     }
   }

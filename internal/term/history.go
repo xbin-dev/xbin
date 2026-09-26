@@ -98,11 +98,21 @@ func firstPrompt(evs []agent.Event) string {
 		if e.Type != agent.EvMessageDelta {
 			continue
 		}
-		var d struct{ Role, Text string }
+		var d struct {
+			Role, Text  string
+			Attachments []agent.AttachmentInfo
+		}
 		if json.Unmarshal(e.Data, &d) != nil || d.Role != "user" {
 			continue
 		}
 		line := strings.TrimSpace(d.Text)
+		if line == "" && len(d.Attachments) > 0 { // a prompt of files only: name them
+			names := make([]string, len(d.Attachments))
+			for i, a := range d.Attachments {
+				names[i] = a.Name
+			}
+			line = "[" + strings.Join(names, ", ") + "]"
+		}
 		if i := strings.IndexByte(line, '\n'); i >= 0 {
 			line = strings.TrimSpace(line[:i])
 		}
@@ -223,11 +233,18 @@ func (m *Manager) pruneHistory(dir string) {
 }
 
 // FlushAgents persists every live agent session — on shutdown, so an
-// update/restart turns open conversations into history, not losses.
+// update/restart turns open conversations into history, not losses — and
+// drops what each keeps outside its sandbox: the private snapshot dir and,
+// with isolation off, the attachments dir (the agent hosts go with xbind,
+// and the sessions' own teardown will not run).
 func (m *Manager) FlushAgents() {
 	for _, s := range m.sorted() {
 		if s.agent != nil {
 			m.saveHistory(s)
+			s.agent.snap.discard(2 * time.Second)
+			if s.agent.attachDir != "" {
+				_ = os.RemoveAll(s.agent.attachDir)
+			}
 		}
 	}
 }

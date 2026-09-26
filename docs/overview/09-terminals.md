@@ -100,7 +100,10 @@ the only place that knows which live sessions a user has on a tile:
 `GET /api/xbin/term/sessions?cwd=` lists them (id, effective scope, the
 pickers it was opened with, the tab's name — set with `PATCH
 /term/sessions/<id>`), and a `term` event on `/ws/events` tells the owner's
-browsers (and admins) when one opens, ends or is renamed. `<bx-frame>` builds
+browsers (and admins) when one opens, ends or is renamed — and, for an
+agent session, when its status or the number of requests waiting for an
+answer changes (op `status`, the summary inline: an inbox needs nothing
+else). `<bx-frame>` builds
 its tab bar from that answer and keeps no session ids of its own, so a
 second browser signed in as the same user shows the same tabs and attaches
 to the same PTYs (several sockets may attach to one session; output fans
@@ -457,6 +460,18 @@ What the agent gets:
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must
   be asked for by name — never a default, never chosen for you.
+- **your files, in its sandbox.** A prompt can carry attachments — a
+  screenshot, a photo, a log, a PDF (`POST
+  /api/xbin/term/sessions/<id>/prompt {text, attachments}`, up to 10 files,
+  10 MiB each, 20 MiB together). Each is written inside the agent's sandbox
+  (a private directory under its own `/tmp`, never the tile; with isolation
+  off, a directory xbind makes for the session and removes when it ends or
+  xbind stops)
+  and handed to the agent by path, so it can read, grep or copy it with its
+  own tools; an image (PNG, JPEG, GIF, WebP) up to 3.75 MiB also goes to the
+  model inline (4 MiB of images per prompt — a bigger one is a file the agent
+  opens itself; downscale photos), and a small text file inline with the
+  prompt. The transcript shows the file names.
 - **files and terminals inside the sandbox.** The agent's file reads and
   writes and the terminals it opens are served by the host *inside* the
   sandbox, so the kernel's mount view — the allow-list, the masks, the
@@ -480,7 +495,11 @@ diffs; a tool's raw JSON input is one click away, never the headline. **What
 changed on disk** is shown from snapshots, not from what the agent says: when
 a shell call finishes, its card lists the files it changed with the real
 patch (a `sed -i` or a python script editing `main.go` shows as that diff),
-and each turn ends with *This turn changed N files*. The snapshots live in a
+and each turn ends with *This turn changed N files*. The patch in an event
+is capped (64 KiB per call, 192 KiB per turn); a client wanting all of it —
+a full-screen diff viewer — asks `GET /api/xbin/term/sessions/<id>/diff`
+with the call or turn (and optionally one file) while the session lives.
+The snapshots live in a
 private git directory next to the tile (on tiles that are git repos) — your
 repo, index and history are never touched. A **subagent** (Claude's Task)
 is one card with everything it did nested beneath — its thinking, its tool

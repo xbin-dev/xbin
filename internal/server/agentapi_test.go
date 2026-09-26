@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +52,7 @@ func TestAgentRoutesGates(t *testing.T) {
 	for _, r := range [][3]string{{"GET", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events", ""}, {"GET", "/term/sessions/nope/log", ""},
 		{"POST", "/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/term/sessions/nope/cancel", ""},
 		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"POST", "/term/sessions/nope/options", `{"id":"model","value":"x"}`},
-		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`},
+		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`}, {"GET", "/term/sessions/nope/diff?turn=1", ""},
 		{"DELETE", "/term/sessions/nope", ""}} {
 		if c, b := do(alice, r[0], r[1], r[2]); c != 404 {
 			t.Fatalf("%s %s: %d %s", r[0], r[1], c, b)
@@ -140,5 +143,99 @@ func TestAgentHistoryRoutes(t *testing.T) {
 	}
 	if c, _ := do(alice, "GET", "/agent/history/h1/events", ""); c != 404 {
 		t.Fatalf("deleted: %d", c)
+	}
+}
+
+func TestDiffQuery(t *testing.T) {
+	for q, want := range map[string]string{"toolCallId=t1": "t1/0", "turn=3": "/3", "": "err", "toolCallId=t1&turn=2": "err", "turn=0": "err", "turn=x": "err", "turn=-1": "err"} {
+		v, _ := url.ParseQuery(q)
+		tool, turn, err := diffQuery(v)
+		got := fmt.Sprintf("%s/%d", tool, turn)
+		if err != nil {
+			got = "err"
+		}
+		if got != want {
+			t.Errorf("%q: %s, want %s", q, got, want)
+		}
+	}
+}
+
+// A prompt body: text only as before; attachments decoded (padded or raw
+// base64) and normalised; refusals are 400 (shape, base64, count) or 413
+// (sizes, the body cap).
+func TestDecodePrompt(t *testing.T) {
+	b64 := func(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	p, code, err := decodePrompt(strings.NewReader(`{"text":"hi"}`))
+	if err != nil || p.Text != "hi" || p.Attachments != nil {
+		t.Fatalf("text only: %+v %d %v", p, code, err)
+	}
+	body := fmt.Sprintf(`{"text":"look","attachments":[{"name":"a.png","mime":"image/png","data":%q},{"name":"n.txt","data":%q}]}`,
+		b64(png), base64.RawStdEncoding.EncodeToString([]byte("hello")))
+	p, _, err = decodePrompt(strings.NewReader(body))
+	if err != nil || len(p.Attachments) != 2 || p.Attachments[0].Mime != "image/png" || string(p.Attachments[1].Data) != "hello" || p.Attachments[1].Mime != "text/plain" {
+		t.Fatalf("attachments: %+v %v", p, err)
+	}
+	if p, _, err := decodePrompt(strings.NewReader(fmt.Sprintf(`{"attachments":[{"name":"a.png","data":%q}]}`, b64(png)))); err != nil || p.Text != "" || len(p.Attachments) != 1 {
+		t.Fatalf("files only: %+v %v", p, err)
+	}
+	many := `{"text":"x","attachments":[` + strings.TrimSuffix(strings.Repeat(`{"name":"a","data":""},`, agent.MaxAttachments+1), ",") + `]}`
+	bigImg := append(append([]byte(nil), png...), make([]byte, agent.MaxFileBytes)...)
+	// an image too big to go inline is still taken: a file for the agent
+	overInline := append(append([]byte(nil), png...), make([]byte, agent.MaxImageBytes)...)
+	if p, _, err := decodePrompt(strings.NewReader(fmt.Sprintf(`{"attachments":[{"name":"a.png","data":%q}]}`, b64(overInline)))); err != nil || len(p.Attachments) != 1 || p.Attachments[0].Mime != "image/png" {
+		t.Fatalf("an image over the inline limit: %v", err)
+	}
+	for _, c := range []struct {
+		body string
+		code int
+	}{
+		{`{"text":"  "}`, 400}, {`{}`, 400}, {`nope`, 400}, {`{"text":5}`, 400},
+		{`{"text":"x","attachments":[{"name":"a","data":"%%%"}]}`, 400},
+		{many, 400},
+		{fmt.Sprintf(`{"text":"x","attachments":[{"name":"a.png","data":%q}]}`, b64(bigImg)), 413},
+	} {
+		if _, code, err := decodePrompt(strings.NewReader(c.body)); err == nil || code != c.code {
+			t.Errorf("%.60s: %d %v, want %d", c.body, code, err, c.code)
+		}
+	}
+	// the route caps the body itself: past it, 413
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"text":"`+strings.Repeat("x", maxPromptBody)+`"}`))
+	if _, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody)); err == nil || code != 413 {
+		t.Fatalf("over the body cap: %d %v", code, err)
+	}
+}
+
+// The routes an agent may not call on its own session refuse the session's
+// own terminal token (its sandbox's XBIN_TOKEN) — only that: another
+// shell's token of the same user and tile, a browser, the owner pass.
+func TestSelfDriven(t *testing.T) {
+	self := func(id, tok string) bool { return id == "a1" && tok == "own" }
+	req := func(auth string) *http.Request {
+		r := httptest.NewRequest("POST", "/", nil)
+		if auth != "" {
+			r.Header.Set("Authorization", auth)
+		}
+		return r
+	}
+	shell := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal"}
+	if !selfDriven(shell, req("Bearer own"), "a1", self) {
+		t.Fatal("the session's own token")
+	}
+	for _, c := range []struct {
+		p    auth.Principal
+		auth string
+		id   string
+	}{
+		{shell, "Bearer other", "a1"}, // a shell's token (bx agent in a terminal)
+		{shell, "Bearer own", "a2"},   // its token, another session
+		{shell, "", "a1"},             // no bearer
+		{auth.Principal{Owner: true, Via: "bearer"}, "Bearer own", "a1"}, // not a terminal principal
+		{auth.Principal{UserID: "alice", Via: "session"}, "", "a1"},
+	} {
+		if selfDriven(c.p, req(c.auth), c.id, self) {
+			t.Errorf("%+v %q %s refused", c.p, c.auth, c.id)
+		}
 	}
 }

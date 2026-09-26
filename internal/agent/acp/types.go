@@ -30,9 +30,10 @@ const (
 	MTermKill          = "terminal/kill"
 	MTermRelease       = "terminal/release"
 	// xbin's own, daemon ⇄ host (never reaches the agent):
-	MXbinSpawn = "_xbin/spawn"
-	MXbinHello = "_xbin/hello"
-	MXbinLog   = "_xbin/log"
+	MXbinSpawn  = "_xbin/spawn"
+	MXbinHello  = "_xbin/hello"
+	MXbinLog    = "_xbin/log"
+	MXbinAttach = "_xbin/attach" // a prompt's file, dropped inside the sandbox by the host (a request)
 	// the adapter's own (claude, codex): pushes the sign-in status
 	MAuthStatus = "_auth/status_update"
 )
@@ -82,7 +83,17 @@ type InitializeResult struct {
 // means session/load can reopen one of its earlier sessions by id — the
 // resume path; without it a past session is read-only history.
 type AgentCapabilities struct {
-	LoadSession bool `json:"loadSession,omitempty"`
+	LoadSession        bool                `json:"loadSession,omitempty"`
+	PromptCapabilities *PromptCapabilities `json:"promptCapabilities,omitempty"`
+}
+
+// PromptCapabilities is what a prompt may carry beyond text and
+// resource_link (which every agent takes): image blocks, audio blocks,
+// embedded resources.
+type PromptCapabilities struct {
+	Image           bool `json:"image,omitempty"`
+	Audio           bool `json:"audio,omitempty"`
+	EmbeddedContext bool `json:"embeddedContext,omitempty"`
 }
 
 type AuthMethod struct {
@@ -174,8 +185,26 @@ type ModeEntry struct {
 type ContentBlock struct {
 	Type string `json:"type"` // text | image | audio | resource_link | resource
 	Text string `json:"text,omitempty"`
+	// image / audio: the base64 bytes and their type
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"` // also resource_link's
+	// resource_link: a file the agent reads itself
+	URI  string `json:"uri,omitempty"`
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	// resource: embedded contents (the prompt's small text files)
+	Resource *EmbeddedResource `json:"resource,omitempty"`
 	// the rest is passed through untouched when we relay a block
 	Rest json.RawMessage `json:"-"`
+}
+
+// EmbeddedResource is a resource block's contents — the text form
+// (TextResourceContents); xbin sends no blobs (an adapter may drop them:
+// claude-agent-acp does), binary files go as resource_link.
+type EmbeddedResource struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text"`
 }
 
 type PromptParams struct {
@@ -337,6 +366,11 @@ type SpawnParams struct {
 	Argv []string `json:"argv"`
 	Env  []string `json:"env"`
 	Cwd  string   `json:"cwd"`
+	// AttachDir is where the host drops a prompt's files when the daemon
+	// owns that directory (isolation off: the host shares xbind's /tmp and
+	// is SIGKILLed at the end, so the daemon removes it). "" = the host
+	// makes one under the sandbox's own /tmp.
+	AttachDir string `json:"attachDir,omitempty"`
 }
 
 type HelloParams struct {
@@ -345,4 +379,15 @@ type HelloParams struct {
 
 type LogParams struct {
 	Text string `json:"text"`
+}
+
+// AttachParams: daemon → host, a prompt's file to drop inside the sandbox
+// (data base64 on the wire); the host answers where it put it.
+type AttachParams struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+type AttachResult struct {
+	Path string `json:"path"`
 }

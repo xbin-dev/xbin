@@ -17,7 +17,9 @@
 // an "Other" box; Submit sends the values and the card settles as answered;
 // (k) an agent tab has the same bar as a shell: the layout switcher (the code
 // panel beside the agent) and the net/API pickers; (l) switching the network
-// restarts the agent in a new sandbox and resumes its conversation.
+// restarts the agent in a new sandbox and resumes its conversation; (m) a
+// prompt with attachments (POST …/prompt {attachments}) names its files in
+// the user's message and reaches the agent inline and as dropped files.
 const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -94,6 +96,23 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'turn' && b.stopReason === 'cancelled'), null, { timeout: 15000, label: 'the turn ended cancelled' });
   const cancelled = (await blocks(A.page)).filter((b) => b.kind === 'turn').pop();
   check(cancelled?.stopReason === 'cancelled', `the cancelled turn is recorded as cancelled (${cancelled?.stopReason})`);
+
+  // ---- a prompt with attachments (the native app's composer, over the API):
+  // the user's message names the files; the agent got the image inline and
+  // the others as files dropped in its sandbox ----
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle before the attachments' });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const att = await A.ctx.request.post(`${URL}/api/xbin/term/sessions/${idA}/prompt`, { data: { text: 'what is in these?', attachments: [
+    { name: 'screenshot.png', mime: 'image/png', data: png.toString('base64') },
+    { name: 'build.log', mime: 'text/plain', data: Buffer.from('ok 1\nFAIL 2\n').toString('base64') }] } });
+  check(att.ok(), `a prompt with attachments is accepted (${att.status()})`);
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /\[image image\/png \d+B\]/.test(b.text || '')), null, { timeout: 15000, label: 'the agent echoed the attachments' });
+  const withFiles = (await blocks(A.page)).filter((b) => b.kind === 'msg' && b.role === 'user' && b.files).pop();
+  check(withFiles?.files?.map((f) => f.name).join(' ') === 'screenshot.png build.log', `the user's message names its files (${JSON.stringify(withFiles?.files)})`);
+  const echoed = (await blocks(A.page)).filter((b) => b.kind === 'msg' && b.role === 'agent').pop()?.text || '';
+  check(/\[file screenshot\.png \d+B\]/.test(echoed) && /\[resource build\.log \d+B\]/.test(echoed), `the agent got the image inline and its file, and the log embedded (${echoed})`);
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-attachments');
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the attachments' });
 
   // ---- plan approval: a plan card, never a session rule ----
   const agentSel = `bx-frame[src="${TILE}"] bx-agent`;

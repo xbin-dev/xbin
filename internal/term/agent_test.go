@@ -51,8 +51,10 @@ func TestMain(m *testing.M) {
 type agentRig struct {
 	m      *Manager
 	root   string
+	tmp    string // TMPDIR for the daemon and its children: what a session leaves behind shows here
 	events chan SessionEvent
 	change chan string
+	status chan StatusChange // OnStatus (agentstatus.go)
 }
 
 func newAgentRig(t *testing.T) *agentRig {
@@ -64,10 +66,18 @@ func newAgentRig(t *testing.T) *agentRig {
 	if err := os.MkdirAll(filepath.Join(root, "apps", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &agentRig{m: NewManager(root, nil), root: root, events: make(chan SessionEvent, 4096), change: make(chan string, 64)}
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	r := &agentRig{m: NewManager(root, nil), root: root, tmp: tmp, events: make(chan SessionEvent, 4096), change: make(chan string, 64), status: make(chan StatusChange, 256)}
 	r.m.BxPath = bxBin
 	r.m.OnEvent = func(cwd string, ev SessionEvent) { r.events <- ev }
 	r.m.OnChange = func(op, homeKey, id, cwd string) { r.change <- op + ":" + id }
+	r.m.OnStatus = func(cwd string, st StatusChange) {
+		select {
+		case r.status <- st:
+		default: // a test that doesn't read them
+		}
+	}
 	return r
 }
 
@@ -628,8 +638,18 @@ func TestAgentSessionQuestion(t *testing.T) {
 	r.until(t, func(e SessionEvent) bool {
 		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusWaiting
 	})
+	// the session snapshot lists the question (GET /term/sessions/<id>)
+	if qs, err := r.m.AgentQuestions(info.ID); err != nil || len(qs) != 1 || qs[0].EID != eid || qs[0].ToolCallID != "ask1" {
+		t.Fatalf("pending questions: %+v %v", qs, err)
+	}
+	if row, _ := r.m.Info(info.ID); row.Questions != 1 || row.Pending != 0 {
+		t.Fatalf("directory row: questions %d pending %d", row.Questions, row.Pending)
+	}
 	if err := r.m.AgentElicit(info.ID, eid, "accept", json.RawMessage(`{"question_0":"SQLite","question_1":["Metrics"]}`), "owner"); err != nil {
 		t.Fatal(err)
+	}
+	if qs, _ := r.m.AgentQuestions(info.ID); len(qs) != 0 {
+		t.Fatalf("an answered question is still pending: %+v", qs)
 	}
 	if err := r.m.AgentElicit(info.ID, eid, "decline", nil, "owner"); !errors.Is(err, ErrNoQuestion) {
 		t.Fatalf("second answer: %v", err)

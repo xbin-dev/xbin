@@ -34,9 +34,10 @@ type SessionInfo struct {
 	VM         bool    `json:"vm"`      // a VM sandbox (vm.go)
 	Provider   string  `json:"provider,omitempty"`
 	Mode       string  `json:"mode,omitempty"`
-	Model      string  `json:"model,omitempty"`   // the agent's current model option, when it exposes one
-	Status     string  `json:"status,omitempty"`  // starting | idle | running | waiting_permission | error | exited
-	Pending    int     `json:"pending,omitempty"` // unanswered permission requests
+	Model      string  `json:"model,omitempty"`     // the agent's current model option, when it exposes one
+	Status     string  `json:"status,omitempty"`    // starting | idle | running | waiting_permission | error | exited
+	Pending    int     `json:"pending,omitempty"`   // unanswered permission requests
+	Questions  int     `json:"questions,omitempty"` // unanswered questions (elicitation.request)
 }
 
 func (s *Session) info() SessionInfo {
@@ -58,6 +59,7 @@ func (s *Session) info() SessionInfo {
 		si.Kind, si.Provider, si.Mode, si.Model, si.Status = KindAgent, st.provider.ID, st.mode, st.model, st.status
 		st.mu.Unlock()
 		si.Pending = st.perms.Count()
+		si.Questions = len(st.drv.PendingElicitations())
 	}
 	return si
 }

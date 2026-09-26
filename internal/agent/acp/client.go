@@ -38,8 +38,11 @@ type Client struct {
 	agentInfo  *Info          // what initialize said the agent is
 	authNeeded bool           // the agent reported it is not signed in (login required)
 	loadable   bool           // the agent advertised loadSession: its session id can be reopened later
+	promptCaps PromptCapabilities
 	turn       uint64
 	busy       bool
+	preparing  bool                    // a prompt's files are on their way to the host (prompt.go): the next prompt is busy
+	prepCancel context.CancelCauseFunc // aborts that hand-off (Cancel)
 	status     string
 	usage      *UsageUpdate
 	tools      map[string]string // tool call id → last status, this turn
@@ -120,6 +123,9 @@ func (c *Client) handshake() error {
 	c.mu.Lock()
 	c.agentInfo = init.AgentInfo
 	c.loadable = init.AgentCapabilities != nil && init.AgentCapabilities.LoadSession
+	if init.AgentCapabilities != nil && init.AgentCapabilities.PromptCapabilities != nil {
+		c.promptCaps = *init.AgentCapabilities.PromptCapabilities
+	}
 	c.mu.Unlock()
 	if init.ProtocolVersion != ProtocolVersion {
 		c.logf("agent speaks protocol version %d, we speak %d — continuing", init.ProtocolVersion, ProtocolVersion)
@@ -315,64 +321,19 @@ func tileOf(cfg agent.Config) string {
 	return "<tile>"
 }
 
-// Send starts a turn. One at a time.
-func (c *Client) Send(ctx context.Context, text string) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return agent.ErrEnded
-	}
-	if c.busy {
-		c.mu.Unlock()
-		return agent.ErrBusy
-	}
-	c.busy = true
-	c.turn++
-	turn := c.turn
-	c.tools = map[string]string{}
-	c.usage = nil
-	sid := c.sessionID
-	c.mu.Unlock()
-	c.emit(agent.New(agent.EvMessageDelta, map[string]any{"role": "user", "text": text}))
-	c.setStatus(agent.StatusRunning, "")
-	go func() {
-		var res PromptResult
-		err := c.conn.Call(MSessionPrompt, PromptParams{SessionID: sid, Prompt: []ContentBlock{{Type: "text", Text: text}}}, &res)
-		c.mu.Lock()
-		c.busy = false
-		usage := c.usage
-		c.mu.Unlock()
-		if err != nil {
-			if errors.Is(err, io.ErrClosedPipe) {
-				return // the exit status says it
-			}
-			var re *Error
-			if errors.As(err, &re) && re.Code == ErrAuthRequired {
-				c.mu.Lock()
-				c.authNeeded = true
-				c.mu.Unlock()
-			}
-			c.emit(agent.New(agent.EvTurnEnd, map[string]any{"turn": turn, "stopReason": "error", "error": authHint(err, c.cfg).Error()}))
-			c.setStatus(agent.StatusError, authHint(err, c.cfg).Error())
-			return
-		}
-		c.setAuthNeeded(false)
-		end := map[string]any{"turn": turn, "stopReason": res.StopReason}
-		if usage != nil {
-			end["usage"] = usage
-		}
-		c.emit(agent.New(agent.EvTurnEnd, end))
-		c.setStatus(agent.StatusIdle, "")
-	}()
-	return nil
-}
-
 // Cancel interrupts the running turn: the agent gets session/cancel, every
 // pending permission is answered cancelled, and the turn's unfinished tool
 // calls are marked cancelled for the clients (the agent's own updates keep
-// flowing; the prompt ends with stopReason cancelled).
+// flowing; the prompt ends with stopReason cancelled). A prompt still
+// handing its files to the host is aborted instead: it returns
+// agent.ErrCancelled and no turn starts.
 func (c *Client) Cancel() error {
 	c.mu.Lock()
+	if c.prepCancel != nil { // a prompt still handing its files over: it never becomes a turn
+		c.prepCancel(agent.ErrCancelled)
+		c.mu.Unlock()
+		return nil
+	}
 	sid, busy := c.sessionID, c.busy
 	var unfinished []string
 	for id, st := range c.tools {

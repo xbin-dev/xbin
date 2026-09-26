@@ -7,9 +7,13 @@ package server
 // and admins. The session itself lives in internal/term (agent.go).
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -32,6 +36,7 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
 	s.RegisterAPI("GET /term/sessions/{id}/events", s.apiAgentEvents)
 	s.RegisterAPI("GET /term/sessions/{id}/log", s.apiAgentLog)
+	s.RegisterAPI("GET /term/sessions/{id}/diff", s.apiAgentDiff) // the full patch behind a files.changed
 	// past sessions (term/history.go): the persisted transcripts
 	s.RegisterAPI("GET /agent/history", s.apiAgentHistory)
 	s.RegisterAPI("GET /agent/history/{id}/events", s.apiAgentHistoryEvents)
@@ -102,7 +107,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 // session. Creator only (the new session is the caller's). → {session,
 // resumed}.
 func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -137,14 +142,41 @@ func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
+// driveOther is drive for the routes an agent may not call on its own
+// session from inside its sandbox. The sandbox's XBIN_TOKEN is a terminal
+// token of the same user and tile, which drive accepts (a shell's `bx
+// agent` drives a session so); with the session's own token the agent
+// would answer its own permission requests and questions, change its own
+// settings or pickers, prompt itself after its turn, or loop on the full
+// diff. 403.
+func (s *Server) driveOther(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, ok := s.drive(w, r)
+	if ok && selfDriven(auth.PrincipalOf(r), r, id, s.Term.SelfToken) {
+		apiErr(w, http.StatusForbidden, "an agent session cannot drive itself from its own sandbox")
+		return "", false
+	}
+	return id, ok
+}
+
+// selfDriven reports whether a request carries session id's own terminal
+// token (the Bearer credential a terminal principal came from).
+func selfDriven(p auth.Principal, r *http.Request, id string, self func(id, tok string) bool) bool {
+	if p.Via != "terminal" {
+		return false
+	}
+	tok, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return found && self(id, strings.TrimSpace(tok))
+}
+
 // agentStatus maps the term package's errors to HTTP statuses.
 func agentStatus(err error) int {
 	switch {
-	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion):
+	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion), errors.Is(err, term.ErrNoDiff):
 		return http.StatusNotFound
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
-	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported):
+	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported),
+		errors.Is(err, agent.ErrCancelled):
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest
@@ -222,6 +254,9 @@ func (s *Server) apiAgentGet(w http.ResponseWriter, r *http.Request) {
 	if pend, err := s.Term.AgentPending(id); err == nil {
 		out["permissions"] = pend
 	}
+	if qs, err := s.Term.AgentQuestions(id); err == nil {
+		out["elicitations"] = qs
+	}
 	WriteJSON(w, http.StatusOK, out)
 }
 
@@ -239,23 +274,84 @@ func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiAgentPrompt starts a turn: {text} → {turn}. 409 while one runs.
+// maxPromptBody bounds a prompt's request: the attachments' 20 MiB as
+// base64, plus the text.
+const maxPromptBody = 32 << 20
+
+// apiAgentPrompt starts a turn: {text, attachments?:[{name, mime, data}]}
+// → {turn}. 409 while one runs or is being taken (before the body is read:
+// one prompt's files in memory per session); 413 past the attachment
+// limits.
 func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
-	var body struct{ Text string }
-	if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.Text) == "" {
-		apiErr(w, http.StatusBadRequest, "need {text}")
+	release, err := s.Term.ReservePrompt(id)
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
-	turn, err := s.Term.AgentPrompt(r.Context(), id, body.Text)
+	defer release()
+	p, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody))
+	if err != nil {
+		apiErr(w, code, err.Error())
+		return
+	}
+	turn, err := s.Term.AgentPromptWith(r.Context(), id, p)
 	if err != nil {
 		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "turn": turn})
+}
+
+// decodePrompt reads a prompt body: the text, and the attachments decoded
+// (standard base64, padded or not) and normalised
+// (agent.PrepareAttachments). The int is the status of a refusal.
+func decodePrompt(body io.Reader) (agent.Prompt, int, error) {
+	var b struct {
+		Text        string `json:"text"`
+		Attachments []struct {
+			Name string `json:"name"`
+			Mime string `json:"mime"`
+			Data string `json:"data"`
+		} `json:"attachments"`
+	}
+	if err := json.NewDecoder(body).Decode(&b); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return agent.Prompt{}, http.StatusRequestEntityTooLarge, fmt.Errorf("the prompt is over %d MiB (attachments: at most %d MiB together)", maxPromptBody>>20, agent.MaxAttachmentsBytes>>20)
+		}
+		return agent.Prompt{}, http.StatusBadRequest, errors.New("need {text, attachments?:[{name, mime, data (base64)}]}")
+	}
+	if strings.TrimSpace(b.Text) == "" && len(b.Attachments) == 0 {
+		return agent.Prompt{}, http.StatusBadRequest, errors.New("need {text}")
+	}
+	if len(b.Attachments) > agent.MaxAttachments {
+		return agent.Prompt{}, http.StatusBadRequest, fmt.Errorf("%d attachments (at most %d)", len(b.Attachments), agent.MaxAttachments)
+	}
+	atts := make([]agent.Attachment, len(b.Attachments))
+	for i, a := range b.Attachments {
+		data, err := base64.StdEncoding.DecodeString(a.Data)
+		if err != nil {
+			if data, err = base64.RawStdEncoding.DecodeString(a.Data); err != nil {
+				return agent.Prompt{}, http.StatusBadRequest, fmt.Errorf("attachment %d (%s): data is not base64", i+1, a.Name)
+			}
+		}
+		atts[i] = agent.Attachment{Name: a.Name, Mime: a.Mime, Data: data}
+	}
+	atts, err := agent.PrepareAttachments(atts)
+	if err != nil {
+		if errors.Is(err, agent.ErrAttachmentTooLarge) {
+			return agent.Prompt{}, http.StatusRequestEntityTooLarge, err
+		}
+		return agent.Prompt{}, http.StatusBadRequest, err
+	}
+	if len(atts) == 0 {
+		atts = nil
+	}
+	return agent.Prompt{Text: b.Text, Attachments: atts}, 0, nil
 }
 
 func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {
@@ -273,7 +369,7 @@ func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {
 // apiAgentPermit answers a permission request: {optionId} or {decision:
 // allow_once|allow_always|reject_once|reject_always}. First answer wins.
 func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -298,7 +394,7 @@ func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
 // {action: accept | decline | cancel, content?} — content the form's values
 // on accept. First answer wins (404 after).
 func (s *Server) apiAgentElicit(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -330,7 +426,7 @@ func (s *Server) apiAgentElicit(w http.ResponseWriter, r *http.Request) {
 // (model, effort, …): {id, value}. The refreshed options ride the next
 // status event.
 func (s *Server) apiAgentSetOption(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -421,4 +517,46 @@ func (s *Server) apiAgentLog(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(text))
+}
+
+// apiAgentDiff is the complete patch behind a files.changed event (whose
+// own patch is capped): ?toolCallId=<id> | ?turn=<n>, ?path=<file> narrows
+// it to one file → text/x-diff (a git patch; X-Truncated: true when cut at
+// 16 MiB). 404 when the session kept no snapshot for it.
+func (s *Server) apiAgentDiff(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.driveOther(w, r)
+	if !ok {
+		return
+	}
+	tool, turn, err := diffQuery(r.URL.Query())
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	patch, truncated, err := s.Term.AgentDiff(r.Context(), id, tool, turn, r.URL.Query().Get("path"))
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-diff; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if truncated {
+		w.Header().Set("X-Truncated", "true")
+	}
+	_, _ = w.Write(patch)
+}
+
+// diffQuery reads the diff route's selector: exactly one of toolCallId and
+// turn (a positive turn number).
+func diffQuery(q url.Values) (tool string, turn int64, err error) {
+	tool, turnArg := q.Get("toolCallId"), q.Get("turn")
+	if (tool == "") == (turnArg == "") {
+		return "", 0, errors.New("need ?toolCallId= or ?turn= (from a files.changed event), not both")
+	}
+	if turnArg != "" {
+		if turn, err = strconv.ParseInt(turnArg, 10, 64); err != nil || turn < 1 {
+			return "", 0, errors.New("turn must be a turn number (turn.end's turn)")
+		}
+	}
+	return tool, turn, nil
 }

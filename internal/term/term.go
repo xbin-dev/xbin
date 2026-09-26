@@ -138,8 +138,9 @@ type Manager struct {
 	// __agent-host`, D74) — host and daemon are one build. OnEvent receives
 	// every agent session event as it is logged (the server publishes it as a
 	// `session` event). agent.go.
-	BxPath  string
-	OnEvent func(cwd string, ev SessionEvent)
+	BxPath   string
+	OnEvent  func(cwd string, ev SessionEvent)
+	OnStatus func(cwd string, st StatusChange) // an agent session's status/pending counts changed (agentstatus.go)
 
 	// Cgroup, when set (main wires it under cgroup delegation), puts each
 	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a

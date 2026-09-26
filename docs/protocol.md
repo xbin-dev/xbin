@@ -413,7 +413,11 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    sessions — the session directory (D73):
                                    [{id,cwd,net,label,scopes,gpu,api,name,
                                    created,lastActive,clients,envHeld,vm}], oldest
-                                   first; ?cwd=<p> one tile only. [] without
+                                   first (agent rows add kind:"agent",
+                                   provider, mode, model?, status, pending
+                                   — unanswered permission requests — and
+                                   questions — unanswered elicitations);
+                                   ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
                                    ?user=<id> admin: another user's. Every
@@ -448,11 +452,50 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token). Shells still open on
                                    /ws/term
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
-                                   [{pid,toolCall,options}]} (either kind)
+                                   [{pid,toolCall,options}], elicitations:
+                                   [{eid,toolCallId?,message,schema}]}
+                                   (either kind; the unanswered permission
+                                   requests and questions, oldest first —
+                                   the elicitation.request payloads)
 DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
                                    API twin of DELETE /ws/term?session=)
-POST   /term/sessions/<id>/prompt creator or admin. {text} → {ok, turn};
-                                   409 while a turn runs
+POST   /term/sessions/<id>/prompt creator or admin. {text, attachments?:
+                                   [{name, mime?, data}]} → {ok, turn};
+                                   409 while a turn runs or another prompt
+                                   is being taken (before this body is
+                                   read), and when a cancel lands while its
+                                   files are handed over (no turn starts).
+                                   attachments (optional; text may then be
+                                   empty): files, data standard base64 — at
+                                   most 10, each ≤ 10 MiB, 20 MiB together
+                                   (413 past a limit; the body is capped at
+                                   32 MiB). Each is written inside the
+                                   agent's sandbox (its private /tmp; with
+                                   isolation off a directory xbind makes
+                                   and removes with the session — the
+                                   newest 64 MiB kept) and handed to the
+                                   agent by that path. A png/jpeg/gif/webp
+                                   (the bytes decide, not mime) also goes
+                                   inline as an image the model sees —
+                                   400 when the agent does not take images
+                                   (it did not advertise
+                                   promptCapabilities.image) — when it is
+                                   ≤ 3.75 MiB (5 MiB as base64, the
+                                   strictest model API's limit) and the
+                                   prompt's inline images stay ≤ 4 MiB
+                                   together; past either it is only a file
+                                   the agent opens with its tools. The
+                                   agent keeps inline images in its
+                                   conversation and resends them every
+                                   turn, so downscale photos (≤ 2576 px
+                                   on the long edge is all a model reads)
+                                   and convert HEIC to JPEG (other image
+                                   types are files). A text file ≤ 128 KiB
+                                   also goes inline as an embedded
+                                   resource when the agent takes embedded
+                                   context. The log records the names,
+                                   types, sizes and whether each went
+                                   inline, never the bytes
 POST   /term/sessions/<id>/restart
                                    the creator. {net?, api?, gpu?} →
                                    {session, resumed}: the sandbox pickers
@@ -465,7 +508,9 @@ POST   /term/sessions/<id>/restart
                                    fresh (the transcript stays in
                                    /agent/history)
 POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
-                                   cancelled; pending permissions cancelled)
+                                   cancelled; pending permissions cancelled;
+                                   a prompt still handing its files over
+                                   gets 409 and never starts)
 POST   /term/sessions/<id>/permissions/<pid>
                                    creator or admin. {optionId} | {decision:
                                    allow_once|allow_always|reject_once|
@@ -496,6 +541,25 @@ POST   /term/sessions/<id>/options
                                    the next status event → ok
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
                                    stderr + driver notes (debugging)
+GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
+                                   ?turn=<n>, ?path=<file>? → text/x-diff:
+                                   the complete git patch behind a
+                                   files.changed event (whose own patch is
+                                   capped), or one file of it — up to 16
+                                   MiB (X-Truncated: true when cut). Edit
+                                   calls (which report their own diff) have
+                                   one too. 404 when the session keeps no
+                                   snapshot for it (nothing changed, not a
+                                   git tile, or the session ended). One
+                                   diff runs at a time per session and two
+                                   across xbind: a request past that waits
+                                  (prompt, permissions, elicitations,
+                                   options, restart and diff answer 403 to
+                                   the session's own terminal token — its
+                                   sandbox's XBIN_TOKEN: an agent never
+                                   answers its own requests or drives
+                                   itself; a shell's token on the tile
+                                   still does, as `bx agent` there)
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
@@ -1758,14 +1822,30 @@ cookie required). JSON text frames:
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
 {"type":"term","component":"apps/thing",             // a terminal session of yours was
  "data":{"op":"open|close|rename","id":"…","user":"…"}} // opened/ended/renamed (D73): re-list
+{"type":"term","component":"apps/thing",             // an agent session of yours changed state:
+ "data":{"op":"status","id":"…","user":"…","status":"waiting_permission",
+         "pending":1,"questions":0,"turn":3}}        // its summary, inline — no re-list needed
 {"type":"session","topic":"session.<id>","component":"apps/thing", // an agent session event (D74):
  "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
 ```
 
 Non-bus events go to every subscriber, except `term` and `session` events,
-which reach the session's owner (`data.user`) and admins — re-list `GET
+which reach the session's owner (`data.user`) — their signed-in browsers,
+and a shell's terminal token for the sessions on its own tile — and admins;
+never a tile (its frame token names the user it runs for, its backend's
+token no one: neither follows anybody's sessions) — re-list `GET
 /term/sessions` on a `term` one; the id and op are enough to update a tab
-bar in place. `bus` events
+bar in place. An agent session also sends `term` op `status` whenever its
+summary changes — `status` (starting \| idle \| running \|
+waiting_permission \| cancelling \| error \| exited), `pending`
+(unanswered permission requests), `questions` (unanswered elicitations),
+`turn` (prompts taken, so a turn that ran and finished between two
+summaries still shows as a change) — coalesced over a few tens of
+milliseconds and never repeated; the last one precedes the `close`. It is
+what an inbox follows ("waiting for you", "done") without following each
+session's log; `GET /term/sessions/<id>` has the requests themselves. Older
+clients that re-list on every `term` event keep working (one more re-list
+per change). `bus` events
 are delivered only to
 the owner and to elements holding a reader grant on the resource. `status`
 events broadcast like the build events (the shell renders each only for tiles
@@ -1784,18 +1864,18 @@ hub drops a slow subscriber rather than queue for it).
 
 | type | data |
 |---|---|
-| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?}` — a prompt is logged as one `user` delta, so every client sees it; agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
+| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?, attachments?}` — a prompt is logged as one `user` delta, so every client sees it, with `attachments:[{name, mime, size, inline?}]` when it carried files (their bytes are not logged; `inline` true when the model got it with the prompt — an image block, an embedded text — else it is a file the agent was pointed at); agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
 | `thought.delta` | `{text, parent?}` — the agent's reasoning, when it shares it |
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?, rawOutput?, name?, label?, parent?, subagent?, planReview?, output?, outputDelta?, exitCode?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| switch_mode \| other; content items are `{type:"content", content:{type:"text", text}}` (often markdown — the adapters fence command output), `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}`. The rest is lifted from the adapter's `_meta` so a client needs no per-agent code: `name` the tool's own name (`Bash`, `ExitPlanMode`, …); `label` a human headline for the call when the harness wrote one (Claude's description of a shell command — the `title` is the command); `parent` the subagent call this one runs under; `subagent` true on a subagent (Task/Agent) call itself; `planReview` true on Codex's plan approval; `outputDelta` a chunk of a shell command's output (append), `output` its whole output (replace), `exitCode` its exit status |
 | `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace, `outputDelta` appends to the output, `output` replaces it |
 | `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}], rule:{kind, title, scoped}, meta?}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>`. `rule` is what "allow for the session" would remember (`scoped:false` = no session rule is possible and the clients hide that choice: the call has neither kind nor title, or it is a `switch_mode` — a plan approval, whose allow_always options are modes, never remembered); `meta` is the adapter's presentation hint when it sends one (`{title, description, defaultToNo}`) |
-| `files.changed` | `{toolCallId?, turn?, changes:[{path, oldPath?, status, add, del, binary?}], patch:{format:"git_patch", text, truncated}}` — what a finished tool call (`toolCallId`) or a whole turn (`turn`, after its `turn.end`) changed in the tile, from snapshots of the work tree (tiles that are git repos; the tile's own repo, index and HEAD are never touched). status: added \| modified \| deleted \| renamed \| typechange; `patch` is a git patch capped at 64 KiB per call, 192 KiB per turn (`truncated`). Not sent for edit/delete/move/read/search calls (an edit reports its own diff) nor when nothing changed |
+| `files.changed` | `{toolCallId?, turn?, changes:[{path, oldPath?, status, add, del, binary?}], patch:{format:"git_patch", text, truncated}}` — what a finished tool call (`toolCallId`) or a whole turn (`turn`, after its `turn.end`) changed in the tile, from snapshots of the work tree (tiles that are git repos; the tile's own repo, index and HEAD are never touched). status: added \| modified \| deleted \| renamed \| typechange; `patch` is a git patch capped at 64 KiB per call, 192 KiB per turn (`truncated`) — `GET …/diff?toolCallId=|turn=` serves the whole of it (and one file of it) while the session lives. Not sent for edit/delete/move/read/search calls (an edit reports its own diff) nor when nothing changed |
 | `elicitation.request` | `{eid, toolCallId?, message, schema}` — the agent asks the user a question (ACP `elicitation/create`, form mode — Claude's AskUserQuestion, an MCP server's form); the session is `waiting_permission` until one client answers on `POST …/elicitations/<eid>`. `schema` is a flat JSON Schema object: a `oneOf`/`enum` string is a single choice (options `{const, title, description?}`), an array of `anyOf`/`enum` items is a multi-choice, plus plain string/number/integer/boolean fields; a string field whose `_meta._askUserQuestionCustomAnswer.questionId` names another field is that question's free-text "Other" answer. Cancelling the turn answers `cancel` |
 | `elicitation.resolved` | `{eid, action, by, content?}` — action: accept \| decline \| cancel; `content` the submitted values (with accept) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
-| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
+| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 
 The live log is in memory; an `exited` or `error` status is final and the

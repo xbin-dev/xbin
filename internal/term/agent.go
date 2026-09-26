@@ -17,13 +17,16 @@ package term
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
@@ -72,24 +75,27 @@ func (e SessionEvent) Owner() string { return e.User }
 
 // agentState is the agent half of a KindAgent session.
 type agentState struct {
-	drv      agent.Driver
-	log      *agent.Log
-	perms    *agent.Permissions
-	provider agent.Provider
-	ready    chan struct{} // closed once the driver's Start returned
-	done     chan struct{} // closed once the pump ended (the session is over)
-	gone     chan struct{} // closed after the teardown: history saved, layer released, row removed
-	mu       sync.Mutex
-	startErr error
-	mode     string
-	model    string // the agent's current model option, when it exposes one
-	status   string
-	turn     uint64
-	text     []byte
-	acpID    string   // the agent's own session id (after the handshake)
-	loadable bool     // the agent can reopen acpID later (session/load) — resume
-	resumed  string   // the history entry this session reopened (superseded when this one is saved)
-	snap     *snapper // files.changed snapshots of the tile (agentdiff.go); nil = off
+	drv       agent.Driver
+	log       *agent.Log
+	perms     *agent.Permissions
+	provider  agent.Provider
+	ready     chan struct{} // closed once the driver's Start returned
+	done      chan struct{} // closed once the pump ended (the session is over)
+	gone      chan struct{} // closed after the teardown: history saved, layer released, row removed
+	mu        sync.Mutex
+	startErr  error
+	mode      string
+	model     string // the agent's current model option, when it exposes one
+	status    string
+	turn      uint64
+	text      []byte
+	acpID     string      // the agent's own session id (after the handshake)
+	loadable  bool        // the agent can reopen acpID later (session/load) — resume
+	resumed   string      // the history entry this session reopened (superseded when this one is saved)
+	snap      *snapper    // files.changed snapshots of the tile (agentdiff.go); nil = off
+	published statusKey   // the last summary handed to OnStatus (agentstatus.go)
+	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
+	attachDir string      // the daemon's attachments dir (isolation off), removed with the session
 }
 
 func (st *agentState) logf(line string) {
@@ -210,6 +216,16 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	return nil
 }
 
+// SelfToken reports whether tok is session id's own terminal token — the
+// XBIN_TOKEN its sandbox holds (the server keeps an agent from driving its
+// own session with it).
+func (m *Manager) SelfToken(id, tok string) bool {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	return s != nil && s.token != "" && subtle.ConstantTimeCompare([]byte(s.token), []byte(tok)) == 1
+}
+
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
 // the handshake is done — a prompt waits for it).
@@ -222,6 +238,20 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if err != nil {
 		revokeTok()
 		return nil, err
+	}
+	// A prompt's files (agent/host/attach.go): in a sandbox they go to its
+	// own /tmp, a tmpfs that dies with it. With isolation off the host is a
+	// plain child sharing xbind's /tmp and is SIGKILLed at the end, so the
+	// daemon owns the directory and removes it with the session.
+	attachDir := ""
+	if !m.Isolate {
+		if d, err := os.MkdirTemp("", "xbin-attachments-"); err == nil {
+			attachDir = d
+			sandboxCleanup := cleanup
+			cleanup = func() { sandboxCleanup(); _ = os.RemoveAll(d) }
+		} else {
+			slog.Warn("agent session: no attachments dir; the host makes its own", "err", err)
+		}
 	}
 	fail := func(err error) (*Session, error) {
 		cleanup()
@@ -257,7 +287,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		rl = postStart()
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
-		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed}
+		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
+		attachDir: attachDir}
 	s := &Session{
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
@@ -266,6 +297,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
+	drv := acp.New()
+	st.drv = drv // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -284,14 +317,12 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir})
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir, AttachDir: attachDir})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
-	drv := acp.New()
-	st.drv = drv
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
@@ -329,10 +360,11 @@ func sortedKeys(m map[string]string) []string {
 
 // delta is a message/thought delta being coalesced.
 type delta struct {
-	Role      string `json:"role,omitempty"`
-	Text      string `json:"text"`
-	MessageID string `json:"messageId,omitempty"`
-	Parent    string `json:"parent,omitempty"` // a subagent's text never merges into the main thread's
+	Role        string          `json:"role,omitempty"`
+	Text        string          `json:"text"`
+	MessageID   string          `json:"messageId,omitempty"`
+	Parent      string          `json:"parent,omitempty"`      // a subagent's text never merges into the main thread's
+	Attachments json.RawMessage `json:"attachments,omitempty"` // a prompt's files (names, types, sizes): never merged
 }
 
 // agentPump drains the driver's events into the log and the hub, merging
@@ -345,7 +377,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	st := s.agent
 	var pend *agent.Event
 	var pd delta
-	var timer <-chan time.Time
+	var timer, stTimer <-chan time.Time // delta coalescing; status-change coalescing (agentstatus.go)
 	flush := func() {
 		if pend != nil {
 			pend.Data, _ = json.Marshal(pd)
@@ -364,7 +396,8 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			if e.Type == agent.EvMessageDelta || e.Type == agent.EvThoughtDelta {
 				var d delta
 				_ = json.Unmarshal(e.Data, &d)
-				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent {
+				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent &&
+					len(pd.Attachments) == 0 && len(d.Attachments) == 0 {
 					pd.Text += d.Text
 					continue
 				}
@@ -377,11 +410,18 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			flush()
 			s.logEvent(m, e)
 			st.snap.observe(e)
+			if stTimer == nil && movesStatus(e.Type) {
+				stTimer = time.After(statusCoalesce)
+			}
 		case <-timer:
 			flush()
+		case <-stTimer:
+			stTimer = nil
+			s.publishStatus(m)
 		}
 	}
 ended:
+	s.publishStatus(m) // the last word before the directory's close
 	s.mu.Lock()
 	s.dead = true
 	s.mu.Unlock()
@@ -477,6 +517,32 @@ func (m *Manager) agentOf(id string) (*Session, *agentState, error) {
 // handshake first (ctx bounds the wait). Returns the turn number.
 // agent.ErrBusy while a turn runs.
 func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, error) {
+	return m.AgentPromptWith(ctx, id, agent.Prompt{Text: text})
+}
+
+// ReservePrompt takes the session's one prompt slot before a prompt's
+// body is read — its attachments are tens of MiB decoded — so a second
+// prompt while one is being taken, or while a turn runs, is refused at
+// once (agent.ErrBusy) instead of buffering its files first. The caller
+// calls AgentPromptWith, then release. (The driver serializes prompts on
+// its own; this bounds what concurrent requests hold in memory.)
+func (m *Manager) ReservePrompt(id string) (release func(), err error) {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return nil, err
+	}
+	st.mu.Lock()
+	running := st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
+	st.mu.Unlock()
+	if running || !st.prompting.CompareAndSwap(false, true) {
+		return nil, agent.ErrBusy
+	}
+	return func() { st.prompting.Store(false) }, nil
+}
+
+// AgentPromptWith is AgentPrompt with attachments (agent.PrepareAttachments
+// has normalised them).
+func (m *Manager) AgentPromptWith(ctx context.Context, id string, p agent.Prompt) (uint64, error) {
 	s, st, err := m.agentOf(id)
 	if err != nil {
 		return 0, err
@@ -500,7 +566,7 @@ func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, err
 	if !busy { // (a refused prompt must not move a running turn's base)
 		st.snap.turnStart(2 * time.Second) // the turn's base: edits made between turns are not the agent's
 	}
-	if err := st.drv.Send(ctx, text); err != nil {
+	if err := st.drv.Prompt(ctx, p); err != nil {
 		return 0, err
 	}
 	st.mu.Lock()
@@ -605,6 +671,16 @@ func (m *Manager) AgentPending(id string) ([]agent.Pending, error) {
 		return nil, err
 	}
 	return st.perms.List(), nil
+}
+
+// AgentQuestions lists the unanswered questions (elicitation.request
+// payloads), oldest first.
+func (m *Manager) AgentQuestions(id string) ([]agent.Elicitation, error) {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return nil, err
+	}
+	return st.drv.PendingElicitations(), nil
 }
 
 // AgentLog is the session's text log (the host's stderr, the driver's
