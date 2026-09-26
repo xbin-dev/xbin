@@ -5,15 +5,24 @@
 # mistakes (wrong model API, optionals, closure types, actor isolation) before
 # a CI round trip; it is NOT a substitute for the Apple CI (README.md).
 #
-#   run.sh [--sendable-bindings] [build-dir]
+#   run.sh [--sendable-bindings] [--sources-only] [build-dir]
 #
 # --sendable-bindings declares Binding(get:set:)'s closures @Sendable, the
 # strictest reading of the SDK: the renderer must type-check both ways.
+# --sources-only writes build-dir/Sources (the stubs and the renderer's
+# checkable sources) and stops: app-stubcheck builds on them.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
 strict=0
-if [ "${1:-}" = "--sendable-bindings" ]; then strict=1; shift; fi
+sources_only=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sendable-bindings) strict=1; shift ;;
+    --sources-only) sources_only=1; shift ;;
+    *) break ;;
+  esac
+done
 out=${1:-${TMPDIR:-/tmp}/xbin-swiftui-stubcheck}
 pkg=$repo/native/ios/Packages/XbinRenderer
 
@@ -45,6 +54,7 @@ unguard "$pkg/Tests/XbinRendererTests/SnapshotTests.swift" | sed -e 's/^import T
   -e 's/try #require(\(.*\), "native\/fixtures not found")/\1!/' -e 's/#expect(/check(/' \
   >"$out/Sources/XbinRendererCheck/SnapshotTests.swift"
 printf 'func check(_ c: Bool, _ m: @autoclosure () -> String = "") {}\n' >>"$out/Sources/XbinRendererCheck/SnapshotTests.swift"
+if [ "$sources_only" = 1 ]; then exit 0; fi
 
 cat >"$out/Package.swift" <<EOF
 // swift-tools-version: 6.2

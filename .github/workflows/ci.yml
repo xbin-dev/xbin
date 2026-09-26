@@ -99,6 +99,8 @@ jobs:
       - name: Swift (swiftly)
         run: native/ios/scripts/ci-linux-swift.sh
       - run: make swift-test
+      - name: the app's SwiftUI/UIKit code against SDK stubs
+        run: make swift-stubcheck
       - run: make native-check
       - run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
       - name: ci-local-check.sh (the iOS CI scripts, also under bash 3.2)

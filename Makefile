@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -161,6 +161,17 @@ swift-test:
 	@command -v swift >/dev/null || { echo 'swift-test: no swift on PATH (native/AGENTS.md §3) — skipped'; exit 0; }; \
 	rc=0; for p in $(SWIFT_PACKAGES); do echo ">> swift test: $$p"; \
 	  (cd native/ios/Packages/$$p && swift build --build-tests && ulimit -s 512 && swift test --skip-build) || rc=1; done; exit $$rc
+
+# The app's SwiftUI/UIKit code type-checked on Linux against SDK stubs
+# (native/tools/*-stubcheck, a README in each): the renderer, the terminal
+# (and its iOS 27.1 code), the app's Model/Shell/hatches/Agent tab, the
+# widget extension. A pass means "consistent with the stubs", not "compiles
+# for iOS" — only the Apple CI says that. ci.yml's native job runs it.
+swift-stubcheck:
+	@command -v swift >/dev/null || { echo 'swift-stubcheck: no swift on PATH (native/AGENTS.md §3) — skipped'; exit 0; }; \
+	rc=0; for c in swiftui-stubcheck term-stubcheck term-stubcheck:--sdk-27-1 app-stubcheck widget-stubcheck; do \
+	  t=$${c%%:*}; a=; case $$c in *:*) a=$${c#*:};; esac; log="$${TMPDIR:-/tmp}/xbin-$$t$$a.log"; echo ">> $$t $$a"; \
+	  native/tools/$$t/run.sh $$a >"$$log" 2>&1 || { tail -40 "$$log"; echo "$$t $$a: FAILED (full log: $$log)"; rc=1; }; done; exit $$rc
 
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:

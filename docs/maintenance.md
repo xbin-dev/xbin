@@ -19,7 +19,8 @@ make hooks              # once per clone: the sub-second subset runs pre-commit
 
 CI (`.github/workflows/ci.yml`) runs exactly `make check` then
 `make integration`, and in a second job (`native`) the native client's
-Linux half: `make swift-test` under Swift 6.4, `make native-check` and the
+Linux half: `make swift-test` and `make swift-stubcheck` (the app's
+SwiftUI/UIKit code against SDK stubs) under Swift 6.4, `make native-check` and the
 iOS CI's own check (`native/ios/scripts/ci-local-check.sh`); a release
 (`make release TAG=vX.Y.Z`) runs `make check` and the online pin checks
 before building. Builder-visible behaviour also

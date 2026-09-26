@@ -1,27 +1,53 @@
 #!/bin/sh
-# native/tools/app-stubcheck/run.sh — type-check the app's Model and Shell
-# (native/ios/App/Model, App/Shell) on Linux against stubs of the SDK: the
-# SwiftUI stubs of native/tools/swiftui-stubcheck plus this tool's
-# (Stubs/: a fuller UIKit, WebKit, SafariServices, CoreImage, the SwiftUI the
-# shell adds, and the app types those folders use from Tiles/, Terminal/,
-# Agent/, Push/). Swift 6 mode, the real XbinCore/XbinTerm/XbinAgent and
-# XbinRendererModel. A pass means "consistent with these stubs" (README.md).
+# native/tools/app-stubcheck/run.sh — type-check the app files that only
+# Xcode can build (SwiftUI, UIKit, WebKit, PhotosUI, SwiftTerm's view) on
+# Linux, against stubs of the SDK, in Swift 6 mode (README.md):
+#
+#   - every App/Model and App/Shell file (the shell: windows, the events
+#     socket, the kill switch, Handoff, haptics, settings) but the three
+#     that need Apple-only frameworks (AppTransport, DeviceKeys,
+#     AddWorkspaceView);
+#   - FILES below: a native tile's hatches (terminal, canvas, attach) and
+#     the Agent tab.
+#
+# The stubs are layered: swiftui-stubcheck's (the renderer's SwiftUI and
+# UIKit), term-stubcheck's (the terminal's UIKit and SwiftUI, SwiftTerm's
+# API), then Stubs/ here (the SwiftUI and UIKit the app adds, WebKit,
+# SafariServices, CoreImage, PhotosUI, UniformTypeIdentifiers) and
+# Stubs/App/AppStubs.swift (stand-ins for the app types of the files not
+# compiled here). The real XbinCore, XbinTerm and XbinAgent and the
+# renderer's views (as swiftui-stubcheck prepares them) are linked, so the
+# app's files meet the packages as they are.
 #
 #   run.sh [--sendable-bindings] [build-dir]
+#
+# --sendable-bindings: Binding(get:set:)'s closures @Sendable (the strictest
+# reading of the SDK).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
 strict=0
 if [ "${1:-}" = "--sendable-bindings" ]; then strict=1; shift; fi
 out=${1:-${TMPDIR:-/tmp}/xbin-app-stubcheck}
-base=$repo/native/tools/swiftui-stubcheck/Stubs
 app=$repo/native/ios/App
+term=$repo/native/tools/term-stubcheck/Stubs
+FILES="Tiles/TileAttach.swift Tiles/TileTerminal.swift Tiles/TileCanvas.swift Tiles/TileHatches.swift
+Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
 
+# The renderer's stubs and checkable sources.
+"$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"
 mkdir -p "$out/Sources"
-rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/WebKit" "$out/Sources/SafariServices" \
-  "$out/Sources/CoreImage" "$out/Sources/XbinRendererModel" "$out/Sources/AppCheck"
-cp -R "$base/SwiftUI" "$out/Sources/"
-cp "$here/Stubs/SwiftUI/AppShell.swift" "$out/Sources/SwiftUI/"
+rm -rf "$out/Sources/"*
+for m in UIKit SwiftUI Charts QuickLook XbinRendererModel XbinRendererCheck; do cp -R "$out/renderer/Sources/$m" "$out/Sources/"; done
+# …the terminal's…
+cp "$term/UIKitTerm.swift" "$out/Sources/UIKit/"
+cp "$term/SwiftUITerm.swift" "$out/Sources/SwiftUI/"
+mkdir -p "$out/Sources/SwiftTerm"
+cp "$term/SwiftTerm.swift" "$out/Sources/SwiftTerm/"
+# …and the app's.
+cp "$here/Stubs/UIKit/"*.swift "$out/Sources/UIKit/"
+cp "$here/Stubs/SwiftUI/"*.swift "$out/Sources/SwiftUI/"
+for m in WebKit SafariServices CoreImage PhotosUI UniformTypeIdentifiers; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
 # The SDK runs a view's refreshable action on the main actor.
 sed -i.orig 's/public func refreshable(action:/public func refreshable(@_inheritActorContext action:/' "$out/Sources/SwiftUI/Modifiers.swift"
 if [ "$strict" = 1 ]; then
@@ -29,23 +55,26 @@ if [ "$strict" = 1 ]; then
     "$out/Sources/SwiftUI/State.swift"
 fi
 rm -f "$out/Sources/SwiftUI/"*.orig
-for m in UIKit WebKit SafariServices CoreImage; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
-cp -R "$repo/native/ios/Packages/XbinRenderer/Sources/XbinRendererModel" "$out/Sources/"
 mkdir -p "$out/Sources/AppCheck"
 cp "$here/Stubs/App/AppStubs.swift" "$out/Sources/AppCheck/"
 
 # The app's files, each with `import UIKit` first (the stub re-exports
 # FoundationNetworking, which URLSession needs on Linux); Objective-C
-# selectors become stub values (no ObjC runtime here). Stubbed instead:
-# AppTransport and DeviceKeys (URLSession delegates, the Secure Enclave) and
-# AddWorkspaceView (VisionKit, AuthenticationServices).
-for f in "$app"/Model/*.swift "$app"/Shell/*.swift; do
-  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|AddWorkspaceView.swift) continue ;; esac
+# selectors become stub values (no ObjC runtime here); the renderer module
+# is XbinRendererCheck here and does not re-export its model.
+copy() {
   { echo "import UIKit"
     sed -E -e '/^import CoreImage\.CIFilterBuiltins$/d' \
-      -e 's/#selector\(([^()]*(\([^()]*\))?)\)/Selector("\1")/g' -e 's/@objc //' "$f"
-  } >"$out/Sources/AppCheck/$(basename "$f")"
+      -e 's/#selector\(([^()]*(\([^()]*\))?)\)/Selector("\1")/g' -e 's/@objc //' \
+      -e 's/^import XbinRenderer$/import XbinRendererCheck\
+import XbinRendererModel/' "$1"
+  } >"$out/Sources/AppCheck/$(basename "$1")"
+}
+for f in "$app"/Model/*.swift "$app"/Shell/*.swift; do
+  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|AddWorkspaceView.swift) continue ;; esac
+  copy "$f"
 done
+for f in $FILES; do copy "$app/$f"; done
 
 cat >"$out/Package.swift" <<PKG
 // swift-tools-version: 6.2
@@ -61,13 +90,22 @@ let package = Package(
     ],
     targets: [
         .target(name: "UIKit"),
-        .target(name: "SwiftUI", dependencies: ["UIKit"]),
+        .target(name: "UniformTypeIdentifiers"),
+        .target(name: "SwiftUI", dependencies: ["UIKit", "UniformTypeIdentifiers"]),
+        .target(name: "Charts", dependencies: ["SwiftUI"]),
+        .target(name: "QuickLook", dependencies: ["SwiftUI"]),
         .target(name: "WebKit", dependencies: ["UIKit"]),
         .target(name: "SafariServices", dependencies: ["UIKit"]),
         .target(name: "CoreImage", dependencies: ["UIKit"]),
+        .target(name: "PhotosUI", dependencies: ["SwiftUI", "UniformTypeIdentifiers"]),
+        .target(name: "SwiftTerm", dependencies: ["UIKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "XbinRendererModel", dependencies: [.product(name: "XbinCore", package: "XbinCore")]),
+        .target(name: "XbinRendererCheck", dependencies: [
+            "SwiftUI", "UIKit", "Charts", "QuickLook", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
+        ]),
         .target(name: "AppCheck", dependencies: [
-            "UIKit", "SwiftUI", "WebKit", "SafariServices", "CoreImage", "XbinRendererModel",
+            "UIKit", "SwiftUI", "WebKit", "SafariServices", "CoreImage", "PhotosUI", "UniformTypeIdentifiers", "SwiftTerm",
+            "XbinRendererModel", "XbinRendererCheck",
             .product(name: "XbinCore", package: "XbinCore"),
             .product(name: "XbinTerm", package: "XbinTerm"),
             .product(name: "XbinAgent", package: "XbinAgent"),
@@ -76,4 +114,4 @@ let package = Package(
     swiftLanguageModes: [.v6]
 )
 PKG
-cd "$out" && swift build
+cd "$out" && swift build --target AppCheck

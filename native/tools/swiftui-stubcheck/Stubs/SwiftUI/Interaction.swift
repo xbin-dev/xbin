@@ -113,10 +113,12 @@ public struct UIViewRepresentableContext<Representable: UIViewRepresentable> {
     func updateUIView(_ uiView: UIViewType, context: Context)
     func makeCoordinator() -> Coordinator
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIViewType, context: Context) -> CGSize?
+    static func dismantleUIView(_ uiView: UIViewType, coordinator: Coordinator)
 }
 extension UIViewRepresentable {
     public var body: Never { fatalError() }
     public func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIViewType, context: Context) -> CGSize? { nil }
+    public static func dismantleUIView(_ uiView: UIViewType, coordinator: Coordinator) {}
 }
 extension UIViewRepresentable where Coordinator == Void {
     public func makeCoordinator() {}

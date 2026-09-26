@@ -55,9 +55,11 @@ native/
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
                             uitest-stubcheck/ (the UI tests vs XCUITest stubs),
+                            app-stubcheck/ (Model, Shell, hatches, Agent against stubs),
+                            widget-stubcheck/ (the widget extension and Live Activities),
                             app-check/ (the app's UIKit-free sources on Linux),
-                            term-live/, agent-parity.mjs, bridge-check.mjs, runtime-check.mjs,
-                            markdown-parity.mjs
+                            term-live/, hatches-live/, events-live.mjs, agent-parity.mjs,
+                            bridge-check.mjs, runtime-check.mjs, markdown-parity.mjs
 web/xb-native.js            the runtime's template layer, served at /vendor/ (frozen once shipped)
 web/xb/                     the runtime's modules (rt-*.js, vocab.js) and the Lit reference renderer
                             (render*.js, preview-host.js — previews and tests only)
@@ -111,6 +113,7 @@ the same change, additive APIs, D78 confinement).
 export PATH="$HOME/.local/share/swiftly/bin:$PATH"   # swiftly-installed Swift 6.4
 make swift-test                                      # all four packages (skips without swift)
 cd native/ios/Packages/XbinCore && swift test        # or one of them
+make swift-stubcheck                                 # the SwiftUI/UIKit code against SDK stubs (every *-stubcheck)
 ```
 
 Everything that doesn't draw lives in four SwiftPM packages that build and
@@ -189,9 +192,11 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
 ```
 
 The rest of the app's Model and Shell (SwiftUI, windows, the events socket's
-owners) type-checks against stubs of the SDK — `native/tools/app-stubcheck/run.sh`
-(and `--sendable-bindings`), the app's counterpart of swiftui-stubcheck: run it
-after touching `App/Model` or `App/Shell`.
+owners), a native tile's hatches and the Agent tab type-check together
+against stubs of the SDK — `native/tools/app-stubcheck/run.sh` (and
+`--sendable-bindings`), the app's counterpart of swiftui-stubcheck: run it
+after touching `App/Model`, `App/Shell`, `App/Agent` or a hatch in
+`App/Tiles` (its README lists what it covers and how the stubs layer).
 
 `app-live` covers password sign-in, in-app enrollment, device login, one
 re-sign for concurrent requests on a dead session, the app's `/ws/events`
@@ -331,8 +336,9 @@ XCODEGEN=/path/to/xcodegen native/ios/scripts/ci-local-check.sh   # + project.ym
 `make shellcheck` (part of `make check`) covers `native/ios/scripts/` too, and
 ci.yml's **`native` job** (Linux, on master and pull requests) runs Swift 6.4
 through swiftly (`ci-linux-swift.sh`: the pinned swiftly, SHA-256 checked;
-the toolchain cached on the script's pins) with `make swift-test`, then `make
-native-check` and `CI_LOCAL_BASH32=1 ci-local-check.sh` with actionlint.
+the toolchain cached on the script's pins) with `make swift-test` and `make
+swift-stubcheck`, then `make native-check` and `CI_LOCAL_BASH32=1
+ci-local-check.sh` with actionlint.
 
 Then:
 

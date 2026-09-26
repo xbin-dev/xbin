@@ -84,7 +84,8 @@ public struct UILayoutPriority: Sendable { public static let defaultLow = UILayo
     public var translatesAutoresizingMaskIntoConstraints = true
     public var tag = 0
     public var superview: UIView? { nil }
-    public var window: UIView? { nil }
+    public var window: UIWindow? { nil }
+    open func didMoveToWindow() {}
     public var accessibilityLabel: String?
     public var accessibilityHint: String?
     public var isAccessibilityElement = false
@@ -98,6 +99,7 @@ public struct UILayoutPriority: Sendable { public static let defaultLow = UILayo
     public func convert(_ point: CGPoint, from view: UIView?) -> CGPoint { point }
     public func convert(_ point: CGPoint, to view: UIView?) -> CGPoint { point }
     public func addGestureRecognizer(_ g: UIGestureRecognizer) {}
+    public func removeGestureRecognizer(_ g: UIGestureRecognizer) {}
     public var gestureRecognizers: [UIGestureRecognizer]?
     public enum ContentMode: Int, Sendable { case scaleToFill, redraw }
     open var intrinsicContentSize: CGSize { .zero }
@@ -121,9 +123,9 @@ public struct UILayoutPriority: Sendable { public static let defaultLow = UILayo
     public var leadingAnchor: NSLayoutXAxisAnchor { NSLayoutXAxisAnchor() }
     public var trailingAnchor: NSLayoutXAxisAnchor { NSLayoutXAxisAnchor() }
 }
-@MainActor open class UIGestureRecognizer {
+@MainActor open class UIGestureRecognizer: NSObject {
     public enum State: Int, Sendable { case possible, began, changed, ended, cancelled, failed }
-    public init(target: Any?, action: Selector?) {}
+    public init(target: Any?, action: Selector?) { super.init() }
     public var state: State { .possible }
     public var view: UIView? { nil }
     public weak var delegate: (any UIGestureRecognizerDelegate)?
@@ -132,7 +134,7 @@ public struct UILayoutPriority: Sendable { public static let defaultLow = UILayo
     public func location(in view: UIView?) -> CGPoint { .zero }
     public var numberOfTouches: Int { 0 }
 }
-@MainActor public protocol UIGestureRecognizerDelegate: AnyObject {}
+@MainActor public protocol UIGestureRecognizerDelegate: NSObjectProtocol {}
 public struct Selector: Sendable { public init(_ s: String) {} }
 public struct UIKeyModifierFlags: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }
     public static let shift = UIKeyModifierFlags(rawValue: 1), control = UIKeyModifierFlags(rawValue: 2), alternate = UIKeyModifierFlags(rawValue: 4), command = UIKeyModifierFlags(rawValue: 8) }
@@ -248,8 +250,8 @@ public final class CALayer { public func render(in ctx: CGContext) {} }
     public var rootViewController: UIViewController?
 }
 public struct UITraitOverrides { public var preferredContentSizeCategory = UIContentSizeCategory() }
-@MainActor open class UIViewController {
-    public init() {}
+@MainActor open class UIViewController: UIResponder {
+    public override init() { super.init() }
     public var additionalSafeAreaInsets = UIEdgeInsets()
     public var view: UIView! = UIView()
     public var overrideUserInterfaceStyle: UIUserInterfaceStyle = .unspecified
