@@ -296,4 +296,78 @@ if (embedded) {
   document.addEventListener('pointercancel', cancel, true);
 }
 
+// --- strict tile asset gating, tokens mode (docs/elements.md §Asset URLs) ---
+// The injection added <base href="/c/~<asset-token>/<tile>/<dir>/"> so this
+// document's RELATIVE URLs carry a credential. Three side effects of a
+// <base> are undone here, and failed loads are explained:
+//   - a fragment-only link (href="#x") would resolve against the base and
+//     navigate away — it scrolls, as it would without a <base>;
+//   - a link resolving into the asset path (href="page2.html", "?q=1") would
+//     ask the asset plane for a document, which it never serves — it
+//     navigates to the same /c/ URL with this tile's frame token instead;
+//   - history.pushState/replaceState resolve a relative URL against the
+//     <base> — they resolve against the document URL, so the token never
+//     enters location;
+//   - a subresource that fails to load under /c/ gets a console line saying
+//     why and how to fix it (relative URLs; `bx fix assets <tile>`).
+const assetBase = meta('xbin-tile-assets') === 'tokens' ? document.querySelector('base[data-xbin-assets]') : null;
+if (assetBase) {
+  const tokPrefix = new URL(assetBase.href).pathname.match(/^\/c\/~[^/]+\//)?.[0] ?? '';
+  const underToken = (u) => u.origin === location.origin && !!tokPrefix && u.pathname.startsWith(tokPrefix);
+  const clean = (u) => `/c/${u.pathname.slice(tokPrefix.length)}${u.search}${u.hash}`;
+  for (const m of ['pushState', 'replaceState']) {
+    const orig = History.prototype[m];
+    history[m] = function (state, title, url) {
+      if (url !== undefined && url !== null) url = new URL(String(url), location.href).href;
+      return orig.call(this, state, title, url);
+    };
+  }
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.composedPath?.().find((n) => n instanceof Element && n.matches('a[href], area[href]'));
+    if (!a || a.hasAttribute('download')) return;
+    const raw = a.getAttribute('href').trim();
+    const target = (a.getAttribute('target') || '').toLowerCase();
+    if (raw.startsWith('#')) {
+      if (target && target !== '_self') return;
+      e.preventDefault();
+      if (location.hash === raw && raw.length > 1) document.getElementById(decodeURIComponent(raw.slice(1)))?.scrollIntoView();
+      else location.hash = raw;
+      return;
+    }
+    let u; try { u = new URL(a.href); } catch { return; }
+    if (!underToken(u)) return;
+    e.preventDefault();
+    const dest = new URL(clean(u), location.href);
+    if (frameToken) dest.searchParams.set('frame', frameToken);
+    if (target && target !== '_self') window.open(dest.href, target, /\bnoopener\b/.test(a.rel) ? 'noopener' : '');
+    else location.assign(dest.href);
+  });
+  const warned = new Set();
+  const explain = (url, what) => {
+    let u; try { u = new URL(url, location.href); } catch { return; }
+    if (u.origin !== location.origin || !u.pathname.startsWith('/c/') || warned.has(u.href)) return;
+    warned.add(u.href);
+    const why = underToken(u)
+      ? 'the asset plane refused it (missing, a document, or a tile this user cannot read)'
+      : 'an absolute /c/ URL carries no credential under strict tile asset gating — only relative URLs do';
+    console.warn(`[xbin] ${self}: ${what} ${underToken(u) ? clean(u) : u.pathname} failed to load — ${why}. `
+      + `Use a relative URL (\`bx fix assets ${self}\` rewrites them; /docs/elements.md#asset-urls).`);
+  };
+  addEventListener('error', (e) => {
+    const el = e.target;
+    if (el instanceof Element) explain(el.currentSrc || el.src || el.href?.baseVal || el.href || el.data || '', `<${el.localName}>`);
+  }, true);
+  // CSS url()s and @imports fire no error event: flag the ones that went out
+  // absolute (they had no credential), from resource timing.
+  try {
+    new PerformanceObserver((list) => {
+      for (const r of list.getEntries()) {
+        let u; try { u = new URL(r.name); } catch { continue; }
+        if (['css', 'link', 'img', 'script', 'other'].includes(r.initiatorType) && !underToken(u)) explain(r.name, r.initiatorType);
+      }
+    }).observe({ type: 'resource', buffered: true });
+  } catch { /* no resource timing */ }
+}
+
 window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify });
