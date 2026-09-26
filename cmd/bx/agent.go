@@ -33,6 +33,8 @@ func cmdExtra(cmd string, args []string) error {
 		return cmdAgent(args)
 	case "__agent-host":
 		return cmdAgentHost()
+	case "__vm-host":
+		return cmdVMHost(args)
 	}
 	usage()
 	return nil

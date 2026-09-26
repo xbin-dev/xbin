@@ -93,36 +93,15 @@ func runInit(specPath string) error {
 
 	// Overlay: base rootfs + granted deps (lower, ro) with a per-component
 	// writable upper. If the caller gave no Upper, use dirs on our private tmpfs.
-	upper, work := s.Upper, s.Work
-	if upper == "" {
-		upper = filepath.Join(base, "up")
-		work = filepath.Join(base, "work")
-		if err := os.Mkdir(upper, 0o755); err != nil {
-			return must(err, "mkdir upper")
+	// A VM sandbox has no rootfs of its own: a bare tmpfs (init_vm_linux.go).
+	if s.VM != nil {
+		if err := vmRoot(newroot); err != nil {
+			return err
 		}
-		if err := os.Mkdir(work, 0o755); err != nil {
-			return must(err, "mkdir work")
-		}
+	} else if err := mountRoot(&s, base, newroot); err != nil {
+		return err
 	}
-	if len(s.Lower) == 0 {
-		return fmt.Errorf("spec has no rootfs lowerdir")
-	}
-	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
-	dbg(s.Debug, "overlay: %s (fuse=%q)", opt, s.FuseOverlay)
-	if s.FuseOverlay != "" {
-		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
-		// overlayfs forbids), so directory renames work → `apt install` etc. It
-		// backgrounds itself once mounted; Run returns when the mount is ready.
-		// CombinedOutput so its harmless mount-flag warnings (e.g. "lazytime")
-		// don't print into every terminal; surface output only on failure.
-		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
-		if out, err := fo.CombinedOutput(); err != nil {
-			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
-		}
-	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
-		return must(err, "mount overlay ("+opt+")")
-	}
-	dbg(s.Debug, "overlay mounted at %s", newroot)
+	dbg(s.Debug, "root mounted at %s (vm=%v)", newroot, s.VM != nil)
 
 	// Fresh /proc (needs the new pid ns) and a private /tmp, /dev/shm — mounted
 	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
@@ -178,6 +157,11 @@ func runInit(specPath string) error {
 		}
 		_ = bindNode(newroot, "/dev/fuse")
 	}
+	if s.VM != nil {
+		if err := vmDevices(newroot, &s); err != nil {
+			return err
+		}
+	}
 	dbg(s.Debug, "proc/tmp/dev mounted")
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
@@ -193,7 +177,12 @@ func runInit(specPath string) error {
 	// Egress relay: create the TUN in this netns and hand its fd to xbind,
 	// which runs the userspace stack + policy. Without this the netns stays
 	// empty = default-deny (plans/isolation.md §3).
-	if s.Net == "relay" || s.Net == "splice" {
+	if s.VM != nil && s.Net == "relay" {
+		if err := setupVMEgress(newroot, &s); err != nil {
+			return must(err, "vm egress")
+		}
+		dbg(s.Debug, "egress TUN handed to parent, routed to the guest TAP")
+	} else if s.Net == "relay" || s.Net == "splice" {
 		if err := setupEgress(newroot, &s); err != nil {
 			return must(err, "egress")
 		}
@@ -205,6 +194,12 @@ func runInit(specPath string) error {
 	if s.HostNet {
 		copyHostFile(newroot, "/etc/resolv.conf")
 		copyHostFile(newroot, "/etc/hosts")
+	}
+
+	if s.VM != nil {
+		if err := writeVMSpec(newroot, &s); err != nil {
+			return must(err, "write vm spec")
+		}
 	}
 
 	// pivot_root into the assembled tree.
@@ -244,6 +239,15 @@ func runInit(specPath string) error {
 	// yet, though it wouldn't block those syscalls anyway).
 	if s.ReadGuard != nil {
 		_ = installReadGuard(s.ReadGuard) // best effort; the mount guard still applies
+	}
+	if s.VM != nil {
+		// A VM sandbox's own profile, whatever the terminal/backend flags say:
+		// the workload's root lives in the guest, not here.
+		if err := vmLockdown(); err != nil {
+			return err
+		}
+		s.Restricted, s.Unprivileged, s.MountGuard = false, false, false
+		dbg(s.Debug, "vm lockdown applied")
 	}
 	// Restricted terminals (untrusted, non-admin users): remove the shell's
 	// ability to regain privilege or escape its mounts, while keeping apt usable.
@@ -332,6 +336,41 @@ func runInit(specPath string) error {
 		return must(err, "exec "+s.Entry)
 	}
 	return nil // unreachable
+}
+
+// mountRoot mounts the overlay root: base rootfs + granted deps (lower, ro)
+// with a per-component writable upper, or dirs on the private tmpfs.
+func mountRoot(s *Spec, base, newroot string) error {
+	upper, work := s.Upper, s.Work
+	if upper == "" {
+		upper = filepath.Join(base, "up")
+		work = filepath.Join(base, "work")
+		if err := os.Mkdir(upper, 0o755); err != nil {
+			return must(err, "mkdir upper")
+		}
+		if err := os.Mkdir(work, 0o755); err != nil {
+			return must(err, "mkdir work")
+		}
+	}
+	if len(s.Lower) == 0 {
+		return fmt.Errorf("spec has no rootfs lowerdir")
+	}
+	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
+	dbg(s.Debug, "overlay: %s (fuse=%q)", opt, s.FuseOverlay)
+	if s.FuseOverlay != "" {
+		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
+		// overlayfs forbids), so directory renames work → `apt install` etc. It
+		// backgrounds itself once mounted; Run returns when the mount is ready.
+		// CombinedOutput so its harmless mount-flag warnings (e.g. "lazytime")
+		// don't print into every terminal; surface output only on failure.
+		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
+		if out, err := fo.CombinedOutput(); err != nil {
+			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
+		}
+	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
+		return must(err, "mount overlay ("+opt+")")
+	}
+	return nil
 }
 
 // awaitMaps blocks until the parent writes our uid/gid maps and signals via the

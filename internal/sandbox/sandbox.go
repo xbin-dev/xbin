@@ -6,6 +6,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
 // ErrUnsupported is returned by Launch on non-Linux platforms.
@@ -232,6 +234,15 @@ type Spec struct {
 	// `unshare -Ur` into a fresh userns to regain CAP_SYS_ADMIN and mount over its
 	// masks — yet `apt install` still works. (plans/DECISIONS.md D18; isolation.md.)
 	Restricted bool `json:"restricted,omitempty"`
+
+	// VM, when set, makes this a VM sandbox (plans/vm-sandbox.md): the
+	// namespace sandbox becomes the rootless jail around a Firecracker microVM.
+	// The root is a bare tmpfs (no Lower), /dev/kvm is bound in, the egress
+	// TUN is routed to a TAP the guest NIC sits on, Entry is the shim
+	// (`bx __vm-host`), which reads this spec from VMSpecPath, and the
+	// lockdown is the VM profile (vmLockdown) whatever the other flags say.
+	// internal/vm builds it from an ordinary Spec (vm.Apply).
+	VM *proto.HostSpec `json:"vm,omitempty"`
 
 	// The following are filled by Launch (not the caller) to carry runtime wiring
 	// to the re-exec'd init:

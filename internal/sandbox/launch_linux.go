@@ -56,6 +56,9 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	// before we serialize it.
 	ids := detectIDRanges(s.HostUID, s.HostGID)
 	s.FuseOverlay = fuseOverlayfsPath()
+	if s.VM != nil {
+		s.FuseOverlay = "" // a VM sandbox's root is a bare tmpfs, no overlay
+	}
 	s.Debug = s.Debug || os.Getenv("XBIN_SANDBOX_DEBUG") != ""
 
 	// ExtraFiles land at fd 3, 4, … in the init, in append order.
