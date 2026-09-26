@@ -222,6 +222,20 @@ import Testing
     }
 }
 
+/// The viewport script's behaviour is checked in a browser engine
+/// (native/tools/viewport.test.mjs, which lifts it from the Swift source);
+/// here: that it can be lifted verbatim and agrees with its constants.
+@Suite struct ClientViewportTests {
+    @Test func scriptIsAPlainLiteral() {
+        let js = TileViewport.userScript
+        #expect(!js.contains("\\"), "no escapes: the node test reads the literal as written")
+        #expect(js.contains("MAX = \(TileViewport.maxWidth), STEPS = \(TileViewport.maxSteps), WATCH = \(TileViewport.watchMillis)"))
+        #expect(js.contains("'width=device-width, initial-scale=1'"))
+        #expect(!js.contains("user-scalable") && !js.contains("maximum-scale"), "pinch zoom stays the page's")
+        #expect(js.contains("if (theirs() || !d.documentElement) return;"), "a page with its own viewport is never touched")
+    }
+}
+
 @Suite struct ClientNativeTileTests {
     @Test func lifecycle() {
         let t0 = Date(timeIntervalSince1970: 100)

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>wide</title>
+  <!-- A desktop-first tile for the UI tests (XbinE2ETests.test06) and
+       native/tools/viewport.test.mjs: no viewport meta, and a strip laid out
+       for a 1200 px card. The app lays it out 1200 px wide and fits that to
+       the screen (plans/native.md §6.3). #report says what the page sees. -->
+  <style>
+    body { margin: 0; font: 16px -apple-system, system-ui, sans-serif; background: #fff; color: #111; }
+    .strip { box-sizing: border-box; width: 1200px; display: flex; justify-content: space-between;
+             padding: 12px 8px; background: #dde6fb; }
+    p { margin: 12px 8px; }
+  </style>
+</head>
+<body>
+  <div class="strip"><span>wide-left-edge</span><span>wide-right-edge</span></div>
+  <p>A desktop-first page: no viewport meta, and this strip is 1200 px wide.</p>
+  <p id="report">layout ?</p>
+  <script>
+    const report = document.getElementById('report');
+    const tick = () => {
+      const metas = document.querySelectorAll('meta[name="viewport" i]').length;
+      report.textContent = 'layout ' + document.documentElement.clientWidth + ' metas ' + metas;
+    };
+    tick();
+    setInterval(tick, 250);
+  </script>
+</body>
+</html>

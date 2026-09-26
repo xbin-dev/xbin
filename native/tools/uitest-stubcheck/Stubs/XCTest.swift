@@ -94,6 +94,8 @@ public protocol XCUIElementTypeQueryProvider {
     var alerts: XCUIElementQuery { get }
     var cells: XCUIElementQuery { get }
     var otherElements: XCUIElementQuery { get }
+    var windows: XCUIElementQuery { get }
+    var keyboards: XCUIElementQuery { get }
     func descendants(matching type: XCUIElement.ElementType) -> XCUIElementQuery
     func children(matching type: XCUIElement.ElementType) -> XCUIElementQuery
 }
@@ -110,6 +112,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var value: Any? { nil }
     open var placeholderValue: String? { nil }
     open var elementType: ElementType { .any }
+    open var frame: CGRect { .zero }
     open func waitForExistence(timeout: TimeInterval) -> Bool { false }
     open func tap() {}
     open func doubleTap() {}
@@ -117,6 +120,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open func typeText(_ text: String) {}
     open func swipeUp() {}
     open func swipeDown() {}
+    open func pinch(withScale scale: CGFloat, velocity: CGFloat) {}
     open func coordinate(withNormalizedOffset normalizedOffset: CGVector) -> XCUICoordinate { XCUICoordinate() }
     open func screenshot() -> XCUIScreenshot { XCUIScreenshot() }
     open var buttons: XCUIElementQuery { XCUIElementQuery() }
@@ -130,6 +134,8 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var alerts: XCUIElementQuery { XCUIElementQuery() }
     open var cells: XCUIElementQuery { XCUIElementQuery() }
     open var otherElements: XCUIElementQuery { XCUIElementQuery() }
+    open var windows: XCUIElementQuery { XCUIElementQuery() }
+    open var keyboards: XCUIElementQuery { XCUIElementQuery() }
     open func descendants(matching type: ElementType) -> XCUIElementQuery { XCUIElementQuery() }
     open func children(matching type: ElementType) -> XCUIElementQuery { XCUIElementQuery() }
 }
@@ -155,6 +161,8 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open var alerts: XCUIElementQuery { self }
     open var cells: XCUIElementQuery { self }
     open var otherElements: XCUIElementQuery { self }
+    open var windows: XCUIElementQuery { self }
+    open var keyboards: XCUIElementQuery { self }
     open func descendants(matching type: XCUIElement.ElementType) -> XCUIElementQuery { self }
     open func children(matching type: XCUIElement.ElementType) -> XCUIElementQuery { self }
 }

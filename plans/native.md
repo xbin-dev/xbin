@@ -1763,3 +1763,18 @@ The remaining roadmap, built as nine work packages and integrated on
   harness in all asset modes); Swift packages under `swift test` on Linux;
   the app's SwiftUI/UIKit code against stubs only; not yet compiled by
   Xcode, not run on a simulator or device.
+
+### First simulator runs (2026-09-26)
+
+The UI tests on the Mac mini's simulator (iPhone 18 Pro, iOS 27.0) showed
+what the text above leaves open:
+
+- **The viewport (§6.3).** Tiles are made for a card in the shell's frame,
+  where `<meta name="viewport">` means nothing, so almost none sets one;
+  top-level in a WKWebView such a page was laid out 980 px wide and shrunk
+  to about 0.4. The app now adds the viewport a page lacks from its own
+  user script (XbinCore `TileViewport`, in its own content world; no HTML
+  is rewritten, the scheme handler still passes responses through): the
+  device's width, growing to the content's width up to 1280 px, fitted to
+  the screen, pinch zoom kept. A page with its own viewport is never
+  touched. Builders: docs/native.md §Fallback.

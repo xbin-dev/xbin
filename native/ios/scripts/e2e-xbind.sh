@@ -7,7 +7,8 @@
 # hands the URL and the owner token to the tests.
 #
 #   e2e-xbind.sh start [--port P]   build bin/{xbind,bx,fakeacp}, init a fresh
-#                                   workspace, start xbind on 127.0.0.1:P,
+#                                   workspace (+ testdata/e2e-tiles/* as
+#                                   apps/*), start xbind on 127.0.0.1:P,
 #                                   delete the login --dev seeds (admin/admin:
 #                                   only the random owner token opens it) and
 #                                   wait until the counter's backend answers
@@ -141,6 +142,9 @@ start)
   "$repo/bin/xbind" init "$ws" >/dev/null
   cp -r "$repo/examples/counter-go" "$ws/apps/counter"
   [ -f "$ws/apps/counter/native.js" ] || { say "examples/counter-go has no native.js"; exit 1; }
+  # The UI tests' own pages (XbinE2ETests.test06): apps/wide, desktop-first
+  # and wider than a phone, and apps/phone, with a mobile viewport.
+  for t in "$repo"/native/ios/scripts/testdata/e2e-tiles/*/; do cp -r "$t" "$ws/apps/$(basename "$t")"; done
   # XBIN_AGENT_FAKE registers the scripted "fake" agent provider (D74),
   # XBIN_BIN is where the daemon finds the bx it binds in as the agent
   # host, XBIN_SDK_PATH builds the counter's Go backend against this sdk/.
@@ -195,6 +199,8 @@ smoke)
   check curl -fsS -o /dev/null -H "Authorization: Bearer $(token)" "$url/c/apps/counter/?native=1"
   what="apps/welcome, the web tile, is served"
   check curl -fsS -o /dev/null -H "Authorization: Bearer $(token)" "$url/c/apps/welcome/"
+  what="apps/wide and apps/phone, the viewport pages, are served"
+  check sh -c 'curl -fsS -o /dev/null -H "Authorization: Bearer $1" "$2/c/apps/wide/" && curl -fsS -o /dev/null -H "Authorization: Bearer $1" "$2/c/apps/phone/"' _ "$(token)" "$url"
   n=$(api GET /api/apps/counter/count | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
   api POST /api/apps/counter/count >/dev/null
   m=$(api GET /api/apps/counter/count | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')

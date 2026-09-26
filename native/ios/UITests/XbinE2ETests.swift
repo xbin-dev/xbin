@@ -27,7 +27,10 @@ final class XbinE2ETests: XCTestCase {
         e.shot("01-workspace")
     }
 
-    /// A web tile: apps/welcome's page draws in the tile's web view.
+    /// A web tile: apps/welcome's page draws in the tile's web view — at
+    /// the device's width, readable: it sets no viewport (a card's page), so
+    /// WebKit alone would lay it out 980 px wide and shrink its 13 px
+    /// heading to about 5 pt (plans/native.md §6.3, XbinCore's TileViewport).
     @MainActor
     func test02WebTile() throws {
         let e = try E2E(self)
@@ -36,8 +39,13 @@ final class XbinE2ETests: XCTestCase {
         e.openTile("apps/welcome")
         let web = e.app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 30), "the web tile's view")
-        XCTAssertTrue(web.staticTexts["the mental model"].waitForExistence(timeout: 30), "apps/welcome's page")
+        let heading = web.staticTexts["the mental model"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 30), "apps/welcome's page")
+        let width = e.app.windows.firstMatch.frame.width
+        let readable = e.until(10) { heading.frame.height >= 12 }
         e.shot("02-web-tile")
+        XCTAssertTrue(readable, "the 13 px heading at about 1:1 (\(heading.frame) in a \(width) pt window)")
+        XCTAssertTrue(heading.frame.minX >= 0 && heading.frame.maxX <= width, "on screen: \(heading.frame)")
     }
 
     /// The native counter: its native.js draws natively, +1 reaches the
@@ -116,5 +124,47 @@ final class XbinE2ETests: XCTestCase {
         let agents = try await e.server.sessions(cwd: "apps/welcome").filter { $0.kind == "agent" }
         XCTAssertTrue(agents.contains { $0.provider == "fake" }, "a fake-agent session on apps/welcome")
         for s in agents { await e.server.end(s.id) }
+    }
+
+    /// Viewports (plans/native.md §6.3): a desktop-first page wider than the
+    /// screen (apps/wide, e2e-xbind.sh's fixture: no viewport meta, a
+    /// 1200 px strip) is laid out at its width and fitted to the screen,
+    /// with pinch zoom; a page with a mobile viewport of its own
+    /// (apps/phone) keeps it, untouched. Each page reports what it sees.
+    @MainActor
+    func test06WebViewports() throws {
+        let e = try E2E(self)
+        e.launch()
+        e.ensureWorkspace()
+        let width = e.app.windows.firstMatch.frame.width
+        e.openTile("apps/wide")
+        let web = e.app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 30), "the web tile's view")
+        let report = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "layout ")).firstMatch
+        XCTAssertTrue(report.waitForExistence(timeout: 30), "apps/wide's page")
+        let laidOut = e.until(10) { report.label == "layout 1200 metas 1" }
+        let left = web.staticTexts["wide-left-edge"], right = web.staticTexts["wide-right-edge"]
+        XCTAssertTrue(left.exists && right.exists, "the strip's two ends")
+        e.shot("06-wide-fit")
+        XCTAssertTrue(laidOut, "laid out at its own width: \(report.label)")
+        XCTAssertTrue(left.frame.minX >= -1 && right.frame.maxX <= width + 1,
+                      "both ends on screen (fit to width): \(left.frame) … \(right.frame) in \(width) pt")
+        let before = left.frame.height
+        // About the view's middle (a web text can't be pinched: no hit point),
+        // so the zoomed shot shows the page's empty middle; the strip's
+        // growth below is the check.
+        web.pinch(withScale: 3, velocity: 2)
+        let zoomed = e.until(5) { left.frame.height > before * 1.8 }
+        e.shot("06-wide-zoomed")
+        XCTAssertTrue(zoomed, "pinch zooms in: \(before) → \(left.frame.height) pt")
+
+        e.openTile("apps/phone")
+        let phone = e.app.webViews.firstMatch
+        let own = phone.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "viewport ")).firstMatch
+        XCTAssertTrue(own.waitForExistence(timeout: 30), "apps/phone's page")
+        let expected = "viewport 1 width=device-width, initial-scale=1 layout \(Int(width))"
+        let kept = e.until(10) { own.label == expected }
+        e.shot("06-phone")
+        XCTAssertTrue(kept, "its own viewport, alone and as written: \(own.label), want \(expected)")
     }
 }

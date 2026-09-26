@@ -90,7 +90,10 @@ final class WebTileController: NSObject {
     }
 
     /// A configuration for this workspace: its data store (§4), its scheme
-    /// handler (§6.1), and — for tile pages — the bridge script (§6.2).
+    /// handler (§6.1), and — for tile pages — the bridge script (§6.2) and
+    /// the viewport a desktop-first page lacks (§6.3, XbinCore's
+    /// TileViewport: the device's width, or the page's own width fitted to
+    /// the screen; a page with a viewport of its own is left alone).
     static func configuration(for ws: WorkspaceModel, bridge: Bool) -> WKWebViewConfiguration {
         let c = WKWebViewConfiguration()
         c.websiteDataStore = ws.dataStore
@@ -102,6 +105,8 @@ final class WebTileController: NSObject {
         if bridge {
             ucc.addUserScript(WKUserScript(source: TileBridge.userScript, injectionTime: .atDocumentStart,
                                            forMainFrameOnly: true, in: .page))
+            ucc.addUserScript(WKUserScript(source: TileViewport.userScript, injectionTime: .atDocumentStart,
+                                           forMainFrameOnly: true, in: .world(name: TileViewport.contentWorld)))
         }
         c.userContentController = ucc
         return c

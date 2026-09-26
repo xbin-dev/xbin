@@ -679,6 +679,18 @@ new without dropping older apps to the web page, branch on
 `xbin.native.supports(name, rev)`. Keep `index.html` working — it is what
 older apps, failures and every browser show — and check both.
 
+**The web page on a phone.** In the app a tile's page is the whole screen,
+not a card in a frame, so its viewport counts. A page with its own
+`<meta name="viewport">` gets exactly that. A page without one — most
+tiles: in the shell's frame it means nothing — is laid out at the
+device's width, like a card as wide as the phone; when its content is
+wider (a fixed-width table, a layout made for 1200 px, also content that
+arrives within 10 s of `load`), the layout grows to the content's width, up
+to 1280 px, fitted to the screen, and pinch zoom reads the detail. The app
+does it by appending a `<meta name="viewport">` to such a page from its own
+script, so the page sees one. To choose for yourself, set your own — for
+a page made for phones, `width=device-width, initial-scale=1`.
+
 ## Performance
 
 - Patches, not trees, cross to the app, and lists are lazy: re-render

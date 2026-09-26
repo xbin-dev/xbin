@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>phone</title>
+  <!-- A tile made for phones, for the UI tests (XbinE2ETests.test06) and
+       native/tools/viewport.test.mjs: it sets its own viewport, which the
+       app leaves alone (plans/native.md §6.3). #report says what the page
+       sees: one viewport meta (its own) and the device's width. -->
+  <style>
+    body { margin: 12px; font: 17px -apple-system, system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <h1>phone-heading</h1>
+  <p id="report">viewport ?</p>
+  <script>
+    const report = document.getElementById('report');
+    const tick = () => {
+      const metas = document.querySelectorAll('meta[name="viewport" i]');
+      report.textContent = 'viewport ' + metas.length + ' ' + (metas[0] ? metas[0].content : '-') +
+        ' layout ' + document.documentElement.clientWidth;
+    };
+    tick();
+    setInterval(tick, 250);
+  </script>
+</body>
+</html>

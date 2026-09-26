@@ -135,6 +135,18 @@ final class E2E {
         return nil
     }
 
+    /// Polls `condition` (an on-screen check) until it holds or `timeout`
+    /// seconds pass; whether it held.
+    func until(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            // waitForExistence polls without blocking the app.
+            _ = app.otherElements["xbin-e2e-never"].waitForExistence(timeout: 0.3)
+        } while Date() < deadline
+        return condition()
+    }
+
     /// Taps through a system alert (Save Password?, a permission) if one is up.
     func dismissSystemAlerts() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

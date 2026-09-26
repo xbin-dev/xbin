@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-27
+
+- **xbin app: web tiles laid out for the phone** ([native.md](native.md)
+  §Fallback). A tile page without a `<meta name="viewport">` — nearly every
+  tile, since a frame ignores one — was laid out 980 px wide and shrunk to
+  the screen, its text unreadable. The app now lays it out at the device's
+  width, or, when its content is wider, at the content's width (up to
+  1280 px) fitted to the screen, with pinch zoom: it appends a viewport
+  meta to the page from its own script. A page with its own viewport is
+  left as it is — set one to choose.
+
 ## 2026-09-26
 
 - **Terminal window: pick the VM sandbox before a session starts, and the
