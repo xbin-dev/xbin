@@ -76,6 +76,7 @@ final class WorkspaceEvents {
     private struct SessionSub { let id: String; let cont: AsyncStream<SessionSignal>.Continuation }
     private var reloadSubs: [UUID: ReloadSub] = [:]
     private var sessionSubs: [UUID: SessionSub] = [:]
+    private var termSubs: [UUID: AsyncStream<TermEvent>.Continuation] = [:]
 
     init(auth: WorkspaceAuth, makeSocket: @escaping EventSocketFactory,
          sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
@@ -139,6 +140,20 @@ final class WorkspaceEvents {
                 }
             }
         }
+    }
+
+    /// This user's `term` events as they come (session opened, closed,
+    /// renamed; an agent session's status summary) — for followers other
+    /// than the workspace's own directory (a Live Activity, say). Ends when
+    /// the iterating task is cancelled.
+    func termEvents() -> AsyncStream<TermEvent> {
+        let (stream, cont) = AsyncStream<TermEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        let key = UUID()
+        termSubs[key] = cont
+        cont.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.termSubs[key] = nil }
+        }
+        return stream
     }
 
     /// Open tiles that follow reloads (tests, diagnostics).
@@ -234,7 +249,9 @@ final class WorkspaceEvents {
         case .branding:
             onBranding?()
         case .term(let t):
-            if t.isFor(userID: userID()) { onTerm?(t) }
+            guard t.isFor(userID: userID()) else { return }
+            onTerm?(t)
+            for c in termSubs.values { c.yield(t) }
         case .session(let id, _, let frame):
             let subs = sessionSubs.values.filter { $0.id == id }
             guard !subs.isEmpty, let j = try? XbinAgent.JSONValue.parse(frame), let hub = SessionHubEvent(json: j) else { return }

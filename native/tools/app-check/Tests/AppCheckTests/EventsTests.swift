@@ -182,6 +182,9 @@ struct NoKeys: DeviceKeyStore {
         var branding = 0
         events.onTerm = { seen.append($0) }
         events.onBranding = { branding += 1 }
+        var streamed: [String] = []
+        let stream = events.termEvents()
+        let follower = Task { @MainActor in for await t in stream { streamed.append(t.id) } }
         events.receive(#"{"type":"term","component":"apps/x","data":{"op":"status","id":"a","user":"alice","status":"waiting_permission","pending":0,"questions":1,"turn":2}}"#)
         events.receive(#"{"type":"term","component":"apps/x","data":{"op":"open","id":"b","user":"bob"}}"#) // an admin sees bob's too
         events.receive(#"{"type":"term","component":"apps/x","data":{"op":"close","id":"c"}}"#)
@@ -190,6 +193,8 @@ struct NoKeys: DeviceKeyStore {
         #expect(seen.map(\.id) == ["a", "c"])
         #expect(seen.first?.questions == 1)
         #expect(branding == 1)
+        await until("streamed") { streamed == ["a", "c"] }
+        follower.cancel()
     }
 
     /// `session` frames reach the open screen's feed; a reconnect makes it

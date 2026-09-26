@@ -10,6 +10,8 @@ struct InboxView: View {
     @Environment(AppModel.self) private var app
     @Environment(SceneModel.self) private var scene
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.supportsMultipleWindows) private var multipleWindows
 
     var body: some View {
         NavigationStack {
@@ -28,6 +30,14 @@ struct InboxView: View {
                                         Text(verbatim: s.title)
                                         Text(verbatim: "\(TileInfo.humanize(s.cwd)) · \(s.waitingFor)")
                                             .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .contextMenu {
+                                    if multipleWindows {
+                                        Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                                            dismiss()
+                                            openWindow(value: WindowTarget(workspace: w.id, surface: .agent(cwd: s.cwd, session: s.id)))
+                                        }
                                     }
                                 }
                             }
