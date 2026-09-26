@@ -32,8 +32,8 @@ Also in this release, in **every** mode (security fixes, no opt-out):
   `legacy`); a FIFO or device answers 404;
 - a sandboxed tile's non-document files (anything but `.html`/`.htm`, any
   case) carry `Content-Security-Policy: sandbox` — no change as
-  subresources; opened directly, an SVG or `.xhtml` page no longer runs
-  script as the workspace origin; `x.HTML` is now treated as a document
+  subresources; opened directly or framed (`<iframe>`, `<object>`), an SVG
+  or `.xhtml` page no longer runs script as the workspace origin; `x.HTML` is now treated as a document
   (injected and sandboxed);
 - a tile document fetched by another tile's frontend gets no frame token
   (navigating a tile's own nested pages still mints one).
@@ -59,7 +59,12 @@ session cookie becomes `__Host-xbin_session`), and the workspace plus
 
 In every mode: a tile that served files through a symlink into `data/`,
 `homes/` or outside the workspace; a tile relying on an SVG (or other
-non-HTML file) opened directly running script.
+non-HTML file) running script when opened directly or framed; a tile
+frontend that fetched ANOTHER tile's document to use the frame token in it.
+
+Not yet: signing out does not revoke `tokens`-mode asset tokens (they end
+with the user's account, their read access, or after 7 days); tile-origin
+cookies do end with the browser session.
 
 ## How to migrate
 

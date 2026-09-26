@@ -276,8 +276,8 @@ and one habit works in all of them — **relative URLs**:
   still works.
 - **In every mode**, a file that isn't `.html`/`.htm` (any case) is served
   with `Content-Security-Policy: sandbox`: as a subresource nothing changes,
-  but opened directly an SVG's or an `.xhtml` file's scripts don't run. Ship
-  an interactive page as `.html`.
+  but opened directly or framed (`<iframe>`, `<object>`) an SVG's or an
+  `.xhtml` file's scripts don't run. Ship an interactive page as `.html`.
 
 `legacy` (today's default) still loads absolute self-references
 credential-less; the next release removes that path

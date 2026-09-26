@@ -189,7 +189,8 @@ subdomains are other sites and the cookie would be third-party.
 
 **Every mode** serves a sandboxed tile's non-document files (anything but
 `.html`/`.htm`, in any letter case) with `Content-Security-Policy: sandbox`
-— inert as a subresource, scriptless if opened directly, so an SVG, an
+— inert as a subresource, scriptless if opened directly or framed (an
+`<iframe>`/`<object>` of it), so an SVG, an
 `.xhtml` page or an extensionless HTML file can't run tile-written script as
 the workspace origin (PDFs excepted: browsers won't render them sandboxed).
 And no mode follows a tile's symlink to xbind's own files: in `legacy` a
