@@ -1,0 +1,82 @@
+# XcodeGen spec for the xbin app (plans/native.md; dev loop: native/AGENTS.md).
+# The .xcodeproj is generated (`xcodegen generate` here) and never committed.
+#
+#   Xbin                     the app (scheme Xbin, shared): App/ + Shared/
+#   XbinNotificationService  decrypts pushes (native/spec/push.md §4)
+#
+# Local packages: XbinCore, XbinTerm, XbinAgent (Foundation only, tested on
+# Linux) and XbinRenderer (the SwiftUI renderer). SwiftTerm draws the
+# terminal. CI builds for a simulator with CODE_SIGNING_ALLOWED=NO
+# (native/ios/scripts/ci-build-app.sh); nothing here needs a team to build.
+name: Xbin
+options:
+  bundleIdPrefix: dev.xbin
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+packages:
+  XbinCore:
+    path: Packages/XbinCore
+  XbinTerm:
+    path: Packages/XbinTerm
+  XbinAgent:
+    path: Packages/XbinAgent
+  XbinRenderer:
+    path: Packages/XbinRenderer
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.20.0
+targets:
+  Xbin:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Shared
+    dependencies:
+      - package: XbinCore
+      - package: XbinTerm
+      - package: XbinAgent
+      - package: XbinRenderer
+      - package: SwiftTerm
+      - target: XbinNotificationService
+    settings:
+      base:
+        PRODUCT_NAME: Xbin
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.app
+        INFOPLIST_FILE: Support/App-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Support/Xbin.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+    scheme: {}
+  XbinNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: Shared/PushCrypto.swift
+      - path: Shared/Keychain.swift
+    dependencies:
+      - package: XbinCore
+    settings:
+      base:
+        PRODUCT_NAME: XbinNotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.app.notifications
+        INFOPLIST_FILE: Support/NotificationService-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Support/NotificationService.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
