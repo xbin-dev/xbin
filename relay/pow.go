@@ -28,7 +28,10 @@ import (
 // bytes under an HMAC with a key the relay makes at start — so handing them
 // out costs nothing and stores nothing. A solved one is spent: the relay
 // remembers it until it expires (replay), which the registration limits
-// bound. A restart makes every outstanding challenge invalid; a client gets
+// bound. It is spent before the global registration limit is asked, so a
+// replayed proof — from any number of addresses — never takes a token of
+// that limit; a refusal by the limit or the capacity takes the spend back.
+// A restart makes every outstanding challenge invalid; a client gets
 // pow_invalid with a fresh challenge and solves again.
 
 // MaxRegistrationPoW is the most work the relay may ask for (2^32 hashes
@@ -131,6 +134,14 @@ func (p *powState) spend(challenge string, exp int64, now time.Time) (ok, full b
 	}
 	p.spent[challenge] = exp
 	return true, false
+}
+
+// unspend takes back a spend whose registration did not happen (a rate
+// limit or the capacity refused it): the same proof may be posted again.
+func (p *powState) unspend(challenge string) {
+	p.mu.Lock()
+	delete(p.spent, challenge)
+	p.mu.Unlock()
 }
 
 // PoWSolves reports whether nonce solves challenge at difficulty b:

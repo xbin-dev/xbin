@@ -552,7 +552,7 @@ func TestHandlesPerTokenCapped(t *testing.T) {
 	if n, _ := st.counts(); n != maxHandlesPerToken {
 		t.Fatalf("%d handles, want %d", n, maxHandlesPerToken)
 	}
-	if _, err := st.target(first, "ws", "", now); err != errNoHandle {
+	if _, err := st.target(first, "ws", "", false, now); err != errNoHandle {
 		t.Fatal("the oldest handle was not evicted")
 	}
 }

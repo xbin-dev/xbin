@@ -11,8 +11,11 @@ import (
 // push token per activity (its updates) and one for the app (push-to-start).
 // The app registers each as a Live Activity handle hanging off the device
 // handle it made for the same workspace (POST /v1/handles {pushType:
-// "liveactivity", parent}); the workspace then pushes content states to it
-// (POST /v1/push {type: "liveactivity", activity}).
+// "liveactivity", parent, start?} — start: the push-to-start token); the
+// workspace then pushes content states to it (POST /v1/push {type:
+// "liveactivity", activity}): start events to the push-to-start handle,
+// update and end events to an activity's. An end APNs took retires the
+// activity's handle.
 //
 // An ActivityKit payload can't be sealed: the system decodes the content
 // state and draws it before any code of the app's runs. So the relay does
@@ -31,8 +34,10 @@ const PushTypeLiveActivity = "liveactivity"
 const ActivityAttributesType = "AgentActivityAttributes"
 
 const (
-	// maxChildren is how many Live Activity handles one device handle
-	// holds; a new one evicts the least recently used.
+	// maxChildren is how many activity handles (one per card) one device
+	// handle holds; a new one evicts the least recently used. Its
+	// push-to-start handle is apart: one per device handle, never evicted
+	// for a card's.
 	maxChildren = 16
 	maxPending  = 99
 	// liveTopicSuffix makes the APNs topic of a Live Activity push.
@@ -135,10 +140,12 @@ func activityBody(a *ActivityPush) ([]byte, error) {
 	return json.Marshal(map[string]any{"aps": aps})
 }
 
-// newChild stores a Live Activity handle under the device handle parent.
-// The same token under the same parent is the same handle (the app
-// re-registers after a restart); a parent holds at most maxChildren.
-func (s *store) newChild(parent, token, topic, env string, now time.Time) (string, error) {
+// newChild stores a Live Activity handle under the device handle parent:
+// the push-to-start handle (start: one per parent, a new token replaces the
+// old) or an activity's (at most maxChildren per parent, the least recently
+// used go). The same token under the same parent is the same handle (the
+// app re-registers after a restart), of the kind it is registered as now.
+func (s *store) newChild(parent, token, topic, env string, start bool, now time.Time) (string, error) {
 	s.mu.Lock()
 	recs := s.sweepLocked(now, false)
 	p := s.st.Handles[parent]
@@ -154,6 +161,13 @@ func (s *store) newChild(parent, token, topic, env string, now time.Time) (strin
 	}
 	for c := range s.children[parent] {
 		if h := s.st.Handles[c]; h != nil && h.Token == token {
+			if h.Start != start { // the app says what the token is
+				h.Start = start
+				recs = append(recs, s.putH(c))
+				if start {
+					recs = append(recs, s.dropStarts(parent, c)...)
+				}
+			}
 			s.mu.Unlock()
 			return c, s.write(recs)
 		}
@@ -166,17 +180,23 @@ func (s *store) newChild(parent, token, topic, env string, now time.Time) (strin
 			return "", errFull
 		}
 	}
-	if kids := s.children[parent]; len(kids) >= maxChildren {
-		ids := make([]string, 0, len(kids))
-		for c := range kids {
-			ids = append(ids, c)
+	if start {
+		recs = append(recs, s.dropStarts(parent, "")...)
+	} else {
+		var ids []string
+		for c := range s.children[parent] {
+			if h := s.st.Handles[c]; h != nil && !h.Start {
+				ids = append(ids, c)
+			}
 		}
-		sort.Slice(ids, func(i, j int) bool {
-			a, b := s.st.Handles[ids[i]], s.st.Handles[ids[j]]
-			return max(a.Used, a.Created) < max(b.Used, b.Created)
-		})
-		for _, c := range ids[:len(ids)-maxChildren+1] {
-			recs = append(recs, s.delTree(c)...)
+		if len(ids) >= maxChildren {
+			sort.Slice(ids, func(i, j int) bool {
+				a, b := s.st.Handles[ids[i]], s.st.Handles[ids[j]]
+				return max(a.Used, a.Created) < max(b.Used, b.Created)
+			})
+			for _, c := range ids[:len(ids)-maxChildren+1] {
+				recs = append(recs, s.delTree(c)...)
+			}
 		}
 	}
 	// born bound to its parent's workspace, when that is known: the
@@ -184,11 +204,35 @@ func (s *store) newChild(parent, token, topic, env string, now time.Time) (strin
 	// waits months for its first long turn alone
 	id := randomID(16)
 	s.st.Handles[id] = &Handle{Token: token, Topic: topic, Env: env, Type: PushTypeLiveActivity, Parent: parent,
-		Workspace: p.Workspace, Created: now.Unix()}
+		Start: start, Workspace: p.Workspace, Created: now.Unix()}
 	s.link(parent, id)
 	recs = append(recs, s.putH(id))
 	s.mu.Unlock()
 	return id, s.write(recs)
+}
+
+// dropStarts deletes parent's push-to-start handles but keep (mu held).
+func (s *store) dropStarts(parent, keep string) []record {
+	var recs []record
+	for c := range s.children[parent] {
+		if h := s.st.Handles[c]; h != nil && h.Start && c != keep {
+			recs = append(recs, s.delTree(c)...)
+		}
+	}
+	return recs
+}
+
+// retire deletes an activity handle whose activity got its end (APNs took
+// it): nothing more reaches an ended activity, so the handle would only
+// take a place of its parent's. A push-to-start handle stays.
+func (s *store) retire(id string) {
+	s.mu.Lock()
+	var recs []record
+	if h := s.st.Handles[id]; h != nil && h.Type == PushTypeLiveActivity && !h.Start {
+		recs = s.delTree(id)
+	}
+	s.mu.Unlock()
+	_ = s.write(recs)
 }
 
 // handleType reports a handle's type ("" or "liveactivity").

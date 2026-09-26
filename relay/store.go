@@ -19,16 +19,18 @@ import (
 //
 // A Live Activity handle (Type "liveactivity", liveactivity.go) names an
 // ActivityKit push token — one activity's update token, or the app's
-// push-to-start token — and hangs off the device handle of the same app
-// install and workspace (Parent): it goes when that one goes, may be used
-// only by the workspace the parent belongs to, and a parent holds at most
-// maxChildren of them.
+// push-to-start token (Start) — and hangs off the device handle of the same
+// app install and workspace (Parent): it goes when that one goes, belongs
+// to the workspace the parent belongs to (the first push to any of them
+// binds them all), and a parent holds one push-to-start handle and at most
+// maxChildren activity handles.
 type Handle struct {
 	Token     string `json:"token"`            // APNs device token (or ActivityKit push token), lowercase hex
 	Topic     string `json:"topic"`            // the app's bundle id
 	Env       string `json:"env"`              // production | development
 	Type      string `json:"type,omitempty"`   // "" = a device (alert) handle | "liveactivity"
 	Parent    string `json:"parent,omitempty"` // a liveactivity handle's device handle
+	Start     bool   `json:"start,omitempty"`  // a liveactivity handle of the push-to-start token
 	Workspace string `json:"workspace,omitempty"`
 	Created   int64  `json:"created"`
 	Used      int64  `json:"used,omitempty"`
@@ -303,7 +305,17 @@ func (s *store) sweepLocked(now time.Time, full bool) []record {
 	t := now.Unix()
 	unbound, idle := int64(s.lim.unboundTTL/time.Second), int64(s.lim.idleTTL/time.Second)
 	for id, h := range s.st.Handles {
-		if (h.Workspace == "" && t-h.Created > unbound) || t-max(h.Used, h.Created) > idle {
+		bound, used := h.Workspace != "", max(h.Used, h.Created)
+		if p := s.st.Handles[h.Parent]; h.Parent != "" && p != nil {
+			// a Live Activity handle is bound with its parent; the
+			// push-to-start handle, which only a long turn's start uses,
+			// is in use while its parent is
+			bound = bound || p.Workspace != ""
+			if h.Start {
+				used = max(used, p.Used, p.Created)
+			}
+		}
+		if (!bound && t-h.Created > unbound) || t-used > idle {
 			recs = append(recs, s.delTree(id)...)
 		}
 	}
@@ -450,11 +462,12 @@ func (s *store) workspaceFor(key string, now time.Time) (string, error) {
 }
 
 // target resolves a handle for a push from workspace ws, binding an unbound
-// handle to it (first use) — a Live Activity handle's device handle too:
-// both belong to the workspace that first pushed to either. typ is the
-// push's type ("" or "liveactivity"): another type is refused before
-// anything binds. Returns a copy.
-func (s *store) target(id, ws, typ string, now time.Time) (Handle, error) {
+// handle to it (first use) — with its device handle and every Live Activity
+// handle under that: they belong to the workspace that first pushed to any
+// of them. typ is the push's type ("" or "liveactivity") and start whether
+// it is a push-to-start: another kind of handle is refused before anything
+// binds. Returns a copy.
+func (s *store) target(id, ws, typ string, start bool, now time.Time) (Handle, error) {
 	s.mu.Lock()
 	h := s.st.Handles[id]
 	if h == nil {
@@ -472,15 +485,27 @@ func (s *store) target(id, ws, typ string, now time.Time) (Handle, error) {
 	case h.Workspace != "" && h.Workspace != ws, p != nil && p.Workspace != "" && p.Workspace != ws:
 		s.mu.Unlock()
 		return Handle{}, errHandleBound
-	case h.Type != typ:
+	case h.Type != typ, h.Start != start:
 		s.mu.Unlock()
 		return Handle{}, errHandleType
 	}
 	var recs []record
 	bind := false
-	if p != nil && p.Workspace == "" {
-		p.Workspace, bind = ws, true
-		recs = append(recs, s.putH(h.Parent))
+	dev, d := id, h
+	if p != nil {
+		dev, d = h.Parent, p
+	}
+	if d.Workspace == "" {
+		d.Workspace, bind = ws, true
+		if dev != id {
+			recs = append(recs, s.putH(dev))
+		}
+		for c := range s.children[dev] {
+			if ch := s.st.Handles[c]; ch != nil && ch.Workspace == "" && c != id {
+				ch.Workspace = ws
+				recs = append(recs, s.putH(c))
+			}
+		}
 	}
 	if h.Workspace == "" {
 		h.Workspace, bind = ws, true

@@ -29,6 +29,22 @@ func (r *rig) mustChild(parent, token string) string {
 	return out["handle"].(string)
 }
 
+// startChild registers the app's push-to-start token under parent.
+func (r *rig) startChild(parent, token string) string {
+	r.t.Helper()
+	code, out, _ := r.call("POST", "/v1/handles", "", map[string]any{"apnsToken": token, "topic": topic, "env": "production",
+		"pushType": "liveactivity", "parent": parent, "start": true})
+	if code != 200 {
+		r.t.Fatalf("start child: %d %v", code, out)
+	}
+	return out["handle"].(string)
+}
+
+func (r *rig) start(since int64) map[string]any {
+	return map[string]any{"event": "start", "timestamp": r.clock().Unix(), "ws": "wsPushId_1", "ref": "ref-7",
+		"state": map[string]any{"phase": "running", "since": since, "pending": 0}}
+}
+
 func (r *rig) live(key, handle string, act map[string]any, extra map[string]any) (int, map[string]any) {
 	r.t.Helper()
 	body := map[string]any{"handle": handle, "type": "liveactivity", "activity": act}
@@ -51,6 +67,7 @@ func TestLiveActivityPushShape(t *testing.T) {
 	r := newRig(t, nil)
 	key, parent := r.workspace(), r.handle(tokenOK)
 	h := r.mustChild(parent, laToken)
+	sh := r.startChild(parent, laToken2)
 	now := r.clock().Unix()
 
 	upd := r.update("waiting", now-42, 2)
@@ -63,9 +80,13 @@ func TestLiveActivityPushShape(t *testing.T) {
 	if code, out := r.live(key, h, end, nil); code != 200 {
 		t.Fatalf("end: %d %v", code, out)
 	}
+	// the end retired the activity's handle: nothing more reaches it
+	if code, out := r.live(key, h, r.update("idle", now-42, 0), nil); code != 404 || out["code"] != ErrHandleUnknown {
+		t.Fatalf("an update after the end: %d %v", code, out)
+	}
 	start := map[string]any{"event": "start", "timestamp": now + 2, "ws": "wsPushId_1", "ref": "ref-7",
 		"state": map[string]any{"phase": "running", "since": now, "pending": 0}}
-	if code, out := r.live(key, h, start, nil); code != 200 {
+	if code, out := r.live(key, sh, start, nil); code != 200 {
 		t.Fatalf("start: %d %v", code, out)
 	}
 	got := r.fake.pushes()
@@ -73,7 +94,11 @@ func TestLiveActivityPushShape(t *testing.T) {
 		t.Fatalf("fake got %d pushes", len(got))
 	}
 	for i, p := range got {
-		if p.token != laToken || p.pushType != "liveactivity" || p.topic != topic+".push-type.liveactivity" || p.collapse != "" {
+		tok := laToken
+		if i == 2 {
+			tok = laToken2
+		}
+		if p.token != tok || p.pushType != "liveactivity" || p.topic != topic+".push-type.liveactivity" || p.collapse != "" {
 			t.Fatalf("push %d headers: %+v", i, p)
 		}
 	}
@@ -131,12 +156,24 @@ func TestLiveActivityRefusals(t *testing.T) {
 			t.Errorf("%s: %d %v", name, code, out)
 		}
 	}
-	// a Live Activity handle takes no alert, a device handle no activity
+	// a Live Activity handle takes no alert, a device handle no activity;
+	// a start goes to the push-to-start handle only, update and end to an
+	// activity's only
+	sh := r.startChild(parent, strings.Repeat("e5", 80))
 	if code, _, _ := r.push(key, h, nil); code != 400 {
 		t.Errorf("alert to a Live Activity handle: %d", code)
 	}
 	if code, _ := r.live(key, parent, r.update("running", now, 0), nil); code != 400 {
 		t.Errorf("activity to a device handle: %d", code)
+	}
+	if code, _ := r.live(key, h, r.start(now), nil); code != 400 {
+		t.Errorf("start to an activity's handle: %d", code)
+	}
+	if code, _ := r.live(key, sh, r.update("running", now, 0), nil); code != 400 {
+		t.Errorf("update to the push-to-start handle: %d", code)
+	}
+	if code, _, _ := r.push(key, sh, nil); code != 400 {
+		t.Errorf("alert to the push-to-start handle: %d", code)
 	}
 	if code, _ := r.live(key, h, r.update("running", now, 0), map[string]any{"collapseId": "c"}); code != 400 {
 		t.Errorf("collapseId on a liveactivity push: %d", code)
@@ -156,6 +193,10 @@ func TestLiveActivityRefusals(t *testing.T) {
 		if code, _, _ := r.call("POST", "/v1/handles", "", q); code != 400 {
 			t.Errorf("%s: %d", name, code)
 		}
+	}
+	if code, _, _ := r.call("POST", "/v1/handles", "", map[string]any{"apnsToken": token2, "topic": topic, "env": "production",
+		"start": true}); code != 400 {
+		t.Errorf("a device handle marked push-to-start: %d", code)
 	}
 	if code, out := r.child("AAAAAAAAAAAAAAAAAAAAAA", laToken2); code != 404 || out["code"] != ErrHandleUnknown {
 		t.Errorf("unknown parent: %d %v", code, out)
@@ -281,6 +322,53 @@ func TestLiveActivityLifecycle(t *testing.T) {
 	if code, _ := r.live(key, c2, r.update("running", r.clock().Unix(), 0), nil); code != 404 {
 		t.Fatalf("a child outlived its dead device token: %d", code)
 	}
+
+	// a child made while its device handle was unbound (the app's first
+	// launch: the push-to-start handle before any push) is bound by the
+	// first alert to the parent, and retention keeps it while the parent
+	// is in use — a month of daily alerts, then half a year more
+	p3 := r.handle(strings.Repeat("f6", 32))
+	st3 := r.startChild(p3, strings.Repeat("a7", 80))
+	if code, _, _ := r.push(key, p3, nil); code != 200 {
+		t.Fatal(code)
+	}
+	for range 32 {
+		r.advance(24 * time.Hour)
+		if code, _, _ := r.push(key, p3, nil); code != 200 {
+			t.Fatal(code)
+		}
+	}
+	r.handle(strings.Repeat("0f", 32)) // a registration runs the sweep
+	if code, out := r.live(key, st3, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("the push-to-start handle of a parent bound by its alerts was swept: %d %v", code, out)
+	}
+	for range 19 { // only the parent is pushed to: 190 more days
+		r.advance(10 * 24 * time.Hour)
+		if code, _, _ := r.push(key, p3, nil); code != 200 {
+			t.Fatal(code)
+		}
+	}
+	r.handle(strings.Repeat("1f", 32))
+	if code, out := r.live(key, st3, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("the push-to-start handle of a parent in use idled out: %d %v", code, out)
+	}
+	// and one another workspace pushes to is refused, both ways
+	if code, out := r.live(r.workspace(), st3, r.start(r.clock().Unix()), nil); code != 403 || out["code"] != ErrHandleBound {
+		t.Fatalf("another workspace's start: %d %v", code, out)
+	}
+	// state from before children were bound with their parent: a child the
+	// store holds unbound under a bound parent is kept too
+	r.relay.st.mu.Lock()
+	r.relay.st.st.Handles[st3].Workspace = ""
+	r.relay.st.mu.Unlock()
+	r.advance(DefaultUnboundHandleTTL + time.Hour)
+	if code, _, _ := r.push(key, p3, nil); code != 200 {
+		t.Fatal(code)
+	}
+	r.handle(strings.Repeat("2f", 32))
+	if code, out := r.live(key, st3, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("an unbound child of a bound parent was swept: %d %v", code, out)
+	}
 }
 
 // PUT keeps a handle's kind: a Live Activity handle is repointed as one
@@ -313,5 +401,82 @@ func TestLiveActivityRepoint(t *testing.T) {
 	}
 	if got := r.fake.pushes(); got[len(got)-1].token != laToken2 {
 		t.Fatalf("repointed Live Activity handle went to %s", got[len(got)-1].token)
+	}
+}
+
+// The push-to-start handle is apart from the cards' handles: any number of
+// cards never evicts it, a card's end retires its handle (so ended cards
+// don't pile up under the parent), and a new push-to-start token replaces
+// the old handle.
+func TestLiveActivityStartHandleOutlivesCards(t *testing.T) {
+	r := newRig(t, func(c *Config) { c.HandleRate = Rate{PerHour: 36000, Burst: 1000} })
+	key, parent := r.workspace(), r.handle(tokenOK)
+	sh := r.startChild(parent, laToken)
+	if again := r.startChild(parent, laToken); again != sh {
+		t.Fatal("the same push-to-start token made a second handle")
+	}
+	tok := func(i int) string { return strings.Repeat("c0", 70) + fmtInt(int64(100000+i)) }
+	// more cards than the cap, each updated (xbind keeps them recent) and
+	// never ended (the app lost them, xbind restarted, …)
+	var cards []string
+	for i := range maxChildren + 4 {
+		r.advance(time.Minute)
+		c := r.mustChild(parent, tok(i))
+		if code, out := r.live(key, c, r.update("running", r.clock().Unix(), 0), nil); code != 200 {
+			t.Fatalf("card %d: %d %v", i, code, out)
+		}
+		cards = append(cards, c)
+	}
+	if code, out := r.live(key, sh, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("the push-to-start handle after %d cards: %d %v", len(cards), code, out)
+	}
+	for i, c := range cards {
+		want := 200
+		if i < 4 {
+			want = 404 // the cap evicted the oldest cards
+		}
+		if code, _ := r.live(key, c, r.update("waiting", r.clock().Unix(), 1), nil); code != want {
+			t.Fatalf("card %d: %d, want %d", i, code, want)
+		}
+	}
+	// an end retires a card's handle
+	for _, c := range cards[4:] {
+		end := map[string]any{"event": "end", "timestamp": r.clock().Unix(), "state": map[string]any{"phase": "idle", "since": 0, "pending": 0}}
+		if code, out := r.live(key, c, end, nil); code != 200 {
+			t.Fatalf("end: %d %v", code, out)
+		}
+	}
+	if hs, _ := r.relay.Counts(); hs != 2 {
+		t.Fatalf("%d handles after every card ended, want the parent and its push-to-start handle", hs)
+	}
+	// a legacy push-to-start handle (registered as a card's) is made one by
+	// registering its token as push-to-start: the same handle
+	legacy := r.mustChild(parent, laToken2)
+	if got := r.startChild(parent, laToken2); got != legacy {
+		t.Fatal("re-registering a token as push-to-start made a new handle")
+	}
+	// … and one push-to-start handle per parent: the old one went
+	if code, _ := r.live(key, sh, r.start(r.clock().Unix()), nil); code != 404 {
+		t.Fatalf("the replaced push-to-start handle: %d", code)
+	}
+	if code, out := r.live(key, legacy, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("the new push-to-start handle: %d %v", code, out)
+	}
+	// the kind survives a restart
+	cfg := r.relay.cfg
+	if err := r.relay.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.relay = s2
+	r.srv.Config.Handler = s2
+	if code, _ := r.live(key, legacy, r.update("running", r.clock().Unix(), 0), nil); code != 400 {
+		t.Fatalf("the push-to-start kind was lost on reopen: %d", code)
+	}
+	if code, _ := r.live(key, legacy, r.start(r.clock().Unix()), nil); code != 200 {
+		t.Fatalf("start after the reopen: %d", code)
 	}
 }

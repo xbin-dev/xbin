@@ -61,7 +61,7 @@ is the contract (a client acts on it, never on a bare status a proxy could
 have produced), the text is for people.
 
 ```
-POST   /v1/handles            {apnsToken, topic, env, pushType?, parent?} → {handle}
+POST   /v1/handles            {apnsToken, topic, env, pushType?, parent?, start?} → {handle}
 PUT    /v1/handles/<handle>   {apnsToken, topic, env, pushType?} → {handle}
 DELETE /v1/handles/<handle>   → 204 | 404
 GET    /v1/workspaces/challenge → {challenge, bits, expires} | {bits: 0}
@@ -144,21 +144,31 @@ and APNs takes them with `apns-push-type: liveactivity` on the topic
 workspace:
 
 ```
-POST /v1/handles {apnsToken, topic, env, pushType: "liveactivity", parent: <device handle>} → {handle}
+POST /v1/handles {apnsToken, topic, env, pushType: "liveactivity", parent: <device handle>, start?: true} → {handle}
 ```
 
-- `parent` must be a device handle of the same `topic` and `env` (400
-  `bad_request` otherwise, 404 `handle_unknown` when there is none). The
-  same token under the same parent answers the same handle.
+- `start: true` marks the app's **push-to-start** token; without it the
+  token is one activity's (a card's). `parent` must be a device handle of
+  the same `topic` and `env` (400 `bad_request` otherwise, 404
+  `handle_unknown` when there is none). The same token under the same
+  parent answers the same handle (of the kind it is registered as now).
 - A Live Activity handle **lives under its parent**: deleting the parent
   (the app removing the workspace), APNs killing the parent's device token,
   or retention removing it takes its Live Activity handles along. A parent
-  holds at most 16; a new one evicts the least recently used.
-- It is **bound with its parent**: one made under a bound device handle is
-  born bound to that workspace (so retention's rule for handles nothing
-  ever pushed to leaves a push-to-start handle waiting for its first long
-  turn alone); otherwise the first push to either binds both to the
-  pushing workspace. Another workspace gets 403 `handle_bound`.
+  holds **one push-to-start handle** (a new push-to-start token replaces
+  it) and **at most 16 activity handles** (a new one evicts the least
+  recently used of those — never the push-to-start handle).
+- An activity's handle is **retired by its end**: once APNs takes an `end`
+  for it, the relay deletes it (an ended activity takes no more pushes), so
+  finished cards don't fill the parent's 16.
+- It is **bound with its parent**: the device handle and every Live
+  Activity handle under it belong to one workspace — one made under a bound
+  device handle is born bound to it, and the first push to any of them
+  (an alert to the device handle included) binds them all. Retention counts
+  a Live Activity handle as bound while its parent is, and the push-to-start
+  handle, which only a long turn's start uses, as in use while its parent
+  is (so a push-to-start handle waits for its first long turn as long as
+  the device gets pushes). Another workspace gets 403 `handle_bound`.
 - Its token is **not** checked with a silent push (an ActivityKit token
   takes only Live Activity pushes); the parent's was, and bounds how many
   it may hold. `PUT /v1/handles/<handle>` with `pushType: "liveactivity"`
@@ -191,15 +201,17 @@ becomes (`apns-push-type: liveactivity`, `apns-priority` as asked, default
          "stale-date": 1790003600}}
 ```
 
-and for `start` (push-to-start, to the app's push-to-start handle) also
+and for `start` (push-to-start: only to the app's push-to-start handle,
+which takes nothing else; `update` and `end` go to an activity's handle) also
 `"attributes-type": "AgentActivityAttributes"`, `"attributes": {"ws", "ref",
 "workspace": "", "session": "", "appWorkspace": "", "sessionID": ""}` (the
 app fills the names in from its own records of `ws`), `"input-push-token": 1`
 and a generic alert chosen by phase (`{"title": "xbin", "body": "An agent is
 working."}`, `… is waiting for you.`, `… finished.`). Anything else — an
 unknown phase, a string where a number goes, a field of the wrong event, an
-envelope or collapse id, a device handle — is 400 `bad_request` before APNs
-sees it. A dead Live Activity token (APNs `410`/`Unregistered`: the
+envelope or collapse id, a device handle, an event the handle's kind does
+not take — is 400 `bad_request` before APNs sees it (and before anything
+binds). A dead Live Activity token (APNs `410`/`Unregistered`: the
 activity ended, the app was reinstalled) answers 410 `handle_gone` and
 deletes that handle only. The push limits (per handle, per workspace) are
 the same as for alerts.
@@ -279,8 +291,11 @@ POST /v1/workspaces {"pow": {"challenge": "…", "nonce": "…"}}
   invalid.
 - A proof is **spent** once it registers a workspace (replay: 401
   `pow_invalid`); the relay remembers spent challenges until they expire —
-  the registration limits bound how many. A refusal by a rate limit spends
-  nothing: retry the same proof after `Retry-After`.
+  the registration limits bound how many. It is spent before the global
+  registration limit is asked, so a replayed proof, from however many
+  addresses, never takes a token of that limit. A refusal by a rate limit
+  or the capacity spends nothing: retry the same proof after
+  `Retry-After`.
 - A refusal (401 `pow_required` / `pow_invalid`: missing, wrong, expired,
   easier than the relay's current difficulty, or spent) carries a fresh
   `{challenge, bits, expires}`, so a client solves and posts again.

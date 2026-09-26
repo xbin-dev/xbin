@@ -150,6 +150,61 @@ func TestPoWNotSpentWhenLimited(t *testing.T) {
 	}
 }
 
+// A spent proof replayed — from as many addresses as an attacker has —
+// takes nothing of the global registration limit: it is refused before
+// the limit is asked, so honest registrations with fresh work still get
+// the limit's tokens.
+func TestPoWReplayLeavesTheGlobalLimit(t *testing.T) {
+	r := newRig(t, func(c *Config) {
+		c.RegistrationPoW = 8
+		c.NewWorkspaceRate = Rate{PerHour: 36000, Burst: 1000} // stands in for many addresses
+		c.AllNewWorkspacesRate = Rate{PerHour: 1, Burst: 3}
+	})
+	c, _ := r.challenge()
+	spent := r.solved(c, 8)
+	if code, out, _ := r.call("POST", "/v1/workspaces", "", spent); code != 200 {
+		t.Fatalf("first use: %d %v", code, out)
+	}
+	for i := range 100 {
+		if code, out, _ := r.call("POST", "/v1/workspaces", "", spent); code != 401 || out["code"] != ErrPoWInvalid {
+			t.Fatalf("replay %d: %d %v", i, code, out)
+		}
+	}
+	for i := range 2 { // the limit's other two tokens are still there
+		c, _ := r.challenge()
+		if code, out, _ := r.call("POST", "/v1/workspaces", "", r.solved(c, 8)); code != 200 {
+			t.Fatalf("honest registration %d after the replays: %d %v", i, code, out)
+		}
+	}
+	c, _ = r.challenge()
+	if code, _, _ := r.call("POST", "/v1/workspaces", "", r.solved(c, 8)); code != 429 {
+		t.Fatalf("the limit counted the replays after all: a fourth registration got %d", code)
+	}
+}
+
+// A registration the capacity refuses spends nothing either.
+func TestPoWNotSpentWhenFull(t *testing.T) {
+	r := newRig(t, func(c *Config) {
+		c.RegistrationPoW = 8
+		c.MaxWorkspaces = 1
+	})
+	c, _ := r.challenge()
+	if code, _, _ := r.call("POST", "/v1/workspaces", "", r.solved(c, 8)); code != 200 {
+		t.Fatal(code)
+	}
+	c, _ = r.challenge()
+	body := r.solved(c, 8)
+	if code, out, _ := r.call("POST", "/v1/workspaces", "", body); code != 503 || out["code"] != ErrFull {
+		t.Fatalf("full: %d %v", code, out)
+	}
+	r.relay.st.mu.Lock()
+	r.relay.st.lim.maxWorkspaces = 2
+	r.relay.st.mu.Unlock()
+	if code, out, _ := r.call("POST", "/v1/workspaces", "", body); code != 200 {
+		t.Fatalf("the same proof once there is room: %d %v", code, out)
+	}
+}
+
 // An operator's registration token skips the work; without one the relay
 // closed to tokens still says so (not pow).
 func TestPoWWithRegistrationTokens(t *testing.T) {

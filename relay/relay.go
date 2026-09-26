@@ -8,7 +8,7 @@
 //
 // HTTP API (relay/README.md):
 //
-//	POST   /v1/handles            {apnsToken, topic, env, pushType?, parent?} → {handle}
+//	POST   /v1/handles            {apnsToken, topic, env, pushType?, parent?, start?} → {handle}
 //	PUT    /v1/handles/{handle}   {apnsToken, topic, env, pushType?} → {handle}
 //	DELETE /v1/handles/{handle}   → 204
 //	GET    /v1/workspaces/challenge → {challenge, bits, expires}
@@ -271,9 +271,11 @@ type handleReq struct {
 	Env       string `json:"env"`
 	// PushType "liveactivity" makes a Live Activity handle (an ActivityKit
 	// push token) under Parent, the device handle of the same app install
-	// and workspace; "" or "alert" a device handle.
+	// and workspace — Start: of the app's push-to-start token, else of one
+	// activity's; "" or "alert" a device handle.
 	PushType string `json:"pushType"`
 	Parent   string `json:"parent"`
+	Start    bool   `json:"start"`
 }
 
 // validate normalises the token (lowercase hex), env and push type.
@@ -284,6 +286,9 @@ func (s *Server) validate(q *handleReq) string {
 	case PushTypeLiveActivity:
 	default:
 		return "pushType: alert | liveactivity"
+	}
+	if q.Start && q.PushType != PushTypeLiveActivity {
+		return "start: liveactivity handles only"
 	}
 	q.APNsToken = strings.ToLower(strings.TrimSpace(q.APNsToken))
 	lo, hi, what := 64, 200, "apnsToken: hex, 64–200 characters"
@@ -337,7 +342,7 @@ func (s *Server) handleNewHandle(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, ErrBadRequest, "parent: the device handle this Live Activity token belongs to")
 			return
 		}
-		h, err = s.st.newChild(q.Parent, q.APNsToken, q.Topic, q.Env, s.cfg.Now())
+		h, err = s.st.newChild(q.Parent, q.APNsToken, q.Topic, q.Env, q.Start, s.cfg.Now())
 	} else {
 		if q.Parent != "" {
 			writeErr(w, http.StatusBadRequest, ErrBadRequest, "parent: liveactivity handles only")
@@ -438,7 +443,9 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 		tooMany(w, wait, "workspace registration")
 		return
 	}
-	var spend func() bool
+	// a proof is spent before the global limit is asked (a replay must not
+	// take its tokens) and taken back when the registration does not happen
+	unspend := func() {}
 	if len(s.cfg.RegistrationTokens) > 0 {
 		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !slices.ContainsFunc(s.cfg.RegistrationTokens, func(t string) bool {
@@ -466,26 +473,26 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ch := body.PoW.Challenge
-		spend = func() bool {
-			ok, full := s.pow.spend(ch, exp, now)
-			switch {
-			case full:
-				writeErr(w, http.StatusServiceUnavailable, ErrFull, "too many registrations at once; try later")
-			case !ok:
-				s.powRefused(w, ErrPoWInvalid, "that challenge was spent already; solve this one")
-			}
-			return ok
+		switch ok, full := s.pow.spend(ch, exp, now); {
+		case full:
+			writeErr(w, http.StatusServiceUnavailable, ErrFull, "too many registrations at once; try later")
+			return
+		case !ok:
+			s.powRefused(w, ErrPoWInvalid, "that challenge was spent already; solve this one")
+			return
 		}
+		unspend = func() { s.pow.unspend(ch) }
 	}
 	if ok, wait := s.awLim.allow(""); !ok {
+		unspend()
 		s.cfg.Log.Warn("relay: the global workspace registration limit is reached")
 		tooMany(w, wait, "workspace registration")
 		return
 	}
-	if spend != nil && !spend() {
-		return
-	}
 	id, key, err := s.st.newWorkspace(s.cfg.Now())
+	if err != nil {
+		unspend()
+	}
 	switch {
 	case errors.Is(err, errFull):
 		s.cfg.Log.Warn("relay: at capacity, workspace refused")
@@ -623,7 +630,7 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	if live {
 		typ = PushTypeLiveActivity
 	}
-	h, err := s.st.target(q.Handle, ws, typ, now)
+	h, err := s.st.target(q.Handle, ws, typ, live && q.Activity.Event == "start", now)
 	switch {
 	case errors.Is(err, errNoHandle):
 		refused(http.StatusNotFound, ErrHandleUnknown, "unknown handle")
@@ -632,7 +639,7 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		refused(http.StatusForbidden, ErrHandleBound, "handle belongs to another workspace")
 		return
 	case errors.Is(err, errHandleType):
-		refused(http.StatusBadRequest, ErrBadRequest, "the handle's type is not the push's (a Live Activity handle takes liveactivity pushes only, a device handle alerts only)")
+		refused(http.StatusBadRequest, ErrBadRequest, "the handle's kind is not the push's (a device handle takes alerts, a push-to-start handle start events, an activity's handle update and end events)")
 		return
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, ErrInternal, "state error")
@@ -668,6 +675,9 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	var ae *APNsError
 	switch {
 	case err == nil:
+		if live && q.Activity.Event == "end" {
+			s.st.retire(q.Handle) // an ended activity takes nothing more
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "apnsId": id})
 	case errors.As(err, &ae) && ae.Dead() && live:
 		// one activity's token (it ended) or the app's push-to-start
