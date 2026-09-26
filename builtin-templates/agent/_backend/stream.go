@@ -3,6 +3,7 @@
 //	GET /runs/{id}/view            one run as the chat shows it (+ a cursor)
 //	GET /stream?run=<id>&since=c   SSE: run-list changes + that run's tree
 //	GET /runs/{id}/stream?since=c  the same, run from the path
+//	  …&deltas=1                   draft text as appended pieces (stream_deltas.go)
 //
 // The client reads /view, then opens /stream with the view's cursor; nothing
 // can fall between the two (the cursor is taken before the database is read,
@@ -183,6 +184,11 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, "streaming unsupported")
 		return
 	}
+	// deltas=1: draft text as appended pieces (stream_deltas.go).
+	var dl deltaState
+	if r.URL.Query().Get("deltas") == "1" {
+		dl = deltaState{}
+	}
 	sub, missed, fresh := e.hub.subscribe(root, since, c)
 	defer e.hub.unsubscribe(sub)
 	h := w.Header()
@@ -203,10 +209,17 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				ev = &dup
 			}
 		}
+		if dl != nil {
+			ev = dl.rewrite(ev)
+		}
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", e.hub.cursor(ev.Seq), b)
 	}
-	send(&Event{Type: "hello", Seq: e.hub.now(), Data: map[string]any{"cursor": e.hub.cursor(e.hub.now()), "gen": e.hub.gen}})
+	hello := map[string]any{"cursor": e.hub.cursor(e.hub.now()), "gen": e.hub.gen}
+	if dl != nil {
+		hello["deltas"] = true
+	}
+	send(&Event{Type: "hello", Seq: e.hub.now(), Data: hello})
 	if !fresh {
 		send(&Event{Type: evReset, Seq: e.hub.now()})
 	}
