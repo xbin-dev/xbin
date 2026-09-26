@@ -1,0 +1,31 @@
+{
+  "about": "sections (badge, footer, collapsible, collapsed) and rows in every shape: tones, mono, nav, selected, disabled, actions, content",
+  "self": "apps/server",
+  "routes": {
+    "GET /api/apps/server/status": {"json": {
+      "me": "ana@acme.dev",
+      "host": "xbin-prod-1.acme.dev", "uptime": 1051200, "restarted": "Sep 9 at 03:12",
+      "version": "v0.9.4", "latest": "v0.9.6", "goVersion": "go1.26.1", "commit": "3a8869c",
+      "fingerprint": "SHA256:q7Lw0d3k9vXcN2mB", "dataDir": "/var/lib/xbin/acme",
+      "health": [
+        {"name": "Web", "icon": "globe", "state": "ok", "label": "200 ms", "note": "p95 over the last hour"},
+        {"name": "Memory", "icon": "cpu", "state": "warn", "label": "81%", "note": "6.5 GB of 8 GB"},
+        {"name": "Backups", "icon": "archive", "state": "fail", "label": "failed", "note": "S3: access denied, 2 h ago"},
+        {"name": "Mail relay", "icon": "mail", "state": "off", "label": "off", "note": "not configured"},
+        {"name": "Certificates", "icon": "lock", "state": "info", "label": "renews in 12 d", "note": "Let's Encrypt"}
+      ],
+      "disk": {"used": "84 GB", "size": "200 GB", "ratio": 0.42},
+      "snapshots": 27,
+      "members": [
+        {"name": "Ana Kowalska", "email": "ana@acme.dev", "role": "owner"},
+        {"name": "Ben Ortiz", "email": "ben@acme.dev", "role": "admin"},
+        {"name": "Chloé Martin", "email": "chloe@acme.dev", "role": "member"},
+        {"name": "dev-bot", "email": "bot@acme.dev", "role": "member", "pending": true}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "row[title=Ben Ortiz]", "type": "tap", "note": "select a member"},
+    {"select": "section[title=Advanced]", "type": "toggle", "payload": {"collapsed": true}}
+  ]
+}

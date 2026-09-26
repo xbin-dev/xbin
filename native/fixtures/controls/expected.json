@@ -1,0 +1,27 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"New backup job","style":"form"},"c":[
+  {"k":"r.0","t":"section","p":{"title":"Destination"},"c":[
+    {"k":"r.0.0","t":"field","p":{"kind":"text","label":"Name","placeholder":"nightly-db","value":"nightly-postgres","submit":"next"},"e":["input"]},
+    {"k":"r.0.1","t":"field","p":{"kind":"url","label":"Endpoint","value":"https://s3.eu-central-1.amazonaws.com","hint":"Any S3-compatible service"},"e":["change"]},
+    {"k":"r.0.2","t":"field","p":{"kind":"search","label":"Bucket","placeholder":"Search buckets","value":"acme","submit":"search","hint":"2 found: acme-backups, acme-logs"},"e":["input","submit"]},
+    {"k":"r.0.3","t":"field","p":{"kind":"secure","label":"Secret key","placeholder":"unchanged","value":"example-secret-key-0000","hint":"Stored encrypted; never shown again"},"e":["input"]},
+    {"k":"r.0.4","t":"field","p":{"label":"Region","value":"eu-central-1","disabled":true,"hint":"Set by the endpoint"}}
+  ]},
+  {"k":"r.1","t":"section","p":{"title":"Schedule"},"c":[
+    {"k":"r.1.0","t":"picker","p":{"label":"Frequency","style":"segmented","value":"weekly","options":[{"value":"hourly","label":"Hourly"},{"value":"daily","label":"Daily"},{"value":"weekly","label":"Weekly"}]},"e":["change"]},
+    {"k":"r.1.1","t":"field","p":{"kind":"time","label":"At","value":"02:30"},"e":["change"]},
+    {"k":"r.1.2","t":"field","p":{"kind":"date","label":"Starting","value":"2026-09-21"},"e":["change"]},
+    {"k":"r.1.3","t":"picker","p":{"label":"Keep","style":"menu","value":90,"options":[{"value":7,"label":"7 days","icon":"archive"},{"value":30,"label":"30 days","icon":"archive"},{"value":90,"label":"90 days","icon":"archive"},{"value":365,"label":"365 days","icon":"archive"}]},"e":["change"]},
+    {"k":"r.1.4","t":"field","p":{"kind":"number","label":"Parallel uploads","value":"12","error":"At most 8 on this plan"},"e":["input"]}
+  ]},
+  {"k":"r.2","t":"section","p":{"title":"Options","footer":"Encryption is required by the Team plan."},"c":[
+    {"k":"r.2.0","t":"toggle","p":{"label":"Compress (zstd)","value":true},"e":["change"]},
+    {"k":"r.2.1","t":"toggle","p":{"label":"Encrypt","value":true,"disabled":true}},
+    {"k":"r.2.2","t":"toggle","p":{"label":"Verify after upload","value":true},"e":["change"]},
+    {"k":"r.2.3","t":"picker","p":{"label":"Storage class","style":"inline","value":"standard","options":[{"value":"standard","label":"Standard","icon":"bolt"},{"value":"infrequent","label":"Infrequent access","icon":"clock"},{"value":"glacier","label":"Archive","icon":"archive"}]},"e":["change"]},
+    {"k":"r.2.4","t":"field","p":{"kind":"multiline","label":"Exclude","placeholder":"one pattern per line","value":"*.tmp\nnode_modules/\n.cache/"},"e":["input"]},
+    {"k":"r.2.5","t":"field","p":{"kind":"email","label":"Notify","placeholder":"you@example.com","value":"","submit":"done"},"e":["input"]}
+  ]},
+  {"k":"r.3","t":"section","c":[
+    {"k":"r.3.0","t":"button","p":{"role":"primary","icon":"check","disabled":true,"busy":false,"label":"Create job"},"e":["tap"]}
+  ]}
+]}}

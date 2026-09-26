@@ -1,0 +1,44 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Release v2.15.0","subtitle":"48 commits since v2.14.1","style":"form"},"c":[
+  {"k":"r.0","t":"toolbar","c":[
+    {"k":"r.0.0","t":"picker","p":{"style":"menu","value":"beta","options":[{"value":"stable","label":"Stable","icon":"check"},{"value":"beta","label":"Beta","icon":"sparkles"}]},"e":["change"]},
+    {"k":"r.0.1","t":"badge","p":{"tone":"muted","text":"draft"}},
+    {"k":"r.0.2","t":"menu","p":{"icon":"ellipsis","label":"More"},"c":[
+      {"k":"r.0.2.0","t":"button","p":{"icon":"pencil","label":"Edit notes"},"e":["tap"]},
+      {"k":"r.0.2.1","t":"button","p":{"icon":"external","label":"Open on GitHub"},"e":["tap"]},
+      {"k":"r.0.2.2","t":"divider"},
+      {"k":"r.0.2.3","t":"button","p":{"role":"destructive","icon":"trash","label":"Discard draft"},"e":["tap"]}
+    ]},
+    {"k":"r.0.3","t":"button","p":{"icon":"refresh","label":"Reload"},"e":["tap"]}
+  ]},
+  {"k":"r.1","t":"section","p":{"title":"Ship","footer":"Publishes to the beta channel and notifies 12 watchers."},"c":[
+    {"k":"r.1.0","t":"button","p":{"role":"primary","icon":"upload","busy":true,"disabled":true,"label":"Publish release"},"e":["tap"]},
+    {"k":"r.1.1","t":"button","p":{"role":"secondary","icon":"doc","label":"Save draft"},"e":["tap"]},
+    {"k":"r.1.2","t":"button","p":{"role":"plain","icon":"eye","label":"Preview notes"},"e":["tap"]},
+    {"k":"r.1.3","t":"button","p":{"role":"destructive","icon":"trash","confirm":{"title":"Delete the v2.15.0 draft?","message":"The tag and its uploaded assets are removed.","label":"Delete draft","destructive":true},"label":"Delete draft"},"e":["tap"]}
+  ]},
+  {"k":"r.2","t":"section","p":{"title":"Verify"},"c":[
+    {"k":"r.2.0","t":"button","p":{"icon":"shield","disabled":true,"label":"Notarize (needs a signing key)"},"e":["tap"]},
+    {"k":"r.2.1","t":"button","p":{"icon":"copy","copy":"git tag -s v2.15.0 9b1f0c4","label":"Copy tag command"}},
+    {"k":"r.2.2","t":"button","p":{"icon":"terminal","confirm":{"title":"Re-run the checks?","message":"Takes about 6 minutes.","label":"Re-run"},"label":"Re-run checks"},"e":["tap"]}
+  ]},
+  {"k":"r.3","t":"section","p":{"title":"Assets","badge":"3","footer":"Swipe an asset to download or delete it."},"c":[
+    {"k":"r.3.0:xbind-linux-amd64.tar.gz","t":"row","p":{"title":"xbind-linux-amd64.tar.gz","mono":"title","detail":"23.5 MB","icon":"file"},"c":[
+      {"k":"r.3.0:xbind-linux-amd64.tar.gz.0","t":"actions","c":[
+        {"k":"r.3.0:xbind-linux-amd64.tar.gz.0.0","t":"button","p":{"icon":"download","label":"Download"},"e":["tap"]},
+        {"k":"r.3.0:xbind-linux-amd64.tar.gz.0.1","t":"button","p":{"role":"destructive","icon":"trash","label":"Delete"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.3.0:xbind-linux-arm64.tar.gz","t":"row","p":{"title":"xbind-linux-arm64.tar.gz","mono":"title","detail":"21.8 MB","icon":"file"},"c":[
+      {"k":"r.3.0:xbind-linux-arm64.tar.gz.0","t":"actions","c":[
+        {"k":"r.3.0:xbind-linux-arm64.tar.gz.0.0","t":"button","p":{"icon":"download","label":"Download"},"e":["tap"]},
+        {"k":"r.3.0:xbind-linux-arm64.tar.gz.0.1","t":"button","p":{"role":"destructive","icon":"trash","label":"Delete"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.3.0:SHA256SUMS","t":"row","p":{"title":"SHA256SUMS","mono":"title","detail":"412 B","icon":"file"},"c":[
+      {"k":"r.3.0:SHA256SUMS.0","t":"actions","c":[
+        {"k":"r.3.0:SHA256SUMS.0.0","t":"button","p":{"icon":"download","label":"Download"},"e":["tap"]},
+        {"k":"r.3.0:SHA256SUMS.0.1","t":"button","p":{"role":"destructive","icon":"trash","label":"Delete"},"e":["tap"]}
+      ]}
+    ]}
+  ]}
+]}}
