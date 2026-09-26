@@ -271,7 +271,8 @@ Mac mini over ssh included) and most of it is checked here:
 - `pick-sim.sh` — prints the destination (`platform=iOS Simulator,id=…`):
   an iPhone on the newest iOS runtime, newest model generation, base model
   before Pro/Max; no iPhone → any iOS simulator; none at all → creates one.
-  Never the UI tests' `xbin-e2e` (an e2e run erases it) unless named.
+  Never the UI tests' own `xbin-e2e*` (an e2e run erases it), not even
+  through `XBIN_SIM` — only `XBIN_SIM_ENSURE` reaches it.
   `XBIN_SIM="iPhone 17 Pro"` prefers a name; `XBIN_SIM_ENSURE=xbin-e2e` uses
   (or creates) the device of exactly that name.
 - `ci-toolchain.sh` (every job), `ci-cache.sh`, `ci-xcodegen.sh`,

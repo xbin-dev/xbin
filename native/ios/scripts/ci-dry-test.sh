@@ -66,11 +66,14 @@ export FAKE_SIMCTL_JSON=$td/simctl-e2e-device.json
 run "$S/pick-sim.sh"
 eq "pick-sim: never the UI tests' xbin-e2e, nor a renamed device, by the rule" "$(printf '%s\n' "$out" | tail -n 1)" \
   "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002714"
+XBIN_SIM="My 17" run "$S/pick-sim.sh"
+eq "pick-sim: …but a renamed device when XBIN_SIM names it" "$(printf '%s\n' "$out" | tail -n 1)" \
+  "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-0000000027AA"
 XBIN_SIM=xbin-e2e run "$S/pick-sim.sh"
-eq "pick-sim: …xbin-e2e when XBIN_SIM names it" "$(printf '%s\n' "$out" | tail -n 1)" \
-  "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-0000000027E2"
+eq "pick-sim: …never xbin-e2e through XBIN_SIM" "$(printf '%s\n' "$out" | tail -n 1)" \
+  "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002714"
 XBIN_SIM_ENSURE=xbin-e2e run "$S/pick-sim.sh"
-eq "pick-sim: …or XBIN_SIM_ENSURE" "$(printf '%s\n' "$out" | tail -n 1)" \
+eq "pick-sim: …only through XBIN_SIM_ENSURE" "$(printf '%s\n' "$out" | tail -n 1)" \
   "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-0000000027E2"
 
 export FAKE_SIMCTL_JSON=$td/simctl-ipad-only.json

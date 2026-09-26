@@ -11,11 +11,9 @@
 # carries its type's name before one renamed. No iPhone → any iOS
 # simulator (an iPad) by the same order. No iOS simulator at all but an
 # iOS runtime → create one from the newest iPhone device type the newest
-# runtime supports. Unavailable devices and runtimes never count, and
-# neither does xbin-e2e — the UI tests' own simulator, which an e2e run
-# erases (mac-setup.sh makes it on the Mac mini) — unless XBIN_SIM or
-# XBIN_SIM_ENSURE names it. The choice (name, runtime, UDID) goes to
-# stderr.
+# runtime supports. Unavailable devices and runtimes never count, nor do
+# the UI tests' own simulators (below). The choice (name, runtime, UDID)
+# goes to stderr.
 #
 #   XBIN_SIM="iPhone 17 Pro"   prefer this device name when it exists
 #   XBIN_SIM_ENSURE=xbin-e2e   use the device of exactly this name, creating
@@ -93,9 +91,6 @@ def rank(name, type_id, runtime_version):
             generation(name, type_id), -len(tname), name == tname,
             -len(name), [-ord(c) for c in name])
 
-# Simulators kept for one use, picked only by name (XBIN_SIM, XBIN_SIM_ENSURE).
-reserved = {"xbin-e2e"}
-
 devices = []
 for rid, devs in (data.get("devices") or {}).items():
     rt = runtimes.get(rid)
@@ -133,7 +128,6 @@ if want:
         emit("device", udid, "%s (%s)" % (n, rt["name"]))
     print("XBIN_SIM=%r is not an available iOS simulator; picking by the rule" % want, file=sys.stderr)
 
-devices = [d for d in devices if d[0] not in reserved]
 if devices:
     n, tid, rt, udid = max(devices, key=lambda d: rank(d[0], d[1], d[2]["version"]))
     emit("device", udid, "%s (%s)" % (n, rt["name"]))
