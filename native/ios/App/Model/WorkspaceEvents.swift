@@ -105,9 +105,15 @@ final class WorkspaceEvents {
     }
 
     /// Runs `perform` on every reload of `tile` until the calling task is
-    /// cancelled (a view's `.task`).
+    /// cancelled (a view's `.task`). A save is often several writes (and
+    /// several events): it waits 200 ms first, so a burst reloads once or
+    /// twice, not once per file.
     func onReload(of tile: String, perform: () -> Void) async {
-        for await _ in reloads(of: tile) { perform() }
+        for await _ in reloads(of: tile) {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if Task.isCancelled { return }
+            perform()
+        }
     }
 
     /// The live events of agent session `id`, and a `.resync` after a gap.
@@ -361,5 +367,13 @@ private final class EventSocketDelegate: NSObject, URLSessionWebSocketDelegate, 
         let status = (task.response as? HTTPURLResponse)?.statusCode
         let failed = error != nil
         MainActor.assumeIsolated { owner?.didComplete(status: status, failed: failed) }
+    }
+
+    /// Never follow a redirect with the bearer: a 3xx is an answer (retried
+    /// with backoff), not a place to send the session. (AppTransport's
+    /// form; Linux's Foundation has no async variant — there it's unused.)
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        nil
     }
 }

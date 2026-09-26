@@ -9,11 +9,13 @@ struct XbinApp: App {
     @State private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    /// One window group; each window is a RootView with its own workspace
+    /// and navigation (SceneModel). `openWindow(value: WindowTarget(…))`
+    /// opens another on a workspace or a tile (iPad, Stage Manager, Mac).
     var body: some Scene {
-        WindowGroup {
-            RootView()
+        WindowGroup(for: WindowTarget.self) { $target in
+            RootView(target: $target)
                 .environment(model)
-                .onOpenURL { model.open(url: $0) }
                 .tint(Color.xbinAmber)
         }
         .onChange(of: scenePhase) { _, phase in
@@ -25,6 +27,7 @@ struct XbinApp: App {
                 }
             case .background:
                 if AppSettings.appLock { model.locked = true }
+                model.enteredBackground()
             default: break
             }
         }
@@ -82,16 +85,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Whether a foreground window already shows what the notification is
+    /// about (any window: each has its own workspace and surface).
     @MainActor static func isShowing(app: String?, link: String) -> Bool {
-        let m = AppModel.shared
-        guard let app, m.selectedID == app, let w = m.workspace(app), let s = w.surface,
-              UIApplication.shared.applicationState == .active else { return false }
-        switch PushPayload(ws: "", kind: "", title: "", link: link).deepLink(appWorkspace: app) {
-        case .tile(_, let t, _): if case .tile(let p, _, _) = s { return p == t }
-        case .agent(_, let id): if case .agent(_, let sid) = s { return sid == id }
-        default: break
-        }
-        return false
+        guard UIApplication.shared.applicationState == .active else { return false }
+        return AppModel.shared.isShowing(app: app, link: link)
     }
 }
 
