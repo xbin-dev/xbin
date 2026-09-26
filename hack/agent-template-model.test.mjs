@@ -44,6 +44,16 @@ const routes = [
   ['GET', /\/conversations\?/, () => json({ pinned: [], next: '', items: [
     { id: 1, title: 'plan', status: 'idle', access: 'owner', mine: true, activityMs: 2000, readMs: 1000 },
     { id: 2, title: 'q', status: 'waiting_input', access: 'owner', mine: true, activityMs: 1000, readMs: 1000 }] })],
+  // run 5 in pages of two (the native view's paged reads, API.md "Paging the view")
+  ['GET', /\/runs\/5\/view\?limit=2(?:&before=(\d+))?$/, (m) => {
+    const all = [1, 2, 3, 4, 5, 6].map((i) => ({ id: i, seq: i, role: i % 2 ? 'user' : 'assistant', content: 'm' + i, created: 100 + i }));
+    const before = m[1] ? +m[1] : 99;
+    const older = all.filter((x) => x.seq < before);
+    const page = older.slice(-2);
+    const hasOlder = older.length > 2;
+    return json(view(5, { messages: page, hasOlder, ...(hasOlder ? { nextBefore: page[0].seq } : {}), compacted: 0, linkCount: 0,
+      steps: before === 99 ? [{ id: 1, kind: 'note', detail: '{"text":"n"}', created: 106 }] : [] }));
+  }],
   ['GET', /\/runs\/1\/view$/, () => json(view(1, { access: 'owner', queued: [{ id: 7, text: 'queued one' }] }))],
   ['GET', /\/runs\/2\/view$/, () => json(view(2, { run: { id: 2, title: 'q', status: 'waiting_input', rootId: 2, pendingState: { kind: 'question' }, result: 'which?' } }))],
   ['GET', /\/runs\/(\d+)\/view$/, (m) => json(view(+m[1]))],
@@ -221,6 +231,47 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   assert.equal(cleared.length, 1, 'the text stays in the composer');
   state.uploadFails = false;
 
+  app.session.live.close();
+});
+
+test('the native view\'s options: drafts as deltas, the open conversation in pages', async () => {
+  const app = createApp({ deltas: true, page: 2 });
+  const before = streams.size;
+  app.start();
+  await until(() => streams.size === before + 1);
+  assert.ok(calls.filter((c) => c.url.includes('/stream?')).pop().url.includes('deltas=1'), 'the stream asks for deltas');
+  await app.select(5);
+  assert.ok(called('GET', '/runs/5/view').pop().url.endsWith('/runs/5/view?limit=2'), 'the open conversation is read from its newest page');
+  let s = app.session.shown();
+  assert.equal(s.hasOlder, true);
+  assert.equal(s.olderHidden, false, 'a page counts compacted messages instead of holding them');
+  assert.deepEqual(s.blocks.map((b) => b.k + ':' + (b.text || b.kind)), ['user:m5', 'assistant:m6', 'step:note'],
+    'a page with older ones holds no opening message: its first user message is shown');
+  await app.session.loadOlder();
+  assert.ok(called('GET', '/runs/5/view').pop().url.endsWith('before=5'));
+  await app.session.loadOlder();
+  s = app.session.shown();
+  assert.equal(s.hasOlder, false);
+  assert.deepEqual(s.blocks.filter((b) => b.k !== 'step').map((b) => b.text), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'], 'the pages merge into the whole transcript');
+  await app.session.loadOlder(); // nothing older: no request
+  assert.equal(called('GET', '/runs/5/view').length, 3);
+
+  // deltas append; one that does not fit what is held reconnects the stream
+  await until(() => streams.size === before + 1);
+  push({ type: 'thinking', run: 5, root: 5, ts: 1000, data: { text: 'hm' } });
+  push({ type: 'thinking.delta', run: 5, root: 5, ts: 1001, data: { delta: 'm…', at: 2 } });
+  push({ type: 'text', run: 5, root: 5, ts: 1002, data: { text: 'He' } });
+  push({ type: 'text.delta', run: 5, root: 5, ts: 1003, data: { delta: 'llo', at: 2 } });
+  await until(() => app.session.shown().blocks.some((b) => b.k === 'draft' && b.text === 'Hello'));
+  const think = app.session.shown().blocks.find((b) => b.k === 'think');
+  assert.equal(think.text, 'hmm…');
+  assert.equal(think.live, false, 'text after thinking ends it');
+  const streamsAsked = calls.filter((c) => c.url.includes('/stream?')).length;
+  push({ type: 'text.delta', run: 5, root: 5, data: { delta: '!', at: 99 } });
+  await until(() => calls.filter((c) => c.url.includes('/stream?')).length === streamsAsked + 1);
+  const again = calls.filter((c) => c.url.includes('/stream?')).pop().url;
+  assert.match(again, /run=5&since=g\.\d+&deltas=1/, 'it reconnects from its cursor');
+  assert.equal(app.session.shown().blocks.find((b) => b.k === 'draft').text, 'Hello', 'the misfit is not appended');
   app.session.live.close();
 });
 
