@@ -28,6 +28,9 @@ import (
 // cmdExtra is main's default arm: the commands that did not fit the
 // switch (main.go is at its size budget).
 func cmdExtra(cmd string, args []string) error {
+	if f, ok := moreCmds[cmd]; ok { // native.go
+		return f(args)
+	}
 	switch cmd {
 	case "agent":
 		return cmdAgent(args)

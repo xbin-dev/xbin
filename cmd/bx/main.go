@@ -59,12 +59,6 @@ func main() {
 		err = cmdLogs(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor()
-	case "native":
-		err = cmdNative(os.Args[2:])
-	case "lint":
-		err = cmdLint(os.Args[2:])
-	case "preview":
-		err = cmdPreview(os.Args[2:])
 	case "api":
 		err = cmdAPI(os.Args[2:])
 	case "grant":
@@ -177,14 +171,7 @@ func usage() {
                                         drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
   bx doctor                             check the workspace for problems
-  bx native tree <tile> [--data d.json] the tile's rendered native tree (JSON)
-  bx lint --native [tile…] [--static] [--json]
-                                        check native UIs; no tile = the whole
-                                        workspace, with its native coverage
-  bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
-             [--data d.json] [--full] --out shot.png
-                                        screenshot a native UI (reference renderer)
-`)
+`+nativeUsage)
 	os.Exit(2)
 }
 

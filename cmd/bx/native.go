@@ -23,6 +23,23 @@ import (
 // headless Chromium against the live backend — or a replayed fixture
 // (--data) — and read what the tile rendered.
 
+// moreCmds are top-level commands dispatched by cmdExtra (main.go's switch
+// is at its size budget).
+var moreCmds = map[string]func([]string) error{
+	"native":  cmdNative,
+	"lint":    cmdLint,
+	"preview": cmdPreview,
+}
+
+const nativeUsage = `  bx native tree <tile> [--data d.json] the tile's rendered native tree (JSON)
+  bx lint --native [tile…] [--static] [--json]
+                                        check native UIs; no tile = the whole
+                                        workspace, with its native coverage
+  bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
+             [--data d.json] [--full] [--out shot.png]
+                                        screenshot a native UI (reference renderer)
+`
+
 type nativeArgs struct {
 	cmd       string // tree | lint | preview
 	native    bool
