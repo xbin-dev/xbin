@@ -160,6 +160,7 @@ type agentEvent struct {
 
 type agentRunOpts struct {
 	tile, provider, mode, net, name string
+	vm                              bool              // --vm: a VM sandbox (plans/vm-sandbox.md)
 	options                         map[string]string // --model, --option k=v
 	rest                            []string
 }
@@ -167,8 +168,8 @@ type agentRunOpts struct {
 // parseAgentRun reads `run`'s flags: --tile (default: this terminal's
 // tile), --provider (default: $XBIN_AGENT_PROVIDER or claude), --mode,
 // --model (a model the agent offers), --option k=v (any setting the agent
-// advertises: effort, fast, …; repeatable), --net, --name; the rest is the
-// prompt.
+// advertises: effort, fast, …; repeatable), --net, --name, --vm; the rest is
+// the prompt.
 func parseAgentRun(args []string) (agentRunOpts, error) {
 	o := agentRunOpts{tile: os.Getenv("XBIN_COMPONENT"), provider: os.Getenv("XBIN_AGENT_PROVIDER"), options: map[string]string{}}
 	if o.provider == "" {
@@ -204,6 +205,8 @@ func parseAgentRun(args []string) (agentRunOpts, error) {
 			o.net, err = nextArg(args, &i)
 		case "--name":
 			o.name, err = nextArg(args, &i)
+		case "--vm":
+			o.vm = true
 		default:
 			err = unknownFlag("agent run", a, false)
 		}
@@ -225,7 +228,7 @@ func cmdAgentRun(args []string) error {
 		return err
 	}
 	if len(o.rest) == 0 {
-		return errors.New("usage: bx agent run [--tile <path>] [--provider p] [--mode m] [--model m] [--option id=v] [--net scope] \"<prompt>\"")
+		return errors.New("usage: bx agent run [--tile <path>] [--provider p] [--mode m] [--model m] [--option id=v] [--net scope] [--vm] \"<prompt>\"")
 	}
 	var info struct {
 		ID       string `json:"id"`
@@ -233,7 +236,7 @@ func cmdAgentRun(args []string) error {
 		Mode     string `json:"mode"`
 		Cwd      string `json:"cwd"`
 	}
-	body := map[string]any{"cwd": o.tile, "kind": "agent", "provider": o.provider, "mode": o.mode, "net": o.net, "name": o.name}
+	body := map[string]any{"cwd": o.tile, "kind": "agent", "provider": o.provider, "mode": o.mode, "net": o.net, "name": o.name, "vm": o.vm}
 	if len(o.options) > 0 {
 		body["options"] = o.options
 	}

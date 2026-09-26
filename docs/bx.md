@@ -115,10 +115,11 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
-bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] "<prompt>"
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] "<prompt>"
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
-                                       stream lands here (D74)
+                                       stream lands here (D74); --vm: in a VM
+                                       sandbox, root in its own kernel (D89)
 bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
                                        prompt a running one · answer a
                                        permission request (first answer wins)
