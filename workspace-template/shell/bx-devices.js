@@ -3,7 +3,8 @@
  * devices enrolled for the signed-in user. Lists them (name, platform, last
  * sign-in) with each one's push registration (GET /devices/push: what it is
  * notified about, when it was last sent one, whether the relay wants a new
- * handle — removable on its own), removes one (its app sessions and push
+ * handle, its Live Activities — whether xbind may start one for a long agent
+ * turn, and the cards it follows — removable on its own), removes one (its app sessions and push
  * registration end at once), and adds one: a
  * one-time enrollment code shown as a QR code of the xbin://enroll link plus
  * the raw link, valid five minutes — the panel watches the list and says so
@@ -51,7 +52,7 @@ async function qrPath(text) {
 export class BxDevices extends LitElement {
   static properties = {
     _devices: { state: true }, // null = loading
-    _push: { state: true },    // GET /devices/push {enabled, devices:[{deviceId, kinds, lastSent, needsNewHandle}]}; null = unavailable
+    _push: { state: true },    // GET /devices/push {enabled, devices:[{deviceId, kinds, lastSent, needsNewHandle, pushToStart, activities}]}; null = unavailable
     _enroll: { state: true },  // {code, url, origin, expires, qr, known:Set, added}
     _stepUp: { state: true },  // {mode: 'password'|'signin', msg, retry} — the server asked to re-prove it's you
     _confirm: { state: true }, // device id awaiting "remove?" confirmation
@@ -144,13 +145,17 @@ export class BxDevices extends LitElement {
     this._loadPush();
   }
 
-  // One registration's line: what it gets, when it last got one, whether
-  // the relay wants a new handle, and remove.
+  // One registration's line: what it gets, when it last got one, its Live
+  // Activities (push-to-start registered; cards it follows), whether the
+  // relay wants a new handle, and remove.
   _pushLine(reg) {
     if (!reg) return html`<div class="push">🔕 no push notifications</div>`;
     const kinds = reg.kinds?.length ? reg.kinds.join(', ') : 'all';
+    const n = reg.activities?.length ?? 0;
+    const live = [reg.pushToStart ? 'xbind may start one' : '', n ? `${n} following` : ''].filter(Boolean).join(', ');
     return html`<div class="push" data-push=${reg.deviceId}>🔔 notifications: ${kinds}
       · ${reg.lastSent ? `last sent ${ago(reg.lastSent)}` : 'none sent yet'}
+      ${live ? html`· <span data-live title="agent turns on the lock screen and in the Dynamic Island (removing the registration ends them)">Live Activities: ${live}</span>` : nothing}
       ${reg.needsNewHandle ? html`· <span class="warn" title=${reg.relayError ?? ''}>needs a new handle — the app renews it at its next sign-in</span>` : nothing}
       <button title="stop notifications to this device (the app registers again at its next sign-in)"
         @click=${() => this._removePush(reg.deviceId)}>remove</button></div>`;

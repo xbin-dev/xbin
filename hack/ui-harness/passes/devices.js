@@ -37,10 +37,12 @@ async function deviceLogin(dev, key) {
   return post('/login/device', { deviceId: dev.deviceId, nonce: ch.body.nonce, signature: sig });
 }
 // A push registration as the app makes one: the relay handle and the
-// device's X25519 key (raw, base64url).
-async function registerPush(deviceId, kinds, { bearer, request } = {}) {
+// device's X25519 key (raw, base64url) — and, with liveActivities, the
+// relay handle of its Live Activity push-to-start token.
+async function registerPush(deviceId, kinds, { bearer, request, liveActivities } = {}) {
   const { publicKey } = crypto.generateKeyPairSync('x25519');
   const body = { deviceId, handle: crypto.randomBytes(18).toString('base64url'), publicKey: publicKey.export({ format: 'jwk' }).x, kinds };
+  if (liveActivities) body.startHandle = crypto.randomBytes(18).toString('base64url');
   if (request) {
     const r = await request.post(`${URL}/api/xbin/devices/push`, { data: body });
     return { status: r.status(), body: await r.json().catch(() => ({})) };
@@ -161,7 +163,7 @@ async function devices(browser) {
 
   // Push: the phone registers (as the app does after its device login);
   // the browser registers one too — a sign-in without a device key.
-  const regA = await registerPush(devA.body.deviceId, ['agent', 'tile'], { bearer: tokA });
+  const regA = await registerPush(devA.body.deviceId, ['agent', 'tile'], { bearer: tokA, liveActivities: true });
   check(regA.status === 200 && regA.body.device?.deviceId === devA.body.deviceId, `the phone registers push (${regA.status} ${JSON.stringify(regA.body)})`);
   for (const r of (await (await ctx.request.get(`${URL}/api/xbin/devices/push`)).json()).devices ?? []) {
     if (r.deviceId === 'harness-browser') await ctx.request.delete(`${URL}/api/xbin/devices/push/${r.deviceId}`);
@@ -182,6 +184,7 @@ async function devices(browser) {
   const pushA = await page.locator(`bx-devices li[data-device="${devA.body.deviceId}"] .push`).textContent();
   const pushB = await page.locator(`bx-devices li[data-device="${devB.body.deviceId}"] .push`).textContent();
   check(/notifications: agent, tile/.test(pushA) && /none sent yet/.test(pushA), `the phone's row shows its push registration (${pushA.trim()})`);
+  check(/Live Activities: xbind may start one/.test(pushA), `the phone's row shows its Live Activities (${pushA.trim()})`);
   check(/no push notifications/.test(pushB), `the iPad's row shows none (${pushB.trim()})`);
   check(await page.locator('bx-devices li[data-push-other="harness-browser"] [data-push]').count() === 1,
     'the browser\'s registration is listed apart');
