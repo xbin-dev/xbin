@@ -29,6 +29,24 @@ import Testing
         #expect(t == .init(url: URL(string: "https://ws.example.com/login?ticket=a%20b&next=%2Fc%2Fapps%2Fx%2F")!, fellBack: false))
     }
 
+    /// xbind builds the ticket URL on the device's enrollment origin; an app
+    /// that talks to another address (the QR code's "address your phone
+    /// uses") opens its path and query there (device-login.md §6).
+    @Test func ticketURLOnTheEnrollmentOriginOpensOnTheServer() {
+        let tunnel = try! ServerOrigin(string: "http://127.0.0.1:9875")
+        let answer = json(200, ["url": "https://ws.example.com/login?ticket=T3&next=%2Fc%2Fapps%2Fx%2F"])
+        let d = WebTicket.destination(answer, origin: tunnel, signedOrigin: "https://ws.example.com", next: "/c/apps/x/")
+        #expect(d == .init(url: URL(string: "http://127.0.0.1:9875/login?ticket=T3&next=%2Fc%2Fapps%2Fx%2F")!, fellBack: false))
+        // Only the enrollment origin moves: another host is still refused.
+        let evil = json(200, ["url": "https://evil.example/login?ticket=T3"])
+        #expect(WebTicket.destination(evil, origin: tunnel, signedOrigin: "https://ws.example.com", next: "/")?.fellBack == true)
+        // Without the enrollment origin (an old record), as before.
+        #expect(WebTicket.destination(answer, origin: tunnel, next: "/c/apps/x/")?.fellBack == true)
+        // The same origin on both sides: used as it is.
+        let same = WebTicket.destination(answer, origin: origin, signedOrigin: "https://ws.example.com", next: "/")
+        #expect(same?.url.absoluteString == "https://ws.example.com/login?ticket=T3&next=%2Fc%2Fapps%2Fx%2F" && same?.fellBack == false)
+    }
+
     /// Anything but a same-origin ticket: the plain page (the user signs in
     /// in Safari, as before the route existed).
     @Test func fallsBackToThePlainPage() {

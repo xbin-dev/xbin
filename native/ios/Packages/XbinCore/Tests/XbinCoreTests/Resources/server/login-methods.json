@@ -1,0 +1,14 @@
+{
+ "api": 1,
+ "title": "Acme",
+ "auth": true,
+ "password": {
+  "enabled": true,
+  "adminOnly": false
+ },
+ "sso": {
+  "enabled": true,
+  "label": "Sign in with Acme"
+ },
+ "invites": true
+}

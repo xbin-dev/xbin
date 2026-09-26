@@ -20,9 +20,11 @@ public struct WorkspaceRecord: Sendable, Hashable, Identifiable {
     /// The id xbind gave this device at enrollment; nil until enrolled.
     public var deviceId: String?
     /// The origin the enrollment returned (``DeviceEnrollment/origin``) —
-    /// what every device login signs. It can differ from ``server`` (an
-    /// operator's `--external-url` vs the LAN address the app talks to);
-    /// nil = ``server``'s origin.
+    /// what every device login signs (``signedOrigin``). It can differ from
+    /// ``server``: an operator's `--external-url` vs the LAN address the app
+    /// talks to, or the "address your phone uses" a browser put into the QR
+    /// code while it reaches xbin through a tunnel. nil (a record from
+    /// before enrollment kept it) = ``server``'s origin.
     public var deviceOrigin: String?
     /// The name this device enrolled under (shown in the Devices list).
     public var deviceName: String?
@@ -53,6 +55,10 @@ public struct WorkspaceRecord: Sendable, Hashable, Identifiable {
         return r == id || r == server.authority
     }
 
+    /// The origin device logins sign: the enrollment's (``deviceOrigin``),
+    /// else ``server``'s. Requests always go to ``server``.
+    public var signedOrigin: String { deviceOrigin ?? server.origin }
+
     /// Records an enrollment: the device id and the origin to sign.
     public mutating func enrolled(_ e: DeviceEnrollment, name: String? = nil) {
         deviceId = e.deviceId
@@ -64,7 +70,7 @@ public struct WorkspaceRecord: Sendable, Hashable, Identifiable {
     /// when the device isn't enrolled.
     public func deviceLoginMessage(nonce: String) throws -> Data {
         guard let deviceId else { throw DeviceLogin.Invalid(reason: "this workspace has no enrolled device") }
-        return try DeviceLogin.message(origin: deviceOrigin ?? server.origin, deviceId: deviceId, nonce: nonce)
+        return try DeviceLogin.message(origin: signedOrigin, deviceId: deviceId, nonce: nonce)
     }
 
     /// The title for the switcher: the branding title, else the host.

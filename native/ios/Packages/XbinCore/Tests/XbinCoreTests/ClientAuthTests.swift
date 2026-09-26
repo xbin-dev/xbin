@@ -240,20 +240,6 @@ import Testing
         #expect(loggedOut.value)
     }
 
-    @Test func tokenLoginReadsWhoami() async throws {
-        let s = FakeServer()
-        await s.on("GET /api/xbin/whoami") { r in
-            r.header("Authorization") == "Bearer owner-token" ? json(200, try! Resources.json("server/whoami.json")) : json(401, [:])
-        }
-        let e = Enrollment(transport: s, keys: FakeKeys(), clientHeader: "x", platform: "ios")
-        let (rec, c) = try await e.tokenLogin(server: testOrigin, token: "owner-token", workspaceID: "w")
-        #expect(rec.user.id == "admin" && rec.user.name == "Dev Admin" && rec.deviceId == nil)
-        #expect(c.kind == .token && c.role == "admin")
-        await #expect(throws: Enrollment.Failure.invalidCredentials) {
-            try await e.tokenLogin(server: testOrigin, token: "x")
-        }
-    }
-
     @Test func credentialExpiry() {
         let now = Date(timeIntervalSince1970: 1000)
         #expect(!SessionCredential(token: "t", kind: .device).isExpired(at: now))

@@ -13,7 +13,8 @@ public struct SessionCredential: Sendable, Equatable, Codable {
         /// `POST /api/xbin/login` or an SSO ticket before a device exists.
         case password
         case sso
-        /// Advanced "server URL + token" (development): nothing renews it.
+        /// A raw bearer token (build 1's development "server URL + token"
+        /// login, gone since): still read from the Keychain; nothing renews it.
         case token
     }
 
@@ -300,8 +301,10 @@ public actor WorkspaceAuth {
 // MARK: - Adding a workspace
 
 /// The flows that end with a new workspace record: redeeming an enrollment
-/// code (a QR code from a signed-in browser, or one the app mints after a
-/// password/SSO sign-in), and the development "server + token" login.
+/// code — a QR code from a signed-in browser, or one the app mints after a
+/// password, invite or SSO sign-in (Onboarding.swift has discovery and
+/// invites). Every workspace the app adds has a device key: there is no
+/// token login.
 public struct Enrollment: Sendable {
     public let transport: any APITransport
     public let keys: any DeviceKeyStore
@@ -324,6 +327,14 @@ public struct Enrollment: Sendable {
         case stepUp(String)
         case notAUser(String)
         case invalidCredentials
+        /// The invite link is unknown, expired or used (403 on the invite routes).
+        case inviteInvalid(String)
+        /// The password policy refused the new password (400; the invite isn't spent).
+        case passwordRejected(String)
+        /// The workspace's xbin predates app invites: set the password in a browser.
+        case inviteNeedsBrowser
+        /// The workspace runs without sign-in (`--no-auth`): no account to enroll.
+        case noAccounts
         case server(APIError)
 
         public var description: String {
@@ -335,6 +346,14 @@ public struct Enrollment: Sendable {
             case .stepUp(let s): return s == "password" ? "Confirm your password to add this device." : "Sign in again to add this device."
             case .notAUser(let m): return "This sign-in can't enroll a device (\(m))."
             case .invalidCredentials: return "Wrong username or password."
+            case .inviteInvalid: return "This invite link is invalid, has expired or was already used. Ask for a new one."
+            case .passwordRejected(let m): return "The workspace refused that password: \(m)."
+            case .inviteNeedsBrowser:
+                return "This workspace's xbin is older than invites in the app. Open the invite link in a browser to "
+                    + "set your password, then come back and log in."
+            case .noAccounts:
+                return "This workspace runs without sign-in, and the app signs in to an account: it needs a workspace "
+                    + "with accounts. Ask its operator."
             case .server(let e): return e.description
             }
         }
@@ -429,22 +448,6 @@ public struct Enrollment: Sendable {
         // The device session replaces the password/SSO one: end that.
         _ = try? await send(APIRequest("POST", AppAuthRoute.logout), server, bearer: session.token)
         return enrolled
-    }
-
-    /// Advanced login: a raw bearer token (development). Checks it with
-    /// `/api/xbin/whoami` and returns a record without a device.
-    public func tokenLogin(server: ServerOrigin, token: String,
-                           workspaceID id: String = UUID().uuidString.lowercased()) async throws -> (WorkspaceRecord, SessionCredential) {
-        let r = try await send(APIRequest("GET", "/api/xbin/whoami"), server, bearer: token)
-        guard r.status == 200 else {
-            if r.status == 401 { throw Failure.invalidCredentials }
-            throw Failure.server(APIError(r))
-        }
-        let who = Whoami(json: try r.json())
-        let c = SessionCredential(token: token, kind: .token, userID: who.userID, userName: who.displayName, role: who.role)
-        let record = WorkspaceRecord(id: id, server: server,
-                                     user: WorkspaceUser(id: who.userID.isEmpty ? "owner" : who.userID, name: who.displayName))
-        return (record, c)
     }
 }
 

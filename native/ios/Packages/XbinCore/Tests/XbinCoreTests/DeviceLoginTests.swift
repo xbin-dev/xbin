@@ -50,6 +50,7 @@ import Testing
         w.enrolled(try DeviceEnrollment(json: ["deviceId": .string(try str("deviceId")), "user": "alice",
                                                 "origin": .string(try str("origin")), "name": "Alice's iPhone"]))
         #expect(try w.deviceLoginMessage(nonce: str("nonce")) == msg)
+        #expect(w.signedOrigin == (try str("origin")) && w.server.origin == "http://10.0.0.5:8080")
         #expect(w.deviceName == "Alice's iPhone")
     }
 

@@ -53,22 +53,42 @@ public enum WebTicket {
 
     /// Reads the answer. `response` nil = the request failed outright.
     /// A ticket URL must be on the workspace's own origin (relative, or
-    /// absolute with the same scheme, host and port); `{ticket}` without a
-    /// `url` is redeemed at `/login?ticket=…&next=…`.
-    public static func destination(_ response: APIResponse?, origin: ServerOrigin, next: String) -> Destination? {
+    /// absolute with the same scheme, host and port) — or on the device's
+    /// enrollment origin, `signedOrigin`: xbind builds it there, and when the
+    /// app talks to another address (the "address your phone uses" of the QR
+    /// code, device-login.md §6) its path and query open on `origin`
+    /// instead, since the enrollment origin may be one only the user's
+    /// browser reaches. `{ticket}` without a `url` is redeemed at
+    /// `/login?ticket=…&next=…`.
+    public static func destination(_ response: APIResponse?, origin: ServerOrigin, signedOrigin: String? = nil,
+                                   next: String) -> Destination? {
         let path = cleanNext(next)
         guard let plain = origin.url(path: path) else { return nil }
         let fallback = Destination(url: plain, fellBack: true)
         guard let r = response, r.isSuccess, let j = try? r.json() else { return fallback }
         if let u = j["url"]?.stringValue, !u.isEmpty {
-            guard let url = sameOrigin(u, origin) else { return fallback }
-            return Destination(url: url, fellBack: false)
+            if let url = sameOrigin(u, origin) { return Destination(url: url, fellBack: false) }
+            if let signed = signedOrigin.flatMap({ try? ServerOrigin(string: $0) }), signed != origin,
+               sameOrigin(u, signed) != nil, let url = moved(u, to: origin) {
+                return Destination(url: url, fellBack: false)
+            }
+            return fallback
         }
         if let t = j["ticket"]?.stringValue, !t.isEmpty,
            let url = origin.url(path: "/login?ticket=\(URLComponent.encode(t))&next=\(URLComponent.encode(path))") {
             return Destination(url: url, fellBack: false)
         }
         return fallback
+    }
+
+    /// `s`'s path, query and fragment on `origin`.
+    static func moved(_ s: String, to origin: ServerOrigin) -> URL? {
+        guard let c = URLComponents(string: s) else { return nil }
+        var p = c.percentEncodedPath.isEmpty ? "/" : c.percentEncodedPath
+        if let q = c.percentEncodedQuery { p += "?" + q }
+        if let f = c.percentEncodedFragment { p += "#" + f }
+        guard p.hasPrefix("/"), !p.hasPrefix("//") else { return nil }
+        return origin.url(path: p)
     }
 
     static func sameOrigin(_ s: String, _ origin: ServerOrigin) -> URL? {
