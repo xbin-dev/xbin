@@ -137,7 +137,7 @@ Every run records who it belongs to and where it came from (D83): `owner`
 (the user id of whoever started it; `""` for runs from before, or from the
 owner token and scripts), `visibility` (`private` | `team`) with `teamRole`
 (`viewer` | `participant` — what team visibility grants), `origin` (`chat`,
-`api`, `schedule`, `watcher`, `channel`; later `trigger`), `originId` (the
+`api`, `schedule`, `watcher`, `channel`, `trigger`), `originId` (the
 automation's id), `sessionKey`, `titleSrc` (`clip` | `auto` | `user` |
 `origin`) and `activityMs` (the last thing a person or the agent said, or a
 wait for someone — what the conversation list sorts by). `POST /ask` also
@@ -319,8 +319,8 @@ explicitly.
 
 ## Automations (D83)
 
-The non-UI agents — schedules, watchers and chat channels now, triggers as
-they land — are **automations**: each belongs to a person (who created it) and
+The non-UI agents — schedules, watchers, chat channels and event
+triggers — are **automations**: each belongs to a person (who created it) and
 is private or team-visible like a conversation, and the runs it fires carry
 its `origin`/`originId` and its owner and visibility. They are not in the
 conversation list; the tile's Automations page lists them with their runs.
@@ -419,6 +419,50 @@ the agent. A message typed into a channel conversation from this page is
 answered here, not posted. The list stream sends `{type: "automation",
 data: {kind, id}}` when a channel changes (announced, a pairing request, a
 failed delivery).
+
+### Triggers (D87)
+
+A **trigger** starts work when something happens, with the event in its
+goal:
+- an event on a bus this agent may read: an xbind bus push subscription,
+  `trig-<id>` → `POST /trigger/bus/<id>`, from `xbin/bus` only;
+- a push from a tile bound to this agent's `inbox` (the webhooks tile):
+  `POST /adapter/event`, `/docs/agent-inbox.md`.
+
+Where each event goes (`mode`):
+- `isolated`: a run of its own;
+- `persistent`: one ongoing thread, session `trig:<id>`;
+- `conversation`: a message into `targetRun`.
+
+**Event handling:**
+- Every event is recorded: the same event id never runs a trigger twice.
+- `maxPerHour` caps it.
+- While the agent is halted, events are dropped, and a push answers 503
+  so its sender retries.
+- The goal may use `{{topic}}` and `{{text}}`. The data follows it, fenced
+  and marked as data (16 KB at most).
+
+**Data classes keep the lane firewall whole:**
+- Event data is `private` unless its source says `public` (a webhook from
+  outside). Bus data is always private.
+- A trigger that reaches outside takes public data only, checked on save
+  and for every event. Reaching outside means the `web` toolset, or
+  announcing its answers to a chat channel (`deliver`: a session key of a
+  channel you own).
+- Runs on public data also can't schedule or save skills.
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
+| `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off |
+| `DELETE /triggers/{id}` | — | its owner or a manager |
+| `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner) |
+| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}` |
+| `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one |
+
+Triggers are kind `trigger` in `GET /automations` (reset starts a persistent
+one's thread afresh). An agent-made loop is refused: a trigger on this
+agent's own `events` bus needs a topic prefix.
 
 ## Skills
 

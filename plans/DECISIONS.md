@@ -2349,3 +2349,38 @@ Deviations and refinements made while implementing; all deliberate:
     never resends an acked event), then delivered in order.
   - A reply's Slack `ts` is recorded before its ack, so a crash between
     posting and acking doesn't post it twice.
+
+- **D87 — Event triggers: bus events and tile pushes start agent work;
+  data classes keep the lane firewall across triggers (2026-09-26).** Users
+  want agents that react to things, like a deploy webhook or a calendar
+  change, without anyone typing.
+
+  **Sources:**
+  - A bus the agent may read, through a bus push subscription (D85). It is
+    registered per enabled trigger (`trig-<id>`); a missing `reader` grant
+    becomes status `needs-grant` with the platform's message.
+  - A push from a tile bound to the agent's `inbox` (`POST /adapter/event`
+    on the agent-inbox contract), from its own `source_ref` only.
+
+  **Firing** is one transaction on `trigger_events`: the dedupe (event id),
+  the hourly cap (counted lazily), the halt (dropped, 503 to a push), then
+  delivery via `deliverInboundTx`:
+  - isolated: a new run keyed by the event;
+  - persistent: the `trig:<id>` session;
+  - conversation: into `targetRun`, if its owner can still post there.
+
+  **Data classes:**
+  - Event data is private unless its source declares it public. Bus data
+    is always private; a webhook from outside is public.
+  - A trigger that reaches outside, through the web lane or `deliver` (an
+    announcement into a channel session its owner owns), takes public data
+    only. This is checked on save and per event.
+  - Runs on public data also get the channel deny list.
+  - The goal quotes the data as data, flagged as outside data when public.
+
+  **Not chosen:**
+  - Polling (a ticker).
+  - Holding a bus socket in the agent: that needs alwaysOn for every
+    agent.
+  - Letting the adapter name the target run.
+  - Class inference from content.

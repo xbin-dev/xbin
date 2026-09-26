@@ -108,6 +108,14 @@ func routeTable() []routeDef {
 		{"POST /channels/{id}/sessions/reset", needAutomation, handleChannelSessionReset},
 		{"GET /channels/{id}/outbox", needAutomation, handleChannelOutbox},
 		{"POST /channels/{id}/outbox/{oid}/retry", needAutomation, handleChannelRetry},
+		// Event triggers (D87). The bus delivery route and the adapters' push
+		// route are mounted apart (channels.go adapterRoutes).
+		{"GET /triggers/unmatched", needManager, handleUnmatched},
+		{"POST /triggers", needStart, handleNewTrigger},
+		{"PUT /triggers/{id}", needAutomation, handleUpdateTrigger},
+		{"DELETE /triggers/{id}", needAutomation, handleDeleteTrigger},
+		{"POST /triggers/{id}/test", needAutomation, handleTestTrigger},
+		{"GET /triggers/{id}/events", needAutomation, handleTriggerEvents},
 		{"POST /tick", needCron, handleTick},
 		{"GET /engine/hold", needSelf, handleHold},
 	}

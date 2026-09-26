@@ -26,7 +26,7 @@ type OutRow struct {
 	ChannelID  int64           `json:"channelId"`
 	SessionKey string          `json:"sessionKey,omitempty"`
 	RunID      int64           `json:"runId,omitempty"`
-	Kind       string          `json:"kind"` // answer | question | approval | error | notice
+	Kind       string          `json:"kind"` // answer | question | approval | error | notice | announce
 	Address    json.RawMessage `json:"address"`
 	Body       outBody         `json:"body"`
 	Created    int64           `json:"created"`
@@ -88,29 +88,45 @@ func noReply(text string) bool {
 	return t == "" || strings.TrimRight(t, ".") == "NO_REPLY"
 }
 
-// replyTarget is where a channel run's reply goes: the address of the last
-// message it took in, when that came from a channel. A message typed into
-// the run from the web UI is answered there, not posted.
-func (d *DB) replyTarget(run *Run) (chID int64, addr string, ok bool) {
-	if run.ParentID != 0 || run.Origin != "channel" {
-		return 0, "", false
+// replyTarget is where a run's answer is posted: for a channel run, the
+// address of the last message it took in when that came from the channel (a
+// message typed into the run from the web UI is answered there, not posted);
+// for a trigger's run, the channel session it announces to (D87), if any.
+func (d *DB) replyTarget(run *Run) (chID int64, addr, key string, ok bool) {
+	if run.ParentID != 0 {
+		return 0, "", "", false
 	}
-	rows := d.inboxRows(`WHERE run_id=? AND kind='user' AND delivered_at<>0 ORDER BY id DESC LIMIT 1`, run.ID)
-	if len(rows) == 0 || rows[0].Body.Source != "channel" || rows[0].Body.Addr == "" {
-		return 0, "", false
+	switch run.Origin {
+	case "channel":
+		rows := d.inboxRows(`WHERE run_id=? AND kind='user' AND delivered_at<>0 ORDER BY id DESC LIMIT 1`, run.ID)
+		if len(rows) == 0 || rows[0].Body.Source != "channel" || rows[0].Body.Addr == "" {
+			return 0, "", "", false
+		}
+		return rows[0].Body.OriginID, rows[0].Body.Addr, run.SessionKey, true
+	case "trigger":
+		var deliver string
+		_ = d.q.QueryRow(`SELECT deliver FROM triggers WHERE id=?`, run.OriginID).Scan(&deliver)
+		if deliver == "" {
+			return 0, "", "", false
+		}
+		_ = d.q.QueryRow(`SELECT origin_id, address FROM sessions WHERE key=? AND origin='channel'`, deliver).Scan(&chID, &addr)
+		return chID, addr, deliver, chID != 0 && addr != ""
 	}
-	return rows[0].Body.OriginID, rows[0].Body.Addr, true
+	return 0, "", "", false
 }
 
 // channelTurnEnd posts what a channel conversation's turn produced
 // (endTurnTx). A discarded watcher round and NO_REPLY post nothing; an error
 // is posted generically — its text stays in the run.
 func (e *Engine) channelTurnEnd(t *DB, run *Run, why, result string) {
-	chID, addr, ok := t.replyTarget(run)
+	chID, addr, key, ok := t.replyTarget(run)
 	if !ok {
 		return
 	}
 	kind, text := "answer", result
+	if run.Origin == "trigger" {
+		kind = "announce"
+	}
 	switch why {
 	case endAnswered, endFinished:
 		if strings.TrimSpace(text) == "" {
@@ -122,11 +138,11 @@ func (e *Engine) channelTurnEnd(t *DB, run *Run, why, result string) {
 		kind, text = "notice", "I stopped after the step limit for one turn. Send a message to let me continue."
 	}
 	if !noReply(text) {
-		t.outboxAdd(chID, run.SessionKey, run.ID, kind, addr, text)
+		t.outboxAdd(chID, key, run.ID, kind, addr, text)
 	}
-	if ch, err := t.getChannel(chID); err == nil {
+	if ch, err := t.getChannel(chID); err == nil && run.Origin == "channel" {
 		t.AfterCommit(func() {
-			outStatus(ch.Adapter, outStatusEv{ChannelID: chID, SessionKey: run.SessionKey, Address: json.RawMessage(addr), State: "idle"})
+			outStatus(ch.Adapter, outStatusEv{ChannelID: chID, SessionKey: key, Address: json.RawMessage(addr), State: "idle"})
 		})
 	}
 }
@@ -135,8 +151,11 @@ func (e *Engine) channelTurnEnd(t *DB, run *Run, why, result string) {
 // or says an approval is pending (the operator decides in the run's page, or
 // a trusted peer with /approve).
 func (e *Engine) channelAsk(t *DB, run *Run, kind, text string) {
-	if chID, addr, ok := t.replyTarget(run); ok {
-		t.outboxAdd(chID, run.SessionKey, run.ID, kind, addr, text)
+	if run.Origin != "channel" { // a trigger announces answers only: nobody there can reply to it
+		return
+	}
+	if chID, addr, key, ok := t.replyTarget(run); ok {
+		t.outboxAdd(chID, key, run.ID, kind, addr, text)
 	}
 }
 

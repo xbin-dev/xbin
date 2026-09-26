@@ -161,6 +161,36 @@ Delivery is **at-least-once**. Record each posted row's `ref` durably
 before you ack it. After a restart, a row you already posted (you have
 its `ref`) is acked without posting again.
 
+### `POST /adapter/event` and `GET /adapter/triggers`: pushing events
+
+A bound tile can also push **events** that run the agent's **triggers**
+(D87). The webhooks tile does this for webhooks from outside.
+
+```json
+{"trigger": "deploys", "eventId": "gh-7c1f…", "topic": "deploy/site",
+ "text": "main was deployed", "data": {…}, "dataClass": "public"}
+```
+
+- `trigger` names one of the caller's push triggers. Without it, every one
+  whose topic prefix matches `topic` runs.
+- `eventId` dedupes: the same event never runs a trigger twice.
+- `dataClass` is `public` only for data from outside the workspace. It
+  decides which triggers may take it: those that reach outside take public
+  data only.
+
+The response is `{"results": [{"trigger", "accepted", "reason"?, "dup"?, "runId"?}]}`.
+
+| Status | Meaning |
+|---|---|
+| 404 | No trigger takes it. The agent's owner sees "`<tile>` sent `<name>`" and can create one. |
+| 503 | The agent is halted. Retry later. |
+
+`reason` is one of `disabled`, `halted`, `data-class`, `rate` or
+`target-gone`.
+
+`GET /adapter/triggers` lists the caller's push triggers:
+`{"triggers": [{name, match, dataClass, enabled}]}`.
+
 ## What the agent does with a message
 
 ### Sessions

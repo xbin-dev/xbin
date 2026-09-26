@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Agent template: event triggers.** A trigger starts work when an event
+  appears on a bus the agent may read (xbind pushes it: bus push
+  subscriptions) or when a bound tile pushes one (`POST /adapter/event`,
+  [agent-inbox.md](agent-inbox.md)).
+  - Each event goes to a run of its own, one ongoing thread, or a
+    conversation.
+  - It is recorded: once per event id, an hourly cap, dropped while the
+    agent is halted.
+  - Data classes keep the lane firewall: triggers that reach outside (the
+    web lane, announcing to a chat channel) take public data only.
+  - Triggers have a section on the Automations page: the grant a bus
+    trigger still needs, recent events, test fire, and "create a trigger"
+    for a push nothing took. `/triggers…` routes (API.md §Triggers).
 - **New builtin tile `slack` (v1): a Slack adapter for agents.** It holds a
   Socket Mode connection (no public URL; `alwaysOn`) and feeds the agent its
   `agent` interface is bound to over [agent-inbox](agent-inbox.md).

@@ -14,8 +14,10 @@ const KINDS = new Map();
  * @param spec  {label, order, empty?: text when there are none,
  *   card?(page, item), head?(item, page) — the detail's header actions,
  *   detail?(item, page) — above its runs, runsLabel?: what its runs are called,
- *   open?(item id, page) — load what
- *   the detail shows (on open and on every refresh)}
+ *   open?(item id, page) — load what the detail shows (on open and on every
+ *   refresh), create?: {label, start(page)} — a header button (start may set
+ *   page.custom, a page of its own: custom(page) → template), load?(page) —
+ *   extra data on every refresh, listExtra?(page) — below its cards}
  */
 export function registerKind(kind, spec) { KINDS.set(kind, spec); }
 
@@ -38,6 +40,7 @@ export class AutoPage {
     this.runs = [];
     this.next = '';
     this.form = null;   // the schedule being created or edited
+    this.custom = null; // a kind's own page (its form): custom(page) → template
     this.err = '';
   }
 
@@ -50,6 +53,7 @@ export class AutoPage {
 
   async load() {
     try { this.items = (await api('/automations')).items || []; this.err = ''; } catch (e) { this.err = e.message; }
+    await Promise.all([...KINDS.values()].map((s) => s.load?.(this)));
     if (this.open) await Promise.all([this.loadRuns(), KINDS.get(this.open.kind)?.open?.(this.open.id, this)]);
     this.changed();
   }
@@ -59,6 +63,7 @@ export class AutoPage {
   async show(kind, id) {
     this.open = kind ? { kind, id } : null;
     this.form = null;
+    this.custom = null;
     this.runs = [];
     this.next = '';
     if (this.open) {
@@ -133,6 +138,7 @@ const cadence = (cron) => (CADENCES.find(([c]) => c === cron) || [cron, cron])[1
 
 // autoPageTpl is the page (drawn into the timeline).
 export function autoPageTpl(p) {
+  if (p.custom) return p.custom(p);
   if (p.form) return formTpl(p);
   const it = p.item();
   if (p.open && it) return detailTpl(p, it);
@@ -142,11 +148,13 @@ export function autoPageTpl(p) {
     <div class="ahd"><h3>Automations</h3><span class="muted small">agents that work without anyone typing</span>
       <span style="flex:1"></span>
       <button class="btn btnsm" @click=${() => p.newSchedule(false)}>New schedule</button>
-      <button class="btn ghost btnsm" @click=${() => p.newSchedule(true)}>New watcher</button></div>
+      <button class="btn ghost btnsm" @click=${() => p.newSchedule(true)}>New watcher</button>
+      ${[...KINDS.values()].filter((s) => s.create).map((s) => html`<button class="btn ghost btnsm" @click=${() => s.create.start(p)}>${s.create.label}</button>`)}</div>
     ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
     ${groups.map((g) => html`<h5>${g.spec.label}</h5>
       ${g.items.length ? repeat(g.items, (i) => i.kind + i.id, (i) => (g.spec.card || cardTpl)(p, i))
-        : html`<div class="muted small empty-line">${g.spec.empty || 'none yet'}</div>`}`)}
+        : html`<div class="muted small empty-line">${g.spec.empty || 'none yet'}</div>`}
+      ${g.spec.listExtra ? g.spec.listExtra(p) : nothing}`)}
   </div>`;
 }
 

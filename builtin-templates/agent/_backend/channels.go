@@ -177,16 +177,20 @@ func convLabel(m *adapterMsg) string {
 // adapterRoutes mounts /adapter/*: reachable with the `channel` role a bound
 // adapter holds (the binding is the grant), or as admin (the owner, tests).
 // The adapter is identified by the verified X-XBin-From; nothing it claims
-// about itself is trusted beyond its own channels.
+// about itself is trusted beyond its own channels and push triggers. Bus
+// deliveries for triggers (xbin/bus, D85) are mounted here too.
 func adapterRoutes(mux *http.ServeMux) {
 	for pattern, h := range map[string]http.HandlerFunc{
 		"POST /adapter/hello":   handleAdapterHello,
 		"POST /adapter/message": handleAdapterMessage,
 		"GET /adapter/outbox":   handleAdapterOutbox,
 		"POST /adapter/ack":     handleAdapterAck,
+		"POST /adapter/event":   handleAdapterEvent,
+		"GET /adapter/triggers": handleAdapterTriggers,
 	} {
 		mux.Handle(pattern, adapterGuard(h))
 	}
+	mux.Handle("POST /trigger/bus/{id}", busGuard(handleBusTrigger))
 }
 
 func adapterGuard(h http.HandlerFunc) http.HandlerFunc {

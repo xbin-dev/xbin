@@ -63,6 +63,7 @@ func main() {
 	eng.hold.open = openSelfHold
 	eng.Start()
 	go agent.reRegisterSchedules()
+	go agent.reRegisterTriggers()
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine

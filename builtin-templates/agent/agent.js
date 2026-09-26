@@ -23,6 +23,7 @@ import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
 import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
 import './auto-channels.js'; // registers the Channels kind on that page
+import './auto-triggers.js'; // …and Triggers
 import { openShare, joinFrom } from './share.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
@@ -131,7 +132,7 @@ function onEvent(ev) {
     if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
     if (sel == null) { clearTimeout(needsDirty); needsDirty = setTimeout(loadNeeds, 300); }
   }
-  if (ev.type === 'automation' || (ev.type === 'run' && ev.run === ev.root && ['schedule', 'watcher', 'channel'].includes((ev.data || {}).origin))) {
+  if (ev.type === 'automation' || (ev.type === 'run' && ev.run === ev.root && ['schedule', 'watcher', 'channel', 'trigger'].includes((ev.data || {}).origin))) {
     clearTimeout(autosDirty);
     autosDirty = setTimeout(() => (page ? autos.load() : autos.loadSummary()), 300);
   }
@@ -236,7 +237,7 @@ function paint() {
   const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
   render(v ? session.template() : page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
   // a chat sticks to its end; a page opens at its top
-  const shown = v ? '' : `${page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!autos.form}`;
+  const shown = v ? '' : `${page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
   if (v ? atBottom : shown !== shownPage) tl.scrollTop = v ? tl.scrollHeight : 0;
   shownPage = shown;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));

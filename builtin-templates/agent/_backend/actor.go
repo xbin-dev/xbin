@@ -640,8 +640,8 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		status := map[string]string{endAnswered: "ok", endFinished: "done", endError: "error: " + clip(result, 200), endCap: "incomplete"}[why]
 		_, _ = t.q.Exec(`UPDATE schedules SET last_status=? WHERE id=?`, status, run.OriginID)
 	}
-	if run.ParentID == 0 && run.Origin == "channel" {
-		e.channelTurnEnd(t, run, why, result) // the reply, in this transaction (outbox.go)
+	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
+		e.channelTurnEnd(t, run, why, result) // the reply or announcement, in this transaction (outbox.go)
 	}
 	if run.ParentID == 0 && run.TitleSrc == "clip" && (why == endAnswered || why == endFinished) {
 		t.AfterCommit(func() { e.maybeTitle(run.ID) })
