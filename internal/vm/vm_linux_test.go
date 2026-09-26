@@ -310,3 +310,50 @@ func TestVMSandboxDiskPersists(t *testing.T) {
 		t.Errorf("the filesystem didn't grow with the disk (root size %d MiB):\n%s", mb, out)
 	}
 }
+
+// The guest caches entries, attributes and pages for an hour; a change made
+// outside it (the browser editor, a namespace terminal) must still show up
+// at once — the file server's inotify turns it into invalidations.
+func TestVMSandboxSeesHostEdits(t *testing.T) {
+	m, ws := harness(t)
+	dir := filepath.Join(ws, "tile")
+	os.MkdirAll(dir, 0o755)
+	f, nf := filepath.Join(dir, "co.txt"), filepath.Join(dir, "newfile")
+	os.WriteFile(f, []byte("v1"), 0o644)
+	script := fmt.Sprintf(`f=%[1]s; n=%[2]s
+first=$(cat $f); [ -e $n ] && echo PRE-EXISTS; echo ready
+for i in $(seq 1 200); do c=$(cat $f); [ "$c" != "$first" ] && break; sleep 0.02; done; echo "CONTENT=$c"
+for i in $(seq 1 200); do [ -e $n ] && break; sleep 0.02; done; [ -e $n ] && echo NEWFILE-SEEN
+for i in $(seq 1 200); do [ -e $f ] || break; sleep 0.02; done; [ -e $f ] || echo GONE-SEEN`, f, nf)
+	spec := &sandbox.Spec{
+		Lower:   []string{m.Rootfs},
+		Binds:   []sandbox.Bind{{Src: dir, Dst: dir}},
+		Entry:   "/bin/bash",
+		Argv:    []string{"bash", "-c", script},
+		Env:     []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+		Cwd:     dir,
+		HostUID: os.Getuid(),
+		HostGID: os.Getgid(),
+	}
+	if err := m.Apply(context.Background(), spec, Options{MemMiB: 512}); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(1500 * time.Millisecond) // the guest has read (and cached) both by now
+		os.WriteFile(f, []byte("v2-from-host"), 0o644)
+		time.Sleep(300 * time.Millisecond)
+		os.WriteFile(nf, []byte("hi"), 0o644)
+		time.Sleep(300 * time.Millisecond)
+		os.Remove(f)
+	}()
+	out, _ := launch(t, spec, nil)
+	t.Logf("guest:\n%s", out)
+	for _, want := range []string{"CONTENT=v2-from-host", "NEWFILE-SEEN", "GONE-SEEN"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the guest didn't see the host's change: missing %q", want)
+		}
+	}
+	if strings.Contains(out, "PRE-EXISTS") {
+		t.Errorf("newfile existed before the host made it")
+	}
+}

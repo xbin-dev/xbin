@@ -4,7 +4,7 @@
 //
 // Everything rides Firecracker's vsock, whose host side is a unix socket:
 // the shim reaches the agent by connecting to the VM's vsock UDS and sending
-// "CONNECT <AgentPort>\n"; the guest reaches the shim's listeners (the 9P
+// "CONNECT <AgentPort>\n"; the guest reaches the shim's listeners (the FUSE
 // file server, the xbind gateway for backends) by dialing CID 2, which
 // Firecracker forwards to "<uds>_<port>".
 //
@@ -30,7 +30,7 @@ import (
 // Vsock ports.
 const (
 	AgentPort   = 1024 // guest: the agent's listener (control + streams)
-	P9Port      = 564  // host: the 9P2000.L file server
+	FilesPort   = 564  // host: the FUSE file server (one connection per mount)
 	GatewayPort = 1025 // host: xbind's gateway socket (backends)
 )
 
@@ -48,7 +48,7 @@ type Config struct {
 	Hostname string   `json:"hostname,omitempty"`
 	Net      *Net     `json:"net,omitempty"` // nil: no network interface (loopback only)
 	Root     Root     `json:"root"`
-	Mounts   []Mount  `json:"mounts,omitempty"` // 9P mounts, parents first
+	Mounts   []Mount  `json:"mounts,omitempty"` // file mounts, parents first
 	Local    []string `json:"local,omitempty"`  // guest-local tmpfs dirs at host paths (a backend's run dir: its sockets)
 	Env      []string `json:"env,omitempty"`    // extra environment for every session
 }
@@ -69,7 +69,14 @@ type Root struct {
 	Upper     string `json:"upper,omitempty"`     // block device of the persistent upper ("" = tmpfs)
 }
 
-// Mount is one host path the guest mounts over 9P at the same path.
+// FilesHello opens a FilesPort connection: the export it mounts. FUSE
+// messages follow, each framed by its own leading length field.
+type FilesHello struct {
+	Path string `json:"path"`
+}
+
+// Mount is one host path the guest mounts (FUSE, served by the shim) at the
+// same path.
 type Mount struct {
 	Path string `json:"path"`
 	RO   bool   `json:"ro,omitempty"`

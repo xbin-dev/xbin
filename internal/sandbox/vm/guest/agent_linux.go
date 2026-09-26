@@ -5,7 +5,7 @@
 // mounts the kernel filesystems, and waits on vsock for the host shim. The
 // first control message (Config) turns the anonymous guest into this
 // sandbox: the root overlay over the read-only rootfs image, the host binds
-// over 9P at their host paths, the network, the clock. Then it runs sessions
+// (FUSE, served by the shim) at their host paths, the network, the clock. Then it runs sessions
 // (the terminal shell, an agent host, a backend) and reports their exits.
 //
 // Nothing tile-specific exists before Config, which is what lets one booted

@@ -52,7 +52,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     pieces).
   - **Terminals:** the **⧉ VM** toggle in the terminal title bar
     (`?vm=1` on `/ws/term`, `vm` on agent sessions) restarts the session in
-    a VM. The same files are at the same paths (over 9P), and the same
+    a VM. The same files are at the same paths (served from outside the VM),
+    and the same
     network scope applies. Root filesystem changes (`apt install`) are
     kept on a per-tile VM disk, separate from the namespace layer; Reset
     wipes both.

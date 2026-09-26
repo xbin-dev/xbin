@@ -1385,7 +1385,7 @@ needed). Enumerate host GPUs at `GET /api/xbin/gpus` (admin).
 `?vm=1` opens the session in a **VM sandbox** (plans/vm-sandbox.md): a
 Firecracker microVM with its own kernel, where the shell is root, running
 inside the same namespace sandbox as the jail. The same mounts appear at the
-same paths (served over 9P), the same network scope applies (the relay
+same paths (served from outside the VM), the same network scope applies (the relay
 enforces it outside the VM), and `$XBIN_URL`/`XBIN_TOKEN` work unchanged.
 It needs `--isolate`, KVM, and an admin who turned VM terminals on (`PUT
 /vm/policy`); otherwise the upgrade fails with 400 and the reason (`GET

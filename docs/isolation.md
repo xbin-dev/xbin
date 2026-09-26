@@ -349,7 +349,7 @@ in its own Linux: docker/podman, kernel knobs and `apt` all work as on any
 VM. Everything around it stays the same:
 
 - **The same files.** Every mount a namespace sandbox would get appears at
-  the same path in the guest, served over 9P. Read-only mounts are
+  the same path in the guest, served from outside the VM. Read-only mounts are
   read-only; masked paths (`.xbin/`, `data/`, other homes) are empty; tiles
   you may not read aren't there. The file server runs outside the VM, under
   the host's enforcement, and a guest can't walk out of what it was given.
@@ -390,10 +390,16 @@ Differences to design around:
 - Without KVM, or without the admin's switch, the backend fails with the
   reason — it never falls back to the namespace sandbox.
 
-**Files over 9P** are coherent but slower than a local disk on
-metadata-heavy work (`git status` on a huge tree, `npm install` into the
-tile). A file watcher *inside* the guest doesn't see edits made from
-outside it (the browser editor, another terminal); use polling there.
+**Files** reach the guest as FUSE filesystems over vsock, and the guest
+caches them hard: repeated work (`git status`, `find`, a rebuild, re-reading
+files) runs at nearly local speed. The *first* touch of each file or
+directory costs a round trip to the host (~0.1 ms), so a cold `grep -r` over
+a huge tree, `npm install` into the tile or unpacking thousands of files is
+several times slower than in a namespace terminal. Keep bulk data on the VM's
+own disk (anything outside the tile dir and `$HOME`: `/root`, `/tmp`,
+`/var`), where it's local. Edits made outside the VM (the browser editor,
+another terminal) show up at once, but a file watcher *inside* the guest
+doesn't hear about them; use polling there.
 
 **Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the
 installer adds it to the `kvm` group; a cloud VM needs nested

@@ -3,7 +3,7 @@
 // Package host is the VM sandbox's host shim, `bx __vm-host`
 // (plans/vm-sandbox.md). The namespace sandbox execs it as its PID 1 in
 // place of the workload; it boots Firecracker as its child, serves the
-// sandbox's binds to the guest over 9P, and makes the guest's session look
+// sandbox's binds to the guest as FUSE filesystems, and makes the guest's session look
 // like an ordinary process to xbind: its stdio is the host PTY (or pipes),
 // SIGWINCH resizes the guest PTY, SIGTERM reaches the guest process, and the
 // shim exits with the guest process's status. Killing the shim tears down the
@@ -15,18 +15,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
-	"github.com/xbin-dev/xbin/internal/sandbox/vm/p9fs"
+	"github.com/xbin-dev/xbin/internal/sandbox/vm/fusefs"
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
@@ -40,6 +42,9 @@ func Main(specPath string) int {
 	var hs proto.HostSpec
 	if err := json.Unmarshal(b, &hs); err != nil {
 		return fail(nil, "parse spec: %v", err)
+	}
+	if !hs.Debug {
+		log.SetOutput(io.Discard) // go-fuse notes a closed connection there; it'd land in the terminal
 	}
 	s := &shim{hs: hs, serial: newRing(64 << 10)}
 	return s.run()
@@ -303,19 +308,12 @@ func (s *shim) dialAgent(h proto.Hello, timeout time.Duration) (net.Conn, error)
 	}
 }
 
-// serveFiles starts the 9P server on the vsock port the guest dials.
+// serveFiles starts the file server on the vsock port the guest dials:
+// each connection names one export and becomes one FUSE filesystem
+// (internal/sandbox/vm/fusefs). Only the spec's mounts can be named.
 func (s *shim) serveFiles() (func(), error) {
-	var exports []p9fs.Export
-	for _, m := range s.hs.Mounts {
-		exports = append(exports, p9fs.Export{Path: m.Path, RO: m.RO})
-	}
-	srv, err := p9fs.New(exports)
+	ln, err := net.Listen("unix", filepath.Join(s.hs.RunDir, fmt.Sprintf("v.sock_%d", proto.FilesPort)))
 	if err != nil {
-		return nil, err
-	}
-	ln, err := net.Listen("unix", filepath.Join(s.hs.RunDir, fmt.Sprintf("v.sock_%d", proto.P9Port)))
-	if err != nil {
-		srv.Close()
 		return nil, err
 	}
 	go func() {
@@ -324,10 +322,56 @@ func (s *shim) serveFiles() (func(), error) {
 			if err != nil {
 				return
 			}
-			go func() { _ = srv.Serve(c) }()
+			go s.serveMount(c)
 		}
 	}()
-	return func() { ln.Close(); srv.Close() }, nil
+	return func() { ln.Close() }, nil
+}
+
+func (s *shim) serveMount(c net.Conn) {
+	var h proto.FilesHello
+	line, err := readLine(c)
+	if err != nil || json.Unmarshal(line, &h) != nil {
+		c.Close()
+		return
+	}
+	var export *proto.Mount
+	nested := map[string]bool{}
+	for i, m := range s.hs.Mounts {
+		if m.Path == h.Path {
+			export = &s.hs.Mounts[i]
+		} else if strings.HasPrefix(m.Path, h.Path+"/") {
+			nested[m.Path] = m.RO
+		}
+	}
+	if export == nil {
+		c.Close()
+		return
+	}
+	fs, err := fusefs.New(export.Path, export.RO, nested)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vm sandbox: file server %s: %v\r\n", export.Path, err)
+		c.Close()
+		return
+	}
+	_ = fusefs.Serve(c, fs)
+}
+
+// readLine reads one \n-terminated line byte by byte (nothing past it is
+// consumed: FUSE messages follow on the same stream).
+func readLine(c net.Conn) ([]byte, error) {
+	var line []byte
+	var b [1]byte
+	for len(line) < 4096 {
+		if _, err := c.Read(b[:]); err != nil {
+			return nil, err
+		}
+		if b[0] == '\n' {
+			return line, nil
+		}
+		line = append(line, b[0])
+	}
+	return nil, errors.New("hello too long")
 }
 
 func (s *shim) restore() {
@@ -346,6 +390,12 @@ func fail(s *shim, format string, args ...any) int {
 		s.restore()
 		if s.tty {
 			nl = "\r\n"
+		}
+		if s.fcDone != nil { // a dying guest's last words reach the console a moment later
+			select {
+			case <-s.fcDone:
+			case <-time.After(1500 * time.Millisecond):
+			}
 		}
 		if tail := s.serial.tail(4 << 10); tail != "" && (s.hs.Debug || s.fcExited()) {
 			fmt.Fprintf(os.Stderr, "--- VM console ---%s%s%s", nl, crlf(tail, s.tty), nl)

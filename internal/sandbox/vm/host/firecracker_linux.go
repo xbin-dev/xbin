@@ -61,6 +61,9 @@ func (s *shim) startFirecracker() error {
 	c.Boot.Kernel = s.hs.Kernel
 	c.Boot.Initrd = s.hs.Initrd
 	c.Boot.Args = bootArgs
+	if s.hs.Debug {
+		c.Boot.Args = strings.Replace(bootArgs, "quiet loglevel=3", "loglevel=7", 1)
+	}
 	c.Drives = []fcDrive{{ID: "rootfs", Path: s.hs.Image, ReadOnly: true}}
 	if s.hs.Disk != "" {
 		c.Drives = append(c.Drives, fcDrive{ID: "disk", Path: s.hs.Disk, Cache: "Writeback"})

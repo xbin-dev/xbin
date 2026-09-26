@@ -2482,7 +2482,7 @@ Deviations and refinements made while implementing; all deliberate:
     left for later.
 
 - **D89 — VM sandboxes: a Firecracker microVM inside the namespace sandbox,
-  the binds over 9P, per terminal and per backend (2026-09-26).** The
+  the binds as FUSE over vsock, per terminal and per backend (2026-09-26).** The
   namespace sandbox shares the host kernel. Its residual risk is a userns
   kernel escape (plans/containers.md), and some work needs a real root
   anyway (docker, kernel knobs). Design: plans/vm-sandbox.md.
@@ -2495,13 +2495,20 @@ Deviations and refinements made while implementing; all deliberate:
     needs root; ours is rootless. It keeps its binds, masks, netns and
     relay. Its root becomes a bare tmpfs; its lockdown becomes the five
     file caps, the block-list and the mount guard.
-  - **9P2000.L over vsock for files.** Firecracker has no virtio-fs.
-    - The server runs in the jail, so the host kernel enforces read-only
-      binds and masks.
-    - The guest can only walk to the exports, one beneath-only `openat2`
-      per step.
-    - FUSE-over-vsock with host-pushed invalidations is the upgrade path
-      if 9P is too slow.
+  - **FUSE over vsock for files, caching hard.** Firecracker has no
+    virtio-fs.
+    - 9P over vsock, the first choice, measured 170× native on `git
+      status`: the kernel's `trans=fd` client makes each lookup a ~250 µs
+      round trip, and none of its cache modes is both coherent and fast.
+    - The guest now mounts FUSE and pumps `/dev/fuse` over vsock to a
+      go-fuse server in the jail. The host kernel enforces read-only binds
+      and masks, and the guest can only walk to the exports, one
+      beneath-only `openat2` per step.
+    - The guest caches entries, attributes, listings, pages and negative
+      lookups for an hour, with zero-message opens. Host inotify turns
+      outside changes into invalidations.
+    - Result: warm work runs at local speed (`git status` 2.7×, `find` 1×)
+      and a first touch is one ~0.13 ms round trip.
   - **A routed netns.** The TUN stays, the TAP is the guest's, and there is
     no NAT or proxy ARP. The relay and its policy are untouched; the guest
     owns 10.0.2.15.
@@ -2519,7 +2526,7 @@ Deviations and refinements made while implementing; all deliberate:
   **Not chosen:**
   - virtio-blk images of the tile dir. xbind reads, serves and watches
     those files live.
-  - Sharing the namespace upper with the VM through fuse-overlayfs over 9P.
-    Slow, with fragile ownership.
+  - Sharing the namespace upper with the VM through fuse-overlayfs over the
+    file transport. Slow, with fragile ownership.
   - Serving the file server from xbind itself. It would resolve
     guest-supplied paths as xbind (D78).

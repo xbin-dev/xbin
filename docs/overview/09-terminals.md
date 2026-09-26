@@ -361,7 +361,7 @@ A terminal whose layer's base is older than the current rootfs reports
 The title bar's **⧉ VM** toggle (`?vm=1`) restarts a session inside a
 Firecracker microVM: the shell is root in its own kernel, so docker, kernel
 knobs and ordinary `apt` work. The mount picture above holds unchanged —
-the same paths, served over 9P from outside the VM, with the same masks,
+the same paths, served from outside the VM (FUSE over vsock), with the same masks,
 read-only binds and per-user visibility — and so does the network scope
 (the guest sits behind the same relay; `host` isn't offered). The tile's
 **VM disk** (`.xbin/term/<key>/vm/disk.img`, sparse) keeps root filesystem

@@ -26,11 +26,11 @@ sandbox.Launch(Spec{VM: …})    userns+mntns+pidns+netns = the rootless jail
   netns: bx0 TUN (no address) ◄─routed─► vmtap0 TAP (persistent, owned by the jail's root)
   PID 1 = `bx __vm-host` (static) — stdio = the host PTY, or pipes
      ├─ firecracker (child; stdin /dev/null; console into a ring)
-     ├─ 9P2000.L server ◄── vsock 564 (exports = the binds; beneath-only walks)
+     ├─ FUSE server ◄── vsock 564, one stream per mount (exports = the binds; beneath-only walks)
      └─ vsock bridges: PTY/pipes, signals, resize, the backend's sockets
           guest: vmlinux + initramfs (xbin-vmagent = PID 1)
             root = overlay(erofs rootfs image, tmpfs | the ext4 VM disk)
-            the binds mounted over 9P at their host paths; eth0 10.0.2.15/32
+            the binds mounted (FUSE) at their host paths; eth0 10.0.2.15/32
 ```
 
 Firecracker's jailer needs root, so the namespace sandbox takes its place.
@@ -44,7 +44,7 @@ workload; the kernel attack surface is what shrinks.
 
 - **Assets** (`internal/vm/assets.go`): `firecracker` (pinned upstream
   static release), `vmlinux` (6.18 LTS on Firecracker's CI config plus
-  `hack/vmkernel/xbin.config`: erofs, 9p over fd), `xbin-vmagent`, a static
+  `hack/vmkernel/xbin.config`: erofs), `xbin-vmagent`, a static
   `mkfs.erofs`, and the static `bx`.
   - Resolved the fuse-overlayfs way: `$XBIN_*`, then next to xbind, then
     `PATH`.
@@ -63,19 +63,36 @@ workload; the kernel attack surface is what shrinks.
   spoofing. The guest owns 10.0.2.15, so the relay, host-forwards, DialIn
   and DNS work as ever.
   - Refused: `host` networking, provider splices, lan-ingress legs.
-- **Files:** Firecracker has no virtio-fs, so the guest mounts each bind
-  over 9P2000.L on a vsock fd (`trans=fd`, `cache=mmap`).
-  - The server (`internal/sandbox/vm/p9fs`) runs inside the jail. Its view
-    *is* the bind set: read-only binds fail with EROFS from the host
-    kernel, and masks read empty.
-  - The guest only sees a virtual root leading to the exports.
-  - Each walk step is one `openat2(RESOLVE_BENEATH|NO_SYMLINKS|
-    NO_MAGICLINKS)` from the parent's O_PATH fd, without NO_XDEV so nested
-    binds and masks are crossed. Nested exports keep their own read-only
-    flag.
-  - Locks are host OFD locks.
+- **Files:** Firecracker has no virtio-fs. The guest mounts each bind as a
+  FUSE filesystem; the agent pumps `/dev/fuse` over a vsock stream (messages
+  framed by their own length field).
+  - The server (`internal/sandbox/vm/fusefs`, a go-fuse `RawFileSystem`) runs
+    inside the jail, reading whole requests from a SOCK_SEQPACKET socketpair
+    as it would from `/dev/fuse`. Its view *is* the bind set: read-only binds
+    fail with EROFS from the host kernel, and masks read empty.
+  - Only a mount named in the spec can be attached.
+  - Each lookup is one `openat2(RESOLVE_BENEATH|NO_SYMLINKS|NO_MAGICLINKS)`
+    from the parent's O_PATH fd, without NO_XDEV so nested binds and masks
+    are crossed. Nodes are keyed by (mount id, inode), so a read-only and a
+    writable bind of one inode never alias. Nested exports keep their own
+    read-only flag.
+  - **Caching is the design.** Entries, attributes, negative lookups and
+    symlinks live for an hour. Opens are zero-message (OPEN/OPENDIR/CREATE/
+    FLUSH answer ENOSYS), so page cache and directory listings survive
+    reopening, and READDIRPLUS brings attributes with listings.
+  - inotify on every directory the guest looked into turns host-side
+    changes into FUSE invalidations; the guest's own changes are skipped,
+    and a queue overflow invalidates everything.
+  - Locks are host OFD locks, one open file description per guest lock
+    owner.
   - Host fsnotify still fires on guest writes. Guest watchers don't see
     host edits.
+  - No writeback cache: with it the kernel drops block counts on every close,
+    turning each later `stat` into a round trip.
+  - 9P was tried first and dropped: the kernel's `trans=fd` client is
+    uncached-coherent at ~250 µs per operation (`git status` on 12k files:
+    5 s against 27 ms).
+
 - **Terminals** (`term/vm.go`): `?vm=1` on `/ws/term`, and `vm` on agent
   create/restart.
   - The shim puts the host PTY slave in raw mode and bridges it to a guest
@@ -104,7 +121,7 @@ workload; the kernel attack surface is what shrinks.
   - Health timeout 60 s. Two generations share the tile's cgroup leaf,
     capped for two VMs.
   - VM tiles with file-backed resources stop before the next generation:
-    two guests' 9P caches aren't coherent (a sqlite WAL).
+    two guests' caches aren't coherent (a sqlite WAL).
   - `setup` + `vm` is refused.
 - **Policy** (`internal/vm/policy.go`, `.xbin/vm/policy.json`):
   - Off by default.
@@ -118,12 +135,22 @@ workload; the kernel attack surface is what shrinks.
 
 ## Measured (this dev box)
 
-| | |
-|---|---|
-| Firecracker cold boot to the agent | ~130 ms |
-| VM terminal, WS open → prompt (warm image) | ~180 ms (namespace: ~65 ms) |
-| VM backend first request (boot + node + health) | ~370 ms |
-| rootfs → erofs image | ~4 s, once per base |
+| | VM | namespace |
+|---|---|---|
+| Firecracker cold boot to the agent | ~130 ms | — |
+| terminal: WS open → prompt (warm image) | ~180 ms | ~65 ms |
+| backend first request (boot + node + health) | ~370 ms | — |
+| rootfs → erofs image, once per base | ~4 s | — |
+| vsock round trip (Firecracker) / one FUSE request | ~90 µs / ~133 µs | — |
+| `git status`, 12k-file repo | 72 ms | 27 ms |
+| `find`, warm | 27 ms | 27 ms |
+| `grep -r` over 244 MB: cold / next / warm | 2.3 s / 1.7 s / 161 ms | 174 ms |
+| create 2000 small files | 1.3 s | 39 ms |
+
+First touches are bound by Firecracker's in-VMM vsock (~90 µs round trip);
+everything the guest has seen is local after that. The second `grep`
+still pays one GETATTR per file: the kernel marks atime stale after
+fetching a file's pages.
 
 ## Not yet
 
@@ -135,8 +162,9 @@ workload; the kernel attack surface is what shrinks.
   - The control protocol survives a vsock reset.
 - **virtio-mem:** plug memory after a template restore; sizes are per boot
   today.
-- **FUSE-over-vsock with host-pushed invalidations:** the upgrade path if
-  9P is too slow on metadata-heavy work.
+- **A faster channel under FUSE:** vsock is the floor today. A shared-memory
+  ring (a pmem region both sides map) with adaptive polling, or a VMM with
+  vhost-user / virtio-fs, would cut the per-request cost roughly tenfold.
 - A nested mount namespace for Firecracker alone.
 - More terminals per VM: the protocol has session ids from day one.
 - VM env layers, so `setup` works with `vm`.

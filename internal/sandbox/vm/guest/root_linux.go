@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -38,7 +37,7 @@ func earlyMounts() error {
 	return nil
 }
 
-// configure applies Config once: the clock, the network, the root, the 9P
+// configure applies Config once: the clock, the network, the root, the file
 // mounts, then switches the agent itself into the new root.
 func (a *agent) configure(c proto.Config) error {
 	a.mu.Lock()
@@ -64,7 +63,7 @@ func (a *agent) configure(c proto.Config) error {
 		return err
 	}
 	for _, m := range c.Mounts {
-		if err := mount9p(m); err != nil {
+		if err := mountFiles(m); err != nil { // fuse_linux.go
 			return fmt.Errorf("mount %s: %w", m.Path, err)
 		}
 	}
@@ -137,34 +136,6 @@ func (a *agent) assembleRoot(r proto.Root) error {
 	_ = os.Remove(ptmx)
 	_ = os.Symlink("pts/ptmx", ptmx)
 	return nil
-}
-
-// mount9p dials the host's file server and mounts one export at its host path
-// inside the new root. A file export is mounted over a file.
-func mount9p(m proto.Mount) error {
-	dst := filepath.Join(newRoot, path.Clean("/"+m.Path))
-	if m.File {
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if f, err := os.OpenFile(dst, os.O_CREATE|os.O_RDONLY, 0o644); err == nil {
-			f.Close()
-		}
-	} else if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	fd, err := dialHost(proto.P9Port)
-	if err != nil {
-		return fmt.Errorf("dial file server: %w", err)
-	}
-	defer unix.Close(fd) // the mount holds its own reference
-	flags := uintptr(unix.MS_NOSUID | unix.MS_NODEV)
-	if m.RO {
-		flags |= unix.MS_RDONLY
-	}
-	opts := fmt.Sprintf("trans=fd,rfdno=%d,wfdno=%d,version=9p2000.L,msize=%d,cache=mmap,access=client,aname=%s",
-		fd, fd, 1<<20, path.Clean("/"+m.Path))
-	return unix.Mount("xbin", dst, "9p", flags, opts)
 }
 
 // writeEtc points the new root's resolver at the relay and names the host.

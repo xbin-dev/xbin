@@ -76,7 +76,7 @@ type Options struct {
 	TTY  bool   // the shim's stdio is a terminal (a shell session)
 	Disk string // host path of the persistent upper disk image ("" = a tmpfs upper)
 	// Backends: Local dirs are guest-local tmpfs at their host paths instead
-	// of 9P (the run dir: sockets must be the guest's own); Listen is the
+	// of mounts from the host (the run dir: sockets must be the guest's own); Listen is the
 	// backend's socket (bridged back to the same host path once the guest
 	// process listens); Gateway is xbind's socket, bridged into the guest.
 	Local           []string
@@ -104,7 +104,7 @@ var (
 )
 
 // Apply turns spec — built for a namespace sandbox — into a VM sandbox: the
-// same binds become the guest's 9P mounts at the same paths, the entry
+// same binds become the guest's file mounts at the same paths, the entry
 // becomes the guest's session 1, and the namespace sandbox shrinks to a
 // bare root holding the shim and Firecracker. What a VM can't carry is an
 // error, never silently dropped: host networking, provider splices and
@@ -197,8 +197,8 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 	return nil
 }
 
-// exports lists the binds the guest mounts over 9P, parents first. Masks stay
-// in the shim's view (the walk finds them empty); sockets can't cross 9P;
+// exports lists the binds the guest mounts, parents first. Masks stay in the
+// shim's view (the walk finds them empty); sockets can't cross a filesystem;
 // device nodes can't enter a guest; binds at or under a local dir are the
 // guest's own.
 func exports(binds []sandbox.Bind, local []string) ([]proto.Mount, error) {

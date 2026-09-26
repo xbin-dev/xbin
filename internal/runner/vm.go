@@ -14,7 +14,7 @@ import (
 )
 
 // VM backends (plans/vm-sandbox.md): a manifest with "vm" runs its backend
-// in a Firecracker microVM — the same binds (served over 9P), the same
+// in a Firecracker microVM — the same binds (FUSE over vsock), the same
 // network policy (the relay, outside the VM), its sockets on a guest-local
 // run dir bridged over vsock. Nothing about the proxy, the gateway or the
 // logs changes; what can't cross (host networking, provider splices, GPUs,
@@ -116,7 +116,7 @@ func (r *Runner) vmRelease(sock string) {
 
 // stopFirst reports whether c's old generation must stop before the new one
 // starts: a VM backend with file-backed resources (sqlite, filesystem) sees
-// them over 9P, where two guests' caches — a WAL's shared memory above all —
+// them through the VM file server, where two guests' caches — a WAL's shared memory above all —
 // are not coherent with each other.
 func (r *Runner) stopFirst(c *registry.Component) bool {
 	if !r.wantsVM(c) || r.EnvForComponent == nil {

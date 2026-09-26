@@ -7,6 +7,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gorilla/websocket v1.5.3
+	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishvananda/netlink v1.3.1
 	github.com/xbin-dev/xbin/sdk v0.0.0-20260824095858-d3eb8d8f705a
@@ -22,7 +23,6 @@ require (
 require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/google/btree v1.1.2 // indirect
-	github.com/hugelgupf/p9 v0.4.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 	golang.org/x/time v0.15.0 // indirect
