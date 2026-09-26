@@ -1,0 +1,106 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "tabs",
+  "p": {
+   "style": "bar",
+   "selected": "home"
+  },
+  "e": [
+   "change"
+  ],
+  "c": [
+   {
+    "k": "r.0",
+    "t": "tab",
+    "p": {
+     "key": "home",
+     "title": "Home",
+     "icon": "home"
+    },
+    "c": [
+     {
+      "k": "r.0.0",
+      "t": "screen",
+      "p": {
+       "title": "Home",
+       "style": "list"
+      },
+      "c": [
+       {
+        "k": "r.0.0.0",
+        "t": "section",
+        "p": {
+         "title": "Recent"
+        },
+        "c": [
+         {
+          "k": "r.0.0.0.0:1",
+          "t": "row",
+          "p": {
+           "title": "Item 1",
+           "subtitle": "updated just now",
+           "icon": "doc",
+           "nav": true
+          },
+          "e": [
+           "tap"
+          ]
+         },
+         {
+          "k": "r.0.0.0.0:2",
+          "t": "row",
+          "p": {
+           "title": "Item 2",
+           "subtitle": "updated just now",
+           "icon": "doc",
+           "nav": true
+          },
+          "e": [
+           "tap"
+          ]
+         },
+         {
+          "k": "r.0.0.0.0:3",
+          "t": "row",
+          "p": {
+           "title": "Item 3",
+           "subtitle": "updated just now",
+           "icon": "doc",
+           "nav": true
+          },
+          "e": [
+           "tap"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.1",
+    "t": "tab",
+    "p": {
+     "key": "inbox",
+     "title": "Inbox",
+     "icon": "mail",
+     "badge": "3"
+    },
+    "c": []
+   },
+   {
+    "k": "r.2",
+    "t": "tab",
+    "p": {
+     "key": "settings",
+     "title": "Settings",
+     "icon": "gear"
+    },
+    "c": []
+   }
+  ]
+ }
+}

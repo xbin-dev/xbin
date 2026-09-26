@@ -107,8 +107,8 @@ llm-gw's logs. Give team members `read` on the tile.
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
-| `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view** |
-| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view** |
+| `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
+| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
@@ -129,6 +129,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
 | `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
 | `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
+| `GET /runs/{id}/thumb?path=&w=&h=&fmt=` | — | a sized copy of an image file (PNG, JPEG, GIF's first frame) — see **Thumbnails** |
 
 Content and metadata are separate routes on purpose: a run's detail and view
 must never carry file bodies.
@@ -175,6 +176,7 @@ The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 | `inbox` | `{queued}` — the run's undelivered messages |
 | `link` | a subagent link changed (spawned, phase, settled, delivered) |
 | `thinking` · `text` · `tool` | a model call in flight: the ACCUMULATED reasoning, answer text, or `{index, id, name, args}` of a tool call being written |
+| `thinking.delta` · `text.delta` | only with `deltas=1`: `{delta, at}` — text appended to that draft (see **Deltas** below) |
 | `draft.end` | that call finished (its message follows as `message`) |
 | `reset` | the cursor is from another process or too old: re-read `/view` |
 | `bye` | this process is handing over: reconnect at once, the successor answers |
@@ -184,6 +186,68 @@ inside the parent's chat. Nothing can fall between the view and the stream (the
 cursor is taken before the database is read, and events are idempotent
 upserts). Draft events are coalesced per subscriber — a slow reader gets the
 latest text, not every token.
+
+**Deltas.** With `&deltas=1` the stream sends what a draft APPENDED instead of
+the whole text so far: `text.delta` / `thinking.delta` with
+`{delta, at}` — `delta` goes on the end of the text you hold, and `at` is that
+text's length in UTF-16 code units (a JS string's `.length`) before it. The
+first draft event of a run on a connection, and any that does not simply
+extend what the connection wrote (a new model call, a rewritten text), still
+comes as the full `text` / `thinking` event, which always replaces;
+`draft.end` and `reset` start that over, and a new connection sends every
+live draft in full. So a client handles both forms, and when its text's
+length is not `at` (it replaced the draft from a `/view` meanwhile, say) it
+reconnects the stream. `tool` events are unchanged. `hello` carries
+`deltas: true` when the backend honours the flag — an older one ignores it
+and sends full text, which such a client handles anyway. Without the flag
+nothing changes.
+
+### Paging the view
+
+`GET /runs/{id}/view?limit=<n>&before=<seq>` returns the newest `n` messages
+with `seq < before` (no `before`: the newest; `n` defaults to 50, at most
+500; bad values are **400**), for long conversations. Without either
+parameter the view is the whole run, as always. A page:
+
+- holds only what the chat shows: messages compacted out of the context and
+  the stored system prompt are left out; `compacted` counts the former (the
+  "earlier turns were compacted" line);
+- never starts with a tool result: it reaches back to the call that made it
+  (so it may hold a few more than `n`);
+- carries `hasOlder`, and when true `nextBefore` — the `before` of the next
+  older page (its first message's `seq`);
+- carries the `steps` of its time span (a step shows after the messages of
+  its second): from its first message's time when older pages exist, to the
+  first message of the next newer page; the oldest page takes every earlier
+  step — so pages partition the steps;
+- carries the `links` of the subagents its calls and spawn steps started
+  (all links of each such child), and `linkCount`, the run's total;
+- carries `messageFiles` for its messages.
+
+Everything else — `run`, `drafts`, `queued`, `files`, `memory`, `chain`,
+`config`, `access`, `acl`, `cursor` — is the run's current state in every
+page. Open the stream from the newest page's cursor and merge older pages
+into what you hold (upserts by id): the union folds as the whole view does,
+with `compacted` standing in for the compacted messages it leaves out.
+On `reset` or `resync`, drop the older pages and re-read the newest. When
+older pages exist, the first message you hold is not the run's first: a
+subagent's first user message (its task) and a run's opening message are
+only in the oldest page.
+
+### Thumbnails
+
+`GET /runs/{id}/thumb?path=<file>&w=<px>` scales an image session file to fit
+inside `w` × `h` (never enlarged; aspect kept): `w` defaults to 320, `h` to
+4·`w`, both clamped to 16–2048. A JPEG's EXIF orientation is applied, so the
+thumbnail is upright as the photo is shown. It is written in the source's
+format (PNG for PNG and GIF, JPEG for JPEG) or as `fmt=png|jpeg` asks (JPEG
+flattens transparency on white); an image that already fits in the wanted
+format comes back as it is. The answer carries an `ETag` and `Cache-Control:
+private, no-cache` — revalidate with `If-None-Match` for a **304**. **415**
+for what it cannot scale (a text file, WebP, SVG, anything not PNG/JPEG/GIF —
+fall back to `/raw` or a file chip), **422** for an image too large to decode
+here (over 50 megapixels or ~100 MiB decoded) or a broken one. Access is
+`/raw`'s: a viewer of the run.
 
 ### Attachments
 

@@ -1,0 +1,287 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "nav",
+  "e": [
+   "pop"
+  ],
+  "c": [
+   {
+    "k": "r.0",
+    "t": "screen",
+    "p": {
+     "title": "Settings",
+     "style": "list"
+    },
+    "c": [
+     {
+      "k": "r.0.0",
+      "t": "section",
+      "p": {
+       "title": "x"
+      },
+      "c": [
+       {
+        "k": "r.0.0.0",
+        "t": "row",
+        "p": {
+         "title": "hidden root"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.1",
+    "t": "screen",
+    "p": {
+     "title": "Server details",
+     "subtitle": "apps/node-exporter",
+     "style": "list"
+    },
+    "c": [
+     {
+      "k": "r.1.0",
+      "t": "toolbar",
+      "c": [
+       {
+        "k": "r.1.0.0",
+        "t": "menu",
+        "p": {
+         "icon": "ellipsis",
+         "label": "More"
+        },
+        "c": [
+         {
+          "k": "r.1.0.0.0",
+          "t": "button",
+          "p": {
+           "label": "Rename",
+           "icon": "pencil"
+          },
+          "e": [
+           "tap"
+          ]
+         },
+         {
+          "k": "r.1.0.0.1",
+          "t": "button",
+          "p": {
+           "label": "Delete",
+           "icon": "trash",
+           "role": "destructive"
+          },
+          "e": [
+           "tap"
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "k": "r.1.1",
+      "t": "section",
+      "p": {
+       "title": "Status",
+       "footer": "Collected every 15 seconds."
+      },
+      "c": [
+       {
+        "k": "r.1.1.0",
+        "t": "row",
+        "p": {
+         "title": "CPU",
+         "detail": "12 %",
+         "icon": "cpu"
+        }
+       },
+       {
+        "k": "r.1.1.1",
+        "t": "row",
+        "p": {
+         "title": "Memory",
+         "detail": "3.1 GB of 8 GB",
+         "icon": "server"
+        }
+       },
+       {
+        "k": "r.1.1.2",
+        "t": "row",
+        "p": {
+         "title": "Network",
+         "icon": "network",
+         "badge": "degraded",
+         "tone": "warn",
+         "nav": true
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.1.1.3",
+        "t": "row",
+        "p": {
+         "title": "Selected option",
+         "selected": true
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.1.1.4",
+        "t": "row",
+        "p": {
+         "title": "Disabled row",
+         "subtitle": "can't tap this",
+         "disabled": true,
+         "nav": true
+        },
+        "e": [
+         "tap"
+        ]
+       }
+      ]
+     },
+     {
+      "k": "r.1.2",
+      "t": "section",
+      "p": {
+       "title": "Logs",
+       "collapsible": true,
+       "badge": "3"
+      },
+      "e": [
+       "toggle"
+      ],
+      "c": [
+       {
+        "k": "r.1.2.0",
+        "t": "disclosure",
+        "p": {
+         "title": "Recent errors",
+         "open": true
+        },
+        "e": [
+         "toggle"
+        ],
+        "c": [
+         {
+          "k": "r.1.2.0.0",
+          "t": "row",
+          "p": {
+           "title": "timeout",
+           "subtitle": "14:02 · upstream",
+           "mono": "subtitle",
+           "tone": "danger"
+          }
+         },
+         {
+          "k": "r.1.2.0.1",
+          "t": "row",
+          "p": {
+           "title": "retry",
+           "subtitle": "14:03 · upstream",
+           "mono": "subtitle",
+           "tone": "ok"
+          }
+         }
+        ]
+       },
+       {
+        "k": "r.1.2.1",
+        "t": "disclosure",
+        "p": {
+         "title": "Older"
+        },
+        "c": [
+         {
+          "k": "r.1.2.1.0",
+          "t": "row",
+          "p": {
+           "title": "nothing"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "k": "r.1.3",
+      "t": "section",
+      "p": {
+       "title": "Collapsed",
+       "collapsible": true,
+       "collapsed": true
+      },
+      "e": [
+       "toggle"
+      ],
+      "c": [
+       {
+        "k": "r.1.3.0",
+        "t": "row",
+        "p": {
+         "title": "hidden"
+        }
+       }
+      ]
+     },
+     {
+      "k": "r.1.4",
+      "t": "stack",
+      "p": {
+       "axis": "h",
+       "gap": "s"
+      },
+      "c": [
+       {
+        "k": "r.1.4.0",
+        "t": "button",
+        "p": {
+         "label": "Restart",
+         "icon": "refresh"
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.1.4.1",
+        "t": "button",
+        "p": {
+         "label": "Stop",
+         "icon": "stop",
+         "role": "destructive"
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.1.4.2",
+        "t": "spacer"
+       },
+       {
+        "k": "r.1.4.3",
+        "t": "button",
+        "p": {
+         "label": "Open",
+         "role": "primary",
+         "icon": "external"
+        },
+        "e": [
+         "tap"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
