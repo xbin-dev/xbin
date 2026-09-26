@@ -48,6 +48,7 @@ paint();
 rows.push(['raw-whoami', await st('/api/xbin/whoami')]);
 rows.push(['raw-counter-api', await st('/api/apps/counter/count')]);
 rows.push(['raw-counter-doc', await st('/c/apps/counter/?native=1')]);
+console.warn(` + "`snoop raw-counter-doc ${rows[2][1]}`" + `);
 rows.push(['framed-whoami', await (await xbin.fetch('/api/xbin/whoami')).json().then((w) => w.id)]);
 paint();
 `
@@ -185,6 +186,12 @@ func TestBxNative(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("lint: no %q in\n%s", want, out)
 		}
+	}
+	// …and while snoop's page runs in that sweep, counter's runtime document
+	// (probed in the same run) is not lent bx's credential: each tile has
+	// its own proxy (review — with one, snoop lifted counter's frame token)
+	if !strings.Contains(out, "snoop raw-counter-doc 401") {
+		t.Errorf("lint sweep: snoop reached counter's document with bx's credential:\n%s", out)
 	}
 
 	// a broken native UI fails the lint with the runtime's own words

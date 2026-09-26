@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -455,6 +456,74 @@ func TestNativeProxyGateway(t *testing.T) {
 	resp.Body.Close()
 	if string(b) != "xbin /c/apps/x/native.js Bearer inst" {
 		t.Fatalf("through the gateway: %q", b)
+	}
+}
+
+// TestRunProbeLendsPerTile (review): a multi-tile run (bx lint --native,
+// the workspace sweep) gives each tile its own proxy, which lends bx's
+// credential to that tile alone. With one proxy for the run, the page of
+// one tile could raw-fetch another probed tile's runtime document with
+// bx's credential and read its frame token. The browser is stood in for:
+// during each tile's run it fetches its own document and every other
+// probed tile's.
+func TestRunProbeLendsPerTile(t *testing.T) {
+	var mu sync.Mutex
+	lent := map[string]bool{} // "<running tile> <path>" → bx's token reached xbind
+	running := ""
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		lent[running+" "+r.URL.Path] = r.Header.Get("Authorization") == "Bearer sekrit"
+		mu.Unlock()
+	}))
+	defer up.Close()
+	t.Setenv("XBIN_URL", up.URL)
+	t.Setenv("XBIN_TOKEN", "sekrit")
+	t.Setenv("XBIN_GATEWAY", "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	tiles := []string{"apps/thief", "apps/victim"}
+	defer func(orig func(string, string, string, probeConfig) ([]probeResult, error)) { probeExec = orig }(probeExec)
+	bases := map[string]bool{}
+	probeExec = func(_, _, cfgFile string, cfg probeConfig) ([]probeResult, error) {
+		var onDisk probeConfig
+		if b, err := os.ReadFile(cfgFile); err != nil || json.Unmarshal(b, &onDisk) != nil || onDisk.Base != cfg.Base {
+			t.Fatalf("config file: %v", err)
+		}
+		if len(cfg.Tiles) != 1 {
+			t.Fatalf("a run probes %v, want one tile", cfg.Tiles)
+		}
+		bases[cfg.Base] = true
+		mu.Lock()
+		running = cfg.Tiles[0]
+		mu.Unlock()
+		for _, other := range tiles {
+			resp, err := http.Get(cfg.Base + "/c/" + other + "/?native=1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+		}
+		return []probeResult{{Tile: cfg.Tiles[0], OK: true}}, nil
+	}
+	res, err := runProbe(probeConfig{Tiles: tiles, Timeout: 1000}, tiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 || res[0].Tile != "apps/thief" || res[1].Tile != "apps/victim" {
+		t.Fatalf("results %+v", res)
+	}
+	if len(bases) != 2 {
+		t.Errorf("the tiles shared a proxy (%v)", bases)
+	}
+	for _, run := range tiles {
+		for _, p := range tiles {
+			if got := lent[run+" /c/"+p+"/"]; got != (run == p) {
+				t.Errorf("while %s ran, %s's document got bx's credential: %v", run, p, got)
+			}
+		}
 	}
 }
 

@@ -75,7 +75,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   needs, first-tree time and tree size — with no tile, the whole workspace
   and its native coverage. `--data` replays a fixture instead of the
   backend; `--steps` taps and types. bx lends its credential only to the
-  tile's own document and files; the tile's code keeps its frame token.
+  tile's own document and files — several tiles in one run each get their
+  own browser and proxy; the tile's code keeps its frame token.
 - **auth: device login for the xbin app** (D93, [auth.md](auth.md) §Device
   login, [protocol.md](protocol.md)). Additive until a user adds a device.
   - Users add a phone from 🔧 → *my account* → **devices…** → *add a

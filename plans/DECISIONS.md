@@ -2924,7 +2924,10 @@ Deviations and refinements made while implementing; all deliberate:
     A node-only runner (hack/xbn) can't load the tile's modules from xbind
     or answer "what does it render against its live backend".
   - **A loopback proxy lends bx's credential only to GET/HEAD of the probed
-    tile's own document and files**; the page never holds bx's token, and
+    tile's own document and files** — one proxy and one browser per tile,
+    run one after another: a single proxy for a multi-tile run lent to
+    every probed tile's paths whichever page asked, so one tile's page
+    lifted another's frame token; the page never holds bx's token, and
     the tile's API calls use its frame token as in the app. From a tile's
     terminal only that tile previews with live data (another tile's
     document yields no frame token, D95) — `--data` replays a fixture

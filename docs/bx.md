@@ -348,7 +348,10 @@ work without `--data` too, and against the live backend they are real
 actions — a tap on "+1" increments the counter. Credentials: bx lends its own (the terminal's `XBIN_TOKEN`, or the
 owner token on the host) only to the tile's document and files; the tile's
 code talks to xbind with the frame token that document was minted, exactly
-as in the app, and never holds bx's token. So a tile's terminal previews
+as in the app, and never holds bx's token. Several tiles in one run (`lint
+--native` with no tile, or naming several) run one after another, each in
+a browser of its own behind a proxy that lends to that tile alone — one
+tile's page can't reach another's document with bx's credential. So a tile's terminal previews
 that tile with its live data; another tile opened from there loads without
 a frame token (one is minted only for the tile itself or a human), so its
 API calls fail — give it `--data`, or run bx on the host.
