@@ -12,11 +12,14 @@ extension TerminalController {
     // MARK: Scrollback search (⌘F)
 
     /// Opens the find bar (or focuses it again); leaves the selection mode.
+    /// Reopened with the last query, it shows the newest match again.
     func openFind() {
         if selecting { exitSelectionMode(showKeyboard: false) }
+        let reopening = !find.visible
         find.open()
         findFocusRequests += 1
         syncSelectionOwner()
+        if reopening, find.canSearch { findStep(.older) }
     }
 
     func closeFind() {
