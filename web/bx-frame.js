@@ -576,7 +576,7 @@ export class BxFrame extends LitElement {
       setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
       popElement: () => f.renderRoot.querySelector('.pop'),
       focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu, vm: !!s.vm })); },
+      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
       get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
       get activeTab() { return f._active; },
       setActiveTab(i) { f._setActive(i | 0); },
@@ -732,7 +732,10 @@ export class BxFrame extends LitElement {
     const s = this._sessions.filter((t) => t.key === key || t.id !== d.id);
     const i = s.findIndex((t) => t.key === key);
     if (i < 0) return;
-    const cur = s[i];
+    // The one-shot `run` (a sign-in) is spent: bx-terminal typed it before
+    // it said so, and a new element for this tab (the window reopened)
+    // must not type it into the live shell again.
+    const { run, ...cur } = s[i];
     // The server reports the EFFECTIVE scope plus the scopes this user may
     // pick on this tile — the select renders exactly that list (D54).
     s[i] = { ...cur, id: d.id, kind: d.kind || cur.kind || 'shell', name: cur.name || d.name || '',
@@ -755,7 +758,8 @@ export class BxFrame extends LitElement {
     if (live && !(await this._confirm(`Restart this terminal ${what}?`, 'Its shell and anything running in it end, and the scrollback is lost.', 'Restart'))) return false;
     if (live) endSession(cur.id);
     const s = [...this._sessions];
-    s[i] = { ...cur, id: null, ended: false, ...patch };
+    const { run, ...rest } = cur; // a restart is not a sign-in again
+    s[i] = { ...rest, id: null, ended: false, ...patch };
     this._sessions = s;
     return true;
   }
