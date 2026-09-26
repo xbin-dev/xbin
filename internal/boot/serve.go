@@ -147,6 +147,9 @@ func (st *State) serve(ctx context.Context) error {
 	}
 	_ = st.watcher.Close()
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor
+	if st.Push != nil {
+		st.Push.Close()
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

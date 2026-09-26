@@ -24,6 +24,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/gpu"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
 	"github.com/xbin-dev/xbin/internal/proxy"
+	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -53,7 +54,8 @@ type State struct {
 	Broker  *broker.Broker
 	Proxy   *proxy.Proxy
 	Server  *server.Server
-	VM      *vm.Manager // VM sandboxes (vm.go); nil without isolation
+	VM      *vm.Manager   // VM sandboxes (vm.go); nil without isolation
+	Push    *push.Service // the push plane (push.go)
 	Started time.Time
 
 	trusted          []netip.Prefix
@@ -668,6 +670,9 @@ func (st *State) stepServer() error {
 	st.Broker.Register(srv)
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
+	if err := st.setupPush(srv); err != nil {
+		return err
+	}
 	st.Server = srv
 	return nil
 }

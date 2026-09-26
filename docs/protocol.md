@@ -1286,6 +1286,71 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          xbin.status/notify. Cleared on backend
                                          restart. Guidelines: workspace AGENTS.md.
 
+POST   /notify                           element (a tile's backend or frontend).
+                                         body {user, title, body?, link?, kind?,
+                                         collapseId?} → 202 {ok:true}. A push
+                                         notification to a person's registered
+                                         app devices (Push notifications, below).
+                                         user: the id to notify ("user:<id>"
+                                         accepted); they must be able to read
+                                         the calling tile — 403 otherwise, and
+                                         for unknown or disabled users. link is
+                                         relative to the tile (#fragment, ?query
+                                         or a path inside it). kind (a–z 0–9 -)
+                                         makes the push kind tile.<kind>;
+                                         collapseId (≤64 of A–Z a–z 0–9 . _ : -)
+                                         makes later ones replace earlier ones.
+                                         429 + Retry-After over the per-tile or
+                                         per-user limit. 202 also when push is
+                                         off, the user has no device or muted
+                                         the tile — delivery is best-effort.
+                                         SDK xbin.NotifyUser
+POST   /devices/push                     a signed-in person (the app's device
+                                         session; not a tile). body {deviceId,
+                                         handle, publicKey, kinds?} → {device:
+                                         {deviceId, kinds, created, updated,
+                                         lastSent?}, workspace, enabled}.
+                                         Registers (or refreshes) where this
+                                         user's pushes go: handle = the push
+                                         relay's handle for this app install and
+                                         workspace, publicKey = the device's
+                                         X25519 key (base64url, 32 bytes), kinds
+                                         = what it wants (agent, agent.permission,
+                                         agent.question, agent.turn, tile,
+                                         tile.<kind>; a kind matches those under
+                                         it; none = all). One registration per
+                                         (user, deviceId); a handle belongs to one
+                                         registration (the newest). workspace =
+                                         the `ws` every payload carries
+GET    /devices/push                     a signed-in person. {workspace, enabled,
+                                         devices:[{deviceId, kinds, created,
+                                         updated, lastSent?}]} — your own
+DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 404
+GET    /push/prefs                       a signed-in person. {mutedTiles:[path]}
+PUT    /push/prefs                       a signed-in person. body {mutedTiles}
+                                         (replaces; ≤1000) → the stored prefs.
+                                         A muted tile's /notify reaches none of
+                                         your devices
+POST   /push/test                        a signed-in person. A test push to your
+                                         devices (kinds don't filter it) → 202
+                                         {devices}; 409 when push is off or no
+                                         device is registered
+GET    /push/config                      admin. {enabled, source?: env|admin,
+                                         relay?, relayWorkspace?, defaultRelay?,
+                                         set?, by?, workspace, devices, stats:
+                                         {queued, sent, retried, failed, dropped,
+                                         lastError?, lastErrorAt?}} — the key is
+                                         never shown
+PUT    /push/config                      admin. body {relay?, key?}: turn push
+                                         on. relay: https:// (http only on
+                                         localhost; default XBIN_PUSH_RELAY);
+                                         without key xbind registers the
+                                         workspace with the relay and keeps the
+                                         key it answers. 409 when the environment
+                                         configures the relay; 502 when the relay
+                                         cannot be reached → the /push/config view
+DELETE /push/config                      admin. Push off (registrations stay) → 204
+
 GET    /cron/jobs                        own jobs (admin: all). {jobs}
 PUT    /cron/jobs                        writer on the cron resource.
                                          body {name, resource, schedule, path, role?, component?¹}
@@ -1316,6 +1381,31 @@ no longer exists loses the subscription. Answer 2xx; ≥400 counts as
 `failed`. Stored in `data/bus-subscriptions.json`, carried in the
 component's backup; a new tile created at a removed tile's path starts
 without that path's cron jobs and subscriptions.
+
+**Push notifications.** The xbin app receives pushes through a push relay
+(the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque
+handle to the device, and never sees content. An admin turns push on per
+workspace (`PUT /push/config`, or `XBIN_PUSH_RELAY` + `XBIN_PUSH_RELAY_KEY`,
+docs/config.md); the app registers each device with `POST /devices/push`.
+Each notification is sealed to the device's X25519 key — ephemeral X25519,
+HKDF-SHA256 (salt = ephemeral public key ‖ device public key, info
+`xbin-push-v1`), AES-256-GCM — over the JSON payload `{v:1, ws, kind,
+title, body, link, collapseId}`; the relay forwards the envelope `{v:1, epk,
+n, ct}` inside a generic "New activity" alert and the app's extension shows
+the real text (the exact format and test vectors: native/spec/push.md in
+the repository). `link` is relative to the workspace: `c/<tile>/…` for a
+tile, `agent/<session>` for an agent session.
+
+Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
+sessions of the device's user — a `permission.request` (`agent.permission`)
+or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
+a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
+buckets): 120/hour per tile (burst 20), 240/hour per user across all sources
+(burst 40), 120/hour per agent session (burst 20); agent pushes over a limit
+are dropped. Delivery is asynchronous and best-effort: a bounded queue (a
+full one drops), up to 5 attempts with backoff on relay 429/5xx or network
+errors; a relay 403/404/410 drops that device's registration. State lives in
+`data/push/push.json` (mode 0600).
 
 ## WebSockets
 

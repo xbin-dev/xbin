@@ -175,6 +175,25 @@ func endpoints() []ep {
 		{"PUT", "/prefs/{key}", "Prefs", "Set one pref", "authenticated", "Body is the arbitrary JSON value to store.", []oapi{pathParam("key", "pref key")}, freeBody("the JSON value to store"), "ok"},
 		{"DELETE", "/prefs/{key}", "Prefs", "Delete one pref", "authenticated", "", []oapi{pathParam("key", "pref key")}, nil, "ok"},
 
+		// --- push notifications (the xbin app, through the push relay) ---
+		{"POST", "/notify", "Push", "Notify a person who can read this tile", "element (the calling tile)",
+			"{user, title, body?, link?, kind?, collapseId?} → 202 {ok:true}. A push notification to the user's registered app devices, sealed end to end (docs/protocol.md §Push notifications). The user must be able to read the calling tile (403 otherwise, and for unknown or disabled users). link is tile-relative (#fragment, ?query, or a path inside the tile); kind makes the push kind tile.<kind>; notifications sharing a collapseId replace each other. 429 + Retry-After over the per-tile or per-user limit. Best-effort: 202 also when push is off, the user has no device or muted the tile. SDK: xbin.NotifyUser.",
+			nil, jsonBody("notification", oapi{"user": str("the user id to notify (\"user:<id>\" accepted)"), "title": str("plain text"), "body": str("plain text"), "link": str("relative to the tile: #fragment, ?query or a path inside it"), "kind": str("a–z 0–9 -, at most 32: the push kind becomes tile.<kind>"), "collapseId": str("A–Z a–z 0–9 . _ : -, at most 64")}, "user", "title"), "{ok:true} (202)"},
+		{"POST", "/devices/push", "Push", "Register a device for push", "signed-in person (not a tile)",
+			"{deviceId, handle, publicKey, kinds?} → {device:{deviceId, kinds, created, updated, lastSent?}, workspace, enabled}. The app's device session registers (or refreshes) where this user's pushes go: handle = the push relay's handle for this app install and workspace; publicKey = the device's X25519 key (base64url, 32 bytes) every payload is sealed to; kinds = agent | agent.permission | agent.question | agent.turn | tile | tile.<kind> (a kind matches the ones under it; none = all). One registration per (user, deviceId); a handle belongs to one registration. workspace is the `ws` each payload carries.",
+			nil, jsonBody("registration", oapi{"deviceId": str("the app's device id"), "handle": str("the relay handle"), "publicKey": str("X25519 public key, base64url"), "kinds": arr()}, "deviceId", "handle", "publicKey"), "{device, workspace, enabled}"},
+		{"GET", "/devices/push", "Push", "Your push registrations", "signed-in person", "{workspace, enabled, devices:[{deviceId, kinds, created, updated, lastSent?}]}.", nil, nil, "{workspace, enabled, devices}"},
+		{"DELETE", "/devices/push/{deviceId}", "Push", "Unregister a device", "signed-in person (own)", "204; 404 when that device has no registration.", []oapi{pathParam("deviceId", "the app's device id")}, nil, "204"},
+		{"GET", "/push/prefs", "Push", "Your push preferences", "signed-in person", "{mutedTiles:[path]}: tiles whose /notify reaches none of your devices.", nil, nil, "{mutedTiles}"},
+		{"PUT", "/push/prefs", "Push", "Set your push preferences", "signed-in person", "Replaces them (at most 1000 muted tiles) → the stored prefs.", nil, jsonBody("prefs", oapi{"mutedTiles": arr()}, "mutedTiles"), "{mutedTiles}"},
+		{"POST", "/push/test", "Push", "Send yourself a test push", "signed-in person", "To every device you registered (kinds don't filter it) → 202 {devices}; 409 when push is off or none is registered.", nil, nil, "{devices} (202)"},
+		{"GET", "/push/config", "Push", "The workspace's push relay", "admin",
+			"{enabled, source?: env | admin, relay?, relayWorkspace?, defaultRelay?, set?, by?, workspace, devices, stats:{queued, sent, retried, failed, dropped, lastError?, lastErrorAt?}}. The relay key is never shown.", nil, nil, "push configuration"},
+		{"PUT", "/push/config", "Push", "Turn push on", "admin",
+			"{relay?, key?}: relay is an https:// URL (http only on localhost; default XBIN_PUSH_RELAY). Without key, xbind registers this workspace with the relay (POST /v1/workspaces) and keeps the key it answers. 409 when the environment configures the relay; 502 when the relay cannot be reached. → the /push/config view.",
+			nil, jsonBody("relay", oapi{"relay": str("the relay's base URL"), "key": str("this workspace's key at the relay (omit to register)")}), "push configuration"},
+		{"DELETE", "/push/config", "Push", "Turn push off", "admin", "Registrations stay, so turning it back on needs nothing from the apps. 409 when the environment configures the relay. 204.", nil, nil, "204"},
+
 		// --- shared screens & sidebar folders (D37/D55) ---
 		{"GET", "/screens", "Screens", "Shared layouts visible to the caller", "authenticated",
 			"The ws-admin default screen (everyone), the caller's orgs' screens (each with rev/updatedBy/updatedAt and canEdit per the screen's edit knob), and the folder sets they may see: `ws` always, plus `org:<id>` for every org they belong to (ws-admins: all).",
