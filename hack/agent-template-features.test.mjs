@@ -48,7 +48,7 @@ test('every intended difference says why', () => {
 for (const [view, implemented] of Object.entries(VIEWS)) {
   test(`where the ${view} view says a feature lives exists`, () => {
     for (const [k, where] of Object.entries(implemented)) {
-      const files = String(where).match(/[\w/-]+\.(?:js|html)\b/g) || [];
+      const files = String(where).match(/[\w/-]+\.(?:js|html|go)\b/g) || [];
       assert.ok(files.length, `${k}: name the file that implements it`);
       for (const f of files) assert.ok(existsSync(TPL + f), `${k}: ${f} does not exist in the template`);
     }

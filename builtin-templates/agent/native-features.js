@@ -157,4 +157,7 @@ export const IMPLEMENTS = {
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',
   'link.auto': 'native.js — app.follow (model/router.js)',
   'link.join': 'native.js — app.follow (model/router.js); native/convs.js — a pasted link',
+
+  // Needs you, beyond the tile
+  'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
 };

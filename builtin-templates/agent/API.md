@@ -62,6 +62,30 @@ own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
 
+**Needs you on your phone.** The moments `/needs` lists are also pushed to the
+xbin app of each person who would see them there (`xbin.NotifyUserWith` →
+`POST /api/xbin/notify`; xbind delivers only to people who can read this tile,
+sealed to their devices, and only when the workspace has push set up):
+
+| When | Who | Push |
+|---|---|---|
+| a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
+| a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
+| an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
+
+The title is the conversation's; tapping it opens `#c=<run>` (the subagent's
+own run for a subagent's approval — where its card is); `collapseId`
+`needs:<run>` lets a later push for the same run replace an earlier one.
+Recipients come from the run's own access list only — never from a request —
+so an admin's view-as (D64) neither triggers nor receives one, and a
+team-wide role reaches nobody in particular (those people see it under Needs
+you when they look). It is best-effort: after a 3 s grace the run is read
+again and nothing is sent if it moved on (someone answered at once); the same
+run, state and question is sent once per 6 h; each person gets at most 10 at
+once, refilled one per 6 min, over the whole tile; xbind's own limits apply on
+top, and a refusal is logged, never retried. `needs_push.go`; an instance
+that wants none sets `agent.needs = nil` in `main.go`.
+
 ### Titles
 
 A new conversation is titled with the start of its first message

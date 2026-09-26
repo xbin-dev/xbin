@@ -182,14 +182,14 @@ export const FEATURES = {
   'link.join': 'an invite link joins a conversation (#join=<token>)',
 
   // Needs you, beyond the tile
-  'needs.push': 'a question, an approval or a failed automation reaches your phone',
+  'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
 // Anything else missing from a view fails the features test.
 export const DIFFERENCES = {
   web: {
-    'needs.push': 'a web page cannot reach a phone; Needs-you is pushed by the native app (POST /api/xbin/notify)',
+    'needs.push': 'a web page does not receive pushes: the backend sends Needs-you to the person\'s xbin app (POST /api/xbin/notify), which opens the conversation in the native view',
     'composer.dictation': 'the browser and the OS dictate into any text box; the tile adds no control of its own',
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
   },
@@ -198,7 +198,6 @@ export const DIFFERENCES = {
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'composer.heldAsk': 'the app uploads a picked file itself, to a path the tile names first (composer upload), and at home there is no run to name yet: the first message starts the conversation, then attachments are offered',
-    'needs.push': 'not yet (milestone 7): reaching a phone needs POST /api/xbin/notify and the app\'s push relay, which do not exist yet; until then the view keeps the tile\'s badge at the Needs-you count (xbin.native.meta)',
   },
 };
 

@@ -40,6 +40,8 @@ type Agent struct {
 	noGateway bool
 	// acl caches who may see which conversation (acl.go).
 	acl aclCache
+	// needs pushes "Needs you" to people's phones (needs_push.go); nil: off.
+	needs *needsPusher
 }
 
 var agent *Agent
@@ -54,7 +56,7 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 	agent = &Agent{db: db, repl: newReplRegistry(), toolSem: make(chan struct{}, maxToolsGlobal),
-		blobs: gatewayBlobs{}, blobCache: newBlobCache(48 << 20)}
+		blobs: gatewayBlobs{}, blobCache: newBlobCache(48 << 20), needs: newNeedsPusher(xbin.NotifyUserWith)}
 	if db.getSetting("config") == "" {
 		b, _ := json.Marshal(defaultConfig())
 		_ = db.putSetting("config", string(b))
