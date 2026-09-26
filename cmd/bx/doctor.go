@@ -293,6 +293,11 @@ func cmdDoctor() error {
 		}
 	}
 
+	// Strict tile asset gating (docs/auth.md): absolute /c/ URLs, inject:false.
+	if comps != nil {
+		doctorTileAssets(warn, ok)
+	}
+
 	// inotify budget (the #1 support issue per plans/deployment.md).
 	if b, err := os.ReadFile("/proc/sys/fs/inotify/max_user_watches"); err == nil {
 		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))

@@ -35,6 +35,8 @@ func cmdExtra(cmd string, args []string) error {
 		return cmdAgentHost()
 	case "__vm-host":
 		return cmdVMHost(args)
+	case "fix":
+		return cmdFix(args) // fixassets.go
 	}
 	usage()
 	return nil

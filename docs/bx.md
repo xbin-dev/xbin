@@ -143,6 +143,10 @@ bx restore <component> [--version V] [--file PATH]
 bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
                                        owner-scheduled backups
 bx doctor                              workspace health checks
+bx fix assets [<tile>] [--write] [--dir PATH]
+                                       rewrite a tile's absolute /c/ asset URLs
+                                       to relative ones (strict tile asset
+                                       gating); dry run unless --write
 ```
 
 ## Notes per command
@@ -220,9 +224,28 @@ docs/auth.md §vault.
 sanity (orphaned owner entries, admin-less or member-less orgs, allowance
 entries that can never match, dead defaultTiles/share patterns); network
 sets (unknown attachments, rules that can't parse, orgs granted HOST
-networking, inert net bindings); go.work ownership; host inotify budget;
-toolchains present for the runtimes in use.
+networking, inert net bindings); go.work ownership; strict tile asset
+gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
+the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
+default legacy mode these are what the coming enforcement will refuse);
+host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
+
+**`bx fix assets`** — the codemod for strict tile asset gating
+([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset
+URLs](/docs/elements.md)). It rewrites a tile's absolute `/c/` URLs in HTML
+attributes (`src`, `href`, `srcset`, …), `<style>`/`style=""` and `.css`
+files (`url()`, `@import`), the document's own import map, and module
+`import` specifiers to **relative** URLs — which resolve to the very same
+path in every mode, so the tile loads exactly what it loaded before, now
+with a credential. It never edits other JavaScript strings, references to
+workspace chrome, or documents that set their own `<base>`: those are
+listed under "needs a look" with what to do. Dry run by default (prints
+`file:line:col  old → new`); `--write` applies (atomically, refusing files
+that changed since the scan). The tile defaults to the terminal's own; the
+files are found under the workspace root, in the tile's terminal from the
+working directory up, or at `--dir`. Symlinked files are fixed at their
+target.
 
 **`bx agent`** — drives an **agent session** (docs/overview/09-terminals.md
 §Agent sessions): `run` opens one on a tile (inside a tile's terminal the
