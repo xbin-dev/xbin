@@ -153,3 +153,28 @@ test('the preview host drives a runtime end to end', { skip }, async () => {
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('a row\'s and a message\'s actions open as a popover and fire', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  const btn = (k, label, extra = {}) => ({ k, t: 'button', p: { label, ...extra }, e: ['tap'] });
+  await p.evaluate((t) => window.xbnFixture.load(t), { v: 1, root: { k: 'r', t: 'screen', p: { title: 'T', style: 'scroll' }, c: [
+    { k: 'r.0', t: 'list', c: [{ k: 'r.0.0', t: 'row', p: { title: 'a row' }, c: [{ k: 'r.0.0.0', t: 'actions', c: [
+      btn('r.0.0.0.0', 'Pin'), btn('r.0.0.0.1', 'Delete', { role: 'destructive', confirm: { title: 'Delete?', label: 'Delete', destructive: true } })] }] }] },
+    { k: 'r.1', t: 'transcript', c: [{ k: 'r.1.0', t: 'message', p: { role: 'user', text: 'hi' }, c: [{ k: 'r.1.0.0', t: 'actions', c: [btn('r.1.0.0.0', 'Copy it')] }] }] },
+  ] } });
+  const root = p.locator('xb-view');
+  assert.equal(await root.locator('[data-k="r.0.0.0.0"]').count(), 0, 'folded out of sight');
+  await root.locator('[data-k="r.0.0"] .row-more').click();
+  await root.locator('.pop [data-k="r.0.0.0.0"] button').click();
+  await root.locator('[data-k="r.0.0"] .row-more').click();
+  await root.locator('.pop [data-k="r.0.0.0.1"] button').click();
+  await root.locator('.as-btn.danger').click(); // a destructive action confirms first
+  await root.locator('[data-k="r.1.0"] .m-bubble').click({ button: 'right' });
+  await root.locator('.pop [data-k="r.1.0.0.0"] button').click();
+  const taps = await p.evaluate(() => window.xbnFixture.events.map((e) => e[0] + ':' + e[1]));
+  assert.deepEqual(taps, ['r.0.0.0.0:tap', 'r.0.0.0.1:tap', 'r.1.0.0.0:tap']);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
