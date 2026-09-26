@@ -39,7 +39,7 @@ ok('automation runs are not in the conversation list', !(await page.textContent(
 await page.click('#autos .autos-entry');
 await page.waitForSelector('.autos-page .acard2');
 const groups = await page.$$eval('.autos-page h5', (els) => els.map((e) => e.textContent));
-ok('grouped by kind', JSON.stringify(groups) === JSON.stringify(['Schedules', 'Watchers']), groups.join(' | '));
+ok('grouped by kind', JSON.stringify(groups) === JSON.stringify(['Channels', 'Schedules', 'Watchers']), groups.join(' | '));
 const bob = await page.textContent('.acard2[data-auto="schedule:5"]');
 ok('someone else\'s, overseen: whose it is, not what it does', bob.includes("bob's") && !bob.includes('Run now'), bob);
 ok('#auto is in the address', await page.evaluate(() => location.hash === '#auto'));

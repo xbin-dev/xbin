@@ -158,6 +158,11 @@ func TestChannelLifecycle(t *testing.T) {
 	if len(notes) != 1 || !strings.Contains(notes[0].Body.Text, "pairing code") {
 		t.Fatalf("pairing notices: %+v", notes)
 	}
+	var sum map[string]int
+	_ = json.Unmarshal(callAs(t, mux, asMgr, "GET", "/automations?summary=1", nil).Body.Bytes(), &sum)
+	if sum["attention"] != 1 {
+		t.Fatalf("a pairing request waits on the owner: %v", sum)
+	}
 	code := ag.db.getPeer(ch, "uma").Code
 	if w := callAs(t, mux, asMgr, "POST", fmt.Sprintf("/channels/%d/pair", ch), map[string]string{"code": "WRONG123"}); w.Code != 404 {
 		t.Fatalf("a wrong code: %d", w.Code)

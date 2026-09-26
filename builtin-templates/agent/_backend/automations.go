@@ -33,7 +33,8 @@ type AutomationItem struct {
 	LastStatus string `json:"lastStatus,omitempty"`
 	Runs       int    `json:"runs"`
 	Unread     int    `json:"unread"`
-	Config     any    `json:"config,omitempty"` // the kind's own fields (the detail view)
+	Attention  int    `json:"attention,omitempty"` // things waiting on the caller: a channel to claim, pairing requests, failed replies
+	Config     any    `json:"config,omitempty"`    // the kind's own fields (the detail view)
 }
 
 // automationKind is one kind of automation. Origin is the run origin its runs
@@ -160,7 +161,7 @@ func handleAutomations(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	items := allAutomations(c)
 	if r.URL.Query().Get("summary") == "1" {
-		unread, failing := 0, 0
+		unread, failing, attention := 0, 0, 0
 		for _, it := range items {
 			if it.Access == "owner" || it.Access == "viewer" {
 				unread += it.Unread
@@ -168,8 +169,11 @@ func handleAutomations(w http.ResponseWriter, r *http.Request) {
 					failing++
 				}
 			}
+			if it.Access == "owner" || it.Access == "claim" {
+				attention += it.Attention
+			}
 		}
-		xbin.WriteJSON(w, 200, map[string]any{"count": len(items), "unread": unread, "failing": failing})
+		xbin.WriteJSON(w, 200, map[string]any{"count": len(items), "unread": unread, "failing": failing, "attention": attention})
 		return
 	}
 	if items == nil {

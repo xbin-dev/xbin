@@ -1,6 +1,6 @@
 // automations.js — the Automations page (D83): the agents that work without
-// anyone typing — schedules and watchers now; channels and triggers register
-// here (registerKind) when they land. Each automation shows what it does, when,
+// anyone typing — schedules and watchers here; chat channels (auto-channels.js)
+// and triggers register their own cards and details (registerKind). Each automation shows what it does, when,
 // whose it is and how its last run went; open it for its runs (unread first
 // to your eye), its settings, and — for a thread — "start afresh".
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
@@ -11,7 +11,11 @@ const KINDS = new Map();
 /**
  * registerKind adds a kind of automation to the page.
  * @param kind  the API's kind (GET /automations items[].kind)
- * @param spec  {label, order, detail?(item, page) → template, create?: {label, form(page) → template}}
+ * @param spec  {label, order, empty?: text when there are none,
+ *   card?(page, item), head?(item, page) — the detail's header actions,
+ *   detail?(item, page) — above its runs, runsLabel?: what its runs are called,
+ *   open?(item id, page) — load what
+ *   the detail shows (on open and on every refresh)}
  */
 export function registerKind(kind, spec) { KINDS.set(kind, spec); }
 
@@ -46,7 +50,7 @@ export class AutoPage {
 
   async load() {
     try { this.items = (await api('/automations')).items || []; this.err = ''; } catch (e) { this.err = e.message; }
-    if (this.open) await this.loadRuns();
+    if (this.open) await Promise.all([this.loadRuns(), KINDS.get(this.open.kind)?.open?.(this.open.id, this)]);
     this.changed();
   }
 
@@ -58,7 +62,7 @@ export class AutoPage {
     this.runs = [];
     this.next = '';
     if (this.open) {
-      await this.loadRuns();
+      await Promise.all([this.loadRuns(), KINDS.get(kind)?.open?.(id, this)]);
       api(`/automations/${kind}/${id}/read`, { method: 'POST' }).then(() => this.loadSummary()).catch(() => {});
     }
     this.changed();
@@ -120,7 +124,7 @@ export class AutoPage {
 registerKind('schedule', { label: 'Schedules', order: 1 });
 registerKind('watcher', { label: 'Watchers', order: 2 });
 
-const ago = (sec) => {
+export const ago = (sec) => {
   if (!sec) return '';
   const s = Math.max(0, Date.now() / 1000 - sec);
   return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
@@ -141,8 +145,8 @@ export function autoPageTpl(p) {
       <button class="btn ghost btnsm" @click=${() => p.newSchedule(true)}>New watcher</button></div>
     ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
     ${groups.map((g) => html`<h5>${g.spec.label}</h5>
-      ${g.items.length ? repeat(g.items, (i) => i.kind + i.id, (i) => cardTpl(p, i))
-        : html`<div class="muted small empty-line">none yet</div>`}`)}
+      ${g.items.length ? repeat(g.items, (i) => i.kind + i.id, (i) => (g.spec.card || cardTpl)(p, i))
+        : html`<div class="muted small empty-line">${g.spec.empty || 'none yet'}</div>`}`)}
   </div>`;
 }
 
@@ -165,32 +169,37 @@ function cardTpl(p, it) {
 }
 
 function detailTpl(p, it) {
-  const mine = it.access === 'owner';
   const spec = KINDS.get(it.kind) || {};
-  const thread = it.kind === 'watcher' || it.mode === 'persistent';
   return html`<div class="autos-page">
     <div class="ahd"><a class="crumb" @click=${() => p.show(null)}>Automations</a> › <b>${it.name}</b>
-      <span style="flex:1"></span>
-      ${mine ? html`<button class="btn ghost btnsm" @click=${() => p.runNow(it)}>Run now</button>` : nothing}
-      ${mine || it.access === 'oversee' ? html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => p.toggle(it)}> on</label>` : nothing}
-      ${mine && it.config ? html`<button class="btn ghost btnsm" @click=${() => p.editSchedule(it)}>Edit</button>` : nothing}
-      ${mine && thread ? html`<button class="btn ghost btnsm" title="its next run starts a new conversation; the old ones stay" @click=${() => p.reset(it)}>Start afresh</button>` : nothing}
-      ${mine || it.access === 'oversee' ? html`<button class="btn rm btnsm" @click=${() => p.del(it)}>Delete</button>` : nothing}
-    </div>
+      <span style="flex:1"></span>${(spec.head || scheduleHead)(it, p)}</div>
     ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
-    <div class="muted small">${it.config ? html`${cadence(it.config.cron)} · ${it.kind === 'schedule' ? MODES[it.mode] : 'a watcher'}
-      ${it.mode === 'conversation' && it.targetRun ? html` · <a @click=${() => p.on.select(it.targetRun)}>reports to its conversation</a>` : nothing}`
-      : it.summary}${it.lastStatus ? ` · last run: ${it.lastStatus}` : ''}</div>
-    ${it.config && it.config.goal ? html`<div class="agoal">${it.config.goal}</div>` : nothing}
-    ${spec.detail ? spec.detail(it, p) : nothing}
-    <h5>Runs</h5>
+    ${(spec.detail || scheduleDetail)(it, p)}
+    <h5>${spec.runsLabel || 'Runs'}</h5>
     ${p.runs.length ? repeat(p.runs, (r) => r.id, (r) => html`<div class="run ${r.unread ? 'unread' : ''}" data-id=${r.id} @click=${() => p.on.select(r.id)}>
         <div class="t">${r.title || 'run ' + r.id}</div>
         <span class="gl">${new Date(r.activityMs).toLocaleString()}</span>
         ${r.status === 'error' ? html`<span class="gl err">!</span>` : r.status === 'running' ? html`<span class="spin"></span>` : nothing}
-      </div>`) : html`<div class="muted small empty-line">no runs yet</div>`}
+      </div>`) : html`<div class="muted small empty-line">none yet</div>`}
     ${p.next ? html`<button class="btn ghost btnsm" @click=${() => p.loadRuns(true)}>more</button>` : nothing}
   </div>`;
+}
+
+function scheduleHead(it, p) {
+  const mine = it.access === 'owner';
+  const thread = it.kind === 'watcher' || it.mode === 'persistent';
+  return html`${mine ? html`<button class="btn ghost btnsm" @click=${() => p.runNow(it)}>Run now</button>` : nothing}
+    ${mine || it.access === 'oversee' ? html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => p.toggle(it)}> on</label>` : nothing}
+    ${mine && it.config ? html`<button class="btn ghost btnsm" @click=${() => p.editSchedule(it)}>Edit</button>` : nothing}
+    ${mine && thread ? html`<button class="btn ghost btnsm" title="its next run starts a new conversation; the old ones stay" @click=${() => p.reset(it)}>Start afresh</button>` : nothing}
+    ${mine || it.access === 'oversee' ? html`<button class="btn rm btnsm" @click=${() => p.del(it)}>Delete</button>` : nothing}`;
+}
+
+function scheduleDetail(it, p) {
+  return html`<div class="muted small">${it.config ? html`${cadence(it.config.cron)} · ${it.kind === 'schedule' ? MODES[it.mode] : 'a watcher'}
+      ${it.mode === 'conversation' && it.targetRun ? html` · <a @click=${() => p.on.select(it.targetRun)}>reports to its conversation</a>` : nothing}`
+      : it.summary}${it.lastStatus ? ` · last run: ${it.lastStatus}` : ''}</div>
+    ${it.config && it.config.goal ? html`<div class="agoal">${it.config.goal}</div>` : nothing}`;
 }
 
 function formTpl(p) {
@@ -229,7 +238,7 @@ function formTpl(p) {
 
 // sideEntryTpl is the sidebar's entry: the page, with what is new there.
 export function sideEntryTpl(p, on, open) {
-  const n = p.summary.unread || 0;
+  const n = (p.summary.unread || 0) + (p.summary.attention || 0);
   return html`<div class="autos-entry ${on ? 'on' : ''}" @click=${open}>
     <span>Automations</span>
     ${n ? html`<span class="badge unread">${n}</span>` : nothing}

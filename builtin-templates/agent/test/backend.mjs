@@ -100,7 +100,8 @@ export function STUB(seed) {
     ['GET', /\/needs$/, () => json({ items: seed.needs || [] })],
     // automations (D83)
     ['GET', /\/automations\?summary=1$/, () => json({ count: (seed.automations || []).length,
-      unread: (seed.automations || []).reduce((n, a) => n + (a.access === 'oversee' ? 0 : a.unread || 0), 0), failing: 0 })],
+      unread: (seed.automations || []).reduce((n, a) => n + (a.access === 'oversee' ? 0 : a.unread || 0), 0), failing: 0,
+      attention: (seed.automations || []).reduce((n, a) => n + (['owner', 'claim'].includes(a.access) ? a.attention || 0 : 0), 0) })],
     ['GET', /\/automations$/, () => json({ items: seed.automations || [] })],
     ['GET', /\/automations\/(\w+)\/(\d+)\/runs/, (m) => json({ items: (seed.autoRuns || {})[m[2]] || [], next: '' })],
     ['POST', /\/automations\/(\w+)\/(\d+)\/(read|reset)$/, () => json({ ok: 'true' })],

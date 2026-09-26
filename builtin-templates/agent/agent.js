@@ -22,6 +22,7 @@ import { ConvList } from './conv-list.js';
 import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
 import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
+import './auto-channels.js'; // registers the Channels kind on that page
 import { openShare, joinFrom } from './share.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
@@ -129,10 +130,10 @@ function onEvent(ev) {
     const r = convs.find(ev.run);
     if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
     if (sel == null) { clearTimeout(needsDirty); needsDirty = setTimeout(loadNeeds, 300); }
-    if (['schedule', 'watcher'].includes((ev.data || {}).origin)) {
-      clearTimeout(autosDirty);
-      autosDirty = setTimeout(() => (page ? autos.load() : autos.loadSummary()), 300);
-    }
+  }
+  if (ev.type === 'automation' || (ev.type === 'run' && ev.run === ev.root && ['schedule', 'watcher', 'channel'].includes((ev.data || {}).origin))) {
+    clearTimeout(autosDirty);
+    autosDirty = setTimeout(() => (page ? autos.load() : autos.loadSummary()), 300);
   }
 }
 
@@ -227,13 +228,17 @@ function topTpl(v) {
 
 // paint draws everything that depends on the session. lit patches only what
 // changed, so this is cheap enough to run on every streamed token.
+let shownPage = '';
 function paint() {
   const v = session.current();
   render(topTpl(v), $('top'));
   const tl = $('timeline');
   const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
   render(v ? session.template() : page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
-  if (atBottom) tl.scrollTop = tl.scrollHeight;
+  // a chat sticks to its end; a page opens at its top
+  const shown = v ? '' : `${page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!autos.form}`;
+  if (v ? atBottom : shown !== shownPage) tl.scrollTop = v ? tl.scrollHeight : 0;
+  shownPage = shown;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
   const busy = session.busy();

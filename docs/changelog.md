@@ -22,8 +22,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     channel conversations in the web lane without scheduling tools.
   - A reply is written in the transaction that ends the turn and acked by
     the adapter once posted.
-  - Channels are claimed and managed on the Automations page
-    (`/channels/{id}/…`, API.md §Channels).
+  - Channels are claimed and managed in a Channels section at the top of
+    the Automations page: the claim with its rules, pairing codes to
+    approve, people and trust, sessions, undelivered replies to retry
+    (`/channels/{id}/…`, API.md §Channels). The sidebar badge also counts
+    what waits on you there (`attention` in the summary).
   - New run config field `deny` (tools a run never gets, inherited by
     subagents).
 

@@ -328,7 +328,7 @@ conversation list; the tile's Automations page lists them with their runs.
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /automations` | — | `{items:[{kind, id, name, owner, visibility, access, enabled, summary, mode, targetRun, currentRun, lastRunId, lastRunAt, lastStatus, runs, unread, config}]}`. `access` is `owner`, `viewer`, or `oversee` — a manager's view of someone else's private one (it exists, runs, whose; not what it does) |
-| `GET /automations?summary=1` | — | `{count, unread, failing}` for the sidebar badge |
+| `GET /automations?summary=1` | — | `{count, unread, failing, attention}` for the sidebar badge (`attention`: what waits on you — a channel to claim, pairing requests, undelivered replies; also per item) |
 | `GET /automations/{kind}/{id}` | — | one of them |
 | `GET /automations/{kind}/{id}/runs?cursor=&limit=` | — | its runs, newest activity first, as conversation rows (unread per caller) |
 | `POST /automations/{kind}/{id}/read` | — | mark all its runs read |
@@ -394,7 +394,9 @@ mentions), the lane (web by default: a reply is an egress) and the tools
 A channel appears (kind `channel` in `GET /automations`, `access: "claim"`
 for managers) when its adapter first says hello, and does nothing until a
 manager claims it; its conversations belong to the claimer and follow its
-visibility. The owner's routes (`{id}` is the channel's):
+visibility. On the Automations page, Channels come first: claim one (with
+its rules), approve pairing codes, allow, block or trust people, open or
+restart its sessions, retry undelivered replies, edit the rules. The owner's routes (`{id}` is the channel's):
 
 | Method & path | Body | Purpose |
 |---|---|---|

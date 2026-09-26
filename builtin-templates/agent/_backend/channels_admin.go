@@ -55,11 +55,12 @@ func channelItems(w who) []AutomationItem {
 		case c.State == chUnclaimed && !(w.manager() && w.viewedBy == ""):
 			continue
 		case c.State == chUnclaimed:
-			it.Access = "claim"
+			it.Access, it.Attention = "claim", 1
 			it.Config = channelDetail(c, false)
 		case lv >= lvOwner:
 			it.Access = "owner"
-			it.Config = channelDetail(c, true)
+			d := channelDetail(c, true)
+			it.Config, it.Attention = d, d["pendingPeers"].(int)+d["failedDeliveries"].(int)
 		case lv >= lvViewer:
 			it.Access = "viewer"
 			it.Config = channelDetail(c, false)
