@@ -624,7 +624,9 @@ export class BxTerminal extends HTMLElement {
           // into the pty so its output (a clickable URL) is right there
           if (!this.#ranInit) {
             const run = this.getAttribute('run');
-            if (run) { this.#ranInit = true; try { this.#ws?.send(run + '\n'); } catch { } }
+            // binary, as typed input is: a text frame is control JSON, and
+            // anything else in one is dropped (internal/term/attach.go)
+            if (run) { this.#ranInit = true; try { this.#ws?.send(enc.encode(run + '\n')); } catch { } }
           }
           if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
           // A clamp note ("host networking is admin-only — using the org
