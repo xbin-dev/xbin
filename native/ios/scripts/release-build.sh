@@ -249,20 +249,31 @@ archive() {
     -destination generic/platform=iOS -archivePath "$out/Xbin.xcarchive" -derivedDataPath "$out/derived" \
     "${trust[@]}" "${auth[@]}" "${settings[@]}"
 }
-if ! archive; then
+# A first run makes the development identity and its profiles mid-build,
+# and trips over both: the new key can't be used without a prompt yet
+# (errSecInternalComponent), and a profile the build planned with was
+# replaced by a newer one ("Build input file cannot be found: …
+# .mobileprovision"). Both pass on a second try — at most two retries.
+tries=0
+until archive; do
+  tries=$((tries + 1))
   # Apple keeps one development certificate per Mac: one whose key sits
   # elsewhere (the login keychain, from before this keychain existed) must
   # go before xcodebuild makes the one here.
   if grep -q 'Revoke certificate' "$out/archive.log" 2>/dev/null; then
     refuse "this Mac already has an Apple Development certificate whose key isn't in $kc (made outside this script): revoke it — developer.apple.com → Certificates, Identifiers & Profiles → Certificates — and run this again; the next run makes the new one in $kc"
   fi
-  # The first run makes the development identity mid-build, before its key
-  # may be used without a prompt: allow codesign, then once more.
-  grep -q errSecInternalComponent "$out/archive.log" 2>/dev/null || refuse "the archive failed (see $out/archive.log)"
-  echo "release-build: a new signing identity — letting codesign use its key, then archiving again"
-  kc_partition
-  archive || refuse "the archive failed (see $out/archive.log)"
-fi
+  [ "$tries" -le 2 ] || refuse "the archive failed (see $out/archive.log)"
+  if grep -q errSecInternalComponent "$out/archive.log" 2>/dev/null; then
+    echo "release-build: a new signing identity — letting codesign use its key, then archiving again"
+    kc_partition
+  elif grep -q 'Build input file cannot be found: .*\.mobileprovision' "$out/archive.log" 2>/dev/null; then
+    echo "release-build: a provisioning profile was replaced mid-build — archiving again"
+  else
+    refuse "the archive failed (see $out/archive.log)"
+  fi
+  rm -rf "$out/Xbin.xcarchive"
+done
 [ -d "$out/Xbin.xcarchive" ] || refuse "no archive at $out/Xbin.xcarchive (see $out/archive.log)"
 ci_xcodebuild "$out/export.log" -exportArchive -archivePath "$out/Xbin.xcarchive" -exportPath "$out/export" \
   -exportOptionsPlist "$out/ExportOptions.plist" "${auth[@]}"
