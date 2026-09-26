@@ -1,9 +1,9 @@
 // hack/agent-template-conv.test.mjs — the agent template's conversation list
-// helpers (builtin-templates/agent/conv-groups.js): date groups by LOCAL
+// helpers (builtin-templates/agent/model/conv-groups.js): date groups by LOCAL
 // calendar day, ordering, unread.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupOf, groupRows, byActivity, isUnread, GROUPS } from '../builtin-templates/agent/conv-groups.js';
+import { groupOf, groupRows, byActivity, isUnread, GROUPS } from '../builtin-templates/agent/model/conv-groups.js';
 
 const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 

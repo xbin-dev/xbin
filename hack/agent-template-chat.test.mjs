@@ -1,10 +1,10 @@
 // hack/agent-template-chat.test.mjs — the agent template's chat model
-// (builtin-templates/agent/{chat-fold,tool-heads}.js): how a run's view
+// (builtin-templates/agent/model/{fold,tool-heads}.js): how a run's view
 // becomes blocks, run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fold, activity, splitAttachments } from '../builtin-templates/agent/chat-fold.js';
-import { headline, parseArgs, resultState, argsShown } from '../builtin-templates/agent/tool-heads.js';
+import { fold, activity, splitAttachments } from '../builtin-templates/agent/model/fold.js';
+import { headline, parseArgs, resultState, argsShown } from '../builtin-templates/agent/model/tool-heads.js';
 
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const m = (id, role, content, extra = {}) => ({ id, seq: id, role, content, created: 100 + id, ...extra });
