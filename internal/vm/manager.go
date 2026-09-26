@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -41,6 +42,11 @@ type Manager struct {
 type Status struct {
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
+	// Emulated: KVM isn't usable here, so VMs run under QEMU's software
+	// emulation — the same guest and isolation, several times slower. Note
+	// says why.
+	Emulated bool   `json:"emulated,omitempty"`
+	Note     string `json:"note,omitempty"`
 }
 
 // Status probes KVM and the assets (cheap: an open, an ioctl, a few stats).
@@ -48,13 +54,55 @@ func (m *Manager) Status() Status {
 	if m == nil {
 		return Status{Reason: "VM sandboxes need isolation (--isolate)"}
 	}
-	if _, err := m.findAssets(); err != nil {
-		return Status{Reason: err.Error()}
+	_, st := m.backend()
+	return st
+}
+
+// backend decides how a VM runs here: under Firecracker when KVM is usable,
+// else under QEMU's emulation when its pieces are shipped (small cloud VMs
+// rarely offer nested virtualization). XBIN_VM_ACCEL=kvm or =emulate forces
+// one.
+func (m *Manager) backend() (Assets, Status) {
+	a, err := m.findAssets()
+	if err != nil {
+		return a, Status{Reason: err.Error()}
 	}
-	if err := kvmUsable(); err != nil {
-		return Status{Reason: err.Error()}
+	kvm := func() error {
+		if err := kvmUsable(); err != nil {
+			return err
+		}
+		return a.kvm()
 	}
-	return Status{Available: true}
+	return a, decide(os.Getenv("XBIN_VM_ACCEL"), kvm, a.emulation)
+}
+
+// decide picks the VMM from what KVM and emulation lack (nil = nothing).
+func decide(force string, kvm, emulation func() error) Status {
+	var noKVM error
+	if force == "emulate" {
+		noKVM = errors.New("XBIN_VM_ACCEL=emulate")
+	} else {
+		noKVM = kvm()
+	}
+	if noKVM == nil {
+		return Status{Available: true}
+	}
+	if force == "kvm" {
+		return Status{Reason: noKVM.Error()}
+	}
+	if err := emulation(); err != nil {
+		return Status{Reason: noKVM.Error() + "; " + err.Error()}
+	}
+	return Status{Available: true, Emulated: true,
+		Note: "no KVM (" + noKVM.Error() + "): VMs run under software emulation, several times slower"}
+}
+
+// OverheadMiB is what a VM's cgroup leaf holds beyond guest memory here.
+func (m *Manager) OverheadMiB() int {
+	if m.Status().Emulated {
+		return EmulatedOverheadMiB
+	}
+	return VMOverheadMiB
 }
 
 func (m *Manager) findAssets() (Assets, error) {
@@ -94,28 +142,28 @@ const (
 
 // Paths of the VM's pieces inside the namespace sandbox (never exported).
 var (
-	inBx     = sandbox.VMDir + "/bin/bx"
-	inFC     = sandbox.VMDir + "/bin/firecracker"
-	inKernel = sandbox.VMDir + "/boot/vmlinux"
-	inInitrd = sandbox.VMDir + "/boot/initrd"
-	inImage  = sandbox.VMDir + "/img/rootfs.erofs"
-	inDisk   = sandbox.VMDir + "/img/disk.img"
-	inRun    = sandbox.VMDir + "/run"
+	inBx       = sandbox.VMDir + "/bin/bx"
+	inFC       = sandbox.VMDir + "/bin/firecracker"
+	inQEMU     = sandbox.VMDir + "/bin/qemu"
+	inVsockDev = sandbox.VMDir + "/bin/vhost-device-vsock"
+	inFirmware = sandbox.VMDir + "/fw"
+	inKernel   = sandbox.VMDir + "/boot/vmlinux"
+	inInitrd   = sandbox.VMDir + "/boot/initrd"
+	inImage    = sandbox.VMDir + "/img/rootfs.erofs"
+	inDisk     = sandbox.VMDir + "/img/disk.img"
+	inRun      = sandbox.VMDir + "/run"
 )
 
 // Apply turns spec — built for a namespace sandbox — into a VM sandbox: the
 // same binds become the guest's file mounts at the same paths, the entry
 // becomes the guest's session 1, and the namespace sandbox shrinks to a
-// bare root holding the shim and Firecracker. What a VM can't carry is an
+// bare root holding the shim and the VMM (Firecracker, or QEMU emulating). What a VM can't carry is an
 // error, never silently dropped: host networking, provider splices and
 // lan-ingress links, device nodes (GPUs), env layers.
 func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) error {
-	a, err := m.findAssets()
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
-	}
-	if err := kvmUsable(); err != nil {
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	a, st := m.backend()
+	if !st.Available {
+		return fmt.Errorf("%w: %s", ErrUnavailable, st.Reason)
 	}
 	switch {
 	case spec.HostNet:
@@ -138,19 +186,18 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 		return fmt.Errorf("build the VM initramfs: %w", err)
 	}
 	hs := &proto.HostSpec{
-		Firecracker: inFC,
-		Kernel:      inKernel,
-		Initrd:      inInitrd,
-		Image:       inImage,
-		RunDir:      inRun,
-		VCPUs:       o.VCPUs,
-		MemMiB:      o.MemMiB,
-		Hostname:    o.Hostname,
-		Mounts:      mounts,
-		Local:       o.Local,
-		Listen:      o.Listen,
-		Gateway:     o.Gateway,
-		Debug:       spec.Debug || m.Debug,
+		Kernel:   inKernel,
+		Initrd:   inInitrd,
+		Image:    inImage,
+		RunDir:   inRun,
+		VCPUs:    o.VCPUs,
+		MemMiB:   o.MemMiB,
+		Hostname: o.Hostname,
+		Mounts:   mounts,
+		Local:    o.Local,
+		Listen:   o.Listen,
+		Gateway:  o.Gateway,
+		Debug:    spec.Debug || m.Debug,
 		Guest: proto.Exec{
 			Path:    spec.Entry,
 			Argv:    spec.Argv,
@@ -174,9 +221,20 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 		hs.Tap, hs.GuestMAC = proto.TapName, proto.GuestMAC
 		hs.Net = &proto.Net{Addr: proto.GuestAddr, Gw: proto.GatewayIP, GwMAC: proto.TapMAC, DNS: proto.GuestDNS, MTU: 1500}
 	}
+	if st.Emulated {
+		hs.QEMU, hs.VsockDev, hs.Firmware = inQEMU, inVsockDev, inFirmware
+		spec.Binds = append(spec.Binds,
+			sandbox.Bind{Src: a.QEMU, Dst: inQEMU, RO: true},
+			sandbox.Bind{Src: a.VsockDev, Dst: inVsockDev, RO: true},
+			sandbox.Bind{Src: a.BIOS, Dst: inFirmware + "/bios-microvm.bin", RO: true},
+			sandbox.Bind{Src: a.PVH, Dst: inFirmware + "/pvh.bin", RO: true},
+		)
+	} else {
+		hs.Firecracker = inFC
+		spec.Binds = append(spec.Binds, sandbox.Bind{Src: a.Firecracker, Dst: inFC, RO: true})
+	}
 	spec.Binds = append(spec.Binds,
 		sandbox.Bind{Src: a.Bx, Dst: inBx, RO: true},
-		sandbox.Bind{Src: a.Firecracker, Dst: inFC, RO: true},
 		sandbox.Bind{Src: a.Kernel, Dst: inKernel, RO: true},
 		sandbox.Bind{Src: initrd, Dst: inInitrd, RO: true},
 		sandbox.Bind{Src: image, Dst: inImage, RO: true},

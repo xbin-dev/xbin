@@ -148,7 +148,7 @@ terminal.
 | `/dev/fuse` | fuse-overlayfs sandbox roots | kernel-overlay fallback; `apt install` in terminals fails on cross-dir renames |
 | `/dev/net/tun` | the egress relay / terminal internet scope | no component egress, no terminal internet |
 | cgroup v2 | per-component limits/accounting | non-fatal; limits unavailable |
-| `/dev/kvm` usable by the xbind user (the `kvm` group) + the bundle's `firecracker`, `vmlinux`, `xbin-vmagent`, `mkfs.erofs` | VM sandboxes (D89; off until an admin enables them) | VM terminals/backends report "unavailable" with the reason; everything else unchanged. Cloud VMs need nested virtualization |
+| `/dev/kvm` usable by the xbind user (the `kvm` group) + the bundle's `firecracker`, `vmlinux`, `xbin-vmagent`, `mkfs.erofs` | VM sandboxes (D89; off until an admin enables them) | VMs run emulated instead (D90: the bundle's `qemu-system-x86_64` + blobs and `vhost-device-vsock`; much slower), or report "unavailable" with the reason when those are missing too; everything else unchanged |
 | `fs.inotify.max_user_watches=524288` | watching every workspace dir | rescans silently miss changes; the #1 support issue — `bx doctor` checks it |
 
 ## Network posture

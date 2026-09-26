@@ -387,8 +387,8 @@ Differences to design around:
   before the new one starts, so there is a short gap on reload.
 - `setup` can't be combined with `vm` yet: install at start, you're root.
 - Host networking, provider links and GPUs are refused.
-- Without KVM, or without the admin's switch, the backend fails with the
-  reason — it never falls back to the namespace sandbox.
+- Without the admin's switch, or where VMs can't run at all, the backend
+  fails with the reason — it never falls back to the namespace sandbox.
 
 **Files** reach the guest as FUSE filesystems over vsock, and the guest
 caches them hard: repeated work (`git status`, `find`, a rebuild, re-reading
@@ -405,6 +405,22 @@ doesn't hear about them; use polling there.
 installer adds it to the `kvm` group; a cloud VM needs nested
 virtualization) and the release bundle's `firecracker`, `vmlinux`,
 `xbin-vmagent` and `mkfs.erofs`. Decision: D89.
+
+**Without KVM — emulated VMs.** Most small cloud VMs offer no nested
+virtualization. There, xbind runs the same guest under QEMU's software
+emulation instead of Firecracker: the same kernel, image, files, network
+policy, VM disk and isolation, and nothing to configure — `GET /vm` and the
+terminal's VM toggle say `emulated` and why. It is much slower: roughly 5×
+on process-heavy work and up to ~20× on pure CPU work, and a boot takes about
+2 s. Good for a shell that needs root or its own kernel; a poor fit for heavy
+builds. The QEMU is minimal and static (the microvm board, virtio-mmio block,
+net, balloon and vsock only; no PCI, display or user networking), runs in the
+same namespace jail as Firecracker would, and adds its own seccomp filter;
+it is a larger program than Firecracker, which is the price of not needing
+KVM. `XBIN_VM_ACCEL=kvm` never emulates. The bundle's
+`qemu-system-x86_64` (with `qemu-bios-microvm.bin` and `qemu-pvh.bin` beside
+it) and `vhost-device-vsock` are the extra pieces; x86_64 hosts only.
+Decision: D90.
 
 ## Resource limits (blast-radius containment)
 

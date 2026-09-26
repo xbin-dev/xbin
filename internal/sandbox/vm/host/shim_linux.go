@@ -2,12 +2,13 @@
 
 // Package host is the VM sandbox's host shim, `bx __vm-host`
 // (plans/vm-sandbox.md). The namespace sandbox execs it as its PID 1 in
-// place of the workload; it boots Firecracker as its child, serves the
-// sandbox's binds to the guest as FUSE filesystems, and makes the guest's session look
-// like an ordinary process to xbind: its stdio is the host PTY (or pipes),
-// SIGWINCH resizes the guest PTY, SIGTERM reaches the guest process, and the
-// shim exits with the guest process's status. Killing the shim tears down the
-// pid namespace and Firecracker with it.
+// place of the workload; it boots Firecracker (or, without KVM, QEMU's
+// emulation) as its child, serves the sandbox's binds to the guest as FUSE
+// filesystems, and makes the guest's session look like an ordinary process
+// to xbind: its stdio is the host PTY (or pipes), SIGWINCH resizes the guest
+// PTY, SIGTERM reaches the guest process, and the shim exits with the guest
+// process's status. Killing the shim tears down the pid namespace and the
+// VMM with it.
 package host
 
 import (
@@ -52,13 +53,16 @@ func Main(specPath string) int {
 
 type shim struct {
 	hs      proto.HostSpec
-	serial  *ring // Firecracker's stdout/stderr: the guest console and VMM log
-	fc      *exec.Cmd
-	fcDone  chan struct{}
-	ctl     *proto.Conn
-	pending chan ctlMsg // a control read in flight (recvUntil)
-	tty     bool
-	raw     *term.State
+	serial  *ring     // the VMM's stdout/stderr: the guest console and VMM log
+	vmm     *exec.Cmd // Firecracker, or QEMU for an emulated VM
+	vmmDone chan struct{}
+	// an emulated VM's vsock backend (vhost-device-vsock)
+	vsockd     *exec.Cmd
+	vsockdDone chan struct{}
+	ctl        *proto.Conn
+	pending    chan ctlMsg // a control read in flight (recvUntil)
+	tty        bool
+	raw        *term.State
 }
 
 func (s *shim) run() int {
@@ -73,13 +77,26 @@ func (s *shim) run() int {
 	if err := s.linkGateway(); err != nil {
 		return fail(s, "gateway link: %v", err)
 	}
-	started := time.Now()
-	if err := s.startFirecracker(); err != nil {
-		return fail(s, "start firecracker: %v", err)
+	ready, err := net.Listen("unix", filepath.Join(s.hs.RunDir, fmt.Sprintf("v.sock_%d", proto.ReadyPort)))
+	if err != nil {
+		return fail(s, "ready socket: %v", err)
 	}
-	defer s.killFirecracker()
+	defer ready.Close()
+	started := time.Now()
+	if s.hs.Emulated() {
+		err = s.startQEMU()
+	} else {
+		err = s.startFirecracker()
+	}
+	defer s.killVMM()
+	if err != nil {
+		return fail(s, "start the VM: %v", err)
+	}
 
-	ctl, err := s.dialAgent(proto.Hello{Kind: "ctl"}, 20*time.Second)
+	if err := s.waitReady(ready, s.slow(20*time.Second)); err != nil {
+		return fail(s, "guest agent: %v", err)
+	}
+	ctl, err := s.dialAgent(proto.Hello{Kind: "ctl"}, s.slow(5*time.Second))
 	if err != nil {
 		return fail(s, "guest agent: %v", err)
 	}
@@ -125,7 +142,7 @@ func (s *shim) session() int {
 	}
 	var streams sync.WaitGroup
 	if s.tty {
-		c, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "pty"}, 5*time.Second)
+		c, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "pty"}, s.slow(5*time.Second))
 		if err != nil {
 			return fail(s, "pty stream: %v", err)
 		}
@@ -136,15 +153,15 @@ func (s *shim) session() int {
 		streams.Add(1)
 		go func() { defer streams.Done(); _, _ = io.Copy(os.Stdout, c) }()
 	} else {
-		in, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stdin"}, 5*time.Second)
+		in, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stdin"}, s.slow(5*time.Second))
 		if err != nil {
 			return fail(s, "stdin stream: %v", err)
 		}
-		out, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stdout"}, 5*time.Second)
+		out, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stdout"}, s.slow(5*time.Second))
 		if err != nil {
 			return fail(s, "stdout stream: %v", err)
 		}
-		errc, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stderr"}, 5*time.Second)
+		errc, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "stderr"}, s.slow(5*time.Second))
 		if err != nil {
 			return fail(s, "stderr stream: %v", err)
 		}
@@ -230,6 +247,15 @@ func (s *shim) session() int {
 	}
 }
 
+// slow stretches a guest-side timeout for an emulated VM, whose kernel
+// boots and whose agent answers several times slower than under KVM.
+func (s *shim) slow(d time.Duration) time.Duration {
+	if s.hs.Emulated() {
+		return 6 * d
+	}
+	return d
+}
+
 // expect reads control messages until op (or an error) arrives.
 func (s *shim) expect(op string) (proto.Msg, error) {
 	for {
@@ -243,7 +269,7 @@ func (s *shim) expect(op string) (proto.Msg, error) {
 	}
 }
 
-// recv reads one control message, or fails when Firecracker dies first.
+// recv reads one control message, or fails when the VMM dies first.
 func (s *shim) recv() (proto.Msg, error) { return s.recvUntil(nil, nil) }
 
 var (
@@ -268,7 +294,7 @@ func (s *shim) recvUntil(hangup <-chan struct{}, deadline <-chan time.Time) (pro
 	case r := <-s.pending:
 		s.pending = nil
 		return r.m, r.err
-	case <-s.fcDone:
+	case <-s.vmmDone:
 		return proto.Msg{}, errors.New("the VM exited")
 	case <-hangup:
 		return proto.Msg{}, errHangup
@@ -282,8 +308,29 @@ type ctlMsg struct {
 	err error
 }
 
+// waitReady waits for the agent's call on ReadyPort: it listens from then
+// on. Nothing connects to a guest before that (proto.ReadyPort).
+func (s *shim) waitReady(ln net.Listener, timeout time.Duration) error {
+	got := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			c.Close()
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		return err
+	case <-s.vmmDone:
+		return errors.New("the VM exited while booting")
+	case <-time.After(timeout):
+		return fmt.Errorf("the guest didn't come up within %s", timeout)
+	}
+}
+
 // dialAgent connects to the agent's vsock port and sends hello, retrying
-// until the agent listens (a cold guest is still booting).
+// briefly (a connection the guest refuses or resets).
 func (s *shim) dialAgent(h proto.Hello, timeout time.Duration) (net.Conn, error) {
 	uds := filepath.Join(s.hs.RunDir, "v.sock")
 	deadline := time.Now().Add(timeout)
@@ -297,7 +344,7 @@ func (s *shim) dialAgent(h proto.Hello, timeout time.Duration) (net.Conn, error)
 			c.Close()
 		}
 		select {
-		case <-s.fcDone:
+		case <-s.vmmDone:
 			return nil, errors.New("the VM exited while booting")
 		default:
 		}
@@ -391,13 +438,13 @@ func fail(s *shim, format string, args ...any) int {
 		if s.tty {
 			nl = "\r\n"
 		}
-		if s.fcDone != nil { // a dying guest's last words reach the console a moment later
+		if s.vmmDone != nil { // a dying guest's last words reach the console a moment later
 			select {
-			case <-s.fcDone:
+			case <-s.vmmDone:
 			case <-time.After(1500 * time.Millisecond):
 			}
 		}
-		if tail := s.serial.tail(4 << 10); tail != "" && (s.hs.Debug || s.fcExited()) {
+		if tail := s.serial.tail(4 << 10); tail != "" && (s.hs.Debug || s.vmmExited()) {
 			fmt.Fprintf(os.Stderr, "--- VM console ---%s%s%s", nl, crlf(tail, s.tty), nl)
 		}
 	}

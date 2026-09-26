@@ -60,6 +60,9 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		s.FuseOverlay = "" // a VM sandbox's root is a bare tmpfs, no overlay
 	}
 	s.Debug = s.Debug || os.Getenv("XBIN_SANDBOX_DEBUG") != ""
+	if s.VM != nil && s.Debug {
+		s.VM.Debug = true // the shim echoes the guest console and its timings
+	}
 
 	// ExtraFiles land at fd 3, 4, … in the init, in append order.
 	var extra []*os.File

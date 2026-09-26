@@ -11,8 +11,9 @@ import (
 
 // stepVM sets up VM sandboxes (plans/vm-sandbox.md) under isolation: the
 // manager terminals open VMs through, its cache GC, and the log line saying
-// whether this host can run them (KVM, the assets) and whether the admin has
-// turned them on. A host without KVM just reports why — nothing else changes.
+// whether this host can run them (KVM or emulation, the assets) and whether
+// the admin has turned them on. A host that can't just reports why — nothing
+// else changes.
 func (st *State) stepVM() error {
 	if !st.Cfg.Isolate || st.Term == nil {
 		return nil
@@ -24,7 +25,9 @@ func (st *State) stepVM() error {
 	status := m.Status()
 	m.GC()
 	p := m.Policy()
-	if status.Available {
+	if status.Available && status.Emulated {
+		slog.Info("VM sandboxes available, emulated", "why", status.Note, "terminals", p.Terminals, "backends", p.Backends, "memMiB", p.MemMiB, "vcpus", p.VCPUs)
+	} else if status.Available {
 		slog.Info("VM sandboxes available", "terminals", p.Terminals, "backends", p.Backends, "memMiB", p.MemMiB, "vcpus", p.VCPUs)
 	} else {
 		slog.Info("VM sandboxes unavailable", "reason", status.Reason)

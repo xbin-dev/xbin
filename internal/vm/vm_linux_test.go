@@ -47,6 +47,7 @@ func harness(t *testing.T) (*Manager, string) {
 	for env, name := range map[string]string{
 		"XBIN_FIRECRACKER": "firecracker", "XBIN_VM_KERNEL": "vmlinux",
 		"XBIN_VM_AGENT": "xbin-vmagent", "XBIN_MKFS_EROFS": "mkfs.erofs",
+		"XBIN_QEMU": "qemu-system-x86_64", "XBIN_VHOST_VSOCK": "vhost-device-vsock",
 	} {
 		if os.Getenv(env) == "" {
 			t.Setenv(env, filepath.Join(bin, name))
@@ -54,13 +55,21 @@ func harness(t *testing.T) (*Manager, string) {
 	}
 	ws := t.TempDir()
 	m := &Manager{Root: ws, Rootfs: rootfs, Bx: filepath.Join(bin, "bx")}
-	if st := m.Status(); !st.Available {
+	st := m.Status()
+	if !st.Available {
 		t.Skipf("VM sandboxes unavailable here: %s", st.Reason)
+	}
+	if st.Emulated {
+		t.Logf("emulated VMs: %s", st.Note)
+		vmTimeout = 5 * time.Minute
 	}
 	confine.Configure(rootfs)
 	t.Cleanup(func() { confine.Configure("") })
 	return m, ws
 }
+
+// vmTimeout bounds one VM sandbox run (longer under emulation).
+var vmTimeout = 60 * time.Second
 
 func launch(t *testing.T, spec *sandbox.Spec, withRelay func(fd int)) (string, int) {
 	t.Helper()
@@ -94,7 +103,7 @@ func launch(t *testing.T, spec *sandbox.Spec, withRelay func(fd int)) (string, i
 			code = ee.ExitCode()
 		}
 		return out.String(), code
-	case <-time.After(60 * time.Second):
+	case <-time.After(vmTimeout):
 		_ = cmd.Process.Kill()
 		t.Fatalf("VM sandbox timed out\n%s", out.String())
 	}
@@ -320,11 +329,12 @@ func TestVMSandboxSeesHostEdits(t *testing.T) {
 	os.MkdirAll(dir, 0o755)
 	f, nf := filepath.Join(dir, "co.txt"), filepath.Join(dir, "newfile")
 	os.WriteFile(f, []byte("v1"), 0o644)
+	ready := filepath.Join(dir, "ready")
 	script := fmt.Sprintf(`f=%[1]s; n=%[2]s
-first=$(cat $f); [ -e $n ] && echo PRE-EXISTS; echo ready
+first=$(cat $f); [ -e $n ] && echo PRE-EXISTS; echo ready; : > %[3]s
 for i in $(seq 1 200); do c=$(cat $f); [ "$c" != "$first" ] && break; sleep 0.02; done; echo "CONTENT=$c"
 for i in $(seq 1 200); do [ -e $n ] && break; sleep 0.02; done; [ -e $n ] && echo NEWFILE-SEEN
-for i in $(seq 1 200); do [ -e $f ] || break; sleep 0.02; done; [ -e $f ] || echo GONE-SEEN`, f, nf)
+for i in $(seq 1 200); do [ -e $f ] || break; sleep 0.02; done; [ -e $f ] || echo GONE-SEEN`, f, nf, ready)
 	spec := &sandbox.Spec{
 		Lower:   []string{m.Rootfs},
 		Binds:   []sandbox.Bind{{Src: dir, Dst: dir}},
@@ -339,7 +349,12 @@ for i in $(seq 1 200); do [ -e $f ] || break; sleep 0.02; done; [ -e $f ] || ech
 		t.Fatal(err)
 	}
 	go func() {
-		time.Sleep(1500 * time.Millisecond) // the guest has read (and cached) both by now
+		// the guest has read (and cached) both once it says so
+		for deadline := time.Now().Add(vmTimeout); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+		}
 		os.WriteFile(f, []byte("v2-from-host"), 0o644)
 		time.Sleep(300 * time.Millisecond)
 		os.WriteFile(nf, []byte("hi"), 0o644)

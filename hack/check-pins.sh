@@ -22,7 +22,8 @@
 #   4. currency — pinned distro releases vs the endoflife.date API:
 #      FAIL past EOL, WARN within 60 days (API unreachable = warn, not fail)
 #   5. reachability — Alpine APKINDEX (both arches), the pinned Go tarballs,
-#      the Firecracker release + guest kernel tarball + its guest config (D89)
+#      the Firecracker release + guest kernel tarball + its guest config (D89),
+#      the QEMU tarball + vhost-device-vsock crate of emulated VMs
 #      (installer + rootfs-baked toolchain), the traefik release tarball the
 #      builtin tile's setup script downloads
 # (golang:alpine, the gocryptfs builder image, floats with upstream — no
@@ -193,6 +194,21 @@ else
     [ "$fc" = "$fctag" ] || warn "Firecracker pins differ: fetch $fc, kernel config $fctag"
   else
     warn "no guest kernel pin found in hack/build-vmkernel.sh"
+  fi
+  # emulated VMs (no KVM): the QEMU tarball and the vhost-device-vsock crate
+  qv=$(sed -n 's/^VERSION="\${QEMU_VERSION:-\([0-9.]*\)}"$/\1/p' "$repo/hack/build-qemu.sh")
+  vv=$(sed -n 's/^VERSION="\${VHOST_VSOCK_VERSION:-\([0-9.]*\)}"$/\1/p' "$repo/hack/build-vhost-vsock.sh")
+  if [ -n "$qv" ]; then
+    url="https://download.qemu.org/qemu-${qv}.tar.xz"
+    if head_ok "$url"; then ok "QEMU tarball served: $qv"; else fail "QEMU tarball unreachable: $url"; fi
+  else
+    warn "no QEMU pin found in hack/build-qemu.sh"
+  fi
+  if [ -n "$vv" ]; then
+    url="https://static.crates.io/crates/vhost-device-vsock/vhost-device-vsock-${vv}.crate"
+    if head_ok "$url"; then ok "vhost-device-vsock crate served: $vv"; else fail "vhost-device-vsock crate unreachable: $url"; fi
+  else
+    warn "no vhost-device-vsock pin found in hack/build-vhost-vsock.sh"
   fi
 fi
 

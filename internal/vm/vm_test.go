@@ -2,9 +2,11 @@ package vm
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,5 +83,54 @@ func TestNewcCpio(t *testing.T) {
 	// header (110) + "init\0" (5) → pad to 116; data 3 → pad to 4
 	if s[116:119] != "abc" {
 		t.Fatalf("file data misplaced: %q", s[110:124])
+	}
+}
+
+func TestDecideVMM(t *testing.T) {
+	ok := func() error { return nil }
+	noKVM := func() error { return errors.New("/dev/kvm is missing") }
+	noEmu := func() error { return errors.New("emulation needs qemu-system-x86_64") }
+	for _, c := range []struct {
+		name, force  string
+		kvm, emu     func() error
+		avail, emul  bool
+		reason, note string
+	}{
+		{"kvm wins", "", ok, ok, true, false, "", ""},
+		{"no kvm: emulate", "", noKVM, ok, true, true, "", "no KVM (/dev/kvm is missing)"},
+		{"neither", "", noKVM, noEmu, false, false, "/dev/kvm is missing; emulation needs qemu-system-x86_64", ""},
+		{"forced kvm, none", "kvm", noKVM, ok, false, false, "/dev/kvm is missing", ""},
+		{"forced emulate", "emulate", ok, ok, true, true, "", "XBIN_VM_ACCEL=emulate"},
+		{"forced emulate, none", "emulate", ok, noEmu, false, false, "emulation needs", ""},
+	} {
+		st := decide(c.force, c.kvm, c.emu)
+		if st.Available != c.avail || st.Emulated != c.emul || !strings.Contains(st.Reason, c.reason) ||
+			!strings.Contains(st.Note, c.note) || (c.reason == "") != (st.Reason == "") {
+			t.Errorf("%s: got %+v", c.name, st)
+		}
+	}
+}
+
+// An initrd is whole pages, whatever the agent's size: QEMU's microvm would
+// otherwise load its tail over the ACPI tables in the top page of RAM.
+func TestInitrdWholePages(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []int{1, 4000, 5836040, 5838360} {
+		agent := filepath.Join(dir, "agent")
+		if err := os.WriteFile(agent, bytes.Repeat([]byte{0x7f}, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := &Manager{Root: filepath.Join(dir, "ws", strconv.Itoa(n)), assets: Assets{Agent: agent}}
+		p, err := m.initrd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Size()%4096 != 0 {
+			t.Errorf("agent of %d bytes: initrd of %d bytes is not whole pages", n, fi.Size())
+		}
 	}
 }

@@ -484,10 +484,13 @@ VM sandbox pieces (D89) carry their own pins: `hack/fetch-firecracker.sh`
 `hack/build-vmkernel.sh` (kernel version + sha256 from kernel.org's signed
 sums, Firecracker's CI config by tag + sha256; `hack/vmkernel/xbin.config`
 is merged on top and every line must survive `olddefconfig`), and
-`hack/build-mkfs-erofs.sh` (erofs-utils tag, alpine pin). Bump Firecracker
-and the config tag together — `make pins` warns when they differ. CI builds
-them (cached on those files), turns on KVM for the runner, and boots the VM
-integration tests on a small exported ubuntu image.
+`hack/build-mkfs-erofs.sh` (erofs-utils tag, alpine pin), and for emulated
+VMs (D90) `hack/build-qemu.sh` (QEMU version + tarball sha256; the device
+set is in the script) and `hack/build-vhost-vsock.sh` (crate version,
+`--locked`). Bump Firecracker and the config tag together — `make pins` warns
+when they differ. CI builds them (cached on those files), turns on KVM for
+the runner, and boots the VM integration tests on a small exported ubuntu
+image twice: on KVM, then with `XBIN_VM_ACCEL=emulate`.
 
 ## gofmt scope
 

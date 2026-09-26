@@ -41,6 +41,11 @@ func Main() {
 		fatal("vsock listen: %v", err)
 	}
 	logf("agent listening on vsock %d", proto.AgentPort)
+	if fd, err := dialHost(proto.ReadyPort); err == nil {
+		unix.Close(fd) // the shim connects now
+	} else {
+		logf("ready call: %v", err)
+	}
 	for {
 		c, err := ln.accept()
 		if err != nil {

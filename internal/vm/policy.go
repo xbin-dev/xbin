@@ -151,5 +151,9 @@ func (m *Manager) Used() Usage {
 }
 
 // VMOverheadMiB is what a VM's cgroup leaf holds beyond guest memory: the
-// shim, Firecracker, the file server's buffers.
-const VMOverheadMiB = 192
+// shim, Firecracker, the file server's buffers. An emulated VM's QEMU adds
+// its translated-code cache (256 MiB) and the vsock backend.
+const (
+	VMOverheadMiB       = 192
+	EmulatedOverheadMiB = 512
+)

@@ -5,12 +5,18 @@ package proto
 // guest is, and what to run in it. Paths are as seen inside the sandbox.
 type HostSpec struct {
 	Firecracker string `json:"firecracker"`
-	Kernel      string `json:"kernel"`
-	Initrd      string `json:"initrd"`
-	Image       string `json:"image"`               // read-only rootfs image
-	ImageType   string `json:"imageType,omitempty"` // "erofs" (default) | "ext4"
-	Disk        string `json:"disk,omitempty"`      // persistent upper disk image ("" = tmpfs upper)
-	RunDir      string `json:"runDir"`              // the shim's own sockets (never exported)
+	// An emulated VM (no usable KVM) runs under QEMU instead, with VsockDev
+	// (vhost-device-vsock) serving its vsock and Firmware the directory
+	// holding QEMU's boot blobs.
+	QEMU      string `json:"qemu,omitempty"`
+	VsockDev  string `json:"vsockDev,omitempty"`
+	Firmware  string `json:"firmware,omitempty"`
+	Kernel    string `json:"kernel"`
+	Initrd    string `json:"initrd"`
+	Image     string `json:"image"`               // read-only rootfs image
+	ImageType string `json:"imageType,omitempty"` // "erofs" (default) | "ext4"
+	Disk      string `json:"disk,omitempty"`      // persistent upper disk image ("" = tmpfs upper)
+	RunDir    string `json:"runDir"`              // the shim's own sockets (never exported)
 
 	VCPUs  int `json:"vcpus"`
 	MemMiB int `json:"memMiB"`
@@ -34,6 +40,9 @@ type HostSpec struct {
 
 	Debug bool `json:"debug,omitempty"`
 }
+
+// Emulated reports whether the VM runs under QEMU's software emulation.
+func (h *HostSpec) Emulated() bool { return h.QEMU != "" }
 
 // Guest network constants: the guest owns the relay's classic sandbox
 // address; the netns routes to it over the TAP.

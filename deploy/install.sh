@@ -335,10 +335,10 @@ preflight() {
   else warn "/dev/net/tun missing — no component egress or terminal internet scope until 'modprobe tun'"; fi
 
   # /dev/kvm — VM sandboxes (D89, plans/vm-sandbox.md). Optional: without it
-  # they report "unavailable" and everything else works the same.
+  # they run emulated (QEMU, several times slower), and nothing else needs it.
   if [ ! -e /dev/kvm ] && [ "$MODE" = system ]; then kvm_modprobe; fi
   if [ -e /dev/kvm ]; then ok "/dev/kvm present (VM sandboxes can run once an admin enables them)"
-  else warn "/dev/kvm missing — VM sandboxes unavailable (no hardware virtualization, or nested virtualization is off on this VM); nothing else needs it"; fi
+  else warn "/dev/kvm missing (no hardware virtualization, or nested virtualization is off on this VM) — VM sandboxes will run emulated, several times slower; nothing else needs it"; fi
 
   if [ "$MODE" = user ]; then
     preflight_user
@@ -387,7 +387,7 @@ preflight_user() {
   # VM sandboxes open /dev/kvm as this user: membership of its group is root's
   # to grant (and takes a fresh login, or a restart of the user manager).
   if [ -e /dev/kvm ] && ! { [ -r /dev/kvm ] && [ -w /dev/kvm ]; }; then
-    warn "/dev/kvm is not usable by $RUN_USER — for VM sandboxes run once as root: sudo usermod -aG kvm $RUN_USER, then log in again (or: sudo systemctl restart user@$(id -u))"
+    warn "/dev/kvm is not usable by $RUN_USER — VM sandboxes would run emulated (slower); for KVM run once as root: sudo usermod -aG kvm $RUN_USER, then log in again (or: sudo systemctl restart user@$(id -u))"
   fi
   # The user's systemd manager must be reachable (ssh sessions without a
   # session bus can't manage --user units).
@@ -534,8 +534,9 @@ build_artifacts() {
   # targets resume where the failed attempt left off).
   retry 2 make -C "$SRC" build DOCKER="$ENGINE" \
     || die "build failed twice — see the output above (container-network trouble? skip building: re-run with --prebuilt-rootfs)"
-  # VM sandboxes' pieces (D89): the guest kernel build takes minutes on a
-  # small host — best effort, x86_64 only; XBIN_BUILD_VM=0 skips it.
+  # VM sandboxes' pieces (D89): the guest kernel and QEMU (emulation without
+  # KVM) builds take minutes on a small host — best effort, x86_64 only;
+  # XBIN_BUILD_VM=0 skips them.
   if [ "${XBIN_BUILD_VM:-1}" = 1 ] && [ "$(uname -m)" = x86_64 ]; then
     make -C "$SRC" vm-assets DOCKER="$ENGINE" || warn "VM sandbox assets did not build — VM sandboxes will report unavailable (everything else is fine)"
   fi
@@ -817,13 +818,15 @@ install_files() {
     install -m 0755 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b"
   done
   # VM sandboxes' pieces (D89) — optional: a bundle without them (arm64, an
-  # older release) just has no VM sandboxes.
+  # older release) just has no VM sandboxes. Firecracker runs them on KVM;
+  # QEMU (+ its boot blobs and vsock backend) emulates them without KVM.
   local vm_missing=
-  for b in xbin-vmagent firecracker vmlinux mkfs.erofs; do
-    if [ -f "$XBIN_PREBUILT_BIN/$b" ]; then install -m 0755 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b"
+  for b in xbin-vmagent firecracker vmlinux mkfs.erofs qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock; do
+    if [ -f "$XBIN_PREBUILT_BIN/$b" ]; then
+      case "$b" in *.bin) install -m 0644 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b" ;; *) install -m 0755 "$XBIN_PREBUILT_BIN/$b" "$PREFIX/bin/$b" ;; esac
     else vm_missing="$vm_missing $b"; fi
   done
-  [ -z "$vm_missing" ] || warn "this bundle has no$vm_missing — VM sandboxes will report unavailable"
+  [ -z "$vm_missing" ] || warn "this bundle has no$vm_missing — VM sandboxes may report unavailable"
   info "installing base rootfs (this copies a few GB)"
   rm -rf "$PREFIX/rootfs.new"
   cp -a "$XBIN_ROOTFS_DIR" "$PREFIX/rootfs.new"

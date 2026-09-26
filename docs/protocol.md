@@ -185,14 +185,18 @@ GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
 GET    /vm                         authenticated. VM sandboxes (D89)
-                                   → {status:{available,reason}, policy:
+                                   → {status:{available,reason,emulated?,
+                                   note?}, policy:
                                    {terminals,backends,memMiB,vcpus,maxVMs,
                                    budgetMiB,diskGiB}, used?:{vms,memMiB}}
                                    (used: admins).
                                    available=false names why: no /dev/kvm, the
                                    xbind user not in the kvm group, a missing
                                    asset (firecracker, vmlinux, xbin-vmagent,
-                                   mkfs.erofs, a static bx), no --isolate
+                                   mkfs.erofs, a static bx), no --isolate.
+                                   emulated=true: no usable KVM, so VMs run
+                                   under QEMU's emulation, much slower (D90);
+                                   note says why
 PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
                                    maxVMs,budgetMiB,diskGiB} → {status, policy}.
                                    Off by default; zero sizes = defaults (2048
@@ -1388,9 +1392,11 @@ own kernel, where the shell is root, running inside the same namespace
 sandbox as the jail. The same mounts appear at the
 same paths (served from outside the VM), the same network scope applies (the relay
 enforces it outside the VM), and `$XBIN_URL`/`XBIN_TOKEN` work unchanged.
-It needs `--isolate`, KVM, and an admin who turned VM terminals on (`PUT
-/vm/policy`); otherwise the upgrade fails with 400 and the reason (`GET
-/ws/term/env` reports `vm.available` and `vm.reason` beforehand). `net=host`
+It needs `--isolate`, KVM (or the shipped emulation — much slower; `GET
+/ws/term/env` then reports `vm.emulated` and `vm.note`, D90), and an admin
+who turned VM terminals on (`PUT /vm/policy`); otherwise the upgrade fails
+with 400 and the reason (`GET /ws/term/env` reports `vm.available` and
+`vm.reason` beforehand). `net=host`
 and `gpu` can't combine with `vm=1` (400). A VM terminal's root filesystem
 changes are kept on the tile's VM disk (in its terminal layer — the same
 lock and Reset as the namespace layer, a separate filesystem).

@@ -219,7 +219,9 @@ With `"vm"` in the manifest (and the workspace's VM policy on), the
 namespace sandbox above becomes the **jail around a Firecracker microVM**
 rather than the backend's own home:
 - its root is a bare tmpfs (no rootfs, no shell for a VMM escapee);
-- `/dev/kvm` and a TAP are its only additions;
+- `/dev/kvm` and a TAP are its only additions (no `/dev/kvm` for an
+  emulated VM: QEMU's emulation replaces Firecracker where KVM isn't
+  usable, D90);
 - its capabilities shrink to the five file caps its file server needs;
 - the netns routes the egress TUN to the guest's NIC (the relay and its
   policy are unchanged; the guest owns 10.0.2.15).

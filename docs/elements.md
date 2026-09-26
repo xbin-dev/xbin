@@ -56,7 +56,8 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // Run the backend in a VM sandbox — a Firecracker microVM, root in its own
   // kernel (optional, default false; docs/isolation.md §VM sandboxes): true,
   // or {"memory": "1G", "vcpus": 2}, capped by the workspace's VM policy.
-  // Needs --isolate, KVM and an admin who enabled VM backends; otherwise the
+  // Needs --isolate, an admin who enabled VM backends, and KVM (without it,
+  // the VM is emulated: the same, but several times slower); otherwise the
   // backend fails with the reason (never a silent fallback). Not with "setup".
   "vm": false,
 

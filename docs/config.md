@@ -47,6 +47,9 @@ xbind version
 | VMKernel |  | `XBIN_VM_KERNEL` |  | `internal/vm` | the VM sandboxes' guest kernel (default: vmlinux next to xbind) |
 | VMAgent |  | `XBIN_VM_AGENT` |  | `internal/vm` | the guest agent packed as VM sandboxes' initramfs (default: xbin-vmagent next to xbind) |
 | MkfsErofs |  | `XBIN_MKFS_EROFS` |  | `internal/vm` | the static mkfs.erofs that builds the VM guests' read-only rootfs image (default: bundled next to xbind, then PATH) |
+| QEMU |  | `XBIN_QEMU` |  | `internal/vm` | the static qemu-system-x86_64 that emulates VM sandboxes where KVM isn't usable; its boot blobs qemu-bios-microvm.bin and qemu-pvh.bin sit next to it (default: bundled next to xbind; none ⇒ no emulation) |
+| VhostVsock |  | `XBIN_VHOST_VSOCK` |  | `internal/vm` | the static vhost-device-vsock serving an emulated VM's vsock (default: bundled next to xbind) |
+| VMAccel |  | `XBIN_VM_ACCEL` |  | `internal/vm` | how VM sandboxes run: unset = Firecracker on KVM, else emulated when KVM isn't usable; kvm = never emulate; emulate = always (testing) |
 
 The vault's boot mode follows from these settings, first match wins:
 `XBIN_VAULT_PASSPHRASE` set → auto-unseal; `--insecure-vault` or `--no-auth` →

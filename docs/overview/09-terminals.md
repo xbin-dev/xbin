@@ -369,8 +369,10 @@ changes across VM sessions the way the dev layer does for namespace
 sessions: the same lock (one holder at a time), the same base pin, wiped by
 the same Reset, but a separate filesystem, and not in backups. Closing a VM
 terminal syncs its disk before the VM is stopped. The toggle is disabled,
-with the reason in its tooltip, when the host has no usable KVM or the
-admin hasn't enabled VM terminals (`GET /ws/term/env` → `vm`). Agent
+with the reason in its tooltip, when the host can't run VMs or the admin
+hasn't enabled VM terminals (`GET /ws/term/env` → `vm`); on a host without
+KVM the VM is emulated (D90) and the tooltip says it runs several times
+slower. Agent
 sessions take the same `vm` flag. [isolation.md](/docs/isolation.md) §VM
 sandboxes has the rest.
 

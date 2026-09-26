@@ -1,7 +1,8 @@
 # VM sandboxes — rootless Firecracker microVMs for terminals and backends
 
 > Status: **live** (D89) — VM terminals, VM agent sessions, VM backends, the
-> persistent VM disk, the policy and the toggle are built as described below;
+> persistent VM disk, the policy and the toggle are built as described below,
+> and so are emulated VMs for hosts without KVM (D90, §Emulated VMs);
 > snapshot templates, virtio-mem sizing, the FUSE-over-vsock transport and
 > the other items under **Not yet** are designed, not built.
 
@@ -151,6 +152,52 @@ First touches are bound by Firecracker's in-VMM vsock (~90 µs round trip);
 everything the guest has seen is local after that. The second `grep`
 still pays one GETATTR per file: the kernel marks atime stale after
 fetching a file's pages.
+
+## Emulated VMs (no KVM) — D90
+
+Small cloud VMs rarely expose nested virtualization, and Firecracker is
+KVM-only. Where `/dev/kvm` isn't usable, the shim runs the *same* guest under
+QEMU's software emulation (TCG) instead:
+
+- **QEMU:** static, x86_64-softmmu, TCG only (`--disable-kvm`),
+  `--without-default-devices` plus exactly the microvm board, virtio-mmio
+  blk/net/balloon and vhost-user-vsock (hack/build-qemu.sh, ~10 MB). Its two
+  boot blobs (qboot, the PVH option ROM) come from the same sha256-pinned
+  tarball and are bound into the jail at `/.xbin-vm/fw`. `-sandbox on` adds
+  QEMU's own seccomp filter. Memory is a shared memfd; the balloon reports
+  free pages; `tb-size=256` caps the translation cache (the cgroup leaf
+  allows 512 MiB of overhead instead of 192).
+- **vsock:** QEMU has no userspace vsock device, and host vhost-vsock needs
+  root and global CIDs. rust-vmm's vhost-device-vsock (static musl build)
+  serves the guest's vsock over Firecracker's hybrid protocol (`CONNECT
+  <port>` in, `<uds>_<port>` out) at the same `v.sock`, so nothing past the
+  VMM's start differs: the agent, the file server, the gateway and the
+  listen bridge are untouched.
+- **Board quirks:** `pic=off` (the kernel never programs the legacy PIC, so
+  its first timer interrupt would arrive as vector 0, #DE); `reboot=t`
+  (no keyboard controller to reset through; `-no-reboot` turns the triple
+  fault into QEMU's exit); `tsc_early_khz=<host TSC rate>`, measured by the
+  shim over 50 ms — under TCG the guest TSC *is* the host's, and a guest
+  that has to calibrate it against the emulated PIT fails now and then
+  (jitter) and then waits forever for a PIT tick that never arrives (2 of
+  96 parallel boots hung without it, 0 of 336 with it); the initrd is
+  padded to whole pages — microvm loads it flush against the top of RAM,
+  where the firmware keeps the ACPI tables, and a tail past 0xd00 of that
+  page corrupted the DSDT (the guest then checksums "gigabytes" forever).
+- **Ready call:** a host vsock connection made before the guest's vsock
+  driver is up can wedge vhost-device-vsock for good, so the agent calls
+  the shim on `ReadyPort` (1026) once it listens and the shim connects only
+  after that — for Firecracker as well (no more 5 ms polling).
+- **Choice:** automatic — KVM usable ⇒ Firecracker; else the emulation
+  pieces present ⇒ emulated; else unavailable with both reasons.
+  `XBIN_VM_ACCEL=kvm|emulate` forces one. `Status.emulated` + `note` reach
+  `GET /vm`, `/ws/term/env` and the toggle's tooltip.
+- **Timeouts** stretch 6× in the shim (boot, stream dials) and 3× for a
+  backend's health check.
+- **Cost** (4-vCPU KVM guest standing in for a VPS): boot to prompt ~1.8 s;
+  a bash loop 18× slower than a namespace terminal, 300 fork+exec 6×. The
+  isolation argument is unchanged (a separate guest kernel); the VMM is a
+  bigger program than Firecracker, inside the same jail.
 
 ## Not yet
 

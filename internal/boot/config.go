@@ -65,6 +65,9 @@ type Config struct {
 	VMKernel      string `env:"XBIN_VM_KERNEL" readBy:"internal/vm" doc:"the VM sandboxes' guest kernel (default: vmlinux next to xbind)"`
 	VMAgent       string `env:"XBIN_VM_AGENT" readBy:"internal/vm" doc:"the guest agent packed as VM sandboxes' initramfs (default: xbin-vmagent next to xbind)"`
 	MkfsErofs     string `env:"XBIN_MKFS_EROFS" readBy:"internal/vm" doc:"the static mkfs.erofs that builds the VM guests' read-only rootfs image (default: bundled next to xbind, then PATH)"`
+	QEMU          string `env:"XBIN_QEMU" readBy:"internal/vm" doc:"the static qemu-system-x86_64 that emulates VM sandboxes where KVM isn't usable; its boot blobs qemu-bios-microvm.bin and qemu-pvh.bin sit next to it (default: bundled next to xbind; none ⇒ no emulation)"`
+	VhostVsock    string `env:"XBIN_VHOST_VSOCK" readBy:"internal/vm" doc:"the static vhost-device-vsock serving an emulated VM's vsock (default: bundled next to xbind)"`
+	VMAccel       string `env:"XBIN_VM_ACCEL" readBy:"internal/vm" doc:"how VM sandboxes run: unset = Firecracker on KVM, else emulated when KVM isn't usable; kvm = never emulate; emulate = always (testing)"`
 
 	// Runtime injection — not settings. Version is the build id main
 	// resolves; Listener replaces the console listener (tests bind :0 and set

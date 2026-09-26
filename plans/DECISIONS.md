@@ -2530,3 +2530,50 @@ Deviations and refinements made while implementing; all deliberate:
     file transport. Slow, with fragile ownership.
   - Serving the file server from xbind itself. It would resolve
     guest-supplied paths as xbind (D78).
+
+- **D90 — Emulated VMs where KVM isn't usable: QEMU (TCG) runs the same
+  guest, vhost-device-vsock carries its vsock (2026-09-26).** Firecracker
+  needs KVM, and most small cloud VMs have no nested virtualization, so D89
+  left VM sandboxes "unavailable" exactly where people start. Design:
+  plans/vm-sandbox.md §Emulated VMs.
+
+  **Chosen:**
+  - **The same guest, a different VMM.** A static, minimal QEMU (microvm,
+    virtio-mmio blk/net/balloon/vhost-user-vsock, TCG only) boots the same
+    kernel, initramfs, erofs image and VM disk on the same TAP, in the same
+    namespace jail, under its own `-sandbox` filter too.
+  - **vsock via vhost-device-vsock**, which speaks Firecracker's hybrid
+    Unix-socket protocol — so the shim past the VMM's start, the agent, the
+    file server, the gateway and the listen bridge are unchanged.
+  - **Automatic, visible fallback:** KVM ⇒ Firecracker, else emulation when
+    shipped, else unavailable. `emulated` + `note` in every status; the
+    toggle says it's slower. `XBIN_VM_ACCEL` forces either for tests and
+    ops. No new policy switch: the admin's VM switch already gates cost.
+  - **Three boot hazards of the emulated board, each found by stress and
+    fixed at the root:**
+    - *TSC calibration:* under TCG the guest's TSC is the host's; PIT-based
+      calibration fails now and then under emulation jitter, and the
+      fallback waits forever for a PIT tick. The shim measures the host's
+      TSC and passes `tsc_early_khz` (~2% of boots hung; 0 of 336 after).
+    - *Early vsock connects:* a host connection made before the guest's
+      vsock driver is up can wedge vhost-device-vsock for good (guest up,
+      agent listening, nothing gets through). The agent now calls the host
+      on a ReadyPort once it listens, and the shim connects only then — for
+      Firecracker too, which just stops polling.
+    - *Initrd over the ACPI tables:* microvm loads the initrd flush against
+      the top of RAM, in the page holding the ACPI tables, so an agent build
+      whose initrd tail landed past 0xd00 there corrupted the DSDT and the
+      guest summed "gigabytes" of table forever — deterministic per build,
+      ~19% of sizes. The initrd is padded to whole pages.
+    Result: 60/60 VM-backend cold starts on a KVM-less 4-vCPU VM (each ~2 s),
+    60/60 local starts through the shim.
+
+  **Not chosen:**
+  - gVisor (runsc) for KVM-less hosts. A good sandbox, but not a VM: no
+    guest kernel for docker or kernel knobs, and a second, different
+    integration.
+  - Host vhost-vsock with QEMU: needs the module, root-owned device access,
+    and CIDs are global across the host.
+  - virtio-serial with our own multiplexer: rewrites the guest protocol for
+    one VMM.
+

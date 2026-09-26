@@ -2,11 +2,13 @@
 // (`bx __vm-host`, PID 1 of the namespace sandbox that holds Firecracker) and
 // the guest agent (xbin-vmagent, PID 1 inside the VM). plans/vm-sandbox.md.
 //
-// Everything rides Firecracker's vsock, whose host side is a unix socket:
-// the shim reaches the agent by connecting to the VM's vsock UDS and sending
-// "CONNECT <AgentPort>\n"; the guest reaches the shim's listeners (the FUSE
-// file server, the xbind gateway for backends) by dialing CID 2, which
-// Firecracker forwards to "<uds>_<port>".
+// Everything rides the VM's vsock, whose host side is a unix socket
+// (Firecracker's own, or vhost-device-vsock's under emulation — the same
+// protocol): the shim reaches the agent by connecting to the VM's vsock UDS
+// and sending "CONNECT <AgentPort>\n", once the agent has called ReadyPort;
+// the guest reaches the shim's listeners (that call, the FUSE file server,
+// the xbind gateway for backends) by dialing CID 2, which the VMM forwards
+// to "<uds>_<port>".
 //
 // Every connection to the agent starts with one JSON Hello line. A "ctl"
 // connection then carries JSON Msg lines in both directions; a "stream"
@@ -32,6 +34,11 @@ const (
 	AgentPort   = 1024 // guest: the agent's listener (control + streams)
 	FilesPort   = 564  // host: the FUSE file server (one connection per mount)
 	GatewayPort = 1025 // host: xbind's gateway socket (backends)
+	// ReadyPort (host): the agent calls it once it listens on AgentPort, and
+	// the shim connects to the agent only after that call. An emulated VM's
+	// vsock backend can wedge for good on a host connection made before the
+	// guest's vsock driver is up.
+	ReadyPort = 1026
 )
 
 // Hello opens every connection to the agent.

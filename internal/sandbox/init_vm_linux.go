@@ -18,9 +18,10 @@ import (
 )
 
 // VM sandboxes (plans/vm-sandbox.md): the pieces of the init that differ
-// when Spec.VM is set. The namespace sandbox is the jail around Firecracker —
-// Firecracker's own jailer needs root — so everything here keeps the
-// namespace sandbox's properties and adds only what a VMM needs.
+// when Spec.VM is set. The namespace sandbox is the jail around the VMM —
+// Firecracker's own jailer needs root; an emulated VM's QEMU runs in the same
+// jail — so everything here keeps the namespace sandbox's properties and
+// adds only what a VMM needs.
 
 // VMSpecPath is where the init leaves Spec.VM for the shim, and VMDir the
 // sandbox-root directory holding the VM's pieces (binds under bin/, boot/,
@@ -39,11 +40,13 @@ func vmRoot(newroot string) error {
 	return os.MkdirAll(filepath.Join(newroot, VMDir, "run"), 0o700)
 }
 
-// vmDevices binds the device nodes Firecracker opens: /dev/kvm always, and
-// /dev/net/tun for the guest NIC's TAP.
+// vmDevices binds the device nodes the VMM opens: /dev/kvm (Firecracker;
+// an emulated VM needs none), and /dev/net/tun for the guest NIC's TAP.
 func vmDevices(newroot string, s *Spec) error {
-	if err := bindNode(newroot, "/dev/kvm"); err != nil {
-		return must(err, "bind /dev/kvm (is KVM available and the xbind user in the kvm group?)")
+	if !s.VM.Emulated() {
+		if err := bindNode(newroot, "/dev/kvm"); err != nil {
+			return must(err, "bind /dev/kvm (is KVM available and the xbind user in the kvm group?)")
+		}
 	}
 	if s.Net == "relay" {
 		if err := bindNode(newroot, "/dev/net/tun"); err != nil {
@@ -185,7 +188,8 @@ func vmDeny() []uint32 {
 
 // vmLockdown is a VM sandbox's profile, applied instead of the backend or
 // terminal flags: no nested namespaces, the VM caps, the VM block-list, the
-// mount guard. Firecracker installs its own per-thread filters on top.
+// mount guard. Firecracker installs its own per-thread filters on top, QEMU
+// its -sandbox filter.
 func vmLockdown() error {
 	setUserNSLimits()
 	if err := dropCapsExcept(vmCaps()); err != nil {

@@ -14,14 +14,17 @@ import (
 )
 
 // VM terminals (plans/vm-sandbox.md): the same sandbox spec a namespace
-// terminal gets, turned by internal/vm into a Firecracker microVM that runs
-// the shell as root in its own kernel. The browser asks with ?vm=1 (the
+// terminal gets, turned by internal/vm into a Firecracker microVM (QEMU's
+// emulation where KVM isn't usable) that runs the shell as root in its own
+// kernel. The browser asks with ?vm=1 (the
 // title-bar toggle); the admin's workspace policy has to allow it.
 
 // VMStatus is what the terminal picker needs to show the VM toggle.
 type VMStatus struct {
-	Available bool   `json:"available"`        // a VM terminal would start
-	Reason    string `json:"reason,omitempty"` // why not
+	Available bool   `json:"available"`          // a VM terminal would start
+	Reason    string `json:"reason,omitempty"`   // why not
+	Emulated  bool   `json:"emulated,omitempty"` // no KVM: software emulation, several times slower
+	Note      string `json:"note,omitempty"`     // why emulated
 	MemMiB    int    `json:"memMiB,omitempty"`
 	VCPUs     int    `json:"vcpus,omitempty"`
 }
@@ -35,10 +38,11 @@ func (m *Manager) VMStatus() VMStatus {
 	if !p.Terminals {
 		return VMStatus{Reason: "an admin hasn't enabled VM terminals for this workspace"}
 	}
-	if st := m.VM.Status(); !st.Available {
+	st := m.VM.Status()
+	if !st.Available {
 		return VMStatus{Reason: st.Reason}
 	}
-	return VMStatus{Available: true, MemMiB: p.MemMiB, VCPUs: p.VCPUs}
+	return VMStatus{Available: true, Emulated: st.Emulated, Note: st.Note, MemMiB: p.MemMiB, VCPUs: p.VCPUs}
 }
 
 // vmRefusal is why a session with these options can't be a VM ("" = it can).
@@ -98,7 +102,7 @@ func (m *Manager) vmDisk(layer string) string {
 
 // vmLeafBytes is a VM session's cgroup leaf cap: guest memory + overhead.
 func (m *Manager) vmLeafBytes() int64 {
-	return int64(m.VM.Policy().MemMiB+vm.VMOverheadMiB) << 20
+	return int64(m.VM.Policy().MemMiB+m.VM.OverheadMiB()) << 20
 }
 
 // hangupVM ends a VM session gracefully: SIGHUP makes the shim have the

@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // bootArgs: serial console for diagnostics (kept in a ring, shown on
@@ -16,6 +15,14 @@ import (
 const bootArgs = "console=ttyS0 reboot=k panic=1 pci=off quiet loglevel=3 " +
 	"i8042.noaux i8042.nomux i8042.dumbkbd random.trust_cpu=on " +
 	"memhp_default_state=online_movable"
+
+// kernelArgs is bootArgs, verbose in debug mode.
+func (s *shim) kernelArgs(args string) string {
+	if s.hs.Debug {
+		return strings.Replace(args, "quiet loglevel=3", "loglevel=7", 1)
+	}
+	return args
+}
 
 type fcDrive struct {
 	ID       string `json:"drive_id"`
@@ -60,10 +67,7 @@ func (s *shim) startFirecracker() error {
 	var c fcConfig
 	c.Boot.Kernel = s.hs.Kernel
 	c.Boot.Initrd = s.hs.Initrd
-	c.Boot.Args = bootArgs
-	if s.hs.Debug {
-		c.Boot.Args = strings.Replace(bootArgs, "quiet loglevel=3", "loglevel=7", 1)
-	}
+	c.Boot.Args = s.kernelArgs(bootArgs)
 	c.Drives = []fcDrive{{ID: "rootfs", Path: s.hs.Image, ReadOnly: true}}
 	if s.hs.Disk != "" {
 		c.Drives = append(c.Drives, fcDrive{ID: "disk", Path: s.hs.Disk, Cache: "Writeback"})
@@ -99,77 +103,10 @@ func (s *shim) startFirecracker() error {
 	}
 	// inside the VM sandbox: the shim is the namespace sandbox's PID 1 and
 	// Firecracker its child, jailed by that sandbox (plans/vm-sandbox.md)
-	s.fc = exec.Command(s.hs.Firecracker, // exec-ok: runs inside the namespace sandbox
+	s.vmm = exec.Command(s.hs.Firecracker, // exec-ok: runs inside the namespace sandbox
 		"--api-sock", filepath.Join(s.hs.RunDir, "fc.sock"),
 		"--config-file", cfgPath,
 		"--level", level,
 	)
-	devnull, err := os.Open(os.DevNull)
-	if err != nil {
-		return err
-	}
-	defer devnull.Close()
-	s.fc.Stdin = devnull
-	s.fc.Stdout, s.fc.Stderr = s.serial, s.serial
-	if s.hs.Debug {
-		s.serial.echo = os.Stderr
-	}
-	if err := s.fc.Start(); err != nil {
-		return err
-	}
-	s.fcDone = make(chan struct{})
-	go func() { _ = s.fc.Wait(); close(s.fcDone) }()
-	return nil
-}
-
-func (s *shim) killFirecracker() {
-	if s.fc != nil && s.fc.Process != nil {
-		_ = s.fc.Process.Kill()
-		<-s.fcDone
-	}
-}
-
-func (s *shim) fcExited() bool {
-	if s.fcDone == nil {
-		return false
-	}
-	select {
-	case <-s.fcDone:
-		return true
-	default:
-		return false
-	}
-}
-
-// ring keeps the last n bytes written.
-type ring struct {
-	mu   sync.Mutex
-	buf  []byte
-	n    int
-	echo interface{ Write([]byte) (int, error) }
-}
-
-func newRing(n int) *ring { return &ring{n: n} }
-
-func (r *ring) Write(p []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.n {
-		r.buf = append([]byte(nil), r.buf[len(r.buf)-r.n:]...)
-	}
-	if r.echo != nil {
-		_, _ = r.echo.Write([]byte(strings.ReplaceAll(string(p), "\n", "\r\n")))
-	}
-	return len(p), nil
-}
-
-func (r *ring) tail(n int) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	b := r.buf
-	if len(b) > n {
-		b = b[len(b)-n:]
-	}
-	return strings.TrimSpace(string(b))
+	return s.startVMM(s.vmm)
 }

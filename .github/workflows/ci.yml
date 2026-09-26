@@ -36,9 +36,10 @@ jobs:
       - run: make tile-check
       - run: make integration
       # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
-      # guest kernel and static mkfs.erofs (docker builds, cached on their
-      # pins), and a small Ubuntu rootfs for the guests (the tests use bash,
-      # curl, ip, mkfs.ext4 from it).
+      # guest kernel and static mkfs.erofs, and QEMU + vhost-device-vsock for
+      # emulated VMs (docker builds, cached on their pins), and a small Ubuntu
+      # rootfs for the guests (the tests use bash, curl, ip, mkfs.ext4 from
+      # it). The suite runs twice: on KVM, then emulated.
       - run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -49,10 +50,16 @@ jobs:
             bin/firecracker
             bin/vmlinux
             bin/mkfs.erofs
-          key: vm-assets-${{ hashFiles('hack/fetch-firecracker.sh', 'hack/build-vmkernel.sh', 'hack/vmkernel/xbin.config', 'hack/build-mkfs-erofs.sh') }}
+            bin/qemu-system-x86_64
+            bin/qemu-bios-microvm.bin
+            bin/qemu-pvh.bin
+            bin/vhost-device-vsock
+          key: vm-assets-${{ hashFiles('hack/fetch-firecracker.sh', 'hack/build-vmkernel.sh', 'hack/vmkernel/xbin.config', 'hack/build-mkfs-erofs.sh', 'hack/build-qemu.sh', 'hack/build-vhost-vsock.sh') }}
       - run: '[ -x bin/firecracker ] || ./hack/fetch-firecracker.sh bin'
       - run: '[ -f bin/vmlinux ] || ./hack/build-vmkernel.sh bin'
       - run: '[ -x bin/mkfs.erofs ] || ./hack/build-mkfs-erofs.sh bin'
+      - run: '[ -x bin/qemu-system-x86_64 ] || ./hack/build-qemu.sh bin'
+      - run: '[ -x bin/vhost-device-vsock ] || ./hack/build-vhost-vsock.sh bin'
       - run: |
           printf 'FROM docker.io/library/ubuntu:26.04\nRUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates e2fsprogs iproute2 util-linux && rm -rf /var/lib/apt/lists/*\n' | docker build -t xbin-vmtest-rootfs -
           mkdir -p "$RUNNER_TEMP/vmrootfs"
@@ -60,3 +67,4 @@ jobs:
           CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
           CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
           XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/
+          XBIN_VM_ACCEL=emulate XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/

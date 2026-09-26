@@ -96,7 +96,9 @@ build_arch() {
   # Force a clean per-arch build: make's file targets would otherwise reuse
   # the previous arch's bin/gocryptfs etc.
   rm -f "$repo/bin/xbind" "$repo/bin/bx" "$repo/bin/gocryptfs" "$repo/bin/fuse-overlayfs" \
-        "$repo/bin/xbin-vmagent" "$repo/bin/firecracker" "$repo/bin/vmlinux" "$repo/bin/mkfs.erofs"
+        "$repo/bin/xbin-vmagent" "$repo/bin/firecracker" "$repo/bin/vmlinux" "$repo/bin/mkfs.erofs" \
+        "$repo/bin/qemu-system-x86_64" "$repo/bin/qemu-bios-microvm.bin" "$repo/bin/qemu-pvh.bin" \
+        "$repo/bin/vhost-device-vsock"
 
   local env_pre=(DOCKER="$ENGINE")
   if [ "$arch" != "$host_arch" ]; then
@@ -106,7 +108,8 @@ build_arch() {
   env "${env_pre[@]}" make -C "$repo" build
   env "${env_pre[@]}" make -C "$repo" rootfs ROOTFS="$bdir/rootfs"
   # VM sandboxes (D89) are amd64-only for now: the guest kernel config is
-  # x86_64's. Optional in the bundle — the installer warns when absent.
+  # x86_64's (and QEMU, for hosts without KVM, emulates x86_64). Optional in
+  # the bundle — the installer warns when absent.
   if [ "$arch" = amd64 ]; then
     env "${env_pre[@]}" ARCH=x86_64 make -C "$repo" vm-assets
   fi
@@ -116,7 +119,7 @@ build_arch() {
     [ -f "$repo/bin/$b" ] || die "[$arch] build produced no bin/$b"
     cp "$repo/bin/$b" "$stage/bin/$b"
   done
-  for b in firecracker vmlinux mkfs.erofs; do
+  for b in firecracker vmlinux mkfs.erofs qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock; do
     if [ -f "$repo/bin/$b" ]; then cp "$repo/bin/$b" "$stage/bin/$b"; else info "[$arch] no bin/$b — this bundle has no VM sandboxes"; fi
   done
   mv "$bdir/rootfs" "$stage/rootfs"

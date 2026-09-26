@@ -42,10 +42,13 @@ func (r *Runner) wantsVM(c *registry.Component) bool {
 }
 
 func (r *Runner) healthFor(c *registry.Component) time.Duration {
-	if r.wantsVM(c) {
-		return vmHealthTimeout
+	if !r.wantsVM(c) {
+		return healthTimeout
 	}
-	return healthTimeout
+	if r.VM != nil && r.VM.Status().Emulated {
+		return 3 * vmHealthTimeout // a software-emulated guest boots and starts slower
+	}
+	return vmHealthTimeout
 }
 
 // vmApply turns the backend's sandbox spec into a VM sandbox under the
@@ -88,7 +91,7 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	if r.vms.res == nil {
 		r.vms.res = map[string]vmRes{}
 	}
-	r.vms.res[sock] = vmRes{release: release, leafMiB: mem + vm.VMOverheadMiB}
+	r.vms.res[sock] = vmRes{release: release, leafMiB: mem + r.VM.OverheadMiB()}
 	r.vms.mu.Unlock()
 	return nil
 }

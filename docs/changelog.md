@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **VM sandboxes run without KVM, emulated** (D90,
+  [isolation.md](isolation.md) §VM sandboxes). On a host whose `/dev/kvm` is
+  missing or unusable — most small cloud VMs — VM terminals, agent sessions
+  and backends now run the same guest under QEMU's software emulation
+  instead of reporting "unavailable". Same files, network policy, VM disk
+  and isolation; much slower (roughly 5–20×, about 2 s to boot).
+  - `GET /api/xbin/vm` and `GET /ws/term/env`'s `vm` block add `emulated`
+    and `note` (why); the ⧉ VM toggle's tooltip says so.
+  - The release bundle adds `qemu-system-x86_64`, `qemu-bios-microvm.bin`,
+    `qemu-pvh.bin` and `vhost-device-vsock` (x86_64); the installer installs
+    them when present. `XBIN_QEMU`, `XBIN_VHOST_VSOCK` point elsewhere;
+    `XBIN_VM_ACCEL=kvm` never emulates.
+  - Additive: nothing changes on a KVM host, and VMs stay off until an admin
+    enables them.
+- **`XBIN_SANDBOX_DEBUG` now covers VM sandboxes:** the shim echoes the guest
+  console and its boot timings.
+
 - **auth: per-account controls and an allowance for personal tiles** (D88,
   docs/auth.md §Personal tiles). Additive — nothing changes until an admin
   sets something.

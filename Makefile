@@ -15,6 +15,8 @@ GOCRYPTFS ?= $(CURDIR)/bin/gocryptfs
 FIRECRACKER ?= $(CURDIR)/bin/firecracker
 VMKERNEL ?= $(CURDIR)/bin/vmlinux
 MKFS_EROFS ?= $(CURDIR)/bin/mkfs.erofs
+QEMU ?= $(CURDIR)/bin/qemu-system-x86_64
+VHOST_VSOCK ?= $(CURDIR)/bin/vhost-device-vsock
 
 # Build the dev/base rootfs (docker → unpacked dir). Rebuilds when the
 # Dockerfile or build script change; otherwise cached.
@@ -44,17 +46,23 @@ gocryptfs: $(GOCRYPTFS)
 
 # VM sandboxes (plans/vm-sandbox.md, D89): the pinned Firecracker release, the
 # guest kernel (6.18 LTS on Firecracker's CI config + hack/vmkernel/xbin.config)
-# and a static mkfs.erofs (the guest's rootfs image). Optional — without them
-# VM sandboxes report "unavailable" and nothing else changes. xbin-vmagent (the
-# guest's init) is built by `make build`. NATIVE=1 builds the kernel/mkfs on
-# the host instead of in docker.
+# and a static mkfs.erofs (the guest's rootfs image); for hosts without KVM, a
+# static QEMU (software emulation, microvm only, + its two boot blobs) and
+# vhost-device-vsock. Optional — without them VM sandboxes report
+# "unavailable" and nothing else changes. xbin-vmagent (the guest's init) is
+# built by `make build`. NATIVE=1 builds the kernel/mkfs on the host instead
+# of in docker.
 $(FIRECRACKER): hack/fetch-firecracker.sh
 	./hack/fetch-firecracker.sh $(CURDIR)/bin
 $(VMKERNEL): hack/build-vmkernel.sh hack/vmkernel/xbin.config
 	./hack/build-vmkernel.sh $(CURDIR)/bin
 $(MKFS_EROFS): hack/build-mkfs-erofs.sh
 	./hack/build-mkfs-erofs.sh $(CURDIR)/bin
-vm-assets: $(FIRECRACKER) $(VMKERNEL) $(MKFS_EROFS)
+$(QEMU): hack/build-qemu.sh
+	./hack/build-qemu.sh $(CURDIR)/bin
+$(VHOST_VSOCK): hack/build-vhost-vsock.sh
+	./hack/build-vhost-vsock.sh $(CURDIR)/bin
+vm-assets: $(FIRECRACKER) $(VMKERNEL) $(MKFS_EROFS) $(QEMU) $(VHOST_VSOCK)
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 
 # The core loop: xbind from source against ./devws, isolated.
@@ -101,8 +109,10 @@ integration:
 	go test -tags=integration -count=1 -v ./test/...
 	# the confined tool runs (D78) in real sandboxes: skip without .rootfs/userns
 	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/
-	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets
+	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
+	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v ./internal/vm/
 
 vet:
 	go vet ./...
