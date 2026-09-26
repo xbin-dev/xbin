@@ -41,6 +41,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **Tighter:** receiving a tile into `user:<self>` by transfer is now
     refused under org-only (it used to slip past).
 
+- **Security: sandboxed backends no longer inherit xbind's environment.**
+  - Until now every backend got the daemon's whole environment. That
+    included `XBIN_VAULT_PASSPHRASE` (from `/etc/xbin/xbin.env`) and any
+    API keys set for xbind.
+  - A sandboxed backend now gets the rootfs `PATH` plus only the locale,
+    `TZ` and proxy variables of the daemon, then its own `XBIN_*` variables
+    ([elements.md](elements.md) §Env).
+  - Without `--isolate`, backends keep the host environment minus xbind's
+    own `XBIN_*` settings.
+  - If a backend relied on some other daemon variable, move that setting
+    into the vault or a resource.
+  - If `XBIN_VAULT_PASSPHRASE` is set in your service environment, change
+    it with `bx vault rekey` ([auth.md](auth.md) §vault) and update the env
+    file. Rotate any other secret that sat in xbind's environment.
 - **New builtin tile `webhooks` (v1): public webhook URLs for agents.**
   - Each hook (`/hook/<id>`, published with `bx expose`, only `/hook/*`
     public) is checked by a token or a GitHub-style HMAC signature.

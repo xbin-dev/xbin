@@ -15,8 +15,6 @@ package runner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -405,7 +403,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 
 	token := util.RandomToken(24)
 
-	env := append(os.Environ(),
+	env := append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
 		"XBIN_SOCKET="+sock,
 		"XBIN_COMPONENT="+c.Path,
 		"XBIN_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
@@ -695,51 +693,6 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	return sandbox.Launch(spec)
 }
 
-func within(p, root string) bool {
-	return p == root || strings.HasPrefix(p, strings.TrimRight(root, "/")+"/")
-}
-
-func pathExists(p string) bool { _, err := os.Stat(p); return err == nil }
-
-// resourceBinds returns the read-write binds for a component's file-backed
-// resources (sqlite). EnvFor hands each granted same-scope sqlite resource to the
-// backend as an absolute XBIN_RES_* path. We bind that path's **directory** (the
-// scope's resource dir), not the file, so that:
-//   - a *fresh* db works — the file doesn't exist yet (sqlite creates it on first
-//     open), so binding the file alone would drop it (pathExists was false) and
-//     the db would land on the throwaway overlay instead of persisting; and
-//   - sqlite's -wal/-shm sidecars, written next to the db, persist too.
-//
-// Non-path resources (kv/blob/bus, addressed by res: string over HTTP) aren't
-// paths and are skipped. Dirs are deduped; only paths under root are bound.
-func resourceBinds(env []string, root string) []sandbox.Bind {
-	seen := map[string]bool{}
-	var binds []sandbox.Bind
-	for _, e := range env {
-		i := strings.IndexByte(e, '=')
-		if i < 0 {
-			continue
-		}
-		v := e[i+1:]
-		if !strings.HasPrefix(v, "/") || !within(v, root) {
-			continue
-		}
-		// A `filesystem` resource hands the backend a DIRECTORY (bind it); a
-		// `sqlite` resource hands a FILE path (bind its dir so a fresh db + the
-		// -wal/-shm sidecars persist, not just the file).
-		d := v
-		if fi, err := os.Stat(v); err != nil || !fi.IsDir() {
-			d = filepath.Dir(v)
-		}
-		if seen[d] || !pathExists(d) {
-			continue
-		}
-		seen[d] = true
-		binds = append(binds, sandbox.Bind{Src: d, Dst: d})
-	}
-	return binds
-}
-
 func (r *Runner) stop(inst *instance, deadline time.Duration) {
 	if inst.cmd.Process == nil {
 		return
@@ -856,67 +809,4 @@ func waitHealthy(sock string, timeout time.Duration) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return errors.New("timeout dialing backend socket")
-}
-
-// runDirFor picks the socket directory. Preferred: <ws>/.xbin/run. Unix
-// socket paths are limited to ~108 bytes, so for deeply nested workspaces we
-// fall back to a short tmp dir and leave a symlink at .xbin/run so shells
-// still find the sockets where the docs say they are.
-// runDirFor picks the directory holding xbind's IPC sockets (the gateway socket
-// + each backend's per-generation listen socket). It is bind-mounted **RW** into
-// every component sandbox, so it must live on a **tmpfs**, never the workspace
-// disk: a component sandbox must not get a RW mount backed by host disk
-// (plans/isolation.md — only tmpfs / gocryptfs / ro). We prefer systemd's
-// RuntimeDirectory (/run/xbin) or $XDG_RUNTIME_DIR (both tmpfs), then $TMPDIR;
-// a symlink under `.xbin/run` points at it for discoverability.
-func runDirFor(root string) string {
-	link := filepath.Join(root, ".xbin", "run")
-	_ = os.RemoveAll(link) // stale sockets/symlink from a previous xbind
-	h := sha256.Sum256([]byte(root))
-	name := "xbin-" + hex.EncodeToString(h[:4])
-	for _, base := range runtimeBases() {
-		dir := filepath.Join(base, name, "run")
-		_ = os.RemoveAll(dir)
-		if os.MkdirAll(dir, 0o700) != nil {
-			continue
-		}
-		if !isTmpfs(dir) {
-			_ = os.RemoveAll(dir)
-			continue
-		}
-		_ = os.MkdirAll(filepath.Dir(link), 0o755)
-		_ = os.Symlink(dir, link)
-		return dir
-	}
-	// No tmpfs available: fall back to the workspace and warn — a component
-	// sandbox will then bind a RW host-disk run dir (set RuntimeDirectory=xbin).
-	slog.Warn("run dir: no tmpfs runtime dir found (RuntimeDirectory/XDG_RUNTIME_DIR/TMPDIR); component sandboxes will get a RW host-disk run dir — set RuntimeDirectory=xbin in the unit")
-	_ = os.MkdirAll(link, 0o755)
-	return link
-}
-
-// runtimeBases lists tmpfs candidates for the run dir, most-preferred first.
-func runtimeBases() []string {
-	var out []string
-	if d := os.Getenv("RUNTIME_DIRECTORY"); d != "" { // systemd RuntimeDirectory=
-		out = append(out, strings.SplitN(d, ":", 2)[0])
-	}
-	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
-		out = append(out, d)
-	}
-	return append(out, os.TempDir())
-}
-
-// isTmpfs reports whether dir is on a tmpfs/ramfs, so a RW bind of it into a
-// sandbox exposes no host disk.
-func isTmpfs(dir string) bool {
-	var st syscall.Statfs_t
-	if syscall.Statfs(dir, &st) != nil {
-		return false
-	}
-	switch uint32(st.Type) {
-	case 0x01021994, 0x858458f6: // TMPFS_MAGIC, RAMFS_MAGIC
-		return true
-	}
-	return false
 }

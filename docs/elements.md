@@ -384,6 +384,12 @@ Env every backend instance gets:
 | `XBIN_GATEWAY`, `XBIN_TOKEN` | how to call other elements / xbin APIs (this generation's credential — dies at swap) |
 | `XBIN_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
 
+Nothing else of xbind's own environment reaches a sandboxed backend: it gets
+the rootfs `PATH` and only the locale (`LANG`, `LC_*`), `TZ` and proxy
+(`HTTP(S)_PROXY`, `NO_PROXY`, `ALL_PROXY`) variables of the daemon. Put
+configuration a backend needs in its manifest, a resource or the vault, not in
+xbind's environment.
+
 ## Scopes
 
 A `scope.json` marks a directory as a **scope** — an app boundary:
