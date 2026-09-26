@@ -43,6 +43,7 @@ native/
                             Tiles/ (scheme handler, web tiles, native tiles), Terminal/, Agent/, Push/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
+    Widgets/                the widget extension: the agent turn's Live Activity (Shared/: also in the app)
     Support/                Info.plists and entitlements
     SnapshotHost/           the empty app the hosted snapshot tests run in (CI only, see §4)
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
@@ -157,6 +158,10 @@ models — `swift test` there, held to `vocab.json`, the fixtures and the Lit
 renderer's output); its SwiftUI target is empty off Apple platforms. After changing a view, run
 `native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`): it
 type-checks the views against stubs of the SDK — our mistakes, not SDK drift.
+The Live Activity code (`Widgets/`, `App/Push/`) has its own:
+`native/tools/widget-stubcheck/run.sh` (strict ActivityKit/WidgetKit stubs —
+`Activity` is not Sendable there — plus shims of the app types it touches);
+its model is XbinAgent's `LiveActivity.swift`, tested with the package.
 
 ### 3b. The app's own code on Linux (a minute)
 
