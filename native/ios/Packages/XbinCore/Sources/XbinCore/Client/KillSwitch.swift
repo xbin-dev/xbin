@@ -72,9 +72,11 @@ public struct RemoteAppConfigCache: Sendable, Equatable, Codable {
 
     public func isFresh(at now: Date) -> Bool { now.timeIntervalSince(fetchedAt) < Self.maxAge }
 
-    /// Whether to fetch again now (nil cache: yes).
-    public static func due(_ cache: RemoteAppConfigCache?, at now: Date) -> Bool {
-        guard let c = cache else { return true }
+    /// Whether to fetch again now (nil cache: yes). After a run that ended
+    /// in the foreground (``ForegroundMark``: perhaps this build's native
+    /// views crash) always: the file may have turned them off since.
+    public static func due(_ cache: RemoteAppConfigCache?, at now: Date, afterUncleanExit: Bool = false) -> Bool {
+        guard let c = cache, !afterUncleanExit else { return true }
         let age = now.timeIntervalSince(c.fetchedAt)
         return age >= refreshInterval || age < 0
     }
@@ -139,4 +141,38 @@ public enum NativeRuntimeGate: Sendable, Equatable {
         case .unsupported: return "This workspace's server predates native views; tiles open as web pages."
         }
     }
+}
+
+// MARK: - Launching after a crash
+
+/// A place to keep a flag across launches (UserDefaults; a dictionary in
+/// tests).
+public protocol FlagStore: AnyObject {
+    func bool(forKey key: String) -> Bool
+    func set(_ value: Bool, forKey key: String)
+}
+
+extension UserDefaults: FlagStore {}
+
+/// Whether the app's last run ended in the foreground — a crash, or the
+/// watchdog killing a hang. A native runtime that crashes as it mounts
+/// would crash every launch that restores a window straight into it, before
+/// the remote switch (fetched as the app comes up) could turn it off. So
+/// the app marks coming to the foreground (a window appearing — at launch
+/// that is before the scene is even active — or becoming active) and going
+/// to the background; a launch reads the mark first; and after such a run
+/// the windows restore to their workspace only (the navigator) until the
+/// remote switch has been read. A force-quit from the app switcher also
+/// counts, and costs nothing: iOS drops the scenes' restored state then.
+public struct ForegroundMark {
+    public static let key = "xbin.inForeground"
+    private let store: any FlagStore
+
+    public init(_ store: any FlagStore) { self.store = store }
+
+    /// What the last run left: true = it ended while in the foreground.
+    public var lastRunEndedInForeground: Bool { store.bool(forKey: Self.key) }
+
+    public func enteredForeground() { store.set(true, forKey: Self.key) }
+    public func enteredBackground() { store.set(false, forKey: Self.key) }
 }

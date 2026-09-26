@@ -11,7 +11,10 @@ import Foundation
 // - `session` (the caller's agent sessions, D74/D97) → that session's feed;
 // - `term` → the session directory: `status` carries the session's summary
 //   inline (the Needs-you inbox), `open`/`close`/`rename` mean re-list;
-// - `branding` → re-read the workspace's title and icon.
+// - `branding` → re-read the workspace's title and icon;
+// - `native` → the workspace's native-runtime switch changed: re-read whoami
+//   (`native.runtime`), so an admin turning native views off reaches every
+//   open app at once (plans/native.md §23).
 //
 // This file is the pure half: parsing frames, picking the reload target and
 // the reconnect policy. The socket (URLSessionWebSocketTask) is app code.
@@ -27,6 +30,9 @@ public enum AppEvent: Sendable, Equatable {
     case grants(component: String?)
     /// The workspace's title or icon changed (D76).
     case branding
+    /// The workspace's native-runtime switch changed (an admin's `PUT
+    /// /api/xbin/native-runtime`): re-read whoami's `native.runtime`.
+    case nativeSwitch
     /// A terminal or agent session of the caller changed (D73).
     case term(TermEvent)
     /// An agent session event (D74). `frame` is the whole frame's text, for
@@ -54,6 +60,8 @@ public enum AppEvent: Sendable, Equatable {
             return .grants(component: component.isEmpty ? nil : component)
         case "branding":
             return .branding
+        case "native":
+            return .nativeSwitch
         case "term":
             guard let d = j["data"], let t = TermEvent(component: component, data: d) else { return .other(type: type) }
             return .term(t)

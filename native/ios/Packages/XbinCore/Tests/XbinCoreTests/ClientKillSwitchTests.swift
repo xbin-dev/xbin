@@ -52,6 +52,10 @@ import Testing
         #expect(!RemoteAppConfigCache.due(c, at: now.addingTimeInterval(3600)))
         #expect(RemoteAppConfigCache.due(c, at: now.addingTimeInterval(6 * 3600)))
         #expect(RemoteAppConfigCache.due(c, at: now.addingTimeInterval(-60))) // the clock went back
+        // After a crash in the foreground: now, however fresh (the file may
+        // have turned this build's native views off an hour ago).
+        #expect(RemoteAppConfigCache.due(c, at: now.addingTimeInterval(60), afterUncleanExit: true))
+        #expect(!RemoteAppConfigCache.due(c, at: now.addingTimeInterval(60), afterUncleanExit: false))
     }
 
     @Test func cacheRoundTrips() {
@@ -89,6 +93,47 @@ import Testing
         #expect(TileSurface.pick(tile, serverRuntime: 0) == .web)
         #expect(TileSurface.pick(tile, serverRuntime: 1, runtimeOff: true) == .web)
         for g in [NativeRuntimeGate.user, .remote, .remoteBuild, .workspace, .unsupported] { #expect(!g.explanation.isEmpty) }
+    }
+}
+
+/// A launch after a run that ended in the foreground (a crash — say a
+/// native runtime crashing as it mounts on restore) knows it, so its
+/// windows don't restore straight into the tile before the remote switch
+/// is read; a run that went to the background ended cleanly.
+@Suite struct ForegroundMarkTests {
+    final class Flags: FlagStore {
+        var values: [String: Bool] = [:]
+        func bool(forKey key: String) -> Bool { values[key] ?? false }
+        func set(_ value: Bool, forKey key: String) { values[key] = value }
+    }
+
+    @Test func aRunThatEndsInTheForegroundIsUnclean() {
+        let flags = Flags()
+        #expect(!ForegroundMark(flags).lastRunEndedInForeground)  // a first launch
+        // Run 1: active, then it crashes in the foreground.
+        ForegroundMark(flags).enteredForeground()
+        // Run 2 reads it before marking itself.
+        let run2 = ForegroundMark(flags)
+        #expect(run2.lastRunEndedInForeground)
+        run2.enteredForeground()
+        run2.enteredBackground()                                   // then iOS ends it in the background
+        #expect(!ForegroundMark(flags).lastRunEndedInForeground)
+        // Active again after the background: unclean until it leaves.
+        run2.enteredForeground()
+        #expect(ForegroundMark(flags).lastRunEndedInForeground)
+        #expect(flags.values.keys.sorted() == [ForegroundMark.key])
+    }
+
+    /// The app's store is UserDefaults.
+    @Test func userDefaultsIsAFlagStore() throws {
+        let name = "xbin-test-\(UUID().uuidString)"
+        let d = try #require(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+        let mark = ForegroundMark(d)
+        mark.enteredForeground()
+        #expect(ForegroundMark(d).lastRunEndedInForeground)
+        mark.enteredBackground()
+        #expect(!ForegroundMark(d).lastRunEndedInForeground)
     }
 }
 

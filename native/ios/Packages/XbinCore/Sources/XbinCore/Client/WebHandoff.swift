@@ -5,10 +5,15 @@ import Foundation
 // - **Signed-in Safari** (plans/native.md §6.3, the D64 pattern): the app
 //   asks its workspace for a one-shot ticket bound to its device session,
 //   `POST /api/xbin/web-ticket {next}` → `{url}`, and opens that URL in
-//   `SFSafariViewController`; xbind redeems it top-level into a cookie
-//   session and redirects to `next`. An xbind without the route (404/405),
-//   or one that refuses (a token or password session), gets the plain URL:
-//   the user signs in there as before.
+//   `SFSafariViewController`. xbind spends the ticket on the GET but never
+//   signs a browser in on a GET (anyone can mint a link for their own
+//   account and hand it over): a browser already signed in as the same
+//   person lands on `next`; a signed-out one gets a "Continue as <name>"
+//   page naming the account (and a one-shot nonce cookie), whose button
+//   posts `POST /login/web-ticket {confirm}` → a cookie session and a 303
+//   to `next`. So the user taps Continue once. An xbind without the route
+//   (404/405), or one that refuses (a token or password session), gets the
+//   plain URL: the user signs in there as before.
 // - **Handoff** ("open on desktop"): the activity a window advertises names
 //   its tile's web page (`webpageURL`, which a Mac or iPad without the app
 //   opens in the browser) and the `xbin://` link another device's app

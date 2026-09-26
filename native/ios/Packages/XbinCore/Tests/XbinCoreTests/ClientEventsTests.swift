@@ -15,6 +15,10 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"grants"}"#) == .grants(component: nil))
         #expect(AppEvent.parse(#"{"type":"grants","component":"apps/x"}"#) == .grants(component: "apps/x"))
         #expect(AppEvent.parse(#"{"type":"branding"}"#) == .branding)
+        // The workspace's native-runtime switch (an admin's PUT
+        // /api/xbin/native-runtime): re-read whoami.
+        #expect(AppEvent.parse(#"{"type":"native"}"#) == .nativeSwitch)
+        #expect(AppEvent.parse("{\"type\":\"native\"}\n") == .nativeSwitch)
         #expect(AppEvent.parse(#"{"type":"bus","topic":"res:a/b/c","data":1}"#) == .other(type: "bus"))
         #expect(AppEvent.parse(#"{"type":"status","component":"apps/x","data":{"level":"error","message":"down","ts":1}}"#)
             == .tileStatus(component: "apps/x", level: "error", message: "down"))
