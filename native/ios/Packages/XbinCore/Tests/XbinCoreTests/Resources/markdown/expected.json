@@ -1,0 +1,1779 @@
+[
+ {
+  "src": "Hello **world**, this is *emphasis* and `code`.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Hello "
+     },
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "world"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": ", this is "
+     },
+     {
+      "t": "em",
+      "c": [
+       {
+        "t": "text",
+        "text": "emphasis"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "codespan",
+      "text": "code"
+     },
+     {
+      "t": "text",
+      "text": "."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "# Title\n\nSome text\nwith a line break.",
+  "tokens": [
+   {
+    "t": "heading",
+    "depth": 1,
+    "c": [
+     {
+      "t": "text",
+      "text": "Title"
+     }
+    ]
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Some text"
+     },
+     {
+      "t": "br"
+     },
+     {
+      "t": "text",
+      "text": "with a line break."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "## Fix the build\n\nI ran `go test ./...` and **3 tests failed**:\n\n1. `TestA` — nil map\n2. `TestB` — timeout\n3. `TestC`",
+  "tokens": [
+   {
+    "t": "heading",
+    "depth": 2,
+    "c": [
+     {
+      "t": "text",
+      "text": "Fix the build"
+     }
+    ]
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "I ran "
+     },
+     {
+      "t": "codespan",
+      "text": "go test ./..."
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "3 tests failed"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": ":"
+     }
+    ]
+   },
+   {
+    "t": "list",
+    "ordered": true,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "codespan",
+          "text": "TestA"
+         },
+         {
+          "t": "text",
+          "text": " — nil map"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "codespan",
+          "text": "TestB"
+         },
+         {
+          "t": "text",
+          "text": " — timeout"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "codespan",
+          "text": "TestC"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "start": 1
+   }
+  ]
+ },
+ {
+  "src": "- one\n- two\n- three",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "two"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "three"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "* item\n  * nested\n  * nested two\n* back",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "item"
+         }
+        ]
+       },
+       {
+        "t": "list",
+        "ordered": false,
+        "loose": false,
+        "items": [
+         {
+          "c": [
+           {
+            "t": "paragraph",
+            "c": [
+             {
+              "t": "text",
+              "text": "nested"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "c": [
+           {
+            "t": "paragraph",
+            "c": [
+             {
+              "t": "text",
+              "text": "nested two"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "back"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "1. first\n2. second\n\n   continued paragraph\n3. third",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": true,
+    "loose": true,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "first"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "second"
+         }
+        ]
+       },
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "continued paragraph"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "third"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "start": 1
+   }
+  ]
+ },
+ {
+  "src": "3) three\n4) four",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": true,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "three"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "four"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "start": 3
+   }
+  ]
+ },
+ {
+  "src": "- [ ] todo\n- [x] done\n- plain",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "todo"
+         }
+        ]
+       }
+      ],
+      "task": true,
+      "checked": false
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "done"
+         }
+        ]
+       }
+      ],
+      "task": true,
+      "checked": true
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "plain"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "```go\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n```",
+  "tokens": [
+   {
+    "t": "code",
+    "text": "func main() {\n\tfmt.Println(\"hi\")\n}",
+    "lang": "go"
+   }
+  ]
+ },
+ {
+  "src": "```\nno lang\n```\n\nafter",
+  "tokens": [
+   {
+    "t": "code",
+    "text": "no lang"
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "after"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "~~~sh\n$ ls -la\n~~~",
+  "tokens": [
+   {
+    "t": "code",
+    "text": "$ ls -la",
+    "lang": "sh"
+   }
+  ]
+ },
+ {
+  "src": "> quoted **text**\n> second line",
+  "tokens": [
+   {
+    "t": "blockquote",
+    "c": [
+     {
+      "t": "paragraph",
+      "c": [
+       {
+        "t": "text",
+        "text": "quoted "
+       },
+       {
+        "t": "strong",
+        "c": [
+         {
+          "t": "text",
+          "text": "text"
+         }
+        ]
+       },
+       {
+        "t": "br"
+       },
+       {
+        "t": "text",
+        "text": "second line"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "> quote\n\nnot quote",
+  "tokens": [
+   {
+    "t": "blockquote",
+    "c": [
+     {
+      "t": "paragraph",
+      "c": [
+       {
+        "t": "text",
+        "text": "quote"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "not quote"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "| a | b |\n|---|:-:|\n| 1 | 2 |\n| x | `y` |",
+  "tokens": [
+   {
+    "t": "table",
+    "align": [
+     null,
+     "center"
+    ],
+    "header": [
+     [
+      {
+       "t": "text",
+       "text": "a"
+      }
+     ],
+     [
+      {
+       "t": "text",
+       "text": "b"
+      }
+     ]
+    ],
+    "rows": [
+     [
+      [
+       {
+        "t": "text",
+        "text": "1"
+       }
+      ],
+      [
+       {
+        "t": "text",
+        "text": "2"
+       }
+      ]
+     ],
+     [
+      [
+       {
+        "t": "text",
+        "text": "x"
+       }
+      ],
+      [
+       {
+        "t": "codespan",
+        "text": "y"
+       }
+      ]
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Left | Right\n:--- | ---:\nl | r",
+  "tokens": [
+   {
+    "t": "table",
+    "align": [
+     "left",
+     "right"
+    ],
+    "header": [
+     [
+      {
+       "t": "text",
+       "text": "Left"
+      }
+     ],
+     [
+      {
+       "t": "text",
+       "text": "Right"
+      }
+     ]
+    ],
+    "rows": [
+     [
+      [
+       {
+        "t": "text",
+        "text": "l"
+       }
+      ],
+      [
+       {
+        "t": "text",
+        "text": "r"
+       }
+      ]
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "src": "---",
+  "tokens": [
+   {
+    "t": "hr"
+   }
+  ]
+ },
+ {
+  "src": "text\n\n***\n\nmore",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "text"
+     }
+    ]
+   },
+   {
+    "t": "hr"
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "more"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "See [the docs](https://example.com/docs) and <https://xbin.dev>.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "See "
+     },
+     {
+      "t": "link",
+      "href": "https://example.com/docs",
+      "c": [
+       {
+        "t": "text",
+        "text": "the docs"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "link",
+      "href": "https://xbin.dev",
+      "c": [
+       {
+        "t": "text",
+        "text": "https://xbin.dev"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": "."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Visit https://example.com/path?q=1, then www.example.org.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Visit "
+     },
+     {
+      "t": "link",
+      "href": "https://example.com/path?q=1",
+      "c": [
+       {
+        "t": "text",
+        "text": "https://example.com/path?q=1"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": ", then "
+     },
+     {
+      "t": "link",
+      "href": "http://www.example.org",
+      "c": [
+       {
+        "t": "text",
+        "text": "www.example.org"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": "."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "A [bad link](javascript:alert(1)) stays text.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "A bad link stays text."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "![diagram](img.png) here",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "[image: diagram] here"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Raw <b>html</b> is dropped <br> here.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Raw html is dropped  here."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Entities: &amp; &lt;tag&gt; &copy; &#169; &#x1F600;",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Entities: & <tag> © © 😀"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Escapes: \\*not em\\* and \\`not code\\`",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Escapes: *not em* and `not code`"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "snake_case_name and __strong__ and _em_",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "snake_case_name and "
+     },
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "strong"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "em",
+      "c": [
+       {
+        "t": "text",
+        "text": "em"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "~~gone~~ and ~one~",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "del",
+      "c": [
+       {
+        "t": "text",
+        "text": "gone"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "del",
+      "c": [
+       {
+        "t": "text",
+        "text": "one"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Setext\n======\n\nSub\n---",
+  "tokens": [
+   {
+    "t": "heading",
+    "depth": 1,
+    "c": [
+     {
+      "t": "text",
+      "text": "Setext"
+     }
+    ]
+   },
+   {
+    "t": "heading",
+    "depth": 2,
+    "c": [
+     {
+      "t": "text",
+      "text": "Sub"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Line one  \nline two",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Line one"
+     },
+     {
+      "t": "br"
+     },
+     {
+      "t": "text",
+      "text": "line two"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "A paragraph\n- then a list",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "A paragraph"
+     }
+    ]
+   },
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "then a list"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Code with ``double `backticks` inside``",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Code with "
+     },
+     {
+      "t": "codespan",
+      "text": "double `backticks` inside"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "**bold with `code` inside** and *em with [link](https://a.b)*",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "bold with "
+       },
+       {
+        "t": "codespan",
+        "text": "code"
+       },
+       {
+        "t": "text",
+        "text": " inside"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " and "
+     },
+     {
+      "t": "em",
+      "c": [
+       {
+        "t": "text",
+        "text": "em with "
+       },
+       {
+        "t": "link",
+        "href": "https://a.b",
+        "c": [
+         {
+          "t": "text",
+          "text": "link"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Nested: **bold *and em* inside**",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Nested: "
+     },
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "bold "
+       },
+       {
+        "t": "em",
+        "c": [
+         {
+          "t": "text",
+          "text": "and em"
+         }
+        ]
+       },
+       {
+        "t": "text",
+        "text": " inside"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "1. step\n   ```sh\n   make test\n   ```\n2. next",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": true,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "step"
+         }
+        ]
+       },
+       {
+        "t": "code",
+        "text": "make test",
+        "lang": "sh"
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "next"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "start": 1
+   }
+  ]
+ },
+ {
+  "src": "    indented code\n    block",
+  "tokens": [
+   {
+    "t": "code",
+    "text": "indented code\nblock"
+   }
+  ]
+ },
+ {
+  "src": "Mixed\n\n- a\n\n- b\n\nend",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Mixed"
+     }
+    ]
+   },
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": true,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "a"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "b"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "end"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Unicode: zażółć gęślą jaźń — 中文 😀",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Unicode: zażółć gęślą jaźń — 中文 😀"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Trailing hashes ##\n\n### Heading ###",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Trailing hashes ##"
+     }
+    ]
+   },
+   {
+    "t": "heading",
+    "depth": 3,
+    "c": [
+     {
+      "t": "text",
+      "text": "Heading"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "",
+  "tokens": []
+ },
+ {
+  "src": "Just text",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Just text"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "The file `web/xbin-client.js` changed: +12 −3.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "The file "
+     },
+     {
+      "t": "codespan",
+      "text": "web/xbin-client.js"
+     },
+     {
+      "t": "text",
+      "text": " changed: +12 −3."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "```py\nprint(1)",
+  "tokens": [
+   {
+    "t": "code",
+    "text": "print(1)",
+    "lang": "py"
+   }
+  ]
+ },
+ {
+  "src": "**unclosed bold and *open em",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "**unclosed bold and *open em"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "- item\ncontinued lazily\n- next",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "item"
+         },
+         {
+          "t": "br"
+         },
+         {
+          "t": "text",
+          "text": "continued lazily"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "next"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Para\n> quote interrupts",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Para"
+     }
+    ]
+   },
+   {
+    "t": "blockquote",
+    "c": [
+     {
+      "t": "paragraph",
+      "c": [
+       {
+        "t": "text",
+        "text": "quote interrupts"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "#hashtag is not a heading",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "#hashtag is not a heading"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "1. one\n1. two\n1. three",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": true,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "two"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "three"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "start": 1
+   }
+  ]
+ },
+ {
+  "src": "- a\n    - deep\n        - deeper",
+  "tokens": [
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "a"
+         }
+        ]
+       },
+       {
+        "t": "list",
+        "ordered": false,
+        "loose": false,
+        "items": [
+         {
+          "c": [
+           {
+            "t": "paragraph",
+            "c": [
+             {
+              "t": "text",
+              "text": "deep"
+             }
+            ]
+           },
+           {
+            "t": "list",
+            "ordered": false,
+            "loose": false,
+            "items": [
+             {
+              "c": [
+               {
+                "t": "paragraph",
+                "c": [
+                 {
+                  "t": "text",
+                  "text": "deeper"
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Numbers 1. not a list",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Numbers 1. not a list"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Path: `a/b/c.go:12` and file.go:34",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Path: "
+     },
+     {
+      "t": "codespan",
+      "text": "a/b/c.go:12"
+     },
+     {
+      "t": "text",
+      "text": " and file.go:34"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "**Summary**\n\n- Added `TileScheme` (scheme handler rules)\n- Fixed a race in `FrameTokenCache`\n\nNext: run `make test`.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "strong",
+      "c": [
+       {
+        "t": "text",
+        "text": "Summary"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "t": "list",
+    "ordered": false,
+    "loose": false,
+    "items": [
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "Added "
+         },
+         {
+          "t": "codespan",
+          "text": "TileScheme"
+         },
+         {
+          "t": "text",
+          "text": " (scheme handler rules)"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "c": [
+       {
+        "t": "paragraph",
+        "c": [
+         {
+          "t": "text",
+          "text": "Fixed a race in "
+         },
+         {
+          "t": "codespan",
+          "text": "FrameTokenCache"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Next: run "
+     },
+     {
+      "t": "codespan",
+      "text": "make test"
+     },
+     {
+      "t": "text",
+      "text": "."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "I'll check:\n\n```diff\n- old\n+ new\n```\n\nDone.",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "I'll check:"
+     }
+    ]
+   },
+   {
+    "t": "code",
+    "text": "- old\n+ new",
+    "lang": "diff"
+   },
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Done."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Table without body\n\n| h1 | h2 |\n| -- | -- |",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Table without body"
+     }
+    ]
+   },
+   {
+    "t": "table",
+    "align": [
+     null,
+     null
+    ],
+    "header": [
+     [
+      {
+       "t": "text",
+       "text": "h1"
+      }
+     ],
+     [
+      {
+       "t": "text",
+       "text": "h2"
+      }
+     ]
+    ],
+    "rows": []
+   }
+  ]
+ },
+ {
+  "src": "a * b * c and 2*3*4",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "a * b * c and 2"
+     },
+     {
+      "t": "em",
+      "c": [
+       {
+        "t": "text",
+        "text": "3"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": "4"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "email me: <mailto:a@b.co> or a@b.co",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "email me: "
+     },
+     {
+      "t": "link",
+      "href": "mailto:a@b.co",
+      "c": [
+       {
+        "t": "text",
+        "text": "mailto:a@b.co"
+       }
+      ]
+     },
+     {
+      "t": "text",
+      "text": " or "
+     },
+     {
+      "t": "link",
+      "href": "mailto:a@b.co",
+      "c": [
+       {
+        "t": "text",
+        "text": "a@b.co"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "src": "Line with trailing backslash\\\nnext",
+  "tokens": [
+   {
+    "t": "paragraph",
+    "c": [
+     {
+      "t": "text",
+      "text": "Line with trailing backslash"
+     },
+     {
+      "t": "br"
+     },
+     {
+      "t": "text",
+      "text": "next"
+     }
+    ]
+   }
+  ]
+ }
+]
