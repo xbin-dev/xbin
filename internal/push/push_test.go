@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdh"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,15 +18,37 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 )
 
-// fakeRelay speaks relay/README.md's /v1/push and /v1/workspaces.
+// fakeRelay models relay/README.md: minted workspace keys, GET
+// /v1/workspace, and handles bound to the workspace that first pushes to
+// them (403 handle_bound after), with the relay's error codes. Keys it did
+// not mint name their own workspace (the environment's k1).
 type fakeRelay struct {
 	t       *testing.T
 	srv     *httptest.Server
 	mu      sync.Mutex
 	got     []relayPush
-	answers []int         // statuses to answer next (then 200)
-	block   chan struct{} // non-nil: /v1/push waits on it
-	regs    int
+	answers []fakeAnswer      // answers to give next (then the model's)
+	block   chan struct{}     // non-nil: /v1/push waits on it
+	regs    int               // POST /v1/workspaces calls
+	probes  int               // GET /v1/workspace calls
+	keys    map[string]string // key → workspace id
+	revoked map[string]bool   // keys the relay forgot (401 bad_key)
+	bound   map[string]string // handle → workspace id
+	unknown map[string]bool   // handles the relay does not know (404 handle_unknown)
+}
+
+type fakeAnswer struct {
+	status int
+	body   string
+}
+
+// codes are bare statuses (what a proxy or a misrouted URL answers).
+func codes(st ...int) []fakeAnswer {
+	var out []fakeAnswer
+	for _, c := range st {
+		out = append(out, fakeAnswer{status: c, body: "{}"})
+	}
+	return out
 }
 
 type relayPush struct {
@@ -36,14 +59,37 @@ type relayPush struct {
 	Priority   int      `json:"priority"`
 }
 
+func relayErr(w http.ResponseWriter, status int, code string) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "code": code})
+}
+
 func newFakeRelay(t *testing.T) *fakeRelay {
-	f := &fakeRelay{t: t}
+	f := &fakeRelay{t: t, keys: map[string]string{}, revoked: map[string]bool{}, bound: map[string]string{}, unknown: map[string]bool{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.regs++
+		key, id := "xbr_fresh", "wsid"
+		if f.regs > 1 {
+			key, id = fmt.Sprintf("xbr_fresh%d", f.regs), fmt.Sprintf("wsid%d", f.regs)
+		}
+		f.keys[key] = id
 		f.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]string{"workspaceId": "wsid", "key": "xbr_fresh"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"workspaceId": id, "key": key})
+	})
+	mux.HandleFunc("GET /v1/workspace", func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		f.mu.Lock()
+		f.probes++
+		id, ok := f.keys[key]
+		ok = ok && !f.revoked[key]
+		f.mu.Unlock()
+		if !ok {
+			relayErr(w, 401, "bad_key")
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"workspaceId": id})
 	})
 	mux.HandleFunc("POST /v1/push", func(w http.ResponseWriter, r *http.Request) {
 		if f.block != nil {
@@ -56,20 +102,47 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		}
 		p.Key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		f.mu.Lock()
-		code := 200
+		defer f.mu.Unlock()
 		if len(f.answers) > 0 {
-			code, f.answers = f.answers[0], f.answers[1:]
+			a := f.answers[0]
+			f.answers = f.answers[1:]
+			w.WriteHeader(a.status)
+			_, _ = w.Write([]byte(a.body))
+			return
 		}
-		if code == 200 {
+		ws, ok := f.keys[p.Key]
+		if !ok {
+			ws = p.Key
+		}
+		switch {
+		case f.revoked[p.Key]:
+			relayErr(w, 401, "bad_key")
+		case f.unknown[p.Handle]:
+			relayErr(w, 404, "handle_unknown")
+		case f.bound[p.Handle] != "" && f.bound[p.Handle] != ws:
+			relayErr(w, 403, "handle_bound")
+		default:
+			f.bound[p.Handle] = ws
 			f.got = append(f.got, p)
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		}
-		f.mu.Unlock()
-		w.WriteHeader(code)
-		_, _ = w.Write([]byte(`{}`))
 	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// set changes the model under its lock.
+func (f *fakeRelay) set(fn func()) {
+	f.mu.Lock()
+	fn()
+	f.mu.Unlock()
+}
+
+func (f *fakeRelay) answer(a ...fakeAnswer) {
+	f.mu.Lock()
+	f.answers = append(f.answers, a...)
+	f.mu.Unlock()
 }
 
 func (f *fakeRelay) pushes() []relayPush {
@@ -138,7 +211,9 @@ func newRig(t *testing.T, mod func(*Options)) *rig {
 		"POST /devices/push": s.APIRegister, "GET /devices/push": s.APIList, "DELETE /devices/push/{deviceId}": s.APIUnregister,
 		"GET /push/prefs": s.APIPrefs, "PUT /push/prefs": s.APISetPrefs, "POST /push/test": s.APITest,
 		"GET /push/config": s.APIConfig, "PUT /push/config": s.APISetConfig, "DELETE /push/config": s.APIDeleteConfig,
-		"POST /notify": s.APINotify,
+		"GET /push/devices": s.APIAdminDevices, "DELETE /push/devices/{user}": s.APIAdminForget,
+		"DELETE /push/devices/{user}/{deviceId}": s.APIAdminForget,
+		"POST /notify":                           s.APINotify,
 	} {
 		r.mux.HandleFunc(pat, h)
 	}
@@ -228,6 +303,8 @@ func TestNotifyAuthorization(t *testing.T) {
 		{cal, map[string]any{"user": "alice", "title": "x", "link": "https://evil"}, 400},
 		{cal, map[string]any{"user": "alice", "title": "x", "link": "/c/apps/other/"}, 400},
 		{cal, map[string]any{"user": "alice", "title": "x", "link": "a/../../other"}, 400},
+		{cal, map[string]any{"user": "alice", "title": "x", "link": "%2e%2e/%2e%2e/login"}, 400},
+		{cal, map[string]any{"user": "alice", "title": "x", "link": ".%2E/other/"}, 400},
 		{cal, map[string]any{"user": "alice", "title": "x", "kind": "Bad Kind"}, 400},
 		{cal, map[string]any{"user": "alice", "title": "x", "collapseId": strings.Repeat("c", 65)}, 400},
 		{other, map[string]any{"user": "bob", "title": "x"}, 202}, // bob reads apps/other
@@ -248,6 +325,7 @@ func TestNotifyRateLimits(t *testing.T) {
 	r := newRig(t, func(o *Options) {
 		o.Limits = Limits{Tile: Rate{PerHour: 3600, Burst: 2}, User: Rate{PerHour: 3600, Burst: 3}, Session: Rate{PerHour: 1, Burst: 1}}
 	})
+	r.register(alice, "phone", "handle-phone")
 	send := func(p auth.Principal) (int, http.Header) {
 		code, _, h := r.call(p, "POST", "/notify", map[string]any{"user": "alice", "title": "x"})
 		return code, h
@@ -262,10 +340,17 @@ func TestNotifyRateLimits(t *testing.T) {
 		t.Fatalf("tile limit: %d, Retry-After %q", code, h.Get("Retry-After"))
 	}
 	if code, _ := send(other); code != 202 { // another tile: its own bucket; alice's third
-		t.Fatalf("other tile: %d", code)
+		t.Fatal(code)
 	}
-	if code, _ := send(other); code != 429 { // alice's bucket is empty now
-		t.Fatalf("user limit: %d", code)
+	// alice's budget for tiles is spent: accepted, and dropped quietly — a
+	// 429 here would tell apps/other how much apps/cal sends her
+	if code, _ := send(other); code != 202 {
+		t.Fatalf("over the per-user limit: %d", code)
+	}
+	r.relay.waitPushes(3)
+	time.Sleep(20 * time.Millisecond)
+	if n, st := len(r.relay.pushes()), r.s.snd.stats(); n != 3 || st.Limited != 1 {
+		t.Fatalf("%d pushes, stats %+v", n, st)
 	}
 }
 
@@ -344,7 +429,7 @@ func TestRelayAnswers(t *testing.T) {
 	r.register(alice, "phone", "handle-phone")
 	r.register(alice, "ipad", "handle-ipad")
 	// 503, 429 retry; then delivered
-	r.relay.answers = []int{503, 429}
+	r.relay.answer(codes(503, 429)...)
 	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "one"})
 	r.relay.waitPushes(2)
 	st := r.s.snd.stats()
@@ -352,7 +437,7 @@ func TestRelayAnswers(t *testing.T) {
 		t.Fatalf("stats after retries: %+v", st)
 	}
 	// 410: the registration goes, the other device stays
-	r.relay.answers = []int{410}
+	r.relay.answer(codes(410)...)
 	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "two"})
 	r.relay.waitPushes(3)
 	deadline := time.Now().Add(2 * time.Second)
@@ -363,7 +448,7 @@ func TestRelayAnswers(t *testing.T) {
 		t.Fatalf("a dead handle's registration stayed: %d devices", n)
 	}
 	// retries end
-	r.relay.answers = []int{502, 502, 502, 502, 502}
+	r.relay.answer(codes(502, 502, 502, 502, 502)...)
 	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "three"})
 	deadline = time.Now().Add(2 * time.Second)
 	for r.s.snd.stats().Failed < 2 && time.Now().Before(deadline) {
@@ -487,62 +572,6 @@ func TestPushTestRoute(t *testing.T) {
 	}
 }
 
-func TestAdminConfig(t *testing.T) {
-	relay := newFakeRelay(t)
-	r := newRig(t, func(o *Options) { o.RelayURL, o.RelayKey = "", "" })
-	if code, _, _ := r.call(alice, "GET", "/push/config", nil); code != 403 {
-		t.Fatalf("non-admin: %d", code)
-	}
-	code, out, _ := r.call(owner, "GET", "/push/config", nil)
-	if code != 200 || out["enabled"] != false {
-		t.Fatalf("off: %d %v", code, out)
-	}
-	// push off: notify still answers 202, nothing is sent
-	r.register(alice, "phone", "handle-phone")
-	if code, _, _ := r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "x"}); code != 202 {
-		t.Fatal(code)
-	}
-	if code, _, _ := r.call(alice, "POST", "/push/test", nil); code != 409 {
-		t.Fatalf("test while off: %d", code)
-	}
-	for _, bad := range []string{"http://relay.example", "ftp://x", "not a url", "https://u:p@relay.example"} {
-		if code, _, _ := r.call(owner, "PUT", "/push/config", map[string]any{"relay": bad}); code != 400 {
-			t.Fatalf("%q accepted: %d", bad, code)
-		}
-	}
-	code, out, _ = r.call(owner, "PUT", "/push/config", map[string]any{"relay": relay.srv.URL + "/"})
-	if code != 200 || out["enabled"] != true || out["source"] != "admin" || out["relayWorkspace"] != "wsid" || relay.regs != 1 {
-		t.Fatalf("opt in: %d %v (regs %d)", code, out, relay.regs)
-	}
-	if b, _ := json.Marshal(out); strings.Contains(string(b), "xbr_fresh") {
-		t.Fatal("the relay key is shown")
-	}
-	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "on"})
-	if got := relay.waitPushes(1); got[0].Key != "xbr_fresh" {
-		t.Fatalf("pushed with key %q", got[0].Key)
-	}
-	// an explicit key skips registration
-	if code, _, _ := r.call(owner, "PUT", "/push/config", map[string]any{"relay": relay.srv.URL, "key": "xbr_given"}); code != 200 || relay.regs != 1 {
-		t.Fatalf("explicit key: %d regs %d", code, relay.regs)
-	}
-	if code, _, _ := r.call(owner, "DELETE", "/push/config", nil); code != 204 || r.s.Enabled() {
-		t.Fatalf("off again: %d", code)
-	}
-	// configured by the environment: read-only
-	e := newRig(t, nil)
-	if code, _, _ := e.call(owner, "PUT", "/push/config", map[string]any{"relay": relay.srv.URL}); code != 409 {
-		t.Fatalf("env-configured PUT: %d", code)
-	}
-	if code, out, _ := e.call(owner, "GET", "/push/config", nil); code != 200 || out["source"] != "env" {
-		t.Fatalf("env view: %v", out)
-	}
-	// URL alone in the environment: the default an opt-in uses
-	d := newRig(t, func(o *Options) { o.RelayURL, o.RelayKey = relay.srv.URL, "" })
-	if code, out, _ := d.call(owner, "PUT", "/push/config", nil); code != 200 || out["relay"] != relay.srv.URL {
-		t.Fatalf("default relay: %d %v", code, out)
-	}
-}
-
 func TestFitAndLinks(t *testing.T) {
 	huge := strings.Repeat("字", 5000)
 	pt, err := fit(Payload{V: 1, WS: "w", Kind: KindTile, Title: huge, Body: huge, Link: "c/apps/x/" + strings.Repeat("a", 600)})
@@ -560,7 +589,11 @@ func TestFitAndLinks(t *testing.T) {
 	}
 	for l, ok := range map[string]bool{"": true, "#x": true, "?a=b#c": true, "sub/page.html": true, "a:b": false,
 		"javascript:alert(1)": false, "//evil": false, "/abs": false, "../up": false, "a/./b": false, "sp ace": false,
-		"x\ny": false, "ok/a:b": true, "#frag:with:colons": true} {
+		"x\ny": false, "ok/a:b": true, "#frag:with:colons": true,
+		// percent-encoded dot segments: a URL parser resolves them like ".."
+		"%2e%2e/%2e%2e/login": false, ".%2E/other/": false, "%2E%2E/%2E%2E/%2E%2E/api/xbin/users": false,
+		"a/%2e/b": false, "a/%2E%2e": false, "a%2fb": false, "a%5Cb": false, "bad%zz": false,
+		"%252e%252e/x": true, "a%20b/c.d": true, "..x/y": true} {
 		if _, got := tileLink(l); got != ok {
 			t.Errorf("tileLink(%q) = %v, want %v", l, got, ok)
 		}

@@ -117,6 +117,10 @@ func TestPushInProcess(t *testing.T) {
 	if code, out := call("POST", "/notify", nil, map[string]any{"user": "owner", "title": "x"}); code != 403 {
 		t.Fatalf("a person called notify: %d %v", code, out)
 	}
+	// a frontend notifies only the person using it
+	if code, out := call("POST", "/notify", frame, map[string]any{"user": "someone-else", "title": "x"}); code != 403 {
+		t.Fatalf("a frame notified another person: %d %v", code, out)
+	}
 	if code, out := call("POST", "/notify", frame, map[string]any{"user": "owner", "title": "Build green", "body": "all 12 passed", "link": "#runs/7"}); code != 202 {
 		t.Fatalf("notify: %d %v", code, out)
 	}
@@ -148,5 +152,12 @@ func TestPushInProcess(t *testing.T) {
 	}
 	if code, _ := call("PUT", "/push/config", nil, map[string]any{"relay": "https://elsewhere.example"}); code != 409 {
 		t.Fatalf("env-configured relay changed through the API: %d", code)
+	}
+	// the admin's view of registrations
+	if code, out := call("GET", "/push/devices", nil, nil); code != 200 || len(out["devices"].([]any)) != 1 {
+		t.Fatalf("admin listing: %d %v", code, out)
+	}
+	if code, out := call("DELETE", "/push/devices/owner/iphone", nil, nil); code != 200 || out["removed"] != float64(1) {
+		t.Fatalf("admin revoke: %d %v", code, out)
 	}
 }

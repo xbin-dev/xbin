@@ -31,16 +31,18 @@ type UserNotification struct {
 }
 
 // ErrNotifyRateLimited is returned (wrapped) when xbind refused a
-// notification over the per-tile or per-user limit; try again later.
+// notification over this tile's limit; try again later. (Over a person's
+// limit a notification is dropped quietly, never refused.)
 var ErrNotifyRateLimited = errors.New("xbin: too many notifications")
 
 // NotifyUser sends a push notification to a person's registered xbin app
 // devices (POST /api/xbin/notify) — for moments that need them when they are
 // not looking: a question, an approval, a failed run. The person must be able
-// to read this tile. Delivery is best-effort and asynchronous: a nil error
-// means xbind accepted it, not that a phone showed it (push may be off, the
-// person may have no device or may have muted this tile). Distinct from
-// Notify, the in-shell toast.
+// to read this tile. Call it from the backend. Delivery is best-effort and
+// asynchronous: a nil error means xbind accepted it, not that a phone showed
+// it (push may be off, the person may have no device, may have muted this
+// tile, or be over their hourly limit). Distinct from Notify, the in-shell
+// toast.
 //
 //	err := xbin.NotifyUser(ctx, xbin.Caller(r).User, "Approval needed", "Deploy v2.3 to prod?", "#approvals/17")
 func NotifyUser(ctx context.Context, user, title, body, link string) error {

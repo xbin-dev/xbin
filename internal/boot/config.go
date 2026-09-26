@@ -53,7 +53,7 @@ type Config struct {
 	LimitMem        string `env:"XBIN_LIMIT_MEM" def:"2G" doc:"per-component cgroup v2 memory cap — plain bytes or a K/M/G/T suffix; active only when xbind's cgroup is delegated (systemd Delegate=yes / a container)"`
 	Bin             string `env:"XBIN_BIN" doc:"directory holding the bx CLI, put on terminals' PATH; default: next to the xbind binary, the repo's bin/ under --dev, then whatever is already on xbind's PATH"`
 	PushRelay       string `env:"XBIN_PUSH_RELAY" doc:"the push relay for the xbin app's notifications (relay/README.md), e.g. https://relay.example. With XBIN_PUSH_RELAY_KEY: push is on and configured here (the admin route is read-only); alone: the relay an admin's opt-in (PUT /api/xbin/push/config) uses when it names none. Unset: an admin opts in from the API"`
-	PushRelayKey    string `env:"XBIN_PUSH_RELAY_KEY" secret:"true" doc:"this workspace's key at XBIN_PUSH_RELAY (what the relay's POST /v1/workspaces answered)"`
+	PushRelayKey    string `env:"XBIN_PUSH_RELAY_KEY" secret:"true" doc:"this workspace's key at XBIN_PUSH_RELAY (what the relay's POST /v1/workspaces answered). A different key is a different relay workspace: the apps' handles that delivered under the old one read needsNewHandle until the apps renew them"`
 
 	// env-only, read by the package that uses it (listed here so the
 	// configuration reference is complete)

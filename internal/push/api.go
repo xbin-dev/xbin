@@ -1,13 +1,9 @@
 package push
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -56,19 +52,33 @@ func (s *Service) human(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 type deviceView struct {
+	User     string   `json:"user,omitempty"` // the admin listing only
 	DeviceID string   `json:"deviceId"`
 	Kinds    []string `json:"kinds"`
 	Created  int64    `json:"created"`
 	Updated  int64    `json:"updated"`
 	LastSent int64    `json:"lastSent,omitempty"`
+	// NeedsNewHandle: the relay will not deliver to this handle for this
+	// workspace any more (it is bound to an earlier relay registration of
+	// the workspace, or the relay no longer knows it) — the app creates a
+	// fresh handle at the relay and registers again.
+	NeedsNewHandle bool   `json:"needsNewHandle,omitempty"`
+	RelayError     string `json:"relayError,omitempty"` // handle_bound | handle_unknown
 }
 
-func view(d Device) deviceView {
+func view(d Device, epoch string) deviceView {
 	k := d.Kinds
 	if k == nil {
 		k = []string{}
 	}
-	return deviceView{DeviceID: d.DeviceID, Kinds: k, Created: d.Created, Updated: d.Updated, LastSent: d.LastSent}
+	v := deviceView{DeviceID: d.DeviceID, Kinds: k, Created: d.Created, Updated: d.Updated, LastSent: d.LastSent}
+	if d.stale(epoch) {
+		v.NeedsNewHandle, v.RelayError = true, d.RelayErr
+		if v.RelayError == "" || d.ErrEpoch != epoch {
+			v.RelayError = "handle_bound" // delivered under an earlier relay registration
+		}
+	}
+	return v
 }
 
 // APIRegister is POST /devices/push {deviceId, handle, publicKey, kinds?}:
@@ -120,7 +130,7 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "could not store the registration: "+err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"device": view(d), "workspace": s.Workspace(), "enabled": s.Enabled()})
+	server.WriteJSON(w, http.StatusOK, map[string]any{"device": view(d, s.currentEpoch()), "workspace": s.Workspace(), "enabled": s.Enabled()})
 }
 
 // APIList is GET /devices/push: the caller's registrations.
@@ -130,8 +140,9 @@ func (s *Service) APIList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []deviceView{}
+	e := s.currentEpoch()
 	for _, d := range s.st.devices(user) {
-		out = append(out, view(d))
+		out = append(out, view(d, e))
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace(), "enabled": s.Enabled(), "devices": out})
 }
@@ -199,13 +210,25 @@ func (s *Service) APITest(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "push is off on this workspace (an admin turns it on: PUT /api/xbin/push/config)")
 		return
 	}
-	n := len(s.st.devices(user))
-	if n == 0 {
+	n, stale := 0, 0
+	e := s.currentEpoch()
+	for _, d := range s.st.devices(user) {
+		if d.stale(e) {
+			stale++
+		} else {
+			n++
+		}
+	}
+	switch {
+	case n == 0 && stale > 0:
+		fail(w, http.StatusConflict, "every registered device needs a new relay handle (needsNewHandle)")
+		return
+	case n == 0:
 		fail(w, http.StatusConflict, "no device is registered for push")
 		return
 	}
-	if ok, wait := s.user.allow(user); !ok {
-		tooMany(w, wait, "too many notifications for this user; try later")
+	if ok, wait := s.self.allow(user); !ok {
+		tooMany(w, wait, "too many test notifications; try later")
 		return
 	}
 	if !s.enqueue(note{user: user, kind: KindTest, title: "xbin", body: "Test notification — push works."}) {
@@ -215,14 +238,33 @@ func (s *Service) APITest(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusAccepted, map[string]any{"devices": n})
 }
 
+// notifier resolves who may call POST /notify: a tile's backend (instance
+// token) notifies any reader of the tile; its frontend (frame token) or a
+// shell in it (terminal token) acts for the person using it and may notify
+// only them — else any reader could send pushes "from the tile" to anyone.
+// self is that person ("" for a backend).
+func notifier(p auth.Principal) (tile, self string, ok bool) {
+	if p.Component == "" {
+		return "", "", false
+	}
+	switch {
+	case p.Via == "instance":
+		return p.Component, "", true
+	case p.UserID != "":
+		return p.Component, p.UserID, true
+	case p.Via == "frame" || p.Via == "terminal":
+		return p.Component, OwnerUser, true // the bootstrap owner's (or the tile's own) token
+	}
+	return "", "", false
+}
+
 // APINotify is POST /notify {user, title, body?, link?, kind?, collapseId?}
-// for tile backends (and frontends): a notification to a person who can
-// read the calling tile.
+// for tile backends: a notification to a person who can read the calling
+// tile. A tile's frontend may notify only the person using it.
 func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
-	p := auth.PrincipalOf(r)
-	tile := p.Component
-	if tile == "" {
-		fail(w, http.StatusForbidden, "notify is called by a tile (its backend or frontend): the notification names the tile it comes from")
+	tile, self, ok := notifier(auth.PrincipalOf(r))
+	if !ok {
+		fail(w, http.StatusForbidden, "notify is called by a tile's backend: the notification names the tile it comes from")
 		return
 	}
 	var body struct {
@@ -256,8 +298,17 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 	case body.CollapseID != "" && !collapseRe.MatchString(body.CollapseID):
 		fail(w, http.StatusBadRequest, "collapseId: 1–64 of A–Z a–z 0–9 . _ : -")
 		return
+	case self != "" && user != self:
+		fail(w, http.StatusForbidden, "a tile's frontend can notify only the person using it; notify others from the tile's backend")
+		return
 	}
-	// the tile's budget first: refused calls spend it too, so a tile cannot
+	accepted := func() { server.WriteJSON(w, http.StatusAccepted, map[string]any{"ok": true}) }
+	// muted: nothing is sent and nothing is charged
+	if s.st.muted(user, tile) {
+		accepted()
+		return
+	}
+	// the tile's budget next: refused calls spend it too, so a tile cannot
 	// probe who reads it without bound
 	if ok, wait := s.tile.allow(tile); !ok {
 		tooMany(w, wait, "this tile is sending too many notifications; try later")
@@ -267,10 +318,6 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "that user cannot read this tile")
 		return
 	}
-	if ok, wait := s.user.allow(user); !ok {
-		tooMany(w, wait, "too many notifications for this user; try later")
-		return
-	}
 	n := note{user: user, tile: tile, kind: KindTile, title: title, body: body.Body, link: "c/" + tile + "/" + link}
 	if body.Kind != "" {
 		n.kind += "." + body.Kind
@@ -278,14 +325,27 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 	if body.CollapseID != "" {
 		n.collapse = "tile:" + tile + ":" + body.CollapseID
 	}
-	if s.Enabled() {
-		s.enqueue(n)
+	// nothing would reach a device: spend nothing of the person's budget
+	if !s.Enabled() || !s.wants(user, n.kind) {
+		accepted()
+		return
 	}
-	server.WriteJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	// what every tile together sends this person; over it the notification
+	// is dropped quietly — a 429 would tell this tile how much the others
+	// send (the tile's own limit above is its backpressure)
+	if ok, _ := s.user.allow(user); !ok {
+		s.snd.limited.Add(1)
+		accepted()
+		return
+	}
+	s.enqueue(n)
+	accepted()
 }
 
 // tileLink validates a link relative to the tile: a fragment, a query, or
-// a path inside it — never a scheme, an absolute path or a way out.
+// a path inside it — never a scheme, an absolute path or a way out. Path
+// segments are checked percent-decoded: a URL parser resolves %2e%2e as
+// "..", so "%2e%2e/%2e%2e/login" would leave the tile.
 func tileLink(l string) (string, bool) {
 	if l == "" {
 		return "", true
@@ -310,150 +370,10 @@ func tileLink(l string) (string, bool) {
 		p = l[:i]
 	}
 	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." || seg == "." {
+		dec, err := url.PathUnescape(seg)
+		if err != nil || dec == ".." || dec == "." || strings.ContainsAny(dec, "/\\") {
 			return "", false
 		}
 	}
 	return l, true
-}
-
-// --- the workspace opt-in (admins) ---
-
-type configView struct {
-	Enabled        bool   `json:"enabled"`
-	Source         string `json:"source,omitempty"` // env | admin
-	Relay          string `json:"relay,omitempty"`
-	RelayWorkspace string `json:"relayWorkspace,omitempty"`
-	DefaultRelay   string `json:"defaultRelay,omitempty"`
-	Set            int64  `json:"set,omitempty"`
-	By             string `json:"by,omitempty"`
-	Workspace      string `json:"workspace"`
-	Devices        int    `json:"devices"`
-	Stats          Stats  `json:"stats"`
-}
-
-func (s *Service) configView() configView {
-	v := configView{Workspace: s.Workspace(), Devices: s.st.count(), Stats: s.snd.stats(), DefaultRelay: s.o.RelayURL}
-	if c, src := s.relayConfig(); c != nil {
-		v.Enabled, v.Source, v.Relay, v.RelayWorkspace, v.Set, v.By = true, src, c.URL, c.WorkspaceID, c.Set, c.By
-	}
-	return v
-}
-
-func (s *Service) admin(w http.ResponseWriter, r *http.Request) bool {
-	if !s.o.IsAdmin(auth.PrincipalOf(r)) {
-		fail(w, http.StatusForbidden, "admin only")
-		return false
-	}
-	return true
-}
-
-// APIConfig is GET /push/config (admins).
-func (s *Service) APIConfig(w http.ResponseWriter, r *http.Request) {
-	if s.admin(w, r) {
-		server.WriteJSON(w, http.StatusOK, s.configView())
-	}
-}
-
-// APISetConfig is PUT /push/config {relay?, key?} (admins): turn push on.
-// Without a key xbind registers this workspace with the relay (POST
-// /v1/workspaces) and keeps the key it answers.
-func (s *Service) APISetConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.admin(w, r) {
-		return
-	}
-	if _, src := s.relayConfig(); src == "env" {
-		fail(w, http.StatusConflict, "the relay is configured by the environment (XBIN_PUSH_RELAY, XBIN_PUSH_RELAY_KEY)")
-		return
-	}
-	var body struct {
-		Relay string `json:"relay"`
-		Key   string `json:"key"`
-	}
-	if err := decode(r, &body); err != nil && !errors.Is(err, io.EOF) {
-		fail(w, http.StatusBadRequest, "need {relay?, key?}")
-		return
-	}
-	if body.Relay == "" {
-		body.Relay = s.o.RelayURL
-	}
-	relay, err := checkRelayURL(body.Relay)
-	if err != nil {
-		fail(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	c := &RelayConfig{URL: relay, Key: strings.TrimSpace(body.Key), Set: s.o.Now().Unix(), By: auth.PrincipalOf(r).From()}
-	if c.Key == "" {
-		if c.WorkspaceID, c.Key, err = s.registerWorkspace(r.Context(), relay); err != nil {
-			fail(w, http.StatusBadGateway, "registering with the relay: "+err.Error())
-			return
-		}
-	}
-	if err := s.st.setRelay(c); err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.o.Log.Info("push: relay configured", "relay", relay, "by", c.By)
-	server.WriteJSON(w, http.StatusOK, s.configView())
-}
-
-// APIDeleteConfig is DELETE /push/config (admins): push off. Registrations
-// stay, so turning it back on needs nothing from the apps.
-func (s *Service) APIDeleteConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.admin(w, r) {
-		return
-	}
-	if _, src := s.relayConfig(); src == "env" {
-		fail(w, http.StatusConflict, "the relay is configured by the environment (XBIN_PUSH_RELAY, XBIN_PUSH_RELAY_KEY)")
-		return
-	}
-	if err := s.st.setRelay(nil); err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// checkRelayURL wants https (http only for a relay on this machine).
-func checkRelayURL(raw string) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", errors.New("relay: a URL such as https://relay.example")
-	}
-	h := u.Hostname()
-	loop := h == "localhost"
-	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
-		loop = true
-	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && loop) {
-		return "", errors.New("relay: https:// (http only for a relay on localhost)")
-	}
-	return strings.TrimRight(u.String(), "/"), nil
-}
-
-func (s *Service) registerWorkspace(ctx context.Context, relay string) (id, key string, err error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, relay+"/v1/workspaces", bytes.NewReader([]byte("{}")))
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.o.HTTP.Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("%d %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	var out struct {
-		WorkspaceID string `json:"workspaceId"`
-		Key         string `json:"key"`
-	}
-	if json.Unmarshal(b, &out) != nil || out.Key == "" {
-		return "", "", errors.New("the relay answered no key")
-	}
-	return out.WorkspaceID, out.Key, nil
 }

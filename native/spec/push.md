@@ -25,11 +25,15 @@ Three parties:
    handle per workspace**: `POST <relay>/v1/handles {apnsToken, topic, env}` →
    `{handle}` (`topic` = the app's bundle id; `env` = `production` |
    `development`). The first workspace that pushes to a handle owns it; another
-   workspace gets 403. When APNs issues a new token: `PUT
+   workspace gets 403 `handle_bound`. When APNs issues a new token: `PUT
    <relay>/v1/handles/<handle>` with the new token (the handle — and every
-   workspace registration — stays). When the user removes a workspace: `DELETE
+   workspace registration — stays; a 404 means the handle is gone: make a new
+   one). When the user removes a workspace: `DELETE
    <relay>/v1/handles/<handle>` (cuts that workspace off for good) and `DELETE
    /api/xbin/devices/push/<deviceId>` on the workspace if it is reachable.
+   The relay may check a new token with APNs by sending it a silent background
+   notification (`{"aps":{"content-available":1}}`, no `xbin` key): ignore it.
+   Relay errors are `{"error", "code"}`; the codes: relay/README.md.
 3. **Registration with xbind**, with the device session (a human principal; a
    tile is refused):
 
@@ -38,7 +42,8 @@ Three parties:
    {"deviceId": "<the app's device id>", "handle": "<relay handle>",
     "publicKey": "<X25519 public key, base64url, 32 bytes>",
     "kinds": ["agent", "tile"]}                         (optional; none = all)
-   → {"device": {"deviceId", "kinds", "created", "updated", "lastSent"?},
+   → {"device": {"deviceId", "kinds", "created", "updated", "lastSent"?,
+                 "needsNewHandle"?, "relayError"?},
       "workspace": "<ws id>", "enabled": true|false}
    ```
 
@@ -49,6 +54,18 @@ Three parties:
    `GET /api/xbin/devices/push` lists the user's registrations, `POST
    /api/xbin/push/test` sends a test push, `GET`/`PUT /api/xbin/push/prefs`
    read and set `{mutedTiles: [tile path]}`.
+4. **Keeping it working.** On launch and when coming to the foreground, per
+   workspace, `GET /api/xbin/devices/push` and find this `deviceId`:
+   - **missing** → register again (step 3). Registrations go when the user is
+     signed out everywhere, disabled or deleted, when an admin revokes the
+     device, and when APNs reports the device token dead;
+   - **`needsNewHandle: true`** → the relay will not deliver to this handle for
+     this workspace any more (`relayError`: `handle_bound` — the workspace
+     re-registered with the relay, e.g. after an admin rotated its relay key;
+     `handle_unknown` — the relay no longer knows the handle). Make a fresh
+     handle (`POST <relay>/v1/handles`, and `DELETE` the old one) and register
+     again with it. xbind skips such a registration until then; it never
+     deletes it for this.
 
 ## 2. Payload
 

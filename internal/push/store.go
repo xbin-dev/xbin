@@ -25,6 +25,20 @@ type Device struct {
 	Created   int64    `json:"created"`
 	Updated   int64    `json:"updated"`
 	LastSent  int64    `json:"lastSent,omitempty"`
+	// Bound is the relay epoch (Service.epoch) the handle last delivered
+	// under: the relay bound it to that relay workspace, so under another
+	// one it can never deliver again.
+	Bound string `json:"bound,omitempty"`
+	// RelayErr is the relay's refusal of this handle (handle_bound,
+	// handle_unknown), made under the relay epoch ErrEpoch.
+	RelayErr string `json:"relayError,omitempty"`
+	ErrEpoch string `json:"errEpoch,omitempty"`
+}
+
+// stale reports a registration whose handle cannot deliver under the relay
+// epoch: skipped until the app registers a fresh handle (needsNewHandle).
+func (d *Device) stale(epoch string) bool {
+	return (d.RelayErr != "" && d.ErrEpoch == epoch) || (d.Bound != "" && d.Bound != epoch)
 }
 
 // Prefs are one user's push preferences across their devices.
@@ -32,13 +46,16 @@ type Prefs struct {
 	MutedTiles []string `json:"mutedTiles"`
 }
 
-// RelayConfig is the workspace's relay opt-in, set by an admin.
+// RelayConfig is the workspace's relay opt-in, set by an admin. Turning
+// push off keeps it (Off): the key identifies this workspace at the relay,
+// and every handle the apps registered is bound to it.
 type RelayConfig struct {
 	URL         string `json:"url"`
 	Key         string `json:"key"`
-	WorkspaceID string `json:"workspaceId,omitempty"` // the relay's id for us, when xbind registered itself
+	WorkspaceID string `json:"workspaceId,omitempty"` // the relay's id for us
 	Set         int64  `json:"set"`
 	By          string `json:"by,omitempty"`
+	Off         bool   `json:"off,omitempty"`
 }
 
 type fileState struct {
@@ -139,6 +156,9 @@ func (s *store) upsert(d Device, now int64) (Device, error) {
 		cur = &Device{User: d.User, DeviceID: d.DeviceID, Created: now}
 		s.st.Devices = append(s.st.Devices, cur)
 	}
+	if cur.Handle != d.Handle { // a fresh handle: nothing the relay said about the old one holds
+		cur.Bound, cur.RelayErr, cur.ErrEpoch = "", "", ""
+	}
 	cur.Handle, cur.PublicKey, cur.Kinds, cur.Updated = d.Handle, d.PublicKey, d.Kinds, now
 	return *cur, s.saveLocked()
 }
@@ -172,13 +192,45 @@ func (s *store) removeHandle(user, deviceID, handle string) bool {
 	return true
 }
 
-// removeUser drops every registration and preference of a user.
-func (s *store) removeUser(user string) {
+// removeUser drops every registration of a user, and their preferences
+// too when prefs is set. Returns how many registrations went.
+func (s *store) removeUser(user string, prefs bool) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	n := len(s.st.Devices)
 	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool { return x.User == user })
-	delete(s.st.Prefs, user)
-	_ = s.saveLocked()
+	n -= len(s.st.Devices)
+	_, hadPrefs := s.st.Prefs[user]
+	if prefs {
+		delete(s.st.Prefs, user)
+	}
+	if n > 0 || (prefs && hadPrefs) {
+		_ = s.saveLocked()
+	}
+	return n
+}
+
+// removeOlder drops a user's registrations made before since (a unix
+// time): they belong to an earlier account that had the same id.
+func (s *store) removeOlder(user string, since int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.st.Devices)
+	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool { return x.User == user && x.Created < since })
+	if len(s.st.Devices) != n {
+		_ = s.saveLocked()
+	}
+}
+
+// all returns copies of every registration (the admin listing).
+func (s *store) all() []Device {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Device, 0, len(s.st.Devices))
+	for _, x := range s.st.Devices {
+		out = append(out, *x)
+	}
+	return out
 }
 
 // devices returns copies of a user's registrations.
@@ -211,15 +263,35 @@ func (s *store) count() int {
 	return len(s.st.Devices)
 }
 
-// markSent records a delivery (in memory; it rides the next write).
-func (s *store) markSent(user, deviceID string, now int64) {
+// markSent records a delivery under a relay epoch: the time rides the next
+// write; a new binding (or a cleared refusal) is written now.
+func (s *store) markSent(user, deviceID, handle, epoch string, now int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, x := range s.st.Devices {
-		if x.User == user && x.DeviceID == deviceID {
+		if x.User == user && x.DeviceID == deviceID && x.Handle == handle {
 			x.LastSent = now
+			if x.Bound != epoch || x.RelayErr != "" {
+				x.Bound, x.RelayErr, x.ErrEpoch = epoch, "", ""
+				_ = s.saveLocked()
+			}
 		}
 	}
+}
+
+// markRefused records the relay's refusal of a handle under an epoch;
+// false when the registration moved on meanwhile.
+func (s *store) markRefused(user, deviceID, handle, code, epoch string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, x := range s.st.Devices {
+		if x.User == user && x.DeviceID == deviceID && x.Handle == handle {
+			x.RelayErr, x.ErrEpoch = code, epoch
+			_ = s.saveLocked()
+			return true
+		}
+	}
+	return false
 }
 
 func (s *store) prefs(user string) Prefs {

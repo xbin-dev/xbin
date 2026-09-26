@@ -32,11 +32,33 @@ func (st *State) setupPush(srv *server.Server) error {
 			acc, ok := userStore.Access(user)
 			return ok && acc.CanReadTile(tile)
 		},
+		Account: func(user string) push.Account {
+			if userStore == nil {
+				return push.Account{}
+			}
+			u, ok := userStore.Get(user)
+			return push.Account{Exists: ok, Disabled: ok && u.Disabled, Created: u.Created}
+		},
 	})
 	if err != nil {
 		return err
 	}
 	st.Push = ps
+	if st.Broker != nil {
+		// signed out everywhere, disabled or deleted: the devices lose their
+		// pushes with their sessions (a deleted account's preferences go too)
+		prev := st.Broker.OnUserSignedOut
+		st.Broker.OnUserSignedOut = func(id string, deleted bool) {
+			if prev != nil {
+				prev(id, deleted)
+			}
+			if deleted {
+				ps.ForgetUser(id)
+			} else {
+				ps.SignedOut(id)
+			}
+		}
+	}
 	if st.Term != nil {
 		publish := st.Term.OnEvent // the /ws/events publisher (stepServer)
 		st.Term.OnEvent = func(cwd string, ev term.SessionEvent) {
@@ -55,6 +77,9 @@ func (st *State) setupPush(srv *server.Server) error {
 	srv.RegisterAPI("GET /push/config", ps.APIConfig)
 	srv.RegisterAPI("PUT /push/config", ps.APISetConfig)
 	srv.RegisterAPI("DELETE /push/config", ps.APIDeleteConfig)
+	srv.RegisterAPI("GET /push/devices", ps.APIAdminDevices)
+	srv.RegisterAPI("DELETE /push/devices/{user}", ps.APIAdminForget)
+	srv.RegisterAPI("DELETE /push/devices/{user}/{deviceId}", ps.APIAdminForget)
 	srv.RegisterAPI("POST /notify", ps.APINotify)
 	return nil
 }

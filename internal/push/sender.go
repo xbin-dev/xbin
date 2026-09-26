@@ -35,20 +35,24 @@ type Stats struct {
 	Retried     int64  `json:"retried"`
 	Failed      int64  `json:"failed"`
 	Dropped     int64  `json:"dropped"` // the queue was full
+	Limited     int64  `json:"limited"` // over a per-user or per-session limit
 	LastError   string `json:"lastError,omitempty"`
 	LastErrorAt int64  `json:"lastErrorAt,omitempty"`
 }
 
 // sender posts sealed envelopes to the relay from a bounded queue: callers
-// never wait (a full queue drops), failures retry with backoff, and a relay
-// that calls a handle dead removes the registration.
+// never wait (a full queue drops), failures retry with backoff. Only the
+// relay's own word changes a registration: 410 (APNs says the device is
+// gone) removes it; 403 handle_bound / 404 handle_unknown mark it stale
+// (the app renews its handle); any other refusal — a proxy's 403, a wrong
+// URL's 404 — only drops the notification.
 type sender struct {
 	s    *Service
 	q    chan job
 	done chan struct{}
 	wg   sync.WaitGroup
 
-	sent, retried, failed, dropped atomic.Int64
+	sent, retried, failed, dropped, limited atomic.Int64
 
 	mu      sync.Mutex
 	lastErr string
@@ -103,7 +107,7 @@ func (d *sender) stats() Stats {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return Stats{Queued: len(d.q), Sent: d.sent.Load(), Retried: d.retried.Load(), Failed: d.failed.Load(),
-		Dropped: d.dropped.Load(), LastError: d.lastErr, LastErrorAt: d.lastAt}
+		Dropped: d.dropped.Load(), Limited: d.limited.Load(), LastError: d.lastErr, LastErrorAt: d.lastAt}
 }
 
 func (d *sender) noteErr(msg string) {
@@ -137,9 +141,16 @@ func (d *sender) fanOut(n note) {
 	if n.tile != "" && s.st.muted(n.user, n.tile) {
 		return
 	}
-	ws := s.Workspace()
+	acct, ok := s.account(n.user)
+	if !ok {
+		return
+	}
+	if acct.Created > 0 {
+		s.st.removeOlder(n.user, acct.Created)
+	}
+	ws, e := s.Workspace(), s.currentEpoch()
 	for _, dev := range s.st.devices(n.user) {
-		if !kindAllowed(dev.Kinds, n.kind) {
+		if !kindAllowed(dev.Kinds, n.kind) || dev.stale(e) {
 			continue
 		}
 		pub, err := ParsePublicKey(dev.PublicKey)
@@ -167,8 +178,9 @@ type outcome int
 const (
 	delivered outcome = iota
 	retryLater
-	deadHandle // drop the registration
-	refused    // drop the notification
+	deadHandle  // drop the registration (410)
+	staleHandle // the relay refused this handle for this workspace: mark it
+	refused     // drop the notification
 )
 
 func (d *sender) deliver(j job) {
@@ -177,17 +189,23 @@ func (d *sender) deliver(j job) {
 	if cfg == nil {
 		return
 	}
-	out, wait, msg := d.post(cfg, j)
+	out, code, wait, msg := d.post(cfg, j)
 	j.attempt++
 	switch out {
 	case delivered:
 		d.sent.Add(1)
-		s.st.markSent(j.user, j.deviceID, s.o.Now().Unix())
+		s.st.markSent(j.user, j.deviceID, j.handle, epoch(cfg.Key), s.o.Now().Unix())
 	case deadHandle:
 		d.failed.Add(1)
 		d.noteErr(msg)
 		if s.st.removeHandle(j.user, j.deviceID, j.handle) {
 			s.o.Log.Info("push: device registration dropped", "user", j.user, "device", j.deviceID, "why", msg)
+		}
+	case staleHandle:
+		d.failed.Add(1)
+		d.noteErr(msg)
+		if s.st.markRefused(j.user, j.deviceID, j.handle, code, epoch(cfg.Key)) {
+			s.o.Log.Info("push: the relay refused a device's handle; the app must renew it", "user", j.user, "device", j.deviceID, "code", code)
 		}
 	case refused:
 		d.failed.Add(1)
@@ -216,36 +234,52 @@ func (d *sender) backoff(attempt int) time.Duration {
 	return min(w, 5*time.Minute)
 }
 
+// Relay error codes xbind acts on (relay/relay.go Err*).
+const (
+	relayHandleBound   = "handle_bound"
+	relayHandleUnknown = "handle_unknown"
+	relayBadKey        = "bad_key"
+)
+
 // post sends one envelope to the relay (relay/README.md: POST /v1/push).
-func (d *sender) post(cfg *RelayConfig, j job) (outcome, time.Duration, string) {
+// code is the relay's error code, when it gave one.
+func (d *sender) post(cfg *RelayConfig, j job) (out outcome, code string, wait time.Duration, why string) {
 	body, _ := json.Marshal(map[string]any{"handle": j.handle, "envelope": j.env, "collapseId": j.collapse, "priority": j.priority})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(cfg.URL, "/")+"/v1/push", bytes.NewReader(body))
 	if err != nil {
-		return refused, 0, err.Error()
+		return refused, "", 0, err.Error()
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.Key)
 	resp, err := d.s.o.HTTP.Do(req)
 	if err != nil {
-		return retryLater, 0, "relay: " + err.Error()
+		return retryLater, "", 0, "relay: " + err.Error()
 	}
 	defer resp.Body.Close()
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	why := fmt.Sprintf("relay %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	var wait time.Duration
+	var e struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(msg, &e)
+	why = fmt.Sprintf("relay %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
 		wait = time.Duration(min(secs, 3600)) * time.Second
 	}
 	switch {
 	case resp.StatusCode == http.StatusOK:
-		return delivered, 0, ""
-	case resp.StatusCode == http.StatusGone, resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
-		return deadHandle, 0, why
+		return delivered, "", 0, ""
+	case resp.StatusCode == http.StatusGone:
+		return deadHandle, e.Code, 0, why
+	case resp.StatusCode == http.StatusForbidden && e.Code == relayHandleBound,
+		resp.StatusCode == http.StatusNotFound && e.Code == relayHandleUnknown:
+		return staleHandle, e.Code, 0, why
+	case resp.StatusCode == http.StatusUnauthorized && e.Code == relayBadKey:
+		return refused, e.Code, 0, why + " — the relay does not know this workspace's key (PUT /api/xbin/push/config {rotate:true} registers anew)"
 	case resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode >= 500:
-		return retryLater, wait, why
-	default: // 400, 401: retrying cannot help
-		return refused, 0, why
+		return retryLater, e.Code, wait, why
+	default: // anything else — including a 403/404 that is not the relay's word: retrying cannot help
+		return refused, e.Code, 0, why
 	}
 }

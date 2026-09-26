@@ -32,17 +32,28 @@ const (
 const OwnerUser = "owner"
 
 // Limits are the xbind-side rate limits. Tile bounds POST /notify per
-// calling tile, User every notification to one user (all sources), Session
-// the pushes one agent session raises.
+// calling tile; User what every tile together sends one user; Agent what
+// agent sessions send one user and Session what one session raises — a
+// budget of their own, so tiles cannot starve a permission request; Test
+// the user's own POST /push/test.
 type Limits struct {
-	Tile, User, Session Rate
+	Tile, User, Agent, Session, Test Rate
 }
 
 // DefaultLimits are the limits when Options.Limits is zero.
 var DefaultLimits = Limits{
 	Tile:    Rate{PerHour: 120, Burst: 20},
 	User:    Rate{PerHour: 240, Burst: 40},
+	Agent:   Rate{PerHour: 240, Burst: 40},
 	Session: Rate{PerHour: 120, Burst: 20},
+	Test:    Rate{PerHour: 60, Burst: 5},
+}
+
+// Account is what the push plane needs to know about a user.
+type Account struct {
+	Exists   bool
+	Disabled bool
+	Created  int64 // unix; registrations older than this belong to an earlier account with the id
 }
 
 // Options configure a Service.
@@ -56,6 +67,10 @@ type Options struct {
 	// CanRead reports whether user may read tile (false for unknown or
 	// disabled users) — the gate on POST /notify.
 	CanRead func(user, tile string) bool
+	// Account looks a user up (nil: every user exists and is enabled).
+	// Nothing is pushed to a disabled user, a deleted user's registrations
+	// go, and so do registrations older than the account.
+	Account func(user string) Account
 	// IsAdmin gates the relay configuration routes.
 	IsAdmin func(auth.Principal) bool
 	HTTP    *http.Client
@@ -75,12 +90,14 @@ type Options struct {
 
 // Service is the push plane of one workspace.
 type Service struct {
-	o    Options
-	st   *store
-	snd  *sender
-	tile *limiter
-	user *limiter
-	sess *limiter
+	o     Options
+	st    *store
+	snd   *sender
+	tile  *limiter
+	user  *limiter
+	agent *limiter
+	sess  *limiter
+	self  *limiter
 
 	mu   sync.Mutex
 	held map[string]*time.Timer // agent requests inside their grace period
@@ -114,7 +131,8 @@ func New(o Options) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{o: o, st: st, held: map[string]*time.Timer{},
-		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), sess: newLimiter(o.Limits.Session, o.Now)}
+		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
+		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now)}
 	s.snd = newSender(s)
 	return s, nil
 }
@@ -133,8 +151,9 @@ func (s *Service) Close() {
 // Workspace is this workspace's push id, the `ws` of every payload.
 func (s *Service) Workspace() string { return s.st.workspace() }
 
-// relayConfig is the effective relay: the environment's, else the admin's.
-func (s *Service) relayConfig() (c *RelayConfig, source string) {
+// storedRelay is the relay configuration in force or kept: the
+// environment's, else the admin's (Off when the admin turned push off).
+func (s *Service) storedRelay() (c *RelayConfig, source string) {
 	if s.o.RelayURL != "" && s.o.RelayKey != "" {
 		return &RelayConfig{URL: s.o.RelayURL, Key: s.o.RelayKey}, "env"
 	}
@@ -144,15 +163,68 @@ func (s *Service) relayConfig() (c *RelayConfig, source string) {
 	return nil, ""
 }
 
+// relayConfig is the relay in force: nil while push is off.
+func (s *Service) relayConfig() (c *RelayConfig, source string) {
+	c, src := s.storedRelay()
+	if c == nil || c.Off {
+		return nil, ""
+	}
+	return c, src
+}
+
 // Enabled reports whether a relay is configured.
 func (s *Service) Enabled() bool { c, _ := s.relayConfig(); return c != nil }
+
+// epoch names the relay workspace a key belongs to — every handle that
+// delivered under one epoch is bound to it at the relay. A hash of the key,
+// never the key.
+func epoch(key string) string {
+	if key == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("xbin-push-epoch\x00" + key))
+	return b64.EncodeToString(h[:12])
+}
+
+// currentEpoch is the epoch of the stored relay (even while off: the apps
+// may renew their handles before push comes back).
+func (s *Service) currentEpoch() string {
+	c, _ := s.storedRelay()
+	if c == nil {
+		return ""
+	}
+	return epoch(c.Key)
+}
 
 // ForgetDevice drops a device's registration (device login calls it when a
 // device is revoked). False when it had none.
 func (s *Service) ForgetDevice(user, deviceID string) bool { return s.st.remove(user, deviceID) }
 
-// ForgetUser drops a user's registrations and preferences.
-func (s *Service) ForgetUser(user string) { s.st.removeUser(user) }
+// ForgetUser drops a user's registrations and preferences (the account is
+// gone).
+func (s *Service) ForgetUser(user string) { s.st.removeUser(user, true) }
+
+// SignedOut drops a user's registrations and keeps their preferences
+// ("sign out everywhere", a disabled account): a device the user no longer
+// holds must not keep reading their notifications. The app registers again
+// when the user signs back in. Returns how many went.
+func (s *Service) SignedOut(user string) int { return s.st.removeUser(user, false) }
+
+// account resolves a user for delivery: false for unknown or disabled
+// users. An unknown user's registrations are dropped on the way.
+func (s *Service) account(user string) (Account, bool) {
+	if s.o.Account == nil || user == OwnerUser {
+		return Account{Exists: true}, true
+	}
+	a := s.o.Account(user)
+	if !a.Exists {
+		if s.st.hasDevices(user) {
+			s.st.removeUser(user, true)
+		}
+		return a, false
+	}
+	return a, !a.Disabled
+}
 
 // UserKey is the push identity of a human principal: the user id, or
 // "owner" for the bootstrap token. False for element (tile) principals.
@@ -276,6 +348,9 @@ func (s *Service) AgentEvent(user, session, tile string, ev agent.Event) {
 		if !s.Enabled() || !s.st.hasDevices(user) {
 			return
 		}
+		if _, ok := s.account(user); !ok {
+			return // disabled (or gone): nothing reaches their devices
+		}
 	default:
 		return // the pump calls this for every event: stay cheap
 	}
@@ -372,19 +447,33 @@ func (s *Service) release(id string) {
 	}
 }
 
-// agentPush applies the session and user limits (a limited agent push is
-// dropped, not queued) and enqueues.
+// agentPush applies the session and per-user agent limits (a limited agent
+// push is dropped, not queued) and enqueues. Tiles have a budget of their
+// own (Limits.User) and cannot spend this one.
 func (s *Service) agentPush(n note, session string) {
 	if !s.Enabled() {
 		return
 	}
 	if ok, _ := s.sess.allow(session); !ok {
+		s.snd.limited.Add(1)
 		s.o.Log.Debug("push: agent session rate-limited", "session", session)
 		return
 	}
-	if ok, _ := s.user.allow(n.user); !ok {
-		s.o.Log.Debug("push: user rate-limited", "user", n.user)
+	if ok, _ := s.agent.allow(n.user); !ok {
+		s.snd.limited.Add(1)
+		s.o.Log.Debug("push: user's agent pushes rate-limited", "user", n.user)
 		return
 	}
 	s.enqueue(n)
+}
+
+// wants reports whether any of the user's usable registrations takes kind.
+func (s *Service) wants(user, kind string) bool {
+	e := s.currentEpoch()
+	for _, d := range s.st.devices(user) {
+		if !d.stale(e) && kindAllowed(d.Kinds, kind) {
+			return true
+		}
+	}
+	return false
 }

@@ -463,8 +463,11 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if nu.Disabled && !cur.Disabled && srv != nil && srv.Auth != nil {
-		srv.Auth.DropUserSessions(u.ID) // the snapshot rule already refuses them; this clears the list
+	if nu.Disabled && !cur.Disabled {
+		if srv != nil && srv.Auth != nil {
+			srv.Auth.DropUserSessions(u.ID) // the snapshot rule already refuses them; this clears the list
+		}
+		b.userSignedOut(u.ID, false)
 	}
 	b.usersEvent() // refresh open user/admin panels (matches org/team/access mutations)
 	server.WriteJSON(w, http.StatusOK, u.Public())
@@ -486,6 +489,7 @@ func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *ht
 	if srv != nil && srv.Auth != nil {
 		srv.Auth.DropUserSessions(r.PathValue("id"))
 	}
+	b.userSignedOut(r.PathValue("id"), true)
 	b.usersEvent() // a deleted user's sessions/frame/terminal principals are gone — refresh panels
 	// orphanedTiles: what just fell to workspace-owned, so the handover is
 	// explicit rather than silent (re-assign with bx owner).
@@ -512,7 +516,15 @@ func (b *Broker) apiUsersSignout(srv *server.Server, w http.ResponseWriter, r *h
 	if srv != nil && srv.Auth != nil {
 		n = srv.Auth.DropUserSessions(u.ID)
 	}
+	b.userSignedOut(u.ID, false)
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "dropped": n})
+}
+
+// userSignedOut runs the OnUserSignedOut hook.
+func (b *Broker) userSignedOut(id string, deleted bool) {
+	if b.OnUserSignedOut != nil {
+		b.OnUserSignedOut(id, deleted)
+	}
 }
 
 // apiSSOTest — POST /auth-settings/sso/test: probe the provider (discovery +
