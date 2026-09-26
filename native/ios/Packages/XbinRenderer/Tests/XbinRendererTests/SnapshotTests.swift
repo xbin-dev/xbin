@@ -33,6 +33,12 @@ import XbinRendererModel
 @Suite struct SnapshotTests {
     static let size = CGSize(width: 390, height: 844)
     static let scale: CGFloat = 2
+    /// The Gregorian calendar in UTC.
+    static let utc: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        return c
+    }()
 
     /// Where PNGs go, or nil (render only).
     static var outputDirectory: URL? {
@@ -65,9 +71,11 @@ import XbinRendererModel
                 // UTC and en_US, as shots.mjs pins the reference's browser:
                 // a chart's time axis then reads the same hours on both
                 // sides (the hosted runner's Pacific time put it 7 h off).
+                // Swift Charts takes the zone from the calendar.
                 let view = XbinTreeView(store: store, send: { _ in }, services: services,
                                         options: XbinRenderOptions(inlineSheets: true))
-                    .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .gmt)
+                    .environment(\.timeZone, Self.utc.timeZone)
+                    .environment(\.calendar, Self.utc)
                     .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
