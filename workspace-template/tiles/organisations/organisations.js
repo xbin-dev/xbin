@@ -411,7 +411,7 @@ export class BxOrganisations extends LitElement {
         <button class="rm" @click=${() => this._do(() =>
           api('/screens/org', jbody({ id: x.id, org: x.org }, 'DELETE')), 'deleted')}>delete</button>
       </div>`)}
-      ${!rows.length ? html`<p class="muted" style="font-size:11px; margin:2px 0">no org screens — share one from the shell's 🔧 menu ("share screen to org")</p>` : nothing}
+      ${!rows.length ? html`<p class="muted" style="font-size:11px; margin:2px 0">no org screens — share one from the shell's settings menu ("share screen to org")</p>` : nothing}
       <p class="muted" style="font-size:11px; margin:6px 0 0">
         shared sidebar folders: ${(fs?.folders ?? []).length}${fs?.rev ? ` (rev ${fs.rev}, saved by ${fs.updatedBy} ${ago(fs.updatedAt)})` : ''}
         — curated in the shell sidebar (✎ on the org's section); members see them read-only.</p>

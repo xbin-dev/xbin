@@ -90,8 +90,8 @@ it — a card in the way is pushed aside (a dashed outline shows where it will
 land; back off and it stays put; cover a neighbour squarely and it steps into
 the space you left instead, swapping the two); organise work into named **screens** (the tabs at the top — add with `+`,
 double-click to rename); your whole layout is **saved per user** (server-side, so
-it follows you across browsers and devices). The 🔧 menu in the top bar has a
-**grid scale** slider for *this browser*: it changes how large the layout renders
+it follows you across browsers and devices). The **settings** menu in the top
+bar has a **grid scale** slider for *this browser*: it changes how large the layout renders
 on this device (a screen laid out on a 32-inch display runs at 0.7× on a
 laptop) and leaves the layout itself, and everyone else's view, alone. Zoom the
 browser instead and the shell points you at it once. The `<bx-frame>` pins in

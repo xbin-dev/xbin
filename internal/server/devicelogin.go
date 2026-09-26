@@ -28,6 +28,8 @@ import (
 //	POST /login/ticket                   ticket + PKCE verifier → a bearer session
 //	POST /api/xbin/web-ticket            the app's device session → a one-shot browser sign-in URL (webticket.go)
 //	POST /login/web-ticket               that URL's "Continue as" page → the browser's cookie session
+//	GET  /api/xbin/login/methods         which sign-in methods the workspace offers (loginmethods.go)
+//	POST /api/xbin/invite/check|redeem   an invite link, redeemed by the app (loginmethods.go)
 //
 // Every session minted here is the same human session a browser login gets
 // (same TTLs, same principal), carried as Authorization: Bearer; it is used
@@ -47,14 +49,16 @@ func (s *Server) registerDeviceLogin(handleFunc func(string, http.HandlerFunc)) 
 	s.RegisterPublicAPI("POST /devices/enroll", s.apiDeviceEnroll)
 	s.RegisterAPI("POST /devices/enroll-code", s.apiEnrollCode)
 	s.RegisterAPI("POST /web-ticket", s.apiWebTicket)              // signed-in Safari (webticket.go)
+	s.registerLoginMethods()                                       // discovery + invites (loginmethods.go)
 	handleFunc("POST /login/web-ticket", s.handleWebTicketConfirm) // …its "Continue as" page's button
 }
 
 // RegisterPublicAPI mounts an /api/xbin route that needs NO principal: its
-// body is its own credential (an enrollment code, a password). It is part of
-// the route inventory like any RegisterAPI route; the /api/ gate lets exactly
-// these method+path pairs through unauthenticated (authedAPI). Exact paths
-// only — no wildcards.
+// body is its own credential (an enrollment code, a password, an invite),
+// or it answers only what the login page shows anyone (the sign-in
+// methods). It is part of the route inventory like any RegisterAPI route;
+// the /api/ gate lets exactly these method+path pairs through
+// unauthenticated (authedAPI). Exact paths only — no wildcards.
 func (s *Server) RegisterPublicAPI(pattern string, h http.HandlerFunc) {
 	s.RegisterAPI(pattern, h)
 	if s.publicAPI == nil {
@@ -255,7 +259,7 @@ func (s *Server) apiDeviceEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	uid, origin, ok := s.Auth.RedeemEnrollCode(body.Code)
 	if !ok || s.Auth.Users == nil {
-		s.loginRefused(w, ip, http.StatusUnauthorized, "invalid, expired or already used enrollment code — mint a new one (account menu → devices)")
+		s.loginRefused(w, ip, http.StatusUnauthorized, "invalid, expired or already used enrollment code — mint a new one (settings → add a device)")
 		return
 	}
 	d, err := s.Auth.Users.AddDevice(uid, users.Device{Name: body.Name, Platform: body.Platform, PublicKey: key, Origin: origin})

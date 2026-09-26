@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -27,6 +28,19 @@ const InviteTTL = 72 * time.Hour
 // MinPasswordLen is the UX floor for passwords set through the API/login
 // planes (the store itself stays policy-free for tests/seeding).
 const MinPasswordLen = 8
+
+// ErrInvalidInvite is RedeemInvite's answer for an unknown, used or expired
+// invite (or a disabled account's) — deliberately one error for all four.
+var ErrInvalidInvite = errors.New("invalid or expired invite")
+
+// CheckNewPassword applies the password policy a redeemed invite (or the
+// API) holds a new password to; nil when it passes.
+func CheckNewPassword(password string) error {
+	if len([]rune(password)) < MinPasswordLen {
+		return fmt.Errorf("password too short (min %d characters)", MinPasswordLen)
+	}
+	return nil
+}
 
 // CreateInvite mints a fresh invite token for an existing user, replacing any
 // previous one (re-minting invalidates old links). The user's current
@@ -78,10 +92,12 @@ func (s *Store) InviteUser(token string) (*User, bool) {
 }
 
 // RedeemInvite consumes an invite: sets the user's password and clears the
-// invite (single-use). Expired/unknown tokens fail generically.
+// invite (single-use). Expired/unknown tokens fail generically
+// (ErrInvalidInvite); a password failing CheckNewPassword leaves the invite
+// unspent.
 func (s *Store) RedeemInvite(token, password string) (*User, error) {
-	if len([]rune(password)) < MinPasswordLen {
-		return nil, fmt.Errorf("password too short (min %d characters)", MinPasswordLen)
+	if err := CheckNewPassword(password); err != nil {
+		return nil, err
 	}
 	h := sha256.Sum256([]byte(token))
 	want := base64.RawStdEncoding.EncodeToString(h[:])
@@ -109,7 +125,7 @@ func (s *Store) RedeemInvite(token, password string) (*User, error) {
 		c := nu.Public()
 		return &c, nil
 	}
-	return nil, fmt.Errorf("invalid or expired invite")
+	return nil, ErrInvalidInvite
 }
 
 // UpsertInvited creates a user with NO credential yet (Verify always fails

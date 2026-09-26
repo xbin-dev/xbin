@@ -7,8 +7,10 @@ fair game for your own tooling.
 ## Authentication
 
 Every route except `/healthz`, `/login` (with its `/login/…` legs) and
-the native app's two credential-in-body routes (`POST /api/xbin/login`,
-`POST /api/xbin/devices/enroll`) requires a principal
+the native app's public routes — the credential-in-body ones (`POST
+/api/xbin/login`, `POST /api/xbin/devices/enroll`, `POST
+/api/xbin/invite/check`, `POST /api/xbin/invite/redeem`) and the sign-in
+discovery (`GET /api/xbin/login/methods`) — requires a principal
 ([auth.md](/docs/auth.md)):
 
 | Mechanism | Sent as | Principal |
@@ -866,13 +868,51 @@ POST   /login                     none — the password is the credential.
                                    Same rules as the form login: throttled,
                                    disabled accounts refused, SSO-only mode
                                    (D53) refuses non-admins (403)
+GET    /login/methods             none — public, not throttled. The
+                                   native app's sign-in discovery: what
+                                   the login page offers, as data →
+                                   {api:1, title, auth, password:{enabled,
+                                   adminOnly}, sso:{enabled, label},
+                                   invites}. title: the branding title,
+                                   else "xbin". auth:false in no-auth
+                                   mode (everything else off then).
+                                   password.enabled: the workspace has
+                                   accounts; adminOnly: SSO-only mode
+                                   (D53). sso.enabled: the login page's
+                                   SSO button shows (configured and
+                                   --external-url set), label its text.
+                                   invites: invite links can be redeemed
+                                   (below). Cache-Control: no-store; api
+                                   versions the shape (fields only added)
+POST   /invite/check              none — the invite is the credential.
+                                   {invite} (the token of an invite link
+                                   <origin>/login?invite=<token>) →
+                                   {user:{id, name}, expires, title}: whom
+                                   it is for, without spending it. 403
+                                   {error:"invalid or expired invite"}:
+                                   unknown, used, expired or a disabled
+                                   account's (throttled; failures count)
+POST   /invite/redeem             none — the invite is the credential.
+                                   {invite, password} → the app token
+                                   response (as POST /login): the invite
+                                   form (POST /login/invite) for the app —
+                                   sets the first password, spends the
+                                   single-use invite, signs in (Via
+                                   "app", last sign-in via "invite";
+                                   audit-logged). 400 {error}: the password
+                                   fails the policy (min 8 characters) —
+                                   the invite is NOT spent; 403 as above;
+                                   429 throttled
 POST   /devices/enroll-code       a signed-in user (browser or app
                                    session), [{password}]. → {code, url:
                                    "xbin://enroll?u=<origin>&c=<code>",
                                    origin, expires}: a one-time code
                                    (5 min) enrolling ONE device for the
                                    caller — the shell shows url as a QR
-                                   code. origin: the --external-url
+                                   code (or the same link with u= an
+                                   address the user typed for the phone;
+                                   the device still signs origin).
+                                   origin: the --external-url
                                    origin, else the request's scheme://host.
                                    Step-up: the caller's sign-in must be
                                    under 10 min old, or the body carries

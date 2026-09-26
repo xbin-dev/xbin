@@ -1,5 +1,10 @@
 // hack/ui-harness/passes/devices.js — device login (docs/auth.md §Device
-// login): the shell's account menu → devices… panel mints an enrollment
+// login): the top bar's settings chip (a chip like docs / sign out, no
+// emoji) opens the settings menu, whose first item "add a device" opens the
+// panel straight on a code; its "address your phone uses" rebuilds the link
+// and the QR code, is checked, remembered per browser and reset — and the
+// enrollment still answers the server's origin, the one a device signs.
+// my account → devices… opens the same panel, which mints an enrollment
 // code and draws it as a QR code; a scripted "app" (node crypto standing in
 // for the Secure Enclave) enrolls with it and signs in; the panel notices
 // the new device; the admin console's Users tab lists the user's devices
@@ -53,6 +58,78 @@ async function whoamiStatus(bearer) {
   return (await fetch(`${URL}/api/xbin/whoami`, { headers: { Authorization: `Bearer ${bearer}` } })).status;
 }
 
+const SETTINGS = 'bx-shell .top button.chip.settings';
+const linkOf = (page) => page.locator('bx-devices [data-enroll] input[data-link]').inputValue();
+function qrText(name) {
+  try { return execFileSync('zbarimg', ['-q', '--raw', `${OUT}/${name}.png`], { encoding: 'utf8' }).trim(); } catch (e) {
+    log('devices: zbarimg unavailable or failed — QR decode not checked:', e.message.split('\n')[0]);
+    return null;
+  }
+}
+
+// The settings chip, the menu's top-level "add a device", and the phone
+// address: custom → link + QR, refused when not an http(s) origin,
+// remembered, the enrollment's origin unchanged, reset.
+async function addDeviceFlow(page, ctx, check) {
+  const chip = await page.locator(SETTINGS).evaluate((b) => {
+    const docs = b.parentNode.querySelector('a.chip'), probe = document.createElement('span');
+    probe.style.background = 'var(--bx-accent, #f5a623)';
+    b.parentNode.append(probe);
+    const accent = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const st = (e) => { const c = getComputedStyle(e); return [c.fontSize, c.padding, c.borderRadius, c.borderTopWidth, Math.round(e.getBoundingClientRect().height)].join(' '); };
+    return { text: b.textContent.trim(), dot: getComputedStyle(b.querySelector('.c')).backgroundColor, accent, me: st(b), docs: st(docs) };
+  });
+  check(chip.text === 'settings' && chip.dot === chip.accent, `the settings chip reads "settings" with an accent dot (${JSON.stringify(chip)})`);
+  check(chip.me === chip.docs, `the settings chip is styled like the docs chip (${chip.me} vs ${chip.docs})`);
+  await page.locator(SETTINGS).click();
+  await waitSel(page, 'bx-shell .wsmenu');
+  const menu = await page.locator('bx-shell .wsmenu').evaluate((m) => ({ hd: m.children[0]?.textContent.trim(), first: m.children[1]?.matches('[data-add-device]') }));
+  check(menu.hd === 'settings' && menu.first, `the menu is "settings", "add a device" first (${JSON.stringify(menu)})`);
+  await page.locator('bx-shell .wsmenu [data-add-device]').click();
+  await waitSel(page, 'bx-devices [data-enroll] svg');
+  const def = await linkOf(page);
+  const code = new globalThis.URL(def).searchParams.get('c');
+  check(new globalThis.URL(def).searchParams.get('u') === URL && await page.locator('bx-devices [data-addr]').inputValue() === URL,
+    `"add a device" opens the panel on a code, at the server's address (${def})`);
+  // a custom address: normalized, into the link and the QR code, remembered
+  const custom = 'https://phone.example.test:8443';
+  await page.locator('bx-devices [data-addr]').fill(' HTTPS://Phone.Example.test:8443/ ');
+  await page.locator('bx-devices [data-addr]').press('Enter');
+  const want = `xbin://enroll?u=${encodeURIComponent(custom)}&c=${code}`;
+  await page.waitForFunction((w) => document.querySelector('bx-devices')?.shadowRoot?.querySelector('input[data-link]')?.value === w, want, { timeout: 5000 }).catch(() => {});
+  check(await linkOf(page) === want, `a custom address rebuilds the link (${await linkOf(page)})`);
+  await settle(page);
+  await shotEl(page, 'bx-devices .box', 'devices-custom-address');
+  await shotEl(page, 'bx-devices .qr', 'devices-qr-custom');
+  const q = qrText('devices-qr-custom');
+  if (q !== null) check(q === want, `the QR code carries the custom address (${q})`);
+  check(await page.evaluate(() => localStorage.getItem('xbin-phone-address')) === custom, 'the custom address is remembered for this browser');
+  // not an http(s) origin: refused, the link stays
+  await page.locator('bx-devices [data-addr]').fill('ftp://phone.example.test/x');
+  await page.locator('bx-devices [data-addr]').press('Enter');
+  await waitSel(page, 'bx-devices .hint.bad');
+  check(await linkOf(page) === want, 'a non-http(s) address is refused and the link stays');
+  await page.locator('bx-devices .foot button', { hasText: 'close' }).click();
+  // reopened: the remembered address; the enrollment still answers the
+  // server's origin (what the device signs), not the address in the link
+  await page.locator(SETTINGS).click();
+  await page.locator('bx-shell .wsmenu [data-add-device]').click();
+  await waitSel(page, 'bx-devices [data-enroll] svg');
+  const again = new globalThis.URL(await linkOf(page));
+  check(again.searchParams.get('u') === custom && await page.locator('bx-devices [data-addr]').inputValue() === custom,
+    `reopened, the panel uses the remembered address (${again})`);
+  const dev = await enroll(again.searchParams.get('c'), 'custom-address phone', appKey());
+  check(dev.status === 200 && dev.body.origin === URL, `an enrollment through a custom address answers the server's origin (${JSON.stringify(dev.body)})`);
+  if (dev.body.deviceId) await ctx.request.delete(`${URL}/api/xbin/devices/${dev.body.deviceId}`);
+  await page.locator('bx-devices [data-addr]').fill('');
+  await page.locator('bx-devices [data-addr]').press('Enter');
+  await page.waitForFunction(() => !document.querySelector('bx-devices')?.shadowRoot?.querySelector('input[data-link]')?.value.includes('phone.example'), null, { timeout: 5000 }).catch(() => {});
+  const back = new globalThis.URL(await linkOf(page)).searchParams.get('u');
+  check(back === URL && await page.evaluate(() => localStorage.getItem('xbin-phone-address')) === null, `emptied, it is the server's address again, forgotten (${back})`);
+  await page.locator('bx-devices .foot button', { hasText: 'close' }).click();
+}
+
 async function devices(browser) {
   const { check, done } = checker('devices');
   const { ctx, page } = await login(browser, 'admin', 'admin');
@@ -61,9 +138,10 @@ async function devices(browser) {
   const before = (await (await ctx.request.get(`${URL}/api/xbin/devices`)).json()).devices ?? [];
   for (const d of before) await ctx.request.delete(`${URL}/api/xbin/devices/${d.id}`);
 
-  // ---- the shell: 🔧 → my account → devices… ----
+  // ---- the shell: settings → add a device; settings → my account → devices… ----
   await openShell(page);
-  await page.locator('button[title="workspace settings (per user)"]').click();
+  await addDeviceFlow(page, ctx, check);
+  await page.locator(SETTINGS).click();
   await waitSel(page, '.wsmenu');
   await shotEl(page, '.wsmenu', 'devices-menu');
   check(await page.locator('.wsmenu form input[name=rmdev]').count() === 1, 'the password form offers removing app devices');
@@ -105,7 +183,7 @@ async function devices(browser) {
   await page.unroute(ENROLL);
   check(sentPassword === 'admin' && !(await page.locator('bx-devices [data-stepup]').count()),
     `the step-up retry carries the password and gives way to the code (${sentPassword})`);
-  const link = await page.locator('bx-devices [data-enroll] input').inputValue();
+  const link = await linkOf(page);
   const u = new globalThis.URL(link);
   const code = u.searchParams.get('c'), origin = u.searchParams.get('u');
   check(u.protocol === 'xbin:' && u.host === 'enroll' && origin === URL && /^[A-Z2-7]{26}$/.test(code),
@@ -114,10 +192,8 @@ async function devices(browser) {
   await shotEl(page, 'bx-devices .box', 'devices-enroll');
   // The drawn QR code decodes to that same link (zbarimg, when installed).
   await shotEl(page, 'bx-devices .qr', 'devices-qr');
-  try {
-    const got = execFileSync('zbarimg', ['-q', '--raw', `${OUT}/devices-qr.png`], { encoding: 'utf8' }).trim();
-    check(got === link, `the QR code decodes to the link (${got})`);
-  } catch (e) { log('devices: zbarimg unavailable or failed — QR decode not checked:', e.message.split('\n')[0]); }
+  const got = qrText('devices-qr');
+  if (got !== null) check(got === link, `the QR code decodes to the link (${got})`);
 
   // ---- the "app" enrolls with the code; the panel notices ----
   const keyA = appKey();
@@ -173,7 +249,7 @@ async function devices(browser) {
 
   // Reopen the panel: both devices, last sign-in stamped.
   await page.locator('bx-devices button', { hasText: 'close' }).last().click();
-  await page.locator('button[title="workspace settings (per user)"]').click();
+  await page.locator(SETTINGS).click();
   await page.locator('.wsmenu button', { hasText: 'devices…' }).click();
   await waitSel(page, 'bx-devices li[data-device]');
   await page.waitForFunction(() => document.querySelector('bx-devices')?.shadowRoot?.querySelectorAll('li[data-device]').length === 2, null, { timeout: 10000 });
@@ -251,7 +327,7 @@ async function devices(browser) {
 
   // ---- remove the phone from the shell panel ----
   await page.locator('bx-devices button', { hasText: 'close' }).last().click();
-  await page.locator('button[title="workspace settings (per user)"]').click();
+  await page.locator(SETTINGS).click();
   await page.locator('.wsmenu button', { hasText: 'devices…' }).click();
   await waitSel(page, `bx-devices li[data-device="${devA.body.deviceId}"]`);
   await page.locator(`bx-devices li[data-device="${devA.body.deviceId}"] button`, { hasText: 'remove…' }).click();
@@ -273,6 +349,9 @@ async function devices(browser) {
   await waitSel(phone.page, 'bx-devices [data-enroll] svg');
   const box = await phone.page.locator('bx-devices .box').boundingBox();
   check(box && box.x >= 0 && box.x + box.width <= 390, `the panel fits the phone width (${JSON.stringify(box)})`);
+  const top = await phone.page.locator('bx-shell .top').evaluate((t) => ({ over: t.scrollWidth - t.clientWidth,
+    right: Math.round(t.querySelector('button.chip.settings').getBoundingClientRect().right) }));
+  check(top.over <= 0 && top.right <= 390, `the top bar with the settings chip fits the phone width (${JSON.stringify(top)})`);
   await shot(phone.page, 'devices-phone', { fullPage: false });
   await closeCtx(phone.ctx, phone.page);
   done();

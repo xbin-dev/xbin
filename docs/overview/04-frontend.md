@@ -163,7 +163,7 @@ What the shell provides:
   neighbours swap (D69) — drag its corner to
   resize, or unpin it into a floating window; all persisted per user. The
   layout is logical (multiples of the 48px grid); each browser renders it at
-  its own **grid scale** (🔧 settings, 0.5×–1.5×, kept in `localStorage`, D68),
+  its own **grid scale** (top bar → settings, 0.5×–1.5×, kept in `localStorage`, D68),
   so one shared screen fits a laptop and a 4K display unchanged. **Org screens** (D37/D55) are tabs an organisation
   shares with every member: read-only in view mode, edited like a
   dashboard — *edit layout* opens a personal draft, *Save and update for

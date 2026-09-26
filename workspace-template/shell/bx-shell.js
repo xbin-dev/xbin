@@ -113,7 +113,7 @@ export class BxShell extends LitElement {
     _folderEdit: { state: true }, // folder name/icon dialog (null = closed)
     _settings: { state: true },     // per-user workspace settings {fontSize}
     _gridScale: { state: true },    // per-browser grid scale (D68): px per logical px, 0.5–1.5
-    _settingsOpen: { state: true }, // the 🔧 settings dropdown
+    _settingsOpen: { state: true }, // the top bar's settings menu
     _showHidden: { state: true },   // sidebar: reveal hidden (state=hidden) tiles (D42)
     _alerts: { state: true },       // workspace health banners (/api/xbin/alerts)
     _status: { state: true },       // per-component status {path: {level,message,ts}} (/api/xbin/tile-report)
@@ -258,7 +258,7 @@ export class BxShell extends LitElement {
     this._zoomTipped = true;
     this._pushToast('grid scale', {
       level: 'info', action: () => { this._settingsOpen = true; },
-      message: 'zooming the page? the workspace has its own grid scale in 🔧 settings: it resizes the layout and keeps text sharp',
+      message: 'zooming the page? the workspace has its own grid scale in settings (top bar): it resizes the layout and keeps text sharp',
     }, 12000);
   }
 
@@ -1753,12 +1753,14 @@ export class BxShell extends LitElement {
           @click=${() => { this._drawer = !this._drawer; }}>☰</button>` : nothing}
         ${brandLogo(this)}
         <span class="spacer"></span>
-        <button class="chip" style="cursor:pointer; font:inherit" title="workspace settings (per user)"
-                @click=${() => { this._settingsOpen = !this._settingsOpen; }}>🔧</button>
+        <button class="chip settings ${this._settingsOpen ? 'on' : ''}" title="workspace settings (per user)" aria-haspopup="true" aria-expanded=${this._settingsOpen ? 'true' : 'false'}
+                @click=${() => { this._settingsOpen = !this._settingsOpen; }}><span class="c" style="background:var(--bx-accent, #f5a623)"></span>settings</button>
         ${this._settingsOpen ? html`
           <div class="ctx-backdrop" @pointerdown=${() => { this._settingsOpen = false; }}></div>
           <div class="wsmenu">
-            <div class="hd">workspace settings</div>
+            <div class="hd">settings</div>
+            ${this._who?.kind === 'user' ? html`<button class="act add-device" data-add-device title="the xbin app on a phone or tablet: a QR code to scan"
+              @click=${() => { this._settingsOpen = false; openDevices({ add: true }); }}><b>add a device</b><span>the xbin app on your phone · QR code</span></button>` : nothing}
             <div class="row"><span>Font size</span>
               <span class="fs">
                 <button class="step" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) - 1 })}>−</button>

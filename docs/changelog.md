@@ -21,6 +21,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   meta to the page from its own script. A page with its own viewport is
   left as it is — set one to choose.
 
+- **The xbin app: sign-in discovery and invite links, as JSON; the shell:
+  a settings chip with "add a device" first, and an address for phones.**
+  `GET /api/xbin/login/methods` (public, not throttled) answers what the
+  login page offers — `{api:1, title, auth, password:{enabled, adminOnly},
+  sso:{enabled, label}, invites}` — so the app shows the password form
+  and/or the SSO button, and nothing the page doesn't already show. `POST
+  /api/xbin/invite/check {invite}` names the account an invite link is for
+  without spending it; `POST /api/xbin/invite/redeem {invite, password}`
+  sets the password and answers the token response of `POST
+  /api/xbin/login` (a short password is a 400 that leaves the invite; the
+  login throttle applies). The form at `/login?invite=` is unchanged. In
+  the shell, the top bar's 🔧 is now a **settings** chip like *docs* and
+  *sign out*, and its menu starts with **add a device**, which opens the
+  device panel straight on the QR code (*my account → devices…* stays).
+  The panel's **address your phone uses** puts another address in the
+  link and the QR code — for a browser that reaches xbin through a tunnel
+  or proxy the phone can't use — remembered per browser; the device still
+  signs the origin its enrollment answer names
+  ([auth.md](auth.md) §Device login, [protocol.md](protocol.md)).
+
 ## 2026-09-26
 
 - **Terminal window: pick the VM sandbox before a session starts, and the

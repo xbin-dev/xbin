@@ -154,7 +154,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     if (!list) return nothing;
     return html`<tr><td colspan="6"><div class="editor" data-devices=${u.id}>
       ${list === 'loading' ? html`<span class="muted">loading…</span>`
-        : !list.length ? html`<span class="muted">no devices — they add one from their account menu (devices…) or by signing in to the xbin app.</span>`
+        : !list.length ? html`<span class="muted">no devices — they add one from settings → add a device (top bar) or by signing in to the xbin app.</span>`
         : list.map((d) => html`<div class="orow" data-device=${d.id}>
           <span style="min-width:18ch"><b>${d.name}</b> <span class="muted">${d.platform || ''}</span></span>
           <span class="muted" title=${new Date(d.created * 1000).toLocaleString()}>added ${agoCoarse(d.created)}</span>

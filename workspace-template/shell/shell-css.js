@@ -32,14 +32,15 @@ export const shellCss = css`
       border-radius: 999px; padding: 1px 10px;
     }
     .top .spacer { flex: 1; }
-    .top a.chip {
-      display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-      color: var(--bx-text, #d4d9e0); text-decoration: none;
+    .top a.chip, .top button.chip {
+      display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px;
+      color: var(--bx-text, #d4d9e0); text-decoration: none; cursor: pointer;
       border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
       padding: 3px 10px; background: var(--bx-panel, #23272e);
     }
-    .top a.chip:hover { background: var(--bx-panel-2, #2b3038); }
-    .top a.chip .c { width: 7px; height: 7px; border-radius: 2px; }
+    .top a.chip:hover, .top button.chip:hover, .top button.chip.on { background: var(--bx-panel-2, #2b3038); }
+    .top a.chip .c, .top button.chip .c { width: 7px; height: 7px; border-radius: 2px; }
+    @media (max-width: 480px) { .top a.chip .c, .top button.chip .c { display: none; } } /* a phone: the words fit */
 
     /* ---- view-as banner: an admin reading the workspace as a user (D64) ---- */
     .viewas {
@@ -226,6 +227,11 @@ export const shellCss = css`
       background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); border-radius: 5px;
       padding: 3px 8px; cursor: pointer; }
     .wsmenu button.act:hover { background: var(--bx-panel-2, #2b3038); }
+    /* "add a device": the settings menu's first item — where the phone's QR code is */
+    .wsmenu button.add-device { display: flex; flex-direction: column; align-items: flex-start; width: 100%;
+      margin-bottom: 10px; padding: 5px 9px; text-align: left; border-left: 3px solid var(--bx-accent, #f5a623); }
+    .wsmenu button.add-device b { font-size: 12px; }
+    .wsmenu button.add-device span { font-size: 10.5px; color: var(--bx-muted, #868f9a); }
 
 
     main { flex: 1; min-width: 0; overflow: auto; padding: 14px; }
@@ -245,6 +251,7 @@ export const shellCss = css`
     @media (max-width: 820px) {
       .top { gap: 8px; padding: 6px 10px; }
       .top .ws-chip { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .top a.chip, .top button.chip { flex: none; white-space: nowrap; padding: 3px 8px; }
       .tab { padding: 8px 13px; }               /* larger tap targets */
       main { padding: 8px; }
       .grants { margin-bottom: 8px; }

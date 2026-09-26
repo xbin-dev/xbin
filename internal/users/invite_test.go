@@ -1,6 +1,7 @@
 package users
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -52,8 +53,11 @@ func TestInviteLifecycle(t *testing.T) {
 	}
 
 	// Weak password refused, invite NOT consumed.
-	if _, err := s.RedeemInvite(tok, "short"); err == nil || !strings.Contains(err.Error(), "too short") {
+	if _, err := s.RedeemInvite(tok, "short"); err == nil || !strings.Contains(err.Error(), "too short") || errors.Is(err, ErrInvalidInvite) {
 		t.Fatalf("weak password: %v", err)
+	}
+	if CheckNewPassword("short") == nil || CheckNewPassword("long-enough") != nil {
+		t.Fatal("CheckNewPassword: the 8-character floor")
 	}
 	// Redeem sets the password + signs-in-able.
 	if _, err := s.RedeemInvite(tok, "erin-password-1"); err != nil {
@@ -63,8 +67,8 @@ func TestInviteLifecycle(t *testing.T) {
 		t.Fatal("redeemed password must verify")
 	}
 	// Single-use.
-	if _, err := s.RedeemInvite(tok, "erin-password-2"); err == nil {
-		t.Fatal("second redeem must fail")
+	if _, err := s.RedeemInvite(tok, "erin-password-2"); !errors.Is(err, ErrInvalidInvite) {
+		t.Fatalf("second redeem must fail with ErrInvalidInvite: %v", err)
 	}
 	if _, ok := s.Verify("erin", "erin-password-1"); !ok {
 		t.Fatal("failed re-redeem must not clobber the password")

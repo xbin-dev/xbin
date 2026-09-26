@@ -715,7 +715,11 @@ delivery has two shapes:
   **single-use, 72h** link (`/login?invite=…`; token hashed at rest). The
   invitee opens it, sets their own password, and is signed in. Re-minting
   (`POST /users/<id>/invite`, `bx user invite`) invalidates the previous link
-  and doubles as reset-by-link; redemption is login-throttled.
+  and doubles as reset-by-link; redemption is login-throttled. The xbin app
+  redeems the same link (*Join with an invite*) through `POST
+  /api/xbin/invite/check` and `/invite/redeem` — same single use, same
+  throttle, a password under 8 characters refused without spending it
+  (§Device login).
 
 The account row is deliberately **credential-agnostic**: a user is an ID plus
 however their credential arrives — an admin-set password, an invite-redeemed
@@ -856,12 +860,29 @@ with Face ID / Touch ID, one per workspace. It never leaves the device; the
 server keeps only its public key, on your user row. Device login needs a user
 account — the bootstrap owner token has none.
 
-- **Adding a device.** The shell's 🔧 menu → *my account* → **devices…**
-  → **add a device** shows a QR code and the raw
-  `xbin://enroll?u=<origin>&c=<code>` link: a one-time code, valid 5 minutes,
-  that enrolls one device *for you*. Scan it with the app (or open the link
-  on the phone). Alternatively sign in inside the app with your password or
-  SSO — it then enrolls itself the same way.
+- **Adding a device.** The shell's top bar → **settings** → **add a
+  device** (the menu's first item; the same panel is also *my account* →
+  **devices…**) shows a QR code and the raw
+  `xbin://enroll?u=<address>&c=<code>` link: a one-time code, valid 5
+  minutes, that enrolls one device *for you*. Scan it with the app (*Log
+  in* → *Scan QR code*), or open the link on the phone. Alternatively sign
+  in inside the app with your password or SSO — it asks the workspace which
+  sign-in methods it offers (`GET /api/xbin/login/methods`), then enrolls
+  itself the same way.
+- **The address your phone uses.** The panel's QR code carries the address
+  the app will connect to — the workspace's own address by default (below,
+  *Which address*). When this browser reaches xbin through something the
+  phone can't use — an SSH tunnel to `localhost`, a proxy on your laptop —
+  type the address the phone *can* reach (an `http(s)://host[:port]`
+  origin, nothing after it) in **address your phone uses**: the link and
+  the QR code are rebuilt with it, and this browser remembers it for next
+  time (empty it to go back). It only changes where the app connects; the
+  device still signs the workspace origin the enrollment records.
+- **Invites in the app.** An invite link (`<origin>/login?invite=…`) can
+  also be opened in the app (*Join with an invite*): it shows whom the
+  invite is for, asks for the new password and signs in — the same
+  single-use redemption as the web page (`POST /api/xbin/invite/check`,
+  `/invite/redeem`), under the login throttle.
 - **Adding one proves it's you (step-up).** A device keeps signing in long
   after the session that added it, so a code is minted only for a sign-in
   from the **last 10 minutes** — otherwise the panel asks for your password
@@ -949,10 +970,16 @@ account — the bootstrap owner token has none.
 - **Which address.** A device signs the server origin it enrolled with: the
   `--external-url` origin when set, otherwise the address your browser used
   when you minted the code. If you reach xbind under several names, set
-  `--external-url` before enrolling devices.
+  `--external-url` before enrolling devices. An *address your phone uses*
+  changes only where the app connects: the enrollment answer still names
+  the recorded origin, and that is what the device signs — which is why the
+  server checks the signature against the recorded origin, not the
+  address a login arrives on.
 
-Routes: `POST /api/xbin/devices/enroll-code`, `POST /api/xbin/devices/enroll`,
-`POST /login/device/challenge`, `POST /login/device`, `POST /api/xbin/login`,
+Routes: `GET /api/xbin/login/methods`, `POST /api/xbin/invite/check`,
+`POST /api/xbin/invite/redeem`, `POST /api/xbin/devices/enroll-code`,
+`POST /api/xbin/devices/enroll`, `POST /login/device/challenge`,
+`POST /login/device`, `POST /api/xbin/login`,
 `GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
 `GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
 `GET /api/xbin/users/<id>/devices` ([protocol.md](/docs/protocol.md)). The

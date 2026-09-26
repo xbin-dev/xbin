@@ -30,18 +30,28 @@ unauthenticated route here counts failures against the login throttle
 A signed-in human mints a one-time code, the app redeems it with its public
 key.
 
-**From a browser.** The shell's 🔧 menu → my account → devices… → *add a
-device* shows a QR code of
+**From a browser.** The shell's top bar → **settings** → **add a device**
+(the menu's first item; also *my account* → *devices…* → *add a device*)
+shows a QR code of
 
 ```
-xbin://enroll?u=<origin>&c=<code>
+xbin://enroll?u=<address>&c=<code>
 ```
 
 (query-escaped; e.g. `xbin://enroll?u=https%3A%2F%2Fxbin.example.com&c=K3D…`).
-`u` is the server origin (§4) — the address the app talks to **and** signs.
+`u` is the address the app **talks to**: by default the server origin
+(§4), but the user may have typed another one in the panel's *address your
+phone uses* — for a browser that reaches xbin through an SSH tunnel or a
+proxy the phone can't use. It is always an `http(s)://host[:port]` origin
+(no path), built in the browser; the server never sees it. **Sign the
+`origin` of the enrollment response (Redeem, below; §4), never `u`**: the
+two differ whenever the user chose an address, and a device signing `u`
+would never sign in. Keep connecting to `u`.
 `c` is 26 characters of `A–Z2–7`, valid **5 minutes**, **single use**,
 bound to the user who minted it. The app may accept it typed: case-
-insensitive, dashes and spaces ignored.
+insensitive, dashes and spaces ignored. Before redeeming, the app may ask
+`u` for its sign-in methods (§8): an address that doesn't answer, or isn't
+an xbin workspace, then fails before the code is spent.
 
 **From the app itself.** After an in-app sign-in (§5) the app holds a session
 and mints its own code — right away: minting is a **step-up**, allowed only
@@ -85,7 +95,8 @@ POST /api/xbin/devices/enroll
 characters (`"device"` when empty); `platform` is lower-cased, ≤ 32 (`ios`,
 `ipados`, `android`, …). Store `deviceId` **and** `origin` with the
 workspace; the origin returned here is the one to sign (§4), whatever URL the
-user typed.
+user typed or the link's `u` said — and keep talking to the address the
+request went to.
 
 ## 3. Sign-in
 
@@ -134,7 +145,8 @@ xbin-device-login-v1\n<origin>\n<deviceId>\n<nonce>
 ```
 
 - `origin` — exactly the `origin` returned by `POST /api/xbin/devices/enroll`
-  (equal to the enrollment link's `u`): `scheme://host[:port]`, lower-case,
+  (usually equal to the enrollment link's `u` — **not** when the user chose
+  an address for the phone, §2; sign this one): `scheme://host[:port]`, lower-case,
   no default port (`:443` for https, `:80` for http), no path, no trailing
   slash. It is the server's `--external-url` origin when the operator set one,
   otherwise the address the enrolling browser (or app) used. The server
@@ -146,7 +158,9 @@ xbin-device-login-v1\n<origin>\n<deviceId>\n<nonce>
 ## 5. In-app sign-in (before a device exists)
 
 Both return the same token response as `POST /login/device` (without
-`deviceId`). The app then enrolls (§2) with that session.
+`deviceId`). The app then enrolls (§2) with that session. Ask the workspace
+which of the two it offers first (§8), and show those — an invite link is
+§9.
 
 **Password.** The same rules as the web form — throttled, disabled accounts
 refused, and under SSO-only mode non-admins get `403`:
@@ -157,8 +171,9 @@ POST /api/xbin/login
 → 200 token response    401 invalid credentials    403 password sign-in disabled    429 throttled
 ```
 
-**SSO** (only when the workspace has SSO configured; the login page's SSO
-button is the tell). PKCE (RFC 7636, S256):
+**SSO** (only when the workspace has SSO configured: §8's `sso.enabled`,
+the same tell as the login page's SSO button; label the button with
+`sso.label`). PKCE (RFC 7636, S256):
 
 1. Pick `verifier` (43–128 chars of `A–Z a–z 0–9 - . _ ~`);
    `challenge = base64url(SHA-256(verifier))`.
@@ -242,7 +257,11 @@ lives 60 seconds. What the browser then shows:
 The browser session it opens belongs to this device: signing the app out
 of the workspace (`POST /logout` with the bearer) or removing the device
 ends it, and it keeps the device login's time and cap (it is not a fresh
-sign-in). `origin` is the device's enrollment origin (§4).
+sign-in). `origin` is the device's enrollment origin (§4). When the app
+talks to another address (the user chose one for the phone, §2), open the
+url on **that** address instead — its path and query unchanged: the ticket
+is not bound to a host name, and the enrollment origin may be one only the
+user's browser can reach (a tunnel to `localhost`).
 
 ## 7. Test vector
 
@@ -271,3 +290,79 @@ Checks a client test should make: its message builder produces those bytes
 equals the X9.63 key; `isValidSignature(ECDSASignature(derRepresentation:),
 for: message)` is true; and false after changing any one of origin (including
 a trailing `/`), deviceId or nonce.
+
+## 8. Discovery: which sign-in methods
+
+Public (no credential), not throttled, cheap — ask it before showing any
+sign-in choice, and before spending a QR code:
+
+```
+GET /api/xbin/login/methods
+→ 200 {"api": 1,
+       "title": "<the workspace's branding title, else \"xbin\">",
+       "auth": true,
+       "password": {"enabled": true, "adminOnly": false},
+       "sso": {"enabled": true, "label": "Sign in with Google"},
+       "invites": true}
+```
+
+- `auth: false` — the workspace runs without sign-in (no-auth mode); then
+  `password` and `sso` are disabled and `invites` is false. There is nothing
+  for the app to sign in with.
+- `password.enabled` — the workspace has accounts, so a password can sign
+  someone in (`POST /api/xbin/login`, §5). `adminOnly: true` — SSO-only
+  mode: non-admins sign in with SSO; lead with SSO and keep the password
+  form for "workspace admin".
+- `sso.enabled` — the login page shows its SSO button (configured, and the
+  server has its external URL); `label` is that button's text ("" when
+  disabled). Only then start §5's SSO flow.
+- `invites` — invite links can be redeemed here (§9).
+- `Cache-Control: no-store`. `api` versions the shape; fields are only
+  ever added, so ignore unknown ones. It says nothing the login page
+  doesn't already show anyone, and no server version.
+- **An xbind older than this route does not answer 404**: its `/api/` gate
+  runs before the route lookup, so it answers **`401`** with a text/plain
+  body (`unauthorized — sign in at /login`) — or `404` when it runs
+  without sign-in. So `401` or `404` here means "older xbind, or not an
+  xbin workspace at all": to tell them apart, `GET /login` (an older xbind
+  serves its HTML sign-in page, or redirects to `/` without sign-in) — then
+  offer password and SSO as before; anything else is not a workspace. A
+  `200` whose body isn't this JSON is not a workspace either.
+
+## 9. Invites
+
+An admin can create an account without a password and hand its owner a
+single-use invite link, valid **72 hours**:
+`<origin>/login?invite=<token>`. A browser opens it as a set-your-password
+page; the app redeems the same token in JSON. Both routes are public (the
+token is the credential) and under the login throttle — every refusal
+counts as a failure (5 per client IP → 30 s of `429`).
+
+```
+POST /api/xbin/invite/check
+{"invite": "<token>"}
+→ 200 {"user": {"id": "erin", "name": "Erin Example"},
+       "expires": <unix>, "title": "<branding title, else \"xbin\">"}
+  403  {"error": "invalid or expired invite"}   unknown, used, expired, or the account is disabled
+  429  throttled
+```
+
+It does **not** spend the invite: show "You're invited to <title> as
+<name>", then ask for the new password (twice; at least 8 characters).
+
+```
+POST /api/xbin/invite/redeem
+{"invite": "<token>", "password": "<new password>"}
+→ 200 token response (as POST /api/xbin/login, §5)
+  400  {"error": "password too short (min 8 characters)"}   the invite is NOT spent — ask again
+  403  {"error": "invalid or expired invite"}   (as above; also a second redeem of the same token)
+  429  throttled
+```
+
+Success sets the account's password, spends the invite and opens a session
+exactly like the password sign-in — enroll the device with it right away
+(§2, "From the app itself"). Talk to the origin of the invite link.
+An xbind older than these routes answers them `401` (text/plain, its `/api/`
+gate — see §8), a no-auth one `404`: tell the user to open the link in a
+browser, set the password there, then sign in (§5). §8's `invites` says
+beforehand whether a workspace redeems them.

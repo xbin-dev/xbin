@@ -11,17 +11,43 @@
  * when the phone has enrolled. Minting a code is a step-up: a sign-in older
  * than ten minutes is asked for the password first (or, with no password
  * sign-in on the account, to sign in again) — a device outlives the session
- * that adds it. Opened from the account section of the shell's 🔧 menu
- * (openDevices); a modal over the workspace that removes itself on close.
- * The shell is chrome: these calls ride the session cookie.
+ * that adds it. The QR code carries the address the phone should use: the
+ * server's origin by default, or one the user types ("address your phone
+ * uses" — for a browser that reaches xbin through a tunnel or a proxy the
+ * phone can't use), remembered per browser; the device still signs the
+ * origin its enrollment answer names (docs/auth.md §Device login). Opened
+ * from the shell's settings menu — "add a device" (openDevices({add: true}),
+ * straight to the code) or my account → devices…; a modal over the
+ * workspace that removes itself on close. The shell is chrome: these calls
+ * ride the session cookie.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { xbinApi as call } from '/vendor/bx-kit.js';
 
-export function openDevices() {
-  if (document.querySelector('bx-devices')) return;
-  document.body.append(document.createElement('bx-devices'));
+// openDevices({add}): open the panel — with add, straight on the add flow.
+export function openDevices({ add = false } = {}) {
+  const open = document.querySelector('bx-devices');
+  if (open) { if (add) open.addDevice(); return; }
+  const el = document.createElement('bx-devices');
+  el.startAdd = add;
+  document.body.append(el);
 }
+
+// The address the phone uses (per browser; '' = the server's origin).
+const ADDR_KEY = 'xbin-phone-address';
+function savedAddr() { try { return localStorage.getItem(ADDR_KEY) || ''; } catch { return ''; } }
+function saveAddr(v) { try { if (v) localStorage.setItem(ADDR_KEY, v); else localStorage.removeItem(ADDR_KEY); } catch { /* storage off: not remembered */ } }
+// phoneOrigin: v as an http(s) origin (scheme://host[:port], no path, query
+// or credentials; https:// assumed when no scheme is typed) — or null.
+export function phoneOrigin(v) {
+  const t = String(v ?? '').trim();
+  let u;
+  try { u = new URL(t.includes('://') ? t : `https://${t}`); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol) || !u.hostname || u.username || u.password || u.search || u.hash) return null;
+  if (u.pathname !== '/' || /^[a-z]+:\/\/[^/]*\/./i.test(t)) return null;
+  return u.origin;
+}
+const enrollLink = (addr, code) => `xbin://enroll?u=${encodeURIComponent(addr)}&c=${code}`;
 
 function ago(t) {
   if (!t) return 'never';
@@ -53,7 +79,8 @@ export class BxDevices extends LitElement {
   static properties = {
     _devices: { state: true }, // null = loading
     _push: { state: true },    // GET /devices/push {enabled, devices:[{deviceId, kinds, lastSent, needsNewHandle, pushToStart, activities}]}; null = unavailable
-    _enroll: { state: true },  // {code, url, origin, expires, qr, known:Set, added}
+    _enroll: { state: true },  // {code, url, base, origin, addr, expires, qr, known:Set, added} — url/qr carry addr
+    _addrErr: { state: true }, // the typed phone address isn't an http(s) origin
     _stepUp: { state: true },  // {mode: 'password'|'signin', msg, retry} — the server asked to re-prove it's you
     _confirm: { state: true }, // device id awaiting "remove?" confirmation
     _err: { state: true },
@@ -108,6 +135,10 @@ export class BxDevices extends LitElement {
     .push button { font-size: 11px; padding: 0 7px; line-height: 18px; }
     h4 { margin: 12px 0 2px; font-size: 12px; }
     .note { margin-top: 8px; font-size: 11px; color: var(--bx-muted, #868f9a); }
+    .addr { display: block; margin-top: 8px; font-weight: 600; }
+    .hint { font-size: 11px; color: var(--bx-muted, #868f9a); margin-top: 3px; }
+    .hint.bad { color: var(--bx-red, #ef5350); }
+    .or { margin-top: 8px; }
   `;
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } };
@@ -116,8 +147,10 @@ export class BxDevices extends LitElement {
     super.connectedCallback();
     document.addEventListener('keydown', this.#onKey, true);
     this._devices = null;
-    this._load();
+    // the list first: the add flow tells a new device from the ones known
+    this._load().then(() => { if (this.startAdd) this.addDevice(); });
   }
+  addDevice() { if (!this._enroll || this._enroll.added) this._add(); }
   disconnectedCallback() {
     super.disconnectedCallback();
     document.removeEventListener('keydown', this.#onKey, true);
@@ -180,8 +213,10 @@ export class BxDevices extends LitElement {
       }
       if (!r.ok) throw new Error(e.error || `error ${r.status}`);
       this._stepUp = null;
-      const qr = await qrPath(e.url);
-      this._enroll = { ...e, qr, known: new Set((this._devices ?? []).map((d) => d.id)), added: null };
+      const addr = phoneOrigin(savedAddr()) || e.origin;
+      const url = addr === e.origin ? e.url : enrollLink(addr, e.code);
+      this._addrErr = null;
+      this._enroll = { ...e, base: e.url, addr, url, qr: await qrPath(url), known: new Set((this._devices ?? []).map((d) => d.id)), added: null };
       this._now = Date.now() / 1000;
       clearInterval(this._tick);
       let n = 0;
@@ -200,6 +235,21 @@ export class BxDevices extends LitElement {
       this._enroll = { ...en, added: fresh };
       clearInterval(this._tick);
     }
+  }
+
+  // A new phone address: rebuild the link and its QR code; remembered for
+  // this browser ('' or the server's own origin forgets it).
+  async _setAddr(v) {
+    const en = this._enroll;
+    if (!en) return;
+    const addr = String(v).trim() ? phoneOrigin(v) : en.origin;
+    if (!addr) { this._addrErr = 'an http(s) address the phone can reach, like https://xbin.example.com (no path)'; return; }
+    this._addrErr = null;
+    saveAddr(addr === en.origin ? '' : addr);
+    const url = addr === en.origin ? en.base : enrollLink(addr, en.code);
+    const qr = await qrPath(url);
+    Object.assign(en, { addr, url, qr }); // in place: the poll holds this object
+    this.requestUpdate();
   }
 
   async _remove(d) {
@@ -267,11 +317,17 @@ export class BxDevices extends LitElement {
       <div class="steps">
         <ol>
           <li>Open the <b>xbin</b> app on your phone.</li>
-          <li><b>Add workspace</b> → <b>scan code</b>, and point it here.</li>
+          <li>Tap <b>Log in</b> → <b>Scan QR code</b>, and point it here.</li>
           <li>Confirm with Face ID — done.</li>
         </ol>
-        No camera? Open this link on the phone:
-        <div class="link"><input readonly .value=${en.url} @focus=${(e) => e.target.select()}>
+        <label class="addr" for="addr">Address your phone uses</label>
+        <div class="link"><input id="addr" data-addr .value=${en.addr} spellcheck="false" autocomplete="off" inputmode="url"
+            @change=${(e) => this._setAddr(e.target.value)} @keydown=${(e) => { if (e.key === 'Enter') e.target.blur(); }}>
+          ${en.addr !== en.origin ? html`<button title=${`back to ${en.origin}`} @click=${() => this._setAddr('')}>reset</button>` : nothing}</div>
+        <div class="hint ${this._addrErr ? 'bad' : ''}">${this._addrErr
+          || 'Change it when this browser reaches xbin through a tunnel or proxy the phone can\'t use.'}</div>
+        <div class="or">No camera? Open this link on the phone:</div>
+        <div class="link"><input readonly data-link .value=${en.url} @focus=${(e) => e.target.select()}>
           <button @click=${() => navigator.clipboard?.writeText(en.url)}>copy</button></div>
         <div class="timer">${left ? `works once, for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} more · for your account only`
           : html`expired — <a href="#" @click=${(e) => { e.preventDefault(); this._add(); }}>make a new code</a>`}</div>
