@@ -16,6 +16,12 @@ jobs:
           # install's gofmt, and gofmt output differs across versions
           # (1.26 accepts formatting 1.25 rejects — bit two releases).
           go-version: "1.26"
+      # js-test and native-check run native tile code in node workers through
+      # module hooks (hack/xbn) and compare Intl output in the fixtures: pin a
+      # current LTS rather than whatever the runner image ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       # The containerfs integration suite mounts FUSE filesystems inside
       # unprivileged user namespaces; Ubuntu 24.04 runners gate those behind
       # an AppArmor knob. It also needs xattr/fscap tooling.
