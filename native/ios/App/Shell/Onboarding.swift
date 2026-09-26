@@ -205,35 +205,32 @@ final class OnboardingFlow {
 /// No workspace yet: the Welcome, full screen.
 struct WelcomeView: View {
     @Environment(SceneModel.self) private var scene
-    @State private var flow: OnboardingFlow?
+    @State private var flow = OnboardingFlow(scene: nil)
 
     var body: some View {
-        Group {
-            if let flow { OnboardingStack(flow: flow) { WelcomeLevel(flow: flow) } }
-        }
-        .onAppear { if flow == nil { flow = OnboardingFlow(scene: scene) } }
+        OnboardingStack(flow: flow) { WelcomeLevel(flow: flow) }
+            .onAppear { flow.scene = scene }
     }
 }
 
 /// The add-workspace sheet: Log in first (the switcher's "Add a
 /// workspace", "Sign in again", an `xbin://enroll` link from outside).
 struct AddWorkspaceSheet: View {
-    let request: AddRequest
     @Environment(SceneModel.self) private var scene
-    @State private var flow: OnboardingFlow?
+    @State private var flow: OnboardingFlow
+
+    init(request: AddRequest) {
+        _flow = State(initialValue: OnboardingFlow(scene: nil, request: request))
+    }
 
     var body: some View {
-        Group {
-            if let flow {
-                OnboardingStack(flow: flow) {
-                    LoginLevel(flow: flow)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { scene.addRequest = nil } }
-                        }
+        OnboardingStack(flow: flow) {
+            LoginLevel(flow: flow)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { scene.addRequest = nil } }
                 }
-            }
         }
-        .onAppear { if flow == nil { flow = OnboardingFlow(scene: scene, request: request) } }
+        .onAppear { flow.scene = scene }
     }
 }
 

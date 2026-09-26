@@ -11,6 +11,7 @@ struct LoginLevel: View {
 
     var body: some View {
         Form {
+            ProblemSection(problem: flow.problem)
             Section {
                 QRScanButton { text in Task { await flow.use(link: text) } }
                 TextField("Paste the link", text: $flow.pasted)
@@ -34,7 +35,6 @@ struct LoginLevel: View {
             } footer: {
                 Text("After signing in, this device keeps a key in its Secure Enclave: later sign-ins are a Face ID prompt.")
             }
-            ProblemSection(problem: flow.problem)
         }
         .navigationTitle("Log in")
         .navigationBarTitleDisplayMode(.inline)
@@ -47,10 +47,10 @@ struct AddressPage: View {
 
     var body: some View {
         Form {
+            ProblemSection(problem: flow.problem)
             if flow.replacing != nil {
                 Section {
-                    Text("This device can't sign in to this workspace any more. Sign in again: the workspace is replaced, "
-                        + "not added twice.")
+                    Text("Sign in again to go on using this workspace here. It is replaced, not added twice.")
                 }
             }
             Section {
@@ -65,7 +65,6 @@ struct AddressPage: View {
             } footer: {
                 Text("The address you open the workspace at in a browser, for example https://xbin.example.com.")
             }
-            ProblemSection(problem: flow.problem)
         }
         .navigationTitle("Workspace address")
         .navigationBarTitleDisplayMode(.inline)
@@ -95,6 +94,7 @@ struct MethodsPage: View {
                     Text(verbatim: server.origin).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            ProblemSection(problem: flow.problem)
             ForEach(Array(options.methods.enumerated()), id: \.offset) { _, m in
                 switch m {
                 case .password(let header): passwordSection(header: header)
@@ -115,7 +115,6 @@ struct MethodsPage: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            ProblemSection(problem: flow.problem)
         }
         .navigationTitle("Sign in")
         .navigationBarTitleDisplayMode(.inline)
@@ -158,6 +157,7 @@ struct InvitePage: View {
 
     var body: some View {
         Form {
+            ProblemSection(problem: flow.problem)
             Section {
                 Text("Someone who runs a workspace sent you an invite link. Scan it, or paste it here.")
             }
@@ -173,7 +173,6 @@ struct InvitePage: View {
             } footer: {
                 Text("It looks like https://your-workspace/login?invite=…")
             }
-            ProblemSection(problem: flow.problem)
         }
         .navigationTitle("Join with an invite")
         .navigationBarTitleDisplayMode(.inline)
@@ -201,6 +200,7 @@ struct InviteAcceptPage: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            ProblemSection(problem: flow.problem)
             Section {
                 SecureField("New password", text: $password)
                     .textContentType(.newPassword)
@@ -219,7 +219,6 @@ struct InviteAcceptPage: View {
                     Text("At least 8 characters. You'll use it to sign in from a browser; this device gets its own key.")
                 }
             }
-            ProblemSection(problem: flow.problem)
         }
         .navigationTitle("Join")
         .navigationBarTitleDisplayMode(.inline)
