@@ -206,7 +206,9 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  or homes/, a FIFO or a device → 404.
                                  The frame token is injected only for a human
                                  or the tile itself (or a navigation within
-                                 the tile's own tree of nested components).
+                                 the tile's own tree of nested components,
+                                 when everyone who can write the page
+                                 navigating can write the target).
                                  That credential-less rule is the LEGACY mode
                                  (--tile-assets=legacy, the default this
                                  release; removed in the next). Under the

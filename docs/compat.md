@@ -87,8 +87,9 @@ flag `--tile-assets` selects the mode:
   through a `data/` symlink must serve it from its API instead); a tile's
   non-document files carry `Content-Security-Policy: sandbox` (inert as
   subresources; an SVG opened directly or framed no longer runs script
-  as the workspace); and a tile document fetched by *another* tile's frontend gets
-  no frame token (navigations within a tile's own nested pages still do).
+  as the workspace); and a tile document fetched — or opened or framed with
+  `xbin.url()` — by *another* tile gets no frame token (navigations within a
+  tile's own nested pages still do; docs/changes/2026-09-26-frame-tokens.md).
   Plus the strict `tokens` and `origins` modes, the detection (`bx doctor`,
   `GET /api/xbin/tile-assets`), the codemod (`bx fix assets <tile>`) and
   xbin-client's console diagnostics;

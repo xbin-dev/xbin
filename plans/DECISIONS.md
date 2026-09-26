@@ -2817,7 +2817,10 @@ Deviations and refinements made while implementing; all deliberate:
     an `xbin.window` sub-path of it; never its backend, whose instance
     token names no person — a token minted for it read as the owner's
     frame, owner reach on every tile) — plus navigations within one tile
-    tree, whose writers can write every page of it. Another tile
+    tree when everyone who can write the page navigating can write the
+    target (a parent's writers write its whole tree; a nested page's
+    writers alone, under per-path RBAC, would otherwise lift its parent's
+    token by replaying "navigation" headers outside a browser). Another tile
     that fetches `/c/<tile>/` or its runtime document (D91) through its
     user's access gets the HTML without a token; before, any tile could
     lift e.g. the admin tile's token out of the HTML.

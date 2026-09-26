@@ -88,7 +88,12 @@ the other tile's token (and its grants) out of the HTML. The one exception
 is a **navigation** within one tile tree — a multi-page tile moving its
 frame between its own pages when a sub-page directory holding `index.html`
 is registered as a nested component: the initiator can't read the document
-it navigates to. Tile subresource loads
+it navigates to. Because a non-browser client can replay a page's token
+with navigation headers, it also needs everyone who can write the page
+navigating to be able to write the target (a parent's writers write its
+whole tree): someone granted write on a nested page *alone* doesn't make
+that page able to reach its parent's or a sibling's token. Another tree's
+page opened or framed with `xbin.url()` gets none. Tile subresource loads
 (JS/CSS/images — `Sec-Fetch-Dest` script/style/image/font/media/worker,
 never documents or fetch) are authorized credential-less by the opaque-origin
 Fetch-Metadata fingerprint — sandboxed frames strip cookies *and* the

@@ -35,8 +35,9 @@ Also in this release, in **every** mode (security fixes, no opt-out):
   subresources; opened directly or framed (`<iframe>`, `<object>`), an SVG
   or `.xhtml` page no longer runs script as the workspace origin; `x.HTML` is now treated as a document
   (injected and sandboxed);
-- a tile document fetched by another tile's frontend gets no frame token
-  (navigating a tile's own nested pages still mints one).
+- a tile document fetched, opened or framed by another tile gets no frame
+  token (navigating a tile's own nested pages still mints one;
+  [frame-tokens.md](/docs/changes/2026-09-26-frame-tokens.md)).
 
 ## Who's affected
 

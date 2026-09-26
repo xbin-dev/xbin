@@ -17,6 +17,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -481,9 +482,15 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 // One exception: a NAVIGATION within one tile tree (sameTileTree) — a
 // multi-page tile moving its frame between its own pages when a sub-page
 // directory holding index.html is registered as a nested component of its
-// own (settings/ → apps/a/settings). The initiator cannot read a document it
-// navigates to (an opaque or foreign origin), so there is no token to lift;
-// across trees it stays refused.
+// own (settings/ → apps/a/settings). A browser's initiator cannot read a
+// document it navigates to (an opaque or foreign origin), but a frame token
+// is a bearer credential and "navigation" is only headers: a non-browser
+// client holding the page's token can replay the request and read the
+// answer. So the exception also needs every person who can change the
+// navigating page's code to be able to change the target's (writersCover):
+// then the target's token is nothing its writers couldn't take anyway. A
+// writer of a nested component only (per-path RBAC) never gets its
+// parent's or a sibling's token. Across trees it stays refused.
 func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath string) bool {
 	if backendPrincipal(p) || !p.CanReadTile(compPath) {
 		return false
@@ -492,7 +499,51 @@ func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath s
 		return true
 	}
 	own := s.owningComponent(p.Component)
-	return own == compPath || (isNavigation(r) && s.sameTileTree(own, compPath))
+	return own == compPath || (isNavigation(r) && s.sameTileTree(own, compPath) && s.writersCover(own, compPath))
+}
+
+// writersCover reports whether everyone who can change from's code can
+// change to's: for every enabled user, writing from implies writing to. A
+// component's code is writable by its own writers and by the writers of
+// every registered component above it (their terminals and PRs cover the
+// whole directory tree), so a parent's page may always reach a nested
+// page's token, and a nested page its parent's only when nobody holds write
+// on the nested component alone. Admins and the owner write everything.
+func (s *Server) writersCover(from, to string) bool {
+	st := s.Auth.Users
+	if st == nil {
+		return true // no accounts: the owner alone writes
+	}
+	for _, u := range st.List() {
+		if u.Disabled || u.IsAdmin() {
+			continue
+		}
+		acc, ok := st.Access(u.ID)
+		if !ok {
+			continue
+		}
+		if s.writesCode(acc, from) && !s.writesCode(acc, to) {
+			return false
+		}
+	}
+	return true
+}
+
+// writesCode: acc may write comp itself or a registered component above it.
+func (s *Server) writesCode(acc *users.Access, comp string) bool {
+	segs := strings.Split(strings.Trim(comp, "/"), "/")
+	for i := len(segs); i >= 1; i-- {
+		c := strings.Join(segs[:i], "/")
+		if i < len(segs) {
+			if _, ok := s.Reg.Component(c); !ok {
+				continue
+			}
+		}
+		if acc.CanWriteTile(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // backendPrincipal: a tile's backend — its instance token, or a cron or bus

@@ -320,6 +320,49 @@ func TestNestedPageNavigationMints(t *testing.T) {
 		if got := minted("apps/a", "/c/apps/a/settings/", fetch); got != "" {
 			t.Errorf("%s: a fetch of the sub-page lifted its token (%q)", mode, got)
 		}
+		// A tile opening or framing ANOTHER tree's page with xbin.url (its
+		// own token in ?frame=) gets no token there, top-level or framed:
+		// the migration note lists it (docs/changes/2026-09-26-frame-tokens.md).
+		top := []reqOpt{hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Dest", "document"), hdr("Sec-Fetch-Site", "cross-site")}
+		for _, opts := range [][]reqOpt{nav, top} {
+			if got := minted("apps/b", "/c/apps/a/", opts); got != "" {
+				t.Errorf("%s: apps/b navigating to apps/a's page minted %q", mode, got)
+			}
+		}
+
+		// Review: "navigation" is only headers, and a frame token is a bearer
+		// credential — a client that is not a browser replays a page's token
+		// with navigate headers (or just Accept: text/html) and reads the
+		// answer. With someone holding write on the nested page alone (per-
+		// path RBAC), the nested page's writers could lift a viewer's token
+		// for the parent or a sibling that way: refused. Parent → nested
+		// page stays (the parent's writers write the whole tree).
+		if _, err := w.st.Upsert(users.User{ID: "mal", Role: users.RoleUser, Tiles: map[string]string{"apps/a/settings": users.LevelTerminal}}, "password1"); err != nil {
+			t.Fatal(err)
+		}
+		accept := []reqOpt{hdr("Accept", "text/html")}
+		for _, c := range []struct {
+			from, path string
+			opts       []reqOpt
+			want       string
+		}{
+			{"apps/a/settings", "/c/apps/a/", nav, ""},
+			{"apps/a/settings", "/c/apps/a/", accept, ""},
+			{"apps/a/settings", "/c/apps/a/profile/", nav, ""},
+			{"apps/a", "/c/apps/a/settings/", nav, "apps/a/settings"},
+			{"apps/a/profile", "/c/apps/a/", nav, "apps/a"}, // nobody writes profile alone
+		} {
+			if got := minted(c.from, c.path, c.opts); got != c.want {
+				t.Errorf("%s: with a settings-only writer, %s → %s minted %q, want %q", mode, c.from, c.path, got, c.want)
+			}
+		}
+		// mal also writing the parent: the tree's writers are one set again.
+		if _, err := w.st.Upsert(users.User{ID: "mal", Role: users.RoleUser, Tiles: map[string]string{"apps/a/settings": users.LevelTerminal, "apps/a": users.LevelWrite}}, ""); err != nil {
+			t.Fatal(err)
+		}
+		if got := minted("apps/a/settings", "/c/apps/a/", nav); got != "apps/a" {
+			t.Errorf("%s: settings → parent with a tree-wide writer minted %q", mode, got)
+		}
 	}
 }
 

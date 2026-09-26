@@ -112,7 +112,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     navigation within its own tree of nested pages). Another tile that
     fetches `/c/<tile>/` or `?native=1` through its user's access gets
     `content=""` — before, any tile could lift e.g. the admin tile's token
-    out of the HTML (security fix). A tile's backend gets none from its own
+    out of the HTML (security fix). Another tile's page opened or framed
+    with `xbin.url()` gets none either (use `xbin.window({src})` or a plain
+    URL; the migration note). A tile's backend gets none from its own
     page or `GET /api/xbin/frame-token` (403): its instance token names no
     person, so the token read as the owner's frame, with owner reach on
     every tile (security fix; pre-existing).
