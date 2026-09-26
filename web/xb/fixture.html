@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>xb fixture</title>
+<!--
+  xb/fixture.html — draws one native tree with the reference renderer, for
+  screenshots and renderer work. Served by xbind at /vendor/xb/fixture.html.
+
+    ?tree=<url>       a tree JSON ({"v":1,"root":…}, or a bare root node)
+    ?messages=<url>   a JSON array of runtime messages (mount, patch…) applied in order
+    ?theme=light|dark (default: the system scheme)   ?text=large
+
+  Scripts drive it through window.xbnFixture: load(tree), apply(msg),
+  set({theme, text}), events (what the view sent: [k, type, payload, n]),
+  ready (a promise, settled once the first tree is drawn).
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #f6f7f9; }
+  @media (prefers-color-scheme: dark) { html, body { background: #1b1e24; } }
+  html.dark, html.dark body { background: #1b1e24; }
+  html.light, html.light body { background: #f6f7f9; }
+  xb-view { position: fixed; inset: 0; }
+  #err { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 9; font: 12px/1.4 monospace; color: #fff; background: #c62828; padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+  #err:empty { display: none; }
+</style>
+<script type="module">
+  import '/vendor/xb/render.js';
+
+  const q = new URLSearchParams(location.search);
+  const view = document.querySelector('xb-view');
+  const err = document.getElementById('err');
+  const events = [];
+  const set = ({ theme, text } = {}) => {
+    if (theme !== undefined) {
+      view.theme = theme || '';
+      document.documentElement.className = theme || '';
+    }
+    if (text !== undefined) view.text = text || '';
+  };
+  const settle = () => view.updateComplete.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const tree = (t) => (t && t.root ? t : { v: 1, root: t });
+  view.onevent = (k, type, payload, n) => { events.push([k, type, payload, n]); console.log('[xb-view] event', k, type, JSON.stringify(payload)); };
+
+  async function load(t) { view.setTree(tree(t)); await settle(); return true; }
+  async function apply(m) { const ok = view.apply(m); await settle(); return ok; }
+
+  async function boot() {
+    set({ theme: q.get('theme') ?? undefined, text: q.get('text') ?? undefined });
+    if (q.get('tree')) await load(await (await fetch(q.get('tree'))).json());
+    if (q.get('messages')) for (const m of await (await fetch(q.get('messages'))).json()) await apply(m);
+  }
+  const ready = boot().catch((e) => { err.textContent = String(e?.stack || e); throw e; });
+  window.xbnFixture = { view, events, load, apply, set, settle, ready };
+</script>
+</head>
+<body><xb-view></xb-view><div id="err"></div></body>
+</html>

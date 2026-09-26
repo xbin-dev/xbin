@@ -1,0 +1,472 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "screen",
+  "p": {
+   "title": "Content",
+   "style": "scroll"
+  },
+  "c": [
+   {
+    "k": "r.0",
+    "t": "text",
+    "p": {
+     "text": "Large title role",
+     "style": "largeTitle"
+    }
+   },
+   {
+    "k": "r.1",
+    "t": "text",
+    "p": {
+     "text": "Headline role, then a body paragraph that wraps across a couple of lines on a phone.",
+     "style": "headline"
+    }
+   },
+   {
+    "k": "r.2",
+    "t": "text",
+    "p": {
+     "text": "Footnote, muted — clamp to one line even when it is long enough to need two lines here",
+     "style": "footnote",
+     "tone": "muted",
+     "lines": 1
+    }
+   },
+   {
+    "k": "r.3",
+    "t": "stack",
+    "p": {
+     "axis": "h",
+     "gap": "s",
+     "wrap": true
+    },
+    "c": [
+     {
+      "k": "r.3.0",
+      "t": "badge",
+      "p": {
+       "text": "neutral"
+      }
+     },
+     {
+      "k": "r.3.1",
+      "t": "badge",
+      "p": {
+       "text": "accent",
+       "tone": "accent"
+      }
+     },
+     {
+      "k": "r.3.2",
+      "t": "badge",
+      "p": {
+       "text": "ok",
+       "tone": "ok",
+       "pulse": true
+      }
+     },
+     {
+      "k": "r.3.3",
+      "t": "badge",
+      "p": {
+       "text": "warn",
+       "tone": "warn"
+      }
+     },
+     {
+      "k": "r.3.4",
+      "t": "badge",
+      "p": {
+       "text": "danger",
+       "tone": "danger"
+      }
+     },
+     {
+      "k": "r.3.5",
+      "t": "icon",
+      "p": {
+       "name": "bolt",
+       "tone": "accent"
+      }
+     },
+     {
+      "k": "r.3.6",
+      "t": "icon",
+      "p": {
+       "name": "nonexistent"
+      }
+     }
+    ]
+   },
+   {
+    "k": "r.4",
+    "t": "notice",
+    "p": {
+     "tone": "info",
+     "title": "Heads up",
+     "text": "An info notice with a title."
+    }
+   },
+   {
+    "k": "r.5",
+    "t": "notice",
+    "p": {
+     "tone": "ok",
+     "text": "Saved."
+    }
+   },
+   {
+    "k": "r.6",
+    "t": "notice",
+    "p": {
+     "tone": "warn",
+     "text": "Egress is not bound yet."
+    }
+   },
+   {
+    "k": "r.7",
+    "t": "notice",
+    "p": {
+     "tone": "danger",
+     "title": "Failed",
+     "text": "connection refused"
+    }
+   },
+   {
+    "k": "r.8",
+    "t": "notice",
+    "p": {
+     "tone": "accent",
+     "text": "Accent notice."
+    }
+   },
+   {
+    "k": "r.9",
+    "t": "progress",
+    "p": {
+     "label": "loading…"
+    }
+   },
+   {
+    "k": "r.10",
+    "t": "progress",
+    "p": {
+     "value": 0.62,
+     "label": "Uploading backup"
+    }
+   },
+   {
+    "k": "r.11",
+    "t": "markdown",
+    "p": {
+     "source": "# Release notes\nVersion **2.4** brings *faster* sync and ~~old~~ new `bx` commands. See [the docs](https://xbin.dev/docs).\n\n## Changes\n- Faster diff\n- Native previews\n  1. light\n  2. dark\n- [x] tests pass\n- [ ] ship it\n\n> Quotes are muted, with a rule.\n\n```go\nfunc main() { fmt.Println(\"hi\") }\n```\n\n| name | size | ok |\n|:--|--:|:-:|\n| a.txt | 12 KB | yes |\n| b.bin | 3 MB | no |\n\n---\nThe end."
+    },
+    "e": [
+     "link"
+    ]
+   },
+   {
+    "k": "r.12",
+    "t": "image",
+    "p": {
+     "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB4Mj0iMSIgeTE9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmNWE2MjMiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyZjZmZDYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgZmlsbD0idXJsKCNnKSIvPjxjaXJjbGUgY3g9IjI0MCIgY3k9IjYwIiByPSIzMCIgZmlsbD0iI2ZmZiIgb3BhY2l0eT0iLjciLz48L3N2Zz4=",
+     "alt": "gradient",
+     "preview": true,
+     "aspect": "fill",
+     "height": "m"
+    }
+   },
+   {
+    "k": "r.13",
+    "t": "chart",
+    "p": {
+     "kind": "line",
+     "x": "time",
+     "y": "bytes",
+     "series": [
+      {
+       "name": "rx",
+       "points": [
+        [
+         1790000000000,
+         3000000.0
+        ],
+        [
+         1790000060000,
+         4400000.0
+        ],
+        [
+         1790000120000,
+         5800000.0
+        ],
+        [
+         1790000180000,
+         7200000.0
+        ],
+        [
+         1790000240000,
+         8600000.0
+        ],
+        [
+         1790000300000,
+         5000000.0
+        ],
+        [
+         1790000360000,
+         6400000.0
+        ],
+        [
+         1790000420000,
+         7800000.000000001
+        ],
+        [
+         1790000480000,
+         9200000.0
+        ],
+        [
+         1790000540000,
+         10600000.0
+        ],
+        [
+         1790000600000,
+         7000000.0
+        ],
+        [
+         1790000660000,
+         8400000.0
+        ]
+       ]
+      },
+      {
+       "name": "tx",
+       "points": [
+        [
+         1790000000000,
+         1000000.0
+        ],
+        [
+         1790000060000,
+         1700000.0
+        ],
+        [
+         1790000120000,
+         2400000.0
+        ],
+        [
+         1790000180000,
+         1000000.0
+        ],
+        [
+         1790000240000,
+         1700000.0
+        ],
+        [
+         1790000300000,
+         2400000.0
+        ],
+        [
+         1790000360000,
+         1000000.0
+        ],
+        [
+         1790000420000,
+         1700000.0
+        ],
+        [
+         1790000480000,
+         2400000.0
+        ],
+        [
+         1790000540000,
+         1000000.0
+        ],
+        [
+         1790000600000,
+         1700000.0
+        ],
+        [
+         1790000660000,
+         2400000.0
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "k": "r.14",
+    "t": "chart",
+    "p": {
+     "kind": "bar",
+     "x": "category",
+     "y": "number",
+     "height": "s",
+     "series": [
+      {
+       "name": "requests",
+       "points": [
+        [
+         "mon",
+         120
+        ],
+        [
+         "tue",
+         340
+        ],
+        [
+         "wed",
+         90
+        ],
+        [
+         "thu",
+         410
+        ],
+        [
+         "fri",
+         280
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "k": "r.15",
+    "t": "chart",
+    "p": {
+     "kind": "area",
+     "x": "number",
+     "y": "percent",
+     "height": "s",
+     "series": [
+      {
+       "name": "cpu",
+       "points": [
+        [
+         0,
+         0.1
+        ],
+        [
+         1,
+         0.3
+        ],
+        [
+         2,
+         0.25
+        ],
+        [
+         3,
+         0.6
+        ],
+        [
+         4,
+         0.45
+        ],
+        [
+         5,
+         0.8
+        ],
+        [
+         6,
+         0.5
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "k": "r.16",
+    "t": "chart",
+    "p": {
+     "kind": "spark",
+     "series": [
+      {
+       "name": "s",
+       "points": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         5
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         3,
+         8
+        ],
+        [
+         4,
+         6
+        ],
+        [
+         5,
+         9
+        ],
+        [
+         6,
+         7
+        ],
+        [
+         7,
+         11
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "k": "r.17",
+    "t": "code",
+    "p": {
+     "text": "curl -fsSL https://xbin.dev/install.sh | sh\nxbind init ./ws",
+     "copy": true
+    }
+   },
+   {
+    "k": "r.18",
+    "t": "empty",
+    "p": {
+     "icon": "archive",
+     "title": "No backups",
+     "text": "Backups appear here after the first run."
+    }
+   },
+   {
+    "k": "r.19",
+    "t": "divider"
+   },
+   {
+    "k": "r.20",
+    "t": "terminal",
+    "p": {
+     "src": "/pty",
+     "title": "build"
+    }
+   },
+   {
+    "k": "r.21",
+    "t": "canvas",
+    "p": {
+     "html": "<body style='font:14px sans-serif;margin:12px'><b>canvas</b> island (static html, no scripts)</body>",
+     "height": "xs"
+    }
+   },
+   {
+    "k": "r.22",
+    "t": "mystery-prim",
+    "p": {
+     "x": 1
+    }
+   }
+  ]
+ }
+}

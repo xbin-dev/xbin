@@ -1,0 +1,359 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "screen",
+  "p": {
+   "title": "Controls",
+   "style": "form"
+  },
+  "c": [
+   {
+    "k": "r.0",
+    "t": "section",
+    "p": {
+     "title": "Switches"
+    },
+    "c": [
+     {
+      "k": "r.0.0",
+      "t": "toggle",
+      "p": {
+       "label": "Enabled",
+       "value": true
+      },
+      "e": [
+       "change"
+      ]
+     },
+     {
+      "k": "r.0.1",
+      "t": "toggle",
+      "p": {
+       "label": "Notifications",
+       "value": false
+      },
+      "e": [
+       "change"
+      ]
+     },
+     {
+      "k": "r.0.2",
+      "t": "toggle",
+      "p": {
+       "label": "Locked (disabled)",
+       "value": true,
+       "disabled": true
+      }
+     }
+    ]
+   },
+   {
+    "k": "r.1",
+    "t": "section",
+    "p": {
+     "title": "Fields",
+     "footer": "Secure values are never stored."
+    },
+    "c": [
+     {
+      "k": "r.1.0",
+      "t": "field",
+      "p": {
+       "label": "Token",
+       "kind": "secure",
+       "value": "hunter2hunter2"
+      },
+      "e": [
+       "input"
+      ]
+     },
+     {
+      "k": "r.1.1",
+      "t": "field",
+      "p": {
+       "label": "Port",
+       "kind": "number",
+       "value": "8080",
+       "hint": "1–65535"
+      },
+      "e": [
+       "input"
+      ]
+     },
+     {
+      "k": "r.1.2",
+      "t": "field",
+      "p": {
+       "label": "Email",
+       "kind": "email",
+       "value": "not-an-email",
+       "error": "That is not an email address."
+      },
+      "e": [
+       "input"
+      ]
+     },
+     {
+      "k": "r.1.3",
+      "t": "field",
+      "p": {
+       "label": "Notes",
+       "kind": "multiline",
+       "value": "first line\nsecond line"
+      },
+      "e": [
+       "input"
+      ]
+     },
+     {
+      "k": "r.1.4",
+      "t": "field",
+      "p": {
+       "kind": "search",
+       "placeholder": "Search hosts"
+      },
+      "e": [
+       "input"
+      ]
+     },
+     {
+      "k": "r.1.5",
+      "t": "field",
+      "p": {
+       "label": "Date",
+       "kind": "date",
+       "value": "2026-09-21"
+      },
+      "e": [
+       "change"
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.2",
+    "t": "section",
+    "p": {
+     "title": "Pickers"
+    },
+    "c": [
+     {
+      "k": "r.2.0",
+      "t": "picker",
+      "p": {
+       "label": "Region",
+       "value": "eu",
+       "options": [
+        {
+         "value": "us",
+         "label": "US East"
+        },
+        {
+         "value": "eu",
+         "label": "EU Central"
+        }
+       ]
+      },
+      "e": [
+       "change"
+      ]
+     },
+     {
+      "k": "r.2.1",
+      "t": "picker",
+      "p": {
+       "label": "Mode",
+       "style": "segmented",
+       "value": 2,
+       "options": [
+        {
+         "value": 1,
+         "label": "Auto"
+        },
+        {
+         "value": 2,
+         "label": "Manual"
+        },
+        {
+         "value": 3,
+         "label": "Off"
+        }
+       ]
+      },
+      "e": [
+       "change"
+      ]
+     },
+     {
+      "k": "r.2.2",
+      "t": "picker",
+      "p": {
+       "label": "Theme",
+       "style": "inline",
+       "value": "dark",
+       "options": [
+        {
+         "value": "light",
+         "label": "Light",
+         "icon": "sun"
+        },
+        {
+         "value": "dark",
+         "label": "Dark",
+         "icon": "moon"
+        }
+       ]
+      },
+      "e": [
+       "change"
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.3",
+    "t": "section",
+    "p": {
+     "title": "Buttons"
+    },
+    "c": [
+     {
+      "k": "r.3.0",
+      "t": "button",
+      "p": {
+       "label": "Primary",
+       "role": "primary"
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.3.1",
+      "t": "button",
+      "p": {
+       "label": "Default with icon",
+       "icon": "share"
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.3.2",
+      "t": "button",
+      "p": {
+       "label": "Busy",
+       "busy": true
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.3.3",
+      "t": "button",
+      "p": {
+       "label": "Copy secret",
+       "icon": "copy",
+       "copy": "s3cr3t"
+      }
+     },
+     {
+      "k": "r.3.4",
+      "t": "button",
+      "p": {
+       "label": "Delete everything",
+       "role": "destructive",
+       "icon": "trash",
+       "confirm": {
+        "title": "Delete everything?",
+        "message": "This cannot be undone.",
+        "label": "Delete",
+        "destructive": true
+       }
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.3.5",
+      "t": "menu",
+      "p": {
+       "label": "More actions",
+       "icon": "ellipsis"
+      },
+      "c": [
+       {
+        "k": "r.3.5.0",
+        "t": "button",
+        "p": {
+         "label": "Export"
+        },
+        "e": [
+         "tap"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.4",
+    "t": "stack",
+    "p": {
+     "gap": "s"
+    },
+    "c": [
+     {
+      "k": "r.4.0",
+      "t": "button",
+      "p": {
+       "label": "Continue",
+       "role": "primary"
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.4.1",
+      "t": "button",
+      "p": {
+       "label": "Secondary",
+       "role": "secondary"
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.4.2",
+      "t": "button",
+      "p": {
+       "label": "Remove",
+       "role": "destructive"
+      },
+      "e": [
+       "tap"
+      ]
+     },
+     {
+      "k": "r.4.3",
+      "t": "button",
+      "p": {
+       "label": "Disabled",
+       "role": "primary",
+       "disabled": true
+      },
+      "e": [
+       "tap"
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

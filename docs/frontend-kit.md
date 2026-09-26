@@ -30,6 +30,7 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor` |
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (`--bx-bg`, `--bx-panel`, `--bx-text`, …) plus opt-in `.bx` control styles. Link it to take the theme; it is **never injected** into your document |
+| `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`). Outside the app nothing loads `native.js`; browsers keep showing `index.html` |
 | `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself |
 
 ## Shell-only modules
@@ -45,6 +46,18 @@ frame's view of the terminal session directory, D73), and the shell's own
 siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
+
+## Native preview modules
+
+`/vendor/xb/render.js` — `<xb-view>`, the reference renderer of the native
+vocabulary: it draws a native tree (or the runtime's `mount`/`patch`
+messages) the way the xbin app does, light or dark, default or large text,
+and reports the user's taps and typing as the app would.
+`/vendor/xb/preview-host.js` puts it to work inside a tile's native runtime
+document (`/c/<tile>/?native=1&preview=1`), so a browser shows the tile's
+native UI; `/vendor/xb/fixture.html?tree=<url>` draws one tree. They exist
+for previews and tests — a tile never imports them, and they follow the
+app's look rather than a frozen API.
 
 ## Rules
 

@@ -23,6 +23,9 @@
  *                             the shell shows warn/error as a breathing sidebar
  *                             dot + tab tint. xbin.clearStatus() to clear.
  *   xbin.notify(level,msg) — one-shot user notification (toast)
+ *   xbin.native            — only in the xbin app's runtime document (a tile's
+ *                             native.js): caps, supports, meta, copy, share,
+ *                             open, state/saveState — see /vendor/xb-native.js
  *
  * It also reports the document's height to the embedding <bx-frame> so
  * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
@@ -300,4 +303,10 @@ if (embedded) {
   document.addEventListener('pointercancel', cancel, true);
 }
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify });
+// xbin.native — the xbin app's small API for a tile's native UI, present only
+// in the app's runtime document (<meta name="xbin-native">): the app injects
+// {caps, state} as window.xbin.native before this script runs and
+// /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
+const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
+
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(nativeApi ? { native: nativeApi } : {}) });

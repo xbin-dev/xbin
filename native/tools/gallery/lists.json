@@ -1,0 +1,169 @@
+{
+ "v": 1,
+ "root": {
+  "k": "r",
+  "t": "split",
+  "p": {
+   "prefer": "auto"
+  },
+  "c": [
+   {
+    "k": "r.0",
+    "t": "screen",
+    "p": {
+     "title": "Inbox",
+     "style": "scroll"
+    },
+    "c": [
+     {
+      "k": "r.0.0",
+      "t": "list",
+      "p": {
+       "style": "plain"
+      },
+      "e": [
+       "more"
+      ],
+      "c": [
+       {
+        "k": "r.0.0.0:0",
+        "t": "row",
+        "p": {
+         "title": "Deploy finished",
+         "subtitle": "apps/ci · main@3f2a",
+         "detail": "09:12",
+         "selected": false
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.0.0.0:1",
+        "t": "row",
+        "p": {
+         "title": "Backup verified",
+         "subtitle": "apps/s3-archiver",
+         "detail": "08:40",
+         "selected": false
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.0.0.0:2",
+        "t": "row",
+        "p": {
+         "title": "New SSH key",
+         "subtitle": "apps/devbox · ed25519",
+         "detail": "Mon",
+         "selected": true
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.0.0.0:3",
+        "t": "row",
+        "p": {
+         "title": "Egress request",
+         "subtitle": "203.0.113.7",
+         "detail": "Sun",
+         "selected": false
+        },
+        "e": [
+         "tap"
+        ]
+       }
+      ]
+     },
+     {
+      "k": "r.0.1",
+      "t": "list",
+      "p": {
+       "style": "inset"
+      },
+      "c": [
+       {
+        "k": "r.0.1.0",
+        "t": "row",
+        "p": {
+         "title": "Mark all read",
+         "icon": "check"
+        },
+        "e": [
+         "tap"
+        ]
+       },
+       {
+        "k": "r.0.1.1",
+        "t": "section",
+        "p": {
+         "title": "Filters"
+        },
+        "c": [
+         {
+          "k": "r.0.1.1.0",
+          "t": "picker",
+          "p": {
+           "label": "Show",
+           "value": "all",
+           "options": [
+            {
+             "value": "all",
+             "label": "Everything"
+            },
+            {
+             "value": "unread",
+             "label": "Unread"
+            }
+           ]
+          },
+          "e": [
+           "change"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "k": "r.1",
+    "t": "screen",
+    "p": {
+     "title": "Backup verified",
+     "style": "form"
+    },
+    "c": [
+     {
+      "k": "r.1.0",
+      "t": "section",
+      "c": [
+       {
+        "k": "r.1.0.0",
+        "t": "row",
+        "p": {
+         "title": "Bucket",
+         "detail": "acme-backups",
+         "mono": "detail"
+        }
+       },
+       {
+        "k": "r.1.0.1",
+        "t": "progress",
+        "p": {
+         "value": 1,
+         "label": "Verified"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
