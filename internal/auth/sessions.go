@@ -163,9 +163,10 @@ func (a *Auth) DropSession(id string) {
 	a.saveGens() // an ended login must not come back as an orphan after a crash
 }
 
-// DropBearerSession ends an app session by its token (the app's sign-out);
-// false when tok is not a live bearer session.
-func (a *Auth) DropBearerSession(tok string) bool {
+// DropBearerSession ends an app session by its token (the app's sign-out),
+// reporting whose it was — the user and, for a device-key login, the
+// enrolled device. ok=false when tok is not a live bearer session.
+func (a *Auth) DropBearerSession(tok string) (userID, deviceID string, ok bool) {
 	a.mu.Lock()
 	s, ok := a.sessions[tok]
 	if ok && s.bearer {
@@ -173,10 +174,10 @@ func (a *Auth) DropBearerSession(tok string) bool {
 	}
 	a.mu.Unlock()
 	if !ok || !s.bearer {
-		return false
+		return "", "", false
 	}
 	a.saveGens()
-	return true
+	return s.userID, s.deviceID, true
 }
 
 // DropUserSessions ends every session of one user — browser and app alike

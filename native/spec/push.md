@@ -57,8 +57,13 @@ Three parties:
 4. **Keeping it working.** On launch and when coming to the foreground, per
    workspace, `GET /api/xbin/devices/push` and find this `deviceId`:
    - **missing** → register again (step 3). Registrations go when the user is
-     signed out everywhere, disabled or deleted, when an admin revokes the
-     device, and when APNs reports the device token dead;
+     signed out everywhere, disabled or deleted, when the device is removed
+     (revoked on its own, `?devices=1` on sign-out-everywhere, a password
+     change with `removeDevices`), when its device session signs out
+     (`POST /logout`), when an admin revokes the registration, and when APNs
+     reports the device token dead. Register with the device-login
+     `deviceId` once the device is enrolled — that is the id revocation
+     matches;
    - **`needsNewHandle: true`** → the relay will not deliver to this handle for
      this workspace any more (`relayError`: `handle_bound` — the workspace
      re-registered with the relay, e.g. after an admin rotated its relay key;

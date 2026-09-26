@@ -80,6 +80,12 @@ type Server struct {
 	TileAssets  string
 	TilesDomain string
 
+	// OnDeviceSignedOut, if set, is called after an enrolled device's app
+	// session signed itself out (POST /logout with its bearer,
+	// devicelogin.go), so per-device state — its push registration — ends
+	// with it. Installed at boot.
+	OnDeviceSignedOut func(userID, deviceID string)
+
 	// SSO runtime state (sso.go): per-issuer cached OIDC provider and the
 	// boot-random HMAC key signing the one-shot login-state cookie.
 	ssoMu         sync.Mutex

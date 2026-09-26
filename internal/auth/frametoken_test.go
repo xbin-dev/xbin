@@ -305,7 +305,8 @@ func TestBearerSessions(t *testing.T) {
 		t.Fatalf("sessions via: %s", got)
 	}
 	// Sign-out of the app: only bearer sessions drop by token.
-	if a.DropBearerSession(cookieSID(t, a)) || !a.DropBearerSession(app.Token) || a.DropBearerSession(app.Token) {
+	drop := func(tok string) bool { _, _, ok := a.DropBearerSession(tok); return ok }
+	if drop(cookieSID(t, a)) || !drop(app.Token) || drop(app.Token) {
 		t.Fatal("DropBearerSession")
 	}
 	// A disabled user's app session refuses.

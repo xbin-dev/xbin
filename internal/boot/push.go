@@ -59,6 +59,27 @@ func (st *State) setupPush(srv *server.Server) error {
 			}
 		}
 	}
+	// a device revoked (on its own, with sign-out-everywhere's ?devices=1,
+	// or by a password change) or signing itself out: its registration goes
+	// with its key or session — keyed by the same device id device login
+	// uses (native/spec/push.md); the app registers again at its next
+	// sign-in
+	if st.Broker != nil {
+		prev := st.Broker.OnDeviceRemoved
+		st.Broker.OnDeviceRemoved = func(user, device string) {
+			if prev != nil {
+				prev(user, device)
+			}
+			ps.ForgetDevice(user, device)
+		}
+	}
+	prevOut := srv.OnDeviceSignedOut
+	srv.OnDeviceSignedOut = func(user, device string) {
+		if prevOut != nil {
+			prevOut(user, device)
+		}
+		ps.ForgetDevice(user, device)
+	}
 	if st.Term != nil {
 		publish := st.Term.OnEvent // the /ws/events publisher (stepServer)
 		st.Term.OnEvent = func(cwd string, ev term.SessionEvent) {

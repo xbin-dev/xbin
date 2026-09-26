@@ -155,7 +155,8 @@ POST /login/device               {deviceId, nonce, signature} → {token,
                                  Throttled; audit-logged
 POST /logout                     revoke the session (cookie → 302 /login;
                                  an app session's Authorization: Bearer →
-                                 204)
+                                 204; a device-key session's device loses
+                                 its push registration)
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  <head> injection (import map, component
@@ -803,7 +804,8 @@ GET    /devices                   a signed-in user. {devices: [{id, name,
 DELETE /devices/<id>              the device's user, or admin/xbin:users
                                    → {ok, user, dropped}: removes the key
                                    and ends every session it opened (and
-                                   the frame tokens they minted)
+                                   the frame and asset tokens they minted)
+                                   and its push registration
 GET    /users/<id>/devices        admin/xbin:users. {devices: […]} as
                                    GET /devices (no current)
 GET    /screens                   signed-in. {default: {tiles}|null, org:
@@ -1789,8 +1791,12 @@ permission request; 60/hour (burst 5) of `POST /push/test`. Over a per-user
 or per-session limit a push is dropped (counted as `limited`). Nothing
 reaches a disabled user. Signing a user out everywhere (`DELETE
 /users/<id>/sessions`), disabling or deleting them drops their push
-registrations (a deleted user's preferences too); the app registers again
-at the next sign-in. Delivery is asynchronous and best-effort: a bounded
+registrations (a deleted user's preferences too); removing an enrolled
+device (`DELETE /devices/<id>`, `?devices=1` on sign-out-everywhere, a
+password change with `removeDevices`) or its device session signing out
+(`POST /logout` with its bearer) drops that device's registration — the
+registration's `deviceId` is the device-login device id. The app registers
+again at the next sign-in. Delivery is asynchronous and best-effort: a bounded
 queue (a full one drops), up to 5 attempts with backoff on relay 429/5xx or
 network errors. Only the relay's own error codes touch a registration: 410
 (the device is gone) removes it; 403 `handle_bound` or 404 `handle_unknown`

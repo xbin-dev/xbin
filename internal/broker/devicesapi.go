@@ -74,7 +74,8 @@ func (b *Broker) apiUserDevices(w http.ResponseWriter, r *http.Request) {
 
 // apiDeviceRevoke — DELETE /devices/{id}: the device's own user, or admin /
 // xbin:users. Removes the key and ends every session it opened — and with
-// them the frame tokens those sessions minted.
+// them the frame tokens those sessions minted — and its push registration
+// (OnDeviceRemoved).
 func (b *Broker) apiDeviceRevoke(srv *server.Server, w http.ResponseWriter, r *http.Request) {
 	st := b.usersStore(w)
 	if st == nil {
@@ -96,6 +97,7 @@ func (b *Broker) apiDeviceRevoke(srv *server.Server, w http.ResponseWriter, r *h
 	if srv != nil && srv.Auth != nil {
 		n = srv.Auth.DropDeviceSessions(id)
 	}
+	b.deviceRemoved(owner, id)
 	b.usersEvent()
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "user": owner, "dropped": n})
 }
@@ -105,10 +107,11 @@ func (b *Broker) apiDeviceRevoke(srv *server.Server, w http.ResponseWriter, r *h
 // many went.
 func (b *Broker) removeUserDevices(srv *server.Server, st *users.Store, uid, keep string) (int, error) {
 	ids, err := st.RemoveDevices(uid, keep)
-	if srv != nil && srv.Auth != nil {
-		for _, id := range ids {
+	for _, id := range ids {
+		if srv != nil && srv.Auth != nil {
 			srv.Auth.DropDeviceSessions(id)
 		}
+		b.deviceRemoved(uid, id)
 	}
 	if len(ids) > 0 {
 		b.usersEvent()
@@ -131,4 +134,11 @@ func (b *Broker) signoutDevices(srv *server.Server, st *users.Store, w http.Resp
 	}
 	out["devicesLeft"] = len(st.Devices(uid))
 	return true
+}
+
+// deviceRemoved runs the OnDeviceRemoved hook.
+func (b *Broker) deviceRemoved(userID, deviceID string) {
+	if b.OnDeviceRemoved != nil {
+		b.OnDeviceRemoved(userID, deviceID)
+	}
 }

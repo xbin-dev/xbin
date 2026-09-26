@@ -460,11 +460,21 @@ func (s *Server) ssoAppFinish(w http.ResponseWriter, r *http.Request, userID, ch
 }
 
 // bearerLogout: POST /logout with an app session's bearer ends that session
-// → 204. false: not an app session (the cookie logout runs).
+// → 204. A device-key session signing out also ends its device's
+// per-device state (OnDeviceSignedOut: the push registration) — the device
+// stays enrolled and registers again at its next sign-in. false: not an app
+// session (the cookie logout runs).
 func (s *Server) bearerLogout(w http.ResponseWriter, r *http.Request) bool {
 	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") || !s.Auth.DropBearerSession(strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))) {
+	if !strings.HasPrefix(h, "Bearer ") {
 		return false
+	}
+	uid, dev, ok := s.Auth.DropBearerSession(strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+	if !ok {
+		return false
+	}
+	if dev != "" && s.OnDeviceSignedOut != nil {
+		s.OnDeviceSignedOut(uid, dev)
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return true

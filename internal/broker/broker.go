@@ -83,6 +83,12 @@ type Broker struct {
 	// registrations) goes with the sessions.
 	OnUserSignedOut func(userID string, deleted bool)
 
+	// OnDeviceRemoved, if set, is called after an enrolled app device was
+	// removed — revoked on its own (DELETE /devices/{id}), with
+	// sign-out-everywhere's ?devices=1, or by a password change that asks for
+	// it — so per-device state (its push registration) goes with its key.
+	OnDeviceRemoved func(userID, deviceID string)
+
 	// StopBackend, if set, terminates a component's running backend now (used
 	// when the owner disables/offloads it; plans/lifecycle.md). Wired to
 	// runner.Stop by main.
