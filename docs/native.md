@@ -302,7 +302,10 @@ diagnostic (§Checking it) — the render goes on.
   prop, matched against `selected`.
 - **`sheet`** is modal over everything. Bind `open` and clear your state in
   `@dismiss` (the user swiped it away). It usually sits beside the `nav` in
-  a two-root template.
+  a two-root template. In the sheet's own `toolbar`, the first `plain`
+  button is its cancel: it takes the close button's place at the leading
+  end (close the sheet in its `@tap`), and the other items sit at the
+  trailing end.
 - **`split`** is list/detail — exactly two children, side by side on wide
   screens and stacked when compact. Never for transcripts or terminals.
 
