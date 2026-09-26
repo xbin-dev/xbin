@@ -431,7 +431,8 @@ The app draws these with the same components as its own agent screen.
   path}` the composer gets an attach button — the app shows its own pickers,
   uploads the chosen file's bytes itself with your frame token (to `path`
   under `/api/<self>/`, unless `path` starts with `/api/`; `{name}` in it
-  becomes the file's name; `method` defaults to `PUT`; `accept` filters the
+  becomes the file's name, percent-encoded — the path may carry a query,
+  e.g. `/api/<self>/ask/upload?draft=…&name={name}`; `method` defaults to `PUT`; `accept` filters the
   types) and fires `@uploaded {name, response}` with your backend's answer
   (parsed when it is JSON). Show the files as `attachments`
   `[{id, name, mime, progress}]`; `@remove {id}` when the user drops one.
