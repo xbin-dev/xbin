@@ -198,7 +198,34 @@ func has(fs []lintFinding, level, substr string) bool {
 	return false
 }
 
+func TestStackWhere(t *testing.T) {
+	for stack, want := range map[string]string{
+		"Error: x\n    at /c/apps/x/late.js:1:7":                     "/c/apps/x/late.js:1:7",
+		"Error: x\n    at load (/c/apps/x/native.js:12:3)\n    at y": "/c/apps/x/native.js:12:3",
+		"Error: x":                     "",
+		"Error: x\n    at <anonymous>": "",
+	} {
+		if got := stackWhere(stack); got != want {
+			t.Errorf("%q → %q, want %q", stack, got, want)
+		}
+	}
+}
+
+func TestParseNodeCheck(t *testing.T) {
+	out := "/tmp/bx-check-1.mjs:2\nrender(html`<screen>`;\n                     ^\n\nSyntaxError: missing ) after argument list\n    at wrapSafe (node:internal/modules/cjs/loader:1)\n\nNode.js v26.7.0\n"
+	if line, msg := parseNodeCheck(out, "/tmp/bx-check-1.mjs"); line != 2 || msg != "missing ) after argument list" {
+		t.Fatalf("got %d %q", line, msg)
+	}
+}
+
 func TestStaticLint(t *testing.T) {
+	jsSyntax = func(src []byte) (int, string) {
+		if strings.Contains(string(src), "SYNTAX") {
+			return 3, "Unexpected identifier 'SYNTAX'"
+		}
+		return 0, ""
+	}
+	defer func() { jsSyntax = nodeSyntax }()
 	native := func(e string) *struct {
 		Entry string `json:"entry"`
 	} {
@@ -248,6 +275,10 @@ func TestStaticLint(t *testing.T) {
 	}
 	if has(fs, "ok", "") {
 		t.Errorf("a tile with errors has no ok line:\n%s", levels(fs))
+	}
+	syntax := fakeXbind{"/c/apps/x/?native=1": {200, fakeDoc}, "/c/apps/x/native.js": {200, "import './m.js';"}, "/c/apps/x/m.js": {200, "a\nb\nSYNTAX here"}}
+	if fs := staticLint(syntax.get, nativeComp{Path: "apps/x", Native: native("native.js")}); !has(fs, "error", "syntax: Unexpected identifier") || fs[0].Where != "m.js:3" {
+		t.Fatalf("syntax error:\n%s", levels(fs))
 	}
 	missing := fakeXbind{"/c/apps/x/?native=1": {200, fakeDoc}}
 	if fs := staticLint(missing.get, nativeComp{Path: "apps/x", Native: native("native.js")}); !has(fs, "error", "native entry native.js: HTTP 404") {

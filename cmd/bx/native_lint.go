@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Static checks of `bx lint --native` (docs/bx.md "Native UIs"): what can be
@@ -166,6 +171,9 @@ func staticLint(get fetchFn, c nativeComp) []lintFinding {
 		}
 		modules++
 		name := rel(m.url)
+		if line, msg := jsSyntax(body); msg != "" {
+			add("error", fmt.Sprintf("%s:%d", name, line), "syntax: %s", msg)
+		}
 		sc := jsScan(string(body))
 		for _, h := range rawColours(sc, m.url == entryURL) {
 			w := fmt.Sprintf("%s:%d", name, h.Line)
@@ -244,6 +252,66 @@ func staticLint(get fetchFn, c nativeComp) []lintFinding {
 	return out
 }
 
+// jsSyntax parse-checks a module; tests replace it.
+var jsSyntax = nodeSyntax
+
+// nodeSyntax runs `node --check` on a module's source (as an ES module) and
+// returns the line and message of a syntax error — "" when it parses, or
+// when node is missing (the headless run would report it, less precisely).
+func nodeSyntax(src []byte) (int, string) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return 0, ""
+	}
+	f, err := os.CreateTemp("", "bx-check-*.mjs")
+	if err != nil {
+		return 0, ""
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(src)
+	if cerr := f.Close(); err != nil || cerr != nil {
+		return 0, ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "--check", f.Name()).CombinedOutput()
+	if err == nil || ctx.Err() != nil {
+		return 0, ""
+	}
+	return parseNodeCheck(string(out), f.Name())
+}
+
+// parseNodeCheck reads `node --check` output: "<file>:<line>", the source
+// line, a caret, then "SyntaxError: <message>".
+var reCheckErr = regexp.MustCompile(`(?m)^(\w*Error): (.+)$`)
+
+func parseNodeCheck(out, file string) (int, string) {
+	line := 0
+	if i := strings.Index(out, file+":"); i >= 0 {
+		rest := out[i+len(file)+1:]
+		j := 0
+		for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
+			j++
+		}
+		line, _ = strconv.Atoi(rest[:j])
+	}
+	if m := reCheckErr.FindStringSubmatch(out); m != nil {
+		return line, m[2]
+	}
+	return line, firstLine(out)
+}
+
+var reStackAt = regexp.MustCompile(`(?m)^\s*at (?:.*\()?(/[^\s()]+:\d+(?::\d+)?)\)?\s*$`)
+
+// stackWhere is the first frame of a stack that names a path on xbind
+// (/c/<tile>/file.js:line:col), "" when there is none.
+func stackWhere(stack string) string {
+	if m := reStackAt.FindStringSubmatch(stack); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
@@ -280,7 +348,7 @@ func runtimeFindings(r *probeResult) []lintFinding {
 		add(lvl, d.Where, "%s: %s", d.Code, d.Message)
 	}
 	for _, e := range r.PageErrors {
-		add("error", "", "uncaught: %s", firstLine(e))
+		add("error", stackWhere(e), "uncaught: %s", firstLine(e))
 	}
 	for i, c := range r.Console {
 		if i == 5 {

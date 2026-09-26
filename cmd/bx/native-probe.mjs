@@ -279,7 +279,9 @@ export async function probeTile(browser, cfg, tile) {
         res.console.push({ type: m.type(), text: clip(m.text()) });
       }
     });
-    page.on('pageerror', (e) => res.pageErrors.push(clip(e?.stack || e?.message || e)));
+    let pageFailed;
+    const pageFailure = new Promise((r) => { pageFailed = r; });
+    page.on('pageerror', (e) => { res.pageErrors.push(clip(e?.stack || e?.message || e)); pageFailed({ ok: false, pageError: true }); });
     // requests in flight (a live backend still answering) keep the run from
     // settling; streams (SSE, WebSockets) never finish, so they don't count
     const inflight = new Set();
@@ -308,9 +310,14 @@ export async function probeTile(browser, cfg, tile) {
       res.loadError = 'the preview host never started (no window.xbnPreview): does this xbind serve /vendor/xb/preview-host.js?';
       return res;
     }
-    const ready = await page.evaluate((ms) => Promise.race([window.xbnPreview.ready,
-      new Promise((r) => setTimeout(() => r({ ok: false, timeout: true }), ms))]), left()).catch((e) => ({ ok: false, error: { message: e.message } }));
-    if (!ready?.ok && ready?.timeout) res.warnings.push(`no tree within ${timeout} ms`);
+    // the app waits 5 s for a first tree; give it twice that (the rest of
+    // the budget still goes to settling while requests are in flight)
+    const firstWait = Math.min(left(), 10000);
+    // an uncaught error before the first tree (a module that fails to
+    // parse or throws while loading) ends the wait: nothing will come
+    const ready = await Promise.race([pageFailure, page.evaluate((ms) => Promise.race([window.xbnPreview.ready,
+      new Promise((r) => setTimeout(() => r({ ok: false, timeout: true }), ms))]), firstWait).catch((e) => ({ ok: false, error: { message: e.message } }))]);
+    if (!ready?.ok && ready?.timeout) res.warnings.push(`no tree within ${firstWait} ms`);
     res.settled = await settle(page, inflight, cfg, deadline);
     for (const s of Array.isArray(cfg.steps) ? cfg.steps : []) {
       await runStep(page, s, res, !!data);

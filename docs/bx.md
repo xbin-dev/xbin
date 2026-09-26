@@ -283,9 +283,10 @@ look at it); `lint` adds static checks and reports:
 
 - the entry exists (a broken `native` declaration in `xbin.json` is an
   error);
-- every import resolves the way the runtime document resolves it (relative
-  modules in the tile, `/vendor/…`, bare names through the import map), and
-  something imports `/vendor/xb-native.js`;
+- every module of the tile's parses (`node --check`, when node is there)
+  and every import resolves the way the runtime document resolves it
+  (relative modules in the tile, `/vendor/…`, bare names through the import
+  map), and something imports `/vendor/xb-native.js`;
 - raw colours (`tone="#f00"`, `rgb(…)`, a `'#ff3b30'` literal in the entry)
   where the vocabulary takes tokens;
 - the runtime's errors and diagnostics (unknown primitives or props, bad
