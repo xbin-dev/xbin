@@ -276,7 +276,7 @@ struct DisclosureNodeView: View {
     @Environment(\.xbin) private var cx
 
     var body: some View {
-        let open = Binding<Bool>(
+        let open = mainBinding(
             get: { node.value("open")?.boolValue ?? false },
             set: { cx?.emit(node, "toggle", ["open": .bool($0)]) }
         )

@@ -62,7 +62,7 @@ public struct QuestionView: View {
     }
 
     private func binding(_ name: String) -> Binding<JSONValue?> {
-        Binding(get: { values[name] }, set: { v in
+        mainBinding(get: { values[name] }, set: { v in
             values[name] = v
             error = nil
         })
@@ -87,14 +87,14 @@ private struct QuestionFieldRow: View {
     var body: some View {
         switch field.kind {
         case .boolean:
-            Toggle(isOn: Binding(get: { value.wrappedValue?.boolValue ?? false },
+            Toggle(isOn: mainBinding(get: { value.wrappedValue?.boolValue ?? false },
                                  set: { value.wrappedValue = .bool($0) })) {
                 title
             }
         case .choice(let choices):
             VStack(alignment: .leading, spacing: 6) {
                 title
-                Picker(selection: Binding<JSONValue>(get: { value.wrappedValue ?? .null },
+                Picker(selection: mainBinding(get: { value.wrappedValue ?? .null },
                                                      set: { value.wrappedValue = $0.isNull ? nil : $0 })) {
                     Text("Choose…").tag(JSONValue.null)
                     ForEach(choices, id: \.self) { c in Text(verbatim: c.label).tag(c.value) }
@@ -128,7 +128,7 @@ private struct QuestionFieldRow: View {
     }
 
     private var text: Binding<String> {
-        Binding(get: { QuestionField.text(value.wrappedValue) },
+        mainBinding(get: { QuestionField.text(value.wrappedValue) },
                 set: { value.wrappedValue = $0.isEmpty ? nil : .string($0) })
     }
 

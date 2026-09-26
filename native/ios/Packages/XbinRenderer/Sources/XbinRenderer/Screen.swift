@@ -126,7 +126,7 @@ private struct SearchModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if node.value("search") != nil {
-            let text = Binding<String>(
+            let text = mainBinding(
                 get: { Props.text(node.value("search")) ?? "" },
                 set: { cx?.emit(node, "search", ["value": .string($0)]) }
             )

@@ -148,7 +148,7 @@ struct ToggleNodeView: View {
     @Environment(\.xbin) private var cx
 
     var body: some View {
-        let isOn = Binding<Bool>(
+        let isOn = mainBinding(
             get: { node.value("value")?.boolValue ?? false },
             set: { cx?.emit(node, "change", ["value": .bool($0)]) }
         )
@@ -171,7 +171,7 @@ struct PickerNodeView: View {
         let options = PickerOption.list(p)
         let label = p.string("label") ?? ""
         let style = p.string("style") ?? "menu"
-        let selection = Binding<JSONValue>(
+        let selection = mainBinding(
             get: { node.value("value") ?? .null },
             set: { v in
                 if v != (node.value("value") ?? .null) { cx?.emit(node, "change", ["value": v]) }

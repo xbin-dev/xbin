@@ -15,7 +15,7 @@ struct NavView: View {
     var body: some View {
         let screens = node.children
         let keys = screens.map(\.key)
-        let path = Binding<[String]>(
+        let path = mainBinding(
             get: { NavStack.path(keys, popped: popped) },
             set: { new in
                 guard let r = NavStack.pop(screens: keys.count, popped: popped, newPathCount: new.count) else { return }
@@ -80,7 +80,7 @@ struct TabsView: View {
 
     var body: some View {
         let state = TabsState(node)
-        let selection = Binding<String>(
+        let selection = mainBinding(
             get: { TabsState(node).selected },
             set: { key in
                 if key != TabsState(node).selected { cx?.emit(node, "change", ["key": .string(key)]) }
@@ -157,7 +157,7 @@ struct SheetView: View {
         if cx?.options.inlineSheets == true {
             if props.isOpen { InlineSheet(node: node) }
         } else {
-            let presented = Binding<Bool>(
+            let presented = mainBinding(
                 get: { SheetProps(node).isOpen },
                 set: { open in
                     if !open && SheetProps(node).isOpen { cx?.emit(node, "dismiss") }

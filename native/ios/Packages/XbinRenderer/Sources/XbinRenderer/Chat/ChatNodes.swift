@@ -16,13 +16,9 @@ struct TranscriptNodeView: View {
 
     var body: some View {
         let p = node.props
-        let context = cx
-        let n = node
-        let more: (@MainActor () -> Void)? = node.listens(to: "more") ? { context?.emit(n, "more") } : nil
-        let scrolled: (@MainActor (Bool) -> Void)? = node.listens(to: "scrolled")
-            ? { context?.emit(n, "scrolled", ["atBottom": .bool($0)]) } : nil
         TranscriptView(follow: p.bool("follow"), older: p.bool("older"), nested: placement == .toolcard,
-                       onMore: more, onScrolled: scrolled) {
+                       onMore: cx?.action(node, "more"),
+                       onScrolled: cx?.action(node, "scrolled") { (atBottom: Bool) in ["atBottom": .bool(atBottom)] }) {
             ForEach(node.children) { NodeView(node: $0) }
         }
         .environment(\.xbinPlacement, .chat)
@@ -38,9 +34,8 @@ struct MessageNodeView: View {
         let context = cx
         let n = node
         let actions = node.children.first { $0.type == "actions" }
-        let tap: (@MainActor () -> Void)? = node.listens(to: "tap") ? { context?.emit(n, "tap") } : nil
         MessageView(message: ChatMessage(id: node.key, props: node.props),
-                    onLink: { url in context?.link(url, in: n) }, onTap: tap) {
+                    onLink: { url in context?.link(url, in: n) }, onTap: cx?.action(node, "tap")) {
             if let actions, !actions.children.isEmpty {
                 HStack(spacing: 14) { ForEach(actions.children) { NodeView(node: $0) } }
                     .environment(\.xbinPlacement, .inlineActions)
@@ -66,11 +61,8 @@ struct ToolCardNodeView: View {
     @Environment(\.xbin) private var cx
 
     var body: some View {
-        let context = cx
-        let n = node
-        let open: (@MainActor () -> Void)? = node.listens(to: "open") ? { context?.emit(n, "open") } : nil
         ToolCardView(card: ChatToolCard(id: node.key, props: node.props), isOpen: openBinding(node, cx),
-                     hasContent: !node.children.isEmpty, onOpen: open) {
+                     hasContent: !node.children.isEmpty, onOpen: cx?.action(node, "open")) {
             ForEach(node.children) { NodeView(node: $0) }
                 .environment(\.xbinPlacement, .toolcard)
         }
@@ -80,7 +72,7 @@ struct ToolCardNodeView: View {
 /// The `open` prop of a thinking or tool card as a binding.
 @MainActor
 private func openBinding(_ node: XbinNode, _ cx: XbinRenderContext?) -> Binding<Bool> {
-    Binding(
+    mainBinding(
         get: { node.value("open")?.boolValue ?? false },
         set: { cx?.emit(node, "toggle", ["open": .bool($0)]) }
     )
@@ -108,9 +100,9 @@ struct QuestionNodeView: View {
     var body: some View {
         let context = cx
         let n = node
-        let skip: (@MainActor () -> Void)? = node.listens(to: "skip") ? { context?.emit(n, "skip") } : nil
         QuestionView(question: ChatQuestion(id: node.key, props: node.props),
-                     onSubmit: { content in context?.emit(n, "submit", ["content": content]) }, onSkip: skip)
+                     onSubmit: { content in context?.emit(n, "submit", ["content": content]) },
+                     onSkip: cx?.action(node, "skip"))
             .id(node.props["schema"].map(\.jsonString) ?? "")
     }
 }
@@ -121,11 +113,8 @@ struct DiffNodeView: View {
     @Environment(\.xbin) private var cx
 
     var body: some View {
-        let context = cx
-        let n = node
-        let open: (@MainActor (String) -> Void)? = node.listens(to: "open-file")
-            ? { path in context?.emit(n, "open-file", ["path": .string(path)]) } : nil
-        DiffView(diff: ChatDiff(props: node.props), onOpenFile: open)
+        DiffView(diff: ChatDiff(props: node.props),
+                 onOpenFile: cx?.action(node, "open-file") { (path: String) in ["path": .string(path)] })
     }
 }
 
@@ -142,13 +131,12 @@ struct ComposerNodeView: View {
         let context = cx
         let n = node
         let composer = ChatComposer(props: p)
-        let text = Binding<String>(
+        let text = mainBinding(
             get: { Props.text(n.value("value")) ?? "" },
             set: { context?.emit(n, "input", ["value": .string($0)]) }
         )
-        let stop: (@MainActor () -> Void)? = node.listens(to: "stop") ? { context?.emit(n, "stop") } : nil
-        let remove: (@MainActor (String) -> Void)? = node.listens(to: "remove")
-            ? { id in context?.emit(n, "remove", ["id": .string(id)]) } : nil
+        let stop = cx?.action(node, "stop")
+        let remove = cx?.action(node, "remove") { (id: String) in ["id": .string(id)] }
         ComposerView(composer: composer, text: text, onSend: { value in
             context?.emit(n, "send", ["value": .string(value)])
             // An unbound composer clears itself; a bound one waits for the tile.

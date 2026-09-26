@@ -127,12 +127,36 @@ final class XbinRenderContext {
         _ = model.emit(node.key, type, payload)
     }
 
+    /// A callback sending `type` on `node` — nil when the tile doesn't
+    /// listen (so the component hides the affordance).
+    func action(_ node: XbinNode, _ type: String) -> (@MainActor () -> Void)? {
+        guard node.listens(to: type) else { return nil }
+        return { [weak self] in self?.emit(node, type) }
+    }
+
+    /// A callback sending `type` on `node` with `payload(value)`; nil when
+    /// the tile doesn't listen.
+    func action<T>(_ node: XbinNode, _ type: String,
+                   _ payload: @escaping @Sendable (T) -> JSONValue) -> (@MainActor (T) -> Void)? {
+        guard node.listens(to: type) else { return nil }
+        return { [weak self] value in self?.emit(node, type, payload(value)) }
+    }
+
     /// A tapped link in `node`'s text: the tile's `link` event, then the
     /// app's policy.
     func link(_ url: URL, in node: XbinNode) {
         if node.listens(to: "link") { emit(node, "link", ["href": .string(url.absoluteString)]) }
         services.openLink?(url)
     }
+}
+
+/// A binding whose getter and setter run on the main actor, where SwiftUI
+/// calls them. Every binding the renderer makes goes through here, so the
+/// views don't depend on how an SDK annotates `Binding(get:set:)`'s closures
+/// (plain, `@Sendable` or `@isolated(any)`).
+@MainActor
+func mainBinding<V: Sendable>(get: @escaping @MainActor () -> V, set: @escaping @MainActor (V) -> Void) -> Binding<V> {
+    Binding(get: { MainActor.assumeIsolated { get() } }, set: { value in MainActor.assumeIsolated { set(value) } })
 }
 
 /// Where a primitive is drawn — it decides how a button, a row or a picker
@@ -231,7 +255,7 @@ struct ConfirmHostModifier: ViewModifier {
     @State private var host = ConfirmHost()
 
     func body(content: Content) -> some View {
-        let showing = Binding<Bool>(
+        let showing = mainBinding(
             get: { host.pending != nil },
             set: { if !$0 { host.pending = nil } }
         )

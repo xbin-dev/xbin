@@ -72,7 +72,7 @@ struct FieldNodeView: View {
 
     @ViewBuilder
     private func input(kind: String, label: String, p: Props) -> some View {
-        let binding = Binding<String>(get: { text }, set: { set($0) })
+        let binding = mainBinding(get: { text }, set: { set($0) })
         let prompt = p.nonEmpty("placeholder").map { Text(verbatim: $0) }
         let submitLabel = Self.submitLabel(p.string("submit"))
         switch kind {
@@ -149,7 +149,7 @@ private struct DateField: View {
     var body: some View {
         let isDate = kind == "date"
         let parsed = isDate ? FieldValue.date(text) : FieldValue.time(text)
-        let selection = Binding<Date>(
+        let selection = mainBinding(
             get: { parsed ?? Date(timeIntervalSince1970: 0) },
             set: { onChange(isDate ? FieldValue.dateString($0) : FieldValue.timeString($0)) }
         )
