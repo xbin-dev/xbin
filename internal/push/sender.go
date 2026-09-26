@@ -149,7 +149,7 @@ func (d *sender) fanOut(n note) {
 		s.st.removeOlder(n.user, acct.Created)
 	}
 	ws, e := s.Workspace(), s.currentEpoch()
-	for _, dev := range s.st.devices(n.user) {
+	for _, dev := range s.devices(n.user) {
 		if !kindAllowed(dev.Kinds, n.kind) || dev.stale(e) {
 			continue
 		}

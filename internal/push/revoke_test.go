@@ -1,6 +1,7 @@
 package push
 
 import (
+	"crypto/ecdh"
 	"sync"
 	"testing"
 	"time"
@@ -179,5 +180,66 @@ func TestNotifyFromFrontends(t *testing.T) {
 		if code, out, _ := r.call(c.p, "POST", "/notify", map[string]any{"user": c.user, "title": "x"}); code != c.want {
 			t.Errorf("%s (%s) → %s: %d %v, want %d", c.p.From(), c.p.Via, c.user, code, out, c.want)
 		}
+	}
+}
+
+// Registrations are bound to the login that made them (review). A device
+// session registers under its own device id only — a stolen phone's
+// session can't plant "x" with an attacker's handle that survives removing
+// the device. Any other login (a browser cookie, the app before enrolling)
+// holds its registrations only while it lives: after its logout the
+// attacker's handle gets nothing and the registration is gone. And no such
+// login can take over an enrolled device's registration.
+func TestRegistrationsFollowTheirLogin(t *testing.T) {
+	var mu sync.Mutex
+	dead := map[string]bool{}
+	r := newRig(t, func(o *Options) {
+		o.Live = func(user, gen string) bool { mu.Lock(); defer mu.Unlock(); return !dead[gen] }
+	})
+	phone := auth.Principal{UserID: "alice", Via: "device", DeviceID: "dev-phone", Gen: "s.phone"}
+	k, _ := ecdh.X25519().GenerateKey(nil)
+	pub := b64.EncodeToString(k.PublicKey().Bytes())
+	r.register(phone, "dev-phone", "handle-phone")
+	if code, out, _ := r.call(phone, "POST", "/devices/push", map[string]any{"deviceId": "x", "handle": "handle-attacker",
+		"publicKey": pub}); code != 403 {
+		t.Fatalf("a device session registering another id: %d %v", code, out)
+	}
+	// A browser session of alice's (a stolen cookie) plants "zz" with its
+	// own handle; it can't take over the phone's.
+	cookie := auth.Principal{UserID: "alice", Via: "session", Gen: "s.cookie"}
+	r.register(cookie, "zz", "handle-attacker")
+	if code, out, _ := r.call(cookie, "POST", "/devices/push", map[string]any{"deviceId": "dev-phone", "handle": "handle-attacker2",
+		"publicKey": pub}); code != 409 {
+		t.Fatalf("a browser session taking over the device's registration: %d %v", code, out)
+	}
+	// Removing the device drops its registration; the browser's "zz"
+	// lives while that login does…
+	if !r.s.ForgetDevice("alice", "dev-phone") {
+		t.Fatal("the device's registration")
+	}
+	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "one"})
+	if got := r.relay.waitPushes(1); got[0].Handle != "handle-attacker" {
+		t.Fatalf("delivered to %s", got[0].Handle)
+	}
+	// …and not a moment longer: the browser session logs out.
+	mu.Lock()
+	dead["s.cookie"] = true
+	mu.Unlock()
+	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "secret"})
+	time.Sleep(50 * time.Millisecond)
+	if n := len(r.relay.pushes()); n != 1 {
+		t.Fatalf("a signed-out login's registration still received pushes (%d)", n)
+	}
+	if code, out, _ := r.call(alice, "GET", "/devices/push", nil); code != 200 || len(out["devices"].([]any)) != 0 {
+		t.Fatalf("the dead login's registration is listed: %v", out)
+	}
+	if len(r.s.st.devices("alice")) != 0 {
+		t.Fatal("the dead login's registration stayed in the store")
+	}
+	// The device session re-registering its own id is fine, as often as it likes.
+	r.register(phone, "dev-phone", "handle-phone")
+	r.register(phone, "dev-phone", "handle-phone-2")
+	if d := r.s.st.devices("alice"); len(d) != 1 || d[0].Session != "" || d[0].Handle != "handle-phone-2" {
+		t.Fatalf("device registration: %+v", d)
 	}
 }

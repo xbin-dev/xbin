@@ -270,6 +270,7 @@ func (s *Service) APIAdminDevices(w http.ResponseWriter, r *http.Request) {
 	user := r.URL.Query().Get("user")
 	e := s.currentEpoch()
 	out := []deviceView{}
+	s.pruneDead()
 	for _, d := range s.st.all() {
 		if user == "" || d.User == user {
 			v := view(d, e)

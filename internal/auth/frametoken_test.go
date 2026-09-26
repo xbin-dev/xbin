@@ -327,3 +327,38 @@ func cookieSID(t *testing.T, a *Auth) string {
 }
 
 func cookieFor(sid string) *http.Cookie { return &http.Cookie{Name: CookieName, Value: sid} }
+
+// CredentialLive answers "does the login behind this generation still
+// live" for state that must end with it (push registrations) — and, unlike
+// a frame token's use, doesn't count as the login's activity.
+func TestCredentialLive(t *testing.T) {
+	a, _ := assetTestAuth(t)
+	sid := a.NewSession("ana", "192.0.2.1")
+	sv, _ := a.sessionUser(sid, "", false)
+	if !a.CredentialLive(sv.gen, "ana") || a.CredentialLive(sv.gen, "bob") {
+		t.Fatal("a live session's generation, for its user only")
+	}
+	a.mu.Lock()
+	before := a.sessions[sid].lastActive.Add(-time.Hour)
+	a.sessions[sid].lastActive = before
+	a.mu.Unlock()
+	a.CredentialLive(sv.gen, "ana")
+	a.mu.RLock()
+	slid := a.sessions[sid].lastActive != before
+	a.mu.RUnlock()
+	if slid {
+		t.Fatal("asking slid the session's idle window")
+	}
+	if !a.CredentialLive(a.UserGen("ana"), "ana") || !a.CredentialLive(a.ownerGen(), "") || a.CredentialLive("", "ana") || a.CredentialLive("x|y", "ana") {
+		t.Fatal("user and owner generations; garbage")
+	}
+	a.DropSession(sid)
+	if a.CredentialLive(sv.gen, "ana") {
+		t.Fatal("a dropped session's generation")
+	}
+	old := a.UserGen("ana")
+	a.DropUserSessions("ana")
+	if a.CredentialLive(old, "ana") {
+		t.Fatal("the user's generation after sign-out-everywhere")
+	}
+}

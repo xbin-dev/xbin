@@ -35,7 +35,11 @@ Three parties:
    notification (`{"aps":{"content-available":1}}`, no `xbin` key): ignore it.
    Relay errors are `{"error", "code"}`; the codes: relay/README.md.
 3. **Registration with xbind**, with the device session (a human principal; a
-   tile is refused):
+   tile is refused). A device session registers under **its own device-login
+   id** only (`403` for any other); a registration made with another session
+   (the app's password or SSO session before the device is enrolled) lasts
+   only as long as that session, and can't take over an enrolled device's id
+   (`409`):
 
    ```
    POST /api/xbin/devices/push
@@ -61,10 +65,12 @@ Three parties:
      (revoked on its own, `?devices=1` on sign-out-everywhere, a password
      change with `removeDevices`), when its device session signs out
      (`POST /logout`), when the owner token it registered with is rotated,
+     when the session that registered it ends (one made before enrolling),
      when an admin revokes the registration, and when APNs
      reports the device token dead. Register with the device-login
-     `deviceId` once the device is enrolled — that is the id revocation
-     matches;
+     `deviceId`, from the device session, once the device is enrolled —
+     that is the id revocation matches, and the only id that session may
+     register;
    - **`needsNewHandle: true`** → the relay will not deliver to this handle for
      this workspace any more (`relayError`: `handle_bound` — the workspace
      re-registered with the relay, e.g. after an admin rotated its relay key;

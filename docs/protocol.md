@@ -1722,9 +1722,17 @@ POST   /devices/push                     a signed-in person (the app's device
                                          tile.<kind>; a kind matches those under
                                          it; none = all). One registration per
                                          (user, deviceId); a handle belongs to one
-                                         registration (the newest). workspace =
-                                         the `ws` every payload carries;
-                                         device.needsNewHandle (below)
+                                         registration (the newest). Bound to the
+                                         login making it: a device session
+                                         registers under its own device-login id
+                                         only (403 otherwise) and the
+                                         registration goes with the device; any
+                                         other login's (the app before enrolling,
+                                         a browser, the owner token) goes when
+                                         that login ends, and can't take over an
+                                         enrolled device's deviceId (409).
+                                         workspace = the `ws` every payload
+                                         carries; device.needsNewHandle (below)
 GET    /devices/push                     a signed-in person. {workspace, enabled,
                                          devices:[{deviceId, kinds, created,
                                          updated, lastSent?, needsNewHandle?,
@@ -1840,10 +1848,13 @@ reaches a disabled user. Signing a user out everywhere (`DELETE
 registrations (a deleted user's preferences too); removing an enrolled
 device (`DELETE /devices/<id>`, `?devices=1` on sign-out-everywhere, a
 password change with `removeDevices`) or its device session signing out
-(`POST /logout` with its bearer) drops that device's registration — the
-registration's `deviceId` is the device-login device id — and rotating the
-owner token (`POST /auth-rotate-token`) drops the owner's. The app registers
-again at the next sign-in. Delivery is asynchronous and best-effort: a bounded
+(`POST /logout` with its bearer) drops that device's registration — a
+device session can register only under its own device-login id — and
+rotating the owner token (`POST /auth-rotate-token`) drops the owner's. A
+registration made by any other login (the app's password or SSO session
+before enrolling, a browser session, the owner token) lasts as long as that
+login: its logout, expiry or sign-out-everywhere drop it too. The app
+registers again at the next sign-in. Delivery is asynchronous and best-effort: a bounded
 queue (a full one drops), up to 5 attempts with backoff on relay 429/5xx or
 network errors. Only the relay's own error codes touch a registration: 410
 (the device is gone) removes it; 403 `handle_bound` or 404 `handle_unknown`

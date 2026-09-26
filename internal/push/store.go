@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,9 +17,19 @@ import (
 // where to push (the relay handle) and whom to seal to (its X25519 key).
 // Keyed by (User, DeviceID); DeviceID is the app's device id — the same
 // string device login uses, nothing else is shared with it.
+//
+// A registration is bound to what made it, so it ends with it: one a
+// device session made is that enrolled device's (DeviceID is the device
+// login's id, enforced; removing the device or its session signing out
+// drops it); one any other login made (the app before enrolling, a
+// browser, the owner token) names that login's credential generation in
+// Session and goes when the login does (logout, expiry, sign-out-
+// everywhere, rotation) — a stolen session can't leave a registration
+// behind that outlives it.
 type Device struct {
 	User      string   `json:"user"`
 	DeviceID  string   `json:"deviceId"`
+	Session   string   `json:"session,omitempty"` // "" = the enrolled device's own
 	Handle    string   `json:"handle"`
 	PublicKey string   `json:"publicKey"` // base64url X25519
 	Kinds     []string `json:"kinds,omitempty"`
@@ -122,12 +133,22 @@ func (s *store) workspace() string {
 	return s.st.Workspace
 }
 
+// errDeviceBound: a login that is not the device's own session tried to
+// take over an enrolled device's registration.
+var errDeviceBound = errors.New("that deviceId is an enrolled device's registration: it registers from its own device session")
+
 // upsert registers or refreshes a device. A handle belongs to one
 // registration: another one holding it (the app signed in as someone else)
-// is replaced.
+// is replaced. An enrolled device's registration (Session "") is its
+// device session's alone.
 func (s *store) upsert(d Device, now int64) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, x := range s.st.Devices {
+		if x.User == d.User && x.DeviceID == d.DeviceID && x.Session == "" && d.Session != "" {
+			return Device{}, errDeviceBound
+		}
+	}
 	var cur *Device
 	keep := s.st.Devices[:0]
 	for _, x := range s.st.Devices {
@@ -159,8 +180,41 @@ func (s *store) upsert(d Device, now int64) (Device, error) {
 	if cur.Handle != d.Handle { // a fresh handle: nothing the relay said about the old one holds
 		cur.Bound, cur.RelayErr, cur.ErrEpoch = "", "", ""
 	}
-	cur.Handle, cur.PublicKey, cur.Kinds, cur.Updated = d.Handle, d.PublicKey, d.Kinds, now
+	cur.Handle, cur.PublicKey, cur.Kinds, cur.Updated, cur.Session = d.Handle, d.PublicKey, d.Kinds, now, d.Session
 	return *cur, s.saveLocked()
+}
+
+// removeIf drops the registrations drop picks (dead logins' — the caller's
+// check must not take s.mu); returns how many went.
+func (s *store) removeIf(drop func(Device) bool) int {
+	s.mu.Lock()
+	cands := make([]Device, 0, len(s.st.Devices))
+	for _, x := range s.st.Devices {
+		cands = append(cands, *x)
+	}
+	s.mu.Unlock()
+	var gone []Device
+	for _, d := range cands {
+		if drop(d) {
+			gone = append(gone, d)
+		}
+	}
+	if len(gone) == 0 {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.st.Devices)
+	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool {
+		return slices.ContainsFunc(gone, func(g Device) bool {
+			return g.User == x.User && g.DeviceID == x.DeviceID && g.Session == x.Session && g.Handle == x.Handle
+		})
+	})
+	n -= len(s.st.Devices)
+	if n > 0 {
+		_ = s.saveLocked()
+	}
+	return n
 }
 
 // remove drops one registration; false when there was none.

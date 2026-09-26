@@ -2,6 +2,7 @@ package push
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,12 +83,17 @@ func view(d Device, epoch string) deviceView {
 }
 
 // APIRegister is POST /devices/push {deviceId, handle, publicKey, kinds?}:
-// the app registers (or refreshes) where this user's pushes go.
+// the app registers (or refreshes) where this user's pushes go. The
+// registration is bound to the login making it (Device): a device session
+// registers under its own device id only (403 otherwise); any other login's
+// registration ends with that login, and can't take over an enrolled
+// device's (409).
 func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.human(w, r)
 	if !ok {
 		return
 	}
+	p := auth.PrincipalOf(r)
 	var body struct {
 		DeviceID  string   `json:"deviceId"`
 		Handle    string   `json:"handle"`
@@ -124,8 +130,23 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 			kinds = append(kinds, k)
 		}
 	}
-	d, err := s.st.upsert(Device{User: user, DeviceID: body.DeviceID, Handle: body.Handle,
+	session := p.Gen // a login's registration ends with it
+	if p.Via == "device" {
+		if p.DeviceID == "" || body.DeviceID != p.DeviceID {
+			fail(w, http.StatusForbidden, fmt.Sprintf("a device session registers under its own device id (%q): that is the id removing the device drops", p.DeviceID))
+			return
+		}
+		session = "" // the enrolled device's own: it goes with the device
+	} else if session == "" {
+		fail(w, http.StatusForbidden, "this sign-in can't hold a push registration (no login to bind it to)")
+		return
+	}
+	d, err := s.st.upsert(Device{User: user, DeviceID: body.DeviceID, Session: session, Handle: body.Handle,
 		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix())
+	if errors.Is(err, errDeviceBound) {
+		fail(w, http.StatusConflict, err.Error())
+		return
+	}
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "could not store the registration: "+err.Error())
 		return
@@ -141,7 +162,7 @@ func (s *Service) APIList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []deviceView{}
 	e := s.currentEpoch()
-	for _, d := range s.st.devices(user) {
+	for _, d := range s.devices(user) {
 		out = append(out, view(d, e))
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace(), "enabled": s.Enabled(), "devices": out})
@@ -212,7 +233,7 @@ func (s *Service) APITest(w http.ResponseWriter, r *http.Request) {
 	}
 	n, stale := 0, 0
 	e := s.currentEpoch()
-	for _, d := range s.st.devices(user) {
+	for _, d := range s.devices(user) {
 		if d.stale(e) {
 			stale++
 		} else {

@@ -169,6 +169,25 @@ func (a *Auth) sessionGenLive(handle, userID string) (impersonator string, ok bo
 	return impersonator, live
 }
 
+// CredentialLive reports whether credential generation gen (a principal's
+// Gen: s.<handle>, u.<epoch>.<n>, o.<hash>) still lives for userID ("" =
+// the owner) — without counting as the login's activity, unlike a frame
+// token's use (genLive). What outlives a request but must end with the
+// login that made it (a push registration) checks it.
+func (a *Auth) CredentialLive(gen, userID string) bool {
+	if !validGen(gen) {
+		return false
+	}
+	if handle, ok := strings.CutPrefix(gen, "s."); ok {
+		a.mu.RLock()
+		defer a.mu.RUnlock()
+		s := a.genSessionLocked(handle)
+		return s != nil && s.userID == userID && !a.expiredLocked(s, time.Now())
+	}
+	_, live := a.genLive(gen, userID)
+	return live
+}
+
 // validGen: generation strings travel inside the |-separated token, so they
 // are restricted to a safe alphabet (they are always xbind-minted).
 func validGen(g string) bool {

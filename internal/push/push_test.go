@@ -166,9 +166,9 @@ func (f *fakeRelay) waitPushes(n int) []relayPush {
 }
 
 var (
-	alice = auth.Principal{UserID: "alice", Via: "cookie"}
-	bob   = auth.Principal{UserID: "bob", Via: "cookie"}
-	owner = auth.Principal{Owner: true, Via: "bearer"}
+	alice = auth.Principal{UserID: "alice", Via: "session", Gen: "s.alice"}
+	bob   = auth.Principal{UserID: "bob", Via: "session", Gen: "s.bob"}
+	owner = auth.Principal{Owner: true, Via: "bearer", Gen: "o.owner"}
 	cal   = auth.Principal{Component: "apps/cal", Via: "instance"}
 	other = auth.Principal{Component: "apps/other", Via: "instance"}
 )

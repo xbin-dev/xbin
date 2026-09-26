@@ -2771,7 +2771,15 @@ Deviations and refinements made while implementing; all deliberate:
   - **Registrations follow the user and the device**: sign-out-everywhere,
     disable and delete drop the user's; removing a device, its session
     signing out and owner-token rotation drop that device's (D93); nothing
-    reaches a disabled user, and a reused user id gets nothing.
+    reaches a disabled user, and a reused user id gets nothing. **A
+    registration is bound to the login that made it**: a device session
+    registers under its own device-login id only, and any other login's
+    registration (the app before enrolling, a browser, the owner token)
+    carries that login's credential generation and goes when it ends —
+    otherwise a stolen session could plant a registration under a made-up
+    id, with an attacker's handle and key, that survives removing the
+    device and the session's own end (the threat D93's step-up closes for
+    device keys).
   - **`/notify`**: backends (instance principals) notify any reader of the
     tile; frontends only the person using them — a frame token sits in
     every reader's browser. Budgets are separate so tiles can't starve

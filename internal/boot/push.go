@@ -39,6 +39,17 @@ func (st *State) setupPush(srv *server.Server) error {
 			u, ok := userStore.Get(user)
 			return push.Account{Exists: ok, Disabled: ok && u.Disabled, Created: u.Created}
 		},
+		// a registration made by a login other than the device's own session
+		// goes with that login (logout, expiry, sign-out-everywhere, rotation)
+		Live: func(user, gen string) bool {
+			if st.Auth == nil {
+				return true
+			}
+			if user == push.OwnerUser {
+				user = ""
+			}
+			return st.Auth.CredentialLive(gen, user)
+		},
 	})
 	if err != nil {
 		return err

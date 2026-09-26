@@ -71,6 +71,11 @@ type Options struct {
 	// Nothing is pushed to a disabled user, a deleted user's registrations
 	// go, and so do registrations older than the account.
 	Account func(user string) Account
+	// Live reports whether the login a registration was made with (its
+	// Session, a credential generation) still lives for user (OwnerUser for
+	// the bootstrap owner) — without counting as its activity. Registrations
+	// of ended logins go. nil: every login lives (no auth to ask).
+	Live func(user, gen string) bool
 	// IsAdmin gates the relay configuration routes.
 	IsAdmin func(auth.Principal) bool
 	HTTP    *http.Client
@@ -209,6 +214,35 @@ func (s *Service) ForgetUser(user string) { s.st.removeUser(user, true) }
 // holds must not keep reading their notifications. The app registers again
 // when the user signs back in. Returns how many went.
 func (s *Service) SignedOut(user string) int { return s.st.removeUser(user, false) }
+
+// live reports whether d's login still lives: an enrolled device's own
+// registration always (its removal drops it), another login's while that
+// login does.
+func (s *Service) live(d Device) bool {
+	return d.Session == "" || s.o.Live == nil || s.o.Live(d.User, d.Session)
+}
+
+// devices is the user's registrations whose logins still live; the others
+// are dropped on the way.
+func (s *Service) devices(user string) []Device {
+	all := s.st.devices(user)
+	out := all[:0]
+	dead := false
+	for _, d := range all {
+		if s.live(d) {
+			out = append(out, d)
+		} else {
+			dead = true
+		}
+	}
+	if dead {
+		s.st.removeIf(func(d Device) bool { return d.User == user && !s.live(d) })
+	}
+	return out
+}
+
+// pruneDead drops every registration whose login ended (the admin views).
+func (s *Service) pruneDead() { s.st.removeIf(func(d Device) bool { return !s.live(d) }) }
 
 // account resolves a user for delivery: false for unknown or disabled
 // users. An unknown user's registrations are dropped on the way.
@@ -470,7 +504,7 @@ func (s *Service) agentPush(n note, session string) {
 // wants reports whether any of the user's usable registrations takes kind.
 func (s *Service) wants(user, kind string) bool {
 	e := s.currentEpoch()
-	for _, d := range s.st.devices(user) {
+	for _, d := range s.devices(user) {
 		if !d.stale(e) && kindAllowed(d.Kinds, kind) {
 			return true
 		}

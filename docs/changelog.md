@@ -150,6 +150,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Registrations go with the person and the device: sign-out-everywhere,
     disabling or deleting a user drops theirs; removing a device, its app
     session signing out, and rotating the owner token drop that device's.
+    A device session registers only under its own device id (403); a
+    registration any other login makes (before enrolling, a browser) ends
+    with that login and can't take over an enrolled device's id (409).
   - **Tiles: `POST /api/xbin/notify` and `xbin.NotifyUser`** — a backend
     notifies a person who can read the tile; a frontend only the person
     using it. `link` stays inside the tile. 120/hour per tile (429 +
