@@ -125,6 +125,8 @@ start)
   command -v go >/dev/null 2>&1 || { say "needs go"; exit 1; }
   stop
   mkdir -p "$dir"
+  dir=$(cd "$dir" && pwd) # absolute: the start below runs from the repo
+  ws=$dir/ws
   say "building bin/xbind, bin/bx, bin/fakeacp"
   (cd "$repo" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx &&
     go build -o bin/fakeacp ./hack/fakeacp)
@@ -138,11 +140,15 @@ start)
   extra=()
   # shellcheck disable=SC2206 # extra flags, split on purpose
   [ -n "${XBIN_E2E_XBIND_ARGS:-}" ] && extra=(${XBIN_E2E_XBIND_ARGS})
-  (cd "$repo" && XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk" \
+  # A simple command in the background, so $! is xbind itself (a `(cd &&
+  # … &)` list would leave a shell as its parent, holding our stdout, and
+  # the pid file would name that shell).
+  cd "$repo"
+  XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk" \
     nohup "$repo/bin/xbind" --dev --dev-overlay "$repo/workspace-template" --workspace "$ws" \
     --listen "127.0.0.1:$port" --external-url "$url" ${extra[@]+"${extra[@]}"} \
     >"$dir/xbind.log" 2>&1 </dev/null &
-    echo $! >"$dir/xbind.pid")
+  echo $! >"$dir/xbind.pid"
   wait_for 30 "xbind" curl -fsS -o /dev/null "$url/healthz"
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
