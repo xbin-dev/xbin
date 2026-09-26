@@ -1,0 +1,51 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Server","style":"list"},"c":[
+  {"k":"r.0","t":"section","p":{"title":"Instance","footer":"Last restart Sep 9 at 03:12."},"c":[
+    {"k":"r.0.0","t":"row","p":{"title":"Hostname","detail":"xbin-prod-1.acme.dev","mono":"detail","icon":"server"}},
+    {"k":"r.0.1","t":"row","p":{"title":"Uptime","detail":"12 d 4 h","icon":"clock"}},
+    {"k":"r.0.2","t":"row","p":{"title":"Version","subtitle":"v0.9.6 is available","detail":"v0.9.4","icon":"download","badge":"update","tone":"accent","nav":true},"e":["tap"]},
+    {"k":"r.0.3","t":"row","p":{"title":"SHA256:q7Lw0d3k9vXcN2mB","subtitle":"host key (ed25519)","mono":"title","icon":"key"}},
+    {"k":"r.0.4","t":"row","p":{"title":"Data directory","subtitle":"/var/lib/xbin/acme","mono":"subtitle","icon":"folder"}},
+    {"k":"r.0.5","t":"row","p":{"title":"build","subtitle":"go1.26.1","detail":"3a8869c","mono":"all","icon":"code"}}
+  ]},
+  {"k":"r.1","t":"section","p":{"title":"Health","badge":"4"},"c":[
+    {"k":"r.1.0:Web","t":"row","p":{"title":"Web","subtitle":"p95 over the last hour","icon":"globe","badge":"200 ms","tone":"ok"}},
+    {"k":"r.1.0:Memory","t":"row","p":{"title":"Memory","subtitle":"6.5 GB of 8 GB","icon":"cpu","badge":"81%","tone":"warn"}},
+    {"k":"r.1.0:Backups","t":"row","p":{"title":"Backups","subtitle":"S3: access denied, 2 h ago","icon":"archive","badge":"failed","tone":"danger"}},
+    {"k":"r.1.0:Mail relay","t":"row","p":{"title":"Mail relay","subtitle":"not configured","icon":"mail","badge":"off","tone":"muted"}},
+    {"k":"r.1.0:Certificates","t":"row","p":{"title":"Certificates","subtitle":"Let's Encrypt","icon":"lock","badge":"renews in 12 d","tone":"accent"}}
+  ]},
+  {"k":"r.2","t":"section","p":{"title":"Storage","footer":"Snapshots are pruned after 30 days."},"c":[
+    {"k":"r.2.0","t":"row","p":{"title":"Disk","detail":"84 GB of 200 GB","icon":"database"},"c":[
+      {"k":"r.2.0.0","t":"progress","p":{"value":0.42,"label":"42% used"}}
+    ]},
+    {"k":"r.2.1","t":"row","p":{"title":"Snapshots","detail":"27","icon":"archive","nav":true},"e":["tap"]}
+  ]},
+  {"k":"r.3","t":"section","p":{"title":"Members","badge":"4","footer":"Swipe a member for actions."},"c":[
+    {"k":"r.3.0:ana@acme.dev","t":"row","p":{"title":"Ana Kowalska","subtitle":"ana@acme.dev","detail":"owner","icon":"star","selected":false,"disabled":false},"e":["tap"],"c":[]},
+    {"k":"r.3.0:ben@acme.dev","t":"row","p":{"title":"Ben Ortiz","subtitle":"ben@acme.dev","detail":"admin","icon":"person","selected":true,"disabled":false},"e":["tap"],"c":[
+      {"k":"r.3.0:ben@acme.dev.0","t":"actions","c":[
+        {"k":"r.3.0:ben@acme.dev.0.0","t":"button","p":{"icon":"key","label":"Make admin"},"e":["tap"]},
+        {"k":"r.3.0:ben@acme.dev.0.1","t":"button","p":{"role":"destructive","icon":"trash","confirm":{"title":"Remove Ben Ortiz?","message":"They lose access to every tile at once.","label":"Remove","destructive":true},"label":"Remove"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.3.0:chloe@acme.dev","t":"row","p":{"title":"Chloé Martin","subtitle":"chloe@acme.dev","detail":"member","icon":"person","selected":false,"disabled":false},"e":["tap"],"c":[
+      {"k":"r.3.0:chloe@acme.dev.0","t":"actions","c":[
+        {"k":"r.3.0:chloe@acme.dev.0.0","t":"button","p":{"icon":"key","label":"Make admin"},"e":["tap"]},
+        {"k":"r.3.0:chloe@acme.dev.0.1","t":"button","p":{"role":"destructive","icon":"trash","confirm":{"title":"Remove Chloé Martin?","message":"They lose access to every tile at once.","label":"Remove","destructive":true},"label":"Remove"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.3.0:bot@acme.dev","t":"row","p":{"title":"dev-bot","subtitle":"bot@acme.dev","detail":"member","icon":"person","selected":false,"disabled":true,"badge":"invited","tone":"muted"},"e":["tap"],"c":[
+      {"k":"r.3.0:bot@acme.dev.0","t":"actions","c":[
+        {"k":"r.3.0:bot@acme.dev.0.0","t":"button","p":{"icon":"key","label":"Make admin"},"e":["tap"]},
+        {"k":"r.3.0:bot@acme.dev.0.1","t":"button","p":{"role":"destructive","icon":"trash","confirm":{"title":"Remove dev-bot?","message":"They lose access to every tile at once.","label":"Remove","destructive":true},"label":"Remove"},"e":["tap"]}
+      ]}
+    ]}
+  ]},
+  {"k":"r.4","t":"section","p":{"title":"Advanced","collapsible":true,"collapsed":true},"e":["toggle"],"c":[
+    {"k":"r.4.0","t":"row","p":{"title":"Debug logging","detail":"off"}},
+    {"k":"r.4.1","t":"row","p":{"title":"Sandbox","detail":"gVisor"}}
+  ]},
+  {"k":"r.5","t":"section","p":{"title":"Danger zone","collapsible":true},"c":[
+    {"k":"r.5.0","t":"row","p":{"title":"Reset workspace","subtitle":"Deletes every tile and home directory","icon":"warning","tone":"danger","nav":true},"e":["tap"]}
+  ]}
+]}}

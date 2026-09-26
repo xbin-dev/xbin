@@ -5,6 +5,8 @@
 import { workerData, parentPort } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 import { installHooks } from './hooks.mjs';
+import { selectKey, findNode } from './select.mjs';
+import { VOCAB } from '../../web/xb/vocab.js';
 
 installHooks();
 
@@ -81,12 +83,34 @@ function responseOf(spec) {
   let body = null;
   if (own(spec, 'json')) { body = JSON.stringify(spec.json); if (!headers.has('content-type')) headers.set('content-type', 'application/json'); }
   else if (own(spec, 'sse')) {
-    body = spec.sse.map((f) => `${f.event ? `event: ${f.event}\n` : ''}${f.id ? `id: ${f.id}\n` : ''}data: ${typeof f.data === 'string' ? f.data : JSON.stringify(f.data)}\n\n`).join('');
+    const frame = (f) => `${f.event ? `event: ${f.event}\n` : ''}${f.id ? `id: ${f.id}\n` : ''}data: ${typeof f.data === 'string' ? f.data : JSON.stringify(f.data)}\n\n`;
+    body = spec.open || spec.sse.some((f) => f.after) ? sseStream(spec.sse, frame, !!spec.open) : spec.sse.map(frame).join('');
     if (!headers.has('content-type')) headers.set('content-type', 'text/event-stream');
   } else if (own(spec, 'text')) body = String(spec.text);
   const status = spec.status ?? 200;
   return new Response(status === 204 || status === 304 ? null : body, { status, headers });
 }
+// A scripted event stream: each frame is written `after` virtual ms after the
+// previous one (so a tile sees tokens arrive as the clock moves); `open`
+// leaves the stream open after the last frame (a turn still streaming).
+function sseStream(frames, frame, open) {
+  const enc = new TextEncoder();
+  return new ReadableStream({
+    start(ctl) {
+      let at = 0;
+      frames.forEach((f, i) => {
+        at += Math.max(0, Number(f.after) || 0);
+        setTimeout(() => {
+          activity++;
+          ctl.enqueue(enc.encode(frame(f)));
+          if (i === frames.length - 1 && !open) ctl.close();
+        }, at);
+      });
+      if (!frames.length && !open) ctl.close();
+    },
+  });
+}
+
 async function stubFetch(input, opts = {}) {
   const url = String(input?.url ?? input);
   const method = String(opts.method || input?.method || 'GET').toUpperCase();
@@ -176,11 +200,26 @@ async function advance(ms) {
   await settle();
 }
 
+// target(e): the key of a {k | select, type} event step, checked against the
+// tree the app shows now — the node exists and takes the event (listens to it,
+// or the event reports one of its controlled props).
+function target(e) {
+  const root = rt.tree?.root;
+  const k = e.select != null ? selectKey(root, e.select) : e.k;
+  const node = findNode(root, k);
+  if (!node) throw new Error(`event ${JSON.stringify(e.type)}: no node ${JSON.stringify(k)} in the tree`);
+  const rep = VOCAB.prims[node.t]?.events?.[e.type]?.reports;
+  if (!(node.e || []).includes(e.type) && !(rep && own(node.p, rep.prop))) {
+    throw new Error(`event ${JSON.stringify(e.type)} on ${k} (${node.t}): the node does not listen to it (e: ${JSON.stringify(node.e || [])})`);
+  }
+  return k;
+}
+
 async function step(s) {
   const ev = (k, type, payload, n) => { activity++; rt.xbn.event(k, type, payload ?? {}, n); };
   if (own(s, 'wait')) return advance(s.wait);
   if (own(s, 'tap')) ev(s.tap, 'tap');
-  else if (own(s, 'event')) { const e = s.event; Array.isArray(e) ? ev(...e) : ev(e.k, e.type, e.payload, e.n); }
+  else if (own(s, 'event')) { const e = s.event; Array.isArray(e) ? ev(...e) : ev(target(e), e.type, e.payload, e.n); }
   else if (own(s, 'input')) ev(s.input[0], 'input', { value: s.input[1] });
   else if (own(s, 'bus')) { const [topic, payload] = s.bus; for (const h of [...eventHandlers]) h({ type: 'bus', topic, data: payload }); activity++; }
   else if (own(s, 'visibility')) rt.xbn.visibility(s.visibility);

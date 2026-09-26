@@ -1,0 +1,23 @@
+{
+  "about": "a form: all nine field kinds, hints, an error, disabled, toggles, pickers (segmented, menu, inline), typed values",
+  "self": "apps/backups",
+  "routes": {
+    "GET /api/apps/backups/policy": {"json": {
+      "plan": "Team", "region": "eu-central-1", "maxParallel": 8, "today": "2026-09-21",
+      "defaultEndpoint": "https://s3.eu-central-1.amazonaws.com", "retention": [7, 30, 90, 365]
+    }},
+    "GET /api/apps/backups/buckets?q=acme": {"json": {"buckets": ["acme-backups", "acme-logs"]}}
+  },
+  "interactions": [
+    {"select": "field[label=Name]", "type": "input", "payload": {"value": "n"}},
+    {"select": "field[label=Name]", "type": "input", "payload": {"value": "nightly-postgres"}},
+    {"select": "field[label=Bucket]", "type": "input", "payload": {"value": "acme"}},
+    {"select": "field[label=Bucket]", "type": "submit", "payload": {"value": "acme"}},
+    {"select": "field[label=Secret key]", "type": "input", "payload": {"value": "example-secret-key-0000"}},
+    {"select": "picker[label=Frequency]", "type": "change", "payload": {"value": "weekly"}},
+    {"select": "picker[label=Keep]", "type": "change", "payload": {"value": 90}},
+    {"select": "field[label=Parallel uploads]", "type": "input", "payload": {"value": "12"}},
+    {"select": "toggle[label=Verify after upload]", "type": "change", "payload": {"value": true}},
+    {"select": "field[label=Exclude]", "type": "input", "payload": {"value": "*.tmp\nnode_modules/\n.cache/"}}
+  ]
+}

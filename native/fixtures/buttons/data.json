@@ -1,0 +1,19 @@
+{
+  "about": "buttons: every role, icon, disabled, busy (a request in flight), confirm, copy; a toolbar with picker, badge, menu and button",
+  "self": "apps/releases",
+  "routes": {
+    "GET /api/apps/releases/releases/draft": {"json": {
+      "tag": "v2.15.0", "previous": "v2.14.1", "commits": 48, "commit": "9b1f0c4", "state": "draft", "checksOk": true, "watchers": 12,
+      "assets": [
+        {"name": "xbind-linux-amd64.tar.gz", "size": 24641536},
+        {"name": "xbind-linux-arm64.tar.gz", "size": 22884352},
+        {"name": "SHA256SUMS", "size": 412}
+      ]
+    }},
+    "POST /api/apps/releases/releases/draft/publish": {"json": {"ok": true}, "delay": 60000}
+  },
+  "interactions": [
+    {"select": "toolbar picker", "type": "change", "payload": {"value": "beta"}},
+    {"select": "button[label=Publish release]", "type": "tap", "note": "the request takes a minute; the tree shows it busy"}
+  ]
+}

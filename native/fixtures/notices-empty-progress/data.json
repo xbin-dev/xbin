@@ -1,0 +1,27 @@
+{
+  "about": "notice in every tone, progress with a value and indeterminate, badge in every tone (pulse), a list with progress/notice/rows/section and more, empty states",
+  "self": "apps/photo-backup",
+  "routes": {
+    "GET /api/apps/photo-backup/status": {"json": {
+      "device": "Ana's iPhone", "done": 36, "total": 48, "queued": 21, "skipped": 4, "backedUp": 12840,
+      "storage": {"used": "1.83 TB", "size": "2 TB"},
+      "current": {"name": "IMG_4471.MOV", "sent": 117000000, "size": 312000000},
+      "failed": [
+        {"name": "IMG_4390.HEIC", "error": "413: album quota exceeded"},
+        {"name": "IMG_4391.HEIC", "error": "413: album quota exceeded"},
+        {"name": "IMG_4402.MOV", "error": "413: album quota exceeded"}
+      ]
+    }},
+    "GET /api/apps/photo-backup/queue": {"json": {"next": "IMG_4474", "items": [
+      {"name": "IMG_4472.HEIC", "album": "Recents", "size": 2310000},
+      {"name": "IMG_4473.HEIC", "album": "Recents", "size": 1980000},
+      {"name": "IMG_4474.MOV", "album": "Hiking, Tatra", "size": 88400000, "video": true}
+    ]}},
+    "GET /api/apps/photo-backup/queue?after=IMG_4474": {"json": {"next": null, "items": [
+      {"name": "IMG_4475.HEIC", "album": "Hiking, Tatra", "size": 2750000}
+    ]}}
+  },
+  "interactions": [
+    {"select": "list[style=inset]", "type": "more", "note": "scrolled to the end: the next page arrives"}
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "about": "builtin-tiles/devbox/native.js (§18.6): containers and SSH keys as tabs — a key added through the toolbar's sheet on the keys tab, then back to the containers tab and a pull to refresh",
+  "self": "apps/devbox",
+  "routes": {
+    "GET /api/apps/devbox/state": [
+      {
+        "json": {
+          "podmanVersion": "5.2.1",
+          "containers": [
+            {
+              "name": "dev",
+              "image": "docker.io/library/ubuntu:24.04",
+              "state": "running",
+              "status": "Up 3 hours",
+              "created": "2026-09-21 11:08:41 +0000 UTC"
+            }
+          ],
+          "keys": [
+            {
+              "fingerprint": "SHA256:q4bX2m0Yc8m5vJ7Qk3n1pTz6wR9sLd2aHf0eUo8iKxE",
+              "comment": "ana@laptop",
+              "type": "ssh-ed25519"
+            }
+          ],
+          "sshPort": "2222",
+          "sshError": "",
+          "error": ""
+        }
+      },
+      {
+        "json": {
+          "podmanVersion": "5.2.1",
+          "containers": [
+            {
+              "name": "dev",
+              "image": "docker.io/library/ubuntu:24.04",
+              "state": "running",
+              "status": "Up 3 hours",
+              "created": "2026-09-21 11:08:41 +0000 UTC"
+            }
+          ],
+          "keys": [
+            {
+              "fingerprint": "SHA256:q4bX2m0Yc8m5vJ7Qk3n1pTz6wR9sLd2aHf0eUo8iKxE",
+              "comment": "ana@laptop",
+              "type": "ssh-ed25519"
+            },
+            {
+              "fingerprint": "SHA256:Vd7Hn3cQ0Lr8yT5bGk2wZm9pXs4fJa1eNu6oRi3hCtY",
+              "comment": "ana@build-box",
+              "type": "ssh-ed25519"
+            }
+          ],
+          "sshPort": "2222",
+          "sshError": "",
+          "error": ""
+        }
+      }
+    ],
+    "POST /api/apps/devbox/keys": {
+      "json": {
+        "fingerprint": "SHA256:Vd7Hn3cQ0Lr8yT5bGk2wZm9pXs4fJa1eNu6oRi3hCtY",
+        "comment": "ana@build-box",
+        "type": "ssh-ed25519"
+      },
+      "delay": 120
+    }
+  },
+  "interactions": [
+    {
+      "select": "tabs",
+      "type": "change",
+      "payload": {
+        "key": "keys"
+      }
+    },
+    {
+      "after": 400,
+      "select": "toolbar button[label=Add]",
+      "type": "tap",
+      "note": "on the keys tab, Add opens the key sheet"
+    },
+    {
+      "after": 1500,
+      "select": "sheet[title=\"Add SSH key\"] field",
+      "type": "input",
+      "payload": {
+        "value": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM0dQ3kC8b1n5Yx7Pq2rS4tU6vW8xZ0aB2cD4eF6gH8i ana@build-box"
+      }
+    },
+    {
+      "after": 600,
+      "select": "sheet[title=\"Add SSH key\"] button[label=\"add key\"]",
+      "type": "tap"
+    },
+    {
+      "after": 1000,
+      "select": "tabs",
+      "type": "change",
+      "payload": {
+        "key": "containers"
+      }
+    },
+    {
+      "after": 800,
+      "select": "screen[title=Devbox]",
+      "type": "refresh"
+    }
+  ]
+}

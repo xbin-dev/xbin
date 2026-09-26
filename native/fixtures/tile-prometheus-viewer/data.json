@@ -1,0 +1,60 @@
+{
+  "about": "builtin-tiles/prometheus-viewer/native.js (§18.7): two bound sources after three scrapes — llm-gw's counters with rates and sparklines, and a source whose /metrics fails",
+  "self": "apps/prometheus-viewer",
+  "iface": {
+    "sources": {
+      "service": "prometheus",
+      "multi": true,
+      "endpoints": [
+        {
+          "provider": "apps/llm-gw",
+          "url": "/api/apps/llm-gw",
+          "service": "prometheus"
+        },
+        {
+          "provider": "apps/agent",
+          "url": "/api/apps/agent",
+          "service": "prometheus"
+        }
+      ]
+    }
+  },
+  "routes": {
+    "GET /api/apps/llm-gw/metrics": [
+      {
+        "text": "# HELP llmgw_requests_total Requests proxied per backend.\n# TYPE llmgw_requests_total counter\nllmgw_requests_total{backend=\"local\"} 88\nllmgw_requests_total{backend=\"openai\"} 1520\n# HELP llmgw_tokens_in_total Prompt tokens per backend.\n# TYPE llmgw_tokens_in_total counter\nllmgw_tokens_in_total{backend=\"local\"} 40210\nllmgw_tokens_in_total{backend=\"openai\"} 2803115\n# HELP llmgw_tokens_out_total Completion tokens per backend.\n# TYPE llmgw_tokens_out_total counter\nllmgw_tokens_out_total{backend=\"local\"} 9120\nllmgw_tokens_out_total{backend=\"openai\"} 412876\n# HELP llmgw_cost_usd_total Estimated USD cost per backend.\n# TYPE llmgw_cost_usd_total counter\nllmgw_cost_usd_total{backend=\"local\"} 0.000000\nllmgw_cost_usd_total{backend=\"openai\"} 11.284310\n# HELP llmgw_active_requests In-flight requests per backend.\n# TYPE llmgw_active_requests gauge\nllmgw_active_requests{backend=\"local\"} 0\nllmgw_active_requests{backend=\"openai\"} 1\n",
+        "headers": {
+          "content-type": "text/plain; version=0.0.4"
+        }
+      },
+      {
+        "text": "# HELP llmgw_requests_total Requests proxied per backend.\n# TYPE llmgw_requests_total counter\nllmgw_requests_total{backend=\"local\"} 88\nllmgw_requests_total{backend=\"openai\"} 1523\n# HELP llmgw_tokens_in_total Prompt tokens per backend.\n# TYPE llmgw_tokens_in_total counter\nllmgw_tokens_in_total{backend=\"local\"} 40210\nllmgw_tokens_in_total{backend=\"openai\"} 2809851\n# HELP llmgw_tokens_out_total Completion tokens per backend.\n# TYPE llmgw_tokens_out_total counter\nllmgw_tokens_out_total{backend=\"local\"} 9120\nllmgw_tokens_out_total{backend=\"openai\"} 413702\n# HELP llmgw_cost_usd_total Estimated USD cost per backend.\n# TYPE llmgw_cost_usd_total counter\nllmgw_cost_usd_total{backend=\"local\"} 0.000000\nllmgw_cost_usd_total{backend=\"openai\"} 11.311650\n# HELP llmgw_active_requests In-flight requests per backend.\n# TYPE llmgw_active_requests gauge\nllmgw_active_requests{backend=\"local\"} 0\nllmgw_active_requests{backend=\"openai\"} 2\n",
+        "headers": {
+          "content-type": "text/plain; version=0.0.4"
+        }
+      },
+      {
+        "text": "# HELP llmgw_requests_total Requests proxied per backend.\n# TYPE llmgw_requests_total counter\nllmgw_requests_total{backend=\"local\"} 89\nllmgw_requests_total{backend=\"openai\"} 1527\n# HELP llmgw_tokens_in_total Prompt tokens per backend.\n# TYPE llmgw_tokens_in_total counter\nllmgw_tokens_in_total{backend=\"local\"} 40688\nllmgw_tokens_in_total{backend=\"openai\"} 2816302\n# HELP llmgw_tokens_out_total Completion tokens per backend.\n# TYPE llmgw_tokens_out_total counter\nllmgw_tokens_out_total{backend=\"local\"} 9387\nllmgw_tokens_out_total{backend=\"openai\"} 414411\n# HELP llmgw_cost_usd_total Estimated USD cost per backend.\n# TYPE llmgw_cost_usd_total counter\nllmgw_cost_usd_total{backend=\"local\"} 0.000000\nllmgw_cost_usd_total{backend=\"openai\"} 11.337905\n# HELP llmgw_active_requests In-flight requests per backend.\n# TYPE llmgw_active_requests gauge\nllmgw_active_requests{backend=\"local\"} 1\nllmgw_active_requests{backend=\"openai\"} 1\n",
+        "headers": {
+          "content-type": "text/plain; version=0.0.4"
+        }
+      }
+    ],
+    "GET /api/apps/agent/metrics": {
+      "status": 502,
+      "json": {
+        "error": "apps/agent: backend is starting"
+      }
+    }
+  },
+  "interactions": [
+    {
+      "after": 3000,
+      "note": "the second scrape: rates appear"
+    },
+    {
+      "after": 3000,
+      "note": "the third"
+    }
+  ]
+}

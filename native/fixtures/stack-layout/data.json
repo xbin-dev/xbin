@@ -1,0 +1,21 @@
+{
+  "about": "stack: vertical and horizontal, every gap, start/center/end, wrap; spacer and divider",
+  "self": "apps/oncall",
+  "routes": {
+    "GET /api/apps/oncall/today": {"json": {
+      "person": "Ben Ortiz", "until": "Mon 09:00", "pages": 2,
+      "kpis": [
+        {"value": "99.95%", "label": "uptime (30 d)", "tone": "ok"},
+        {"value": "2", "label": "open incidents", "tone": "warn"},
+        {"value": "14 min", "label": "time to ack"}
+      ],
+      "services": [
+        {"name": "checkout-api", "ok": true, "latency": "212 ms"},
+        {"name": "billing-worker", "ok": false, "latency": "timeouts"},
+        {"name": "web", "ok": true, "latency": "88 ms"}
+      ],
+      "handover": "billing-worker times out against the staging payment sandbox; prod is fine. Chloé owns the Safari pay-button bug.",
+      "tags": ["payments", "eu-central", "sev-2 open", "deploy freeze Fri", "postmortem Thu", "pager: Ben"]
+    }}
+  }
+}

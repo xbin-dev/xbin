@@ -1,0 +1,15 @@
+{
+  "about": "examples/counter-go/native.js (§18.1): the count in a form row and a +1 button; one tap posts, reloads and shows the new count",
+  "self": "apps/counter-go",
+  "routes": {
+    "GET /api/apps/counter-go/count": [
+      {"json": {"count": 41, "servedTo": "apps/counter-go"}},
+      {"json": {"count": 42, "servedTo": "apps/counter-go"}}
+    ],
+    "POST /api/apps/counter-go/count": {"json": {"count": 42}, "delay": 150}
+  },
+  "interactions": [
+    {"select": "button[label=\"+1\"]", "type": "tap", "note": "busy while the POST is in flight, then the reload shows 42"},
+    {"after": 200}
+  ]
+}

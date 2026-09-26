@@ -1,0 +1,52 @@
+{
+  "about": "split prefer=auto: a plain lazy list (selected row, load more, a bus-delivered new mail) beside the selected message's detail",
+  "self": "apps/mail",
+  "routes": {
+    "GET /api/apps/mail/mailboxes/inbox": {
+      "json": {
+        "next": "m-4",
+        "mails": [
+          {"id": "m-1", "from": "Ben Ortiz", "subject": "Staging deploy approved", "time": "14:02", "unread": true},
+          {"id": "m-2", "from": "GitHub", "subject": "[acme/checkout] PR #312 merged", "time": "13:40", "unread": true},
+          {"id": "m-3", "from": "Chloé Martin", "subject": "Re: Safari pay button", "time": "11:15", "unread": false},
+          {"id": "m-4", "from": "AWS", "subject": "Your September invoice", "time": "09:02", "unread": false}
+        ]
+      }
+    },
+    "GET /api/apps/mail/mailboxes/inbox?after=m-4": {
+      "json": {
+        "next": null,
+        "mails": [{"id": "m-5", "from": "Ana Kowalska", "subject": "Offsite agenda", "time": "Fri", "unread": false}]
+      }
+    },
+    "GET /api/apps/mail/mails/m-3": {
+      "json": {
+        "subject": "Re: Safari pay button",
+        "from": "Chloé Martin",
+        "to": ["Ana Kowalska", "Ben Ortiz"],
+        "date": "Sep 21, 11:15",
+        "text": "Reproduced on **Safari 19** only: the pay button waits for a `postMessage` that never comes.\n\nWorkaround in [PR #313](https://git.acme.dev/checkout/pull/313). Can one of you review today?\n\n— Chloé"
+      }
+    }
+  },
+  "interactions": [
+    {"select": "row[title=Chloé Martin]", "type": "tap"},
+    {"select": "list", "type": "more"},
+    {
+      "after": 30000,
+      "bus": [
+        "res:apps/mail/bus/inbox/new",
+        {
+          "mail": {
+            "id": "m-6",
+            "from": "PagerDuty",
+            "subject": "[SEV-2] billing-worker timeouts",
+            "time": "14:13",
+            "unread": true
+          }
+        }
+      ],
+      "note": "a mail arrives"
+    }
+  ]
+}

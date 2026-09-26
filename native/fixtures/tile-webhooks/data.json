@@ -1,0 +1,72 @@
+{
+  "about": "builtin-tiles/webhooks/native.js (§18.5): hooks, wiring and recent deliveries; a hook's detail screen rotates its secret (reveal-once sheet, then Done) and pops back",
+  "self": "apps/webhooks",
+  "routes": {
+    "GET /api/apps/webhooks/hooks": {
+      "json": {
+        "hooks": [
+          {
+            "id": "3f9c2a71be04",
+            "name": "deploy",
+            "auth": "hmac",
+            "sigHeader": "X-Hub-Signature-256",
+            "sigPrefix": "sha256=",
+            "eventIdFrom": "header:X-GitHub-Delivery",
+            "topicFrom": "header:X-GitHub-Event",
+            "enabled": true,
+            "created": 1789740800
+          }
+        ],
+        "agents": [
+          {
+            "provider": "apps/agent",
+            "url": "http://apps-agent.xbin.internal"
+          }
+        ],
+        "host": "hooks.example.com",
+        "deliveries": [
+          {
+            "at": 1789999700,
+            "hook": "3f9c2a71be04",
+            "topic": "deploy/push",
+            "eventId": "3f9c2a71be04:6f1e0d20-9a4b-11f0-8c7e-1f2b3c4d5e6f",
+            "status": 202,
+            "result": "delivered to apps/agent"
+          }
+        ]
+      }
+    },
+    "POST /api/apps/webhooks/hooks/3f9c2a71be04/rotate": {
+      "json": {
+        "secret": "9b1f3c5e7a2d4f6081a3c5e7f9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7"
+      },
+      "delay": 150
+    }
+  },
+  "interactions": [
+    {
+      "select": "row[title=deploy]",
+      "type": "tap",
+      "note": "the hook's detail screen"
+    },
+    {
+      "after": 600,
+      "select": "button[label=\"New secret\"]",
+      "type": "tap",
+      "note": "the app asked the confirm first; the new secret shows once"
+    },
+    {
+      "after": 2000,
+      "select": "sheet button[label=Done]",
+      "type": "tap"
+    },
+    {
+      "after": 500,
+      "select": "nav",
+      "type": "pop",
+      "payload": {
+        "depth": 0
+      }
+    }
+  ]
+}

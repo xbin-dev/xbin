@@ -1,0 +1,24 @@
+{
+  "about": "nav: a list root (large title, refresh, search, toolbar menu) and a pushed form screen with an open disclosure",
+  "self": "apps/deployments",
+  "now": "2026-09-21T14:13:20Z",
+  "routes": {
+    "GET /api/apps/deployments/services": {"json": {"services": [
+      {"name": "api", "env": "prod", "image": "ghcr.io/acme/api", "tag": "v2.14.1", "status": "healthy", "deployed": "2026-09-21T13:58:00Z"},
+      {"name": "web", "env": "prod", "image": "ghcr.io/acme/web", "tag": "v5.2.0", "status": "degraded", "deployed": "2026-09-21T09:40:00Z"},
+      {"name": "worker", "env": "prod", "image": "ghcr.io/acme/worker", "tag": "v2.14.1", "status": "healthy", "deployed": "2026-09-20T18:02:00Z"},
+      {"name": "api", "env": "staging", "image": "ghcr.io/acme/api", "tag": "v2.15.0-rc.1", "status": "failed", "deployed": "2026-09-21T14:10:05Z"},
+      {"name": "billing", "env": "staging", "image": "ghcr.io/acme/billing", "tag": "v0.9.3", "status": "paused", "deployed": "2026-09-17T11:00:00Z"}
+    ]}},
+    "GET /api/apps/deployments/services/web": {"json": {
+      "name": "web", "env": "prod", "image": "ghcr.io/acme/web", "tag": "v5.2.0", "previous": "v5.1.4",
+      "status": "degraded", "ready": 2, "replicas": 3, "region": "eu-central-1",
+      "deployed": "2026-09-21T09:40:00Z", "by": "deployed by ana@acme.dev", "commit": "3f9c2e1",
+      "env_vars": {"NODE_ENV": "production", "API_URL": "https://api.acme.dev", "CACHE_TTL": "300", "FEATURE_CHECKOUT_V2": "on"}
+    }}
+  },
+  "interactions": [
+    {"select": "row[title=web][badge=degraded]", "type": "tap", "note": "push the detail screen"},
+    {"select": "disclosure", "type": "toggle", "payload": {"open": true}}
+  ]
+}

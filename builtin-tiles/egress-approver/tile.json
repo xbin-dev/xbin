@@ -1,7 +1,7 @@
 {
   "name": "egress-approver",
-  "version": 2,
-  "changelog": "v2: response helpers come from the SDK (xbin.WriteJSON)\nv1: default-deny net provider with human-in-the-loop per-IP approval",
+  "version": 3,
+  "changelog": "v3: a native view for the xbin app (native.js): the approval queue with swipe actions and whois as a pushed screen; the formatters moved into fmt.js, shared with the page\nv2: response helpers come from the SDK (xbin.WriteJSON)\nv1: default-deny net provider with human-in-the-loop per-IP approval",
   "title": "Egress Approver",
   "description": "A default-deny firewall tile with a human in the loop. Bind other components' network to it and every new outbound destination IP is held for you to approve or deny — with reverse DNS and RDAP/whois detail. Approved destinations show live bytes in/out. A worked example of a programmable net provider.",
   "defaultPath": "apps/egress-approver",

@@ -1,0 +1,15 @@
+{
+  "about": "split prefer=single: a sectioned list and the opened contact's detail",
+  "self": "apps/people",
+  "routes": {
+    "GET /api/apps/people/people": {"json": {"people": [
+      {"name": "Ana Kowalska", "title": "Platform lead", "email": "ana@acme.dev", "phone": "+48 600 100 200", "tz": "Europe/Warsaw"},
+      {"name": "Ben Ortiz", "title": "SRE", "email": "ben@acme.dev", "phone": "+1 415 555 0134", "tz": "America/Los_Angeles"},
+      {"name": "Chloé Martin", "title": "Frontend", "email": "chloe@acme.dev", "phone": "+33 6 12 34 56 78", "tz": "Europe/Paris"},
+      {"name": "Chen Wei", "title": "Payments", "email": "chen@acme.dev", "phone": "+65 8123 4567", "tz": "Asia/Singapore"}
+    ]}}
+  },
+  "interactions": [
+    {"select": "row[title=Ben Ortiz]", "type": "tap"}
+  ]
+}

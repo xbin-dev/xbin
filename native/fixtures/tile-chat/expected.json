@@ -1,0 +1,19 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Chat","style":"scroll"},"c":[
+  {"k":"r.0","t":"toolbar","c":[
+    {"k":"r.0.0","t":"picker","p":{"style":"menu","value":"0�local/qwen3-32b","options":[{"value":"0�local/qwen3-32b","label":"local/qwen3-32b"},{"value":"0�openai/gpt-4.1-mini","label":"openai/gpt-4.1-mini"}]},"e":["change"]},
+    {"k":"r.0.1","t":"badge","p":{"tone":"muted","text":"3 tools"}},
+    {"k":"r.0.2","t":"button","p":{"icon":"plus","label":"New chat"},"e":["tap"]}
+  ]},
+  {"k":"r.1","t":"transcript","p":{"follow":true},"c":[
+    {"k":"r.1.0:1","t":"message","p":{"role":"user","text":"How many open issues are labelled bug?"}},
+    {"k":"r.1.0:3","t":"toolcard","p":{"title":"apps/github-mcp · search_issues","icon":"wrench","family":"tool","state":"ok"},"c":[
+      {"k":"r.1.0:3.0","t":"code","p":{"text":"{\"query\":\"repo:acme/shop is:issue is:open label:bug\"}"}},
+      {"k":"r.1.0:3.1","t":"code","p":{"text":"{\"total_count\":7,\"incomplete_results\":false}"}}
+    ]},
+    {"k":"r.1.0:4.0","t":"thinking","p":{"text":"The search found 7 open issues with the bug label.","live":false,"seconds":2}},
+    {"k":"r.1.0:4.1","t":"message","p":{"role":"assistant","markdown":true,"text":"There are **7** open issues labelled `bug`.","streaming":false,"tokens":[
+        {"t":"paragraph","c":[{"t":"text","text":"There are "},{"t":"strong","c":[{"t":"text","text":"7"}]},{"t":"text","text":" open issues labelled "},{"t":"codespan","text":"bug"},{"t":"text","text":"."}]}
+      ]}}
+  ]},
+  {"k":"r.2","t":"composer","p":{"value":"","placeholder":"Message","busy":false},"e":["input","send","stop"]}
+]}}

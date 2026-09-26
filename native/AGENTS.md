@@ -51,10 +51,13 @@ the same change, additive APIs, D78 confinement).
 
 - `xb-native.js` and the Lit renderer are plain ES modules: **no build step,
   no TypeScript** (root AGENTS.md hard rules). `make js-check` covers syntax.
-- The fixture runner renders `native/fixtures/<name>/native.js` against its
-  `data.json` in node (xb-native's JSON target) and diffs with
-  `expected.json`. Updating a fixture is a reviewed diff of `expected.json`,
-  never a blind regenerate.
+- The fixture runner (`node native/tools/fixture.mjs`, `make native-check`)
+  renders `native/fixtures/<name>/native.js` against its `data.json` in node
+  (xb-native's JSON target), plays its interactions and diffs with
+  `expected.json`; a full check also demands that the fixtures exercise the
+  whole vocabulary. `--update <name>` rewrites one and prints what changed.
+  Updating a fixture is a reviewed diff of `expected.json`, never a blind
+  regenerate. Format and how to add one: native/fixtures/README.md.
 - The JSON target is `hack/xbn/node.mjs`: `runNative({entry, data, steps})`
   (or `node hack/xbn/node.mjs native.js [data.json] [steps.json]`) runs a
   `native.js` in a worker with `/vendor/` resolved from `web/`, a scripted
