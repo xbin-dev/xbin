@@ -225,7 +225,7 @@ test('asking: the approval card has Approve and Deny; the question is answered b
   ], { state: { hash: 'c=9' } });
   const qn = find(q.snapshots.asked, { t: 'question' });
   assert.equal(qn.p.title, 'The agent is asking');
-  assert.equal(qn.p.schema.description, 'Which **vendor**?');
+  assert.equal(qn.p.schema.description, 'Which vendor?', 'the question as text');
   assert.equal(find(q.snapshots.asked, { t: 'composer' }).p.placeholder, 'answer the question…');
   assert.equal(JSON.parse(called(q, 'POST', /\/runs\/9\/message$/)[0].body).text, 'Acme');
 });
