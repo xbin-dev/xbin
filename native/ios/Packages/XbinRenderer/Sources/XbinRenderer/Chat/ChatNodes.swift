@@ -137,12 +137,17 @@ struct ComposerNodeView: View {
         )
         let stop = cx?.action(node, "stop")
         let remove = cx?.action(node, "remove") { (id: String) in ["id": .string(id)] }
-        ComposerView(composer: composer, text: text, onSend: { value in
+        let send: @MainActor (String) -> Void = { value in
             context?.emit(n, "send", ["value": .string(value)])
             // An unbound composer clears itself; a bound one waits for the tile.
             context?.model.setRendererValue(n.key, "value", "")
-        }, onStop: stop, onAttach: attachAction(p), onRemoveAttachment: remove) {
-            if !node.children.isEmpty {
+        }
+        if node.children.isEmpty {
+            ComposerView(composer: composer, text: text, onSend: send, onStop: stop, onAttach: attachAction(p),
+                         onRemoveAttachment: remove)
+        } else {
+            ComposerView(composer: composer, text: text, onSend: send, onStop: stop, onAttach: attachAction(p),
+                         onRemoveAttachment: remove) {
                 ForEach(node.children) { NodeView(node: $0) }
                     .environment(\.xbinPlacement, .chips)
             }
