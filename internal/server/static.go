@@ -300,7 +300,7 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	frameTok := ""
-	if p := auth.PrincipalOf(r); p.CanReadTile(compPath) {
+	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 
@@ -350,6 +350,23 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(out)
+}
+
+// mayMintFrameToken: the injection mints compPath's frame token only for a
+// principal that may read the tile AND is not another tile — a human
+// (cookie, bearer) or the tile itself (its own frame/terminal/instance
+// principal, including an xbin.window sub-path token like apps/x/editor,
+// whose owning component is apps/x). Without the second half, any tile's
+// frontend could xbin.fetch('/c/<other>/') and lift the other tile's token
+// out of the HTML whenever its user can read that tile — e.g. the admin
+// tile's (xbin:admin grant) from any tile an admin opens. Element
+// principals reading other tiles' documents (code grants, the user's RBAC)
+// get the HTML without a token, as code-grant reads always did.
+func (s *Server) mayMintFrameToken(p auth.Principal, compPath string) bool {
+	if !p.CanReadTile(compPath) {
+		return false
+	}
+	return p.Component == "" || p.Component == compPath || s.owningComponent(p.Component) == compPath
 }
 
 func htmlEscape(s string) string {
