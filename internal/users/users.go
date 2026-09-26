@@ -121,6 +121,10 @@ type User struct {
 	// memberships are never changed on failure.
 	SSOGroups    []string `json:"ssoGroups,omitempty"`
 	SSOSyncError string   `json:"ssoSyncError,omitempty"`
+	// Devices are the native app's enrolled device keys (devices.go).
+	// Store-owned like the sign-in facts; Public() leaves them out — the
+	// devices API serves them.
+	Devices []Device `json:"devices,omitempty"`
 }
 
 // IsAdmin reports the admin role.
@@ -196,11 +200,13 @@ func (u *User) CanTerminal() bool {
 	return false
 }
 
-// Public is the outward form (no hashes — password or invite).
+// Public is the outward form (no hashes — password or invite — and no
+// device keys).
 func (u *User) Public() User {
 	c := *u
 	c.PassHash = ""
 	c.InviteHash = ""
+	c.Devices = nil
 	return c
 }
 
@@ -522,6 +528,7 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		// a manual role change is manual provenance.
 		u.LastLogin, u.LastLoginVia = existing.LastLogin, existing.LastLoginVia
 		u.SSOGroups, u.SSOSyncError = existing.SSOGroups, existing.SSOSyncError
+		u.Devices = existing.Devices // store-owned too (devices.go)
 		u.RoleVia = ""
 		if u.Role == existing.Role {
 			u.RoleVia = existing.RoleVia
@@ -530,6 +537,7 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		u.NoPersonalTiles, u.NoTerminal = existing.NoPersonalTiles, existing.NoTerminal
 		u.Sets, u.NetSets = existing.Sets, existing.NetSets
 	} else {
+		u.Devices = nil // enrolled only through AddDevice
 		var err error
 		if u.Sets, err = s.normSetNamesLocked(u.Sets, false); err != nil {
 			return nil, err
