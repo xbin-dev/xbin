@@ -79,9 +79,14 @@ final class AttachPicker {
         }
     }
 
-    /// The dialog went away without a choice.
+    /// The dialog went away: without a choice, the pick is over. Judged a
+    /// beat later, so the order SwiftUI runs a button's action and clears
+    /// `isPresented` in doesn't matter.
     func dialogDismissed() {
-        if presenting == nil { finish([]) }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            if self.presenting == nil, !self.choosing { self.finish([]) }
+        }
     }
 
     private func present(_ s: Source) {
