@@ -2,6 +2,9 @@ package term
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -225,4 +228,25 @@ func cutPrefix(s, prefix string) (string, bool) {
 		return s[len(prefix):], true
 	}
 	return "", false
+}
+
+// Without isolation there are no VM sandboxes: ?vm=1 is refused with 400
+// and the reason (docs/protocol.md), before any shell starts — never a host
+// shell whose session frame says vm:true.
+func TestServeWSNoVMWithoutIsolation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps", "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(root, nil)
+	r := httptest.NewRequest("GET", "/ws/term?cwd=apps/mine&vm=1", nil)
+	r = r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true}))
+	w := httptest.NewRecorder()
+	m.ServeWS(w, r)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "isolation") {
+		t.Fatalf("vm=1 without isolation: %d %q, want 400 naming isolation", w.Code, w.Body.String())
+	}
+	if n := len(m.List()); n != 0 {
+		t.Fatalf("a session started anyway (%d)", n)
+	}
 }

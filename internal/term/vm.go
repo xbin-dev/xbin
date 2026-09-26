@@ -59,6 +59,20 @@ func (m *Manager) vmRefusal(o openOpts) string {
 	return ""
 }
 
+// noVMOnHost: without isolation there is no sandbox plane, so no VM either —
+// a session asking for one is refused with the reason (ServeWS answers 400),
+// never handed a host shell whose session frame says vm:true.
+func (m *Manager) noVMOnHost(o openOpts) error {
+	if !o.vm {
+		return nil
+	}
+	why := m.vmRefusal(o)
+	if why == "" {
+		why = "VM sandboxes need isolation (xbind --isolate)"
+	}
+	return errors.New(why)
+}
+
 // applyVM turns spec into a VM sandbox under the workspace policy and
 // reserves its memory; release gives the reservation back when the session
 // ends. disk is the session's persistent disk image ("" = a fresh guest).

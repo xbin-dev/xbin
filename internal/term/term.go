@@ -436,6 +436,9 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 		return cmd, cleanup, post, envKey, env, nil
 	}
 	// isolation off: the workspace has no sandbox at all (tiles run as xbind)
+	if err := m.noVMOnHost(o); err != nil {
+		return nil, nil, nil, "", nil, err
+	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
