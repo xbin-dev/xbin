@@ -76,6 +76,13 @@ final class TileHatches {
         }
     }
 
+    /// The tile's files changed (a reload — pull to refresh, the `reload`
+    /// event): its canvas pages load again. Terminals keep their sockets
+    /// (the pty is the backend's; a changed `src` reconnects on its own).
+    func reloadPages() {
+        islands.values.forEach { $0.controller.reload() }
+    }
+
     /// The runtime stopped: every socket and page goes.
     func stopAll() {
         terminals.values.forEach { $0.stop() }

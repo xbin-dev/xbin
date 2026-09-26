@@ -95,6 +95,7 @@ final class NativeTileRuntime: NSObject {
     func reload() {
         store.reset()
         lifecycle = NativeTileLifecycle()
+        hatches.reloadPages()
         start()
     }
 
