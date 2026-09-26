@@ -390,6 +390,10 @@ export const STRUCTURE_CSS = css`
   .seg-item { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 7px; font: var(--xb-font-subheadline); font-weight: 500; color: var(--xb-text); white-space: nowrap; }
   .seg-item.on { background: var(--xb-control-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); font-weight: 600; }
   .seg-item span { overflow: hidden; text-overflow: ellipsis; }
+  /* in a bar the segments keep their labels whole: the bar gives the toolbar
+     its full width before the title (1h 6h 2… otherwise) */
+  xb-toolbar .seg-item { flex: none; }
+  xb-toolbar .seg-item span { overflow: visible; }
   .tab-badge { font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-danger); color: #fff; border-radius: 999px; padding: 1px 6px; }
   xb-tabs.tabs-bar { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   xb-tabs.tabs-bar > .tabs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
