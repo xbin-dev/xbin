@@ -13,5 +13,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "XbinAgent"),
+        .testTarget(
+            name: "XbinAgentTests",
+            dependencies: ["XbinAgent"],
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )

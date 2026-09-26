@@ -1,0 +1,331 @@
+{
+ "about": "a signed-out agent: _auth/status_update{kind:none} then the prompt fails with auth required — turn.end error, status error with login",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403295820,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403295830,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403295830,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "fail"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403295830,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403295831,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "login": {
+     "command": "the fake needs no login",
+     "needed": true,
+     "provider": "Fake agent (tests)"
+    },
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403295831,
+   "type": "turn.end",
+   "data": {
+    "error": "Please run /login: the agent isn't signed in — open a terminal on apps/x and run: the fake needs no login  (your terminal $HOME is shared with agent sessions, so one login serves every tile)",
+    "stopReason": "error",
+    "turn": 1
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403295831,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "detail": "Please run /login: the agent isn't signed in — open a terminal on apps/x and run: the fake needs no login  (your terminal $HOME is shared with agent sessions, so one login serves every tile)",
+    "login": {
+     "command": "the fake needs no login",
+     "needed": true,
+     "provider": "Fake agent (tests)"
+    },
+    "status": "error"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403295880,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "error"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403295820,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403295830,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403295830,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "fail"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403295830,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403295831,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "login": {
+      "command": "the fake needs no login",
+      "needed": true,
+      "provider": "Fake agent (tests)"
+     },
+     "status": "running"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403295831,
+    "type": "turn.end",
+    "data": {
+     "error": "Please run /login: the agent isn't signed in — open a terminal on apps/x and run: the fake needs no login  (your terminal $HOME is shared with agent sessions, so one login serves every tile)",
+     "stopReason": "error",
+     "turn": 1
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403295831,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "Please run /login: the agent isn't signed in — open a terminal on apps/x and run: the fake needs no login  (your terminal $HOME is shared with agent sessions, so one login serves every tile)",
+     "login": {
+      "command": "the fake needs no login",
+      "needed": true,
+      "provider": "Fake agent (tests)"
+     },
+     "status": "error"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403295880,
+    "type": "status",
+    "data": {
+     "commands": [
+      {
+       "name": "review",
+       "description": "Review the pending changes",
+       "hint": "what to focus on"
+      },
+      {
+       "name": "compact",
+       "description": "Summarize the conversation to free context"
+      },
+      {
+       "name": "init",
+       "description": "Write a CLAUDE.md for this project"
+      }
+     ],
+     "status": "error"
+    }
+   }
+  ],
+  "meta": {
+   "id": "86e83e4f504986ab",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "created": "2026-09-26T06:14:55Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 1,
+   "preview": "fail",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "86e83e4f504986ab",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "created": "2026-09-26T06:14:55Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 1,
+   "preview": "fail",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "signedout",
+ "session": {
+  "id": "86e83e4f504986ab",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:55Z",
+  "lastActive": "2026-09-26T06:14:55Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ }
+}

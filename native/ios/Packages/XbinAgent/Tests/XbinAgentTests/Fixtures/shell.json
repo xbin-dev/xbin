@@ -1,0 +1,859 @@
+{
+ "about": "shell calls in a git tile: coloured output and a non-zero exit; a write that the snapshotter reports per call and per turn (files.changed)",
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1790403290742,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1790403290751,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1790403290753,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1790403290753,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1790403290754,
+   "type": "tool.call",
+   "data": {
+    "id": "run1",
+    "kind": "execute",
+    "rawInput": {
+     "command": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+    },
+    "status": "in_progress",
+    "title": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1790403290755,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "terminalId": "run1",
+      "type": "terminal"
+     }
+    ],
+    "exitCode": 3,
+    "id": "run1",
+    "output": "\u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m\r\nline2\r\n",
+    "status": "failed"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1790403290755,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "run: \u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m line2",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1790403290755,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1790403290755,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: run: printf '\\033[1;31merror\\033[0m: \\03"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1790403290755,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1790403290756,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1790403290763,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "run: echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1790403290763,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1790403290763,
+   "type": "tool.call",
+   "data": {
+    "id": "run1",
+    "kind": "execute",
+    "rawInput": {
+     "command": "echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+    },
+    "status": "in_progress",
+    "title": "echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1790403290767,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "terminalId": "run1",
+      "type": "terminal"
+     }
+    ],
+    "exitCode": 0,
+    "id": "run1",
+    "output": "",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1790403290767,
+   "type": "message.delta",
+   "data": {
+    "role": "agent",
+    "text": "run: ",
+    "messageId": "m"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1790403290767,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1790403290767,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1790403290767,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1790403290774,
+   "type": "files.changed",
+   "data": {
+    "changes": [
+     {
+      "path": "made.txt",
+      "status": "added",
+      "add": 1,
+      "del": 0
+     },
+     {
+      "path": "main.go",
+      "status": "modified",
+      "add": 1,
+      "del": 1
+     }
+    ],
+    "patch": {
+     "format": "git_patch",
+     "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n",
+     "truncated": false
+    },
+    "toolCallId": "run1"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1790403290781,
+   "type": "files.changed",
+   "data": {
+    "changes": [
+     {
+      "path": "made.txt",
+      "status": "added",
+      "add": 1,
+      "del": 0
+     },
+     {
+      "path": "main.go",
+      "status": "modified",
+      "add": 1,
+      "del": 1
+     }
+    ],
+    "patch": {
+     "format": "git_patch",
+     "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n",
+     "truncated": false
+    },
+    "turn": 2
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1790403290801,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ],
+ "history": {
+  "events": [
+   {
+    "seq": 1,
+    "ts": 1790403290742,
+    "type": "status",
+    "data": {
+     "status": "starting"
+    }
+   },
+   {
+    "seq": 2,
+    "ts": 1790403290751,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 3,
+    "ts": 1790403290753,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+    }
+   },
+   {
+    "seq": 4,
+    "ts": 1790403290753,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 5,
+    "ts": 1790403290754,
+    "type": "tool.call",
+    "data": {
+     "id": "run1",
+     "kind": "execute",
+     "rawInput": {
+      "command": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+     },
+     "status": "in_progress",
+     "title": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+    }
+   },
+   {
+    "seq": 6,
+    "ts": 1790403290755,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "terminalId": "run1",
+       "type": "terminal"
+      }
+     ],
+     "exitCode": 3,
+     "id": "run1",
+     "output": "\u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m\r\nline2\r\n",
+     "status": "failed"
+    }
+   },
+   {
+    "seq": 7,
+    "ts": 1790403290755,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "run: \u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m line2",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 8,
+    "ts": 1790403290755,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 9,
+    "ts": 1790403290755,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "title": "fake: run: printf '\\033[1;31merror\\033[0m: \\03"
+    }
+   },
+   {
+    "seq": 10,
+    "ts": 1790403290755,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 1,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 11,
+    "ts": 1790403290756,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 12,
+    "ts": 1790403290763,
+    "type": "message.delta",
+    "data": {
+     "role": "user",
+     "text": "run: echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+    }
+   },
+   {
+    "seq": 13,
+    "ts": 1790403290763,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "status": "running"
+    }
+   },
+   {
+    "seq": 14,
+    "ts": 1790403290763,
+    "type": "tool.call",
+    "data": {
+     "id": "run1",
+     "kind": "execute",
+     "rawInput": {
+      "command": "echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+     },
+     "status": "in_progress",
+     "title": "echo hi \u003e made.txt \u0026\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go"
+    }
+   },
+   {
+    "seq": 15,
+    "ts": 1790403290767,
+    "type": "tool.update",
+    "data": {
+     "content": [
+      {
+       "terminalId": "run1",
+       "type": "terminal"
+      }
+     ],
+     "exitCode": 0,
+     "id": "run1",
+     "output": "",
+     "status": "completed"
+    }
+   },
+   {
+    "seq": 16,
+    "ts": 1790403290767,
+    "type": "message.delta",
+    "data": {
+     "role": "agent",
+     "text": "run: ",
+     "messageId": "m"
+    }
+   },
+   {
+    "seq": 17,
+    "ts": 1790403290767,
+    "type": "status",
+    "data": {
+     "status": "running",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 18,
+    "ts": 1790403290767,
+    "type": "turn.end",
+    "data": {
+     "stopReason": "end_turn",
+     "turn": 2,
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   },
+   {
+    "seq": 19,
+    "ts": 1790403290767,
+    "type": "status",
+    "data": {
+     "agent": {
+      "name": "fakeacp",
+      "version": "1"
+     },
+     "currentMode": "ask",
+     "modes": [
+      {
+       "id": "ask",
+       "name": "Ask"
+      },
+      {
+       "id": "yolo",
+       "name": "Yolo"
+      }
+     ],
+     "options": [
+      {
+       "id": "model",
+       "name": "Model",
+       "category": "model",
+       "type": "select",
+       "currentValue": "fake-default",
+       "options": [
+        {
+         "value": "fake-default",
+         "name": "Fake (default)"
+        },
+        {
+         "value": "fake-fast",
+         "name": "Fake fast"
+        }
+       ]
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 20,
+    "ts": 1790403290774,
+    "type": "files.changed",
+    "data": {
+     "changes": [
+      {
+       "path": "made.txt",
+       "status": "added",
+       "add": 1,
+       "del": 0
+      },
+      {
+       "path": "main.go",
+       "status": "modified",
+       "add": 1,
+       "del": 1
+      }
+     ],
+     "patch": {
+      "format": "git_patch",
+      "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n",
+      "truncated": false
+     },
+     "toolCallId": "run1"
+    }
+   },
+   {
+    "seq": 21,
+    "ts": 1790403290781,
+    "type": "files.changed",
+    "data": {
+     "changes": [
+      {
+       "path": "made.txt",
+       "status": "added",
+       "add": 1,
+       "del": 0
+      },
+      {
+       "path": "main.go",
+       "status": "modified",
+       "add": 1,
+       "del": 1
+      }
+     ],
+     "patch": {
+      "format": "git_patch",
+      "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n",
+      "truncated": false
+     },
+     "turn": 2
+    }
+   },
+   {
+    "seq": 22,
+    "ts": 1790403290801,
+    "type": "status",
+    "data": {
+     "commands": [
+      {
+       "name": "review",
+       "description": "Review the pending changes",
+       "hint": "what to focus on"
+      },
+      {
+       "name": "compact",
+       "description": "Summarize the conversation to free context"
+      },
+      {
+       "name": "init",
+       "description": "Write a CLAUDE.md for this project"
+      }
+     ],
+     "status": "idle"
+    }
+   },
+   {
+    "seq": 23,
+    "ts": 1790403295769,
+    "type": "status",
+    "data": {
+     "currentMode": "ask",
+     "detail": "the agent process ended",
+     "status": "exited"
+    }
+   }
+  ],
+  "meta": {
+   "id": "dabe2fc5deeda30c",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: run: printf '\\033[1;31merror\\033[0m: \\03",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 2,
+   "preview": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ },
+ "historyList": [
+  {
+   "id": "dabe2fc5deeda30c",
+   "cwd": "apps/x",
+   "provider": "fake",
+   "mode": "ask",
+   "name": "fake: run: printf '\\033[1;31merror\\033[0m: \\03",
+   "created": "2026-09-26T06:14:50Z",
+   "ended": "2026-09-26T06:14:55Z",
+   "turns": 2,
+   "preview": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3",
+   "acpSessionId": "fake-1",
+   "loadable": true
+  }
+ ],
+ "name": "shell",
+ "session": {
+  "id": "dabe2fc5deeda30c",
+  "cwd": "apps/x",
+  "net": "internet",
+  "label": "internet",
+  "scopes": [
+   {
+    "id": "internet",
+    "label": "internet",
+    "desc": "public internet through the egress relay (no LAN)"
+   },
+   {
+    "id": "host",
+    "label": "host net",
+    "desc": "the host's own network stack — LAN and host services, no relay, no metering"
+   },
+   {
+    "id": "none",
+    "label": "offline",
+    "desc": "no network at all (xbind unreachable)"
+   }
+  ],
+  "gpu": "",
+  "api": true,
+  "name": "",
+  "created": "2026-09-26T06:14:50Z",
+  "lastActive": "2026-09-26T06:14:50Z",
+  "clients": 0,
+  "envHeld": false,
+  "kind": "agent",
+  "vm": false,
+  "provider": "fake",
+  "mode": "ask",
+  "status": "starting"
+ }
+}
