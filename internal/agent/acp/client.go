@@ -269,7 +269,7 @@ func (c *Client) setModeLive(mode string) error {
 		c.modes.CurrentModeID = mode
 	}
 	c.mu.Unlock()
-	c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "currentMode": mode}))
+	c.emit(c.partialStatus(map[string]any{"currentMode": mode}))
 	return nil
 }
 
@@ -278,7 +278,7 @@ func (c *Client) emitOptions() {
 	c.mu.Lock()
 	opts := append([]ConfigOption(nil), c.options...)
 	c.mu.Unlock()
-	c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "options": opts}))
+	c.emit(c.partialStatus(map[string]any{"options": opts}))
 }
 
 func sortedOptionIDs(m map[string]string) []string {
@@ -547,7 +547,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			c.mu.Lock()
 			c.usage = &u
 			c.mu.Unlock()
-			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "usage": u}))
+			c.emit(c.partialStatus(map[string]any{"usage": u}))
 		}
 	case UpCurrentMode:
 		var u CurrentModeUpdate
@@ -558,7 +558,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			}
 			c.modes.CurrentModeID = u.CurrentModeID
 			c.mu.Unlock()
-			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "currentMode": u.CurrentModeID}))
+			c.emit(c.partialStatus(map[string]any{"currentMode": u.CurrentModeID}))
 		}
 	case UpConfigOption:
 		var u ConfigOptionUpdate
@@ -571,7 +571,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 	case UpSessionInfo:
 		var u SessionInfoUpdate
 		if json.Unmarshal(raw, &u) == nil && u.Title != "" {
-			c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "title": u.Title}))
+			c.emit(c.partialStatus(map[string]any{"title": u.Title}))
 		}
 	case UpAvailableCmds:
 		c.onCommands(raw)
@@ -711,14 +711,37 @@ func (c *Client) setStatus(status, detail string) {
 		c.withCommands(d)
 	}
 	c.mu.Lock()
+	if isAuthError(detail) {
+		c.authNeeded = true // signed out until a turn succeeds (prompt.go)
+	}
 	need := c.authNeeded
 	c.mu.Unlock()
-	if need || isAuthError(detail) {
-		p := c.cfg.Provider
-		d["login"] = map[string]any{"needed": true, "provider": p.Name, "command": p.Login}
+	if need {
+		d["login"] = c.login()
 	}
 	// a terminal status never blocks on a pump that is gone
 	c.send(agent.New(agent.EvStatus, d), status != agent.StatusExited && status != agent.StatusError)
+}
+
+// partialStatus is a status event saying only what changed (fields) and the
+// current status — plus the login while the agent is signed out, which rides
+// every status then (docs/protocol.md), so a client's sign-in prompt doesn't
+// vanish with the next commands/usage/mode/options/title update.
+func (c *Client) partialStatus(fields map[string]any) agent.Event {
+	c.mu.Lock()
+	fields["status"] = c.status
+	need := c.authNeeded
+	c.mu.Unlock()
+	if need {
+		fields["login"] = c.login()
+	}
+	return agent.New(agent.EvStatus, fields)
+}
+
+// login is the sign-in a status carries while the agent is signed out.
+func (c *Client) login() map[string]any {
+	p := c.cfg.Provider
+	return map[string]any{"needed": true, "provider": p.Name, "command": p.Login}
 }
 
 func (c *Client) logf(format string, a ...any) {

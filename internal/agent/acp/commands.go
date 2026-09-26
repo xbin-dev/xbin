@@ -2,8 +2,6 @@ package acp
 
 import (
 	"encoding/json"
-
-	"github.com/xbin-dev/xbin/internal/agent"
 )
 
 // Slash commands (D77): the agent advertises what "/name" it understands
@@ -49,7 +47,7 @@ func (c *Client) onCommands(raw json.RawMessage) {
 	c.mu.Lock()
 	c.commands = cmds
 	c.mu.Unlock()
-	c.emit(agent.New(agent.EvStatus, map[string]any{"status": c.Status(), "commands": cmds}))
+	c.emit(c.partialStatus(map[string]any{"commands": cmds}))
 }
 
 // withCommands adds the latest list to an idle status.

@@ -435,7 +435,7 @@ func loginOf(e agent.Event) map[string]any {
 // so the UI can offer a one-click sign-in. A later successful turn clears it.
 func TestSignedOutLoginInStatus(t *testing.T) {
 	var n int
-	c, _, _, _ := rig(t, func(f *fakeAgent, text string) {
+	c, f, _, _ := rig(t, func(f *fakeAgent, text string) {
 		f.mu.Lock()
 		id := f.prompt
 		f.prompt = nil
@@ -465,6 +465,13 @@ func TestSignedOutLoginInStatus(t *testing.T) {
 	}
 	if lg == nil || lg["needed"] != true || lg["command"] != "fake-login" {
 		t.Fatalf("a signed-out status should carry the sign-in command: %v", lg)
+	}
+	// …and so does every partial status while signed out (a mode, usage,
+	// commands or title update must not drop the sign-in prompt)
+	f.update(map[string]any{"sessionUpdate": UpCurrentMode, "currentModeId": "plan"})
+	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["currentMode"] == "plan" })
+	if loginOf(es[len(es)-1]) == nil {
+		t.Fatalf("a partial status while signed out dropped the login: %v", data(es[len(es)-1]))
 	}
 
 	// a successful turn clears the signed-out flag: the idle status carries no login
