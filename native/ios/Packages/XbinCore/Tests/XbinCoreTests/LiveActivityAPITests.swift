@@ -10,6 +10,27 @@ import Testing
         #expect(r.method == "POST" && r.path == "/v1/handles")
         #expect(try body(r) == ["apnsToken": "c3c3", "topic": "dev.xbin.app", "env": "development",
                                 "pushType": "liveactivity", "parent": "dev-handle"])
+        let start = PushRelayAPI.newActivityHandle(apnsToken: "c3c3", parent: "dev-handle", topic: "dev.xbin.app", production: true,
+                                                   start: true)
+        #expect(try body(start) == ["apnsToken": "c3c3", "topic": "dev.xbin.app", "env": "production",
+                                    "pushType": "liveactivity", "parent": "dev-handle", "start": true])
+    }
+
+    @Test func registrationAnswer() {
+        func of(_ status: Int, _ json: JSONValue? = nil) -> ActivityRegistration { ActivityRegistration.of(status: status, json: json) }
+        #expect(of(200, ["activity": ["session": "s1", "created": 5]]) == .following(session: "s1"))
+        #expect(of(200, ["activity": ["session": "s1", "created": 5, "ended": true]]) == .ended(session: "s1"))
+        #expect(of(200, ["activity": ["session": "s1", "ended": false]]) == .following(session: "s1"))
+        #expect(of(200, ["activity": [:]]) == .retry)                        // not xbind's answer
+        #expect(of(200) == .retry)
+        #expect(of(404, ["error": "no activity with that ref (it ended)"]) == .unknown)
+        #expect(of(403) == .unknown)
+        #expect(of(429) == .retry)
+        #expect(of(502) == .retry)
+        #expect(of(401) == .retry)
+        let r = APIResponse(status: 200, body: Data(#"{"activity":{"session":"s2","created":1,"ended":true}}"#.utf8))
+        #expect(ActivityRegistration.of(r) == .ended(session: "s2"))
+        #expect(ActivityRegistration.of(APIResponse(status: 200, body: Data("not json".utf8))) == .retry)
     }
 
     @Test func xbindRoutes() throws {

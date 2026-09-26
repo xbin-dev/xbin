@@ -197,7 +197,7 @@ final class PushManager {
             return
         case .create(let token):
             let req = PushRelayAPI.newActivityHandle(apnsToken: token, parent: handle, topic: AppInfo.bundleID,
-                                                     production: AppInfo.apnsProduction)
+                                                     production: AppInfo.apnsProduction, start: true)
             guard let r = try? await AppTransport.shared.send(req, to: relay), r.isSuccess,
                   let json = try? r.json(), let h = PushRelayAPI.handle(from: json) else { return }
             ls = LiveStartState(token: token, handle: h, parent: handle)

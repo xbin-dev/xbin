@@ -7,14 +7,18 @@ import Foundation
 
 extension PushRelayAPI {
     /// `POST <relay>/v1/handles` for an ActivityKit push token (an
-    /// activity's update token, or the app's push-to-start token) under
-    /// `parent`, the device handle of the same workspace: it lives, binds
-    /// and goes with that one. The same token under the same parent
-    /// answers the same handle.
-    public static func newActivityHandle(apnsToken: String, parent: String, topic: String, production: Bool) -> APIRequest {
-        let o: [String: JSONValue] = ["apnsToken": .string(apnsToken), "topic": .string(topic),
+    /// activity's update token, or — `start` — the app's push-to-start
+    /// token) under `parent`, the device handle of the same workspace: it
+    /// lives, binds and goes with that one. The same token under the same
+    /// parent answers the same handle. A parent holds one push-to-start
+    /// handle and at most 16 activity handles; an activity's handle is
+    /// retired by its end.
+    public static func newActivityHandle(apnsToken: String, parent: String, topic: String, production: Bool,
+                                         start: Bool = false) -> APIRequest {
+        var o: [String: JSONValue] = ["apnsToken": .string(apnsToken), "topic": .string(topic),
                                       "env": .string(production ? "production" : "development"),
                                       "pushType": .string("liveactivity"), "parent": .string(parent)]
+        if start { o["start"] = .bool(true) }
         return .json("POST", "/v1/handles", .object(o))
     }
 }
@@ -70,6 +74,40 @@ extension PushAPI {
             return d["pushToStart"]?.boolValue ?? false
         }
         return nil
+    }
+}
+
+/// What xbind's answer to `POST /api/xbin/devices/push/activities` means
+/// for the card (native/spec/push.md §7.3).
+public enum ActivityRegistration: Sendable, Equatable {
+    /// xbind follows the session's turn for the card.
+    case following(session: String)
+    /// The turn is over: xbind sends the card its end (`ended`) and keeps
+    /// no registration. The card ends.
+    case ended(session: String)
+    /// Nothing on xbind to follow (404: the session is gone, a ref it never
+    /// gave or forgot — another workspace's start, an xbind restart —, a
+    /// device it holds no registration for; 403: a registration of another
+    /// sign-in). A push-started card ends; the relay handle is useless.
+    case unknown
+    /// Anything else (offline, throttled, a server error): try again later.
+    case retry
+
+    public static func of(status: Int, json: JSONValue?) -> ActivityRegistration {
+        switch status {
+        case 200..<300:
+            guard let json, let session = PushAPI.activitySession(json) else { return .retry }
+            if json["activity"]?["ended"]?.boolValue == true { return .ended(session: session) }
+            return .following(session: session)
+        case 403, 404:
+            return .unknown
+        default:
+            return .retry
+        }
+    }
+
+    public static func of(_ r: APIResponse) -> ActivityRegistration {
+        of(status: r.status, json: try? r.json())
     }
 }
 
