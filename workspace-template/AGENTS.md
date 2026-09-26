@@ -9,7 +9,7 @@ by the daemon; fetch any of them with:
 
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
-# also: getting-started.md elements.md auth.md resources.md sdk.md protocol.md bx.md changelog.md
+# also: getting-started.md elements.md auth.md resources.md sdk.md native.md protocol.md bx.md changelog.md
 ```
 
 **After an xbind upgrade** (or when a previously-working API starts failing),
@@ -362,6 +362,67 @@ viewport, or overflows sideways, is a bug; make the layout fluid. On **phones
 (≤820px)** the shell stacks tiles full-width (its own height, body scrolling) —
 the same "reflow, never scroll sideways" rule is what makes your tile work
 there too.
+
+## Native app UI (`native.js`) — read /docs/native.md
+
+In the xbin mobile app every tile opens as its web page. A tile used on
+phones may also ship **`native.js`** beside `xbin.json`: a module that
+renders a small semantic vocabulary (`screen`, `section`, `row`, `field`,
+`button`, `transcript`, …) which the app draws with native controls. Write
+one when a list, form or chat would serve phone users better than the
+shrunken page; tiles with custom graphics stay web. Browsers and the shell
+never load it. Full reference — every primitive, prop and event, tokens,
+rules: [`/docs/native.md`](/docs/native.md).
+
+```js
+import { html, render, repeat, nothing } from '/vendor/xb-native.js';
+import { selfApi, jbody } from '/vendor/bx-kit.js';   // the same calls index.html makes
+
+let items = null, open = null, draft = '', err = '';
+async function load() {
+  try { items = (await selfApi('/items')).items; err = ''; } catch (e) { err = String(e.message ?? e); }
+  paint();
+}
+async function add() {
+  try { await selfApi('/items', jbody({ title: draft }, 'POST')); draft = ''; } catch (e) { err = String(e.message ?? e); }
+  load();
+}
+const list = () => html`
+  <screen title="Items" style="list" refreshable @refresh=${load}>
+    ${err ? html`<section><notice tone="danger" text=${err}/></section>` : nothing}
+    <section title="items">
+      ${items === null ? html`<progress label="loading…"/>`
+        : repeat(items, (it) => it.id, (it) => html`<row title=${it.title} nav @tap=${() => { open = it; paint(); }}/>`)}
+    </section>
+    <section>
+      <field label="New item" value=${draft} submit="done" @input=${(e) => { draft = e.value; paint(); }} @submit=${add}/>
+    </section>
+  </screen>`;
+const detail = (it) => html`<screen title=${it.title} style="form"><section><row title="id" detail=${it.id} mono="detail"/></section></screen>`;
+const paint = () => render(html`
+  <nav @pop=${() => { open = null; paint(); }}>${list()}${open ? detail(open) : nothing}</nav>`);
+paint();   // at once — with no tree within 5 s the app shows index.html instead
+load();
+```
+
+- **Same tile, same identity**: `native.js` runs in a hidden document with
+  your frame token, sandbox and the whole `window.xbin`; it imports your own
+  modules (`./model.js`) — keep logic in modules `index.html` imports too,
+  and both views thin. Re-render freely: only changes cross to the app.
+- **Rules**: tags are vocabulary primitives, never HTML; tokens, never raw
+  colours or sizes (`tone="danger"`, `gap="m"`); `text` is verbatim —
+  formatting only via `<markdown>`; secrets only in `field kind="secure"`;
+  images are workspace paths (`icons/x.png`, `/api/${xbin.self}/img/1`) or
+  small `data:`; there are **no device APIs**. Key lists with
+  `repeat(items, keyFn, tplFn)`.
+- **Check it** — you can't hold the phone, so look:
+  `bx lint --native <tile>` (errors, diagnostics, first-tree time), `bx
+  preview --native <tile> --out /tmp/shot.png` (**open the PNG and look at
+  it**; `--dark`, `--large-text`), `bx native tree <tile>` (the JSON the app
+  draws). In a browser: `/c/<tile>/?native=1&preview=1`.
+- **Fallback**: a load error, no tree in 5 s, a throwing first render or
+  anything an older app lacks shows the web page instead — keep
+  `index.html` working and check both.
 
 ## Backends
 

@@ -69,7 +69,7 @@ Three ideas carry everything else:
 | 01 | [01-model.md](01-model.md) | The core model & philosophy: self-modification, the three levels, default-deny, self-hosting, honesty tiers |
 | 02 | [02-workspace.md](02-workspace.md) | Workspace anatomy on disk: the tree, reserved names, manifests, `data/`, `.xbin/`, homes, the git model |
 | 03 | [03-components.md](03-components.md) | Components & backends: manifests, runtimes, the build/blue-green/reap lifecycle, deps, env layers, templates |
-| 04 | [04-frontend.md](04-frontend.md) | Views & the shell: the no-build frontend, the one HTML transform, `xbin-client.js`, `<bx-frame>`, chrome |
+| 04 | [04-frontend.md](04-frontend.md) | Views & the shell: the no-build frontend, the one HTML transform, `xbin-client.js`, `<bx-frame>`, chrome, native views for the mobile app |
 | 05 | [05-identity.md](05-identity.md) | Principals & tokens: owner, users, elements, frames, terminals, cron, ingress; the identity spine |
 | 06 | [06-authorization.md](06-authorization.md) | Roles, grants & capabilities: the grant sources, reserved targets, confused-deputy clamps, audit |
 | 07 | [07-users-orgs.md](07-users-orgs.md) | Humans: users & tile levels, orgs & teams, org admins, the policy ceiling |
@@ -94,7 +94,7 @@ Three ideas carry everything else:
 ## Reference docs (the field-level truth)
 
 /docs/elements.md · /docs/auth.md · /docs/resources.md · /docs/isolation.md ·
-/docs/ingress.md · /docs/sdk.md · /docs/bx.md · /docs/protocol.md ·
+/docs/ingress.md · /docs/sdk.md · /docs/native.md · /docs/bx.md · /docs/protocol.md ·
 /docs/getting-started.md · /docs/changelog.md (+ migration notes under
 /docs/changes/). Design records: the `plans` directory of the xbin repo — every
 non-obvious choice has a decision ID in its `DECISIONS.md`.

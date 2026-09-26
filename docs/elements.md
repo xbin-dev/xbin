@@ -360,7 +360,8 @@ Every tile works in the xbin app as its web page. A tile may also ship a
 **native UI entry** — `native.js` next to its `xbin.json`, or the path the
 manifest's `"native"` names — a module the app runs to draw the tile with
 native controls; anything the app can't show that way falls back to the web
-page. What xbind does for it:
+page. How to write one — the template API, every primitive, the rules — is
+[native.md](/docs/native.md). What xbind does for it:
 
 - **Discovery.** `GET /api/xbin/components` lists `native: {entry}` (the
   tile-relative module path) for each tile with one, and `GET

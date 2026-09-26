@@ -3,14 +3,16 @@
 Every piece of UI on screen is a component's own document in an iframe —
 including the workspace shell that arranges them. This chapter covers the
 no-build frontend doctrine, the single sanctioned HTML transform that wires
-a view into the workspace, the `window.xbin` in-frame API, `<bx-frame>`, and
-the shell chrome (sidebar, screens, grants panel, per-tile admin).
+a view into the workspace, the `window.xbin` in-frame API, `<bx-frame>`,
+the shell chrome (sidebar, screens, grants panel, per-tile admin), and a
+tile's optional native view in the mobile app.
 
 **Related:** [03-components.md](03-components.md) (what a view belongs to),
 [05-identity.md](05-identity.md) (frame tokens), [09-terminals.md](09-terminals.md)
 (the frame's terminal window), [07-users-orgs.md](07-users-orgs.md) (who sees
 which tiles) · [/docs/elements.md](/docs/elements.md) §Views,
-[/docs/sdk.md](/docs/sdk.md) §In-frame JS API · decision D4.
+[/docs/sdk.md](/docs/sdk.md) §In-frame JS API,
+[/docs/native.md](/docs/native.md) · decision D4.
 
 ## The no-build doctrine
 
@@ -237,6 +239,32 @@ request reappears in the grants panel). The Tile Manager similarly holds
 `xbin:writer` for component creation. This is the self-hosting rule applied
 to administration: management UI is workspace code you can read, edit, and
 strip of capability ([06-authorization.md](06-authorization.md)).
+
+## Native views: the same tile on a phone
+
+The xbin mobile app opens every tile as its web page. A tile may add a
+second view for phones, `native.js`: a module that renders a small semantic
+vocabulary (`screen`, `section`, `row`, `field`, `transcript`, …) through
+`/vendor/xb-native.js`, a lit-shaped `html`/`render`, and the app draws it
+with platform controls. The design keeps this chapter's rules intact:
+
+- **No build, one transform.** `native.js` is a plain module. The app loads
+  it through a document xbind generates, `/c/<tile>/?native=1`, which gets
+  the same head injection as `index.html` — so `window.xbin`, the frame
+  token and the opaque-origin sandbox are exactly the web view's, and the
+  module imports the same `./model.js` the page does.
+- **A rendering format, not an API bridge.** The tile describes semantic UI
+  and the app decides how it looks; no device API is exposed, `text` is
+  never markup, and markdown arrives pre-lexed and sanitized.
+- **Web stays the fallback.** A module error, no tree within 5 s, or a tree
+  an older app can't draw shows the web page instead. The desktop shell only
+  ever shows web pages.
+- **Additive forever.** Shipped apps lag, so the vocabulary, the runtime and
+  the bridge only grow ([/docs/compat.md](/docs/compat.md)).
+
+Agents check what they wrote without a phone: `bx lint --native`, `bx
+preview --native … --out shot.png` (the reference renderer's picture) and
+`bx native tree` ([/docs/native.md](/docs/native.md)).
 
 ## The live loop
 

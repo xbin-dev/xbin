@@ -284,6 +284,22 @@ sheet is deliberately **not** injected into tile documents: it sets
 ([compat.md](/docs/compat.md) rule 5). Font tokens are exempt (a fallback may
 abbreviate the stack).
 
+## The native reference (`docs/native.md`)
+
+The builder reference for a tile's `native.js` is partly generated: the
+primitive tables, the controlled props, the tokens, the icons and the
+feature flags come from the vocabulary (`web/xb/vocab.js`) through
+`node hack/native-docs.mjs --write`, between `<!-- generated:… -->`
+markers. `hack/native-docs.test.mjs` (`make js-test`) fails when those
+blocks are stale; when a template in the page's examples — or in the
+workspace AGENTS.md's "Native app UI" section — uses a tag, prop, event or
+enum value the vocabulary lacks; when the quick start drifts from
+`examples/counter-go/native.js` or stops rendering the tree printed under
+it; when a complete example renders with errors or warnings; and when an
+`xbin.native` member or an `xb-native.js` export goes undocumented. So a
+vocabulary change lands with its docs: edit `vocab.js`, then regenerate
+`native/spec/vocab.json` and the page.
+
 ## The admin console's tabs (`workspace-template/tiles/admin`)
 
 `admin.js` is the router: the two-level nav (`GROUPS`), hash deep-links and

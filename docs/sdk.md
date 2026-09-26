@@ -278,6 +278,11 @@ win.closed.then(() => refresh());   // resolves when the window is closed
 `xbin.dialog` falls back to an in-frame modal when the tile isn't embedded in
 the shell; `xbin.window` needs the shell (no-op otherwise).
 
+In the xbin app's native runtime document (a tile's `native.js`) `xbin` also
+has `native` — `caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`,
+`state`, `saveState()`: see [native.md](/docs/native.md). Web pages don't
+get it.
+
 Height reporting to the embedding `<bx-frame>` and frame-token refresh are
 automatic.
 
